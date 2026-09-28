@@ -5876,3 +5876,46 @@ feature but a genuinely context-dependent defect.
 pipeline on the real case — print the type at each `o1`/`o2`/`o3` chain position with
 the declared type beside it — rather than trying to shrink the case to a fixture.
 Shrinking has failed five times and each failure cost a build.
+
+## §881: the in-pipeline probe — the re-union works for some accesses and not others
+
+§880's named probe, run: instrument `types_producer` to print every element- and
+property-access type as the pipeline asks for it, across all three
+`elementAccessChain` cases.
+
+```
+22  element  => any                          11  property => any
+ 6  element  => { c: string; } | undefined     6  property => { e: string; } | undefined
+ 6  element  => string | undefined            5  property => string | undefined
+ 5  element  => string                         4  property => string
+```
+
+**Both answers occur, in the same files, on the same construct.** Some accesses
+re-union `undefined` and some do not — which confirms §880's conclusion that the
+defect is context-dependent, and rules out any "this road never does it" explanation.
+
+It does **not** localise it. Distinguishing which access is which needs the probe to
+carry the baseline position alongside the type, and `type_id_at_location_tracking`
+does not receive it — the caller holds it. That is a larger instrumentation change
+than this thread has earned.
+
+### Stopping this thread, and why
+
+§878–§881 spent four entries and six probe builds on a 27-line case. Each probe
+refuted a hypothesis cheaply and correctly — that part of the method worked — but the
+sequence produced **no landing**, and the last two refuted my own prior entries
+(§879's caching theory, withdrawn in §880).
+
+The honest read: **this defect is not shrinkable, and the instrument needed to chase
+it further does not exist yet.** The chain of five refutations is recorded so nobody
+repeats it, and the next step is stated as an instrumentation task rather than
+another guess:
+
+> Thread the baseline position through `type_id_at_location_tracking` so a probe can
+> print `position → node kind → computed type → wanted type` in one line. Every
+> investigation in §872–§881 wanted that and none had it.
+
+Set against the same period, §863–§876 landed **+311 lines** from the *other* lens —
+gates whose category or condition was narrower than upstream's. That lens is not
+exhausted: the `_ => false` sweep found 78 candidate sites and four of four audited
+so far paid.
