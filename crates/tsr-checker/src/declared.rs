@@ -2871,15 +2871,59 @@ impl<'a> Checker<'a, '_> {
     ) -> Option<String> {
         let tsr_ast::EntityName::QualifiedName(qualified) = name else { return None };
         let right = qualified.right?;
-        let found = self.binder.resolve_name(
-            self.nodes,
-            self.node_map,
-            right.node_id?,
-            right.text,
-            SymbolFlags::TYPE,
-        )?;
-        (self.binder.merged_symbol(found) == self.binder.merged_symbol(resolved))
-            .then(|| right.text.to_owned())
+        let site = right.node_id?;
+        let wanted = self.binder.merged_symbol(resolved);
+
+        // The written path, leftmost first: `A.B.C.T` is `["A", "B", "C", "T"]`.
+        let mut segments: Vec<&str> = Vec::new();
+        let mut current = name;
+        loop {
+            match current {
+                tsr_ast::EntityName::Identifier(identifier) => {
+                    segments.push(identifier.text);
+                    break;
+                }
+                tsr_ast::EntityName::QualifiedName(qualified) => {
+                    segments.push(qualified.right?.text);
+                    current = qualified.left?;
+                }
+            }
+        }
+        segments.reverse();
+
+        // §926.1: the SHORTEST suffix of the written path that resolves to the
+        // same symbol from this site — upstream builds an accessible chain and
+        // prints it, so `A.B.C.T` written inside `A.B` prints `C.T`.
+        //
+        // §926 left this out and asserted the corpus had no population for it,
+        // **without measuring**. The loop below is that measurement; see the
+        // §926.1 entry for what it found.
+        for start in (0..segments.len()).rev() {
+            let head = segments[start];
+            let meaning = if start + 1 == segments.len() {
+                SymbolFlags::TYPE
+            } else {
+                SymbolFlags::NAMESPACE
+            };
+            let Some(found) =
+                self.binder.resolve_name(self.nodes, self.node_map, site, head, meaning)
+            else {
+                continue;
+            };
+            let mut symbol = self.binder.merged_symbol(found);
+            let mut walked = true;
+            for step in &segments[start + 1..] {
+                let Some(&next) = self.binder.symbols().get(symbol).exports.get(*step) else {
+                    walked = false;
+                    break;
+                };
+                symbol = self.binder.merged_symbol(next);
+            }
+            if walked && symbol == wanted {
+                return Some(segments[start..].join("."));
+            }
+        }
+        None
     }
 
     fn entity_name_text(name: Option<tsr_ast::EntityName<'a>>) -> Option<String> {

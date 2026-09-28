@@ -198,3 +198,23 @@ fn a_gapped_type_argument_gaps_the_whole_qualified_reference() {
     let source = "namespace M { export interface I<T> { } }\nlet x: M.I<Unresolvable[]>;";
     assert_eq!(type_of_reference(source, 0), "error");
 }
+
+/// §926.1 — the SHORTEST suffix of the written path, not just the bare name.
+///
+/// Upstream builds an accessible symbol chain and prints it, so `A.B.T` written
+/// inside `A` prints `B.T`: the bare `T` does not resolve there, but `B.T` does.
+/// §926 ported only the bare/qualified decision and asserted the corpus had no
+/// population for the chain — **without measuring**. Measured, it is exactly one
+/// line (`compiler/moduleAndInterfaceSharingName4`), zero adverse.
+#[test]
+fn a_qualified_name_shortens_to_the_shortest_suffix_that_resolves() {
+    let source = "namespace A { export namespace B { export class T { } }\n export let v: A.B.T; }";
+    assert_eq!(type_of_reference(source, 0), "B.T");
+}
+
+/// Its pair: from outside `A`, no suffix is shorter, so the written path stands.
+#[test]
+fn a_qualified_name_from_outside_keeps_its_whole_path() {
+    let source = "namespace A { export namespace B { export class T { } } }\nlet w: A.B.T;";
+    assert_eq!(type_of_reference(source, 0), "A.B.T");
+}

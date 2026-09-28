@@ -8552,6 +8552,11 @@ agree wherever the written path is already the accessible one; they diverge on
 `A.B.C.T` written from inside `A.B`, where upstream prints `C.T`. Nothing in the
 corpus measured that shape, so it is left out rather than guessed at.
 
+> **CORRECTED by §926.1.** *"Nothing in the corpus measured that shape"* was
+> written **without measuring it** — it was a guess phrased as a finding. The
+> chain is now ported and measured: **1 `WRONG->RIGHT`, zero adverse.** Nearly
+> right, and not a measurement.
+
 ### The first measurement failed the safety leg, and said exactly why
 
 +48 net, but **75 `RIGHT->WRONG`**. The diff is worth reproducing because the
@@ -8872,3 +8877,27 @@ wins; the other 7 want something further.
 names its own reopening condition should be followed for one more hop before it
 is written down** — the cost here was one `grep`, and the entry arguing for the
 refusal was longer than the fix.
+
+## §926.1 — the chain §926 guessed had no population (+1)
+
+§926 ported `needsQualification` as a bare/qualified decision and wrote that
+upstream's chain-shortening — `A.B.C.T` written inside `A.B` prints `C.T` —
+had no population in the corpus, "so it is left out rather than guessed at".
+
+**That sentence was itself the guess.** No probe was run; the shape was assumed
+absent because the entry's own wins came from the bare case.
+
+The chain is now the loop it should have been: walk suffixes of the written path
+from shortest to longest, resolving each from the reference site, and print the
+first that reaches the same symbol. `A.B.T` written inside `A` prints `B.T` —
+bare `T` does not resolve there, `B.T` does.
+
+**Measured: 1 `WRONG->RIGHT` (`compiler/moduleAndInterfaceSharingName4`), zero
+adverse.**
+
+One line is a small return for forty lines of walk, and that is the honest
+accounting. What it buys beyond the line is that the printed name is now
+upstream's *rule* rather than a special case of it, and the sentence in §926 is
+a measurement instead of an assumption. **A claim about the corpus costs one
+`scorepair` run; one was not made, and the cheapest possible check would have
+caught it.**
