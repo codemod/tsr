@@ -6758,3 +6758,48 @@ would be asked for", which is the piece to build first.
 **Cost of this entry: two builds, two full scorepairs, zero lines, one corrected
 diagnosis.** Recorded because §890.2 is in the repository claiming a cause, and a
 wrong cause left standing is worse than no cause.
+
+## §892: object-literal member types belong on the symbol — and the cache is not a no-op
+
+§891 isolated the mechanism behind §890's excluded half: a property-NAME position
+is recorded from the **symbol's** type, and `get_type_of_symbol` for an
+object-literal property **recomputes** the member instead of reading what
+`check_object_literal` just computed. Upstream does not: `checkObjectLiteral`
+writes `links.resolvedType` and `getTypeOfSymbol` reads it.
+
+`property_node_id` was already in scope in the member loop and `binder.symbol_of`
+already existed, so the change is one `entry().or_insert()`.
+
+### It was expected to be a no-op. It is not.
+
+The bar said caching a value the recompute would have produced anyway must measure
+zero, and that a non-zero reading would mean the two roads already disagree.
+
+**Measured: 41 W→R against 2 R→W.** `conformance/typeParameterConstModifiers` 18,
+`conformance/jsdocTemplateTag6` 16, `compiler/objectFreeze` 4. **The two roads did
+disagree, and the literal's own computation is the more often correct one** — which
+is the answer upstream also keeps.
+
+The 2 adverse are `compiler/objectFreeze`, where the oracle wants `any` and the
+port now answers `string`: **the port being more specific than upstream**, in a
+case that gained 4 on the same change.
+
+### The prediction that failed
+
+§892 was expected to retire §890's call-argument exclusion, since with no
+recompute there would be no second entry. Removing it on top of §892 measures
+**122 W→R / 28 R→W — with the same 22 `thislessFunctionsNotContextSensitive2`
+rows §890 declined.** The cache does not help there and cannot:
+
+> The probe for member `x` runs **while** `x`'s type is being computed, so a cache
+> written **after** that computation cannot be read by it.
+
+Circular by construction. The recompute was never the only entry — §891's "next
+attempt needs the guard at the symbol's identity" was still describing the wrong
+entry point. The exclusion stays, now with a reason that has survived a test
+instead of one that merely sounded right.
+
+**Three entries (§890.2, §891, §892) have now each named a different cause for the
+same 22 rows, and the first two were wrong.** What distinguishes this one is that
+it made a falsifiable prediction and the prediction failed cleanly, which is worth
+more than the two that were merely plausible.

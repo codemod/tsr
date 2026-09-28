@@ -406,3 +406,47 @@ fn a_literal_contextual_type_keeps_the_members_literal() {
 fn a_member_with_no_literal_context_still_widens() {
     assert_eq!(type_of_initialiser("const o: { a: number } = { a: 1 };"), "{ a: number; }");
 }
+
+/// Type the last expression statement in the fixture.
+fn type_of_last_expression_statement(source: &str) -> String {
+    let arena = Arena::new();
+    let parsed = tsr_parser::parse(&arena, source);
+    assert!(parsed.diagnostics.is_empty(), "fixture must parse");
+    let bound = tsr_binder::bind(
+        &arena,
+        parsed.source_file,
+        &parsed.nodes,
+        tsr_binder::FileInfo { name: "test.ts", text: source },
+    );
+    let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+    let mut last = None;
+    for statement in parsed.source_file.statements {
+        if let Statement::ExpressionStatement(node) = statement {
+            last = node.expression;
+        }
+    }
+    let id = checker.check_expression(last.expect("an expression statement"));
+    checker.type_to_string(id)
+}
+
+/// §892: an object-literal property's type is recorded on its SYMBOL as the
+/// literal computes it — what upstream's `checkObjectLiteral` does through
+/// `links.resolvedType`. Without it, `getTypeOfSymbol` RECOMPUTES the member,
+/// and the two roads did not agree: caching measured **41 W→R against 2 R→W**,
+/// so the literal's own computation is the more often correct one.
+///
+/// The invariant, stated as a test: **reading a property back gives what the
+/// literal recorded for it.** The fixture is deliberately un-annotated, so both
+/// sides are the literal's own answer — with an annotation the read would give
+/// the DECLARED type (`{ a: "x" | "y" }` makes `o.a` be `"x" | "y"`), which is
+/// correct and tests nothing here.
+///
+/// This harness has no `lib.d.ts` and cannot express the shapes that actually
+/// moved — `const` type parameters reached through JSDoc. It pins the mechanism;
+/// **the corpus pinned the gain**, the same division `uninitialized_reads_declared.rs`
+/// records.
+#[test]
+fn reading_a_property_back_gives_what_the_literal_recorded() {
+    let source = "const o = { a: \"x\" } as const;\no.a;";
+    assert_eq!(type_of_last_expression_statement(source), "\"x\"");
+}

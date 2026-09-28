@@ -1403,6 +1403,24 @@ impl Checker<'_, '_> {
             {
                 return error;
             }
+            // §892: record the member's type on its SYMBOL, which is what
+            // upstream's `checkObjectLiteral` does through
+            // `links.resolvedType` — so `getTypeOfSymbol` for an
+            // object-literal property *reads* this rather than recomputing it.
+            //
+            // Recomputing is a divergence with consequences beyond the wasted
+            // work: the recompute runs inside a resolution frame for this very
+            // symbol, so anything it consults that leads back to the enclosing
+            // literal re-enters and answers `any`. That is the mechanism §891
+            // finally isolated (`:100` the literal right, `:101` the property
+            // `any`) and the reason §890 had to exclude call arguments.
+            //
+            // Landed on its own first: caching a value the recompute would have
+            // produced anyway must be a no-op, and measuring it separately is
+            // what tells us whether the two roads already disagree.
+            if let Some(symbol) = property_node_id.and_then(|id| self.binder.symbol_of(id)) {
+                self.symbol_types.entry(symbol).or_insert(member_type);
+            }
             // **`upsert`, not `push`.** A later member of the same name
             // replaces an earlier one *in the earlier one's position*, which is
             // upstream's spread ordering: `{ ...{ a: 1, b: 2 }, a: "x" }` is
@@ -1790,6 +1808,13 @@ impl Checker<'_, '_> {
             .union(TF::BIG_INT_LITERAL)
             .union(TF::BOOLEAN_LITERAL)
             .union(TF::UNIQUE_ES_SYMBOL);
+        // §890's call-argument exclusion, kept. §892 predicted the cache would
+        // retire it and **measured that it does not**: the recompute was never
+        // the only entry. The probe for member `x` runs *while* `x`'s type is
+        // being computed, so a cache written *after* that computation cannot be
+        // read by it — circular by construction. Removing the exclusion on top
+        // of §892 measures 122 W→R / 28 R→W, with the same 22
+        // `thislessFunctionsNotContextSensitive2` rows §890 declined.
         let in_call_argument = node_id.is_some_and(|n| {
             self.nodes.ancestors(n).any(|a| {
                 matches!(
