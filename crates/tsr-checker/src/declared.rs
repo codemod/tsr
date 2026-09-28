@@ -2006,6 +2006,24 @@ impl<'a> Checker<'a, '_> {
             let resolved = self.get_type_from_type_node(inner);
             // A gap in an element is a gap in the tuple, the rule the array arm
             // and `get_instantiated_type_reference` both use.
+            //
+            // **§930.3: §929's rule does NOT reach here, and the reason is not
+            // the measurement but the shape.** §929 and §930 keep an
+            // unresolvable annotation by printing *the text the user wrote*,
+            // which is what upstream prints because upstream cannot resolve it
+            // either. A tuple element is not a printed slot: it is a real
+            // `TypeId` in `elements`, consumed by access, instantiation and
+            // relations. Substituting `any` would print `[string, any]` and
+            // silently hand a wrong element type to every consumer.
+            //
+            // And the premise fails too: the elements this port cannot resolve
+            // are largely ones upstream CAN — `keyof string` is a real union
+            // upstream, not an error it prints verbatim. Printing the written
+            // text here would be inventing upstream's answer rather than
+            // reproducing it.
+            //
+            // Not measured, because it should not be: the reopening condition
+            // is resolving the element, not routing around it.
             if resolved == error {
                 return error;
             }

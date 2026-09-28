@@ -1409,6 +1409,30 @@ impl Checker<'_, '_> {
             // expression level — prints `any` and the literal PROCEEDS.
             // Every other error member keeps the whole-literal rule: a
             // partial object type is a wrong answer that looks right.
+            //
+            // # §930.2: §929's argument does NOT reach here, and this is the
+            // measurement
+            //
+            // §929 and §930 removed exactly this rule one and two floors up —
+            // an unresolvable *annotation* no longer declines a signature or a
+            // type literal — so the obvious next step was to open this gate
+            // too. Measured: **23 `WRONG->RIGHT` against 335 `GAP->WRONG` and
+            // 3 `RIGHT->WRONG`** (`correlatedUnions` 20,
+            // `mappedTypeContextualTypesApplied` 18,
+            // `contextualTypeWithUnionTypeIndexSignatures` 16). Reverted.
+            //
+            // **The difference is what there is to print.** An annotation that
+            // fails to resolve still has the text the user wrote, and upstream
+            // prints exactly that; §929's `any` is a placeholder behind a
+            // faithful spelling. An *expression* that fails has no such text —
+            // `any` here is not a placeholder, it is an invention, and 335 rows
+            // say so. §146's narrowness was earned, and its one admitted
+            // population is admitted because upstream reports TS2304 and
+            // genuinely answers `any` there.
+            //
+            // Reopening condition: not a wider gate, but the *members* that
+            // error. Each is a separate defect upstream computes; the gate is
+            // the messenger.
             let member_type = if member_type == error {
                 let unresolved = match &value {
                     PropertyValue::Initializer(tsr_ast::Expression::Identifier(identifier))

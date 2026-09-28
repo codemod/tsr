@@ -9068,3 +9068,59 @@ Every one was a correct record of a real limit at the time it was written. The
 pattern worth naming: *a test that pins a limitation is a liability the moment the
 limitation is structural rather than semantic*, because the structural fix moves
 all of them at once and each has to be re-reasoned separately.
+
+## §930.2 / §930.3 — where §929's rule stops, with the measurement and the reason
+
+§929 and §930 removed an all-or-nothing rule two floors in a row, so the honest
+next question is not "where else?" but **"where does the argument actually
+hold?"** Two floors were tried and both are refused, for *different* reasons, and
+both refusals are worth more than the third win would have been.
+
+### §930.2 — the object literal, refused by measurement (−315)
+
+`objects.rs`'s member loop carries the same rule and §146 had already opened it
+for one population (an unresolved bare identifier, TS2304, where upstream
+genuinely answers `any`). Opening it for every error member measured
+
+| | lines |
+|---|---|
+| `WRONG->RIGHT` | 23 |
+| `GAP->WRONG` | **335** |
+| `RIGHT->WRONG` | **3** |
+
+`correlatedUnions` 20, `mappedTypeContextualTypesApplied` 18,
+`contextualTypeWithUnionTypeIndexSignatures` 16. Reverted.
+
+**The difference is what there is to print.** An annotation that fails to resolve
+still carries the text the user wrote, and upstream prints exactly that — §929's
+`any` sits *behind a faithful spelling*. An expression that fails carries no such
+text, so `any` there is not a placeholder but an **invention**, and 335 rows say
+so. §146's narrowness was earned.
+
+### §930.3 — a tuple element, refused without measuring, on shape
+
+A tuple element is not a printed slot. It is a real `TypeId` in `elements`,
+consumed by access, instantiation and the relater. Substituting `any` would print
+`[string, any]` *and* hand a wrong element type to every consumer.
+
+The premise fails as well: the elements this port cannot resolve are largely ones
+upstream **can**. `keyof string` is a real union upstream, not an error it prints
+verbatim — so printing the written text would be inventing upstream's answer
+rather than reproducing it.
+
+**Deliberately not measured.** §926.1 is the standing lesson that a claim about
+the corpus costs one `scorepair` run, and it applies to claims of *absence*. This
+is not that: the shape makes the change wrong whatever it scores, and a favourable
+number would only mean the corpus has not yet asked the question. The reopening
+condition is *resolving* the element, not routing around it.
+
+### The rule, stated once
+
+> §929's rule applies exactly where the port has **upstream's own answer already
+> written down** — an erroneous annotation, whose text upstream reuses. It does
+> not apply where `any` would stand in for something upstream computes.
+
+Three floors, two refusals, one of them without a measurement and saying why.
+*The argument that produced the session's largest win is also the argument that
+bounds it*, and writing the boundary down is what stops the next session
+re-deriving it from a −315.
