@@ -7329,3 +7329,35 @@ That is the honest characterisation of what remains: after this session's arms,
 the board is broad feature completion, not gates. The families that paid here
 were all *a rule upstream states in one place that this port had not wired up*,
 and that population is now visibly thinner.
+
+## §902: the destructure road gets the catch variable's type — +19, another case closed whole
+
+`conformance/destructuringCatch`, 16 rows, all `want any / got error`:
+
+```ts
+try { throw [0, 1]; } catch ([a, b]) { a + b; }
+```
+
+With `useUnknownInCatchVariables: false` the catch variable is `any`, and
+destructuring `any` gives every element `any` — the `parent_type == any`
+short-circuit this port already ports (`checker.go:17709`).
+
+**`symbols.rs` has computed the catch variable's type since §21** and
+`get_type_for_binding_element_parent` never asked. The reason it could not is
+§429's: **a catch variable with a PATTERN name has no symbol of its own**, so the
+symbol road that knows the answer is unreachable from the destructure road. The
+two roads each had half of it.
+
+**+19 `GAP→RIGHT`, zero adverse.** `destructuringCatch` 16 (the whole case),
+`objectRestCatchES5` 2, `asyncWithVarShadowing_es6` 1.
+
+> **Ninth instance this session** of a capability present and a caller that does
+> not consult it — and the second in two entries (§901 was the eighth). Both were
+> found the same way: take a small cluster off the near-miss board, read the
+> case's *source*, then ask which road computes that answer already. Neither
+> needed a new rule.
+
+The harness could not reach a catch-clause binding at all — `type_of_binding`
+walked variable statements, function parameters and `for-in`/`for-of` heads — so
+the tests come with a `TryStatement` arm. **A test harness that cannot express a
+shape is a silent coverage hole**, and this one hid a whole statement kind.

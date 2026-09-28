@@ -460,6 +460,29 @@ impl Checker<'_, '_> {
                 if let Some(annotation) = self.type_annotation_of(holder) {
                     return self.get_type_from_type_node(annotation);
                 }
+                // §902: a CATCH CLAUSE's variable is `any`, or `unknown` under
+                // `useUnknownInCatchVariables` — never the implicit-any road
+                // (`checker-notes-narrow.md` §21). `catch ([a, b])` destructures
+                // that `any`, and the `parent_type == any` short-circuit above
+                // then gives every element `any`.
+                //
+                // **`symbols.rs` has computed this since §21** and this road
+                // never asked: a catch variable with a PATTERN name has no
+                // symbol of its own (§429), so the symbol road that knows the
+                // answer is unreachable from here. Ninth instance this session
+                // of a capability present and a caller that does not consult it.
+                if self.nodes.kind(holder) == SyntaxKind::VariableDeclaration
+                    && self
+                        .nodes
+                        .parent(holder)
+                        .is_some_and(|parent| self.nodes.kind(parent) == SyntaxKind::CatchClause)
+                {
+                    return if self.use_unknown_in_catch_variables {
+                        self.intrinsics.unknown
+                    } else {
+                        self.intrinsics.any
+                    };
+                }
                 if self.nodes.kind(holder) == SyntaxKind::Parameter {
                     if let Some(contextual) = self.get_contextually_typed_parameter_type(holder) {
                         return contextual;

@@ -54,6 +54,16 @@ fn type_of_binding(source: &str, name: &str) -> String {
                     }
                 }
             }
+            // §902: a TRY statement's catch clause, so a catch-clause binding
+            // pattern is reachable from this harness at all.
+            Statement::TryStatement(try_statement) => {
+                if let Some(clause) = try_statement.catch_clause
+                    && let Some(declaration) = clause.variable_declaration
+                    && let Some(binding) = declaration.name
+                {
+                    search_binding(binding, name, &mut found);
+                }
+            }
             _ => {}
         }
     }
@@ -331,4 +341,28 @@ fn a_nested_object_pattern_takes_its_own_implied_type() {
 #[test]
 fn a_nested_array_pattern_is_still_refused() {
     assert_ne!(type_of_binding("function f({ outer: [a = 1] }) { }", "a"), "number");
+}
+
+/// §902: a CATCH CLAUSE's variable is `any` — `unknown` under
+/// `useUnknownInCatchVariables` — and destructuring it gives every element that
+/// type, through the `parent_type == any` short-circuit `checker.go:17709`
+/// already ports.
+///
+/// `symbols.rs` has computed the catch variable's type since §21 and this road
+/// never asked: a catch variable with a PATTERN name has no symbol of its own
+/// (§429), so the symbol road that knows the answer is unreachable from here.
+///
+/// Corpus effect: `GAP->RIGHT 19`, zero adverse — `conformance/destructuringCatch`
+/// closed entirely (16 rows).
+#[test]
+fn destructuring_a_catch_variable_gives_any() {
+    let source = "try { } catch ([a, b]) { }";
+    assert_eq!(type_of_binding(source, "a"), "any");
+    assert_eq!(type_of_binding(source, "b"), "any");
+}
+
+/// The object form takes the same road.
+#[test]
+fn destructuring_a_catch_variable_by_property_gives_any() {
+    assert_eq!(type_of_binding("try { } catch ({ p }) { }", "p"), "any");
 }
