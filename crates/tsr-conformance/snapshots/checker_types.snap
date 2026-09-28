@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 6180/9538 (64.79%)
-Assertion lines: 439109/478855 (91.70%)  — a gradient, not a pass rate
-Failed         : 3358
+Passed         : 6196/9538 (64.96%)
+Assertion lines: 439217/478855 (91.72%)  — a gradient, not a pass rate
+Failed         : 3342
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -12,7 +12,7 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 3358 failures:
+First 100 of 3342 failures:
 compiler/2dArrays
   2dArrays.ts: >function (val) { return val.isSunk; } : error — expected >function (val) { return val.isSunk; } : (val: Ship) => boolean
 compiler/ClassDeclaration26
@@ -144,7 +144,7 @@ compiler/arrayEvery
 compiler/arrayFakeFlatNoCrashInferenceDeclarations
   arrayFakeFlatNoCrashInferenceDeclarations.ts: >BadFlatArray : BadFlatArray<Arr, Depth> — expected >BadFlatArray : { done: Arr; recur: Arr extends ReadonlyArray<infer InnerArr> ? BadFlatArray<InnerArr, [-1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20][Depth]> : Arr; }[Depth extends -1 ? "done" : "recur"]
 compiler/arrayFilter
-  arrayFilter.ts: >foo : error — expected >foo : ({ name: string; } | { name: null; })[]
+  arrayFilter.ts: >foo.filter(x => x.name) : error — expected >foo.filter(x => x.name) : ({ name: string; } | { name: null; })[]
 compiler/arrayFind
   arrayFind.ts: >arrayOfStringsNumbersAndBooleans.find(isNumber) : error — expected >arrayOfStringsNumbersAndBooleans.find(isNumber) : number | undefined
 compiler/arrayFlatMap

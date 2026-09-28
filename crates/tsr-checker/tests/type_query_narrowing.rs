@@ -129,3 +129,23 @@ fn an_alias_narrows() {
         "number"
     );
 }
+
+/// §853: under `strictNullChecks` a `null` or `undefined` member does not
+/// widen, so the literal keeps it. This answered `error` for the whole object
+/// before — one nullable member poisoned it.
+///
+/// `createWideningType` (`vendor/typescript-go/internal/checker/checker.go:25027`)
+/// returns the plain type under strict, so `undefinedWideningType` and
+/// `nullWideningType` *are* `undefined` and `null` there, carry no
+/// `ContainsWideningType`, and `getWidenedTypeWithContext`'s
+/// `RequiresWidening` gate never fires.
+///
+/// Corpus effect: `+108` right lines, zero `RIGHT->WRONG`.
+#[test]
+fn a_nullable_member_does_not_poison_a_literal_under_strict() {
+    assert_eq!(type_of_last_expression("({ p: null });"), "{ p: null; }");
+    assert_eq!(
+        type_of_last_expression("({ a: 1, b: undefined });"),
+        "{ a: number; b: undefined; }"
+    );
+}

@@ -3880,3 +3880,107 @@ and it should be planned as such rather than opened expecting a single cause.
 > yield is an order of magnitude better than the corpus average. It does not reach
 > 95% — 1,637 lines is 0.34 points — but on the number `STATUS.md` §1 leads with, it
 > is worth more than everything §839–§850 achieved put together.
+
+## §853: a `null` or `undefined` member poisons an object literal — but only non-strict should
+
+Working §852's board ascending found a cluster of three one-gap zero-wrong cases with
+the same shape:
+
+```
+declarationEmitInferredDefaultExportType    >{ foo: [], bar: undefined, baz: null } : { foo: never[]; bar: undefined; baz: null; }
+declarationEmitInferredDefaultExportType2   >{ foo: [], bar: undefined, baz: null } : { foo: never[]; bar: undefined; baz: null; }
+objectLiteralIndexerNoImplicitAny           >{ p: null } : { p: null; }
+```
+
+Reproduced in the minimal harness in four probes: `{ a: 1 }` is
+`{ a: number; }`, and `{ a: 1, b: undefined }` and `{ p: null }` are both **`error`**.
+One nullable member poisons the whole literal.
+
+`crates/tsr-checker/src/objects.rs` says so outright:
+
+```rust
+// The declaration-level `getWidenedType` would turn this into `any`
+// and this port has no call site for it. See the module docs.
+if self.store.get(member_type).flags.intersects(TypeFlags::NULLABLE) {
+    return error;
+}
+```
+
+That reasoning is **correct for non-strict and wrong under `strictNullChecks`**, and
+the deciding function says so in four lines
+(`vendor/typescript-go/internal/checker/checker.go:25027`):
+
+```go
+func (c *Checker) createWideningType(nonWideningType *Type) *Type {
+	if c.strictNullChecks {
+		return nonWideningType
+	}
+	t := c.newIntrinsicType(nonWideningType.flags, nonWideningType.AsIntrinsicType().intrinsicName)
+	t.objectFlags |= ObjectFlagsContainsWideningType
+	return t
+}
+```
+
+`undefinedWideningType` and `nullWideningType` are what a `null`/`undefined`
+*expression* answers, and under `strictNullChecks` they **are** the plain types, with
+no `ContainsWideningType`. `getWidenedTypeWithContext` is gated on
+`ObjectFlagsRequiresWidening`, so under strict there is nothing to widen and
+`{ p: null }` is `{ p: null; }`. The port's refusal stands in for a widening step
+that upstream does not take.
+
+### The bar
+
+1. **Primary.** The three cases above close their gaps: ≥ **+5 lines and +2 cases**.
+   Falsified if none of the three moves.
+2. **Safety.** `RIGHT->WRONG ≤ 10`. These literals answered `error` before, so the
+   available direction is `GAP->RIGHT` or §620's accepted `GAP->WRONG`; a
+   `RIGHT->WRONG` would mean something downstream preferred the gap.
+3. **Falsifier.** If the cases do not move, the refusal is not what gaps them.
+4. **Regression.** `cargo test --workspace`; clippy clean.
+
+**Non-strict keeps the refusal**, unchanged and for its original reason: there the
+port really would need `getWidenedType`, and answering `{ p: null; }` where upstream
+answers `{ p: any; }` would be a confident wrong line in place of an honest gap.
+
+### §853 result — +108 lines, +16 cases, ZERO `RIGHT->WRONG`, and a test that repaired itself
+
+| leg | registered | measured |
+|---|---|---|
+| 1 primary | ≥ +5 lines, +2 cases | **+108 lines, +16 cases** |
+| 2 safety | `RIGHT->WRONG` ≤ 10 | **0** |
+| 3 falsifier | the three cases must move | moved |
+| 4 regression | tests + clippy | 1,835 passed, clippy clean, 3,252 anchors resolve |
+
+`WRONG->RIGHT 80` and `GAP->RIGHT 28` against 5 `GAP->WRONG` — §620's accepted
+direction — and **not one right line lost**. The reach is far wider than the three
+cases that surfaced it, because a nullable member is common:
+`destructuringParameterDeclaration1ES5`/`ES5iterable`/`ES6` 7 each,
+`excessPropertyCheckWithNestedArrayIntersection` 6, `arrayFilter` 4,
+`classExpressionNames` 4.
+
+**An existing test caught the change before it was pushed.**
+`a_nullable_member_is_a_gap_because_the_declaration_would_need_widening` in
+`crates/tsr-checker/tests/objects.rs` pinned the old refusal, went red, and its own
+comment contained the answer:
+
+> Upstream records **two different types** for one source line:
+> `>c : { x: any; }` at the declaration, `>{x: null} : { x: null; }` at the literal.
+
+That observation is **the non-strict one**. Under `strictNullChecks` there is no
+second type: upstream records `{ x: null; }` on both lines. The test now asserts the
+strict answer and carries the reason; the refusal is untouched under non-strict,
+where the original reasoning holds exactly. §800's rule again — *a residue pinned as
+an assertion reports its own repair; a residue described in prose does not.*
+
+### What this says about §852's board
+
+§853 is the **first** item worked off the zero-wrong-gap board, it was found by
+ranking that board ascending as §852 said to, and it returned **+16 cases for one
+gated condition**. The three cases that surfaced it contributed 3 of those 16; the
+other 13 came from cases the board never named, because the mechanism is common and
+the board only shows where it is *load-bearing*.
+
+That is the argument for the board in one data point: **it finds mechanisms by
+pointing at cases that are nearly right, and the mechanism then pays everywhere
+else.** The same shape as §841 (+310 from a residue named in advance), reached by a
+different instrument.

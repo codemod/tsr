@@ -132,19 +132,36 @@ fn a_member_this_port_cannot_type_makes_the_whole_literal_a_gap() {
     assert_eq!(type_of_initialiser("const o = { m(x: keyof string) {} };"), "error");
 }
 
+/// §853 REPAIRED THIS TEST. It read, until the guard was gated:
+///
+/// > Upstream records **two different types** for one source line:
+/// >
+/// >     var c = {x: null};
+/// >     >c : { x: any; }            <- getWidenedType, at the declaration
+/// >     >{x: null} : { x: null; }   <- checkObjectLiteral
+/// >
+/// > This port has no call site for the first, so answering the second alone
+/// > would make the declaration line wrong. A gap until both can be right.
+///
+/// **The two-types observation is the NON-STRICT one.** `createWideningType`
+/// (`checker.go:25027`) returns the plain type when `strictNullChecks` is on,
+/// so `undefinedWideningType` and `nullWideningType` *are* `undefined` and
+/// `null` there, carry no `ContainsWideningType`, and
+/// `getWidenedTypeWithContext`'s `RequiresWidening` gate never fires. Under
+/// strict, upstream records `{ x: null; }` on **both** lines and there is no
+/// second type to be wrong about.
+///
+/// This harness runs with `strictNullChecks` on, so it now asserts the strict
+/// answer. The refusal is unchanged under non-strict, where the original
+/// reasoning still holds exactly.
+///
+/// A residue pinned as an assertion reports its own repair (§800); a residue
+/// described in prose does not. This test turned red the moment §853 made the
+/// port correct, which is how the change was caught before it was pushed.
 #[test]
-fn a_nullable_member_is_a_gap_because_the_declaration_would_need_widening() {
-    // Upstream records **two different types** for one source line:
-    //
-    //     var c = {x: null};
-    //     >c : { x: any; }            ← getWidenedType, at the declaration
-    //     >{x: null} : { x: null; }   ← checkObjectLiteral
-    //
-    // This port has no call site for the first (`crate::symbols` is another
-    // workstream, `bd tsr-mli`), so answering the second alone would make the
-    // declaration line wrong. A gap until both can be right.
-    assert_eq!(type_of_initialiser("var c = { x: null };"), "error");
-    assert_eq!(type_of_initialiser("var c = { x: undefined };"), "error");
+fn a_nullable_member_is_kept_under_strict_and_widened_away_only_without_it() {
+    assert_eq!(type_of_initialiser("var c = { x: null };"), "{ x: null; }");
+    assert_eq!(type_of_initialiser("var c = { x: undefined };"), "{ x: undefined; }");
     // A non-nullable member is unaffected — the guard must not be a blanket one.
     assert_eq!(type_of_initialiser("var c = { x: 1 };"), "{ x: number; }");
 }
