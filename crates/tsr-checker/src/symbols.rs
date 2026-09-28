@@ -2149,6 +2149,87 @@ impl<'a> Checker<'a, '_> {
         self.declared_types.get(&symbol).copied().unwrap_or(enum_type)
     }
 
+    /// `getTypeFromObjectBindingPattern` (`checker.go:17904`): the implied type
+    /// of an object binding pattern with no annotation. §895 made it a method so
+    /// a NESTED pattern can use it on itself, which is what upstream's
+    /// `getTypeFromBindingElement` does for a pattern-named element.
+    ///
+    /// `None` where this port cannot key a member or cannot type an element —
+    /// the caller then keeps §429's decline rather than minting a partial type.
+    ///
+    /// The per-element rules are §893's and §894's: a DEFAULT makes the member
+    /// optional and supplies its type (read syntactically — see §893.1 on the
+    /// stack overflow that forced it); a RENAMED element is keyed by its
+    /// property name while the local identifier stays the binding.
+    fn object_pattern_implied_type(
+        &mut self,
+        pattern: &tsr_ast::BindingPattern<'_>,
+    ) -> Option<crate::types::TypeId> {
+        let any = self.intrinsics.any;
+        let mut members: Vec<crate::objects::Member> = Vec::new();
+        let mut names: Vec<(String, crate::types::TypeId)> = Vec::new();
+        for element in pattern.elements {
+            if element.dot_dot_dot_token.is_some() {
+                return None;
+            }
+            let member_name = match element.property_name {
+                Some(tsr_ast::PropertyName::Identifier(name)) => Some(name.text),
+                Some(tsr_ast::PropertyName::StringLiteral(name)) => Some(name.text),
+                Some(_) => return None,
+                None => None,
+            };
+            let (member_name, member_type) = match element.name {
+                Some(tsr_ast::BindingName::Identifier(local)) => {
+                    let ty = match element.initializer {
+                        Some(tsr_ast::Expression::StringLiteral(_)) => self.intrinsics.string,
+                        Some(tsr_ast::Expression::NumericLiteral(_)) => self.intrinsics.number,
+                        Some(tsr_ast::Expression::KeywordExpression(keyword))
+                            if matches!(
+                                keyword.kind,
+                                SyntaxKind::TrueKeyword | SyntaxKind::FalseKeyword
+                            ) =>
+                        {
+                            self.intrinsics.boolean
+                        }
+                        _ => any,
+                    };
+                    (member_name.unwrap_or(local.text).to_string(), ty)
+                }
+                // §895: a NESTED pattern's member type is that pattern's own
+                // implied type. Object patterns only — an array pattern's
+                // implied type is a tuple whose element types this arm does not
+                // compute (§893's scope), so it declines rather than minting
+                // `any` positions.
+                Some(tsr_ast::BindingName::BindingPattern(inner)) => {
+                    let name = member_name?;
+                    if inner.node_id.map(|p| self.nodes.kind(p))
+                        != Some(SyntaxKind::ObjectBindingPattern)
+                    {
+                        return None;
+                    }
+                    let ty = self.object_pattern_implied_type(inner)?;
+                    (name.to_string(), ty)
+                }
+                None => return None,
+            };
+            names.push((member_name.clone(), member_type));
+            let printed = self.type_to_string(member_type);
+            members.push(crate::objects::Member::Property {
+                name: member_name,
+                optional: element.initializer.is_some(),
+                readonly: false,
+                printed,
+            });
+        }
+        let printed = crate::objects::render_object_type(&members);
+        let minted = self.store.new_named(TypeFlags::OBJECT, printed, None);
+        // §565: the members exist only in the printed text — the mint carries no
+        // symbol, so record them for the destructuring lookup. See
+        // `Checker::pattern_implied_members`.
+        self.pattern_implied_members.insert(minted, names);
+        Some(minted)
+    }
+
     /// The type of a function, method, class, enum or value-module symbol.
     ///
     /// Ported from `Checker.getTypeOfFuncClassEnumModule` (`checker.go:16904`),
@@ -3721,10 +3802,16 @@ impl<'a> Checker<'a, '_> {
                                                     | tsr_ast::PropertyName::StringLiteral(_)
                                             )
                                         )))
-                                && matches!(
-                                    element.name,
-                                    Some(tsr_ast::BindingName::Identifier(_))
-                                )
+                                // §895: a NESTED pattern is admitted for an
+                                // object pattern; the builder recurses and
+                                // declines on its own if the inner pattern is
+                                // one it cannot type. The gate no longer has to
+                                // decide that, which is why it can stop asking.
+                                && (object_pattern
+                                    || matches!(
+                                        element.name,
+                                        Some(tsr_ast::BindingName::Identifier(_))
+                                    ))
                         })
                     }
                 // §455: the EMPTY pattern is served too —
@@ -3801,71 +3888,15 @@ impl<'a> Checker<'a, '_> {
                         let elements = vec![any; pattern.elements.len()];
                         return self.create_tuple_type(elements, false);
                     }
-                    // §893: `getTypeFromBindingElement` (`checker.go:17950`)
-                    // types a defaulted element from its INITIALIZER, widened —
-                    // `{ primary = "none" }` is `primary?: string`, not
-                    // `primary?: "none"` and not `primary: any`. An element
-                    // with no initializer keeps §429's implicit `any`.
-                    let mut members: Vec<crate::objects::Member> = Vec::new();
-                    let mut names: Vec<(String, TypeId)> = Vec::new();
-                    for element in pattern.elements {
-                        let Some(tsr_ast::BindingName::Identifier(local)) = element.name else {
-                            continue;
-                        };
-                        // §894: the MEMBER is named by the property name where
-                        // there is one; the local binding name is what the
-                        // destructuring read looks up, and §565's side table
-                        // keys by the member. `{ primary: p = "none" }` declares
-                        // `primary?: string` and binds `p`.
-                        let member_name = match element.property_name {
-                            Some(tsr_ast::PropertyName::Identifier(name)) => name.text,
-                            Some(tsr_ast::PropertyName::StringLiteral(name)) => name.text,
-                            _ => local.text,
-                        };
-                        // The initializer is read SYNTACTICALLY, not through
-                        // `check_expression`. Upstream calls
-                        // `checkDeclarationInitializer`, and doing so here
-                        // **overflows the stack**: a defaulted parameter's
-                        // initializer is checked with the parameter's own
-                        // contextual type, which is the implied type being
-                        // computed. Upstream is re-entrant here and this port is
-                        // not, so the initializer's type is read off the literal
-                        // form — which covers `= "none"`, `= 1`, `= true`, the
-                        // shapes the corpus actually holds — and anything else
-                        // keeps §429's `any`.
-                        //
-                        // The widening is upstream's:
-                        // `widenTypeInferredFromInitializer` makes `= "none"`
-                        // give `string`, not `"none"`.
-                        let member_type = match element.initializer {
-                            Some(tsr_ast::Expression::StringLiteral(_)) => self.intrinsics.string,
-                            Some(tsr_ast::Expression::NumericLiteral(_)) => self.intrinsics.number,
-                            Some(tsr_ast::Expression::KeywordExpression(keyword))
-                                if matches!(
-                                    keyword.kind,
-                                    SyntaxKind::TrueKeyword | SyntaxKind::FalseKeyword
-                                ) =>
-                            {
-                                self.intrinsics.boolean
-                            }
-                            _ => any,
-                        };
-                        names.push((member_name.to_string(), member_type));
-                        members.push(crate::objects::Member::Property {
-                            name: member_name.to_string(),
-                            optional: element.initializer.is_some(),
-                            readonly: false,
-                            printed: self.type_to_string(member_type),
-                        });
+                    // §895: the builder is a method so a NESTED pattern can
+                    // use it on itself. `getTypeFromBindingElement`
+                    // (`checker.go:17950`) recurses into
+                    // `getTypeFromBindingPattern` for a pattern-named element,
+                    // and this port could not, because the builder lived inline
+                    // in this function keyed off a `ParameterDeclaration`.
+                    if let Some(minted) = self.object_pattern_implied_type(pattern) {
+                        return minted;
                     }
-                    let printed = crate::objects::render_object_type(&members);
-                    let minted = self.store.new_named(TypeFlags::OBJECT, printed, None);
-                    // §565: the members exist only in the printed text — the
-                    // mint carries no symbol, so record the names for the
-                    // destructuring lookup. See
-                    // `Checker::pattern_implied_members`.
-                    self.pattern_implied_members.insert(minted, names);
-                    return minted;
                 }
                 if let Some(Node::ParameterDeclaration(parameter)) =
                     self.node_map.get(declaration)

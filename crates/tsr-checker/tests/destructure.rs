@@ -311,3 +311,24 @@ fn a_renamed_defaulted_element_names_the_member_by_its_property() {
     // The LOCAL name is what a read of the binding resolves.
     assert_eq!(type_of_binding(source, "p"), "string");
 }
+
+/// §895: a NESTED object pattern's member type is that pattern's own implied
+/// type — `getTypeFromBindingElement` (`checker.go:17950`) recursing into
+/// `getTypeFromBindingPattern`. This port could not, because the builder lived
+/// inline in `get_type_of_symbol`'s body keyed off a `ParameterDeclaration`;
+/// §895 made it a method so it can call itself.
+///
+/// Corpus effect: `+11 W→R`, `+10 G→R`, zero adverse.
+#[test]
+fn a_nested_object_pattern_takes_its_own_implied_type() {
+    let source = "function f({ outer: { inner = \"x\" } }) { }";
+    assert_eq!(type_of_binding(source, "inner"), "string");
+}
+
+/// A nested ARRAY pattern still declines: its implied type is a tuple whose
+/// element types this arm does not compute, so minting `any` positions would be
+/// a confident wrong answer where the gap is honest.
+#[test]
+fn a_nested_array_pattern_is_still_refused() {
+    assert_ne!(type_of_binding("function f({ outer: [a = 1] }) { }", "a"), "number");
+}

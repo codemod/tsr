@@ -6937,3 +6937,54 @@ from any element.
 
 §893 + §894: **+49 right, 4 `GAP→WRONG`, zero `RIGHT→`.** The 75 rows that started
 it are still open, and every line gained came from somewhere else.
+
+## §895: the builder becomes a method and recurses — +21, and the 75 rows were never on this road
+
+§894 named the prerequisite: *"a nested element's member type is the inner
+pattern's own implied type … and the builder is written inline inside
+`get_type_of_symbol`'s body."* Extracted to
+`Checker::object_pattern_implied_type`, which calls itself for a pattern-named
+element — upstream's `getTypeFromBindingElement` → `getTypeFromBindingPattern`
+recursion.
+
+Making it a method also moved the per-element validity test **out of the gate and
+into the builder**, where a nested pattern can decline on its own behalf. The gate
+no longer has to predict what the builder can type; it asks.
+
+**+11 W→R, +10 G→R, zero adverse.** A nested ARRAY pattern still declines — its
+implied type is a tuple whose element types this arm does not compute — pinned by
+a test.
+
+### The falsifier resolved: the 75 rows were never on this road
+
+§893's bar aimed at `sourceMapValidationDestructuringForObjectBindingPatternDefaultValues2`,
+§893.1 recorded that it did not move, and §894 predicted nesting was the blocker.
+**It was not.** The source settles it:
+
+```ts
+for ({
+    skills: {
+        primary: primaryA = "primary",
+        secondary: secondaryA = "secondary"
+    } = { primary: "none", secondary: "none" }
+} = multiRobot, i = 0; i < 1; i++) {
+```
+
+That is a **destructuring assignment**, not a declaration. Its nodes are
+`ObjectLiteralExpression` and `PropertyAssignment`; there is no
+`ObjectBindingPattern` and no `BindingElement` anywhere in it. Three entries aimed
+at a road the rows do not travel.
+
+**The census matched on the printed TYPE shape** — *"want an optional member, got
+a required one"* — and two unrelated roads produce that same shape. A census
+groups answers, and an answer's shape is not its cause; §800's *"the corpus is the
+arbiter of VALUE, not of CORRECTNESS"* has a companion: **the corpus is the
+arbiter of SIZE, not of LOCATION.** Confirming the road before sizing the work
+costs one `grep` of the case source, and not doing it cost three entries here.
+
+What did pay: `destructuringWithLiteralInitializers`, `declarationsAndAssignments`,
+`contextuallyTypedParametersWithInitializers1`,
+`destructuringParameterDeclaration1ES5/ES6`, `arrowFunctionExpressions`,
+`emitArrowFunctionES6` — all genuine binding patterns.
+
+**§893 + §894 + §895: +70 right, 4 `GAP→WRONG`, zero `RIGHT→`.**
