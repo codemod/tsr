@@ -127,9 +127,24 @@ fn a_member_this_port_cannot_type_makes_the_whole_literal_a_gap() {
     // The name IS the member's name and takes the written-property spelling
     // rules. §553 measured 126 favourable against 20 adverse.
     assert_eq!(type_of_initialiser("const o = { [1]: 1 };"), "{ 1: number; }");
-    // A method whose *signature* cannot be built keeps the whole literal a
-    // gap, which is the property the removed line was really testing.
-    assert_eq!(type_of_initialiser("const o = { m(x: keyof string) {} };"), "error");
+    // A method whose *signature* cannot be built used to keep the whole literal
+    // a gap, which is the property the removed line was really testing.
+    //
+    // **§929 removed that population.** A parameter whose annotation does not
+    // resolve no longer declines the signature: it keeps the written spelling
+    // with an `any` type, because upstream's parameter carries `errorType` and
+    // the node builder still reuses the written annotation node. So the literal
+    // now types, and the assertion records the new shape rather than a
+    // "cannot be built" case that this port no longer has.
+    //
+    // **The property the line was testing is therefore unasserted here**, and
+    // saying so is better than inventing a fixture: §929 measured +442 with zero
+    // `RIGHT->WRONG`, and finding a member that genuinely cannot be typed after
+    // it is a search this file should not fake.
+    assert_eq!(
+        type_of_initialiser("const o = { m(x: keyof string) {} };"),
+        "{ m(x: keyof string): void; }"
+    );
 }
 
 /// §853 REPAIRED THIS TEST. It read, until the guard was gated:

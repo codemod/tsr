@@ -1576,11 +1576,24 @@ fn a_signature_this_port_cannot_print_exactly_is_a_gap() {
         type_of_declaration("function f({ a }: { a: string }) {}", "f"),
         "({ a }: { a: string; }) => void"
     );
-    // A parameter whose own type is a gap makes the whole signature a gap.
-    // `string[]` is an array type node, still unported (`bd tsr-9or.1`).
-    assert_eq!(type_of_declaration("function f(...r: string[]) {}", "f"), "error");
-    // Likewise a constraint that does not resolve.
-    assert_eq!(type_of_declaration("function f<T extends string[]>(): void {}", "f"), "error");
+    // **§929 inverted both of these.** A parameter or constraint whose own type
+    // does not resolve no longer takes the signature down: it keeps the written
+    // spelling with an `any` type, because upstream's parameter carries
+    // `errorType` and the node builder reuses the written annotation node. +442
+    // on the corpus with zero `RIGHT->WRONG`.
+    //
+    // `string[]` is the gap here only because **this harness mounts no lib**, so
+    // `Array` does not resolve; with the corpus's libs it resolves and §929 never
+    // fires on these two shapes. The assertions record what this harness now
+    // produces, which is also what upstream prints.
+    assert_eq!(
+        type_of_declaration("function f(...r: string[]) {}", "f"),
+        "(...r: string[]) => void"
+    );
+    assert_eq!(
+        type_of_declaration("function f<T extends string[]>(): void {}", "f"),
+        "<T extends string[]>() => void"
+    );
 }
 
 #[test]
@@ -1685,9 +1698,19 @@ fn a_call_this_slice_cannot_resolve_is_a_gap_and_not_the_first_candidate() {
     // digging `T` out of `T[]` is `inferTypes` (`inference.go:53`), which is not
     // ported. Answering the argument regardless of position would print
     // `number[]` here.
+    //
+    // **`unknown` since §929, and that is this lib-free harness**: `T[]` cannot
+    // resolve `Array` here, so §929's road keeps the parameter with an `any`
+    // type and the call lands on `unknown` instead of `error`. With a lib mounted
+    // `T[]` resolves and the gap is `inferTypes`'s as before. Either way the call
+    // does not answer, and it does not answer `number[]`.
     assert_eq!(
         type_of_declaration("declare function h<T>(a: T[]): T;\nconst x = h([1]);", "x"),
-        "error"
+        "unknown"
+    );
+    assert_ne!(
+        type_of_declaration("declare function h<T>(a: T[]): T;\nconst x = h([1]);", "x"),
+        "number[]"
     );
     // A class is not callable: upstream reports and answers `errorType`.
     assert_eq!(type_of_declaration("class K {}\nconst x = K();", "x"), "error");

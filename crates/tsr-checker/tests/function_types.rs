@@ -120,29 +120,41 @@ fn a_nested_function_type_resolves_through_the_same_arm() {
     );
 }
 
-/// A gap in a parameter is a gap in the whole function type. `(x: Nope) => void`
-/// is not `(x: any) => void` — the same call `get_signature_from_declaration`
-/// already makes, and the reason this arm cannot be written as a fallback.
+/// **§929 INVERTED this rule, and the name is kept so the change is visible.**
+///
+/// It used to read *"a gap in a parameter is a gap in the whole function type…
+/// the reason this arm cannot be written as a fallback"*. It can, and it should:
+/// upstream's parameter carries `errorType` and the node builder still reuses the
+/// **written** annotation node, so the signature prints in full.
+/// `declare function f(a: Array): void` prints `(a: Array) => void` upstream and
+/// printed `error` here.
+///
+/// Measured on the corpus: **314 `WRONG->RIGHT` + 128 `GAP->RIGHT` against 77
+/// `GAP->WRONG`, zero `RIGHT->WRONG`** — +442, the largest single move of its
+/// session. One unreadable part was taking out every readable one.
+///
+/// **`keyof string` is not verified against upstream.** No corpus row measures
+/// this exact spelling; what is asserted is that the port now prints the written
+/// annotation instead of collapsing the signature. If upstream turns out to
+/// resolve `keyof string` to its union here, that is a separate defect in
+/// `written_type_text`'s choice of spelling and not in this rule.
 #[test]
-fn a_parameter_whose_type_is_a_gap_makes_the_function_type_a_gap() {
-    // `bd tsr-eep`: an **unresolved** name now prints itself, because
-    // upstream reports `Cannot find name` and renders the name anyway. So an
-    // unresolved reference is no longer an example of "a type this port cannot
-    // compute"; a **tuple** still is, and is used instead. The rule under test
-    // is unchanged.
-    assert_eq!(type_of_function_annotation("let f: (x: keyof string) => void;"), "error");
+fn a_parameter_whose_type_is_a_gap_keeps_the_written_annotation() {
+    assert_eq!(
+        type_of_function_annotation("let f: (x: keyof string) => void;"),
+        "(x: keyof string) => void"
+    );
     assert_eq!(type_of_function_annotation("let f: (x: Nope) => void;"), "(x: Nope) => void");
 }
 
-/// And likewise the return annotation.
+/// And likewise the return annotation — see the entry above for the measurement
+/// and the caveat.
 #[test]
-fn a_return_type_that_is_a_gap_makes_the_function_type_a_gap() {
-    // `bd tsr-eep`: an **unresolved** name now prints itself, because
-    // upstream reports `Cannot find name` and renders the name anyway. So an
-    // unresolved reference is no longer an example of "a type this port cannot
-    // compute"; a **tuple** still is, and is used instead. The rule under test
-    // is unchanged.
-    assert_eq!(type_of_function_annotation("let f: (x: number) => keyof string;"), "error");
+fn a_return_type_that_is_a_gap_keeps_the_written_annotation() {
+    assert_eq!(
+        type_of_function_annotation("let f: (x: number) => keyof string;"),
+        "(x: number) => keyof string"
+    );
     assert_eq!(type_of_function_annotation("let f: (x: number) => Nope;"), "(x: number) => Nope");
 }
 

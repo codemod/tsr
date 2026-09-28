@@ -152,13 +152,23 @@ fn the_construct_type_node_and_the_construct_member_share_a_prefix_not_a_rendere
 #[test]
 fn a_literal_with_a_member_this_port_cannot_render_still_gaps() {
     // The arms remove *one* reason for a literal to gap, not all of them. A
-    // construct signature whose return type is a gap takes the whole literal
-    // with it, on `get_type_from_type_literal`'s all-or-nothing rule.
-    // `unknownThing` was the gap here until `bd tsr-eep` made an unresolved
-    // name print itself. A **tuple** return is genuinely unported and keeps the
-    // all-or-nothing rule under test.
-    assert_eq!(type_of_last_annotation("var x: { new (): keyof string };"), "error");
-    assert_eq!(type_of_last_annotation("var x: { (): keyof string };"), "error");
+    // construct signature whose return type is a gap used to take the whole
+    // literal with it, on `get_type_from_type_literal`'s all-or-nothing rule.
+    //
+    // **§929 removed the return-annotation reason.** An unresolvable return
+    // annotation now keeps its written spelling with an `any` type, because
+    // upstream's signature carries `errorType` and the node builder reuses the
+    // written node. +442 on the corpus, zero `RIGHT->WRONG`.
+    //
+    // The all-or-nothing rule of `get_type_from_type_literal` itself is
+    // untouched and is still asserted by the accessor cases in
+    // `signature_members.rs`; what these two lines now record is the shape §929
+    // produces.
+    assert_eq!(
+        type_of_last_annotation("var x: { new (): keyof string };"),
+        "new () => keyof string"
+    );
+    assert_eq!(type_of_last_annotation("var x: { (): keyof string };"), "() => keyof string");
     assert_eq!(
         type_of_last_annotation("var x: { new (): unknownThing };"),
         "new () => unknownThing"

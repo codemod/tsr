@@ -8901,3 +8901,97 @@ upstream's *rule* rather than a special case of it, and the sentence in §926 is
 a measurement instead of an assumption. **A claim about the corpus costs one
 `scorepair` run; one was not made, and the cheapest possible check would have
 caught it.**
+
+## §929 — one unreadable part was taking out every readable one (+469)
+
+**The largest single move of this session, and it came from a misattributed row
+in an instrument that already existed.**
+
+### How it was found
+
+The board was re-ranked by joining `any_audit`'s per-line dump
+(`TSR_ANY_DUMP=1` → `target/any_lost_lines.tsv`, 15,127 rows) against the chain
+each row carries, aggregated **by the deepest component of the chain** rather
+than by the whole string. The first attempt aggregated on the wrong end and
+returned the cascade suffix ("the branch answered ERROR") for 9,629 lines — a
+root that says nothing. Re-joined on the branch itself:
+
+```text
+  1692   372 cases  expression answered `any`: CallExpression
+  1347   310 cases  declaration name -> self-referential initialiser
+   935   280 cases  property access: the property's own type is `any`
+   ...
+   423   135 cases  declaration name -> shorthand ambient module
+```
+
+The `shorthand ambient module` row was **misattributed** — its rows want things
+like `<T>(value: T) => MaybePromise<T>` and `(a: Array) => void`, which are not
+ambient modules at all. They are **function signatures that failed to build**.
+*A misattributed row was worth more than the correctly attributed ones, because
+it was the only one naming a mechanism instead of a position.*
+
+### The defect
+
+```ts
+declare function f(a: Array): void;   // was: error       upstream: (a: Array) => void
+declare function g(x: number): Array; // was: error       upstream: (x: number) => Array
+function h<T extends string[]>(): void {}  // was: error
+```
+
+`parameter_of`, `return_type_of` and `type_parameter_of` each returned `None`
+when their annotation did not resolve, and `get_signature_from_declaration`
+propagates every `None` with `?`. **One unreadable annotation took out the whole
+signature, and with it every readable parameter in it** — and then the symbol,
+the declaration, and everything downstream.
+
+Upstream does not do this. The parameter carries `errorType`, and
+`serializeTypeForDeclaration` **reuses the written annotation node**, so the
+signature prints in full. The port already had that channel: §926's
+`qualified_written_text` is exactly "the written spelling to reuse for this
+node", already consulted by `written_annotation_text`.
+
+So all three sites now keep the part, give it `any` (this port's stand-in for
+`errorType` at printing positions — the producer already converts one to the
+other, `types_producer.rs:434`), and register the written spelling.
+
+**`None` is still returned when the annotation has no printable text.**
+Inventing a spelling would be worse than the gap.
+
+### Three measurements, in order
+
+| change | W→R | G→R | G→W | R→W |
+|---|---|---|---|---|
+| parameter (symbol road) | 88 | 76 | 24 | **0** |
+| + return annotation | 251 | 107 | 68 | **0** |
+| + type-parameter constraint | 314 | 128 | 77 | **0** |
+| + the map lookup widened past `TypeReferenceNode` | **325** | **144** | **61** | **0** |
+
+`right` 442,031 → **442,500**. `complexRecursiveCollections` 85,
+`bigintWithLib` 46, `returnTypeTypeArguments` 21.
+
+The last row is worth its own note: the constraint half printed
+`<T extends any>` until `written_annotation_text`'s map lookup was widened from
+`TypeReferenceNode` to any annotation node. **A channel that only carries one
+node kind silently drops the others**, and the unit test caught it where the
+corpus's 61 G→W did not.
+
+### What was applied and measured at zero
+
+The same rule at `parameter_of`'s **binding-pattern** road measured **zero
+transitions** and is *not* kept — untested code mirroring a measured one is a
+liability, and the zero is the useful record. It is noted at the site.
+
+### Six pinned tests inverted, and none quietly
+
+§929 contradicts a rule six tests existed to assert, one of which said outright
+*"the reason this arm cannot be written as a fallback"*. It can be. Each test is
+updated in place with the measurement, the old claim quoted, and — where the
+property it was really testing no longer has a population in this port — **that
+said plainly rather than a replacement fixture invented**.
+
+Four of the six changed only because **this harness mounts no lib**, so
+`string[]` and `T[]` cannot resolve `Array` and §929's road fires where the
+corpus's libs mean it never would. Each of those says so, and says what the
+corpus measured instead. *A test fixture that is a gap only because the harness
+is thin is not evidence about the checker*, and three of these tests had been
+quietly relying on exactly that.

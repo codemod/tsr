@@ -77,13 +77,18 @@ fn a_member_this_port_still_cannot_render_gaps_the_whole_literal() {
     // it does understand.
     assert_eq!(type_of_annotation("var x: { get a(): string };"), "error");
     assert_eq!(type_of_annotation("var x: { a: string; get b(): string };"), "error");
-    // A method whose parameter type is a gap takes the literal with it.
-    // `bd tsr-eep`: an **unresolved** name now prints itself, because
-    // upstream reports `Cannot find name` and renders the name anyway. So an
-    // unresolved reference is no longer an example of "a type this port cannot
-    // compute"; a **tuple** still is, and is used instead. The rule under test
-    // is unchanged.
-    assert_eq!(type_of_annotation("var x: { m(a: keyof string): void };"), "error");
+    // A method whose parameter type is a gap used to take the literal with it.
+    // **§929 ended that**: the parameter keeps its written spelling with an `any`
+    // type, because upstream's carries `errorType` and the node builder reuses
+    // the written annotation node. +442 on the corpus with zero
+    // `RIGHT->WRONG`.
+    //
+    // The two accessor assertions above still carry the rule this test is named
+    // for; this line now records the shape §929 produces instead.
+    assert_eq!(
+        type_of_annotation("var x: { m(a: keyof string): void };"),
+        "{ m(a: keyof string): void; }"
+    );
 }
 
 #[test]

@@ -73,13 +73,27 @@ fn a_generic_call_reaches_inference_through_check_expression() {
 #[test]
 fn a_generic_call_this_slice_cannot_answer_is_still_a_gap_at_the_call_site() {
     // Digging `T` out of `T[]` is `inferTypes` (`inference.go:53`) and is not
-    // ported, so the call is `errorType` — not the uninstantiated `T`, and not
-    // the argument type. The guard has to keep gapping through the *same* path
-    // it now answers through, which is the half of the wiring the positive test
-    // above cannot check.
+    // ported, so the call cannot answer `number`. The guard has to keep gapping
+    // through the *same* path it now answers through, which is the half of the
+    // wiring the positive test above cannot check.
+    //
+    // **`unknown` since §929, and that is this harness rather than the
+    // checker.** This file binds one LIB-FREE source, so `T[]` cannot resolve
+    // `Array` and is itself a gap; §929's road therefore fires on the parameter,
+    // keeping the written `T[]` with an `any` type, and the call lands on
+    // `unknown` where it used to land on `error`. With a lib mounted — which is
+    // what the corpus scores through — `T[]` resolves and §929 never fires here;
+    // the corpus measured **zero `RIGHT->WRONG`** across the whole change.
+    //
+    // Either way the assertion holds what the test is for: **the call does not
+    // answer**, and it does not answer the argument type either.
     assert_eq!(
         type_of_last("function f<T>(x: T[]): T { return x[0]; }\nconst a = f([1]);"),
-        "error"
+        "unknown"
+    );
+    assert_ne!(
+        type_of_last("function f<T>(x: T[]): T { return x[0]; }\nconst a = f([1]);"),
+        "number"
     );
 }
 

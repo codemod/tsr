@@ -1032,7 +1032,26 @@ impl<'a> Checker<'a, '_> {
         // `getReturnTypeFromAnnotation` (`checker.go:20058`) wins outright.
         if let Some(annotation) = annotation {
             let id = self.get_type_from_type_node(annotation);
-            return (id != self.intrinsics.error).then_some(id);
+            if id != self.intrinsics.error {
+                return Some(id);
+            }
+            // §929's RETURN half. An unresolvable return annotation declined the
+            // whole signature exactly as an unresolvable parameter did:
+            // `declare function r(x: number): Array` answered `error` where
+            // upstream prints `(x: number) => Array`.
+            //
+            // The spelling is handed to the printer through §926's
+            // `qualified_written_text`, which is already the "reuse this
+            // annotation node's written text" channel and is already consulted
+            // by `written_annotation_text`.
+            let mut single_quoted = false;
+            let mut array_headed = false;
+            let spelled =
+                Self::written_type_text(annotation, &mut single_quoted, &mut array_headed)?;
+            if let Some(id) = tsr_ast::Node::from(annotation).node_id() {
+                self.qualified_written_text.insert(id, spelled);
+            }
+            return Some(self.intrinsics.any);
         }
         // `ast.NodeIsMissing(sig.declaration.Body())` (`checker.go:20016`): an
         // ambient declaration, an interface method, or an overload signature has
@@ -3278,6 +3297,11 @@ impl<'a> Checker<'a, '_> {
                     computed
                 }
             };
+            // §929 was applied here too — the BINDING-PATTERN road's copy of
+            // the same rule — and measured **zero transitions**. It is not kept:
+            // untested code that mirrors a measured one is a liability, and the
+            // zero is the useful record. The rule lives at the symbol road
+            // below, which is where every row this port has came through.
             if r#type == self.intrinsics.error {
                 return None;
             }
@@ -3309,15 +3333,37 @@ impl<'a> Checker<'a, '_> {
         // `| undefined` a `?` adds (see [`crate::optionality`]); the signature
         // prints the annotation as written. Taking the symbol's type here would
         // print `(value?: string | undefined)`, which appears nowhere.
-        let r#type = match node.r#type {
+        let mut r#type = match node.r#type {
             Some(annotation) => self.get_type_from_type_node(annotation),
             None => self.get_type_of_symbol(symbol),
         };
-        if r#type == self.intrinsics.error {
-            return None;
-        }
-        let written_text =
+        let mut written_text =
             node.r#type.and_then(|annotation| self.written_annotation_text(annotation));
+        if r#type == self.intrinsics.error {
+            // §929: an annotation this port cannot resolve used to decline the
+            // PARAMETER, which declines the SIGNATURE, which answers `error` for
+            // the whole function — one unreadable part taking out every readable
+            // one. `declare function f(a: Array): void` printed `error` where
+            // upstream prints `(a: Array) => void`: upstream's parameter carries
+            // `errorType` and the node builder still reuses the **written**
+            // annotation node, so the signature prints in full.
+            //
+            // Ported the same way: keep the parameter, give it `any` (this
+            // port's stand-in for `errorType` at printing positions — the
+            // producer already converts one to the other,
+            // `types_producer.rs:434`), and print the written spelling.
+            //
+            // **`None` is still returned when the annotation has no printable
+            // text**, because inventing one would be worse than the gap.
+            let mut single_quoted = false;
+            let mut array_headed = false;
+            let spelled = node.r#type.and_then(|annotation| {
+                Self::written_type_text(annotation, &mut single_quoted, &mut array_headed)
+            });
+            let spelled = spelled?;
+            r#type = self.intrinsics.any;
+            written_text = Some(spelled);
+        }
         Some(Parameter {
             name: name_text,
             // Filled in by the caller: optionality needs the whole list.
@@ -3348,8 +3394,12 @@ impl<'a> Checker<'a, '_> {
         // privateModule.publicClass) => void` from the reused annotation node —
         // and the corpus shows both on adjacent rows. See
         // [`crate::checker::Checker::qualified_written_text`].
-        if let TypeNode::TypeReferenceNode(reference) = annotation
-            && let Some(id) = reference.node_id
+        // §929 widened this from `TypeReferenceNode` to ANY annotation node.
+        // The map is "the written spelling to reuse for this node", and §929's
+        // unresolvable-annotation road puts array, operator and literal nodes in
+        // it too — `<T extends string[]>` printed `<T extends any>` while the
+        // reference-only lookup skipped past its `ArrayTypeNode` key.
+        if let Some(id) = tsr_ast::Node::from(annotation).node_id()
             && let Some(text) = self.qualified_written_text.get(&id)
         {
             return Some(text.clone());
@@ -3909,7 +3959,30 @@ impl<'a> Checker<'a, '_> {
                 (id != error).then_some(Some(id))
             }
         };
-        let constraint = resolve(self, node.constraint)?;
+        // §929's TYPE-PARAMETER half: an unresolvable constraint or default
+        // declined the type parameter, which declines the signature. The
+        // constraint's spelling goes through `qualified_written_text` for the
+        // same reason the return half's does; a DEFAULT has no written channel
+        // on `TypeParameter`, so an unresolvable one still declines.
+        let spell = |checker: &mut Self, annotation: Option<TypeNode<'a>>| {
+            let Some(annotation) = annotation else { return };
+            if checker.get_type_from_type_node(annotation) != checker.intrinsics.error {
+                return;
+            }
+            let mut single_quoted = false;
+            let mut array_headed = false;
+            if let Some(text) =
+                Self::written_type_text(annotation, &mut single_quoted, &mut array_headed)
+                && let Some(id) = tsr_ast::Node::from(annotation).node_id()
+            {
+                checker.qualified_written_text.insert(id, text);
+            }
+        };
+        spell(self, node.constraint);
+        let constraint = match resolve(self, node.constraint) {
+            Some(constraint) => constraint,
+            None => Some(self.intrinsics.any),
+        };
         let default = resolve(self, node.default_type)?;
         let written_constraint =
             node.constraint.and_then(|annotation| self.written_annotation_text(annotation));
