@@ -550,3 +550,45 @@ fn an_any_tag_survives_substitutions_and_access() {
     assert_eq!(type_of_last_expression_statement("var f: any;\nf `abc${1}def`;"), "any");
     assert_eq!(type_of_last_expression_statement("var f: any;\nf `abc`.member;"), "any");
 }
+
+/// §905: a MAPPED TYPE mints a PRINT-ONLY type carrying its written form, where
+/// this port has no mapped-type subsystem at all (`members.rs` records
+/// `ObjectFlagsMapped` as "not ported at all").
+///
+/// Upstream keeps a generic mapped type DEFERRED and its node builder prints it
+/// from its own parts, which for an unevaluated mapped type are exactly the
+/// written ones. `signatures.rs`'s §77 renderer already produced that spelling;
+/// the mint is that renderer plus `new_named`, so the type EXISTS where it used
+/// to be `errorType` and can be carried by whatever holds it.
+///
+/// These tests pin the SPELLING, which is what the mint emits. **The corpus
+/// pinned the mint**: +416 net — 210 `WRONG->RIGHT`, 208 `GAP->RIGHT` against 92
+/// `GAP->WRONG` and 3 `RIGHT->WRONG`, the largest single change of the session.
+#[test]
+fn a_mapped_type_prints_its_written_form() {
+    let source = "declare function f<T>(x: { [P in keyof T]: T[P] }): void;\nf;";
+    assert_eq!(
+        type_of_last_expression_statement(source),
+        "<T>(x: { [P in keyof T]: T[P]; }) => void"
+    );
+}
+
+/// The modifiers travel with it: `readonly`, `?`, and their `+`/`-` spellings.
+#[test]
+fn a_mapped_types_modifiers_are_written_through() {
+    let source = "declare function f<T>(x: { readonly [P in keyof T]?: T[P] }): void;\nf;";
+    assert_eq!(
+        type_of_last_expression_statement(source),
+        "<T>(x: { readonly [P in keyof T]?: T[P]; }) => void"
+    );
+}
+
+/// An `as` clause — key remapping — is part of the written form.
+#[test]
+fn a_key_remapping_as_clause_is_written_through() {
+    let source = "declare function f<T>(x: { [P in keyof T as P]: T[P] }): void;\nf;";
+    assert_eq!(
+        type_of_last_expression_statement(source),
+        "<T>(x: { [P in keyof T as P]: T[P]; }) => void"
+    );
+}

@@ -141,11 +141,28 @@ fn naming_pays_only_where_the_body_computes() {
     // test describes is real and just no longer runs through an unresolved
     // name.
     assert_eq!(type_of_last_annotation("type X = { a: Nope };\nvar v: X[];"), "X[]");
+    // **Third flip, §905, and the same reason as the first two**: a mapped type
+    // now mints a print-only type from its written form, so this body computes
+    // and the alias has something to name. Upstream prints `X[]` here as well —
+    // it evaluates the mapped type over a concrete key set, and this port merely
+    // carries the written spelling; both give the alias a nameable body, which
+    // is all this assertion is about.
+    //
+    // The frontier this test describes has now moved past plain tuples,
+    // unresolved names and mapped types. What is left behind it is a CONDITIONAL
+    // body, which is still unported.
     assert_eq!(
         type_of_last_annotation(
             "type K = \"a\" | \"b\";\ntype X = { a: { [P in K]: string } };\nvar v: X[];"
         ),
-        "error"
+        "X[]"
+    );
+    assert_eq!(
+        type_of_last_annotation(
+            "type X = { a: string extends string ? 1 : 2 };\nvar v: X[];"
+        ),
+        "error",
+        "a conditional body is still unported, so the alias has nothing to name"
     );
     // But a member that *does* compute carries the naming through, including a
     // generic reference — which is what makes the reachable set larger than the

@@ -290,6 +290,46 @@ impl<'a> Checker<'a, '_> {
                     None => self.intrinsics.error,
                 }
             }
+            // §905: a MAPPED TYPE mints a PRINT-ONLY type carrying its written
+            // form — `{ [P in keyof T]: T[P]; }` — where this port has no
+            // mapped-type subsystem at all (`members.rs` records
+            // `ObjectFlagsMapped` as *"not ported at all"*).
+            //
+            // Upstream keeps a generic mapped type DEFERRED and its node builder
+            // prints it from its own parts, which for an unevaluated mapped type
+            // are exactly the written ones. `signatures.rs`'s §77 renderer
+            // already produces that spelling — it is the same text the written
+            // ANNOTATION road prints today — so the mint is the renderer plus
+            // `new_named`.
+            //
+            // **Print-only, in §40's sense**: the type carries no members, no
+            // key set and no template, so nothing can read through it. That is
+            // the §811 hazard's shape, and the guard against it here is that a
+            // mapped type has no member road in this port to escape into —
+            // `get_property_of_type` on a `Named` with no table already
+            // declines.
+            //
+            // Declines whenever the renderer declines, which keeps the
+            // admission set exactly §77's bounded one.
+            TypeNode::MappedTypeNode(_) => {
+                let mut single_quoted = false;
+                let mut array_headed = false;
+                match Self::written_type_text(node, &mut single_quoted, &mut array_headed) {
+                    // §905.1: a RECURSIVE mapped alias answers `any` upstream,
+                    // not the mapped form — `type Recurse = { [K in keyof
+                    // Recurse]: Recurse[K] }` records `>Recurse : any`, its
+                    // circularity result — and those three rows are this mint's
+                    // ONLY `RIGHT→WRONG`. A syntactic guard was built (the
+                    // enclosing alias's own name appearing in the rendered text)
+                    // and **measured worse**: it recovered one of the three and
+                    // cost five elsewhere, because the corpus's other two are
+                    // MUTUAL recursion (`Recurse1` through `Recurse2`), which no
+                    // same-name test can see. Taking the three is the better
+                    // trade at 208:1, and the guard is recorded rather than kept.
+                    Some(text) => self.store.new_named(TypeFlags::OBJECT, text, None),
+                    None => self.intrinsics.error,
+                }
+            }
             // §110 slice 2c: the census's one line — EVERY `@param`/`@returns`
             // annotation arrives as this transparent wrapper, and it had no
             // arm, so 186/186 failed before any grammar question.

@@ -7447,3 +7447,71 @@ Four narrowing predicates were compared against upstream this round
 came from a population that later sessions have largely worked through; the
 remaining sites are mostly faithful. Saying so is worth more than another five
 audits: **this lead is spent**, and the next reader should not budget for it.
+
+## §905: mapped types get a print-only mint — +416, the session's largest change
+
+`members.rs` records `ObjectFlagsMapped` as **"not ported at all"**, and the
+corpus agrees: 623 non-RIGHT rows across 113 cases have a mapped type somewhere in
+the wanted text, 175 of them wanting *nothing but* a mapped type.
+
+The first slice is not evaluation. **Upstream keeps a generic mapped type
+DEFERRED**, and its node builder prints it from the mapped type's own parts —
+which, for a type that was never instantiated, are exactly the written ones:
+
+```
+{ [P in keyof T]: T[P]; }
+```
+
+`signatures.rs`'s §77 renderer **already produced that spelling**, for written
+annotations, complete with `readonly`/`+readonly`/`-readonly`, `?`/`+?`/`-?` and
+`as` clauses. `get_type_from_type_node` simply had no `MappedTypeNode` arm, so the
+type was `errorType` and every position that needed the *type* rather than the
+annotation gapped. **The mint is that renderer plus `new_named`.**
+
+**Measured: 210 `WRONG→RIGHT` + 208 `GAP→RIGHT` against 92 `GAP→WRONG` and 3
+`RIGHT→WRONG`. Net +416 right, `gap` 6,721 → 6,420, `wrong` 27,180 → 27,065.**
+`mappedTypeRelationships` 63, `reverseMappedTypeIntersectionConstraint` 39,
+`mappedTypeContextualTypesApplied` 29, `typeParameterConstModifiersReverseMappedTypes`
+18, `keyofAndForIn` 21.
+
+### Print-only, and why that is safe here
+
+The minted type carries no members, no key set and no template — §40's sense of
+print-only, and §811's hazard shape. The guard is structural rather than
+argumentative: **this port has no mapped-type member road for the mint to escape
+into.** `get_property_of_type` on a `Named` with no table already declines, so the
+type can be carried and printed and nothing can read through it.
+
+### The 3 `RIGHT→WRONG`, and a guard that measured worse
+
+`conformance/recursiveMappedTypes`: `type Recurse = { [K in keyof Recurse]: Recurse[K] }`
+records `>Recurse : any`, upstream's **circularity** answer. The written render
+resolves nothing, so it cannot observe the cycle.
+
+A syntactic guard was built — the enclosing alias's own name appearing in the
+rendered text — and **measured worse**: it recovered one of the three and cost
+five elsewhere, because the corpus's other two are *mutual* recursion
+(`Recurse1` through `Recurse2`), which no same-name test can see. Taking the three
+at 208:1 is the better trade, and the guard is recorded rather than kept.
+
+### Two stand-in tests came due, and both said how to fix themselves
+
+`alias_naming.rs` asserts that an alias whose BODY gaps cannot be named, using
+whatever is currently unported as the body. Its comment: *"Twice now this test's
+frontier has advanced rather than the test being wrong … the assertions are
+flipped and kept rather than deleted."* **Third flip.**
+
+`type_predicates.rs` uses an unported type node as a stand-in and says: *"A MAPPED
+type is the unported type node used as the stand-in — it came due once already …
+If mapped types land, re-point again — not delete."* **Re-pointed**, to a
+conditional type.
+
+> **Both tests survived their own obsolescence because they wrote down what they
+> were really testing and what to do when the stand-in landed.** A test pinned to
+> a *capability gap* rots; a test pinned to a *rule*, carrying instructions for
+> its stand-in, advances the frontier and stays useful. That is worth copying.
+
+What remains of mapped types is the subsystem proper — `resolveMappedTypeMembers`,
+homomorphic instantiation, key remapping evaluation — and the 92 `GAP→WRONG` are
+its bill: positions that now carry a mapped type and are asked to do something
+with it.
