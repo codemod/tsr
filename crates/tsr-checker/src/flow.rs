@@ -1540,7 +1540,36 @@ impl Checker<'_, '_> {
                     .is_some_and(|property| self.is_readonly_symbol(property));
                 readonly && self.is_constant_reference(receiver)
             }
-            _ => false,
+            // §904: `case ast.KindElementAccessExpression` shares upstream's
+            // property-access arm verbatim (`flow.go:1823`) — the two kinds are
+            // one `case`. Reduced here to a literal key, which is the only
+            // element access whose property symbol this port can resolve; a
+            // computed key keeps the old `false`.
+            Some(Node::ElementAccessExpression(access)) => {
+                let Some(receiver) = access.expression.and_then(|e| e.node_id()) else {
+                    return false;
+                };
+                let Some(tsr_ast::Expression::StringLiteral(key)) = access.argument_expression
+                else {
+                    return false;
+                };
+                let Some(expression) = access.expression else { return false };
+                let receiver_type = self.check_expression(expression);
+                let readonly = self
+                    .get_property_of_type(receiver_type, key.text)
+                    .is_some_and(|property| self.is_readonly_symbol(property));
+                readonly && self.is_constant_reference(receiver)
+            }
+            _ => {
+                // §904: `case ast.KindThisKeyword: return true` (`flow.go:1816`),
+                // upstream's FIRST arm. `this` cannot be reassigned, so a
+                // reference rooted at it is constant and narrowing survives
+                // across intervening calls — `this.x` chains on it.
+                //
+                // Tested by KIND rather than by node shape because `this` is a
+                // keyword expression here, not a node kind of its own.
+                self.nodes.kind(reference) == SyntaxKind::ThisKeyword
+            }
         }
     }
 

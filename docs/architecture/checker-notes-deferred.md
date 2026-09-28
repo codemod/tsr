@@ -7406,3 +7406,44 @@ upstream engineered around.
 **Prerequisite, named**: the propagation type and priority machinery, or at
 minimum a way to distinguish "the argument is genuinely `any`" from "inference
 produced `any`". Reopen behind that, not before.
+
+## §904: `isConstantReference`'s two missing arms — transcribed, measured ZERO, kept
+
+§856's `_ => false` sweep, resumed. Mapping all 49 sites in
+`check.rs`/`flow.rs`/`symbols.rs`/`declared.rs` to their functions and comparing
+the narrowing-relevant ones against upstream:
+
+`isConstantReference` (`flow.go:1814`) has **four** `case`s; this port had two.
+Missing:
+
+```go
+case ast.KindThisKeyword:
+    return true
+case ast.KindPropertyAccessExpression, ast.KindElementAccessExpression:   // ← the second kind
+```
+
+(The binding-pattern arm needs `isSomeSymbolAssigned` and is not attempted.)
+
+Both transcribed. The element-access arm is reduced to a **literal** key, the only
+one whose property symbol this port can resolve.
+
+**Measured: zero transitions.**
+
+Kept rather than reverted, on this project's own precedent — §179/§181 recorded a
+guard at +0 twice and §253 later made its population non-empty, which is where
+*"an arm can be correct and unmeasurable until an unrelated fix creates the nodes
+it acts on"* comes from. §239 found this function's third identifier disjunct by
+the same sweep. **Recorded as inert so nobody re-measures it expecting a number.**
+
+### What the sweep says about the port
+
+Four narrowing predicates were compared against upstream this round
+(`isConstantReference`, `narrowTypeByCallExpression`, `isConstantVariable`,
+`isParameterOrMutableLocalVariable`) and **three were already complete** —
+`narrowTypeByCallExpression` has both its arms, including the transcribed
+`hasOwnProperty` branch, and declines only `TypePredicateKindThis`.
+
+**The `_ => false` heuristic is no longer a good filter.** §856's 4-for-4 hit rate
+came from a population that later sessions have largely worked through; the
+remaining sites are mostly faithful. Saying so is worth more than another five
+audits: **this lead is spent**, and the next reader should not budget for it.
