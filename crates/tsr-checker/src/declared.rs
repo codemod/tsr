@@ -1314,6 +1314,84 @@ impl<'a> Checker<'a, '_> {
                 indexes.push(rendered);
                 continue;
             }
+            // §930.1: an ACCESSOR in a type literal. Until now it fell to the
+            // `else { return error }` below and took the whole literal with it,
+            // which is the rule `tests/signature_members.rs`'s
+            // `a_member_this_port_still_cannot_render_gaps_the_whole_literal`
+            // was named for.
+            //
+            // Upstream resolves a get/set pair to ONE property symbol
+            // (`getTypeOfAccessors`, `checker.go:16700` region) and the node
+            // builder prints it as a property: `{ get a(): string }` is
+            // `{ readonly a: string; }`, and a pair is `{ a: string; }` — the
+            // `readonly` comes from *there being no setter*
+            // (`isReadonlySymbol`'s accessor arm).
+            if let tsr_ast::TypeElement::GetAccessorDeclaration(_)
+            | tsr_ast::TypeElement::SetAccessorDeclaration(_) = member
+            {
+                let (accessor_name, annotation, is_getter) = match member {
+                    tsr_ast::TypeElement::GetAccessorDeclaration(get) => {
+                        (get.name, get.r#type, true)
+                    }
+                    tsr_ast::TypeElement::SetAccessorDeclaration(set) => (
+                        set.name,
+                        set.parameters.first().and_then(|parameter| parameter.r#type),
+                        false,
+                    ),
+                    _ => unreachable!("guarded by the pattern above"),
+                };
+                let tsr_ast::PropertyName::Identifier(accessor_name) = accessor_name else {
+                    // Only a plain identifier; every other name kind keeps the
+                    // decline rather than guessing a spelling.
+                    return error;
+                };
+                // A SETTER whose pair also declares a getter contributes
+                // nothing: the getter already carried the property, and
+                // admitting both would print the member twice.
+                if !is_getter
+                    && node.members.iter().any(|other| {
+                        matches!(other, tsr_ast::TypeElement::GetAccessorDeclaration(get)
+                            if matches!(get.name, tsr_ast::PropertyName::Identifier(n)
+                                if n.text == accessor_name.text))
+                    })
+                {
+                    continue;
+                }
+                let paired = node.members.iter().any(|other| {
+                    matches!(other, tsr_ast::TypeElement::SetAccessorDeclaration(set)
+                        if matches!(set.name, tsr_ast::PropertyName::Identifier(n)
+                            if n.text == accessor_name.text))
+                });
+                let (member_type, spelled) = match annotation {
+                    Some(annotation) => {
+                        let resolved = self.get_type_from_type_node(annotation);
+                        if resolved == error {
+                            // §930's rule again: keep the written spelling.
+                            let mut single_quoted = false;
+                            let mut array_headed = false;
+                            let Some(spelled) = Self::written_type_text(
+                                annotation,
+                                &mut single_quoted,
+                                &mut array_headed,
+                            ) else {
+                                return error;
+                            };
+                            (self.intrinsics.any, Some(spelled))
+                        } else {
+                            (resolved, None)
+                        }
+                    }
+                    None => (self.intrinsics.any, None),
+                };
+                let printed = spelled.unwrap_or_else(|| self.type_to_string(member_type));
+                properties.push(crate::objects::Member::Property {
+                    name: accessor_name.text.to_string(),
+                    optional: false,
+                    readonly: is_getter && !paired,
+                    printed,
+                });
+                continue;
+            }
             let tsr_ast::TypeElement::PropertySignatureDeclaration(property) = member else {
                 return error;
             };
@@ -1384,13 +1462,37 @@ impl<'a> Checker<'a, '_> {
             // arm declines for a bare `{ x }`, and the widening fallback
             // answers `anyType` (checker.go:16648). `{ x; y }` renders
             // `{ x: any; y: any; }` (`symbolProperty9`).
+            // §930: §929's rule, one level up. A property signature whose
+            // annotation does not resolve used to decline the WHOLE literal —
+            // `{ a: string; b: Array }` printed `error`, losing `a` as well.
+            // Upstream's member carries `errorType` and the node builder reuses
+            // the written annotation node, exactly as it does for a parameter.
+            //
+            // Recorded in the same channel (`qualified_written_text`), so the
+            // `printed` slot below picks it up through
+            // `written_annotation_text` for the three annotation shapes it
+            // already consults, and `unresolved_printed` carries the rest.
+            let mut unresolved_printed = None;
             let member_type = match property.r#type {
                 Some(annotation) => {
                     let member_type = self.get_type_from_type_node(annotation);
                     if member_type == error {
-                        return error;
+                        let mut single_quoted = false;
+                        let mut array_headed = false;
+                        let Some(spelled) = Self::written_type_text(
+                            annotation,
+                            &mut single_quoted,
+                            &mut array_headed,
+                        ) else {
+                            // No printable spelling: still a whole-literal
+                            // decline, because inventing one would be worse.
+                            return error;
+                        };
+                        unresolved_printed = Some(spelled);
+                        self.intrinsics.any
+                    } else {
+                        member_type
                     }
-                    member_type
                 }
                 None => self.intrinsics.any,
             };
@@ -1412,11 +1514,17 @@ impl<'a> Checker<'a, '_> {
             // `{ a: number | string; }`); `written_annotation_text`'s §137
             // gate admits ONLY same-set-different-order unions, so nothing
             // else changes spelling.
-            let printed = match property.r#type {
-                Some(
-                    annotation @ (tsr_ast::TypeNode::TypeLiteralNode(_)
-                    | tsr_ast::TypeNode::ArrayTypeNode(_)
-                    | tsr_ast::TypeNode::UnionTypeNode(_)),
+            let printed = match (unresolved_printed, property.r#type) {
+                // §930: the annotation did not resolve; its written spelling is
+                // the answer, whatever shape the node is.
+                (Some(spelled), _) => spelled,
+                (
+                    None,
+                    Some(
+                        annotation @ (tsr_ast::TypeNode::TypeLiteralNode(_)
+                        | tsr_ast::TypeNode::ArrayTypeNode(_)
+                        | tsr_ast::TypeNode::UnionTypeNode(_)),
+                    ),
                 ) => self
                     .written_annotation_text(annotation)
                     .unwrap_or_else(|| self.type_to_string(member_type)),

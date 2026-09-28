@@ -820,8 +820,16 @@ fn an_object_type_with_a_member_this_port_cannot_render_is_a_gap() {
         type_of_declaration("declare const x: { [k: symbol]: string };", "x"),
         "{ [k: symbol]: string; }"
     );
-    // A member whose own type is a gap takes the whole literal with it.
-    assert_eq!(type_of_declaration("declare const x: { a: keyof string };", "x"), "error");
+    // **§930 inverted this.** A member whose own type is a gap no longer takes
+    // the whole literal with it: it keeps the written spelling with an `any`
+    // type, because upstream's member carries `errorType` and the node builder
+    // reuses the written annotation node. `{ a: string; b: Array }` printed
+    // `error`, losing the perfectly good `a` as well. +33 on the corpus, zero
+    // `RIGHT->WRONG`.
+    assert_eq!(
+        type_of_declaration("declare const x: { a: keyof string };", "x"),
+        "{ a: keyof string; }"
+    );
 }
 
 /// Generic references (`bd tsr-4sc.7`, third slice).

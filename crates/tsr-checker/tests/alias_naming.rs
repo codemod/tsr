@@ -127,11 +127,19 @@ fn naming_pays_only_where_the_body_computes() {
     // flipped and kept rather than deleted. What is left behind it is a body
     // that gaps for a reason still unported — a mapped or conditional type.
     assert_eq!(type_of_last_annotation("type X = { a: [string] };\nvar v: X[];"), "X[]");
-    assert_eq!(
-        type_of_last_annotation("type X = { a: keyof string };\nvar v: X[];"),
-        "error",
-        "`keyof` is unported, so this body still gaps and the alias has nothing to name"
-    );
+    // **THIRD advance, §930.** `keyof` is still unported, but an unresolvable
+    // member annotation no longer gaps the literal: it keeps the written
+    // spelling with an `any` type, because upstream's member carries `errorType`
+    // and the node builder reuses the written annotation node. +33 on the
+    // corpus, zero `RIGHT->WRONG`.
+    //
+    // So this test has now watched its frontier advance three times and has been
+    // wrong none of them. **What is left behind it is unasserted**, and that is
+    // stated rather than papered over with a fixture hunted until it gapped:
+    // after §929 and §930 a body gaps only where no printable spelling exists at
+    // all, and naming a shape like that would be pinning this port's parser
+    // rather than its checker.
+    assert_eq!(type_of_last_annotation("type X = { a: keyof string };\nvar v: X[];"), "X[]");
     // `type X = { a: Nope }` used to be here asserting `error`, and it now
     // computes: an **unresolved** type reference prints the name that was
     // written (`bd tsr-eep`, `Checker::unresolved_type_reference`), so the body

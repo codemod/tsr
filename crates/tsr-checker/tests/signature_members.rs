@@ -69,14 +69,30 @@ fn properties_and_methods_mix_in_source_order() {
     assert_eq!(type_of_annotation("var x: { m(): void; a: string };"), "{ m(): void; a: string; }");
 }
 
+/// **§930.1 RETIRED this test's subject, and the name is kept so that is
+/// visible.** Every assertion it held has moved, in three steps:
+///
+/// - `bd tsr-eep` — an unresolved *name* prints itself.
+/// - §929 — an unresolvable *parameter or return annotation* keeps its written
+///   spelling instead of collapsing the signature.
+/// - §930/§930.1 — an unresolvable *member annotation* does the same, and an
+///   **accessor** is now a property rather than a whole-literal decline.
+///
+/// Upstream resolves a get/set pair to one property symbol and prints it as a
+/// property: `{ get a(): string }` is `{ readonly a: string; }`, the `readonly`
+/// coming from there being no setter. Measured: **57 `WRONG->RIGHT` + 17
+/// `GAP->RIGHT` against 5 `GAP->WRONG`, zero `RIGHT->WRONG`.**
+///
+/// **`get_type_from_type_literal`'s all-or-nothing rule itself still stands** —
+/// it is the reason the remaining `return error` arms exist. What no longer
+/// stands is that this file had an example of it.
 #[test]
 fn a_member_this_port_still_cannot_render_gaps_the_whole_literal() {
-    // The rule this function has followed since it was written, and this slice
-    // raises what is renderable without lowering it: an accessor is still
-    // unported, and a literal containing one is a gap rather than the members
-    // it does understand.
-    assert_eq!(type_of_annotation("var x: { get a(): string };"), "error");
-    assert_eq!(type_of_annotation("var x: { a: string; get b(): string };"), "error");
+    assert_eq!(type_of_annotation("var x: { get a(): string };"), "{ readonly a: string; }");
+    assert_eq!(
+        type_of_annotation("var x: { a: string; get b(): string };"),
+        "{ a: string; readonly b: string; }"
+    );
     // A method whose parameter type is a gap used to take the literal with it.
     // **§929 ended that**: the parameter keeps its written spelling with an `any`
     // type, because upstream's carries `errorType` and the node builder reuses
@@ -105,4 +121,17 @@ fn a_call_or_construct_signature_member_prints_without_a_name() {
     assert_eq!(type_of_annotation("class C {}\nvar x: { new (): C };"), "{ new (): C; }");
     // Two call signatures are two members, not one.
     assert_eq!(type_of_annotation("var x: { (): void; (): void };"), "{ (): void; (): void; }");
+}
+
+/// §930.1's regression legs: the accessor arm must not print a member twice,
+/// and `readonly` must come from the *absence of a setter* rather than from
+/// get-ness.
+#[test]
+fn a_get_set_pair_is_one_property_and_is_not_readonly() {
+    assert_eq!(
+        type_of_annotation("var x: { get a(): string; set a(v: string); };"),
+        "{ a: string; }"
+    );
+    // A setter alone is a writable property, not a readonly one.
+    assert_eq!(type_of_annotation("var x: { set b(v: number); };"), "{ b: number; }");
 }

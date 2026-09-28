@@ -8995,3 +8995,76 @@ corpus's libs mean it never would. Each of those says so, and says what the
 corpus measured instead. *A test fixture that is a gap only because the harness
 is thin is not evidence about the checker*, and three of these tests had been
 quietly relying on exactly that.
+
+## §930 / §930.1 — §929's rule one level up, and the accessor arm (+74)
+
+§929's finding was structural, so the question it raises is where else the same
+shape lives. `get_type_from_type_literal` is the obvious next floor: it carries an
+explicit *all-or-nothing* rule, stated at one of its own decline sites as
+
+> A signature this port cannot build is a gap for the *whole* literal … a partial
+> object type is a wrong answer that looks like a right one.
+
+That rule is sound for a member that would be **dropped**. It is not sound for a
+member whose annotation merely fails to resolve, because upstream does not drop
+that member — it gives it `errorType` and prints the written annotation node.
+
+### §930 — a property signature (+33)
+
+`{ a: string; b: Array }` printed `error`, **losing the perfectly good `a`**. The
+member now keeps its written spelling with an `any` type, recorded through the
+same channel §929 uses. `Member::Property` carries a `printed: String`, so the
+spelling drops straight in.
+
+**28 `WRONG->RIGHT` + 5 `GAP->RIGHT` against 3 `GAP->WRONG`, zero
+`RIGHT->WRONG`.** `normalizedIntersectionTooComplex` 18.
+
+### §930.1 — an accessor (+41 more)
+
+A `GetAccessorDeclaration` or `SetAccessorDeclaration` in a type literal fell to
+the trailing `_ => return error` and took the whole literal with it. Upstream
+resolves a get/set pair to **one property symbol** and the node builder prints it
+as a property:
+
+```ts
+var x: { get a(): string };                      // { readonly a: string; }
+var y: { get b(): string; set b(v: string) };    // { b: string; }
+var z: { set c(v: number) };                     // { c: number; }
+```
+
+`readonly` comes from **there being no setter**, not from get-ness — which is why
+`z` is writable and `y` is not readonly. A setter whose pair also declares a
+getter contributes nothing, or the member would print twice; both are asserted.
+
+**57 `WRONG->RIGHT` + 17 `GAP->RIGHT` against 5 `GAP->WRONG`, zero
+`RIGHT->WRONG`** (cumulative with §930). `normalizedIntersectionTooComplex` 18,
+`divergentAccessorsTypes1` 12, `circularAccessorAnnotations` 8.
+
+`right` 442,500 → **442,574**.
+
+### The all-or-nothing rule survives, narrowed
+
+Only the *unresolvable-annotation* reason is removed. Every other `return error`
+in that function stands, and they are the reason the rule is still stated there. A
+member this port would have to **invent** a spelling for still declines the
+literal whole — that is the line, and it is the same line §929 drew.
+
+### Four more pinned tests moved, and one retired
+
+- `signature_members.rs`'s `a_member_this_port_still_cannot_render_gaps_the_whole_literal`
+  has **no subject left**: every assertion it held has moved, in three steps
+  (`bd tsr-eep`, §929, §930.1). The name is kept so that is visible, and the
+  entry says plainly that *this file no longer has an example of the rule* rather
+  than hunting a fixture until one gapped.
+- `alias_naming.rs`'s `naming_pays_only_where_the_body_computes` has now watched
+  its frontier advance **three times and been wrong none of them** — which is
+  what it was written to detect. Its own comment already said "twice now"; this
+  is the third.
+- `types.rs`'s `an_object_type_with_a_member_this_port_cannot_render_is_a_gap`
+  inverted.
+
+**Across §929 and §930 that is ten pinned tests whose subject the port outgrew.**
+Every one was a correct record of a real limit at the time it was written. The
+pattern worth naming: *a test that pins a limitation is a liability the moment the
+limitation is structural rather than semantic*, because the structural fix moves
+all of them at once and each has to be re-reasoned separately.
