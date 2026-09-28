@@ -5975,3 +5975,53 @@ Not implemented here: it is a new type-construction function in the destructurin
 area, and this session has already produced one unbalanced-brace build break from
 hand-editing under fatigue. **The right shape for it is its own session opening with
 this note**, and the bar is easy to write because the population is one query away.
+
+### §882.1: the census's node is an assignment PATTERN, and three guesses were wrong
+
+§882 filed this as `getTypeFromObjectBindingPattern`. Mapping the wrong positions to
+assertions — which §882 should have done before naming a function — says otherwise.
+The first wrong position is **109**, not the interface at 6:
+
+```
+A110  >{ skills: { primary: primaryA = "primary", … } = { primary: "none", … } }
+        want { skills?: { primary?: string; secondary?: string; }; }
+        got  { skills?: { primary:  string; secondary:  string; }; }
+A111  >skills : { primary?: string; secondary?: string; }
+```
+
+It is a **destructuring assignment pattern** in a `for ({…} of …)` head, not a
+binding pattern and not an interface.
+
+Three things ruled out by reading, each of which §882 or I had assumed:
+
+1. **The interface member is RIGHT.** `A7 >skills : { primary?: string; … }` is not
+   in the wrong set, and four probes confirm nested written `?` prints correctly at
+   top level, nested, doubled, and through a property access.
+2. **`is_assignment_pattern_target` already handles this**, including the
+   `ForInOrOfStatement` head (§451) and the `=` left-hand side — so
+   `in_destructuring_pattern` is true for the inner literal too.
+3. **`check_object_literal` already sets `member_optional`** when
+   `in_destructuring_pattern` and the member's initializer is an `=` binary — which
+   is why the port gets the **outer** `skills?` right.
+
+So the optionality rule is present and fires. What differs is **which node supplies
+the inner type**: the port's `skills` member types as the binary
+`{PATTERN} = {DEFAULT}`, whose value is the DEFAULT's type
+(`{ primary: string; secondary: string; }` — no defaults, so no `?`), where upstream
+reports the PATTERN's type.
+
+### The one open question, and the exact place to read it
+
+`checkPropertyAssignment` (`checker.go:13673`) computes the member type as
+`checkExpressionForMutableLocation(node.Initializer())`, and the initializer here is
+that `=` binary. **Hypothesis, unverified:** for a destructuring assignment
+upstream's binary road answers the LEFT pattern's type rather than the right's, which
+would make `skills` the inner pattern's implied type and carry the inner `?`s.
+
+That is stated as a hypothesis on purpose. I asserted three things in this thread
+without reading them and all three were wrong; the next step is to read
+`checkBinaryLikeExpression`'s `=` arm and `checkDestructuringAssignment`'s return
+value, **and only then** write a bar.
+
+Still 90 lines across 10 cases, still worth doing, and now pointed at the right
+construct.
