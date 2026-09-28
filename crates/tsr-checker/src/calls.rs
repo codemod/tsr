@@ -1056,9 +1056,41 @@ impl Checker<'_, '_> {
                         && has_correct_arity(candidate, argument_count)
                 })
                 .collect();
-            match survivors.as_slice() {
-                [survivor] => Some((*survivor).clone()),
-                _ => None,
+            if let [survivor] = survivors.as_slice() {
+                Some((*survivor).clone())
+            } else {
+                // §917: two or more arity survivors go to `chooseOverload`'s
+                // ARGUMENT pass, which §916's shift makes reachable — each
+                // candidate is shifted past its strings-array parameter so the
+                // rest pair with the substitutions by index, exactly as a call's
+                // do. The pick is mapped back to the UNSHIFTED candidate by
+                // declaration, so the signature that leaves here is the real one
+                // and only the selection used the shifted view.
+                let substitutions: Vec<Expression<'_>> = match node.template {
+                    Some(tsr_ast::TemplateLiteral::TemplateExpression(expression)) => {
+                        expression.template_spans.iter().filter_map(|s| s.expression).collect()
+                    }
+                    _ => Vec::new(),
+                };
+                let shifted: Vec<Signature> = candidates
+                    .iter()
+                    .filter(|candidate| !candidate.parameters.is_empty())
+                    .map(|candidate| {
+                        let mut shifted = candidate.clone();
+                        shifted.parameters.remove(0);
+                        shifted
+                    })
+                    .collect();
+                if shifted.len() == candidates.len() {
+                    self.choose_overload(&shifted, &substitutions, false).and_then(|picked| {
+                        candidates
+                            .iter()
+                            .find(|candidate| candidate.declaration == picked.declaration)
+                            .cloned()
+                    })
+                } else {
+                    None
+                }
             }
         } else {
             None

@@ -8021,3 +8021,35 @@ and `T` *is* the return type here, so no widening happens — the same rule that
 makes `f(42)` on `f<T>(x: T): T` record `42`. Corrected in the test with the rule
 beside it. **Ninth wrong expectation of the session**, all in the same direction:
 assuming a widening upstream does not perform.
+
+## §917: overload selection by the substitutions' types — +38
+
+§916's shift, applied to selection as well as inference. §914 could only pick an
+overload when **exactly one** candidate survived on arity; two or more kept the
+gap, because `chooseOverload`'s argument pass needs arguments.
+
+The same trick serves: shift every candidate past its strings-array parameter, run
+`choose_overload` over the substitutions, and **map the pick back to the unshifted
+candidate by declaration** — so the signature that leaves is the real one and only
+the selection used the shifted view.
+
+**Measured: 34 `WRONG→RIGHT` + 4 `GAP→RIGHT` against 5 `GAP→WRONG`, zero
+`RIGHT→WRONG`. +38.** `taggedTemplateStringsWithOverloadResolution3` 13 + 13,
+`…Resolution1` 4, `…Resolution2` 2 + 2.
+
+### The tagged-template family, closed out
+
+| entry | slice | measured |
+|---|---|---|
+| §914 | written type arguments; single arity survivor | +14 |
+| §916 | inference from the substitutions | +77 |
+| §917 | overload selection by substitution types | +38 |
+| | | **+129 of the family's 418** |
+
+All three are the same observation used three ways: **a tagged template's argument
+list differs from a call's only by a leading parameter, so shifting the SIGNATURE
+is equivalent to synthesising the ARGUMENT** — and the signature side needs no new
+type, no new enum, and no change to the machinery that consumes it.
+
+§914 and §915 both named the argument-side refactor as the prerequisite. It was
+never required, and two entries asserting it did not make it true.

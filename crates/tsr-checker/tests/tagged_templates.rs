@@ -219,3 +219,20 @@ fn a_generic_tag_with_no_substitutions_still_gaps() {
         "error"
     );
 }
+
+/// §917: two or more arity survivors go to `chooseOverload`'s argument pass,
+/// which §916's shift makes reachable — the candidates are shifted past the
+/// strings-array parameter so their remaining parameters pair with the
+/// substitutions by index, exactly as a call's do. The pick is mapped back to
+/// the UNSHIFTED candidate by declaration.
+///
+/// Corpus effect: 34 `WRONG->RIGHT`, 4 `GAP->RIGHT` against 5 `GAP->WRONG`, zero
+/// `RIGHT->WRONG`.
+#[test]
+fn an_overloaded_tag_is_selected_by_its_substitution_types() {
+    let prelude = "interface TemplateStringsArray { readonly raw: readonly string[]; }\n\
+         declare function f(s: TemplateStringsArray, a: number): string;\n\
+         declare function f(s: TemplateStringsArray, a: string): boolean;\n";
+    assert_eq!(type_of_last(&format!("{prelude}const x = f`v${{1}}w`;")), "string");
+    assert_eq!(type_of_last(&format!("{prelude}const x = f`v${{\"s\"}}w`;")), "boolean");
+}
