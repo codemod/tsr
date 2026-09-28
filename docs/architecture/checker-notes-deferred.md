@@ -6075,3 +6075,57 @@ it produced corrections rather than lines.
 re-opened, start at `type_symbol_baseline.go`'s handling of an assignment-pattern
 position, not at the checker — every checker path here has now been read and none
 of them explains the baseline.
+
+## §883: the instrumentation §881 named, built — and it localised the row in one run
+
+§881 stopped because *"telling the two apart needs the probe to carry the baseline
+position alongside the type, and `type_id_at_location_tracking` does not receive
+it"*, and filed threading it as the next step. The threading was unnecessary: the
+information was already computed and thrown away.
+
+`verdict.rs` splits both the wanted and the got line into `(expression, type)` to
+decide whether a row is *aligned* — and then builds the row from the types only:
+
+```rust
+let (Some((we, wt)), Some((ge, gt))) = ( … ) else { continue };
+if we != ge.as_str() { continue; }
+let verdict = if gt == "error" { "GAP" } else { "WRONG" };
+out.push(format!("{}:{index}:{position}\t{verdict}\t{wt}\t{gt}", case.name));
+```
+
+`we` is the expression. **One line puts it back**, behind `TSR_VERDICT_EXPR=1` so
+`scorepair`'s tab-parsing sees the same four columns it always has (§827's
+treatment). Verified: four columns without the variable, five with, and
+`scorepair` reports no transitions.
+
+### What it found, immediately
+
+§881 could say only *"some accesses re-union `undefined` and some do not"*. With the
+expression column, one run over `elementAccessChain`:
+
+```
+4  o2?.["b"]!              want { c: string; } | undefined
+2  o5["b"]?.()             want … | undefined
+2  o5["b"]?.()["c"]
+2  o5.b?.()                2  o5.b?.()["c"]
+```
+
+Two families, both the same mechanism seen from different sides:
+
+1. **An optional chain followed by `!`.** `o2?.["b"]!` keeps the chain's `undefined`
+   upstream — the non-null assertion removes the *operand's* nullability, not the
+   chain's, which is re-unioned at the chain's end. This port applies the strip and
+   the chain's `undefined` never comes back.
+2. **An optional CALL in a chain.** `o5.b?.()` and the element access on its result.
+   `checker-notes-callres.md` §22 records the call road as re-unioning `undefined`
+   "when anything was stripped" — so this is the same rule reached through the
+   `?.()` spelling.
+
+That is a named construct with a named upstream rule, which is what three rounds of
+probing could not produce.
+
+> **The lesson is about instruments, not about chains.** §872–§882 spent eight
+> entries and a dozen probe builds guessing at which node was failing, and the
+> answer was one discarded local variable in a file every one of those runs already
+> executed. **When a probe keeps asking "which one?", check whether the instrument
+> already computed the answer before asking a different question.**

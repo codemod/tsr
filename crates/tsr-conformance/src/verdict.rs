@@ -67,7 +67,29 @@ pub fn verdict_rows(filter: &[String]) -> Vec<String> {
                         continue;
                     }
                     let verdict = if gt == "error" { "GAP" } else { "WRONG" };
-                    out.push(format!("{}:{index}:{position}\t{verdict}\t{wt}\t{gt}", case.name));
+                    // §883: `TSR_VERDICT_EXPR=1` appends the EXPRESSION as a
+                    // fifth column. `we` is computed here to decide alignment
+                    // and was then thrown away, and every investigation from
+                    // §872 onward wanted it back: a row saying
+                    // `position -> expression -> want -> got` is the
+                    // difference between "some accesses re-union `undefined`
+                    // and some do not" (§881, which could go no further) and
+                    // knowing WHICH.
+                    //
+                    // Env-gated because `scorepair` parses these rows by tab
+                    // and a fifth column would change the format it reads —
+                    // §827's treatment, for the same reason.
+                    if std::env::var_os("TSR_VERDICT_EXPR").is_some() {
+                        out.push(format!(
+                            "{}:{index}:{position}\t{verdict}\t{wt}\t{gt}\t{we}",
+                            case.name
+                        ));
+                    } else {
+                        out.push(format!(
+                            "{}:{index}:{position}\t{verdict}\t{wt}\t{gt}",
+                            case.name
+                        ));
+                    }
                 }
             }
             out
