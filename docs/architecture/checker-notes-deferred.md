@@ -7931,3 +7931,44 @@ Neither is blocked on an idea; both are blocked on **giving the resolution road 
 notion of an argument that is a TYPE rather than an expression**. `choose_overload`
 and `check_generic_call` are both index-driven over `&[Expression]`. That is the
 one change, and it is the prerequisite for the remaining 404.
+
+## §915: contextual typing of a tagged template's substitutions — built, zero, reverted
+
+§914 named two remaining blockers for `taggedTemplate*`'s 404 rows and said the
+contextual half *"does not wait on"* the argument-road refactor, because it needs
+only the parameter's type.
+
+Built: a `TemplateSpan` arm in `get_contextual_type` returning the tag signature's
+parameter at `index + 1` — the `+1` being the synthetic `TemplateStringsArray` at
+position 0. `has_no_contextual_type` has known this routing since §865 (it answers
+*"there IS a contextual type here"* for a tagged span) and `get_contextual_type`
+had no arm to produce one, which is the shape that has paid eleven times this
+session.
+
+**Measured: zero.** First build declined outright — `single_call_signature`
+refuses a generic, and every tag in `taggedTemplateContextualTyping1/2` is
+generic. Allowing a generic single signature through (§75's rule: the substitution
+adopts the tag's type parameters) made the arm fire and still measured **no gain,
+plus 3 `WRONG→GAP`**. Reverted.
+
+### Why, and what it corrects in §914
+
+§914 wrote that the contextual half needs only the parameter's type. **That is
+wrong.** The parameter of a generic tag is `(x: T) => T`, and a contextual type
+mentioning an uninferred `T` does not type the substitution — the substitution's
+own type is what *drives* the inference that gives `T` a value. Supplying the
+uninstantiated parameter hands the arrow a contextual type whose content depends
+on the arrow.
+
+So the contextual half does **not** come free of the inference half; it is the
+same blocker seen from the other side, and §914's sentence is corrected here
+rather than left standing. **The prerequisite for all 404 rows is the one §914
+named second: an argument that is a TYPE rather than an expression**, so the
+strings array can occupy position 0 and inference can run over the substitutions.
+
+> The eleven-times pattern — *a capability present and a caller that does not
+> consult it* — has a failure mode, and this is it. The caller was missing for a
+> reason: what it would have consulted is not sufficient. **Checking that the
+> capability's output is the ANSWER and not an ingredient is the same test §911
+> failed**, and I did not apply it here despite having written it down two entries
+> earlier.
