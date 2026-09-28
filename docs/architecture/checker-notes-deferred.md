@@ -6025,3 +6025,53 @@ value, **and only then** write a bar.
 
 Still 90 lines across 10 cases, still worth doing, and now pointed at the right
 construct.
+
+### §882.2: the hypothesis is refuted, and the thread closes undiagnosed
+
+§882.1's hypothesis — *"for a destructuring assignment upstream's binary road answers
+the LEFT pattern's type rather than the right's"* — is **wrong**, and reading it took
+two greps:
+
+```go
+// checkBinaryLikeExpression (checker.go:12336)
+if operator == ast.KindEqualsToken && (left.Kind == ast.KindObjectLiteralExpression || left.Kind == ast.KindArrayLiteralExpression) {
+    return c.checkDestructuringAssignment(left, c.checkExpressionEx(right, checkMode), checkMode, …)
+}
+
+// checkObjectLiteralAssignment (checker.go:12585)
+for i := range properties.Nodes { … }
+return sourceType
+```
+
+`sourceType` is the **right**'s type. So upstream's `{PATTERN} = {DEFAULT}` expression
+types as the default, exactly as this port does, and
+`checkPropertyAssignment`'s `checkExpressionForMutableLocation(initializer)` therefore
+sees the default's type in both compilers.
+
+**Which leaves the baseline unexplained.** It wants
+`{ skills?: { primary?: string; secondary?: string; }; }` where every function read
+so far predicts `{ skills?: { primary: string; secondary: string; }; }`. Some path
+not yet found supplies the inner `?`s — a candidate is the `.types` writer itself,
+which has its own rules for what to print at a pattern position and has already
+surprised this session twice (§841's `isRightSideOfQualifiedNameOrPropertyAccess`,
+§858's apparent-type split).
+
+### Closing the thread
+
+Four hypotheses on this census, four refutations, no landing:
+
+| | claimed | refuted by |
+|---|---|---|
+| §882 | `getTypeFromObjectBindingPattern` | the node is an assignment pattern, not a binding pattern |
+| §882.1 (a) | the interface member is wrong | it is RIGHT; four probes agree |
+| §882.1 (b) | `in_destructuring_pattern` is false for the inner | the walk handles `ForInOrOf` and the `=` left already |
+| §882.1 (c) | upstream's `=` answers the left's type | it returns `sourceType`, the right's |
+
+Every refutation was one or two greps. **The method is not the problem — the target
+is.** This census looked like one function and is not, and the three rounds spent on
+it produced corrections rather than lines.
+
+**Recorded so the next session does not re-open it on the same reading.** If it is
+re-opened, start at `type_symbol_baseline.go`'s handling of an assignment-pattern
+position, not at the checker — every checker path here has now been read and none
+of them explains the baseline.
