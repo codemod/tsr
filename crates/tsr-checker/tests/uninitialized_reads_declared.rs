@@ -160,3 +160,36 @@ fn a_call_guard_suppresses_the_rule() {
         "number"
     );
 }
+
+/// §839.2: an exported variable narrows like any other. The flow walk must be
+/// given the `SymbolFlags::VALUE` symbol, not the `VALUE | EXPORT_VALUE` one the
+/// structural half resolves — the export symbol fails every
+/// `isMatchingReference`, so the walk returns the initial type unnarrowed and
+/// this rule fires where upstream narrows.
+///
+/// Upstream's own `typeGuardsInModule.errors.txt` reports TS2454 on `var3` in
+/// the `else` branch only, which is what settles that it narrows in the `then`
+/// branch. Corpus effect: `+8, zero adverse`.
+#[test]
+fn an_exported_variable_narrows_in_the_then_branch() {
+    assert_eq!(
+        type_of_last_expression(
+            "export var strOrNum: string | number;
+             if (typeof strOrNum === \"string\") { strOrNum; }"
+        ),
+        "string"
+    );
+}
+
+/// And still reads the declared type in the `else` branch, where `undefined`
+/// survives — both halves of §839.2 in one fixture pair.
+#[test]
+fn an_exported_variable_reads_the_declared_type_in_the_else_branch() {
+    assert_eq!(
+        type_of_last_expression(
+            "export var strOrNum: string | number;
+             if (typeof strOrNum === \"string\") { strOrNum; } else { strOrNum; }"
+        ),
+        "string | number"
+    );
+}

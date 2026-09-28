@@ -2627,3 +2627,71 @@ The lesson is the session's lesson again, with a new edge: *when a population sp
 into two opposite directions, the shape is not the mechanism*. 131 lines that looked
 like one narrowing bug in two flavours were one initialization rule and, in the other
 70, presumably something else still unread.
+
+## §839.2: the flow walk was given the wrong symbol, and the residue board named it
+
+§839 left a 20-line residue and called it "the same over-widening, from a narrowing
+`subtree_has_unported_narrowing` does not yet name". **Eight of the 20 were not that
+at all — they were a defect in §839's own code**, and reading the board rather than
+believing its label is what found them.
+
+`typeGuardsInModule` 6 and `typeGuardsInExternalModule` 2 all read
+`want string got string | number`, and `typeGuardsInModule` shows the discriminator
+in one fixture: the plain `var var2` is RIGHT in both branches and the
+`export var var3` is WRONG in the `then` branch.
+
+A `TSR_DEBUG_839` probe over that case, for the two exported variables and them only:
+
+```
+839 var2: declared=string | number initial=string | number | undefined flow=string                     export_value=false fires=false
+839 var3: declared=string | number initial=string | number | undefined flow=string | number | undefined export_value=true  fires=true
+```
+
+`flow` is the initial type *unchanged* — the walk found no narrowing at all and ran
+to the top of the graph. §839's predicate resolved its symbol with
+`SymbolFlags::VALUE | SymbolFlags::EXPORT_VALUE` (correct for the §251 structural
+lookup) and then handed **that** symbol to `get_flow_type_of_reference_ex`. The type
+road hands it the `SymbolFlags::VALUE` symbol. For an `export var` those are
+different symbols, the export symbol fails every `is_matching_reference`, and the rule
+then fired on every reference to an exported variable including the ones upstream
+narrows.
+
+Upstream cannot make this mistake: `getFlowTypeOfReferenceEx`
+(`vendor/typescript-go/internal/checker/checker.go:11174`) is passed the reference
+**node** and matches by `isMatchingReference`. The symbol parameter is this port's own.
+
+### The wrong fix I nearly shipped
+
+`assumeInitialized` has an `isModuleExports` disjunct
+(`checker.go:11132`), and `export_value=true` fell out of the probe as a perfect
+discriminator on this fixture. Gating on it would have been one line and would have
+looked like a port of an upstream rule.
+
+Two facts refuted it. First, `isModuleExports` is
+`symbol.Flags&ast.SymbolFlagsModuleExports` — the `module.exports` symbol of a
+CommonJS file, not an `export var`. Second, and decisively, upstream's
+`typeGuardsInModule.errors.txt` reports TS2454 on `var3` **in the `else` branch
+only** (`ts(28,20)`, not the `then` branch at `ts(26,…)`), so upstream narrows an
+exported variable like any other and the arm fires for it exactly where it fires for
+`var2`. Gating on `EXPORT_VALUE` would also have measured **net zero** — it buys the
+six `then`-branch rows and gives back the six `else`-branch rows it is currently
+getting right.
+
+The real fix resolves the flow symbol with `SymbolFlags::VALUE`:
+**+8, and not one `RIGHT->WRONG` line**. Both branches of an exported variable are now
+right for the same reason the plain ones are.
+
+### The residue after this: 12, and it is now two kinds, not one
+
+- **`parserindenter` 10** — unread.
+- **`classDoesNotDependOnBaseTypes` 2** — **not an over-widening.** Upstream records
+  `>x : StringTree` (the declared type) inside `if (typeof x !== "string")`, so this
+  port's new answer for `x` is *right*; the two wrong lines are `x[0]`, an indexed
+  access on `string | StringTreeCollection` where the `string` constituent is now
+  present again. A downstream gap newly exposed, §828's "root is UPSTREAM" category,
+  not this rule's cost.
+
+So of §839's 20-line leg-2 cost, 8 were a bug in the change, 2 are a downstream gap
+made visible, and 10 are unread. **A leg that lands exactly at its bar is worth
+reading line by line rather than accepting**: the bar said 20 and the honest number
+was 10, and the difference was a symbol argument.

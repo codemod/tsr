@@ -6561,7 +6561,36 @@ impl Checker<'_, '_> {
             return false;
         }
         let initial = self.get_optional_type_unprinted(declared);
-        let flow = self.get_flow_type_of_reference_ex(node, Some(symbol), declared, Some(initial));
+        // §839.2: the flow walk must be given the symbol `checkIdentifier`'s
+        // own `getResolvedSymbol` would produce — `SymbolFlags::VALUE` — and
+        // **not** the `VALUE | EXPORT_VALUE` symbol resolved above for the
+        // structural half.
+        //
+        // Upstream has no choice to make here: `getFlowTypeOfReferenceEx`
+        // (`checker.go:11174`) is passed the reference *node* and matches by
+        // `isMatchingReference`, never by symbol identity. The symbol parameter
+        // is this port's own, and handing it the **export** symbol of an
+        // `export var` makes every match fail, so the walk runs to the top of
+        // the graph and returns the initial type unnarrowed — `undefined`
+        // intact, this rule firing on every reference including the ones
+        // upstream narrows.
+        //
+        // Measured, not reasoned: a `TSR_DEBUG_839` probe over
+        // `typeGuardsInModule` printed, for the two `export var`s and for them
+        // only, `export_value=true flow=string | number | undefined` where the
+        // two plain `var`s in the same fixture printed `flow=string` in the
+        // `then` branch. Upstream's `.errors.txt` for that case reports TS2454
+        // on `var3` in the **`else`** branch only, which is what says upstream
+        // narrows an exported variable like any other — `isModuleExports`
+        // (`checker.go:11132`) is the `module.exports` symbol of a CommonJS
+        // file, not an `export var`, and gating on this port's `EXPORT_VALUE`
+        // would have been a compensation for a bug rather than a port of a rule.
+        let flow_symbol = self
+            .binder
+            .resolve_name(self.nodes, self.node_map, node, text, SymbolFlags::VALUE)
+            .unwrap_or(symbol);
+        let flow =
+            self.get_flow_type_of_reference_ex(node, Some(flow_symbol), declared, Some(initial));
         if flow == self.intrinsics.error || !self.contains_undefined_type(flow) {
             return false;
         }
