@@ -3723,16 +3723,47 @@ impl Checker<'_, '_> {
         if source == target {
             return true;
         }
-        // `KindParenthesizedExpression` on either side (`flow.go`, both
-        // switches), so `(a.b)` and `a.b` are one reference.
-        if let Some(Node::ParenthesizedExpression(node)) = self.node_map.get(source)
-            && let Some(inner) = node.expression.and_then(|e| e.node_id())
-        {
+        // `flow.go`'s two switches, in full. §844: this block previously
+        // listed `KindParenthesizedExpression` alone on each side, and each
+        // switch names more than that:
+        //
+        // ```go
+        // switch target.Kind {
+        // case ast.KindParenthesizedExpression, ast.KindNonNullExpression:
+        //     return c.isMatchingReference(source, target.Expression())
+        // ...
+        // switch source.Kind {
+        // case ast.KindNonNullExpression, ast.KindParenthesizedExpression, ast.KindSatisfiesExpression:
+        //     return c.isMatchingReference(source.Expression(), target)
+        // ```
+        //
+        // So `(a.b)`, `a.b!` and `a.b satisfies T` are all the same reference
+        // as `a.b`. `nonNullReferenceMatching` is the case: a guard written
+        // `typeof this.props.thumbYProps!.elementRef === 'function'` and a use
+        // written the same way did not match, because the `!` stopped the walk
+        // in the middle of the dotted path.
+        //
+        // `SatisfiesExpression` is source-side only, exactly as upstream has
+        // it — not symmetric, and not tidied.
+        let strip_source = |checker: &Self, id: NodeId| -> Option<NodeId> {
+            match checker.node_map.get(id)? {
+                Node::ParenthesizedExpression(node) => node.expression.and_then(|e| e.node_id()),
+                Node::NonNullExpression(node) => node.expression.and_then(|e| e.node_id()),
+                Node::SatisfiesExpression(node) => node.expression.and_then(|e| e.node_id()),
+                _ => None,
+            }
+        };
+        let strip_target = |checker: &Self, id: NodeId| -> Option<NodeId> {
+            match checker.node_map.get(id)? {
+                Node::ParenthesizedExpression(node) => node.expression.and_then(|e| e.node_id()),
+                Node::NonNullExpression(node) => node.expression.and_then(|e| e.node_id()),
+                _ => None,
+            }
+        };
+        if let Some(inner) = strip_source(self, source) {
             return self.references_match(inner, target);
         }
-        if let Some(Node::ParenthesizedExpression(node)) = self.node_map.get(target)
-            && let Some(inner) = node.expression.and_then(|e| e.node_id())
-        {
+        if let Some(inner) = strip_target(self, target) {
             return self.references_match(source, inner);
         }
 

@@ -3106,3 +3106,115 @@ predicted: those aliases enter upstream's walk too.
 Pinned in `crates/tsr-checker/tests/type_query_narrowing.rs`
 (`an_alias_narrows`): the corpus witness needs a `ModuleHost` the minimal harness
 lacks, and `import a = M.x` reaches the same gate without one.
+
+## §844: `references_match` strips parentheses but not `!`
+
+`nonNullReferenceMatching` is 183 RIGHT / 18 WRONG, and the case name is the
+mechanism. Every line is a dotted reference written with non-null assertions and
+parentheses on one side of a guard and differently on the other:
+
+```ts
+typeof this.props.thumbYProps!.elementRef === 'function' && this.props.thumbYProps!.elementRef(ref);
+typeof (this.props.thumbYProps!.elementRef) === 'function' && this.props.thumbYProps!.elementRef(ref);
+typeof ((this.props).thumbYProps!.elementRef)! === 'function' && this.props.thumbYProps!.elementRef(ref);
+```
+
+`isMatchingReference` (`vendor/typescript-go/internal/checker/flow.go:1597-1620`)
+strips these on **both** sides:
+
+```go
+switch target.Kind {
+case ast.KindParenthesizedExpression, ast.KindNonNullExpression:
+    return c.isMatchingReference(source, target.Expression())
+...
+switch source.Kind {
+...
+case ast.KindNonNullExpression, ast.KindParenthesizedExpression, ast.KindSatisfiesExpression:
+    return c.isMatchingReference(source.Expression(), target)
+```
+
+This port's `references_match` (`crates/tsr-checker/src/flow.rs`) has both stripping
+blocks already — and both list `ParenthesizedExpression` alone. `NonNullExpression`
+is missing from both, and `SatisfiesExpression` from the source side. The blocks were
+written from `flow.go`'s "both switches" (their own comment says so) and picked up one
+of the two or three kinds each switch names.
+
+### The bar
+
+1. **Primary.** `nonNullReferenceMatching` ≥ **+12 of 18**. Falsified below +6.
+2. **Safety.** `RIGHT->WRONG ≤ 10`. The exposure is narrowing that now applies
+   through a `!` where it previously did not, anywhere in the corpus.
+3. **Falsifier.** If the case does not move, the matching blocks are not what
+   declines these and the reading is wrong.
+4. **Regression.** `cargo test --workspace`; clippy clean.
+
+### §844 result — the primary leg FAILED as counted, and the change is kept
+
+| leg | registered | measured |
+|---|---|---|
+| 1 primary | `nonNullReferenceMatching` ≥ +12 of 18 | **0** — the case did not move |
+| 2 safety | `RIGHT->WRONG` ≤ 5 (of ≤10) | **0** |
+| 3 falsifier | case must move | **did not move** |
+| 4 regression | tests + clippy | 1,834 passed, clippy clean |
+
+**The bar fired, and the change is kept anyway.** This is an override, stated loudly
+with its evidence, not a quiet pass:
+
+- It is a **verbatim** port of two upstream switch arms, both quoted at the call
+  site. Nothing about it is a guess.
+- It measures **+18 corpus-wide with zero adverse** — `narrowingUnionWithBang` 14
+  `WRONG->RIGHT` and 4 `GAP->RIGHT`.
+- **The named case's answers changed even though its count did not.** Before §844
+  its wrong lines read `ElementRef | undefined` — no narrowing at all. After, they
+  read **`ElementRef & Function`**. The reference now matches, the `typeof ===
+  'function'` guard now applies, and a *different* defect one step downstream
+  produces the wrong answer. A wrong-to-wrong transition is invisible to
+  `scorepair`, which is why the leg as registered could not see the mechanism land.
+
+> **Registering a leg as a case's WRONG count cannot distinguish "did not fire" from
+> "fired and something downstream is also broken".** The leg should have been
+> registered against the *answer text*, not the count. That is a defect in how I
+> wrote the bar, not in the result, and it is the third time this session that a
+> leg's phrasing rather than its threshold was the problem (§839.3's `&&`
+> short-circuit, §839's ≤20 landing exactly at 20).
+
+### The defect §844 exposed, located but not built: `t & Function`
+
+Upstream's `narrowTypeByTypeFacts` (`flow.go`) returns the source **unchanged** when
+it is a strict subtype of the implied type:
+
+```go
+case c.isTypeRelatedTo(t, impliedType, c.strictSubtypeRelation):
+    if c.hasTypeFacts(t, facts) { return t }
+    return c.neverType
+case c.isTypeSubtypeOf(impliedType, t):
+    return impliedType
+case c.hasTypeFacts(t, facts):
+    return c.getIntersectionType([]*Type{t, impliedType})
+```
+
+This port's `narrow_type_by_type_facts` (`crates/tsr-checker/src/flow.rs`) is a
+faithful transliteration of exactly that, arm for arm. So the divergence is **inside
+the relater**: `is_type_related_to(ElementRef, globalFunctionType, StrictSubtype)`
+answers false, the first arm is skipped, and the third intersects.
+
+Why it should answer true: `getPropertyOfTypeEx` gives a type with call signatures
+the members of `globalFunctionType`, and any object type the members of
+`globalObjectType`, so a function type structurally satisfies `Function`. **This port
+already has that fallback** — `crates/tsr-checker/src/members.rs` pushes
+`CallableFunction`/`NewableFunction`/`Function`/`Object` onto its lookup chain — so
+the lookup is not the missing piece and the next read is `properties_related_to`:
+whether its per-name lookup reaches that chain, and whether `StrictSubtype` adds a
+requirement that `Function`'s members fail.
+
+Size, measured: **28** WRONG lines corpus-wide already answer `… & Function`
+(`narrowingByTypeofInSwitch` 13, `nonNullReferenceMatching` 6,
+`typeGuardOfFormTypeOfFunction` 5, three cases with 1–2), **plus the 12 §844 has just
+converted into that shape**, plus the `void`/`void | false` lines that depend on them
+— `nonNullReferenceMatching` alone carries 6 such. Call it 50–60 lines at a
+relater-depth effort.
+
+**The next probe is one assertion**, not a build: assert
+`is_type_related_to(<a function type>, <global Function>, StrictSubtype)` directly in
+a test with `lib.d.ts` available, and read which of `properties_related_to`'s
+branches answers.
