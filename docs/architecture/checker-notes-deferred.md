@@ -7036,3 +7036,78 @@ Four entries (§893–§896) aimed at 75 rows. **They closed zero of them** and
 landed **+70 elsewhere**, all from genuine binding patterns. The rows are now
 located precisely for the first time, which is what §896 is: a location, not a
 change.
+
+## §897: the bar — §489's optionality copy, for an ASSIGNMENT pattern
+
+§896 located the 75 rows: they need `contextualTypeHasPattern`
+(`checker.go:13252`) where the pattern is an **assignment** pattern, not a
+binding one. §489 ported that copy already; only its *search* is
+binding-pattern-shaped.
+
+The two roads are structurally identical and this is what makes the extension
+small:
+
+| | binding pattern | assignment pattern |
+|---|---|---|
+| the pattern node | `BindingPattern` | `ObjectLiteralExpression` (LHS of `=`) |
+| an element | `BindingElement` | `PropertyAssignment` / `ShorthandPropertyAssignment` |
+| "has a default" | `element.initializer.is_some()` | initializer is a `=` binary, or a shorthand's object-assignment-initializer |
+| where the literal sits | initializer of a `VariableDeclaration` | **right** of that same `=` |
+
+`matching_pattern_element` and `implied_pattern_member_is_optional` already
+encode the binding half; the assignment half is their mirror.
+
+### The bar
+
+- **Primary.** `sourceMapValidationDestructuringForObjectBindingPatternDefaultValues2`
+  (36) and `shorthandPropertyAssignmentsInDestructuring_ES6` (18) — the two the
+  last three entries aimed at and missed — close.
+- **Safety.** The arm only ever turns a member OPTIONAL, and only for a literal
+  that is the right-hand side of an assignment whose left is an object pattern.
+  A literal outside that position cannot move. `RIGHT→` must be zero.
+- **Falsifier.** If the named cases stay shut a *fourth* time, the defect is not
+  the optionality copy at all and the whole §893–§897 reading of these rows is
+  wrong — at which point the right move is to stop and read the case's full
+  `.types` block rather than another upstream function.
+- **Regression.** A test for the assignment form, one for the binding form
+  beside it (which must not change), and one for an assignment with no default.
+
+**Named risk.** The contextual type is the LHS pattern's own literal type, so the
+arm reads the left of an assignment while checking its right. §890–§892 spent
+three entries on re-entrancy of exactly that kind. Here the search is
+**syntactic** — it never asks for the LHS's *type*, only whether its matching
+member writes a default — so no resolution is entered. That is a deliberate
+design choice and the reason this is attempted now rather than deferred with the
+rest of §896.
+
+## §897.1: +72, zero adverse — the primary leg closes for the first time in the thread
+
+`contextualTypeHasPattern`'s assignment half ported. **72 W→R, zero adverse.**
+`sourceMapValidationDestructuringForObjectBindingPatternDefaultValues2` **48**,
+`shorthandPropertyAssignmentsInDestructuring_ES6` **18**,
+`conformance/assignmentTypeNarrowing` 6.
+
+Both cases the bar named closed — the first time in §893–§897 that a bar's primary
+leg fired, after three consecutive entries whose named case stayed shut. The
+difference is not luck: §893's target was chosen from a census row's **shape**, and
+§897's from the case's **source**, read after §895 forced the question. The four
+entries between them were the cost of that distinction.
+
+The optionality copy, the member loop, `hasDefaultValue`, the assignment-target
+predicate and the name-matching helper were **all already written and all already
+correct**. What was missing was 60 lines of search — the mirror of §489's, with
+`ObjectLiteralExpression` for `BindingPattern` and "the right of this `=`" for
+"the initializer of this declaration".
+
+The named risk did not materialise. The search never asks for the left-hand
+pattern's *type*, only whether its matching member writes a default, so nothing
+re-enters — which is why it could be attempted here rather than deferred with the
+rest of §896.
+
+### The thread's arithmetic, closed
+
+§893–§897: **+142 right, 4 `GAP→WRONG`, zero `RIGHT→`**, of which the 75 rows that
+started it account for 66. The three entries that missed were not wasted — §895's
+extraction is what made the recursion possible and §896's location is what made
+§897 a 60-line search instead of a fourth guess — but the ledger is honest: three
+entries of the five aimed at the wrong road.

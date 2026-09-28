@@ -591,6 +591,61 @@ impl<'a> Checker<'a, '_> {
             _ => None,
         }
     }
+
+    /// §897: the ASSIGNMENT pattern whose type is this literal's contextual
+    /// type — `contextualTypeHasPattern` (`checker.go:13252`) for the half
+    /// §489 did not search for.
+    ///
+    /// `({ a: x = 1 } = { a: 2 })` types the RIGHT literal against the LEFT
+    /// pattern, and the left's defaulted properties are optional
+    /// (`checker.go:13248`), so the right's copy them. Structurally this is
+    /// §489 with `ObjectLiteralExpression` in place of `BindingPattern` and
+    /// "the right of this `=`" in place of "the initializer of this
+    /// declaration".
+    ///
+    /// **Purely syntactic.** It never asks for the left-hand pattern's *type*,
+    /// only whether its matching member writes a default — so checking the
+    /// right of an assignment never enters a resolution for the left. That is
+    /// what makes the arm safe to run here at all; §890–§892 spent three
+    /// entries on re-entrancy of exactly this shape.
+    fn contextual_assignment_pattern(
+        &self,
+        literal: tsr_ast::NodeId,
+    ) -> Option<&'a tsr_ast::ObjectLiteralExpression<'a>> {
+        let parent = self.nodes.parent(literal)?;
+        match self.node_map.get(parent)? {
+            tsr_ast::Node::BinaryExpression(binary) => {
+                if binary.operator_token.is_none_or(|t| t.kind != tsr_ast::SyntaxKind::EqualsToken)
+                    || binary.right.and_then(|r| r.node_id()) != Some(literal)
+                {
+                    return None;
+                }
+                let Some(tsr_ast::Expression::ObjectLiteralExpression(pattern)) = binary.left
+                else {
+                    return None;
+                };
+                // The left must really BE a pattern, not an ordinary literal in
+                // an expression position the grammar happens to allow.
+                pattern
+                    .node_id
+                    .is_some_and(|id| self.is_assignment_pattern_target(id))
+                    .then_some(pattern)
+            }
+            // A property value inside a literal that has one, through the
+            // matching element whose own value is a nested pattern — §489's
+            // second arm, mirrored.
+            tsr_ast::Node::PropertyAssignment(assignment) => {
+                let object = self.nodes.parent(parent)?;
+                let outer = self.contextual_assignment_pattern(object)?;
+                let member = matching_assignment_member(outer, &assignment.name)?;
+                match assignment_member_pattern(member) {
+                    Some(inner) => Some(inner),
+                    None => None,
+                }
+            }
+            _ => None,
+        }
+    }
 }
 
 impl Checker<'_, '_> {
@@ -651,6 +706,10 @@ impl Checker<'_, '_> {
         // `({name: nameA = "noName"} = robot)` prints `{ name?: string; }`.
         let in_destructuring_pattern =
             node.node_id.is_some_and(|id| self.is_assignment_pattern_target(id));
+        // §897: the ASSIGNMENT pattern this literal is typed against, if any —
+        // `({ a: x = 1 } = { a: 2 })` gives the right literal `{ a?: number; }`.
+        let contextual_assignment =
+            node.node_id.and_then(|id| self.contextual_assignment_pattern(id));
         // §489: `contextualTypeHasPattern`'s BINDING half (`checker.go:13253`,
         // §365 built the assignment half above): a literal contextually typed
         // by the IMPLIED TYPE of an object binding pattern copies each implied
@@ -702,6 +761,11 @@ impl Checker<'_, '_> {
                         && implied_pattern_member_is_optional(pattern, &assignment.name)
                     {
                         // §489 — the `impliedProp.Flags & Optional` copy.
+                        member_optional = true;
+                    } else if let Some(pattern) = contextual_assignment
+                        && assignment_pattern_member_is_optional(pattern, &assignment.name)
+                    {
+                        // §897 — the same copy, from an ASSIGNMENT pattern.
                         member_optional = true;
                     }
                     (assignment.name, PropertyValue::Initializer(initializer))
@@ -1910,6 +1974,67 @@ fn matching_pattern_element<'a>(
     pattern.elements.iter().copied().find(|element| {
         element.dot_dot_dot_token.is_none()
             && element_name_text(element).is_some_and(|text| text == member_name)
+    })
+}
+
+/// §897: the member of an ASSIGNMENT pattern that a written name matches.
+/// `matching_pattern_element`'s mirror for object-literal members.
+fn matching_assignment_member<'a>(
+    pattern: &'a tsr_ast::ObjectLiteralExpression<'a>,
+    name: &tsr_ast::PropertyName<'_>,
+) -> Option<&'a tsr_ast::ObjectLiteralElementLike<'a>> {
+    let member_name = property_name_text(name)?;
+    pattern.properties.iter().find(|property| match property {
+        tsr_ast::ObjectLiteralElementLike::PropertyAssignment(assignment) => {
+            property_name_text(&assignment.name).is_some_and(|text| text == member_name)
+        }
+        tsr_ast::ObjectLiteralElementLike::ShorthandPropertyAssignment(shorthand) => {
+            property_name_text(&shorthand.name).is_some_and(|text| text == member_name)
+        }
+        _ => false,
+    })
+}
+
+/// §897: the nested assignment pattern a member's value is, if it is one —
+/// either `{ a: { b } }` or `{ a: { b } = d }`, whose left is the pattern.
+fn assignment_member_pattern<'a>(
+    member: &'a tsr_ast::ObjectLiteralElementLike<'a>,
+) -> Option<&'a tsr_ast::ObjectLiteralExpression<'a>> {
+    let tsr_ast::ObjectLiteralElementLike::PropertyAssignment(assignment) = member else {
+        return None;
+    };
+    match assignment.initializer? {
+        tsr_ast::Expression::ObjectLiteralExpression(inner) => Some(inner),
+        tsr_ast::Expression::BinaryExpression(binary)
+            if binary
+                .operator_token
+                .is_some_and(|t| t.kind == tsr_ast::SyntaxKind::EqualsToken) =>
+        {
+            match binary.left {
+                Some(tsr_ast::Expression::ObjectLiteralExpression(inner)) => Some(inner),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
+/// §897: whether the assignment pattern's matching member writes a DEFAULT,
+/// which is what makes the implied property optional (`checker.go:13248`).
+fn assignment_pattern_member_is_optional(
+    pattern: &tsr_ast::ObjectLiteralExpression<'_>,
+    name: &tsr_ast::PropertyName<'_>,
+) -> bool {
+    matching_assignment_member(pattern, name).is_some_and(|member| match member {
+        tsr_ast::ObjectLiteralElementLike::PropertyAssignment(assignment) => matches!(
+            assignment.initializer,
+            Some(tsr_ast::Expression::BinaryExpression(binary))
+                if binary.operator_token.is_some_and(|t| t.kind == tsr_ast::SyntaxKind::EqualsToken)
+        ),
+        tsr_ast::ObjectLiteralElementLike::ShorthandPropertyAssignment(shorthand) => {
+            shorthand.object_assignment_initializer.is_some()
+        }
+        _ => false,
     })
 }
 

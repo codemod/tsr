@@ -450,3 +450,38 @@ fn reading_a_property_back_gives_what_the_literal_recorded() {
     let source = "const o = { a: \"x\" } as const;\no.a;";
     assert_eq!(type_of_last_expression_statement(source), "\"x\"");
 }
+
+/// §897: `contextualTypeHasPattern` (`checker.go:13252`) where the pattern is an
+/// **assignment** pattern. The right-hand literal is typed against the left-hand
+/// pattern, whose defaulted properties are optional (`checker.go:13248`), so the
+/// right's copy that optionality.
+///
+/// §489 ported this copy for BINDING patterns; only its search was
+/// binding-shaped. An assignment yields its right-hand type, so typing the whole
+/// assignment is typing the right literal.
+///
+/// Corpus effect: `WRONG->RIGHT 72`, zero adverse —
+/// `sourceMapValidationDestructuringForObjectBindingPatternDefaultValues2` 48,
+/// `shorthandPropertyAssignmentsInDestructuring_ES6` 18. The two cases three
+/// earlier entries aimed at and missed.
+#[test]
+fn an_assignment_pattern_makes_the_matching_member_optional() {
+    let source = "let x;\nconst r = ({ a: x = 1 } = { a: 2 });";
+    assert_eq!(type_of_initialiser_at(source, 1), "{ a?: number; }");
+}
+
+/// The shorthand spelling carries its default in `objectAssignmentInitializer`
+/// rather than in an `=` binary, and counts the same.
+#[test]
+fn a_shorthand_default_in_an_assignment_pattern_counts() {
+    let source = "let a;\nconst r = ({ a = 1 } = { a: 2 });";
+    assert_eq!(type_of_initialiser_at(source, 1), "{ a?: number; }");
+}
+
+/// The control: an assignment pattern with NO default leaves the member
+/// required. The arm must key on the default, not on the position.
+#[test]
+fn an_assignment_pattern_without_a_default_leaves_the_member_required() {
+    let source = "let x;\nconst r = ({ a: x } = { a: 2 });";
+    assert_eq!(type_of_initialiser_at(source, 1), "{ a: number; }");
+}
