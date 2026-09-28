@@ -414,6 +414,29 @@ pub struct Checker<'a, 'n> {
     /// **on**; each is a separately measurable change and `bd tsr-e10` names
     /// the optionality one.
     pub(crate) strict_null_checks: bool,
+
+    /// `strictBindCallApply` (`checker.go:919-926`), read by the property
+    /// fallback chain in [`crate::members`] and nothing else.
+    ///
+    /// It decides what `getGlobalStrictFunctionType` answers:
+    ///
+    /// ```go
+    /// func (c *Checker) getGlobalStrictFunctionType(name string) *Type {
+    ///     if c.strictBindCallApply {
+    ///         return c.getGlobalType(name, 0 /*arity*/, true /*reportErrors*/)
+    ///     }
+    ///     return c.globalFunctionType
+    /// }
+    /// ```
+    ///
+    /// With the flag off, `globalCallableFunctionType` **is**
+    /// `globalFunctionType`, so `f.bind` resolves to `Function.bind` and
+    /// relating a function type to `Function` is identity. Resolving it to
+    /// `CallableFunction`'s generic `this`-parameter overloads instead asks the
+    /// relater a structurally hard question it answers `false`, which is what
+    /// produced the corpus's `ElementRef & Function` rows
+    /// (`docs/architecture/checker-notes-deferred.md` §846).
+    pub(crate) strict_bind_call_apply: bool,
     /// `noImplicitThis`, the fifth member of the strict family — the four
     /// beside it were ported when their consumers arrived, and TS2683 is this
     /// one's. §416.
@@ -987,6 +1010,9 @@ impl<'a, 'n> Checker<'a, 'n> {
             instantiation_depth: 0,
             instantiation_count: 0,
             strict_null_checks: true,
+            // Mirrors `strict_null_checks`' struct default; every corpus road
+            // calls `apply_compiler_options`, which overrides both.
+            strict_bind_call_apply: true,
             no_implicit_this: false,
             module_kind: tsr_core::ModuleKind::None,
             legacy_decorators: false,
@@ -1109,6 +1135,7 @@ impl<'a, 'n> Checker<'a, 'n> {
     pub fn apply_compiler_options(&mut self, options: &tsr_core::CompilerOptions) {
         // The strict family (`checker.go:919-926`).
         self.strict_null_checks = options.strict_option_value(options.strict_null_checks);
+        self.strict_bind_call_apply = options.strict_option_value(options.strict_bind_call_apply);
         self.no_implicit_this = options.strict_option_value(options.no_implicit_this);
         self.legacy_decorators = options.experimental_decorators.is_true();
         // `GetEmitStandardClassFields` — the flag, defaulting to

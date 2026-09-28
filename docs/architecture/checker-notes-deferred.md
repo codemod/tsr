@@ -3291,3 +3291,129 @@ That falsifier is one build and one run, and it answers the trade directly rathe
 than by argument. I did not run it because it belongs to a bar of its own, and
 because a change that moves two large populations in opposite directions should not
 be measured at the end of a session and landed on the strength of one number.
+
+## §846: §845's cause was WRONG — the prepend is faithful, the missing thing is the FLAG
+
+§845 concluded that `members.rs`'s `CallableFunction`/`NewableFunction` prepend was
+"port-specific" and that upstream "falls back to `globalFunctionType` only", reached
+`CallableFunction` by a different road, and that removing the prepend was the fix but
+would collide with `strictBindCallApply1`. **Reading `getPropertyOfTypeEx` in full
+refutes all of that**
+(`vendor/typescript-go/internal/checker/checker.go`):
+
+```go
+var functionType *Type
+switch {
+case t == c.anyFunctionType:
+    functionType = c.globalFunctionType
+case len(resolved.CallSignatures()) != 0:
+    functionType = c.globalCallableFunctionType
+case len(resolved.ConstructSignatures()) != 0:
+    functionType = c.globalNewableFunctionType
+}
+```
+
+Upstream uses the callable/newable types in exactly the place this port does, keyed
+on exactly the same thing. **The prepend is a faithful port.** §845's "cause" was an
+inference from a two-line grep of `getPropertyOfType`, which forwards to `…Ex`; I did
+not read the function I was drawing the conclusion from, and wrote a whole trade-off
+analysis and a "do not build this" recommendation on top of it.
+
+The actual difference is one function further:
+
+```go
+func (c *Checker) getGlobalStrictFunctionType(name string) *Type {
+	if c.strictBindCallApply {
+		return c.getGlobalType(name, 0 /*arity*/, true /*reportErrors*/)
+	}
+	return c.globalFunctionType
+}
+```
+
+**`CallableFunction` and `NewableFunction` are used only when `strictBindCallApply`
+is on.** Otherwise both *are* `globalFunctionType`. So for the ordinary case —
+`typeGuardOfFormTypeOfFunction` and everything else that does not set the flag —
+upstream resolves `f.bind` to `Function.bind`, compares it against the target
+`Function`'s own `bind`, and the relation is **identity**. This port resolves it to
+`CallableFunction`'s two generic `this`-parameter overloads unconditionally, asks the
+relater a structurally hard question, gets `false`, and falls to the intersect arm —
+producing `ElementRef & Function`.
+
+The flag exists in `tsr-core` (`crates/tsr-core/src/options.rs`,
+`strict_bind_call_apply`) and **the checker never reads it**.
+
+> This also dissolves the collision §845 invented. The fix is not "remove the
+> prepend and lose `strictBindCallApply1`"; it is "apply the prepend **when the flag
+> says to**", which is what `strictBindCallApply1` sets and what the `& Function`
+> cases do not. The two populations were never in opposition — that was an artefact
+> of a cause I had not verified.
+
+### The bar
+
+1. **Primary.** The `… & Function` rows: ≥ **+40**. Falsified below +20.
+2. **Safety.** `RIGHT->WRONG ≤ 10`, **and `strictBindCallApply1` must not regress at
+   all** — it is the case that sets the flag, so it should be untouched. Any loss
+   there falsifies the flag reading rather than costing a line.
+3. **Falsifier.** If the `& Function` rows do not fall, the cause is wrong for the
+   second time and I stop reading and start instrumenting.
+4. **Regression.** `cargo test --workspace`; clippy clean.
+
+### §846 result — a faithful fix, a falsified primary leg, and a cause wrong TWICE
+
+| leg | registered | measured |
+|---|---|---|
+| 1 primary | `… & Function` rows ≥ +40, falsified below +20 | **0** — **falsified** |
+| 2 safety | ≤10, `strictBindCallApply1` untouched | **0 adverse**, that case untouched |
+| 3 falsifier | rows must fall | did not fall |
+| 4 regression | tests + clippy | 1,834 passed, clippy clean |
+
+**Kept: +9, zero adverse** (`returnTypeParameterWithModules` 3,
+`fatarrowfunctionsInFunctionParameterDefaults` 3, `genericTypeParameterEquivalence2`
+3). Gating the prepend on `strictBindCallApply` is a verbatim port of
+`getGlobalStrictFunctionType` and is right on its own terms — it just is not the
+cause of the rows it was built for.
+
+The bar said *"if the rows do not fall, the cause is wrong for the second time and I
+stop reading and start instrumenting"*, and that is what settled it:
+
+```
+846 t=() => string flag=true
+      src.bind={ <T>(this: T, thisArg: ThisParameterType<T>): OmitThisParameter<T>;
+                 <T, A extends any[], B extends any[], R>(this: (this: T, ...args: [...A, ...B]) => R,
+                                                          thisArg: T, ...args: A): (...args: B) => R; }
+   target.bind=(this: Function, thisArg: any, ...argArray: any[]) => any
+```
+
+**`flag=true`.** `typeGuardOfFormTypeOfFunction` sets `strict`, so upstream takes the
+`CallableFunction` branch there too — and still relates. The flag is ruled out **by
+measurement**, and the cause is now definitively the **relater's signature
+comparison**: a generic two-overload source against a target signature whose
+parameters and return are `any`. Upstream's relation succeeds trivially there; this
+port's answers `false`.
+
+### Two wrong causes in a row, and they are the same mistake
+
+- **§845** read `getPropertyOfType` — a two-line function that forwards to
+  `getPropertyOfTypeEx` — and concluded from the forwarding that upstream "falls back
+  to `globalFunctionType` only". `…Ex` says the opposite: it uses
+  `globalCallableFunctionType` in exactly the place this port does. I then built a
+  trade-off analysis, a size table, and a *"do not build this"* recommendation on top
+  of a function I had not opened.
+- **§846** read `getGlobalStrictFunctionType` correctly, and then **assumed the
+  failing cases had the flag off** without checking. One probe — the one that
+  eventually ran — prints `flag=true` and would have killed the bar before it was
+  written.
+
+Both are one failure: **acting on an unverified link in the chain.** This session had
+already paid for it twice (§839.1's "the guard must not be reused", §839.4's
+"upstream never keys by initial type"), which makes four. The cost each time was a
+build and a full `scorepair`; the check each time was a single `sed` or one probe
+line.
+
+> **The rule this earns: before a bar is registered, every link it depends on must
+> have been *read or measured in this session*, not inferred.** §845 and §846 both
+> stated their link as fact in the bar's own text, which is exactly where an
+> unverified claim is least visible.
+
+The `& Function` row remains open, now correctly located, at an honest size: **~50–60
+lines, in the relater's signature comparison**, which is `STATUS.md` §4.2's territory.

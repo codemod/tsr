@@ -1490,10 +1490,33 @@ impl Checker<'_, '_> {
                 let all_construct = signatures.iter().all(|signature| {
                     !matches!(signature.kind, crate::signatures::SignatureKind::Call)
                 });
-                if all_construct {
-                    fallbacks.push("NewableFunction");
-                } else {
-                    fallbacks.push("CallableFunction");
+                // §846: `CallableFunction`/`NewableFunction` are
+                // `getGlobalStrictFunctionType`'s answer, and that function is
+                // gated on the flag:
+                //
+                // ```go
+                // func (c *Checker) getGlobalStrictFunctionType(name string) *Type {
+                //     if c.strictBindCallApply {
+                //         return c.getGlobalType(name, 0 /*arity*/, true /*reportErrors*/)
+                //     }
+                //     return c.globalFunctionType
+                // }
+                // ```
+                //
+                // With the flag off both ARE `Function`. Reaching for
+                // `CallableFunction` unconditionally made `f.bind` resolve to
+                // its two generic `this`-parameter overloads instead of
+                // `Function.bind`, so relating a function type to `Function`
+                // stopped being identity and became a structurally hard
+                // question the relater answers `false` — the corpus's
+                // `ElementRef & Function` rows, via
+                // `narrow_type_by_type_facts`' third arm.
+                if self.strict_bind_call_apply {
+                    fallbacks.push(if all_construct {
+                        "NewableFunction"
+                    } else {
+                        "CallableFunction"
+                    });
                 }
                 fallbacks.push("Function");
             }
