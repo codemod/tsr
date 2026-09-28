@@ -4441,3 +4441,89 @@ a verbatim alignment with `access_member_lookup`, and it measures +84/0.
 lines, 3 cases: **global-interface declaration merging as seen by `apparent_type`**.
 The next probe is to ask `apparent_type(number)` for its symbol's declarations in a
 corpus run and compare against what `access_member_lookup`'s fallback chain reaches.
+
+## §859: the object-literal index refusal, opened — upstream's filter verified, and the obstacle named
+
+Continuing §858's method — cluster the zero-wrong board by failing *expression* text
+— surfaced `[""]` gapping in three cases (`computedPropertyNames10_ES6` and
+siblings). Probing walked it down to something much broader than the cluster:
+
+```
+index alone           ({ [s]() { } })                 => { [x: string]: () => void; }   correct
+index + empty name    ({ [s]() { }, [""]() { } })     => error
+index + named         ({ [s]() { }, ["a"]() { } })    => error
+index + plain member  ({ [s]() { }, a() { } })        => error
+numidx + numeric      ({ [n]() { }, [0]() { } })      => error
+```
+
+**Any object literal with both a computed index-producing member and a named member
+answers `error`** — including the plainest possible spelling, `{ [s]() {}, a() {} }`.
+
+This is `objects.rs`'s §206/§551 refusal, and it is deliberate. Its own text declines
+three shapes and gives each a reason; the string-key one reads:
+
+> **A STRING key beside named members.** Upstream's filter keeps everything but
+> symbol-named properties, so every named member contributes to the value union — a
+> different computation, not this one, and it is **measured separately or not at
+> all**.
+
+### Upstream's filter, verified
+
+`getObjectLiteralIndexInfo` (`checker.go:19721`):
+
+```go
+for _, prop := range properties {
+    if keyType == c.stringType && !c.isSymbolWithSymbolName(prop) ||
+        keyType == c.numberType && c.isSymbolWithNumericName(prop) ||
+        keyType == c.esSymbolType && c.isSymbolWithSymbolName(prop) {
+        propTypes = append(propTypes, c.getTypeOfSymbol(prop))
+        ...
+```
+
+So for a string key **every non-symbol-named property contributes its type**, union
+with `UnionReductionSubtype`, and the named members *also* stay as members. The
+corpus baseline agrees: `computedPropertyNames10_ES6` wants
+`{ [x: string]: () => void; [x: number]: () => void; ""(): void; 0(): void; "hello bye"(): void; }`
+— both index signatures **and** the literal-named members.
+
+The refusal's description of upstream is exactly right. It was never wrong; it was
+unmeasured.
+
+### Why it is not built here, and what it needs
+
+The union machinery already exists and is good — `union_with_subtype_reduction` with
+SS331's callable/plain partition, immediately below the guard. The obstacle is
+elsewhere:
+
+**`Member` holds printed strings, not `TypeId`s.**
+
+```rust
+pub(crate) enum Member {
+    Property { name: String, optional: bool, readonly: bool, printed: String },
+    Signature { printed: String },
+    Index { readonly: bool, name: String, key: String, value: String },
+}
+```
+
+Upstream unions the member *types*; this port has only their rendered text by the
+time the guard runs. Supplying them means threading a parallel `(name, TypeId)` list
+through the **eight-plus** `members.push` / `upsert_member` sites in
+`check_object_literal` — a medium refactor of a function whose every arm carries its
+own §-numbered reasoning, against a population nobody has sized.
+
+That is a real item, not a small one, and doing it at the end of a session against an
+unmeasured population is how §850 went. **Left for a session that can start with the
+sizing.**
+
+### The sizing to do first, and it is one script
+
+Count corpus lines in object literals that have both a computed member and a named
+member. If it is small, the refusal stands as it is and should be annotated with the
+number so nobody opens it a third time; if it is large, the parallel-type-list
+refactor is justified and this note has the upstream rule already verified and the
+guard already located.
+
+`computedPropertyNames10_ES6` additionally needs the **mixed key kinds** half (it has
+both `[s]` and `[n]`), so the three cases that surfaced this will not fall to the
+string-key half alone — §858's lesson about surfacing cases having two defects,
+holding for a third time in a row.
