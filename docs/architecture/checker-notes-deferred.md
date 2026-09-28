@@ -6697,3 +6697,64 @@ pass-1 — i.e. distinguish "no candidates were collected" from "candidates have
 been collected yet". That is the shape of the follow-up, and it is a
 one-distinction change rather than a re-architecture, which is worth knowing
 before anyone budgets for it.
+
+## §891: two guards built for §890's remaining half, both fail — and §890.2 was wrong
+
+§890.1 sized the call-argument leg at **+57 net** and §890.2 named the blocker as
+the memo-selected branch in `contextual_type_for_argument_resolving` — *"fires
+only when NO memo exists"*. Two guards were built against that diagnosis.
+
+### Guard 1: a probe flag that reads the memo and refuses to drive inference
+
+A `contextual_literal_probe` on the checker, set around §890's contextual query,
+making the argument road return `None` after its memo read rather than running the
+fixing mapper.
+
+**Measured 80 W→R / 23 R→W on top of §890's landed state — i.e. 151/25 from the
+same base as §890's unsplit build, which measured 151/26.** The one-row difference
+is the literal-flavour short-circuit, present in both. **The flag is inert.**
+
+**So §890.2's diagnosis was wrong.** The fixing mapper is not what damages those
+rows, and the entry recorded it with more confidence than the evidence carried: it
+reasoned from a comment in the code to a mechanism without testing that the
+mechanism was the one firing. Corrected here rather than left standing.
+
+### What the case actually shows
+
+Dumping `thislessFunctionsNotContextSensitive2` in position order is decisive, and
+is what should have been done before writing §890.2:
+
+```
+:100  ok  { tag: "F", value: 6 } : { tag: string; value: number; }   ← the LITERAL is right
+:101  XX  tag        want string   got any                           ← the property NAME is not
+:102  ok  "F" : "F"
+```
+
+**The object literal's own type is correct and the property's is not.** The
+baseline records a property-name position from the *symbol's* type, not by reading
+the literal, so the damage is in `get_type_of_symbol` for that property — a
+re-entry into the symbol's own type resolution, not into the call's signature.
+
+### Guard 2: refuse the probe while any resolution is active
+
+`resolutions.is_active()` gating branch 3. **Measured 42 W→R / 22 R→W — worse than
+the landed version**, and 6 of the 22 are `arrayBestCommonTypes` rows that §890
+had *won*. A symbol-type resolution is active at plenty of positions where branch
+3 is both safe and needed, so the guard buys the 22 back by giving up more.
+
+**Both guards reverted by file.** §890's landed 71:2 stands unchanged
+(`no transitions vs baseline` after the revert).
+
+### What the next attempt needs
+
+Not another guard on a proxy for the recursion. The re-entry is specifically
+*this property symbol's type* being asked for while it is being computed, so the
+guard belongs at that identity — skip branch 3 when the contextual query would
+reach the symbol currently on the resolution stack — and this port's resolution
+stack is keyed by `SymbolId`, so the test is available. What is not yet available
+is the link from "the node whose contextual type we want" to "the symbol that
+would be asked for", which is the piece to build first.
+
+**Cost of this entry: two builds, two full scorepairs, zero lines, one corrected
+diagnosis.** Recorded because §890.2 is in the repository claiming a cause, and a
+wrong cause left standing is worse than no cause.
