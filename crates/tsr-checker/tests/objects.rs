@@ -626,3 +626,42 @@ fn a_constrained_infer_declines() {
         "<T>(x: T) => T extends (infer U extends string)[] ? U : never"
     );
 }
+
+/// §909: a mapped type that is the body of a NON-GENERIC type alias prints the
+/// ALIAS NAME, not the body. `type T12 = { readonly [P in keyof Item]: Item[P] }`
+/// records `>T12 : T12` — upstream carries an `aliasSymbol` on the type and its
+/// node builder names it.
+///
+/// §905's mint printed the body everywhere, which is right at an anonymous site
+/// and wrong at a named one — 21 of `conformance/mappedTypes1`'s rows.
+///
+/// Corpus effect: +102 — 81 `WRONG->RIGHT`, 22 `GAP->RIGHT` against 2 `GAP->WRONG`
+/// and 1 `RIGHT->WRONG`.
+#[test]
+fn a_non_generic_mapped_alias_prints_its_name() {
+    let source = "type Item = { a: number };\n\
+         type T12 = { readonly [P in keyof Item]: Item[P] };\n\
+         declare const x: T12;\nx;";
+    assert_eq!(type_of_last_expression_statement(source), "T12");
+}
+
+/// A GENERIC alias is instantiated per reference and upstream prints the
+/// instantiated body, which is what §905's 63-row gain in
+/// `mappedTypeRelationships` is made of — so the naming must not reach it.
+#[test]
+fn a_generic_mapped_alias_still_expands() {
+    let source = "declare function f<T>(x: { [P in keyof T]: T[P] }): void;\nf;";
+    assert_eq!(
+        type_of_last_expression_statement(source),
+        "<T>(x: { [P in keyof T]: T[P]; }) => void"
+    );
+}
+
+/// A CONDITIONAL alias is excluded: naming those measured 14 `RIGHT->WRONG`
+/// (`conditionalTypes1` 7), because §92's alias evaluation owns that road and a
+/// name in place of the evaluated branch is a wrong answer.
+#[test]
+fn a_non_generic_conditional_alias_is_not_named() {
+    let source = "type C = string extends string ? 1 : 2;\ndeclare const c: C;\nc;";
+    assert_ne!(type_of_last_expression_statement(source), "C");
+}

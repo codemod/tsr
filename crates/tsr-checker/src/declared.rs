@@ -320,6 +320,23 @@ impl<'a> Checker<'a, '_> {
             // an unevaluable conditional ALIAS in an alias-declared position is
             // a decision about the alias, not about this node.
             TypeNode::MappedTypeNode(_) | TypeNode::ConditionalTypeNode(_) => {
+                // §909: a mapped or conditional type that is the body of a
+                // NON-GENERIC type alias prints the ALIAS NAME, not the body.
+                // `type T12 = { readonly [P in keyof Item]: Item[P] }` records
+                // `>T12 : T12` — upstream carries an `aliasSymbol` on the type
+                // and the node builder names it. §905's mint printed the body
+                // everywhere, which is right at an anonymous site and wrong at a
+                // named one (21 of `mappedTypes1`'s rows).
+                //
+                // Restricted to a non-generic alias: a GENERIC one is
+                // instantiated per reference, and `mappedTypeRelationships`'s 63
+                // gains are exactly those expanded forms.
+                if matches!(node, TypeNode::MappedTypeNode(_))
+                    && let Some(id) = tsr_ast::Node::from(node).node_id()
+                    && let Some(name) = self.non_generic_alias_body_name(id)
+                {
+                    return self.store.new_named(TypeFlags::OBJECT, name, None);
+                }
                 let mut single_quoted = false;
                 let mut array_headed = false;
                 match Self::written_type_text(node, &mut single_quoted, &mut array_headed) {
@@ -4279,5 +4296,27 @@ impl Checker<'_, '_> {
             // generated baseline, not a reading of the checker source.
             _ => true,
         }
+    }
+}
+
+impl Checker<'_, '_> {
+    /// §909: the name of the NON-GENERIC type alias this node is the body of.
+    ///
+    /// Upstream attaches an `aliasSymbol` to a type minted from an alias body
+    /// and its node builder prints that name. This port's §905 mint has no alias
+    /// link, so the body was printed everywhere.
+    ///
+    /// Non-generic only: a generic alias is instantiated per reference and
+    /// upstream prints the instantiated body, which is what §905's 63-row gain
+    /// in `mappedTypeRelationships` is made of.
+    fn non_generic_alias_body_name(&self, node: tsr_ast::NodeId) -> Option<String> {
+        let parent = self.nodes.parent(node)?;
+        let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(parent) else {
+            return None;
+        };
+        if !alias.type_parameters.is_empty() {
+            return None;
+        }
+        Some(alias.name?.text.to_string())
     }
 }

@@ -7666,3 +7666,48 @@ and partially-instantiated operands — or, cheaper and more likely, a gate that
 runs the evaluation *only* where a binding frame is in scope, which is the
 condition §821 already satisfies structurally and would make this a no-op rather
 than a gain. **The bill is real and this is not how it gets paid.**
+
+## §909: §906's bill, paid where it could be — +102
+
+§908 failed to pay the bill by *evaluating*. This pays the other half by *naming*.
+
+`conformance/mappedTypes1`, 21 rows, all of this shape:
+
+```
+T12   want T12   got { readonly [P in keyof Item]: Item[P]; }
+```
+
+Upstream attaches an **`aliasSymbol`** to a type minted from an alias body and its
+node builder prints that name. §905's mint has no alias link, so it printed the
+body everywhere — right at an anonymous site, wrong at a named one.
+
+**Two restrictions, both measured rather than reasoned:**
+
+- **Non-generic aliases only.** A generic alias is instantiated per reference and
+  upstream prints the instantiated body — which is precisely what §905's 63-row
+  gain in `mappedTypeRelationships` is made of. Naming those would take it back.
+- **Mapped types only, not conditionals.** The unrestricted version measured **14
+  `RIGHT→WRONG`** (`conditionalTypes1` 7, `inlineConditionalHasSimilarAssignability`
+  4). §92's `evaluate_conditional_alias` owns the conditional-alias road, and a
+  name in place of the evaluated branch is a wrong answer. Restricting to mapped
+  took the reading from +89 with 14 `RIGHT→WRONG` to **+102 with 1**.
+
+**Measured: 81 `WRONG→RIGHT` + 22 `GAP→RIGHT` against 2 `GAP→WRONG` and 1
+`RIGHT→WRONG`.** `mappedTypes1` 21, `correlatedUnions` 14, `numericEnumMappedType`
+9, `coAndContraVariantInferences3` 6.
+
+### The bill, after §908 and §909
+
+§905/§906 created 217 wrong rows by emitting deferred forms. §909 pays 81 of
+them. What remains is the conditional half, and §908 established how it does
+*not* get paid: **§821's evaluation is safe because it runs inside a binding
+frame, not because of what it computes**, and lifting it to an arbitrary node
+meets undecidable check types where this relater answers a confident
+`NotRelated`.
+
+> **A print-only mint has a bill, and it comes due in two currencies.** Where the
+> port should have *named*, §909 pays it cheaply — the information was there and
+> only the link was missing. Where the port should have *evaluated*, §908 shows
+> the payment needs machinery the port does not have. Worth knowing before the
+> next deferred form is minted: **ask which of the two the wanted text is, because
+> only one of them is cheap.**
