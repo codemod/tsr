@@ -8724,3 +8724,72 @@ them failed *because* of it — asserting `any` while the annotation handed back
 **A trap documented at the top of a file is not a trap that has been removed.**
 The fixtures here now name the annotation's parameter `a` and the arrow's
 parameter something that appears nowhere else.
+
+## §928 — an object-literal method's contextual `this` (+7, and one refusal)
+
+§912's comment in `check_this_expression` named this branch and did not build it:
+
+> Upstream's first branch — the method's own contextual SIGNATURE carrying a
+> `this` parameter — wins ahead of the literal one
+
+`getContextualThisParameterType` (`checker.go:29104`) asks for the method's own
+contextual signature before either object-literal branch. So
+
+```ts
+interface I { a: number; em(this: { a: number }): number }
+let impl: I = { em() { return this.a; } };   // this : any
+function justThis(this: { y: number }) { return this.y; }   // this : { y: number; } — correct
+```
+
+The written annotation worked; the same annotation reached through a contextual
+signature did not. **Fifteenth instance this session of a capability present and
+a caller that does not consult it** — `contextual_property_type` finds the
+member, `contextual_signature_of_type` reads its signature, and
+`Signature::this_parameter` has held the answer since the signature module was
+written.
+
+### The gate that made the first draft measure zero
+
+The first draft put the lookup inside §912's match arm, which is gated on
+`no_implicit_this`. It measured **zero transitions**, because
+`conformance/thisTypeInFunctions` is `@strict: false`.
+
+Upstream gates only the object-literal *fallback* on `noImplicitThis`
+(`checker.go:29119`). The contextual signature's own `this` is an annotation the
+user wrote, and it is read in every mode. Hoisted out of the arm: **7
+`WRONG->RIGHT`, zero adverse.**
+
+### The printing half, refused with its number
+
+`assignContextualParameterTypes` (`checker.go:25344`) also copies that `this`
+parameter *onto the signature*, which is why upstream prints
+`explicitStructural(this: { a: number; }): number` for a method that wrote no
+`this` parameter at all. Adopting it measured **10 `WRONG->RIGHT` against 12
+`RIGHT->WRONG`, net −2**.
+
+The adverse cases name the missing gate outright:
+`thislessFunctionsNotContextSensitive1`/`2` (7 rows) and
+`intraExpressionInferences` (4). Upstream copies only where the signature is
+**context sensitive** (`isContextSensitive`, `checker.go:25211`), and those cases
+exist precisely to assert that a thisless function is not. This port has no
+`isContextSensitive`, so the copy fires everywhere.
+
+**Reopening condition: `isContextSensitive`.** The refusal is recorded at the
+site in `signatures.rs` rather than only here, because that is where the next
+reader meets it — the lesson §925 paid for.
+
+The `this` *type inside the body* does not depend on the printing half, which is
+where the +7 comes from; only the printed signature waits.
+
+### On the test harness, again
+
+`tests/contextual.rs`'s first §928 fixture asserted `type_of(…, "impl") == "I"`,
+which is true whether or not `this` resolves — **a test no mutation could
+redden**. It now asserts a `let` binding inside the method body, which is the
+only thing this harness can see that the fix moves.
+
+Its pair asserts `error` where the corpus pipeline answers `any`, and says so:
+the harness binds one lib-free file with no compiler options and the `this` road
+reaches a different fallthrough there. Both answers mean *the branch did not
+fire*, which is what the pair is for; asserting the corpus's answer against a
+harness that does not produce it would be asserting a coincidence.

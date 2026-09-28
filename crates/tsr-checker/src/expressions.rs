@@ -1372,6 +1372,46 @@ impl Checker<'_, '_> {
         self.check_this_expression(node)
     }
 
+    /// The keyable name of a method declaration, for the member lookups §928's
+    /// arm makes. `None` for a computed or numeric name, which
+    /// [`Checker::get_property_of_type`] cannot be keyed by anyway.
+    fn method_name_text(&self, method: NodeId) -> Option<String> {
+        let Some(tsr_ast::Node::MethodDeclaration(declaration)) = self.node_map.get(method) else {
+            return None;
+        };
+        match declaration.name {
+            tsr_ast::PropertyName::Identifier(name) => Some(name.text.to_owned()),
+            tsr_ast::PropertyName::StringLiteral(name) => Some(name.text.to_owned()),
+            _ => None,
+        }
+    }
+
+    /// The `this` type an object-literal method inherits from the contextual
+    /// signature of the member it implements — §928, the second branch of
+    /// `getContextualThisParameterType` (`checker.go:29104`).
+    ///
+    /// The member is looked up from the LITERAL's contextual type rather than
+    /// through `get_contextual_type(method)`, because upstream's
+    /// object-literal-method arm (`checker.go:29964`) is not ported and that
+    /// call answers `None` here.
+    pub(crate) fn contextual_this_parameter_type(&mut self, method: NodeId) -> Option<TypeId> {
+        if self.nodes.kind(method) != SyntaxKind::MethodDeclaration {
+            return None;
+        }
+        let literal = self.nodes.parent(method)?;
+        if self.nodes.kind(literal) != SyntaxKind::ObjectLiteralExpression {
+            return None;
+        }
+        let contextual = self.get_contextual_type(literal)?;
+        let name = self.method_name_text(method)?;
+        let member = self
+            .get_property_of_type(contextual, &name)
+            .map(|property| self.get_type_of_symbol(property))
+            .or_else(|| self.contextual_property_type(contextual, &name))?;
+        let signature = self.contextual_signature_of_type(member)?;
+        Some(signature.this_parameter?.r#type)
+    }
+
     pub(crate) fn check_this_expression(&mut self, node: NodeId) -> TypeId {
         let mut current = self.nodes.parent(node);
         while let Some(id) = current {
@@ -1389,6 +1429,31 @@ impl Checker<'_, '_> {
             // `getContextualThisParameterType` is unported and answers nothing
             // here, and the class arm below is what runs next.
             if let Some(this_type) = self.this_parameter_type(id) {
+                return this_type;
+            }
+            // §928: **upstream's SECOND branch, which §912's comment named and
+            // did not build.** `getContextualThisParameterType`
+            // (`checker.go:29104`) asks for the method's own contextual
+            // SIGNATURE and, when it carries a `this` parameter, answers that —
+            // *before* either of the object-literal branches below.
+            //
+            // `let impl: I = { em() { return this.a; } }` with
+            // `interface I { em(this: { a: number }): number }` answered `any`
+            // for `this` while the same annotation written directly on a
+            // function typed correctly. Every piece was already here:
+            // `contextual_property_type` finds the member,
+            // `contextual_signature_of_type` reads its signature, and
+            // `Signature::this_parameter` has held the answer since the
+            // signature module was written.
+            //
+            // **It sits outside the `no_implicit_this` gate deliberately.** The
+            // first draft put it inside the §912 arm, which is so gated, and
+            // measured ZERO transitions — `thisTypeInFunctions` is
+            // `@strict: false`. Upstream gates only the object-literal
+            // fallback on `noImplicitThis` (`checker.go:29119`); the contextual
+            // signature's own `this` is an annotation the user wrote and is
+            // read in every mode.
+            if let Some(this_type) = self.contextual_this_parameter_type(id) {
                 return this_type;
             }
             match self.nodes.kind(id) {
@@ -1476,7 +1541,8 @@ impl Checker<'_, '_> {
                     // costs nothing measured and removes the whole adverse set.
                     // The non-union case keeps `any`, which is what it answered
                     // before.
-                    match self.get_contextual_type(literal) {
+                    let contextual = self.get_contextual_type(literal);
+                    match contextual {
                         Some(contextual)
                             if matches!(
                                 self.store.get(contextual).data,

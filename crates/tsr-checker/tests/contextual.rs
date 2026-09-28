@@ -325,3 +325,40 @@ fn union_constituents_with_different_signatures_still_decline() {
                   var v: I1 | I2 = { f: fir => fir };";
     assert_eq!(type_of(source, "fir"), "any");
 }
+
+/// §928 — an object-literal method's `this` comes from the contextual
+/// signature's `this` parameter.
+///
+/// `getContextualThisParameterType` (`checker.go:29104`) asks for the method's
+/// own contextual signature before it falls to either object-literal branch.
+/// §912's comment named this branch as the one that wins ahead of the literal
+/// one and did not build it, so `this` answered `any` while the same annotation
+/// written directly on a function typed correctly.
+/// The assertion is on a LOCAL inside the method's body, because that is the
+/// only thing this harness can see that the fix moves: `type_of(… "impl")`
+/// answers `I` whether or not `this` resolves, and the first draft of this test
+/// asserted exactly that — a test no mutation could redden.
+#[test]
+fn an_object_literal_method_adopts_the_contextual_this_parameter() {
+    let source = "interface I { hemlock: number; em(this: { hemlock: number }): number; }\n\
+                  let impl: I = { hemlock: 12, em() { let sequoia = this.hemlock; return sequoia; } };";
+    assert_eq!(type_of(source, "sequoia"), "number");
+}
+
+/// The pair: with no contextual `this` parameter to inherit, the method keeps
+/// the answer it had. Without this the test above would pass equally well if the
+/// new branch simply returned the containing literal's type for every method.
+///
+/// **`error`, not `any`, and that is this harness and not the checker.** Run
+/// through the corpus pipeline (`probefile`) the same source answers `this : any`
+/// and `redwood : any`; this harness binds one lib-free file with no compiler
+/// options, and the `this` road reaches a different fallthrough there. Either
+/// way the assertion holds what the pair is for: **the §928 branch did not
+/// fire**. Asserting `any` here would be asserting the corpus's answer against a
+/// harness that does not produce it.
+#[test]
+fn a_method_with_no_contextual_this_parameter_is_unchanged() {
+    let source = "interface J { hemlock: number; em(): number; }\n\
+                  let impl: J = { hemlock: 12, em() { let redwood = this.hemlock; return redwood; } };";
+    assert_eq!(type_of(source, "redwood"), "error");
+}

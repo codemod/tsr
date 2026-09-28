@@ -789,6 +789,25 @@ impl<'a> Checker<'a, '_> {
                 r#type,
             );
         }
+        // §928 REFUSED, and measured: adopting the contextual signature's
+        // `this` parameter onto this signature — `assignContextualParameterTypes`
+        // (`checker.go:25344`), which is why upstream PRINTS
+        // `explicitStructural(this: { a: number; }): number` for a method that
+        // wrote no `this` parameter — measured **10 `WRONG->RIGHT` against 12
+        // `RIGHT->WRONG`**, net −2.
+        //
+        // The adverse cases name the missing gate: `thislessFunctions`
+        // `NotContextSensitive1`/`2` (7 rows) and `intraExpressionInferences`
+        // (4). Upstream copies the contextual `this` only where the signature is
+        // CONTEXT SENSITIVE (`isContextSensitive`, `checker.go:25211`), and
+        // those cases exist to assert that a *thisless* function is not. This
+        // port has no `isContextSensitive`, so the copy fires everywhere and
+        // prints a `this` upstream omits.
+        //
+        // **The `this` TYPE inside the body does not depend on this** —
+        // [`Checker::check_this_expression`] reads the same source directly and
+        // is what the +7 above came from. Only the printed signature waits on
+        // `isContextSensitive`.
         Some(Signature {
             declaration,
             kind: self.signature_kind_of(declaration),

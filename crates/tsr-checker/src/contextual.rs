@@ -550,7 +550,7 @@ impl<'a> Checker<'a, '_> {
     /// Upstream additionally filters by arity (`isAritySmaller`) and intersects
     /// what is left; neither is ported, so a type with two or more call
     /// signatures declines here where upstream may still answer.
-    fn contextual_signature_of_type(&mut self, contextual: TypeId) -> Option<Signature> {
+    pub(crate) fn contextual_signature_of_type(&mut self, contextual: TypeId) -> Option<Signature> {
         // The tsr-0hc type-first read (the freeze-breaking wire).
         if self.is_instantiated_signature_type(contextual) {
             let signatures = self.signature_types.get(&contextual).cloned().unwrap_or_default();
