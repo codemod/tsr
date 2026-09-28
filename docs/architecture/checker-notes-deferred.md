@@ -7283,3 +7283,49 @@ whichever array path first reaches one.
 
 Removed at all three sites. **Zero transitions**, which is the point: it is
 redundant today and would have been wrong tomorrow.
+
+## §901: `resolveUntypedCall` reaches the tagged-template road — +32, two whole cases
+
+The near-miss board's *"want `any`, port declines"* cut is **340 rows across 131
+cases**, and unlike the other cuts it has a dominant shape: an access or call
+whose receiver is `any`. The two largest cases are
+`taggedTemplateStringsWithTagsTypedAsAny` and its ES6 twin, 16 rows each.
+
+```ts
+var f: any;
+f `abc`            // want any, got error
+f `abc`.member     // want any, got error
+```
+
+`resolveUntypedCall` (`checker.go:9899`) answers `anySignature` whenever
+`isTypeAny(funcType)`, having first checked the template for its own lines. **The
+CALL road already had this predicate** — `is_untyped_call_target`, argued from
+upstream's two adjacent lines in `checker-notes-calleegap.md` — and the
+tagged-template road went straight to `resolve_call_signature`, which answers
+`None` for `any` and gapped.
+
+One `if`, placed after the template check so the template still contributes its
+own rows, which is upstream's order.
+
+**+32 `GAP→RIGHT`, zero adverse — and both cases closed entirely**, so this is
+**+2 whole cases** as well as +32 lines.
+
+> **The transferable part: a predicate that exists on one road and not its
+> sibling.** This is the eighth instance this session of a capability present and
+> a caller that does not consult it, and the cheapest yet to find — the two roads
+> sit 500 lines apart in the same file, one calling `is_untyped_call_target` and
+> one not. Worth a deliberate sweep: for each predicate the call road uses, does
+> the tagged-template / `new` / decorator road use it too?
+
+### What the near-miss board is, stated plainly
+
+997 cases sit 1–2 rows from passing (1,486 rows). Its micro-patterns were sampled
+in §900 and the two largest — *a bare identifier declines* (132 rows) and *a call
+answers any/error* (110) — were read row by row. **The identifier cut has 132
+different causes**: conditional types, mapped types, inference, recursive types,
+JSDoc. There is no seam in it.
+
+That is the honest characterisation of what remains: after this session's arms,
+the board is broad feature completion, not gates. The families that paid here
+were all *a rule upstream states in one place that this port had not wired up*,
+and that population is now visibly thinner.

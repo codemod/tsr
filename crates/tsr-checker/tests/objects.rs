@@ -528,3 +528,25 @@ fn an_unrecognised_position_keeps_the_unique_type() {
         "(arg: unique symbol) => void"
     );
 }
+
+/// §901: `resolveUntypedCall` (`checker.go:9899`) — a tagged template whose TAG
+/// is `any` resolves to `anySignature`, so the whole expression is `any`.
+///
+/// The call road has had this predicate since `checker-notes-calleegap.md`
+/// (`is_untyped_call_target`); the tagged-template road went straight to
+/// `resolve_call_signature`, which answers `None` for `any`, and gapped.
+///
+/// Corpus effect: `GAP->RIGHT 32`, zero adverse — `taggedTemplateStringsWithTagsTypedAsAny`
+/// and its ES6 twin closed **entirely**, 16 rows each.
+#[test]
+fn a_tagged_template_with_an_any_tag_is_any() {
+    assert_eq!(type_of_last_expression_statement("var f: any;\nf `abc`;"), "any");
+}
+
+/// The same through a substitution, and through a property access on the result
+/// — the shapes the two cases actually hold.
+#[test]
+fn an_any_tag_survives_substitutions_and_access() {
+    assert_eq!(type_of_last_expression_statement("var f: any;\nf `abc${1}def`;"), "any");
+    assert_eq!(type_of_last_expression_statement("var f: any;\nf `abc`.member;"), "any");
+}

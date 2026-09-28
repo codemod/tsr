@@ -999,6 +999,27 @@ impl Checker<'_, '_> {
         if let Some(template) = node.template {
             self.check_expression(template.into());
         }
+        // §901: `resolveUntypedCall` (`checker.go:9899`) — a tag of type `any`
+        // resolves to `anySignature`, so the tagged template is `any`.
+        //
+        // ```go
+        // case ast.KindTaggedTemplateExpression:
+        //     c.checkExpression(node.AsTaggedTemplateExpression().Template)
+        // …
+        // return c.anySignature
+        // ```
+        //
+        // The CALL road has had this since `checker-notes-calleegap.md`
+        // (`is_untyped_call_target`, the same predicate); the tagged-template
+        // road went straight to `resolve_call_signature`, which answers `None`
+        // for `any` and gapped. `var f: any; f`abc`` wants `any`.
+        //
+        // Placed after the template check, which is the order upstream's
+        // `resolveUntypedCall` uses — the template is checked for its own lines
+        // whether or not the tag is typed.
+        if self.is_untyped_call_target(tag, tag_type) {
+            return self.intrinsics.any;
+        }
         // `None` for the argument list: a tagged template's arguments are the
         // template strings array and the substitutions, neither of which this
         // port builds, so an overloaded tag stays a gap.
