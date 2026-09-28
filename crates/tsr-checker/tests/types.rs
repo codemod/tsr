@@ -2646,3 +2646,65 @@ fn a_type_only_export_leaves_a_merged_functions_signature_alone() {
     }
     panic!("`g` is declared nowhere");
 }
+
+/// §931.1 — `getUnionSignatures`' first pass (`checker.go:21112`).
+///
+/// When each constituent of a union callee offers a signature that matches in
+/// **every** other constituent, ignoring return types, the union has that
+/// signature with a **union of the returns**.
+///
+/// §439 handled only the case where every return AGREED. §931 tried to widen it
+/// by asking each constituent to resolve independently and unioning whatever came
+/// back, and measured 6 `WRONG->RIGHT` against **26 `RIGHT->WRONG`** — nothing
+/// checked that the constituents had agreed on the same signature *shape*. The
+/// match-in-every-list requirement is the whole difference, and with it the same
+/// family measures 11 `WRONG->RIGHT` + 4 `GAP->RIGHT` against 2 `GAP->WRONG`,
+/// zero `RIGHT->WRONG`.
+///
+/// The fixtures avoid every lib type on purpose: this harness mounts no lib, and
+/// the first draft used `Date`, which does not resolve here — so the constituent
+/// had no signature at all and the test failed for a reason that had nothing to
+/// do with the mechanism.
+#[test]
+fn a_union_callee_unions_the_returns_of_matching_signatures() {
+    assert_eq!(
+        type_of_declaration(
+            "type F1 = (a: number) => number;\ntype F2 = (a: number) => string;\n\
+             declare var u: F1 | F2;\nconst r = u(10);",
+            "r"
+        ),
+        // The union interns in its own canonical order, which is the printed
+        // order everywhere else in this file; the written order of the
+        // constituents does not survive `get_union_type` and is not meant to.
+        "string | number"
+    );
+}
+
+/// The regression leg, and the one `unionTypeCallSignatures` names as an error:
+/// constituents whose PARAMETERS differ have no matching signature in every
+/// list, so the union offers no call signature at all.
+#[test]
+fn a_union_callee_with_differing_parameters_offers_no_signature() {
+    assert_eq!(
+        type_of_declaration(
+            "type F1 = (a: number) => number;\ntype F2 = (a: string) => boolean;\n\
+             declare var u: F1 | F2;\nconst r = u(10);",
+            "r"
+        ),
+        "error"
+    );
+}
+
+/// A single agreed return still answers that return rather than a one-member
+/// union — §439's population, which §931.1 subsumes rather than replaces.
+#[test]
+fn a_union_callee_with_one_agreed_return_answers_it_unwrapped() {
+    assert_eq!(
+        type_of_declaration(
+            "type F1 = (a: number) => string;\ntype F2 = (a: number) => string;\n\
+             declare var u: F1 | F2;\nconst r = u(10);",
+            "r"
+        ),
+        "string"
+    );
+}

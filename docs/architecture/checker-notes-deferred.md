@@ -9184,3 +9184,69 @@ agrees, which is how the choice surfaced at all.
 two paid (+543 together) and three do not. What is left on this board is the
 mechanism itself — `getUnionSignatures`, `discriminateTypeByDiscriminableItems`,
 `inferTypes` for non-bare positions — and each is a real port, not a routing fix.
+
+## §931.1 — `getUnionSignatures`' first pass, done properly (+15)
+
+§931's reopening condition, met in the same session that wrote it. The refusal
+said: *"`getUnionSignatures` proper — build the union's signature list, then run
+the existing overload road over it. Not a wider return rule."* That is what this
+is.
+
+### The one requirement §931 was missing
+
+`getUnionSignatures` (`checker.go:21112`) walks every signature of every
+constituent and, for each, calls `findMatchingSignatures` (`relater.go:2119`),
+which returns nothing unless the signature **matches in every other list**. Only
+then is a result signature emitted, with a union of the matched returns.
+
+§931 asked each constituent to resolve a signature *independently for the call's
+arguments* and unioned whatever came back. Nothing checked that the constituents
+had agreed on the same signature **shape**, so it combined returns upstream never
+combines: 6 `WRONG->RIGHT` against **26 `RIGHT->WRONG`**.
+
+With the match-in-every-list requirement: **11 `WRONG->RIGHT` + 4 `GAP->RIGHT`
+against 2 `GAP->WRONG`, zero `RIGHT->WRONG`.** `right` 442,574 → **442,589**.
+
+*One predicate was the entire difference between −20 and +15.*
+
+### The guard the measurement added
+
+A **type predicate** anywhere in the build declines it. Upstream's union
+signature carries a *composite* predicate over the members
+(`getUnionOrIntersectionTypePredicate`, `relater.go:2049`), which
+`checker-notes-typepred.md` §1 records as unported. Keeping the shape's own
+predicate instead measured 1 `RIGHT->WRONG` —
+`typePredicatesInUnion3:0:38`, `unknown` → `string` — because the narrowing road
+then trusted **one member's predicate for the whole union**. That is a wrong
+answer of exactly the kind §620 disqualifies, and it cost 2 lines of the 13.
+
+### Not ported, and each is a `None` rather than an approximation
+
+- **The second pass** (`checker.go:21153`): when no signature subsumes the others
+  and overloads live in at most one constituent, upstream builds one combined
+  signature by *intersecting* parameter types
+  (`combineUnionOrIntersectionMemberSignatures`). Needs parameter intersection.
+- **Generic signatures.** Upstream requires an exact match including returns and
+  only from the first list. `signatures_identical` declines generics outright, so
+  a generic anywhere declines the whole build rather than half-answering.
+- **`thisParameter` intersection** (`checker.go:21137`).
+
+### A representational limit this exposed, worth recording
+
+`{ (a: number): number } | { (a: number): Date }` — the fixture's own first line —
+**still answers `error`**, and not because of this arm. A type literal carrying a
+call signature is minted as a print-only named type with no symbol, so its
+signature is not recoverable from the type at all; `call_signatures_of_type`
+answers `None` for it. Every row this entry won came through *function type
+aliases*, where the signature survives.
+
+That is a separate, larger defect — the same one §439 has always been limited by —
+and it is now named: **a type literal's call signature is unrecoverable from its
+type.** Anything that needs signatures off such a type is blocked on it.
+
+### On the two adverse rows
+
+`unionTypeCallSignatures7` wants `"A with id" | "B with id"` and gets
+`` `${Name} with id` | `${Name} with id` `` — a template-literal type that was not
+instantiated. `GAP->WRONG`, §620's accepted direction, and a template-literal
+instantiation defect rather than a signature one.

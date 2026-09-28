@@ -1298,6 +1298,26 @@ impl Checker<'_, '_> {
         // return rule.
         if let TypeData::Union { types, .. } = &self.store.get(callee).data {
             let constituents = types.clone();
+            // §931.1: `getUnionSignatures`' first pass, ahead of §439's
+            // agreeing-return slice, which it subsumes — a single agreed return
+            // is `returns.len() == 1` in the build below.
+            if let Some(union_signatures) = self.union_call_signatures(&constituents) {
+                if let [single] = union_signatures.as_slice() {
+                    if counted {
+                        bump(&COUNTERS.single_candidate);
+                    }
+                    return Some(single.clone());
+                }
+                if let Some(arguments) = arguments
+                    && let Some(chosen) =
+                        self.choose_overload(&union_signatures, arguments, has_type_arguments)
+                {
+                    if counted {
+                        bump(&COUNTERS.single_candidate);
+                    }
+                    return Some(chosen);
+                }
+            }
             let mut agreed: Option<TypeId> = None;
             let mut ok = !constituents.is_empty();
             for constituent in constituents {
@@ -1472,6 +1492,136 @@ impl Checker<'_, '_> {
                 self.choose_overload(candidates, arguments, has_type_arguments)
             }
         }
+    }
+
+    /// `getUnionSignatures` (`checker.go:21112`), **first pass only** — §931.1.
+    ///
+    /// For each signature in each constituent's list, require a match *in every
+    /// other list* (`findMatchingSignatures`, `relater.go:2119`) and, when more
+    /// than one matched, give the result a **union of the returns**
+    /// (`createUnionSignature`). A signature already represented in the result
+    /// is skipped, which is upstream's `findMatchingSignature` guard.
+    ///
+    /// **This is what §931 got wrong.** §931 asked each constituent to resolve a
+    /// signature *independently for the call's arguments* and unioned whatever
+    /// came back — which combines returns upstream never combines, because
+    /// nothing checked that the two constituents had agreed on the same
+    /// signature *shape*. It measured 6 `WRONG->RIGHT` against 26
+    /// `RIGHT->WRONG`. The match-in-every-list requirement is the difference.
+    ///
+    /// # Not ported
+    ///
+    /// - **The second pass** (`checker.go:21153`): when no signature subsumes
+    ///   the others and overloads live in at most one constituent, upstream
+    ///   builds a single combined signature by *intersecting* parameter types
+    ///   (`combineUnionOrIntersectionMemberSignatures`). That needs parameter
+    ///   intersection and is a separate port; declining leaves the gap that is
+    ///   already there.
+    /// - **Generic signatures.** Upstream requires an exact match including
+    ///   return types and only from the first list; `signatures_identical`
+    ///   declines generics outright, so a generic anywhere in any list declines
+    ///   the whole build rather than half-answering.
+    /// - **`thisParameter` intersection** (`checker.go:21137`). The shape's own
+    ///   `this` is kept.
+    fn union_call_signatures(&mut self, constituents: &[TypeId]) -> Option<Vec<Signature>> {
+        if constituents.len() < 2 {
+            return None;
+        }
+        let mut lists: Vec<Vec<Signature>> = Vec::with_capacity(constituents.len());
+        for &constituent in constituents {
+            // `call_signatures_of_type` (`flow.rs`) covers the anonymous and
+            // named routes; an INSTANTIATED signature type keeps its list in
+            // `signature_types` and is read here, the `bd tsr-1uz` seam the
+            // callee road below takes for the same reason.
+            // A TYPE PREDICATE anywhere in the build declines it. Upstream's
+            // union signature carries a COMPOSITE predicate over the members
+            // (`getUnionOrIntersectionTypePredicate`, `relater.go:2049`), which
+            // `docs/architecture/checker-notes-typepred.md` §1 records as
+            // unported; keeping the shape's own predicate instead measured
+            // 1 `RIGHT->WRONG` (`typePredicatesInUnion3:0:38`, `unknown` ->
+            // `string`) because the narrowing road then trusted one member's
+            // predicate for the whole union.
+            let list = if self.is_instantiated_signature_type(constituent) {
+                let signatures =
+                    self.signature_types.get(&constituent).cloned().unwrap_or_default();
+                if signatures.is_empty() {
+                    return None;
+                }
+                signatures
+            } else {
+                self.call_signatures_of_type(constituent)?
+            };
+            if list.is_empty() {
+                return None;
+            }
+            if list.iter().any(|signature| {
+                !signature.type_parameters.is_empty() || signature.predicate.is_some()
+            }) {
+                return None;
+            }
+            lists.push(list);
+        }
+        let mut result: Vec<Signature> = Vec::new();
+        for index in 0..lists.len() {
+            for position in 0..lists[index].len() {
+                let signature = lists[index][position].clone();
+                if result
+                    .iter()
+                    .any(|held| Self::signatures_match_ignoring_return(held, &signature))
+                {
+                    continue;
+                }
+                let mut matched: Vec<Signature> = Vec::with_capacity(lists.len());
+                let mut every = true;
+                for (other, list) in lists.iter().enumerate() {
+                    if other == index {
+                        matched.push(signature.clone());
+                        continue;
+                    }
+                    if let Some(found) = list
+                        .iter()
+                        .find(|held| Self::signatures_match_ignoring_return(held, &signature))
+                    {
+                        matched.push(found.clone());
+                    } else {
+                        every = false;
+                        break;
+                    }
+                }
+                if !every {
+                    continue;
+                }
+                let mut returns: Vec<TypeId> = Vec::new();
+                for candidate in &matched {
+                    if !returns.contains(&candidate.r#type) {
+                        returns.push(candidate.r#type);
+                    }
+                }
+                let mut combined = signature;
+                if returns.len() > 1 {
+                    combined.r#type = self.get_union_type(&returns);
+                }
+                result.push(combined);
+            }
+        }
+        (!result.is_empty()).then_some(result)
+    }
+
+    /// `compareSignaturesIdentical` with `ignoreReturnTypes` (`relater.go:2141`),
+    /// reduced the way [`Checker::signatures_identical`] is: same shape, every
+    /// corresponding parameter the same interned `TypeId`. §931.1.
+    fn signatures_match_ignoring_return(left: &Signature, right: &Signature) -> bool {
+        if left.kind != right.kind
+            || !left.type_parameters.is_empty()
+            || !right.type_parameters.is_empty()
+            || left.parameters.len() != right.parameters.len()
+        {
+            return false;
+        }
+        left.parameters
+            .iter()
+            .zip(&right.parameters)
+            .all(|(a, b)| a.r#type == b.r#type && a.optional == b.optional && a.rest == b.rest)
     }
 
     /// The first candidate every argument is assignable to, or `None`.
