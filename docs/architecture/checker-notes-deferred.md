@@ -7361,3 +7361,48 @@ The harness could not reach a catch-clause binding at all — `type_of_binding`
 walked variable statements, function parameters and `for-in`/`for-of` heads — so
 the tests come with a `TryStatement` arm. **A test harness that cannot express a
 shape is a silent coverage hole**, and this one hid a whole statement kind.
+
+## §903: inferring from `any`, built and REVERTED — the adverse case is the one named for it
+
+`conformance/inferingFromAny` holds 14 `want any / got error` rows:
+`declare function f4<T>(x: { bar: T; baz: T }): T` called with `a: any`. Upstream's
+`inferFromTypes` has an explicit arm:
+
+> We are inferring from an 'any' type. We want to infer this type for every type
+> parameter referenced in the target type …
+
+Ported as a direct propagation — source is `any` ⟹ every parameter the target
+mentions collects `any` — and **measured +6 net (4 G→R, 2 W→R) against 4
+`GAP→WRONG`**.
+
+**Reverted**, for two reasons, the second decisive:
+
+1. **Only 4 of the 14 closed.** `type_mentions_parameter` follows type-reference
+   arguments and union constituents, not object members or signatures, so
+   `{ bar: T; baz: T }` — the shape most of the case uses — is not recognised as
+   mentioning `T`. Widening that helper has blast radius: §787 uses it for the
+   union strike-out.
+
+2. **The 4 adverse are `compiler/nonInferrableTypePropagation1`**, and they are
+   `Thing<number>` answered as `Thing<any>`:
+
+   ```
+   result1   want Thing<number>   got Thing<any>
+   ```
+
+   That case exists precisely to pin this hazard. Upstream's arm is **not** a
+   direct propagation: it threads a *propagation type* through a self-inference
+   (`inferFromTypes(target, target)`) under a lowered priority, and pairs with
+   `isNonInferrableType`, so an `any` arising from a **failed nested inference**
+   does not overwrite a real candidate. This port cannot tell the two apart —
+   both are `intrinsics.any` — so the direct form turns a recoverable inference
+   into a confident `any`.
+
+**Shipping the partial rule would have made the port fail the one case named
+after the hazard.** +6 lines is not worth that, and §620's tolerance for
+`GAP→WRONG` is about honest gaps becoming visible, not about reproducing a defect
+upstream engineered around.
+
+**Prerequisite, named**: the propagation type and priority machinery, or at
+minimum a way to distinguish "the argument is genuinely `any`" from "inference
+produced `any`". Reopen behind that, not before.
