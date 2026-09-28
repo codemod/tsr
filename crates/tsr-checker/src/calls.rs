@@ -1779,9 +1779,17 @@ impl Checker<'_, '_> {
                     .is_some_and(|inner| self.any_is_written_in_an_annotation(inner));
             }
             Expression::NewExpression(new) => {
-                return new
-                    .expression
-                    .is_some_and(|inner| self.any_is_written_in_an_annotation(inner));
+                let Some(inner) = new.expression else { return false };
+                // §862: `new f(...)` where `f` lacks a construct signature is
+                // upstream's own `anyType` (§861, `checker.go:8334-8342`), not
+                // an unported gap — so calling that result is `any` too. This
+                // is the same provenance argument as the cast hop above, with
+                // a second base case.
+                let inner_type = self.check_expression(inner);
+                if self.new_target_lacks_a_construct_signature(inner_type) {
+                    return true;
+                }
+                return self.any_is_written_in_an_annotation(inner);
             }
             _ => {}
         }

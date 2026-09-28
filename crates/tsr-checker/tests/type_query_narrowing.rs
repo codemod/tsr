@@ -258,3 +258,25 @@ fn new_on_a_target_without_a_construct_signature_is_any() {
         "{ a: number; }"
     );
 }
+
+/// §862: calling the result of a `new` whose target lacks a construct
+/// signature is `any`.
+///
+/// §861 established that such a `new` answers upstream's own `anyType`
+/// (`checker.go:8334-8342`) rather than an unported gap, so the provenance
+/// test in `any_is_written_in_an_annotation` gains it as a second base case —
+/// the same argument the cast hop already makes for `var u = (a2 as any); u()`.
+///
+/// Corpus effect: `+6` (`newWithSpread` 3, `newWithSpreadES6` 3), zero adverse.
+#[test]
+fn calling_the_result_of_a_constructorless_new_is_any() {
+    assert_eq!(type_of_last_expression("function f() { }\n((new f())());"), "any");
+    assert_eq!(
+        type_of_last_expression("function f(x: number) { }\n((new f(1))());"),
+        "any"
+    );
+    // A real constructor is unaffected: its instance type has no call
+    // signature, so the result is not callable and stays a gap rather than
+    // becoming a confident `any`.
+    assert_eq!(type_of_last_expression("class D { }\n(new D());"), "D");
+}

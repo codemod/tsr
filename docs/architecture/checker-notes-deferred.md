@@ -4749,3 +4749,46 @@ and its diagnostic is `noImplicitAny`-gated. That is the standing of `anySignatu
 computation rather than a gap wearing `any`'s name. This is the second `any` this
 session checked against that test — §257's `+` fallback failed it on measurement
 rather than on provenance, and this one passes both.
+
+## §862: calling the result of a constructorless `new`
+
+§861's own residue, and this time the surfacing case **did** move — because I read the
+baseline first and found the gap was not where the cluster's text suggested:
+
+```
+A61  >new f(1, 2, "string")() : any     <- the GAP
+A62  >new f(1, 2, "string") : any       <- RIGHT after §861
+A63  >f : (x: number, y: number, ...z: string[]) => void
+```
+
+The gap is on **calling** the `new` result, not on the `new`. §860 built exactly that
+rule, but gated it on the root being a *written* `any`, and `f` here is a properly
+typed function — so §860 could not fire.
+
+§861 changed the premise. `new f(...)` where `f` lacks a construct signature is now
+upstream's own `anyType` (`checker.go:8334-8342`), a deliberate recovery rather than
+an unported gap — which is precisely the provenance
+`any_is_written_in_an_annotation` tests for. It gains a **second base case**, beside
+the cast hop that already covers `var u = (a2 as any); u()`.
+
+The §861 condition is now one shared predicate,
+`new_target_lacks_a_construct_signature`, read by both the `new` road and the
+provenance test — one fact in one place rather than §856.1's `has_step_arm` mistake
+of keeping two copies.
+
+**`GAP->RIGHT 6`** (`newWithSpread` 3, `newWithSpreadES6` 3), zero adverse, 145
+suites, clippy clean, 3,255 anchors.
+
+### The reading that made the difference
+
+§860 failed on this exact cluster because I took the clustering instrument's
+expression text at face value. §862 is the same cluster, opened properly: one `awk`
+over the baseline showed the gap sitting on A61 rather than A62, and that single line
+is the whole difference between a change that measured zero and one that measured +6.
+
+> **Two entries, same cluster, opposite outcomes, and the only variable was whether I
+> opened the baseline.** That is the cheapest lesson available in this file, and it
+> cost two builds and a `scorepair` to learn twice.
+
+`§861 + §862` together: **+16 lines, +2 cases**, from one upstream rule and its
+consequence.

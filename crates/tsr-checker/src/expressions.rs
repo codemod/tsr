@@ -2096,6 +2096,37 @@ impl Checker<'_, '_> {
         !t.flags.intersects(TypeFlags::ENUM_LIKE) && SAFE.contains(t.flags)
     }
 
+    /// Does `new` on this target reach upstream's `anyType` recovery?
+    ///
+    /// `checker.go:8334-8342` returns `anyType` when the resolved signature's
+    /// declaration is not a constructor, and `resolveNewExpression` reaches a
+    /// call signature only after finding no construct signature
+    /// (`checker.go:8603`, then `:8632`) — so the condition is expressible on
+    /// the type: **call signatures, no construct signature.**
+    ///
+    /// A CLASS is excluded: its static side is handled by the class road,
+    /// which resolves the declared instance type.
+    ///
+    /// Shared with [`Checker::any_is_written_in_an_annotation`] (§862), because
+    /// the `any` this produces is upstream's own value and not an unported
+    /// gap — so calling the result of such a `new` is `any` too.
+    pub(crate) fn new_target_lacks_a_construct_signature(&mut self, callee_type: TypeId) -> bool {
+        if matches!(self.store.get(callee_type).data,
+            TypeData::Anonymous { symbol, .. }
+                if self.binder.symbols().get(self.binder.merged_symbol(symbol))
+                    .flags
+                    .intersects(SymbolFlags::CLASS))
+        {
+            return false;
+        }
+        self.signature_candidates_of_named_type(
+            callee_type,
+            crate::signatures::SignatureKind::Construct,
+        )
+        .is_none_or(|candidates| candidates.is_empty())
+            && self.call_signatures_of_type(callee_type).is_some_and(|c| !c.is_empty())
+    }
+
     /// The type of `new C()`.
     ///
     /// Ported from `Checker.resolveNewExpression` (`checker.go:8575`), reduced to
@@ -2204,19 +2235,7 @@ impl Checker<'_, '_> {
         // A CLASS is excluded: its static side is handled by the class road
         // below, which resolves the declared instance type, and a class
         // reaching here would short-circuit to `any`.
-        if !matches!(self.store.get(callee_type).data,
-            TypeData::Anonymous { symbol, .. }
-                if self.binder.symbols().get(self.binder.merged_symbol(symbol))
-                    .flags
-                    .intersects(SymbolFlags::CLASS))
-            && self
-                .signature_candidates_of_named_type(
-                    callee_type,
-                    crate::signatures::SignatureKind::Construct,
-                )
-                .is_none_or(|candidates| candidates.is_empty())
-            && self.call_signatures_of_type(callee_type).is_some_and(|c| !c.is_empty())
-        {
+        if self.new_target_lacks_a_construct_signature(callee_type) {
             return self.intrinsics.any;
         }
         // The callee's type is the class's *static* side, which
