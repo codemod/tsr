@@ -107,3 +107,25 @@ fn a_guard_on_a_different_property_does_not_narrow() {
         "{ aaa: string; } | undefined"
     );
 }
+
+/// §843: an ALIAS narrows. `checkIdentifier`
+/// (`vendor/typescript-go/internal/checker/checker.go:11104-11118`) has three
+/// outcomes — `VARIABLE` narrows, `isAlias` narrows, everything else returns the
+/// declared type — and this port's gate tested `VARIABLE` alone, putting every
+/// alias into the third.
+///
+/// The corpus witness is `narrowedImports` (`if (a0) x = a0` over an imported
+/// binding), which this harness cannot express for want of a `ModuleHost`; an
+/// `import a = M.x` alias reaches the same gate without needing one.
+/// Corpus effect: `+10, zero adverse`, and the case went `10 WRONG -> 0`.
+#[test]
+fn an_alias_narrows() {
+    assert_eq!(
+        type_of_last_expression(
+            "namespace M { export declare let x: number | undefined; }
+             import a = M.x;
+             if (a) { a; }"
+        ),
+        "number"
+    );
+}

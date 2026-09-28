@@ -3035,3 +3035,74 @@ If it is ever revisited, the falsifier is cheap and stated: instrument
 2,000. If the port's maximum is within an order of magnitude, the graph is the same
 shape and the accounting is the bug; if it is 20, the graph is different and this is a
 binder item, not a checker one.
+
+## §843: an ALIAS is narrowable, and `is_narrowable_symbol` tests `VARIABLE` alone
+
+`narrowedImports` is 29 RIGHT / 10 WRONG, so the whole case turns on it. Every wrong
+line is the same:
+
+```ts
+import a0, { a1, a1 as a2 } from "./a";   // a0 : number | undefined
+if (a0) x = a0;
+>a0 : number      <- A11, the guarded reference; this port answers `number | undefined`
+```
+
+Truthiness narrowing of an **imported binding** does not happen. `checkIdentifier`
+(`vendor/typescript-go/internal/checker/checker.go:11104-11118`) is explicit, and its
+comment is the specification:
+
+```go
+isAlias := localOrExportSymbol.Flags&ast.SymbolFlagsAlias != 0
+// We only narrow variables and parameters occurring in a non-assignment position. For all other
+// entities we simply return the declared type.
+if localOrExportSymbol.Flags&ast.SymbolFlagsVariable != 0 {
+    ...
+} else if isAlias {
+    declaration = c.getDeclarationOfAliasSymbol(symbol)
+} else {
+    return t
+}
+```
+
+Three outcomes, and **an alias is the second of them** — it narrows, taking the alias
+declaration as the declaration for the container comparison that follows. This port's
+`is_narrowable_symbol` (`crates/tsr-checker/src/flow.rs`) is one line and tests
+`SymbolFlags::VARIABLE` only, so an alias falls into upstream's *third* outcome and
+keeps its declared type.
+
+### The bar
+
+1. **Primary.** `narrowedImports` ≥ **+8 of 10**, and the case passes. Falsified below +4.
+2. **Safety.** `RIGHT->WRONG ≤ 10`. The exposure is every alias that is *not* an
+   aliased variable — an imported class, function, enum or namespace — which now
+   enters the flow walk. Upstream lets those in too, so a loss here is a difference
+   in what the walk does with them rather than in the gate.
+3. **Falsifier.** If `narrowedImports` does not move, the gate is not the blocker and
+   the alias road fails somewhere later.
+4. **Regression.** `cargo test --workspace`; clippy clean.
+
+### §843 result
+
+| leg | registered | measured |
+|---|---|---|
+| 1 primary | `narrowedImports` ≥ +8, case passes | **+10 of 10**, case passes (`10 WRONG -> 0`) |
+| 2 safety | `RIGHT->WRONG` ≤ 10 | **0** |
+| 3 falsifier | case must move | moved |
+| 4 regression | tests + clippy | 1,834 passed, clippy clean |
+
+**+10, zero adverse, +1 case**, for widening one `intersects` by one flag.
+
+The registered exposure — imported classes, functions, enums and namespaces now
+entering the flow walk — cost **nothing**, which is the answer upstream's own shape
+predicted: those aliases enter upstream's walk too.
+
+> **Reading the comment rather than the code would have preserved this bug.**
+> Upstream's comment at that branch says *"We only narrow variables and parameters
+> occurring in a non-assignment position. For all other entities we simply return the
+> declared type"* — two outcomes. The code below it has three, and the alias arm is
+> the line immediately after the comment. A port guided by the prose gets exactly
+> this port's one-flag gate.
+
+Pinned in `crates/tsr-checker/tests/type_query_narrowing.rs`
+(`an_alias_narrows`): the corpus witness needs a `ModuleHost` the minimal harness
+lacks, and `import a = M.x` reaches the same gate without one.

@@ -7665,7 +7665,36 @@ impl Checker<'_, '_> {
     /// narrowed, and asking anyway would be answering a question upstream does
     /// not ask.
     pub(crate) fn is_narrowable_symbol(&self, symbol: SymbolId) -> bool {
-        self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::VARIABLE)
+        // §843: an ALIAS narrows too. `checkIdentifier`
+        // (`vendor/typescript-go/internal/checker/checker.go:11104-11118`) has
+        // **three** outcomes, not two, and its own comment names only the first:
+        //
+        // ```go
+        // isAlias := localOrExportSymbol.Flags&ast.SymbolFlagsAlias != 0
+        // // We only narrow variables and parameters occurring in a non-assignment position. For all other
+        // // entities we simply return the declared type.
+        // if localOrExportSymbol.Flags&ast.SymbolFlagsVariable != 0 {
+        //     ...
+        // } else if isAlias {
+        //     declaration = c.getDeclarationOfAliasSymbol(symbol)
+        // } else {
+        //     return t
+        // }
+        // ```
+        //
+        // An imported binding is an alias, so `if (a0) x = a0` narrows `a0`
+        // from `number | undefined` to `number` upstream
+        // (`narrowedImports.types` A11). Testing `VARIABLE` alone put every
+        // alias into upstream's *third* outcome.
+        //
+        // Reading the comment rather than the code would have kept this bug:
+        // it says "variables and parameters", and the alias arm is the line
+        // below it.
+        self.binder
+            .symbols()
+            .get(symbol)
+            .flags
+            .intersects(SymbolFlags::VARIABLE | SymbolFlags::ALIAS)
     }
 }
 
