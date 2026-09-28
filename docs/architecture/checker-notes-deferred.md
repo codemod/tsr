@@ -8092,3 +8092,54 @@ rest.
 > only half removed. Re-measuring a revert is cheap and worth doing — and the
 > result is only informative if the entry says *which* blocker it was testing.
 > §915 did, which is why one build settled it.
+
+## §919: the synthetic leading argument, built — +4, reverted
+
+§918 named the last blocker for `taggedTemplateStringsTypeArgumentInference`: a
+real argument at position 0 carrying `TemplateStringsArray`, so inference can flow
+into a tag whose **first** parameter is generic.
+
+Built properly:
+
+- `check_generic_call_leading(signature, call, arguments, instantiated, leading)`,
+  with `leading: Option<TypeId>` occupying position 0 so parameter *i + 1* pairs
+  with argument *i*. Four index reads in `check_generic_call_with` became
+  `index.checked_sub(lead)`, and **`None` reduces every one of them to exactly
+  what it was** — verified by `no transitions vs baseline` with the refactor in
+  and the tagged-template road still on the old path.
+- the `NoSubstitutionTemplateLiteral` form admitted, since `` noParams`` `` has no
+  spans and its whole argument list is the strings array.
+
+### The trap, and §888 had already recorded it
+
+`global_type_symbol("TemplateStringsArray")` answered `None`, which read as *"the
+lib is not mounted"*. It is mounted. **The helper defaults to arity 1**
+(`global_type_symbol_with_arity(name, 1)`) and `TemplateStringsArray` is
+non-generic — the identical trap §888 hit with `Iterable`, where the arity-1
+lookup *"returned `None` on every case and the arm measured a clean zero"*. One
+`0` fixed it.
+
+### Measured +4, and reverted
+
+`taggedTemplateStringsTypeArgumentInference` 2 + 2, against 2 `GAP→WRONG`.
+Re-adding §915/§918's contextual arm on top changed nothing (+0, 3 more
+`WRONG→GAP`).
+
+**Reverted.** A new parameter on the inference entry point that every generic call
+in the corpus flows through is real surface, and +4 net does not buy it. The
+mechanism is correct and the entry records how to rebuild it, which is worth more
+here than the lines.
+
+### What the family actually needs, third correction
+
+The residue is `` someGenerics2a`${ n => n }` `` wanting `(n: unknown) => unknown`
+— a **context-sensitive substitution** whose type parameter is fixed to `unknown`
+by the fixing mapper (§834's road for calls). That is neither the leading argument
+(§919) nor the contextual parameter (§915/§918/§920) but the two of them plus the
+deferred-argument pass agreeing, and each was measured alone.
+
+> **Three entries named three different prerequisites for one residue, and all
+> three were real but none was sufficient.** The lesson is not to stop naming
+> them — §916 came directly from §915's sentence — but that *"X is the
+> prerequisite"* should be written as *"X is A prerequisite"* unless it has been
+> measured with the others already in place.
