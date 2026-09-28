@@ -4527,3 +4527,32 @@ guard already located.
 both `[s]` and `[n]`), so the three cases that surfaced this will not fall to the
 string-key half alone — §858's lesson about surfacing cases having two defects,
 holding for a third time in a row.
+
+### §859 result — sized, and the refusal STANDS with the number attached
+
+The sizing I said should come first, run: a corpus query for wanted object types
+carrying **both** an index signature and a named member returns
+
+```
+131 non-RIGHT lines across 46 cases — WRONG 113, GAP 18
+top: complexRecursiveCollections 18, objectFreeze 8, constAssertions 8, indexSignatures1 7
+```
+
+and that number is an **over-count**, deliberately measured loose: the query matches
+any *declared* object type with an index signature, while the guard only governs
+object **literals**. The honest population is the gap subset and a fraction of the
+wrong lines — **tens of lines**.
+
+Against that: `Member` holds printed strings, so the fix needs a parallel
+`(name, TypeId)` list threaded through eight-plus accumulation sites in
+`check_object_literal`, a function whose every arm carries its own §-numbered
+reasoning. **A medium refactor of a delicate function for tens of lines is the wrong
+trade, and the refusal stands.**
+
+The number is now written into `objects.rs` beside the refusal itself, with the
+reopening condition (*re-run the query*) and the warning that
+`computedPropertyNames10_ES6` needs the mixed-key-kinds half as well. That is the
+point of the exercise: **§257 saved this session a fourth attempt at the `1 + {}`
+fallback because its numbers were recorded in the code**. This one now has the same
+protection, and §851's survey shows how quickly a plausible-looking cluster comes
+back around.

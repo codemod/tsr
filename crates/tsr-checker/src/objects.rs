@@ -1482,7 +1482,29 @@ impl Checker<'_, '_> {
             // - **A STRING key beside named members.** Upstream's filter keeps
             //   everything but symbol-named properties, so every named member
             //   contributes to the value union — a different computation, not
-            //   this one, and it is measured separately or not at all.
+            //   this one.
+            //
+            //   **§859 measured it, and the refusal stands.** The account of
+            //   upstream above is exactly right — `getObjectLiteralIndexInfo`
+            //   (`checker.go:19721`) unions `getTypeOfSymbol` over every
+            //   non-symbol-named property — but the population is **tens of
+            //   lines**: a corpus query for wanted object types carrying both
+            //   an index signature and a named member returns 131 non-RIGHT
+            //   lines across 46 cases, of which only **18 are gaps** and most
+            //   of those are *declared* object types rather than the object
+            //   LITERALS this guard governs.
+            //
+            //   And it is not free. `Member` holds printed strings, not
+            //   `TypeId`s, so supplying upstream's union means threading a
+            //   parallel `(name, TypeId)` list through the eight-plus
+            //   `members.push`/`upsert_member` sites in this function. A
+            //   medium refactor of a delicate function for tens of lines is
+            //   the wrong trade.
+            //
+            //   **Reopen only with a re-run of that query**, and note that
+            //   `computedPropertyNames10_ES6` — the case that surfaced this —
+            //   also needs the mixed-key-kinds half below, so it will not fall
+            //   to this half alone.
             // - **Mixed key kinds**, unchanged below: upstream emits one index
             //   info per kind in string/number/symbol order and getting that
             //   order wrong prints a plausible wrong line.
