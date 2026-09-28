@@ -4216,3 +4216,47 @@ Adding `depend.rs` step arms for `MappedType`, `YieldExpression`, `ConditionalTy
 lines re-rooted, no risk to the corpus because `depend.rs` is an instrument and not
 the checker. It should get §827's env-gate treatment (`TSR_NO_856=1`) so the
 re-rooting can be A/B'd against today's board rather than replacing it silently.
+
+### §856.1: the step arms, built — 701 unattributed lines re-rooted
+
+§4.0's outstanding `depend.rs` item, done. Five arms added on §767's shape — follow
+the first constituent that gaps; none gapping means the arm itself refused and the
+root really is there — gated by `TSR_NO_856=1` so the re-rooting A/Bs against the
+previous board rather than replacing it silently (§827's treatment).
+
+| kind | before | after |
+|---|---:|---|
+| `MappedType` | 302 NO STEP ARM | **281**, root is here (21 re-rooted) |
+| `YieldExpression` | 107 NO STEP ARM | **gone** — all 107 re-rooted |
+| `ConditionalType` | 99 NO STEP ARM | **96**, root is here |
+| `TaggedTemplateExpression` | 98 NO STEP ARM | **92**, no further dependency |
+| `SpreadAssignment` | 95 NO STEP ARM | **91**, no further dependency |
+
+`scorepair` reports **no transitions** — `depend.rs` is an instrument, not the
+checker, which is why this was the one piece of work left with no corpus risk at all.
+
+### `has_step_arm` is a second copy of the same fact, and it lied first
+
+The first run moved every count and changed no label: `TaggedTemplateExpression` went
+98 → 92 while still printing *"NO STEP ARM for this kind — not a finding"*. The
+ending is chosen by `has_step_arm`, a hand-maintained list of node kinds parallel to
+`step`'s own arms, and adding an arm without adding it there leaves the row
+**labelled as unattributable while the attribution is in fact running**.
+
+That is worth more than the re-rooting. A board whose label and whose behaviour
+disagree is worse than one that admits ignorance, and this one would have under-
+reported its own coverage to every future session. The list now carries a comment
+saying it must move with `step`.
+
+### What surfaced underneath
+
+Four kinds were always unattributed and always below the printed cutoff, and are now
+the visible remainder: `FunctionType` 87, `SpreadElement` 81, `UnionType` 78,
+`IndexedAccessType` 77 — **323 lines**, which is `STATUS.md` §4.0's *other* listed
+item (`ArrayType`/`TupleType`/`UnionType`/`IntersectionType`). Same treatment, same
+absence of risk, and now the largest instrument gap left.
+
+> **The general point, which the board itself demonstrates twice over:** a "not a
+> finding" bucket hides two different things — kinds nobody wrote an arm for, and
+> kinds whose arm exists but whose label was never updated. Both look identical in
+> the output, and only the A/B distinguishes them.

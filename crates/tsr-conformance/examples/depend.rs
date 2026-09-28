@@ -258,6 +258,87 @@ fn step<'a>(
                 }),
             )
         }
+        // §856: the five remaining `NO STEP ARM` kinds, on §767's shape —
+        // follow the first CONSTITUENT that gaps; none gapping means the arm
+        // itself refused and the root really is here.
+        //
+        // Before this they answered `no further dependency` and were relabelled
+        // `NO STEP ARM — not a finding` — **701 lines, 8% of the gap
+        // population**, in a bucket that says nothing about the compiler:
+        // `MappedType` 302, `YieldExpression` 107, `ConditionalType` 99,
+        // `TaggedTemplateExpression` 98, `SpreadAssignment` 95.
+        //
+        // `TSR_NO_856=1` restores the old behaviour so the re-rooting can be
+        // A/B'd against the previous board rather than replacing it silently
+        // (§827's treatment).
+        Node::MappedTypeNode(mapped) if std::env::var_os("TSR_NO_856").is_none() => {
+            // `{ [K in C as N]: T }` — the template `T` is what the member
+            // type comes from, then the `as` clause, then the constraint on
+            // the type parameter.
+            first_gapping(
+                checker,
+                binder,
+                nodes,
+                map,
+                [
+                    mapped.r#type.and_then(|t| t.node_id()),
+                    mapped.name_type.and_then(|t| t.node_id()),
+                    mapped.type_parameter.and_then(|p| p.constraint).and_then(|c| c.node_id()),
+                ]
+                .into_iter()
+                .flatten(),
+            )
+        }
+        Node::ConditionalTypeNode(conditional) if std::env::var_os("TSR_NO_856").is_none() => {
+            // Both branches, then the two operands of the `extends` test: a
+            // conditional that cannot resolve usually cannot resolve one of
+            // the four.
+            first_gapping(
+                checker,
+                binder,
+                nodes,
+                map,
+                [
+                    conditional.true_type.and_then(|t| t.node_id()),
+                    conditional.false_type.and_then(|t| t.node_id()),
+                    conditional.check_type.and_then(|t| t.node_id()),
+                    conditional.extends_type.and_then(|t| t.node_id()),
+                ]
+                .into_iter()
+                .flatten(),
+            )
+        }
+        Node::YieldExpression(yielded) if std::env::var_os("TSR_NO_856").is_none() => {
+            // A yield's type comes from the generator's annotation, not from
+            // the operand — but when the operand gaps, that is what to report.
+            first_gapping(
+                checker,
+                binder,
+                nodes,
+                map,
+                yielded.expression.and_then(|e| e.node_id()).into_iter(),
+            )
+        }
+        Node::TaggedTemplateExpression(tagged) if std::env::var_os("TSR_NO_856").is_none() => {
+            // The TAG's signature is what types the expression; the template
+            // supplies arguments.
+            first_gapping(
+                checker,
+                binder,
+                nodes,
+                map,
+                tagged.tag.and_then(|e| e.node_id()).into_iter(),
+            )
+        }
+        Node::SpreadAssignment(spread) if std::env::var_os("TSR_NO_856").is_none() => {
+            first_gapping(
+                checker,
+                binder,
+                nodes,
+                map,
+                spread.expression.and_then(|e| e.node_id()).into_iter(),
+            )
+        }
         Node::ArrayLiteralExpression(array) => first_gapping(
             checker,
             binder,
@@ -354,6 +435,17 @@ fn has_step_arm(node: Node<'_>, is_declaration_name: bool) -> bool {
                 | Node::ArrowFunction(_)
                 | Node::FunctionExpression(_)
                 | Node::ParameterDeclaration(_)
+                // §856: keep this list in step with `step`'s arms. It is a
+                // SECOND list of the same fact, and adding an arm without
+                // adding it here leaves the row labelled
+                // `NO STEP ARM — not a finding` while the arm is in fact
+                // firing — which is what happened on the first §856 run: the
+                // counts moved and the label did not.
+                | Node::MappedTypeNode(_)
+                | Node::ConditionalTypeNode(_)
+                | Node::YieldExpression(_)
+                | Node::TaggedTemplateExpression(_)
+                | Node::SpreadAssignment(_)
         )
 }
 
