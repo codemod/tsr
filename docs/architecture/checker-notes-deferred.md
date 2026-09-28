@@ -3593,3 +3593,155 @@ said and what three converging entries have now confirmed from the code.
 
 Step 2 is the first point at which a `scorepair` number exists, and it is the right
 place to re-price the whole item.
+
+## §850: §849 steps 1 and 2 — the arity family and a bounded `compareSignaturesRelated`
+
+Built to §849's plan. Step 1 is the arity family, pure functions over the existing
+`Signature`; step 2 is `compare_signatures_related` wired behind §848's
+`signature_bearing(target)` gate so it can only ever **narrow** a refusal.
+
+### Step 1, in `crate::signatures`
+
+`signature_has_rest_parameter`, `get_parameter_count`, `has_effective_rest_parameter`,
+`try_get_type_at_position`, `get_min_argument_count` — ported from
+`vendor/typescript-go/internal/checker/relater.go:1689-1781` and `checker.go:17038`.
+
+**Every one returns `Option`, and `None` means *undecidable*, not zero.** Upstream's
+tuple arms read `restType.TargetTupleType().fixedLength` and
+`combinedFlags & ElementFlagsVariable`; this port models a tuple as a plain entry in
+`tuple_element_lists` with no per-element flags, so the required/optional/variadic
+distinction those encode is simply absent. Answering anyway would invent an arity,
+and arity decides a `NotRelated` — the direction that promotes the next overload
+candidate (`docs/conventions.md`).
+
+`get_min_argument_count` rebuilds upstream's cached `signature.minArgumentCount` as
+the number of leading parameters that are neither optional nor rest, then ports the
+trailing-`void` trim on top.
+
+### Step 2, in `crate::relater`
+
+`signatures_related_to` follows upstream in iterating the **target's** list: empty
+means vacuously related (§848), and anything other than one-against-one answers
+`Unknown` — the `N * M` matrix and the paired-instantiation fast path are not ported.
+`signatures_of_type` returning `None` also answers `Unknown`, because a type whose
+signatures are written on an interface member is one `signature_bearing` can see and
+this cannot; inventing an empty list for it would turn "unknown" into "vacuously
+related".
+
+`compare_signatures_related` refuses, explicitly, every shape needing absent
+machinery:
+
+| shape | upstream needs | here |
+|---|---|---|
+| either side generic | `instantiateSignatureInContextOf`, `getCanonicalSignature` | `Unknown` |
+| a `this` parameter | the comparison at `relater.go:1500` | `Unknown` |
+| a rest parameter | `getRestOrAnyTypeAtPosition`, tuple element flags | `Unknown` |
+| a single-call-signature parameter | the callback path at `relater.go:1567` | `Unknown` |
+| a type predicate | `compareTypePredicateRelatedTo` | `Unknown` |
+
+What remains is upstream's own single-against-single branch with the hard parts
+excluded: the arity early `false`, the parameter loop, and the return comparison
+including `relater.go:1592`'s *`void` or `any` target return accepts anything*.
+
+Two details taken from the code rather than assumed, both of which decide answers:
+
+- **Parameters are bivariant source-first.** `if !strictVariance { related =
+  compareTypes(source, target) }; if related == False { related =
+  compareTypes(target, source) }`. Not contravariant-only, and not target-first.
+- **`strictVariance` needs `strictFunctionTypes`**, which the checker did not read.
+  Plumbed alongside §846's `strict_bind_call_apply`. It is
+  `strictFunctionTypes && the target declaration is not a method, method signature or
+  constructor` — getting it wrong in the lenient direction accepts pairs upstream
+  rejects, which is a wrong overload resolution rather than a gap.
+
+### The bar
+
+1. **Primary.** Net ≥ **+15**. This is a capability, not a targeted fix, so the
+   prediction is deliberately modest — §848 showed these populations sit behind the
+   generic half, which is step 3 and is *not* in this change.
+2. **Safety.** `RIGHT->WRONG ≤ 15`. This is the leg that decides it. The change
+   converts `Unknown` into a verdict, and `Unknown` is what currently protects the
+   overload road from confident wrong answers.
+3. **Falsifier.** Any loss in `strictBindCallApply1`, `promisePermutations*` or the
+   overload cases means the variance or arity reading is wrong, and it reverts —
+   those are the cases that act on a `false`.
+4. **Regression.** `cargo test --workspace`; clippy clean.
+
+### §850 result — BUILT, MEASURED, REVERTED, and §849's step order was wrong
+
+The falsifier fired exactly where it was registered.
+
+| leg | registered | measured |
+|---|---|---|
+| 1 primary | net ≥ +15 | **+12** |
+| 2 safety | `RIGHT->WRONG` ≤ 15 | **10** — passes |
+| 3 falsifier | **any** loss in `promisePermutations*` / the overload cases | `promisePermutations2` **−8**, `promiseVoidErrorCallback` −2 |
+| — | (not registered, and the largest effect) | **`RIGHT->GAP` 83**, `promiseTypeStrictNull` 80 |
+
+`WRONG->RIGHT 88` (`typeGuardOfFormIsTypeOnInterfaces` 37, `unionTypeReduction2` 22,
+`arrayOfFunctionTypes3` 6) against **93 lines lost in the promise/overload family**,
+for a net of +12 right lines. **Reverted.**
+
+### Why it went that way, which is the finding
+
+§849 proposed step 2 as *"`compare_signatures_related` returning `Unknown` for every
+shape it cannot yet decide, wired behind §848's gate so it can only ever narrow a
+refusal and never replace a protective `Unknown` with a guess"*, and predicted that
+the non-generic single-signature pairs alone might pay.
+
+The first half held: the implementation refuses generics, `this` parameters, rest
+parameters, callback parameters and type predicates, and every verdict it produced
+was upstream's. **The second half was wrong, and the reason is structural rather
+than a bug.** Overload selection consumes the relation, and it ranks candidates by
+*comparing them against each other*. Deciding **some** signature pairs while leaving
+others `Unknown` does not leave the ranking untouched — it reorders it, because a
+candidate that now answers `NotRelated` is eliminated while its neighbour, refused
+for an unported shape, survives. `promiseTypeStrictNull`'s 80 `RIGHT->GAP` lines are
+that: a `then` overload set where the newly-decidable candidates lose to the still-
+undecidable ones.
+
+So a *partial* signature relation is not conservative in the way "only narrows a
+refusal" suggests. It is conservative pointwise and destabilising in aggregate.
+**§849 step 2 cannot be measured in isolation**, and the step order it recommended —
+bounded relation first, generic half later — is the wrong decomposition. The right
+one is to port `compareSignaturesRelated` **whole**, generics included, and measure
+once.
+
+That is a genuinely worse-shaped item than §849 priced, and it is worth knowing
+before someone spends a session on the easy half.
+
+### What was built, and what is worth keeping from it
+
+Reverted in full; nothing of it is in the tree. What the attempt established, in
+descending order of value to the next attempt:
+
+1. **The step order above.** Port it whole or not at all.
+2. **`call_signatures_of_type` answers `Some(vec![])`, not `None`**, for a bare
+   `(x: number) => void` whose signatures live only in the baked `signature_types`
+   table. Reading that empty list as "no call signatures" makes a signature relation
+   answer *vacuously related* for every such pair — it accepted
+   `(x: number, y: number) => void` as a `(x: number) => void`. The corpus measured
+   **zero transitions** while that bug was live; a unit test caught it.
+3. **A function type has no members table**, so `has_members` is false and such a
+   pair never reaches `structured_type_related_to` at all — it falls through to
+   *not computed*. Any future signature relation must widen that gate as well as
+   fill the refusal, and the first version of §850 measured zero transitions purely
+   because it did not.
+4. **Parameters are bivariant source-first** (`if !strictVariance { compareTypes(source,
+   target) }; if False { compareTypes(target, source) }`), and `strictVariance` needs
+   `strictFunctionTypes`, which the checker does not read. Both are `relater.go:1499`
+   and `:1571`.
+5. **`tryGetTypeAtPosition` returning `nil` means SKIP the position, not fail**
+   (`relater.go:1553`). That is the whole reason a one-parameter source satisfies a
+   two-parameter target, and getting it wrong refuses every unequal-arity pair.
+6. **A pre-existing confident-wrong, found on the way and unrelated to §850**:
+   `(...xs: number[]) => void` is accepted as `(...xs: string[]) => void`. Verified
+   on the commit *before* §850 by running the same assertion there, so it is not this
+   change's doing. It is decided somewhere above the structural arm and is a wrong
+   answer in the consumer that acts on a `false`. Unfiled elsewhere; **this is the
+   only record of it.**
+
+The corpus could not have caught 2, 3 or 5 — all three measured zero transitions or
+were masked by another defect — and unit tests caught all three. That is the
+strongest argument this session produced for testing a relation directly rather than
+only through the gradient.
