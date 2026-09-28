@@ -3840,3 +3840,43 @@ for the wrong-line board applies here.
 
 This board has never existed before, which is why a 344-case population was invisible
 to every session that came before this one.
+
+### §852.1: the board's tail, and what the `any` family is NOT
+
+Ranked ascending, as §852 says to:
+
+```
+cases with 1-2 gaps and ZERO wrong lines: 173  (= 173 cases for 260 lines)
+```
+
+**173 cases sit one or two gap lines from passing.** At roughly 1.5 lines per case
+that is the best ratio anywhere in this project; the corpus average is near 70 lines
+per case.
+
+Within the zero-wrong board, `any` is the single most common wanted answer: **221 gap
+lines across 67 cases, and in 42 of those cases *every* gap wants `any`** — so 42
+cases would fall to whatever explains them.
+
+**They are not one mechanism.** Three of the 1-gap cases, read:
+
+| case | the node | what it is |
+|---|---|---|
+| `conformance/autoAccessor10` | `#a2_accessor_storage in C3` | a **private identifier** as the left operand of `in` |
+| `compiler/typeAliasExport` | `export type a = typeof a;` | a type alias whose own name shadows the `var a` its `typeof` reads |
+| `conformance/classPropertyIsPublicByDefault` | `C.b()` | a call whose callee is an untyped static |
+
+Three different causes. And the third is *not* the obvious one: a probe confirms
+`declare const o: any; o.b()` and `declare const f: any; f()` both already answer
+`any`, so calling an `any` callee is ported and that case fails for some other
+reason.
+
+So the `any` family is **42 separate one-line diagnoses**, not one fix. That is still
+an excellent ratio — roughly one case per gap line, with no `RIGHT->WRONG` exposure
+anywhere in it — but it is a *grind with a known good yield*, not a mechanism hunt,
+and it should be planned as such rather than opened expecting a single cause.
+
+> **What makes this board worth inheriting**: it is the first population this project
+> has found where the work is bounded, the risk is structurally zero, and the case
+> yield is an order of magnitude better than the corpus average. It does not reach
+> 95% — 1,637 lines is 0.34 points — but on the number `STATUS.md` §1 leads with, it
+> is worth more than everything §839–§850 achieved put together.
