@@ -79,7 +79,7 @@ compiler/argumentsUsedInClassFieldInitializerOrStaticInitializationBlock
 compiler/arithmeticOnInvalidTypes2
   1 missing (first TS2365 at arithmeticOnInvalidTypes2.ts(2,14))
 compiler/arrayAssignmentTest1
-  13 missing (first TS2322 at arrayAssignmentTest1.ts(6,16))
+  4 unexpected (first TS2322 at arrayAssignmentTest1.ts(46,5)), 13 missing
 compiler/arrayAssignmentTest2
   7 missing (first TS2322 at arrayAssignmentTest2.ts(51,1))
 compiler/arrayAssignmentTest4
@@ -125,7 +125,7 @@ compiler/assigningFromObjectToAnythingElse
 compiler/assigningFunctionToTupleIssuesError
   1 missing (first TS2322 at assigningFunctionToTupleIssuesError.ts(2,5))
 compiler/assignmentCompat1
-  4 missing (first TS2741 at assignmentCompat1.ts(4,1))
+  2 unexpected (first TS2322 at assignmentCompat1.ts(4,1)), 4 missing
 compiler/assignmentCompatBug2
   3 unexpected (first TS2322 at assignmentCompatBug2.ts(15,1)), 3 missing
 compiler/assignmentCompatBug5
@@ -173,9 +173,9 @@ compiler/assignmentCompatability45
 compiler/assignmentCompatability46
   2 missing (first TS2345 at assignmentCompatability46.ts(3,4))
 compiler/assignmentCompatability_checking-apply-member-off-of-function-interface
-  2 unexpected (first TS2322 at assignmentCompatability_checking-apply-member-off-of-function-interface.ts(13,1)), 4 missing
+  4 unexpected (first TS2322 at assignmentCompatability_checking-apply-member-off-of-function-interface.ts(11,1)), 4 missing
 compiler/assignmentCompatability_checking-call-member-off-of-function-interface
-  2 unexpected (first TS2322 at assignmentCompatability_checking-call-member-off-of-function-interface.ts(13,1)), 4 missing
+  4 unexpected (first TS2322 at assignmentCompatability_checking-call-member-off-of-function-interface.ts(11,1)), 4 missing
 compiler/assignmentStricterConstraints
   1 missing (first TS2322 at assignmentStricterConstraints.ts(7,1))
 compiler/assignmentToAnyArrayRestParameters

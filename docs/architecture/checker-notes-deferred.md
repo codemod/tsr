@@ -3527,3 +3527,69 @@ items are no longer where you are looking.
 overload selection needs (`STATUS.md` §4.2, effort 5), and it is the *only* thing
 between this port and ~50–60 lines here plus the much larger overload populations.
 Three entries in a row now point at it from different directions.
+
+## §849: `signatureRelatedTo` scoped by reading, not estimated
+
+§844, §846 and §848 all ended pointing at the same missing function. This is what it
+actually costs, measured rather than guessed, so the next session starts from a
+work-breakdown instead of rediscovering one.
+
+### The two candidate shortcuts, both checked and both dead
+
+1. **`isTopSignature` early return.** `compareSignaturesRelated`'s second line
+   returns `TernaryTrue` when the target is a top signature
+   (`vendor/typescript-go/internal/checker/relater.go:1675`): no type parameters, no
+   `this` parameter or an `any` one, **exactly one parameter** which is a rest, whose
+   element type is `any`/`never`, and an `any`/`unknown` return.
+   `Function.bind` is `(this: Function, thisArg: any, ...argArray: any[]) => any` —
+   it fails on the `this: Function` *and* on having two parameters. **Not the route.**
+
+2. **"Every target parameter and the return is `any`, so short-circuit."** The
+   soundness link checks out — `isSimpleTypeRelatedTo` (`relater.go:209`) returns
+   true for an `any` target **unconditionally, in every relation including
+   `strictSubtypeRelation`**, and the arity test passes whenever the target has a
+   rest parameter. But the `this`-type comparison runs *before* the parameter loop
+   and is not covered by it: `Function.bind` is declared as a **method signature**,
+   which makes `strictVariance` false, so the comparison
+   `compareTypes(sourceThisType, targetThisType)` really runs with source `this: T`
+   against target `this: Function`. A shortcut that skipped it would be an
+   approximation of the algorithm rather than a port of it — and this is the one
+   consumer that acts on a `false` (`docs/conventions.md`), so an approximation here
+   buys wrong overload resolutions, not gaps.
+
+### The measured scope
+
+`compareSignaturesRelated` is ~150 lines. Every helper it needs is **absent from this
+port** — checked one by one, not estimated:
+
+```
+get_erased_signature                missing      get_non_array_rest_type            missing
+instantiate_signature_in_context_of missing      try_get_type_at_position           missing
+get_canonical_signature             missing      get_rest_or_any_type_at_position   missing
+get_parameter_count                 missing      get_this_type_of_signature         missing
+get_min_argument_count              missing      is_top_signature                   missing
+has_effective_rest_parameter        missing      get_single_call_signature          missing
+is_instantiated_generic_parameter   missing
+```
+
+Thirteen of thirteen. This is a subsystem port, not a slice, and it cannot land
+inside one session honestly — which is what `STATUS.md` §4.2's **effort 5** already
+said and what three converging entries have now confirmed from the code.
+
+### Suggested order for whoever takes it
+
+1. The arity family first — `get_parameter_count`, `get_min_argument_count`,
+   `has_effective_rest_parameter`, `try_get_type_at_position`. These are pure
+   functions over the existing `Signature`, testable without the relater, and they
+   are what the `sourceHasMoreParameters` early `false` needs.
+2. `compare_signatures_related` **returning `Unknown` for every shape it cannot yet
+   decide** — generics, rest types, callback parameters. Wired in behind §848's
+   `signature_bearing(target)` gate so it can only ever *narrow* a refusal and never
+   replace a protective `Unknown` with a guess. Measure at this point: the
+   non-generic single-signature pairs alone may pay.
+3. Only then the generic half — `get_erased_signature`, `get_canonical_signature`,
+   `instantiate_signature_in_context_of` — which is what the `& Function` rows
+   specifically need.
+
+Step 2 is the first point at which a `scorepair` number exists, and it is the right
+place to re-price the whole item.
