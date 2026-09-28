@@ -8314,3 +8314,38 @@ Three entries in a row were reverted for reasoning from the code's shape (§915,
 §919, §921's first attempt). This one reversed the order — five fixtures, one
 build, one failing shape — and the fix followed immediately. The arm's own text
 gave no hint, because **nothing about it is wrong**.
+
+### §922.1: the `declarations.first()` sweep — clean, and one invalid probe
+
+§922 called for a sweep: **39 `declarations.first()` sites** in the checker, each
+a claim that a symbol has one declaration, which is false for every merged one.
+
+Probed rather than read — six merged shapes, both declaration orders:
+
+```
+interface-then-class = I     class-then-interface = J
+function-then-ns = typeof k  ns-then-function = typeof m
+enum-then-ns = typeof E      ns-then-enum = typeof F
+```
+
+**All six correct and order-independent.** §922's defect was specific to the `new`
+road, where the `first()` result is matched against `ClassDeclaration |
+ClassExpression` and falls to `_`. The other 38 sites either do not match on kind
+or are reached only for unmerged symbols. **The sweep is clean; the lead is
+closed rather than left open.**
+
+### And a probe that lied
+
+Probing eight call shapes in `tests/objects.rs` reported `rest=error` — a call to
+`declare function g(...xs: number[])`. It looked like a live defect in the biggest
+root on the board.
+
+It is a **harness artefact**: that file's fixtures mount no lib, so `number[]`
+cannot resolve `Array` and the *signature* fails before any call. `g;` alone
+answered `error`, which is what gave it away. Re-run in `tests/array_literals.rs`,
+which mounts `interface Array<T> {}`, every rest form is correct.
+
+> **A probe is only as good as its harness**, and this session has two with
+> different libs. The check that costs nothing: **probe the thing you are not
+> testing first** — `g;` before `g(1)` — because a harness limitation shows up
+> there and a real defect does not.
