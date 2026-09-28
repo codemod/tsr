@@ -2898,3 +2898,88 @@ when asked for by position.
 
 That is the next column, and writing the non-claim into the bar beforehand is what
 makes it a lead rather than a disappointment.
+
+## §841: the nodes inside `typeof a.b` have no road in `types_producer`
+
+§840's declined residue, opened. `narrowingOfQualifiedNames` positions 9, 11, 24, 26,
+36, 38 answer `any` where the oracle wants the property's type, and they are the
+`QualifiedName` node `properties.foo` and its right-hand `Identifier` `foo`, both
+*inside* a `typeof` query whose resolution §840 just made correct.
+
+`types_producer` has an `IsRightSideOfPropertyAccess` arm
+(`crates/tsr-conformance/src/types_producer.rs:610`) whose comment records what it
+was for:
+
+> Until this existed the name fell through to the identifier path and was resolved as
+> a **free name in the enclosing scope** — `bd tsr-tl8`, and the one place this port
+> could answer wrongly where a gap belonged.
+
+Upstream's predicate is `isRightSideOfQualifiedNameOrPropertyAccess` — **one function
+covering both spellings**. This port ported the property-access half. The qualified
+half has no arm, and `check_qualified_name` does not appear in `types_producer` at
+all, so neither the `QualifiedName` node nor its right identifier is ever typed.
+`bd tsr-tl8`'s exact bug, live in the other grammar.
+
+### The gate, and why it is not optional
+
+A `QualifiedName` is *usually* a **type** name — the `M.I` of `let x: M.I` — and the
+oracle prints a type there, not a value type. Typing every `QualifiedName` as a value
+expression would turn a large population of correct type-reference lines into
+confident wrong ones. The arm is therefore gated on the node being part of a
+**type query**, which is the same gate the binder already applies when it decides to
+record a flow node at all (`binder.rs`, `binder.go:605-608`). Inside `typeof`, and
+only there, a qualified name denotes a value.
+
+### The bar
+
+1. **Primary.** `narrowingOfQualifiedNames` ≥ **+6**. Falsified below +3.
+2. **Safety.** `RIGHT->WRONG ≤ 10`. The exposure is any `typeof M.x` line that is
+   right today by some other route, plus `check_qualified_name` answering
+   confidently where an honest gap stands (the §121 purely-nullish arm answers `any`,
+   which prints, rather than gapping).
+3. **Falsifier.** If the six named positions do not move, the road is not the one
+   `types_producer` takes for them and the change is reverted rather than widened.
+4. **Regression.** `cargo test --workspace` green; clippy clean.
+
+### §841 result — the largest single landing of the session, from a residue the previous bar declined
+
+| leg | registered | measured |
+|---|---|---|
+| 1 primary | `narrowingOfQualifiedNames` ≥ +6 | **+78** (the case went `90 WRONG -> 12`) |
+| 2 safety | `RIGHT->WRONG` ≤ 10 | **1**, plus 2 `GAP->WRONG` |
+| 3 falsifier | the six positions must move | moved |
+| 4 regression | tests + clippy | 1,833 passed, clippy clean |
+
+**`WRONG->RIGHT 242`, `GAP->RIGHT 69`, against 3 adverse lines: +310 right lines.**
+
+The gains are far wider than the case that surfaced it, because the mechanism is any
+`typeof` over a dotted path anywhere:
+
+```
+narrowingOfQualifiedNames 78, uniqueSymbols 23, uniqueSymbolsDeclarations 23,
+declarationEmitGlobalThisPreserved 53 (gap->right), typeQueryWithReservedWords 3,
+typeofUsedBeforeBlockScoped 3
+```
+
+The three adverse lines, each owned:
+
+- `jsxLibraryManagedAttributesUnusedGeneric:0:2` wants **`error`** and gets `any`.
+  The arm mirrors the property-access arm's `computed == error -> return any`, which
+  that arm's SS183 comment justifies deliberately. Keeping the two spellings
+  symmetric is worth one line; splitting them would need its own bar.
+- `recursiveFunctionTypes1:0:3` and `symbolProperty61:0:3` are `GAP->WRONG`, which is
+  **the only adverse direction this arm can produce** for a node nothing typed before
+  (§620's accepted direction). The first is a recursive `typeof C.g`; the second wants
+  `unique symbol` and gets the widened `symbol` — in a family this change took
+  **+46** in.
+
+### What the two entries together say about bars
+
+§840's bar wrote down what it would *not* claim. That non-claim was worth **+310**,
+twenty times §840's own +16, and it was sitting behind a landing that had already
+passed all its legs. Neither the gap-root board nor the near-miss census pointed at
+it: it only became visible because §840 fixed the resolution and left the six `any`
+rows standing next to a now-correct answer.
+
+**A residue named in advance and left standing is a lead with a known location. The
+same lines, unnamed, are indistinguishable from the corpus's noise.**

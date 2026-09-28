@@ -638,6 +638,33 @@ pub fn type_id_at_location_tracking<'a>(
         return computed;
     }
 
+    // §841: the qualified half of `isRightSideOfQualifiedNameOrPropertyAccess`.
+    //
+    // Upstream's predicate is one function covering both spellings; the arm
+    // above ported the property-access half and this is the other. Without it
+    // the `foo` of `typeof properties.foo`, and the `properties.foo`
+    // `QualifiedName` itself, fall through to the free-identifier path and
+    // answer `any` — `bd tsr-tl8`'s exact bug, live in the other grammar.
+    //
+    // **The type-query gate is not optional.** A `QualifiedName` is usually a
+    // TYPE name — the `M.I` of `let x: M.I` — and the oracle prints a type
+    // there, not a value type; typing every qualified name as a value
+    // expression would turn a large population of correct type-reference lines
+    // into confident wrong ones. Inside `typeof`, and only there, a qualified
+    // name denotes a value. This is the same gate the binder applies when it
+    // decides to record a flow node for one at all
+    // (`vendor/typescript-go/internal/binder/binder.go:605-608`).
+    if is_part_of_type_query(id, nodes)
+        && let Some(qualified) = qualified_name_to_check(id, nodes, map)
+    {
+        let computed = checker.check_qualified_name(qualified);
+        if computed == error || computed == checker.intrinsics().any {
+            *saw_checker_error |= computed == error;
+            return checker.intrinsics().any;
+        }
+        return computed;
+    }
+
     // §296: the PROPERTY NAME of an import/export specifier — the `default`
     // of `export { default as A } from "./a"` — types as the specifier's own
     // aliased target, exactly as its NAME does; upstream records both lines
@@ -2388,6 +2415,51 @@ pub fn to_file_types(name: &str, assertions: &[Assertion]) -> FileTypes {
         file: name.to_string(),
         assertions: assertions.iter().map(|a| TypeAssertion { text: a.line() }).collect(),
     }
+}
+
+/// Is `id` inside a `typeof` type query?
+///
+/// The binder's own `is_part_of_type_query` (`crates/tsr-binder/src/binder.rs`),
+/// which is `ast.IsPartOfTypeQuery`: walk up while the node is still part of an
+/// entity name, and answer whether what stops the walk is the query.
+fn is_part_of_type_query(id: NodeId, nodes: &NodeTable) -> bool {
+    let mut current = id;
+    loop {
+        let kind = nodes.kind(current);
+        if !matches!(kind, SyntaxKind::QualifiedName | SyntaxKind::Identifier) {
+            return kind == SyntaxKind::TypeQuery;
+        }
+        match nodes.parent(current) {
+            Some(parent) => current = parent,
+            None => return false,
+        }
+    }
+}
+
+/// The `QualifiedName` whose value type `id` should be reported as: `id` itself
+/// when it is one, or its parent when `id` is that parent's right-hand name.
+///
+/// Both lines exist in the oracle and both want the property's type:
+///
+/// ```text
+/// type FooOK = typeof properties.foo;
+/// >properties.foo : { aaa: string; bbb: string; }
+/// >foo : { aaa: string; bbb: string; }
+/// ```
+fn qualified_name_to_check<'a>(
+    id: NodeId,
+    nodes: &NodeTable,
+    map: &NodeMap<'a>,
+) -> Option<&'a tsr_ast::QualifiedName<'a>> {
+    if let Some(Node::QualifiedName(qualified)) = map.get(id) {
+        return Some(qualified);
+    }
+    if nodes.kind(id) != SyntaxKind::Identifier {
+        return None;
+    }
+    let parent = nodes.parent(id)?;
+    let Some(Node::QualifiedName(qualified)) = map.get(parent) else { return None };
+    (qualified.right.and_then(|right| right.node_id) == Some(id)).then_some(qualified)
 }
 
 #[cfg(test)]
