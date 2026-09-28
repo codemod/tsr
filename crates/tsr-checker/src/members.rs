@@ -462,6 +462,59 @@ impl Checker<'_, '_> {
         }
     }
 
+    /// Whether a `NonNullExpression` carries `NodeFlagsOptionalChain` — the
+    /// predicate `checkNonNullAssertion` (`checker.go:10623`) branches on. §884.
+    ///
+    /// **This is not "the operand spine contains `?.`".** The parser builds every
+    /// `!` with `ast.NodeFlagsNone` (`parser.go:5375`) and the flag is added
+    /// *retroactively*, by `tryReparseOptionalChain` (`parser.go:5414`), which is
+    /// called from exactly three places — the property-access, element-access and
+    /// call rests (`parser.go:5399`, `5444`, `5468`). A `!` is therefore a chain
+    /// link only when **another link was parsed on top of it**:
+    ///
+    /// ```ts
+    /// o2?.["b"]!.c   // the `!` IS a chain link — `.c` reparsed it
+    /// o2?.["b"]!.c!  // the trailing `!` is NOT — nothing follows it
+    /// m?.[0]! && …   // not a link either; `&&` is not one of the three rests
+    /// ```
+    ///
+    /// That asymmetry is the whole observable difference: an inner `!` re-unions
+    /// the chain's `undefined` and the outermost `!` removes it. Deriving the flag
+    /// from the operand alone marks the trailing `!` as a link too and answers
+    /// `string | undefined` where upstream answers `string` — measured as six
+    /// `RIGHT->WRONG` on the first build of §884.
+    ///
+    /// The upward walk climbs a *run* of `!`s because `tryReparseOptionalChain`
+    /// stamps the whole run in one go (`o2?.b!!.c`).
+    pub(crate) fn non_null_is_optional_chain(&self, node: tsr_ast::NodeId) -> bool {
+        // Downward: `expr := node.Expression(); for IsNonNullExpression(expr) …`
+        // — the port derives the operand's flag rather than storing it, and the
+        // spine walker already passes through `!` links.
+        let Some(Node::NonNullExpression(assertion)) = self.node_map.get(node) else {
+            return false;
+        };
+        let Some(operand) = assertion.expression.and_then(|e| e.node_id()) else { return false };
+        if !self.expression_is_optional_chain(operand) {
+            return false;
+        }
+        // Upward: did one of the three rests reparse this run?
+        let mut current = node;
+        loop {
+            let Some(parent) = self.nodes.parent(current) else { return false };
+            if matches!(self.node_map.get(parent), Some(Node::NonNullExpression(_))) {
+                current = parent;
+                continue;
+            }
+            let continues = match self.node_map.get(parent) {
+                Some(Node::PropertyAccessExpression(access)) => access.expression,
+                Some(Node::ElementAccessExpression(access)) => access.expression,
+                Some(Node::CallExpression(call)) => call.expression,
+                _ => return false,
+            };
+            return continues.and_then(|e| e.node_id()) == Some(current);
+        }
+    }
+
     /// Ported from `Checker.checkQualifiedName` (`checker.go:8122`), which is
     /// one call into the same `checkPropertyAccessExpressionOrQualifiedName`
     /// tail as a property access — the reason the lookup below is shared

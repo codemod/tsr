@@ -893,15 +893,40 @@ impl Checker<'_, '_> {
             }
             // `checkPrefixUnaryExpression` (`checker.go:10855`).
             Expression::PrefixUnaryExpression(node) => self.check_prefix_unary_expression(node),
-            // `checkNonNullAssertion` (`checker.go:12266`): the operand's
-            // non-nullable remainder (`checker-notes-narrow.md` §26).
+            // `checkNonNullAssertion` (`checker.go:10622`): the operand's
+            // non-nullable remainder (`checker-notes-narrow.md` §26), and for a
+            // chain link `checkNonNullChain` (`checker.go:10631`) instead — §884.
             Expression::NonNullExpression(node) => {
                 let Some(operand) = node.expression else { return self.intrinsics.error };
                 let checked = self.check_expression(operand);
                 if checked == self.intrinsics.error {
                     return self.intrinsics.error;
                 }
-                self.get_non_nullable_type(checked)
+                // `!` takes the nullability off its OPERAND. The chain's own
+                // `undefined` belongs to the chain's end, so it is stripped here
+                // and re-unioned by `propagateOptionalTypeMarker` — without that
+                // second half, `o2?.["b"]!` answers `{ c: string; }` where
+                // upstream answers `{ c: string; } | undefined`.
+                //
+                // Which `!` is a chain link is NOT "the spine has `?.`" — see
+                // [`Checker::non_null_is_optional_chain`], where the asymmetry
+                // between an inner and a trailing `!` is owned.
+                let Some(id) = node.node_id else { return self.get_non_nullable_type(checked) };
+                if !self.non_null_is_optional_chain(id) {
+                    return self.get_non_nullable_type(checked);
+                }
+                // A `NonNullExpression` carries no `?.` of its own, so it is
+                // never an optional-chain ROOT: the `false` is upstream's
+                // `IsExpressionOfOptionalChainRoot(node.Expression())` answering
+                // for an operand whose parent has no question-dot token.
+                let non_optional =
+                    self.get_optional_expression_type(checked, operand.node_id(), false);
+                let result = self.get_non_nullable_type(non_optional);
+                self.propagate_optional_type_marker_at(
+                    node.node_id,
+                    result,
+                    non_optional != checked,
+                )
             }
             // `checkPostfixUnaryExpression` (`checker.go:10909`).
             Expression::PostfixUnaryExpression(node) => self.check_postfix_unary_expression(node),

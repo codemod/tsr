@@ -6129,3 +6129,125 @@ probing could not produce.
 > answer was one discarded local variable in a file every one of those runs already
 > executed. **When a probe keeps asking "which one?", check whether the instrument
 > already computed the answer before asking a different question.**
+
+## §884: the bar — two chain defects, both with a named upstream function
+
+§883's expression column turned `conformance/{element,property}AccessChain` and
+`callChain` into a readable board. 86 non-RIGHT rows; grouped by expression, three
+families, and the sources
+(`.../optionalChaining/elementAccessChain/elementAccessChain.ts`) name each one:
+
+| n | expression | want | got |
+|---|---|---|---|
+| 12 | `o2?.b!`, `o2?.["b"]!`, and the accesses on them | `… \| undefined` | `…` |
+| 13+ | `o5.b`, `o5.b?.()`, `o5["b"]?.()["c"]`, … | `… \| undefined` | `…` |
+| 9 | `o3`, `o6` | `{ b: undefined \| { c: string; }; }` | `{ b: { c: string; }; }` |
+
+**Family A** is `declare const o2: undefined | { b: { c: string } }; o2?.["b"]!`.
+Upstream `checkNonNullAssertion` (`checker.go:10622`) is *two* branches:
+
+```go
+if node.Flags&ast.NodeFlagsOptionalChain != 0 {
+    return c.checkNonNullChain(node)
+}
+return c.GetNonNullableType(c.checkExpression(node.Expression()))
+```
+
+and `checkNonNullChain` (`checker.go:10631`) strips the marker, takes the
+non-nullable, and **re-unions through `propagateOptionalTypeMarker`**. This port has
+only the second branch (`expressions.rs`, the `NonNullExpression` arm), so `!`
+removes the chain's `undefined` and nothing puts it back. `!` binds the *operand's*
+nullability; the chain's `undefined` is a property of the chain's end.
+
+**Family B** is `declare const o5: { b?(): { c … } }` — an optional **method**.
+`o5.b` alone wants `(() => …) | undefined`; every later row is downstream of that
+one type. The arm is `getTypeOfFuncClassEnumModuleWorker`'s tail
+(`checker.go:16930`), `strictNullChecks && symbol.Flags&SymbolFlagsOptional` →
+`getOptionalType(t, true)`. **This port already documents that arm as unwritten with
+an expired excuse** — `symbols.rs` says in as many words *"Its stated reason is gone
+… only the excuse expired."* A refusal kept past its reason, which is the §863
+shape again.
+
+**Family C** is `o3`/`o6`: the *declaration's* printed type, `undefined | { c:
+string; }` in source order with upstream's parentheses, against this port's
+`{ c: string; }`. Different subsystem (printing / declared-union order), **not**
+opened here.
+
+### The bar
+
+- **Primary.** A closes the 12 Family-A rows; B closes `o5.b` and the rows that
+  follow from it.
+- **Safety.** No adverse transition outside the optional-chain cases. A `!` on a
+  non-chain operand (`x!`) is untouched, and `(a?.b)!` stays a non-chain — a
+  parenthesis breaks the flag upstream, and this port's `expression_is_optional_chain`
+  walker already stops at one.
+- **Falsifier.** If A's rows stay shut, the `undefined` is being lost before the `!`
+  (in the element access), not at it — and the read of `checkNonNullChain` was the
+  wrong cause. If B moves `o5.b` but not `o5.b?.()`, the call road's `chain_stripped`
+  is computed from something other than the callee's own type.
+- **Regression.** Unit tests in `tsr-checker` for both, pinning `x!` unchanged.
+
+Each lands separately so `scorepair` attributes the transitions.
+
+## §884.1: Family A landed — 22/0, and the first build's six losses were the finding
+
+The first build derived the chain flag the obvious way — *does the operand spine
+contain `?.`* — and measured **22 W→R / 6 R→W**. The six were not noise. With
+§883's expression column they read in one glance:
+
+```
+m?.[0]!         want string   got string | undefined
+o2?.["b"]!.c!   want string   got string | undefined
+o2?.b()!.toString!  want (radix?: number) => string  got … | undefined
+```
+
+Every one is a **trailing** `!`. Upstream's own baseline has both answers three
+lines apart (`elementAccessChain.types:163`):
+
+```text
+>o2?.["b"]!.c! : string
+>o2?.["b"]!    : { c: string; } | undefined
+```
+
+The same `!` spelling, the same operand, opposite answers. The cause is in the
+**parser**, not the checker. `parser.go:5375` builds every `!` with
+`ast.NodeFlagsNone`:
+
+```go
+expression = p.checkJSSyntax(p.finishNode(p.factory.NewNonNullExpression(expression, ast.NodeFlagsNone), pos))
+```
+
+and the flag is added *retroactively* by `tryReparseOptionalChain`
+(`parser.go:5414`), which walks *down* a run of `!`s looking for a stamped chain
+and, on finding one, stamps the run. It is called from exactly three places —
+`parser.go:5399`, `5444`, `5468`: the property-access, element-access and call
+rests. **So a `!` is a chain link precisely when another link was parsed on top of
+it.** `o2?.["b"]!.c` — `.c` reparsed it. `o2?.["b"]!.c!` — nothing follows the
+last `!`. `m?.[0]! && …` — `&&` is not one of the three rests.
+
+`non_null_is_optional_chain` (`members.rs`) mirrors that: the downward half is the
+existing spine walker; the upward half climbs a run of `!`s and asks whether the
+first other ancestor is one of the three kinds *with this run as its expression*.
+
+Second build: **22 W→R, 0 R→W.** Six regression tests in
+`crates/tsr-checker/tests/non_null_chain.rs`, including the two the first build
+broke.
+
+### What this says about reading upstream
+
+I read `checkNonNullAssertion`, saw `node.Flags&ast.NodeFlagsOptionalChain`, and
+supplied the flag from the AST shape because this port derives rather than stores
+it. That is the right instinct in general — §22, §5 and the whole chain family
+derive the flag from the spine and are correct. **It is wrong for exactly one node
+kind, and only because the parser is order-dependent there.** A derived flag is a
+claim that the flag is a function of the finished tree; `tryReparseOptionalChain`
+is the case where it is a function of the *parse order*, and the finished tree
+records that only as "what the parent turned out to be".
+
+> **The falsifier that fired.** The bar said: *if A's rows stay shut, the cause was
+> wrong.* They opened. It did not anticipate rows opening **and** others closing —
+> the losses were what carried the actual mechanism. Worth adding to the bar shape:
+> a measured adverse set with a readable expression column is evidence, not just a
+> cost.
+
+Family B (the optional **method** `b?(): T`) is next, unlanded.
