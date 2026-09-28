@@ -2755,3 +2755,146 @@ those 20 was the thing the bar was written about.** Eight were a symbol argument
 were a cache key, two were a pre-existing downstream gap. A leg that lands exactly at
 its bound is the least informative outcome a bar can produce, and the only way to
 tell it apart from a real cost is to read every line of it.
+
+## §839.4: a correction to §839.3 — upstream's flow cache key DOES carry the initial type
+
+§839.3 justified widening `flow_loop_cache`'s key with:
+
+> Upstream never needs the initial type in its key because `checkIdentifier` walks
+> once and uses the one answer for both the type and the diagnostic.
+
+**That is false.** `writeFlowCacheKey`
+(`vendor/typescript-go/internal/checker/flow.go:1665-1682`) writes the declared type
+into the key and, when they differ, the initial type as well:
+
+```go
+b.writeByte(':')
+b.writeType(declaredType)
+if initialType != declaredType {
+    b.writeByte('=')
+    b.writeType(initialType)
+}
+if flowContainer != nil {
+    b.writeByte('@')
+    b.writeNode(flowContainer)
+}
+```
+
+So the fix that landed is not a port-specific patch for a port-specific double walk —
+it is **what upstream's key already does**, and this port's two-element key was
+simply missing two of upstream's four components. The consequence matters for the
+next hand: §839.3's "the faithful alternative is to ask once" framing was the wrong
+recommendation. Asking once is still a reasonable simplification, but the key must
+carry the initial type regardless of how many callers there are, because upstream's
+does.
+
+Still missing from this port's key, and unmeasured: the **flow container**
+(`@` above) and the **declared type**. Both are reachable from `FlowState`. Whether
+either is observable on this corpus is an open question and a cheap one — a third
+and fourth tuple element and one `scorepair`.
+
+I found this while reading `isMatchingReference` for §840, two functions below it. The
+lesson is the one §839.1 already paid for once this session: **a claim about what
+upstream does not do is worth the grep that would refute it**, and I wrote this one
+having read only the call site.
+
+## §840: `typeof a.b` does not narrow, because the binder records no flow for a `QualifiedName`
+
+`narrowingOfQualifiedNames` (14 lines) localises cleanly. In
+
+```ts
+function init(properties: IProperties) {   // foo?: { aaa: string; bbb: string }
+    if (properties.foo) {
+        type FooOK = typeof properties.foo;   // A9  want { aaa: string; bbb: string; }
+        properties.foo;                       // A13 RIGHT
+```
+
+the **statement** `properties.foo;` narrows correctly (A13–A15 all RIGHT); the
+`typeof properties.foo` inside the type query does not (A9 answers
+`… | undefined`), and the entity-name nodes inside it answer `any` (A10, A12).
+
+`access_member_lookup` already ends in `get_flow_type_of_reference(id, None,
+property_type)` keyed on the access node, so the call is there. What is missing is
+upstream's two halves, both small and both exactly specified:
+
+1. **The binder records no flow node for a `QualifiedName`.**
+   `vendor/typescript-go/internal/binder/binder.go:605-608`:
+
+   ```go
+   case ast.KindQualifiedName:
+       if b.currentFlow != nil && ast.IsPartOfTypeQuery(node) {
+           node.AsQualifiedName().FlowNode = b.currentFlow
+       }
+   ```
+
+   Note the gate — **only inside a type query**. A `QualifiedName` elsewhere is a
+   type name, not a reference, and giving it a flow node would be a claim about
+   nodes upstream deliberately leaves alone.
+
+2. **`isMatchingReference` has no `QualifiedName` arm.**
+   `vendor/typescript-go/internal/checker/flow.go:1639-1643`:
+
+   ```go
+   case ast.KindQualifiedName:
+       if ast.IsAccessExpression(target) {
+           if targetPropertyName, ok := c.getAccessedPropertyName(target); ok {
+               return source.AsQualifiedName().Right.Text() == targetPropertyName &&
+                   c.isMatchingReference(source.AsQualifiedName().Left, target.Expression())
+           }
+       }
+   ```
+
+   This is what equates the `QualifiedName` `properties.foo` in the type query with
+   the `PropertyAccessExpression` `properties.foo` in the guard. Without it the walk
+   finds the guard and declines to apply it.
+
+### The bar, registered before any code
+
+1. **Primary.** `narrowingOfQualifiedNames` 14 WRONG: **≥ +8**. Falsified below +4.
+2. **Safety.** `RIGHT->WRONG ≤ 5`. The exposure is narrowing that now applies where
+   it previously did not, in type-query positions only — which is why the binder gate
+   is part of the port and not an optimisation.
+3. **Falsifier.** If the case does not move at all, one of the two halves is not the
+   mechanism and it is reverted rather than extended by guessing.
+4. **Regression.** `cargo test --workspace` green; `clippy --all-targets -D warnings` clean.
+
+**Not claimed:** that this fixes A10/A12, the `any` answers at the entity-name nodes
+*inside* the query. Those are a separate question — whether `types_producer` finds a
+recorded type at those positions — and if they remain `any` after the narrowing
+lands, that is the next column to read, not a failure of this one.
+
+### §840 result
+
+All four legs pass, and one half of the bar was **already ported**.
+
+`record_flow` (`crates/tsr-binder/src/binder.rs`) already had the `QualifiedName`
+arm, gated on `is_part_of_type_query` exactly as `binder.go:605-608` gates it, with
+the comment *"A qualified name only needs one inside `typeof X.Y`, where it denotes a
+value that narrowing can have changed."* Whoever wrote it ported the binder half and
+either did not reach, or did not need, the matching half — so the flow node was
+recorded, the walk reached the guard, and `is_matching_reference` declined it. **A
+one-arm gap, live behind a correctly ported binder for however long.**
+
+| leg | registered | measured |
+|---|---|---|
+| 1 primary | `narrowingOfQualifiedNames` ≥ +8 | **+14** (the whole family) |
+| 2 safety | `RIGHT->WRONG` ≤ 5 | **0** |
+| 3 falsifier | case must move | moved |
+| 4 regression | tests + clippy | 1,830 passed, clippy clean |
+
+**+16 corpus-wide, zero adverse** — the 14 plus `controlFlowIfStatement` 2. Pinned in
+`crates/tsr-checker/tests/type_query_narrowing.rs` (3 tests: the narrowing, the
+outside-the-guard control, and the wrong-property control).
+
+### The residue is the thing the bar declined to claim
+
+The bar said explicitly: *"Not claimed: that this fixes A10/A12, the `any` answers at
+the entity-name nodes inside the query."* They are still `any` —
+`narrowingOfQualifiedNames` positions 9, 11, 24, 26, 36, 38. So the **type query
+resolves correctly and the nodes inside it are still untyped**, which is a
+`types_producer`/recording question rather than a narrowing one, and it is now
+isolated: the same node the checker just computed a correct type for answers `any`
+when asked for by position.
+
+That is the next column, and writing the non-claim into the bar beforehand is what
+makes it a lead rather than a disappointment.

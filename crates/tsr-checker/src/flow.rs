@@ -3741,6 +3741,47 @@ impl Checker<'_, '_> {
             (Some(Node::KeywordExpression(left)), Some(Node::KeywordExpression(right))) => {
                 left.kind == SyntaxKind::ThisKeyword && right.kind == SyntaxKind::ThisKeyword
             }
+            // §840: a QUALIFIED NAME matches the property-access spelling of
+            // the same dotted path. `isMatchingReference`
+            // (`vendor/typescript-go/internal/checker/flow.go:1639-1643`):
+            //
+            // ```go
+            // case ast.KindQualifiedName:
+            //     if ast.IsAccessExpression(target) {
+            //         if targetPropertyName, ok := c.getAccessedPropertyName(target); ok {
+            //             return source.AsQualifiedName().Right.Text() == targetPropertyName &&
+            //                 c.isMatchingReference(source.AsQualifiedName().Left, target.Expression())
+            //         }
+            //     }
+            // ```
+            //
+            // The two spellings are the same reference written in the two
+            // grammars: `typeof properties.foo` parses its path as a
+            // `QualifiedName` because it is in a type position, while the guard
+            // `if (properties.foo)` above it is a `PropertyAccessExpression`.
+            // The binder already records a flow node for the qualified form
+            // (`binder.rs`, gated on `is_part_of_type_query` exactly as
+            // `binder.go:605-608` gates it), so the walk reaches the guard and
+            // was declining to apply it for want of this arm alone.
+            (Some(Node::QualifiedName(qualified)), Some(target)) => {
+                let (Some(left), Some(name)) = (qualified.left, qualified.right) else {
+                    return false;
+                };
+                let Some(target_name) = self.accessed_property_name_at(target) else {
+                    return false;
+                };
+                if name.text != target_name {
+                    return false;
+                }
+                let left_id = match left {
+                    tsr_ast::EntityName::Identifier(identifier) => identifier.node_id,
+                    tsr_ast::EntityName::QualifiedName(inner) => inner.node_id,
+                };
+                let (Some(left_id), Some(target_left)) = (left_id, target.expression_id()) else {
+                    return false;
+                };
+                self.references_match(left_id, target_left)
+            }
             // Two accesses: same property name, matching receivers. The name
             // comparison is on the **member name text**, which is what
             // `getAccessedPropertyName` answers for a property access.
