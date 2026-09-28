@@ -7762,3 +7762,42 @@ now says which road supplies it.
 > a mechanism and each was wrong; what settled it was reading the *fixture* of the
 > rows that broke rather than the machinery they broke in. The same correction
 > §896 recorded, in a different subsystem, one session later.
+
+## §911: `getContextualThisParameterType`, built and reverted — the contextual type is not the answer
+
+`this` as an expression is **173 wrong rows across 62 cases**, and 44 of them
+answer `typeof globalThis`. The largest readable slice is `this` inside an
+**object-literal method whose literal has a contextual type**:
+
+```ts
+function foo(bar: X | Y) { }
+foo({ type: 'y', value: 'done', method() { this } })   // want Y, got typeof globalThis
+```
+
+`check_this_expression`'s own doc names the hole — *"`getContextualThisParameterType`
+is unported and answers nothing here"* — and §142's literal-self arm is gated on
+the literal having **no** contextual type, so nothing served the other side.
+
+Built: when the literal has a contextual type, answer it.
+**Measured +13 net against 4 `RIGHT→WRONG` and 9 `GAP→WRONG`. Reverted.**
+
+### Why the contextual type is the wrong answer
+
+The want is **`Y`**, not `X | Y`. Upstream's
+`getApparentTypeOfContextualType` is followed by discrimination: the literal's
+`type: 'y'` member selects the matching constituent of the contextual union
+(`getContextualTypeForObjectLiteralElement`'s discriminant road). Answering the
+whole union is wrong in exactly the cases the feature exists for — which is why
+`contextualTypeShouldBeLiteral` took **5 `GAP→WRONG` from the very change meant to
+fix it**, and `thisTypeInFunctions2` lost 4 that were right.
+
+**The prerequisite is discriminated-union selection of a contextual type**, not
+the `this` road. §750's `narrow_type_by_discriminant` is the nearest existing
+machinery and it narrows a *flow* type rather than selecting a contextual
+constituent.
+
+> Third time this session that a feature's nearest-looking hole was not its actual
+> one (§896, §908, §911). The pattern in all three: **the port had the input and
+> the position right and the missing piece was one step further in** — a road that
+> turns the input into the answer. Worth asking, before building: *is the thing I
+> am about to supply the answer, or an ingredient?*
