@@ -2983,3 +2983,55 @@ rows standing next to a now-correct answer.
 
 **A residue named in advance and left standing is a lead with a known location. The
 same lines, unnamed, are indistinguishable from the corpus's noise.**
+
+## §842: REFUSED at 136 lines and ZERO cases — the flow-depth bail
+
+`compiler/parsingDeepParenthensizedExpression` heads the wrong-line board outside the
+priced subsystems at **137 WRONG**, and **136 of those want exactly `error`**. It is
+the whole of the "oracle itself says `error`" population: across the corpus only
+**153** WRONG lines want `error`, and the remaining 17 are spread one and two at a
+time over nine cases.
+
+The mechanism is understood. Upstream's `getTypeAtFlowNode`
+(`vendor/typescript-go/internal/checker/flow.go:118-127`) bails at `f.depth == 2000`,
+sets `c.flowAnalysisDisabled`, reports TS2563 and returns `errorType`; the flag is
+global and sticky, so every later reference in the file answers `errorType` too. The
+file is `a.js` inside a `.ts`-named case, and §14.1's JS half would print that
+verbatim.
+
+**The port never trips the bail at all.** A `TSR_DEBUG_842` probe at the bail site
+printed nothing for the whole file, so `e` simply types as its implicit `any`.
+
+Two hypotheses checked and one killed on the way:
+
+- *"Upstream's `f.depth++` has no matching decrement, so it counts total calls per
+  walk while the port counts recursion depth."* **False** — upstream decrements at
+  `flow.go:138` and `flow.go:203`. One grep, and it was the reading the whole theory
+  rested on.
+- The remaining explanation is a **difference in flow-graph shape or in where the two
+  walks recurse**: a long comma-and-assignment chain costs upstream no depth either
+  (its loop follows antecedents without incrementing), so the 2,000 must accumulate
+  at the nested `&&` branch labels, and the port's `BRANCH_LABEL` arm iterates where
+  upstream recurses. Unverified.
+
+### Why it is refused rather than sized
+
+The case is **3,765 RIGHT / 137 WRONG**. Fixing all 136 leaves 1 WRONG, so the case
+**still fails**:
+
+| | |
+|---|---:|
+| lines recoverable | 136 (**0.028%** of the corpus) |
+| cases recoverable | **0** |
+| what it would take | a divergence in flow-graph shape or recursion structure, in `crate::flow`'s hottest function |
+
+A change to `get_type_at_flow_node`'s recursion to win 0.028% and no cases, in the
+function every narrowing in the port passes through, is the wrong trade at any effort.
+**Refused at 136 : 0**, and the number that refused it is the case count, not the line
+count — which is the distinction `STATUS.md` §4.-7's board did not previously carry.
+
+If it is ever revisited, the falsifier is cheap and stated: instrument
+`get_type_at_flow_node`'s max observed depth for this one file and compare it against
+2,000. If the port's maximum is within an order of magnitude, the graph is the same
+shape and the accounting is the bug; if it is 20, the graph is different and this is a
+binder item, not a checker one.
