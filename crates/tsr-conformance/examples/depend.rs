@@ -339,6 +339,75 @@ fn step<'a>(
                 spread.expression.and_then(|e| e.node_id()).into_iter(),
             )
         }
+        // §856.2: the four kinds §856.1 surfaced from below the printed
+        // cutoff, plus the three §4.0 also names. Same shape, same gate, and
+        // the same zero corpus risk — `depend.rs` is an instrument.
+        Node::FunctionTypeNode(function) if std::env::var_os("TSR_NO_856").is_none() => {
+            // The RETURN type first: a function type that cannot be printed
+            // usually cannot print its return.
+            first_gapping(
+                checker,
+                binder,
+                nodes,
+                map,
+                function
+                    .r#type
+                    .and_then(|t| t.node_id())
+                    .into_iter()
+                    .chain(function.parameters.iter().filter_map(|p| p.node_id)),
+            )
+        }
+        Node::IndexedAccessTypeNode(access) if std::env::var_os("TSR_NO_856").is_none() => {
+            first_gapping(
+                checker,
+                binder,
+                nodes,
+                map,
+                [
+                    access.object_type.and_then(|t| t.node_id()),
+                    access.index_type.and_then(|t| t.node_id()),
+                ]
+                .into_iter()
+                .flatten(),
+            )
+        }
+        Node::UnionTypeNode(union) if std::env::var_os("TSR_NO_856").is_none() => first_gapping(
+            checker,
+            binder,
+            nodes,
+            map,
+            union.types.iter().filter_map(tsr_ast::TypeNode::node_id),
+        ),
+        Node::IntersectionTypeNode(intersection) if std::env::var_os("TSR_NO_856").is_none() => {
+            first_gapping(
+                checker,
+                binder,
+                nodes,
+                map,
+                intersection.types.iter().filter_map(tsr_ast::TypeNode::node_id),
+            )
+        }
+        Node::ArrayTypeNode(array) if std::env::var_os("TSR_NO_856").is_none() => first_gapping(
+            checker,
+            binder,
+            nodes,
+            map,
+            array.element_type.and_then(|t| t.node_id()).into_iter(),
+        ),
+        Node::TupleTypeNode(tuple) if std::env::var_os("TSR_NO_856").is_none() => first_gapping(
+            checker,
+            binder,
+            nodes,
+            map,
+            tuple.elements.iter().filter_map(tsr_ast::TypeNode::node_id),
+        ),
+        Node::SpreadElement(spread) if std::env::var_os("TSR_NO_856").is_none() => first_gapping(
+            checker,
+            binder,
+            nodes,
+            map,
+            spread.expression.and_then(|e| e.node_id()).into_iter(),
+        ),
         Node::ArrayLiteralExpression(array) => first_gapping(
             checker,
             binder,
@@ -446,6 +515,13 @@ fn has_step_arm(node: Node<'_>, is_declaration_name: bool) -> bool {
                 | Node::YieldExpression(_)
                 | Node::TaggedTemplateExpression(_)
                 | Node::SpreadAssignment(_)
+                | Node::FunctionTypeNode(_)
+                | Node::IndexedAccessTypeNode(_)
+                | Node::UnionTypeNode(_)
+                | Node::IntersectionTypeNode(_)
+                | Node::ArrayTypeNode(_)
+                | Node::TupleTypeNode(_)
+                | Node::SpreadElement(_)
         )
 }
 

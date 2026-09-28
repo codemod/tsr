@@ -4260,3 +4260,43 @@ absence of risk, and now the largest instrument gap left.
 > finding" bucket hides two different things — kinds nobody wrote an arm for, and
 > kinds whose arm exists but whose label was never updated. Both look identical in
 > the output, and only the A/B distinguishes them.
+
+### §856.2: `depend.rs` now attributes EVERY gap line — zero `NO STEP ARM` rows
+
+§856.1's four newly-visible kinds plus the three §4.0 also names, same shape and same
+gate. Seven more arms: `FunctionType`, `IndexedAccessType`, `UnionType`,
+`IntersectionType`, `ArrayType`, `TupleType`, `SpreadElement`.
+
+**The board now prints zero `NO STEP ARM` rows.** All 8,889 gap lines are attributed
+to a root, and `scorepair` reports no transitions throughout — the whole of §856 is
+instrument work and touched no checker behaviour.
+
+`STATUS.md` §4.0's `depend.rs` item is **closed**: both halves of it (the
+`ArrayType`/`TupleType`/`UnionType`/`IntersectionType` arms, and the relabelling)
+are done, plus five kinds §4.0 did not name.
+
+### The board, fully attributed
+
+```
+CallExpression  (root here)                           1,253  14.1%  278 cases
+Parameter  (no further dependency)                      994  11.2%  240 cases
+Identifier, member name of a.b                          621   7.0%  268 cases
+PropertyAccessExpression                                579   6.5%  182 cases
+Identifier, symbol has no value declaration             385   4.3%  103 cases
+TypeReference                                           376   4.2%   87 cases
+BindingElement cycle                                    360   4.0%   73 cases
+ElementAccessExpression                                 293   3.3%   67 cases
+MappedType                                              281   3.2%   56 cases
+Identifier, decl name: FunctionDeclaration              286   3.2%   48 cases
+NewExpression                                           264   3.0%   65 cases
+```
+
+No row is a mechanism-level item; every one is a priced subsystem. But the board is
+now **honest about its own coverage**, which it was not before §856.1 — and that was
+the finding worth having, because a "not a finding" bucket was concealing both kinds
+nobody had written an arm for *and* kinds whose arm ran while the label said
+otherwise.
+
+> **What is genuinely left that is cheap and safe**: nothing on the instrument side.
+> §856 closed it. The remaining work is §852's 336-case board (bounded, zero
+> `RIGHT->WRONG` risk, ~0.3 gradient points) and the priced subsystems.
