@@ -1260,9 +1260,11 @@ impl crate::checker::Checker<'_, '_> {
     ///
     /// - any pair reading [`Ternary::Unknown`] — the population whose wrong
     ///   removals priced `tsr-eak`'s 1.03 refusal;
-    /// - a `Related` pair of two class instances — upstream additionally
-    ///   requires `isTypeDerivedFrom` there (the `ObjectFlagsClass` caveat in
-    ///   the `removeSubtypes` loop), which is unported;
+    /// - ~~a `Related` pair of two class instances — upstream additionally
+    ///   requires `isTypeDerivedFrom` there … which is unported~~ — **§913:
+    ///   stale.** §357 ported that caveat; the loop below tests
+    ///   `heritage_chain_contains` before the relation and KEEPS an underived
+    ///   pair rather than declining the reduction;
     /// - a type-parameter constituent — upstream tests it against the union
     ///   of the *others* (the union-constraint branch), not pairwise.
     ///

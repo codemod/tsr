@@ -7845,3 +7845,43 @@ nothing measured.
 > lacked. That sentence was the search query. The rebuild took one grep, and the
 > difference between the two entries is entirely *which function computes the
 > answer* — the position, the gate and the input were right the first time.
+
+## §913: three "unported" claims, all stale — one was a live gap
+
+§912 was found by reading a revert's prerequisite line. That suggested a sweep:
+**grep the checker for claims that something is unported, and check each against
+the code.** Twenty-three such claims; three examined, **all three stale**:
+
+| claim | where | reality |
+|---|---|---|
+| *"`isTypeComparableTo` is unported"* | `assertion_overlap.rs` header | `Relation::Comparable` exists since **§750** |
+| *"`getAssignmentReducedType` is unported"* | `symbols.rs` §56 comment | `get_assignment_reduced_type` exists in `flow.rs` |
+| *"`isTypeDerivedFrom` … is unported"* | `unions.rs` reduction doc | §357 ported it; the loop tests `heritage_chain_contains` |
+
+Two were comments describing gates that had already been removed — stale prose
+over correct code. **The first was a live gap**: `check_assertion_overlap` really
+did run `Relation::Assignable` in both directions, with a header arguing carefully
+why the substitution was sound. That argument *was* sound when written; the claim
+above it had simply expired.
+
+Switched to `Relation::Comparable`, which is what `checkAssertionWorker` uses.
+**`diagnostics` 2,611 → 2,612 cases; `checker_types` unchanged.**
+
+### The sweep's real result
+
+Three probes, three stale claims, and **each one had already cost me time in this
+session**: I read `unions.rs`'s `isTypeDerivedFrom` line and started sizing a
+port of it before finding §357; I read `symbols.rs`'s line and looked for a
+reduction helper that was two files away.
+
+> **A stale "X is unported" is worse than no comment.** It reads as a surveyed
+> frontier and it sends the next reader to build something that exists. The three
+> corrected here were all written truthfully and all outlived their subject, which
+> means the failure mode is structural rather than careless: **a claim about what
+> the port lacks is a claim about another file, and nothing makes it fail when
+> that file changes.**
+>
+> The remaining twenty are not audited. That is the honest state, and the cheap
+> discipline that would have prevented all three is to name the *function* that
+> would have to exist — `isTypeComparableTo` did, which is why one grep settled
+> it — rather than the capability in prose.

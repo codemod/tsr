@@ -3275,7 +3275,10 @@ impl<'a> Checker<'a, '_> {
                     // §56's second fired leg (`tryCatchFinallyControlFlow`):
                     // a LET's retained literals flow into reassignment joins
                     // this port's assignment narrowing cannot reduce
-                    // (upstream's `getAssignmentReducedType` is unported) —
+                    // (§913: `getAssignmentReducedType` IS ported, at
+                    // `flow.rs`'s `get_assignment_reduced_type`; the claim here
+                    // was stale. The gate it justified was already removed by
+                    // §58.1 below, so only the reason needed correcting) —
                     // CONST holders only. A §58 re-admission of LET was
                     // measured at +43/12 (3.6:1, below standard) — the joins
                     // of §56-retained ANONYMOUS object literals error in the

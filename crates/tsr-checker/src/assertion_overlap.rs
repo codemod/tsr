@@ -3,18 +3,19 @@
 //! `checkAssertionWorker` (`checker.go`): an `as` or `<T>` assertion errors when
 //! **neither** type is comparable to the other.
 //!
-//! # `isTypeComparableTo` is unported, and this uses assignability instead
+//! # `isTypeComparableTo` — §913: the relation exists now
 //!
-//! `crate::relater` has `Assignable`, `Subtype` and `StrictSubtype` and no
-//! comparable relation. Comparable is *weaker* than assignable, so
-//! "not assignable in either direction" is a **superset** of upstream's
-//! condition — which would over-report.
+//! This header used to read *"`isTypeComparableTo` is unported, and this uses
+//! assignability instead"*, and justified the substitution: comparable is
+//! *weaker* than assignable, so "not assignable in either direction" is a
+//! **superset** of upstream's condition, saved from over-reporting only by
+//! `relate_ternary` answering `Unknown` on pairs it cannot decide.
 //!
-//! What makes the substitution sound here is `relate_ternary`: the two relations
-//! differ exactly where one of them decides a pair the other does not, and a pair
-//! this port cannot decide answers `Unknown` rather than `NotRelated`. So the
-//! rule fires only where *both* directions are a confident negative, and the
-//! measurement in `checker-notes-diag2.md` is what says whether that is enough.
+//! **[`Relation::Comparable`] has existed since §750**, where
+//! `narrow_type_by_discriminant` uses it. The substitution's justification was
+//! sound while it held and the claim above it had simply gone stale. This is now
+//! upstream's own relation, in both directions, as `checkAssertionWorker` writes
+//! it.
 //!
 //! The error node is the whole assertion expression.
 
@@ -65,8 +66,8 @@ impl Checker<'_, '_> {
             return;
         }
         // Both directions, both confident. `Unknown` on either side is silence.
-        if self.relate_ternary(source, target, Relation::Assignable) != Ternary::NotRelated
-            || self.relate_ternary(target, source, Relation::Assignable) != Ternary::NotRelated
+        if self.relate_ternary(source, target, Relation::Comparable) != Ternary::NotRelated
+            || self.relate_ternary(target, source, Relation::Comparable) != Ternary::NotRelated
         {
             return;
         }
