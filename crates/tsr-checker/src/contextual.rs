@@ -446,16 +446,61 @@ impl<'a> Checker<'a, '_> {
     /// reaches every context through one `getContextualType` switch — here
     /// [`Checker::get_contextual_type`].
     ///
-    /// Upstream's union handling (`getContextualSignature`'s
-    /// `compareSignaturesIdentical` loop) is not ported: a union-typed context
-    /// answers `None`, because picking one member's signature is a guess and
-    /// building the combined one needs `createUnionSignature`.
+    /// §886 ports the **union** arm's decidable half. Upstream iterates the
+    /// constituents and collects each one's contextual call signature
+    /// (`checker.go:10272-10292`); this port keeps the collection and declines
+    /// where upstream would *combine*:
+    ///
+    /// | constituents yielding a signature | upstream | here |
+    /// |---|---|---|
+    /// | 0 | `nil` | `None` |
+    /// | 1 | that signature | that signature |
+    /// | 2+ | `compareSignaturesIdentical`, then `createUnionSignature` | `None` |
+    ///
+    /// The one-signature case is the whole of an optional member: `k?(a: any):
+    /// any` gives `((a: any) => any) | undefined`, and `undefined` has no call
+    /// signature, so exactly one survives. The previous refusal called this
+    /// *"picking one member's signature is a guess"* — it is not a guess when
+    /// the other constituents contribute nothing, which is the only case ported.
+    ///
+    /// Two or more stays refused: telling "identical, so combine" from "different,
+    /// so `nil`" needs `compareSignaturesIdentical`, and `createUnionSignature`
+    /// needs a signature whose return type is a union of the members'. Neither
+    /// exists here, and answering with an arbitrary member would be the guess the
+    /// old comment described.
     pub(crate) fn get_contextual_type_of_call(&mut self, call: NodeId) -> Option<TypeId> {
         self.get_contextual_type(call)
     }
 
     pub(crate) fn contextual_signature(&mut self, function: NodeId) -> Option<Signature> {
         let contextual = self.get_contextual_type(function)?;
+        if let TypeData::Union { types, .. } = &self.store.get(contextual).data {
+            let constituents = types.clone();
+            let mut found: Option<Signature> = None;
+            for constituent in constituents {
+                let Some(signature) = self.contextual_signature_of_type(constituent) else {
+                    continue;
+                };
+                if found.is_some() {
+                    // Two constituents offer one: upstream compares them and may
+                    // build a union signature. Declining is the honest answer.
+                    return None;
+                }
+                found = Some(signature);
+            }
+            return found;
+        }
+        self.contextual_signature_of_type(contextual)
+    }
+
+    /// `getContextualCallSignature` (`checker.go:10305`) for one non-union type:
+    /// the single call signature the type offers, by the three reads
+    /// [`Checker::contextual_signature`] has always used.
+    ///
+    /// Upstream additionally filters by arity (`isAritySmaller`) and intersects
+    /// what is left; neither is ported, so a type with two or more call
+    /// signatures declines here where upstream may still answer.
+    fn contextual_signature_of_type(&mut self, contextual: TypeId) -> Option<Signature> {
         // The tsr-0hc type-first read (the freeze-breaking wire).
         if self.is_instantiated_signature_type(contextual) {
             let signatures = self.signature_types.get(&contextual).cloned().unwrap_or_default();

@@ -318,3 +318,31 @@ fn typeof_already_narrows_an_unknown() {
     let source = "declare const u: unknown;\nif (typeof u === \"string\") { u; }\n";
     assert_eq!(type_of_last_expression(source), "string");
 }
+
+/// §886: a UNION contextual type yields the one constituent's call signature.
+///
+/// `getContextualSignature` (`checker.go:10264`) iterates a union's
+/// constituents and collects each one's contextual call signature. With
+/// `k?(a: string): number`, §885 makes the contextual type
+/// `((a: string) => number) | undefined`; `undefined` contributes no call
+/// signature, so exactly one survives and the arrow's parameter is `string`.
+///
+/// Before §886 a union context answered `None` — the refusal that turned §885's
+/// gain into 24 adverse rows in `assignmentCompatBug2` and `objectLitGetterSetter`.
+#[test]
+fn a_union_contextual_type_yields_its_one_signature() {
+    let source = "interface I { k?(a: string): number; }\n\
+         const o: I = { k: (a) => 1 };\n";
+    assert_eq!(last_arrow_type(source), "(a: string) => number");
+}
+
+/// The half §886 leaves refused: TWO constituents offering a call signature.
+/// Upstream compares them with `compareSignaturesIdentical` and may build a
+/// `createUnionSignature`; neither exists here, so the context declines and the
+/// parameter falls back rather than guessing a member.
+#[test]
+fn two_signature_constituents_still_decline() {
+    let source = "type F = ((a: string) => number) | ((a: number) => number);\n\
+         const o: F = (a) => 1;\n";
+    assert_ne!(last_arrow_type(source), "(a: string) => number");
+}

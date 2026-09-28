@@ -6318,3 +6318,51 @@ It is not a guess. `getContextualSignature` (`checker.go:10264`) iterates the
 constituents, and `undefined` contributes no call signature, so exactly one
 survives and upstream uses it. §886 ports that; this entry lands with the adverse
 measured and attributed rather than hidden inside a combined number.
+
+## §886: the decidable half of `getContextualSignature`'s union arm
+
+§885's 24 adverse rows all came from one refusal, and `contextual.rs` stated it
+plainly:
+
+> Upstream's union handling (`getContextualSignature`'s
+> `compareSignaturesIdentical` loop) is not ported: a union-typed context answers
+> `None`, because picking one member's signature is a guess and building the
+> combined one needs `createUnionSignature`.
+
+**Picking is not a guess when nothing else is on offer.**
+`getContextualSignature` (`checker.go:10272`) iterates the constituents and calls
+`getContextualCallSignature` on each; `undefined` has no call signature, so an
+optional member's `((a: any) => any) | undefined` leaves exactly one. The
+refusal conflated two cases that upstream keeps apart:
+
+| constituents yielding a signature | upstream | ported? |
+|---|---|---|
+| 0 | `nil` | yes |
+| 1 | that signature | **yes, §886** |
+| 2+ | `compareSignaturesIdentical`, then `createUnionSignature` | no — still refused |
+
+The 2+ half stays shut with its real reason: telling "identical, so combine" from
+"different, so `nil`" needs `compareSignaturesIdentical`, and the combination
+needs a signature whose return type is the union of the members'. Neither exists
+here, and answering with an arbitrary member would be exactly the guess the old
+comment described. The old comment's mistake was applying that reason to the
+one-signature case, where it does not hold.
+
+**Measured: 15 W→R, 10 G→R, against 6 G→W and 2 W→G.** `right` 439871 → 439896,
+`wrong` 27563 → 27552, `gap` 6809 → 6795. `assignmentCompatBug2` (8) and
+`objectLitGetterSetter` (4) — §885's two largest adverse cases — are recovered in
+full. The 6 `GAP→WRONG` are in `contextualTypingOfOptionalMembers` and are §620's
+accepted direction: a decline replaced by a computed answer that is not yet right.
+
+Across §885 + §886 the pair is **+144 right, −140 wrong, −4 gap**.
+
+> **The shape, for the third time this session.** A refusal whose *stated reason*
+> covers a strictly narrower case than the refusal itself. §863, §870, §875, §876
+> were gates whose category was too narrow; §832 was a change refused on a wrong
+> reason and a real number; this is a reason that is sound for 2+ constituents and
+> was applied to 1. Each time the fix was to read the upstream function and notice
+> it branches where the port does not.
+
+Three cases from §885 are not recovered and stay on the board:
+`conformance/unionTypeReduction2` (4), `conformance/controlFlowSuperPropertyAccess`
+(3), `compiler/interfaceClassMerging` (1).
