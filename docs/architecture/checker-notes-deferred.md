@@ -4896,3 +4896,54 @@ common position unreachable.
 Worth checking the other catch-alls in this walk for the same shape: any node kind
 that commonly sits between an arrow and its statement, and has no arm, is disabling
 §561's gate exactly as `PropertyAssignment` was.
+
+## §864: auditing §863's walk — one arm right, two wrong, and the negative is the finding
+
+§863's note said the walk's other catch-alls deserve the same audit. Probing the
+positions an arrow commonly sits in:
+
+```
+([(c) => 1])                        => error
+(!((c) => 1))                       => error
+(function () { return (c) => 1; })  => () => any     (the inner arrow gapped)
+({ f() { return (c) => 1; } })      => { f(): any; }  (likewise)
+(((c) => 1) as any)                 => any
+```
+
+Three candidate arms, all justified by reading `getContextualType`'s dispatch
+(`checker.go:29343`):
+
+- **`ArrayLiteralExpression`** — upstream has an arm
+  (`getContextualTypeForElementExpression`, `:29380`), which asks the *array's*
+  contextual type, so an element should climb exactly as an object-literal member
+  does.
+- **`NonNullExpression`** (`:29394`) — answers the parent's own context, so it climbs.
+- **Unary operands** — **no arm at all**, so the dispatch's default answers nil and
+  absence is showable.
+
+### Measured separately, and they disagree
+
+| arms | measured |
+|---|---|
+| all three | `WRONG->RIGHT 1`, **`GAP->WRONG 3`** |
+| `ArrayLiteral` + `NonNull` only | **0 gained, `GAP->WRONG 3`** (`nestedRecursiveLambda`) |
+| unary only | **`WRONG->RIGHT 1`, zero adverse** |
+
+So the unary arm is right and the climbing arms are wrong, and **the reasoning that
+justified them was identical to §863's, which was right.** That is the finding.
+
+> **Upstream having a dispatch arm is necessary for the climb to be correct, but not
+> sufficient.** The climb asserts *this port can show the element has no contextual
+> type because it can show the array has none* — and that second claim depends on how
+> **this port** computes an array's contextual type, not on upstream's dispatch
+> shape. §863's object-literal climb happened to be sound; the array one is not, and
+> nothing in the upstream reading distinguishes them. Only the measurement did.
+
+Kept: the unary arm, **+1 and zero adverse**. Rejected and recorded in
+`signatures.rs` beside it: the `ArrayLiteralExpression`/`NonNullExpression` climb, at
+**0 : 3**, so the next session reading §863's "audit the other catch-alls" note finds
+the audit already done and its negative already paid for.
+
+The `ReturnStatement` position remains unported — it needs the containing signature's
+return annotation rather than a climb, which is a different mechanism and has not
+been sized.

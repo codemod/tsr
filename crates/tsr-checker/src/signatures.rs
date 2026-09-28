@@ -2834,6 +2834,28 @@ impl<'a> Checker<'a, '_> {
                     }
                 }
                 Some(Node::ObjectLiteralExpression(_)) => {}
+                // §864: a unary operand has **no arm at all** in
+                // `getContextualType`'s dispatch (`checker.go:29343`), so it
+                // answers nil — absence is showable, exactly as for an
+                // expression statement and for the operators the
+                // `BinaryExpression` arm above falls through on.
+                //
+                // The sibling arms tried with it and REJECTED: climbing
+                // through `ArrayLiteralExpression`/`NonNullExpression` — both
+                // of which upstream does have arms for — measured **0 gained
+                // against 3 `GAP->WRONG`** (`nestedRecursiveLambda`) on its
+                // own. Upstream's dispatch having an arm is necessary for the
+                // climb to be right but not sufficient: the element's
+                // contextual type comes from the array's, and this port
+                // computes an array's contextual type differently enough that
+                // showing absence at the element is not the same claim. §864.
+                Some(Node::PrefixUnaryExpression(_) | Node::PostfixUnaryExpression(_)) => {
+                    return true;
+                }
+                // A unary operand has **no arm at all** in that dispatch, so
+                // it answers nil — absence is showable, exactly as it is for
+                // an expression statement and for the operators the
+                // `BinaryExpression` arm above falls through on.
                 _ => return false,
             }
             position = parent;

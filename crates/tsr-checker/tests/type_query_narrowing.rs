@@ -307,3 +307,17 @@ fn an_object_literal_member_arrow_gets_its_implicit_any() {
         "{ f: (c: string) => number; }"
     );
 }
+
+#[test]
+fn probe_walk_catchalls() {
+    for (src, label) in [
+        ("([(c) => 1]);", "array literal element"),
+        ("(function () { return (c) => 1; });", "return statement"),
+        ("(((c) => 1) as any);", "as-expression"),
+        ("class K { m = (c) => 1; }\nnull;", "property declaration"),
+        ("({ f() { return (c) => 1; } });", "method return"),
+        ("(!((c) => 1));", "unary operand"),
+    ] {
+        eprintln!("{label:26} => {}", type_of_last_expression(src));
+    }
+}
