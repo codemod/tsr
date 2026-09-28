@@ -1398,6 +1398,22 @@ impl Checker<'_, '_> {
         if self.nodes.kind(method) != SyntaxKind::MethodDeclaration {
             return None;
         }
+        // §928.1: `HasContextSensitiveParameters` (`ast/utilities.go:4196`)
+        // opens with *"Functions with type parameters are not context
+        // sensitive"*, and upstream gates this whole branch on it
+        // (`isContextSensitiveFunctionOrObjectLiteralMethod`,
+        // `checker.go:29496`).
+        //
+        // Its other half — a non-arrow with no explicit `this` parameter is
+        // context sensitive iff `NodeFlagsContainsThis` — **is satisfied by
+        // construction at this caller**: `check_this_expression` only runs on a
+        // `this` that is written in the body. The signature caller in
+        // `signatures.rs` has no such guarantee and tests the bit explicitly.
+        if let Some(tsr_ast::Node::MethodDeclaration(declaration)) = self.node_map.get(method)
+            && !declaration.type_parameters.is_empty()
+        {
+            return None;
+        }
         let literal = self.nodes.parent(method)?;
         if self.nodes.kind(literal) != SyntaxKind::ObjectLiteralExpression {
             return None;

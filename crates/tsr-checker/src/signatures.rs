@@ -789,25 +789,47 @@ impl<'a> Checker<'a, '_> {
                 r#type,
             );
         }
-        // §928 REFUSED, and measured: adopting the contextual signature's
-        // `this` parameter onto this signature — `assignContextualParameterTypes`
-        // (`checker.go:25344`), which is why upstream PRINTS
+        // §928.1 — the refusal above, REOPENED once its gate was found.
+        //
+        // `assignContextualParameterTypes` (`checker.go:25344`) copies the
+        // contextual signature's `this` parameter onto a signature that has
+        // none, which is why upstream PRINTS
         // `explicitStructural(this: { a: number; }): number` for a method that
-        // wrote no `this` parameter — measured **10 `WRONG->RIGHT` against 12
-        // `RIGHT->WRONG`**, net −2.
+        // wrote no `this` parameter. Ungated, that measured **10 `WRONG->RIGHT`
+        // against 12 `RIGHT->WRONG`**, net −2, and the adverse cases named the
+        // gate in their own titles: `thislessFunctionsNotContextSensitive1`/`2`.
         //
-        // The adverse cases name the missing gate: `thislessFunctions`
-        // `NotContextSensitive1`/`2` (7 rows) and `intraExpressionInferences`
-        // (4). Upstream copies the contextual `this` only where the signature is
-        // CONTEXT SENSITIVE (`isContextSensitive`, `checker.go:25211`), and
-        // those cases exist to assert that a *thisless* function is not. This
-        // port has no `isContextSensitive`, so the copy fires everywhere and
-        // prints a `this` upstream omits.
+        // The gate is `isContextSensitiveFunctionOrObjectLiteralMethod`
+        // (`checker.go:29496`) → `HasContextSensitiveParameters`
+        // (`ast/utilities.go:4196`), and for a non-arrow with no explicit `this`
+        // parameter it reduces to one bit:
         //
-        // **The `this` TYPE inside the body does not depend on this** —
-        // [`Checker::check_this_expression`] reads the same source directly and
-        // is what the +7 above came from. Only the printed signature waits on
-        // `isContextSensitive`.
+        // ```go
+        // if parameter == nil || !IsThisParameter(parameter) {
+        //     return node.Flags&NodeFlagsContainsThis != 0
+        // }
+        // ```
+        //
+        // **A method is context-sensitive exactly when its body mentions
+        // `this`** — which is what "thisless" means in those case names. The
+        // binder already records it as `NodeFacts::CONTAINS_THIS`.
+        //
+        // A method with TYPE PARAMETERS is never context sensitive
+        // (`HasContextSensitiveParameters`'s outer test), so it declines here
+        // too.
+        if this_parameter.is_none()
+            && type_parameters.is_empty()
+            && self.binder.facts(declaration).contains(tsr_binder::NodeFacts::CONTAINS_THIS)
+            && let Some(inherited) = self.contextual_this_parameter_type(declaration)
+        {
+            this_parameter = Some(Parameter {
+                name: "this".to_string(),
+                optional: false,
+                rest: false,
+                r#type: inherited,
+                written_text: None,
+            });
+        }
         Some(Signature {
             declaration,
             kind: self.signature_kind_of(declaration),

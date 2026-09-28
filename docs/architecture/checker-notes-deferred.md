@@ -8778,6 +8778,11 @@ exist precisely to assert that a thisless function is not. This port has no
 site in `signatures.rs` rather than only here, because that is where the next
 reader meets it — the lesson §925 paid for.
 
+> **SUPERSEDED BY §928.1, within the hour.** The reopening condition was met by
+> reading `HasContextSensitiveParameters` two files further. This entry is left
+> as written; §928.1 carries the correction, including one claim above that is
+> wrong.
+
 The `this` *type inside the body* does not depend on the printing half, which is
 where the +7 comes from; only the printed signature waits.
 
@@ -8793,3 +8798,77 @@ the harness binds one lib-free file with no compiler options and the `this` road
 reaches a different fallthrough there. Both answers mean *the branch did not
 fire*, which is what the pair is for; asserting the corpus's answer against a
 harness that does not produce it would be asserting a coincidence.
+
+
+## §928.1 — the refusal reopened, and a claim of §928's corrected (+3)
+
+### The correction first
+
+§928 wrote that its new branch "sits outside the `no_implicit_this` gate
+deliberately" and that "the contextual signature's own `this` is an annotation
+the user wrote and is read in every mode". **The first half is right and the
+second overstates it.** Upstream's branch is gated —
+`getContextualThisParameterType` (`checker.go:12021`) reads
+
+```go
+if c.isContextSensitiveFunctionOrObjectLiteralMethod(fn) {
+    contextualSignature := c.getContextualSignature(fn)
+    ...
+```
+
+— just not on `noImplicitThis`. §928 shipped that branch **ungated**, measured
++7/0, and did not check for a gate it had already been told about by name in its
+own refusal, three paragraphs later. The gate is recorded now.
+
+### The gate, which was two files away
+
+`isContextSensitiveFunctionOrObjectLiteralMethod` (`checker.go:29496`) →
+`isContextSensitiveFunctionLikeDeclaration` (`:30931`) →
+`HasContextSensitiveParameters` (`ast/utilities.go:4196`), whose whole content
+for a non-arrow with no explicit `this` parameter is:
+
+```go
+// Functions with type parameters are not context sensitive.
+if node.TypeParameters() == nil {
+    if core.Some(node.Parameters(), func(p *Node) bool { return p.Type() == nil }) { return true }
+    if !IsArrowFunction(node) {
+        parameter := core.FirstOrNil(node.Parameters())
+        if parameter == nil || !IsThisParameter(parameter) {
+            return node.Flags&NodeFlagsContainsThis != 0
+        }
+    }
+}
+```
+
+**A method is context-sensitive exactly when its body mentions `this`.** That is
+literally what *thisless* means in `thislessFunctionsNotContextSensitive1`/`2` —
+the two cases whose 7 adverse rows refused §928's printing half. The gate was
+named in their titles and in the refusal, and it took one more file to find.
+
+The binder has recorded the bit all along, as `NodeFacts::CONTAINS_THIS`.
+
+### What each caller needs
+
+- `check_this_expression` (§928's type branch): the `ContainsThis` half is
+  **satisfied by construction** — that function only runs on a `this` written in
+  the body. Only the type-parameter half is a real test, and adding it changed
+  nothing measured, which is the expected result for a faithful gate with no
+  population.
+- `get_signature_from_declaration` (the printing half): has no such guarantee and
+  tests the bit explicitly.
+
+### Measurement
+
+Gated, the printing half is **+3 `WRONG->RIGHT`, zero adverse** — where ungated
+it was 10 against 12. The gate removed **every** adverse row and kept 3 of the 10
+wins; the other 7 want something further.
+
+`right` 442,027 → **442,030**.
+
+### What this says about the method
+
+§928's refusal was correct, complete, and had the answer inside it: it named
+`isContextSensitive`, cited `checker.go:25211`, and stopped. **A refusal that
+names its own reopening condition should be followed for one more hop before it
+is written down** — the cost here was one `grep`, and the entry arguing for the
+refusal was longer than the fix.

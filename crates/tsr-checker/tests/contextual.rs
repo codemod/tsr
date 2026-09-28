@@ -362,3 +362,16 @@ fn a_method_with_no_contextual_this_parameter_is_unchanged() {
                   let impl: J = { hemlock: 12, em() { let redwood = this.hemlock; return redwood; } };";
     assert_eq!(type_of(source, "redwood"), "error");
 }
+
+// §928.1's printing half has **no seam this harness can reach**, and the two
+// tests written for it are deleted rather than left passing for the wrong
+// reason. They asserted the type of `impl.em` where `impl: I` — which reads
+// `I`'s declared member, carrying the written `this` whatever the object
+// literal's own method does, so the "thisless" fixture passed by inheriting
+// from the annotation. What the change moves is the *inferred type of the
+// object literal*, which `type_of` cannot name.
+//
+// Its evidence is the corpus measurement, recorded in
+// `docs/architecture/checker-notes-deferred.md` §928.1: ungated **10
+// `WRONG->RIGHT` against 12 `RIGHT->WRONG`**, gated on `NodeFacts::CONTAINS_THIS`
+// **+3 with zero adverse**. The 12 that disappear are the falsifier.
