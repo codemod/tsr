@@ -62,6 +62,21 @@ fn last_expression_statement<'a>(statements: &[Statement<'a>]) -> Option<tsr_ast
                     }
                 }
             }
+            // A `catch` clause body is where a destructured catch binding is
+            // observable, and it is the only place it is.
+            Statement::TryStatement(node) => {
+                for block in [node.try_block, node.finally_block].into_iter().flatten() {
+                    if let Some(inner) = last_expression_statement(block.statements) {
+                        found = Some(inner);
+                    }
+                }
+                if let Some(clause) = node.catch_clause
+                    && let Some(block) = clause.block
+                    && let Some(inner) = last_expression_statement(block.statements)
+                {
+                    found = Some(inner);
+                }
+            }
             _ => {}
         }
     }

@@ -4057,3 +4057,104 @@ Two of the three largest clusters on §852's board are now priced: one refused w
 named reopening condition, one owned by another crate. The `>a : any` cluster (6
 cases) and the `>x : any` cluster (3) remain unread, and §852.1's finding stands —
 they are likely to be separate one-line causes rather than a shared mechanism.
+
+## §855: a destructured `catch` binding is still a catch variable
+
+Two more of §852's one-gap zero-wrong cases, found by reading the board's failing
+assertions with their source lines:
+
+```
+asyncWithVarShadowing_es6   >x : any   src: catch ({ x }) {
+objectRestCatchES5          >a : any   src: try {} catch ({ a, ...b }) {}
+```
+
+Probed: `catch (e) { e }` answers `unknown` — correct under strict — and
+`catch ({ x }) { x }` answers **`error`**, while destructuring a plain `any` works.
+So the port tries to *destructure* the catch variable and fails.
+
+Upstream does not destructure it at all. `getTypeOfVariableOrParameterOrPropertyWorker`
+(`checker.go:16678`):
+
+```go
+if ast.IsCatchClauseVariableDeclarationOrBindingElement(declaration) {
+    ...
+    if c.useUnknownInCatchVariables { return c.unknownType }
+    return c.anyType
+}
+```
+
+and the predicate (`ast/utilities.go:721`) is the whole point:
+
+```go
+func IsCatchClauseVariableDeclarationOrBindingElement(declaration *Node) bool {
+	node := GetRootDeclaration(declaration)
+	return node.Kind == KindVariableDeclaration && node.Parent.Kind == KindCatchClause
+}
+```
+
+**`GetRootDeclaration`** walks `BindingElement -> parent.parent` until it is not one,
+so every binding element inside a catch pattern *is itself* a catch variable and
+takes `unknown`/`any` directly. The pattern is never destructured.
+
+This port has the arm (`crates/tsr-checker/src/symbols.rs`) and tests
+
+```rust
+self.nodes.parent(declaration).is_some_and(|parent| self.nodes.kind(parent) == SyntaxKind::CatchClause)
+```
+
+— the **direct** child of the catch clause only. For `catch ({ x })` the declaration
+is a `BindingElement`, its parent is the pattern, and the test fails one hop early.
+
+> **The same shape as §837**, where a one-hop heritage check missed a three-hop
+> cycle, and the same fix: replace the hop with the walk upstream already names.
+> `root_declaration_of` exists in `crate::expressions` and is exactly
+> `GetRootDeclaration`; it becomes `pub(crate)` rather than being written twice.
+
+### The bar
+
+1. **Primary.** Both cases close: ≥ **+2 lines, +2 cases**.
+2. **Safety.** `RIGHT->WRONG ≤ 5`. The arm now fires for binding elements it did not
+   reach, so the exposure is any destructured catch whose members this port was
+   previously typing correctly by some other route.
+3. **Falsifier.** If neither case moves, the one-hop test is not what gaps them.
+4. **Regression.** `cargo test --workspace`; clippy clean.
+
+### §855 result — FALSIFIED and reverted; the one-hop test was not the blocker
+
+| leg | registered | measured |
+|---|---|---|
+| 1 primary | both cases close, ≥ +2 lines / +2 cases | **0** |
+| 2 safety | `RIGHT->WRONG` ≤ 5 | 0 |
+| 3 falsifier | if neither case moves, the one-hop test is not what gaps them | **neither moved** |
+
+**Zero corpus transitions, and the probe did not move either**: `catch ({ x }) { x }`
+still answers `error` with the root-declaration walk in place. So the reading was
+right about upstream and wrong about this port — the one-hop parent test is *a*
+divergence, but it is not what produces the gap. Something earlier on the
+binding-element road errors before
+`get_widened_type_for_variable_like_declaration` is ever consulted.
+
+Reverted. Keeping a faithful-but-inert change would have failed §823/§824's rule:
+**ship a mechanism only when it demonstrably fires**, and this one cannot be
+witnessed by any test.
+
+What the attempt does establish, for whoever opens it next:
+
+1. **Upstream's rule is confirmed and is not what this port does.**
+   `IsCatchClauseVariableDeclarationOrBindingElement` uses `GetRootDeclaration`, so a
+   binding element in a catch pattern is *itself* a catch variable and takes
+   `unknown`/`any` **without being destructured**. The port's arm tests the
+   declaration's own parent. That divergence is real and should be fixed *as part of*
+   whatever does fix these cases.
+2. **The blocker is upstream of that arm.** The next probe is to find what types a
+   `BindingElement` whose root is a catch clause — `get_type_of_symbol` on the
+   binding-element symbol — and where it answers `error`, rather than assuming the
+   widened-declaration road is reached at all.
+3. `catch (e)` answers `unknown` correctly, and destructuring a plain `any` works, so
+   neither the catch arm nor the destructuring road is broken in isolation. It is
+   their composition.
+
+Two of the last three bars have now been falsified by their own primary leg
+(§850, §855) and both changes were faithful ports of real upstream divergences. That
+is §848's finding continuing to hold: at this depth, *being right about upstream no
+longer predicts moving the corpus*, because the populations sit behind other defects.
