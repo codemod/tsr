@@ -10305,3 +10305,48 @@ inconvenient.*
 Until then the mixin family is a gap by construction, and the 44 lines in
 `mixinAccessModifiers`/`mixinClassesMembers` are waiting on that one type
 constructor rather than on anything in the members or expression roads.
+
+## §944 — a readonly assignment target, from the diagnostic road to the type road (+22)
+
+§933 accepted 4 `RIGHT->WRONG` and named their cause: upstream reports *"cannot
+assign to a read-only property"* and the erroneous reference answers `errorType`,
+which the producer prints as `any`. `bigintWithLib` records
+`>bigIntArray.length : any` for `bigIntArray.length = 10`.
+
+The predicate for that was **already in the tree**: `property_signature_is_readonly`
+and `is_readonly_symbol` back `check_readonly_assignment_target`, the
+**diagnostic** road. The **type** road never consulted it — the eighteenth
+instance this session of a capability present and a caller that does not reach
+for it.
+
+`check_property_access_expression` now answers `any` when the access is the left
+side of a plain `=` and the property is readonly, reusing the diagnostic road's
+own receiver gate and its constructor permission (`isAssignmentToReadonlyEntity`,
+`checker.go:27296` — inside the declaring constructor the assignment is legal and
+the reference is not erroneous).
+
+**22 `WRONG->RIGHT`, zero adverse.** `right` 443,276 → **443,298**.
+`readonlyPropertySubtypeRelationDirected` 16, `intersectionTypeReadonly` 2,
+`mappedTypes6` 2.
+
+### §933's own four rows did NOT convert, and that is recorded rather than claimed
+
+```text
+compiler/bigintWithLib:0:134  WRONG  want any  got number
+```
+
+Still `number`. §933 named these as the family this would fix, and it does not.
+`bigIntArray` is `BigInt64Array<ArrayBufferLike>` and `length` is a `readonly`
+property signature on a lib interface, so the predicate should hold — which
+leaves the **receiver gate** (`declared_members_are_complete`, shared with
+`crate::nonexistent_property`) as the first place to look, unverified.
+
+*Claiming the falsifier resolved would have been the easy sentence and the wrong
+one.* §937.1 and §941.1 both cost corrections for exactly that shape of
+optimism; this entry pays the +22 it earned and leaves §933's rows open with a
+named next step.
+
+### Restricted to `=`
+
+A compound assignment (`+=`) reads the property as well as writing it, and
+upstream's answer there is a different question this port has no row for.

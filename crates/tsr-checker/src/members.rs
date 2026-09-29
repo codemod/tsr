@@ -68,6 +68,25 @@ impl Checker<'_, '_> {
         &mut self,
         node: &tsr_ast::PropertyAccessExpression<'_>,
     ) -> TypeId {
+        // §944: a property access that is the TARGET of an assignment and names
+        // a READONLY property answers `any`.
+        //
+        // Upstream reports "cannot assign to a read-only property" and the
+        // erroneous reference answers `errorType`, which the producer prints as
+        // `any`: `bigintWithLib` records `>bigIntArray.length : any` for
+        // `bigIntArray.length = 10`. §933 met these rows as 4 `RIGHT->WRONG` and
+        // named the diagnostic as their reopening condition — they were right
+        // by coincidence before, because the receiver did not resolve at all.
+        //
+        // The predicate is already here: `property_signature_is_readonly` backs
+        // `check_readonly_assignment_target`, the DIAGNOSTIC road. The type road
+        // never consulted it — the eighteenth instance this session of a
+        // capability present and a caller that does not reach for it.
+        if let Some(id) = node.node_id
+            && self.is_readonly_assignment_target(id)
+        {
+            return self.intrinsics.any;
+        }
         let computed = self.check_property_access_expression_worker(node);
         // §55.1 (`checker-notes-narrow.md`): a single-member enum's ACCESS
         // prints the enum spelling while its declaration line keeps the

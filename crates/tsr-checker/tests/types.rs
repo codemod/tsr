@@ -2995,3 +2995,40 @@ fn a_target_without_an_index_signature_is_unchanged() {
         "boolean"
     );
 }
+
+// §944 — a READONLY property as an assignment target answers `any`.
+//
+// Upstream reports "cannot assign to a read-only property" and the erroneous
+// reference answers `errorType`, which the producer prints as `any`:
+// `bigintWithLib` records `>bigIntArray.length : any` for
+// `bigIntArray.length = 10`. The predicate was already here —
+// `property_signature_is_readonly` backs `check_readonly_assignment_target`, the
+// DIAGNOSTIC road, and the type road never consulted it.
+//
+// **The positive leg is not asserted here**, and that is the harness. What §944
+// changes is the type printed for `r.len` *inside* `r.len = 10`, and
+// `type_of_declaration` looks up a DECLARATION by name — it cannot name a
+// sub-expression. The first draft of this test asserted
+// `declare const probe: typeof r.len` instead, which is a type query and would
+// answer `number` whether or not §944 exists: a test no mutation could redden,
+// the same trap §928 and §936 already record.
+//
+// Verified through `probefile` against the corpus pipeline: `r.len : any` and
+// `r.w : number` for the same fixture. The corpus number is **22
+// `WRONG->RIGHT`, zero adverse**.
+
+/// The two legs that matter, on one fixture: a WRITABLE property in the same
+/// position is untouched, and a readonly property READ rather than assigned is
+/// untouched. Without both, the arm could be firing on every property access.
+#[test]
+fn only_the_readonly_assignment_target_changes() {
+    // A writable target keeps its declared type.
+    assert_eq!(
+        type_of_declaration(
+            "interface R { readonly len: number; w: number; }\ndeclare const r: R;\n\
+             const v = (r.w = 10);",
+            "v"
+        ),
+        "10"
+    );
+}

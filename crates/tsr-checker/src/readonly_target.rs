@@ -239,6 +239,47 @@ impl Checker<'_, '_> {
     /// `externalModuleImmutableBindings` are that shape. Supplemented here
     /// rather than widened there, because widening a function the query road
     /// reads moves `checker_types`.
+    /// §944: is `node` a property access standing as the LEFT side of a plain
+    /// assignment, naming a `readonly` property?
+    ///
+    /// The type road's half of `check_readonly_assignment_target`. Restricted to
+    /// `=` — a compound assignment (`+=`) reads the property as well as writing
+    /// it, and upstream's own answer there is a different question this port has
+    /// no row for.
+    pub(crate) fn is_readonly_assignment_target(&mut self, node: NodeId) -> bool {
+        let Some(parent) = self.nodes.parent(node) else { return false };
+        let Some(Node::BinaryExpression(binary)) = self.node_map.get(parent) else {
+            return false;
+        };
+        if binary.operator_token.is_none_or(|token| token.kind != SyntaxKind::EqualsToken)
+            || binary.left.and_then(|left| left.node_id()) != Some(node)
+        {
+            return false;
+        }
+        let Some(Node::PropertyAccessExpression(access)) = self.node_map.get(node) else {
+            return false;
+        };
+        let Some(tsr_ast::MemberName::Identifier(name)) = access.name else { return false };
+        let name = name.text.to_string();
+        let Some(receiver) = access.expression else { return false };
+        let receiver_type = self.check_expression(receiver);
+        if self.is_error(receiver_type)
+            || self.type_of(receiver_type).flags.intersects(TypeFlags::ANY_OR_UNKNOWN)
+            || !self.declared_members_are_complete(receiver_type)
+        {
+            return false;
+        }
+        let Some(property) = self.get_property_of_type(receiver_type, &name) else { return false };
+        if !self.is_readonly_symbol(property) && !self.property_signature_is_readonly(property) {
+            return false;
+        }
+        // The constructor permission is upstream's own
+        // (`isAssignmentToReadonlyEntity`, `checker.go:27296`) and applies to the
+        // TYPE as much as the diagnostic: inside the declaring constructor the
+        // assignment is legal and the reference is not erroneous.
+        !self.assignment_is_inside_the_declaring_constructor(node, property)
+    }
+
     fn property_signature_is_readonly(&self, symbol: SymbolId) -> bool {
         self.binder.symbols().get(symbol).declarations.iter().any(|declaration| {
             matches!(
