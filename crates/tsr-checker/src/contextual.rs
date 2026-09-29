@@ -385,6 +385,11 @@ impl<'a> Checker<'a, '_> {
         // whose relationship to the position is not the plain one — upstream
         // reaches those through `getRestTypeAtPosition` and the optionality
         // rules in `crate::optionality`. Neither is asserted from here.
+        //
+        // **§940.1 split this one too and measured zero**, so both halves stay.
+        // Unlike the three memo-road guards it resembles, this comment argues
+        // for the optional half as well as the rest half, and the measurement
+        // agrees with it.
         if contextual.optional || contextual.rest {
             return None;
         }
@@ -1108,6 +1113,10 @@ impl<'a> Checker<'a, '_> {
             // same read §939 gave inference — was written and **measured zero
             // change**, so it is not kept: fifteen lines of unmeasured behaviour
             // is the liability §929 named, and the zero is the useful record.
+            // §940.1: `|| parameter.optional` removed here too, +2
+            // (`primitiveUnionDetection`). Three sibling guards carried the same
+            // compound shape §940 split, and none of the three had a reason
+            // written for the optional half.
             if parameter.rest {
                 return None;
             }
@@ -1169,7 +1178,7 @@ impl<'a> Checker<'a, '_> {
             let single = single.clone();
             let parameter_type = {
                 let parameter = single.parameters.get(index)?;
-                if parameter.rest || parameter.optional {
+                if parameter.rest {
                     return None;
                 }
                 parameter.r#type
@@ -1257,7 +1266,7 @@ impl<'a> Checker<'a, '_> {
             candidates.iter().filter(|c| c.parameters.len() == call.arguments.len()).collect();
         if let [chosen] = by_arity.as_slice() {
             let parameter = chosen.parameters.get(index)?;
-            if parameter.rest || parameter.optional {
+            if parameter.rest {
                 return None;
             }
             if self.mentions_any_type_parameter(parameter.r#type, 2) {
@@ -1268,7 +1277,7 @@ impl<'a> Checker<'a, '_> {
         let mut agreed: Option<TypeId> = None;
         for candidate in &candidates {
             let parameter = candidate.parameters.get(index)?;
-            if parameter.rest || parameter.optional {
+            if parameter.rest {
                 return None;
             }
             if self.mentions_any_type_parameter(parameter.r#type, 2) {

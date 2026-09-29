@@ -9978,3 +9978,53 @@ zero-measuring copy, and the zero is the useful record.
 That is the tenth restriction measured on this seam across seven entries, and the
 second where the measurement said *"do not keep it"* rather than *"the cautious
 form is free"*.
+
+## §940.1 — the same compound guard, three more times (+2)
+
+§940 closed by naming the shape rather than the line: *"conditions that were
+never separated"*. Grepping for the shape rather than the symptom found
+`parameter.rest || parameter.optional` **three more times** in `contextual.rs`,
+all in the same module, none with a reason written for the optional half.
+
+Splitting all three: **+2 `WRONG->RIGHT` (`primitiveUnionDetection`), zero
+adverse.** `right` 443,244 → **443,246**.
+
+### Two lines is the honest return, and the sweep was still right
+
+§940 was +111 and this is +2. That is what a systematic sweep looks like when the
+first hit was the one with traffic: **the value was in confirming the other three
+were the same defect, not in what they paid.** Four copies of one guard now agree,
+and none of them will need re-deriving.
+
+### The fourth is not the same, and the measurement says so
+
+`contextual_type_for_argument`'s *positional* road carries
+`contextual.optional || contextual.rest` with a comment that argues for **both**
+halves — upstream reaches them through `getRestTypeAtPosition` and the optionality
+rules in `crate::optionality`. Splitting it measured **zero change**, so both
+halves stay.
+
+That is the distinction the seam turns on, and it is now demonstrated rather than
+asserted: *a compound guard is suspect when only one half has a reason written,
+and sound when both do.* The comment is the tell, and the measurement confirms
+the comment — which is the first time on this seam that a written reason has been
+vindicated by its own number.
+
+### Process note, recorded because it cost ~45 minutes
+
+`rtk` **buffers a command's entire output** and prints a one-line summary when it
+completes, and the Claude Code hook rewrites even a bare `cargo` invocation — so
+a long `cargo test` shows **zero bytes** until it is done. Combined with
+`ps -o time` on the `cargo` *parent*, which excludes its `rustc` children, the
+signature of a perfectly healthy build is *"no output, no CPU"*.
+
+Two working jobs were killed on that misreading, and a third was launched to
+"diagnose" it. The tell that settles it in one line: **the test execution itself
+is 10 seconds** (1,940 passed, 2 ignored, 128 suites) — every minute of wall time
+is compilation.
+
+The genuine defect was in the command, not the tooling: filtering `cargo test`'s
+stdout to `FAILED|panicked at|error[` discards cargo's own status output,
+including the *"Blocking waiting for file lock"* line that would have answered the
+question immediately. **A command that cannot report why it is slow should not be
+the one you run when you need to know.**
