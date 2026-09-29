@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 6345/9538 (66.52%)
-Assertion lines: 442949/478855 (92.50%)  — a gradient, not a pass rate
-Failed         : 3193
+Passed         : 6351/9538 (66.59%)
+Assertion lines: 443008/478855 (92.51%)  — a gradient, not a pass rate
+Failed         : 3187
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -12,7 +12,7 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 3193 failures:
+First 100 of 3187 failures:
 compiler/2dArrays
   2dArrays.ts: >function (val) { return val.isSunk; } : error — expected >function (val) { return val.isSunk; } : (val: Ship) => boolean
 compiler/ClassDeclaration26
@@ -210,6 +210,6 @@ compiler/awaitedTypeStrictNull
 compiler/badArraySyntax
   badArraySyntax.ts: 34 assertion(s), expected 32
 compiler/badInferenceLowerPriorityThanGoodInference
-  badInferenceLowerPriorityThanGoodInference.ts: >result : error — expected >result : { BLAH: number; }
+  badInferenceLowerPriorityThanGoodInference.ts: >result : unknown — expected >result : { BLAH: number; }
 compiler/baseClassImprovedMismatchErrors
   baseClassImprovedMismatchErrors.ts: >fn : () => string | number — expected >fn : () => number | string

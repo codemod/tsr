@@ -2902,3 +2902,50 @@ fn an_index_signature_source_relates_by_its_value_type() {
         "number"
     );
 }
+
+/// §937 — `inferFromProperties` (`inference.go`), the one structural position
+/// inference did not have.
+///
+/// `T[]`, `Array<T>`, `(v: T) => void`, `Promise<T>`, `[T, U]` and a bare `T` all
+/// inferred; `{ x: T }` did not, and answered `error`. **The position left out
+/// was the commonest one an argument takes** — the options bag.
+#[test]
+fn inference_walks_into_an_object_members() {
+    assert_eq!(
+        type_of_declaration("declare function k<T>(a: { x: T }): T;\nconst r = k({ x: 1 });", "r"),
+        "number"
+    );
+}
+
+/// A nested member, so the test above cannot pass on a one-level special case.
+#[test]
+fn inference_walks_into_a_nested_object_member() {
+    assert_eq!(
+        type_of_declaration(
+            "declare function k<T>(a: { x: { y: T } }): T;\nconst r = k({ x: { y: true } });",
+            "r"
+        ),
+        "boolean"
+    );
+}
+
+/// The regression legs: every structural position that already worked must keep
+/// working, because §937 inserted its arm ahead of the signature arm.
+#[test]
+fn the_structural_positions_that_already_inferred_are_unchanged() {
+    assert_eq!(
+        type_of_declaration(
+            "declare function m<T>(a: (v: T) => void): T;\nconst r = m((v: number) => {});",
+            "r"
+        ),
+        "number"
+    );
+    // `true`, not `boolean`: a bare type parameter takes the argument type
+    // UNWIDENED, which this file already asserts as
+    // `a_bare_type_parameter_is_the_argument_type_unwidened`. The first draft of
+    // this leg expected `boolean` and failed — the expectation was wrong.
+    assert_eq!(
+        type_of_declaration("declare function p<T, U>(a: T, b: U): U;\nconst r = p(1, true);", "r"),
+        "true"
+    );
+}

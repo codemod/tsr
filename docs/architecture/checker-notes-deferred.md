@@ -9688,3 +9688,73 @@ Rest parameters (upstream's `getParameterCount`/`getTypeAtPosition` arity rules)
 and generic signatures (upstream relates them under a unification of their type
 parameters). Both decline the pair, which the walk now treats as "keep looking"
 rather than "fail".
+
+## §937 — `inferFromProperties`, and a runtime regression that was a design error (+59)
+
+### The gap
+
+Probing inference rather than trusting the module's own header:
+
+```ts
+declare function h<T>(a: T[]): T;              h([1, 2])        // number   ✓
+declare function m<T>(a: (v: T) => void): T;   m((v: number)=>{}) // number ✓
+declare function n<T>(a: Array<T>): T;         n([true])        // boolean  ✓
+declare function q<T>(a: Promise<T>): T;       q(pr)            // string   ✓
+declare function p<T, U>(a: T, b: U): [T, U];  p(1, "s")        // [1, "s"] ✓
+declare function k<T>(a: { x: T }): T;         k({ x: "s" })    // error    ✗
+```
+
+Every structural position inferred **except an object member** — and that is the
+commonest position an argument takes, the options bag. `inferFromProperties`
+(`inference.go`) was simply absent: for each property of the target, recurse
+against the source's property of the same name.
+
+It runs before the signature arm and does not return, because upstream's
+`inferFromObjectTypes` does properties, then index signatures, then signatures,
+and a type may carry both.
+
+**58 `WRONG->RIGHT` + 1 `GAP->RIGHT` against 25 `GAP->WRONG`, zero
+`RIGHT->WRONG`.** `right` 442,949 → **443,008**. `genericCallWithObjectTypeArgs2`
+8, `callChain.3` 7, `contextualTupleTypeParameterReadonly` 6.
+
+### The runtime regression, and two wrong fixes before the right one
+
+Ungated, the arm took the conformance run **from ~20 seconds to not finishing in
+ten minutes**. A lib-typed target drags in `Array`, `String` and friends, and the
+walk descended through all of their members to learn nothing.
+
+Two fixes were tried and **neither moved the runtime at all**:
+
+1. a memo on the gate;
+2. caps on depth (4) and member count (24).
+
+Both treated the cost as *volume*. It was *shape*. Upstream's
+`couldContainTypeVariables` (`checker.go:22184`) reads a cached `ObjectFlags` bit,
+and for an anonymous object decides from the **symbol's flags alone** —
+`TypeLiteral`, `ObjectLiteral`, `Function`, `Method`, `Class` — **touching no
+member**. A reference consults its type arguments; a union its constituents;
+everything else is `false`.
+
+Written that way the run is back to **20 seconds with the arm unbounded**, and
+both caps were deleted rather than kept "just in case".
+
+> **The measurement said "too slow" and I read it as "do less". The code upstream
+> had already written said "look in the wrong place".** Two failed fixes is what
+> it cost to stop budgeting and go read `checker.go:22184`.
+
+### Consequences accepted
+
+The 25 `GAP->WRONG` are §620's accepted direction and cluster in inference-priority
+cases — `returnTypeInferenceNotTooBroad` 8, `reverseMappedUnionInference` 7,
+`nestedTypeVariableInfersLiteral` 6. They are candidates this arm now *supplies*
+where upstream would rank them below a better one: **the inference-priority model
+(§920/§920.1) is their reopening condition**, and it is the same one already
+recorded there.
+
+### A test expectation that was wrong, again
+
+The regression leg asserted `p(1, true)` infers `boolean`. It infers `true` — a
+bare type parameter takes the argument type **unwidened**, which this very file
+already asserts as `a_bare_type_parameter_is_the_argument_type_unwidened`. Third
+time this session a fixture I wrote encoded my expectation rather than the port's
+documented behaviour; the corrected line says so.

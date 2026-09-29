@@ -975,6 +975,103 @@ impl Checker<'_, '_> {
         self.infer_from_types_within(source, target, target, parameters, out, depth);
     }
 
+    /// §937's `couldContainTypeVariables` (`checker.go:22184`) — whether a
+    /// target can contribute anything to inference at all.
+    ///
+    /// **It does not walk members, and that is the whole point.** The first
+    /// build of this predicate did, and the conformance run went from ~4 minutes
+    /// to not finishing in 20; memoising it and bounding the arm changed
+    /// nothing, because the expense was the design. Upstream reads a cached
+    /// `ObjectFlags` bit and, for an anonymous object, answers `true` from the
+    /// **symbol's flags alone** (`checker.go:22194`) — a type literal, object
+    /// literal, function, method or class symbol could contain a type variable,
+    /// and no member is examined to decide it.
+    ///
+    /// So: a reference consults its arguments, a union its constituents, an
+    /// object-ish symbol answers `true` outright, everything else `false`.
+    ///
+    /// **Separate from [`Checker::type_mentions_parameter`] on purpose.** That
+    /// one is §787's union strike-out gate, whose documented conservative
+    /// direction is `false`, and it is measured for that use.
+    ///
+    /// `visiting` guards the reference/union recursion; the memo below is what
+    /// keeps repeated queries cheap.
+    fn target_could_contain_parameter(
+        &mut self,
+        id: TypeId,
+        parameters: &[TypeId],
+        visiting: &mut Vec<TypeId>,
+    ) -> bool {
+        if parameters.contains(&id) {
+            return true;
+        }
+        if visiting.contains(&id) || visiting.len() > 16 {
+            return false;
+        }
+        let top_level = visiting.is_empty();
+        let key = (id, parameters.to_vec());
+        if top_level && let Some(&cached) = self.could_contain_parameter_cache.get(&key) {
+            return cached;
+        }
+        visiting.push(id);
+        let answer = self.could_contain_parameter_inner(id, parameters, visiting);
+        visiting.pop();
+        if top_level {
+            self.could_contain_parameter_cache.insert(key, answer);
+        }
+        answer
+    }
+
+    fn could_contain_parameter_inner(
+        &mut self,
+        id: TypeId,
+        parameters: &[TypeId],
+        visiting: &mut Vec<TypeId>,
+    ) -> bool {
+        // A REFERENCE could contain one if any of its arguments could.
+        if let Some((_, arguments)) = self.type_reference_targets.get(&id).cloned()
+            && arguments
+                .into_iter()
+                .any(|argument| self.target_could_contain_parameter(argument, parameters, visiting))
+        {
+            return true;
+        }
+        // A UNION, likewise over its constituents.
+        if let TypeData::Union { types, .. } = &self.store.get(id).data {
+            let constituents = types.clone();
+            if constituents.into_iter().any(|constituent| {
+                self.target_could_contain_parameter(constituent, parameters, visiting)
+            }) {
+                return true;
+            }
+        }
+        // **An ANONYMOUS object answers `true` from its SYMBOL'S FLAGS alone**
+        // (`checker.go:22194`): a type literal, object literal, function, method
+        // or class symbol with declarations could contain a type variable, and
+        // upstream decides that without looking at a single member.
+        if let TypeData::Anonymous { symbol, .. } = self.store.get(id).data {
+            let flags = self.binder.symbols().get(self.binder.merged_symbol(symbol)).flags;
+            if flags.intersects(
+                tsr_binder::SymbolFlags::FUNCTION
+                    | tsr_binder::SymbolFlags::METHOD
+                    | tsr_binder::SymbolFlags::CLASS
+                    | tsr_binder::SymbolFlags::TYPE_LITERAL
+                    | tsr_binder::SymbolFlags::OBJECT_LITERAL,
+            ) {
+                return true;
+            }
+        }
+        if let TypeData::Named { members: Some(owner), .. } = self.store.get(id).data {
+            let flags = self.binder.symbols().get(self.binder.merged_symbol(owner)).flags;
+            if flags.intersects(
+                tsr_binder::SymbolFlags::TYPE_LITERAL | tsr_binder::SymbolFlags::OBJECT_LITERAL,
+            ) {
+                return true;
+            }
+        }
+        false
+    }
+
     /// Whether `id` is, or structurally contains, one of `parameters`. §787.
     ///
     /// Used to keep the union strike-out off constituents that still carry an
@@ -1358,6 +1455,61 @@ impl Checker<'_, '_> {
                 );
             }
             return;
+        }
+        // §937: `inferFromProperties` (`inference.go`), the arm every other
+        // structural shape already had. `f<T>(a: { x: T })` called with
+        // `{ x: "s" }` collected NO candidate for `T` and answered `error`,
+        // while `T[]`, `Array<T>`, `(v: T) => void`, `Promise<T>` and a bare
+        // `T` all inferred correctly — **the one structural position left out
+        // was the commonest one an argument takes**, the options-bag object.
+        //
+        // For each property of the TARGET, recurse against the source's property
+        // of the same name. A target property the source lacks contributes
+        // nothing, which is upstream's behaviour and not a failure.
+        //
+        // Runs BEFORE the signature arm and does not return: upstream's
+        // `inferFromObjectTypes` does properties, then index signatures, then
+        // signatures, and a type may carry both.
+        //
+        // **Gated on `couldContainTypeVariables`, and that gate is load-bearing
+        // for RUNTIME, not correctness.** The first build ran this arm
+        // ungated and the conformance run went from ~20 seconds to not
+        // finishing in ten minutes, because a lib-typed target drags in
+        // `Array`, `String` and friends and the walk descended through all of
+        // their members to learn nothing.
+        //
+        // The fix was **not** a budget. Two were tried — memoising a
+        // member-walking predicate, then capping depth and member count — and
+        // neither moved the runtime, because the expense was the shape of the
+        // predicate rather than its volume. Upstream's
+        // `couldContainTypeVariables` (`checker.go:22184`) reads a cached
+        // `ObjectFlags` bit and decides an anonymous object from its SYMBOL'S
+        // FLAGS, touching no member at all; written that way
+        // ([`Checker::target_could_contain_parameter`]) the run is back to 20
+        // seconds with the arm unbounded.
+        let target_names =
+            if self.target_could_contain_parameter(target, parameters, &mut Vec::new()) {
+                self.property_names_of(target)
+            } else {
+                Vec::new()
+            };
+        if !target_names.is_empty() {
+            for name in &target_names {
+                let (Some(target_member), Some(source_member)) = (
+                    self.get_type_of_property_of_type(target, name),
+                    self.get_type_of_property_of_type(source, name),
+                ) else {
+                    continue;
+                };
+                self.infer_from_types_within(
+                    source_member,
+                    target_member,
+                    original,
+                    parameters,
+                    out,
+                    depth + 1,
+                );
+            }
         }
         let (Some(target_signatures), Some(source_signatures)) =
             (self.signature_types.get(&target), self.signature_types.get(&source))

@@ -833,6 +833,18 @@ pub struct Checker<'a, 'n> {
     /// The values of [`Checker::instantiated_signatures`], for the O(1)
     /// membership test the call resolver makes.
     pub(crate) minted_signature_types: rustc_hash::FxHashSet<TypeId>,
+    /// §937: memo for `Checker::target_could_contain_parameter`, upstream's
+    /// `couldContainTypeVariables` gate on the property arm of inference.
+    ///
+    /// **The memo is the difference between a 4-minute conformance run and one
+    /// that did not finish in 20.** The predicate follows members, so a
+    /// lib-typed target drags in `Array`, `String` and their dozens of members
+    /// on every query; the same types recur across every call in a file.
+    ///
+    /// Only TOP-LEVEL answers are cached: a result computed while a cycle guard
+    /// was active can be `false` for the cycle rather than for the type, and
+    /// caching that would poison every later query.
+    pub(crate) could_contain_parameter_cache: rustc_hash::FxHashMap<(TypeId, Vec<TypeId>), bool>,
     /// Composite types currently being re-rendered at a site — the cycle
     /// guard of [`Checker::type_to_string_at`]'s twin arm (§10.13).
     pub(crate) rendering_composites: rustc_hash::FxHashSet<TypeId>,
@@ -1096,6 +1108,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             signature_types: FxHashMap::default(),
             instantiated_signatures: FxHashMap::default(),
             minted_signature_types: rustc_hash::FxHashSet::default(),
+            could_contain_parameter_cache: rustc_hash::FxHashMap::default(),
             rendering_composites: rustc_hash::FxHashSet::default(),
         }
     }
