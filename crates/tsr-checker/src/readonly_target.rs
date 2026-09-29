@@ -263,9 +263,25 @@ impl Checker<'_, '_> {
         let name = name.text.to_string();
         let Some(receiver) = access.expression else { return false };
         let receiver_type = self.check_expression(receiver);
+        // **No `declared_members_are_complete` gate here, and §944.1 measured
+        // why.** The diagnostic road carries one — *"a receiver whose members
+        // this port did not finish resolving cannot be asked whether one of them
+        // is read-only either"* — and that is right for a DIAGNOSTIC, where a
+        // false positive is a reported error the user did not earn.
+        //
+        // The type road's exposure is the other way round: it only ever answers
+        // `any` for a property `get_property_of_type` **found** and
+        // `property_signature_is_readonly` **confirmed**, so an incomplete
+        // receiver costs a missed answer rather than an invented one.
+        //
+        // The gate was what kept §933's own four rows open: every readonly
+        // member of `Int32Array`/`BigInt64Array` failed it while the same shape
+        // written by hand — a generic interface, a defaulted parameter, a merged
+        // declaration — passed. Lifting it is **+6 `WRONG->RIGHT`, zero
+        // adverse**, and 4 of the 6 are `bigintWithLib`: §933's falsifier,
+        // resolved.
         if self.is_error(receiver_type)
             || self.type_of(receiver_type).flags.intersects(TypeFlags::ANY_OR_UNKNOWN)
-            || !self.declared_members_are_complete(receiver_type)
         {
             return false;
         }

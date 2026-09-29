@@ -10346,7 +10346,56 @@ one.* §937.1 and §941.1 both cost corrections for exactly that shape of
 optimism; this entry pays the +22 it earned and leaves §933's rows open with a
 named next step.
 
+> **RESOLVED by §944.1**, immediately and by the step this paragraph named. The
+> receiver gate was the cause, the guess was right, and it was still worth not
+> asserting until measured.
+
 ### Restricted to `=`
 
 A compound assignment (`+=`) reads the property as well as writing it, and
 upstream's answer there is a different question this port has no row for.
+
+
+## §944.1 — §933's falsifier, resolved by the step §944 named (+6)
+
+§944 left §933's four `bigintWithLib` rows open and named the first place to
+look: the receiver gate `declared_members_are_complete`, shared with
+`crate::nonexistent_property`. **That guess was right**, and checking it cost
+three probes.
+
+### Bisected
+
+```ts
+interface P { readonly len: number }              p.len = 1    // any  ✓
+interface G<T> { readonly len: number; v: T }     g.len = 1    // any  ✓  generic reference
+interface H<T = string> { readonly len: number }  h.len = 1    // any  ✓  defaulted
+interface I1 { readonly len } interface I1 { … }  i.len = 1    // any  ✓  merged
+declare const ta: Int32Array;                     ta.length = 1 // number ✗
+```
+
+Every shape written by hand passes; only the real lib interfaces fail, and **all**
+of their readonly members do — `length`, `byteLength`, `buffer`,
+`BYTES_PER_ELEMENT`. Lifting the gate turns `ta.length` into `any` on the spot.
+
+### Why the gate belongs on one road and not the other
+
+The diagnostic road's comment is right *for a diagnostic*: a receiver whose
+members were not fully resolved cannot be asked whether one is read-only, because
+a false positive there is **a reported error the user did not earn**.
+
+The type road's exposure runs the other way. It answers `any` only for a property
+`get_property_of_type` **found** and `property_signature_is_readonly`
+**confirmed**; an incompletely resolved receiver costs a **missed** answer, never
+an invented one. Copying the gate across was reflex, and the two roads have
+opposite failure directions.
+
+**6 `WRONG->RIGHT`, zero adverse.** `right` 443,298 → **443,304**.
+`bigintWithLib` 4 — **§933's falsifier, resolved** — and `tupleTypes` 2.
+
+### On the guess
+
+§944 declined to claim this and wrote *"unverified"*. The guess was correct and
+declining to assert it still cost nothing: the verification was three probes, and
+the alternative — an entry claiming §933's family closed — would have been true
+by luck rather than by measurement. *Being right is not the same as having
+checked, and the record should only ever claim the second.*
