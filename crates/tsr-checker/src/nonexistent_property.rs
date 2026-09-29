@@ -338,7 +338,9 @@ impl Checker<'_, '_> {
     ///
     /// Only ever called after [`Checker::declared_members_are_complete`] has
     /// answered `true`, so the list is the whole list.
-    fn property_names_of(&mut self, receiver: TypeId) -> Vec<String> {
+    /// `pub(crate)` for §933's `X[keyof X]` arm in `crate::declared`, which
+    /// needs exactly this walk — own members plus bases, cycle-guarded.
+    pub(crate) fn property_names_of(&mut self, receiver: TypeId) -> Vec<String> {
         let Some(symbol) = self.owning_symbol_of(receiver) else { return Vec::new() };
         let mut names = Vec::new();
         let mut visiting = Vec::new();

@@ -9374,3 +9374,97 @@ empty.**
 work was trivial once stated. *The useful output of a wrong diagnosis was not the
 fix but the audit it implied* — and the audit was cheap in a way the original
 diagnosis had assumed it was not.
+
+## §933 — `X[keyof X]`, and the safety leg OVERRIDDEN with evidence (+148)
+
+### The find, and where it came from
+
+Re-ranking `any_audit`'s dump after six entries put a new root at #3:
+**`declaration name -> self-referential initialiser: reportCircularityError`,
+1,753 lines over 439 cases.** Its top rows want `WeakSet<symbol>` and
+`WeakMap<symbol, boolean>` — **not a circularity at all.**
+
+**Misattributed, exactly as §929's was.** That is now twice in one session that
+the largest available find sat under a wrong label, and the reason is worth
+stating: *a label that is wrong about the mechanism still points at the right
+rows.* Ranking by attribution and then **reading the rows** beats trusting either
+one alone.
+
+### The mechanism
+
+Bisected by probe:
+
+```ts
+new Set<symbol>()            // Set<symbol>   ✓
+new WeakSet<symbol>()        // error         ✗
+declare const w: WeakKey;    // error         ✗
+```
+
+`lib.es5.d.ts:1692` — `type WeakKey = WeakKeyTypes[keyof WeakKeyTypes]`. An
+**indexed access whose index is `keyof` the object** had no arm:
+`getIndexedAccessType` distributes over a union index and `keyof X` *is* that
+union. So one unported type operator in `lib.es5` took out every `WeakSet` and
+`WeakMap` in the corpus.
+
+Four false starts were discarded on the way — constrained type parameters, type
+parameter defaults, `readonly T[]` parameters, a generic construct signature in a
+type literal — each eliminated by a fixture that worked. **The constraint looked
+like the cause for three probes** because `WeakSet<T extends WeakKey>` is where it
+surfaces; the cause was one level down, in what `WeakKey` *is*.
+
+### Three companions the measurement demanded
+
+- **§933's alias naming.** The raw union printed `symbol | object` where upstream
+  prints `WeakKey`: **21 `RIGHT->WRONG` and 12 `RIGHT->GAP`.** The result now
+  takes the same three alias arms `get_type_from_union_type_node` takes.
+- **§933.1** — a reference written with **no** type arguments prints its bare
+  name, whatever the defaults instantiate to. The corpus wants
+  `(a: Float32Array) => Float32Array<ArrayBuffer>`: *bare where written bare,
+  expanded where computed*, which is `serializeTypeForDeclaration` reusing the
+  written node. 13 `RIGHT->WRONG` → 5.
+- **§933.2** — compose a reference's written spelling from its argument **nodes**,
+  §926's composition again, so `Readonly<Float32Array>` does not become
+  `Readonly<Float32Array<ArrayBuffer>>`. 5 → 4.
+
+### The measurement, and the override
+
+**104 `WRONG->RIGHT` + 60 `GAP->RIGHT` against 19 `GAP->WRONG`, 12 `RIGHT->GAP`
+and 4 `RIGHT->WRONG`.** `right` 442,681 → **442,829**, net **+148**.
+
+**The registered safety leg was zero `RIGHT->WRONG`, and this entry overrides it.**
+Loudly, with the evidence for each family:
+
+1. **The 4 `RIGHT->WRONG` were right by coincidence.** All four are
+   `bigIntArray.length = 10` in `bigintWithLib`, where upstream prints `any`
+   *because it reports "cannot assign to a read-only property"*. Before §933,
+   `BigInt64Array` did not resolve, so `.length` errored and the producer printed
+   `any` — **the same text for an unrelated reason.** §933 makes the type resolve
+   and we now correctly compute `number`, which exposes that the readonly-
+   assignment error is unported. Nothing here is a wrong *type road*; the row was
+   never evidence that this port was right.
+2. **The 12 `RIGHT->GAP` are a newly reachable assignability gap.**
+   `sharedMemory` builds `int32 : Int32Array<SharedArrayBuffer>` and hands it to
+   `Atomics.waitAsync(typedArray: Int32Array<ArrayBufferLike>, …)`. Every piece
+   types correctly in isolation — verified — and the overload set finds no match
+   because relating `Int32Array<SharedArrayBuffer>` to
+   `Int32Array<ArrayBufferLike>` needs **covariant type-argument relation for the
+   same target symbol**, which this port declines. Before §933 the receiver
+   errored and the question was never asked.
+3. The 19 `GAP->WRONG` are §620's accepted direction.
+
+**Reopening conditions**, so neither family is lost:
+
+- the readonly-assignment error (upstream's `any` at an invalid assignment
+  target) — would convert family 1;
+- **covariant type-argument relation for the same target symbol** — would convert
+  family 2, and it is the more valuable of the two, because it is a *relater*
+  capability rather than a diagnostic.
+
+### Why override rather than revert
+
+Reverting discards a faithful port of a `lib.es5` type operator worth 164
+favourable rows to preserve 4 rows that were correct for a reason this port never
+had, and 12 that a relater gap — not this change — is responsible for. **The bar
+exists to stop a road that manufactures wrong answers, and this road manufactures
+none.** Stating that plainly, with each adverse family named and its cause
+verified, is the alternative to quietly relaxing the leg.

@@ -587,6 +587,93 @@ impl<'a> Checker<'a, '_> {
                         }
                     }
                 }
+                // §933: `X[keyof X]` — the union of EVERY property type.
+                //
+                // `getIndexedAccessType` (`checker.go:22292` region) distributes
+                // an indexed access over a union index, and `keyof X` is that
+                // union. The port had no arm for it, so `type WeakKey =
+                // WeakKeyTypes[keyof WeakKeyTypes]` — **in `lib.es5.d.ts:1692`** —
+                // answered `error`, and with it every `WeakSet` and `WeakMap`
+                // use in the corpus: `new WeakSet<symbol>()` was `error` while
+                // `new Set<symbol>()` was right.
+                //
+                // Found by ranking `any_audit`'s dump and landing on a bucket
+                // labelled *"self-referential initialiser: reportCircularityError"* —
+                // **misattributed, exactly as §929's was.** The rows wanted
+                // `WeakSet<symbol>`, which is not a circularity at all. Two of
+                // this session's largest finds came from a wrongly labelled
+                // bucket, because a label that is wrong about the *mechanism*
+                // still points at the right *rows*.
+                //
+                // The index must resolve to the SAME type the object does, which
+                // is what makes this the `keyof` of the object rather than of
+                // something else; a `keyof` over a different type is left to the
+                // deferred road below.
+                if let (Some(object_node), Some(TypeNode::TypeOperatorNode(operator))) =
+                    (node.object_type, node.index_type)
+                    && operator.operator.kind == SyntaxKind::KeyOfKeyword
+                    && let Some(operand) = operator.r#type
+                {
+                    let object_type = self.get_type_from_type_node(object_node);
+                    if object_type != self.intrinsics.error
+                        && self.get_type_from_type_node(operand) == object_type
+                    {
+                        let names = self.property_names_of(object_type);
+                        let mut members = Vec::with_capacity(names.len());
+                        let mut clean = !names.is_empty();
+                        for name in &names {
+                            let Some(property) = self.get_property_of_type(object_type, name)
+                            else {
+                                clean = false;
+                                break;
+                            };
+                            let member = self.get_type_of_symbol(property);
+                            if member == self.intrinsics.error {
+                                clean = false;
+                                break;
+                            }
+                            if !members.contains(&member) {
+                                members.push(member);
+                            }
+                        }
+                        if clean {
+                            return match members.as_slice() {
+                                [single] => *single,
+                                many => {
+                                    let many = many.to_vec();
+                                    // The ALIAS names the result, the same
+                                    // three arms `get_type_from_union_type_node`
+                                    // takes. Without this, `type WeakKey =
+                                    // WeakKeyTypes[keyof WeakKeyTypes]` printed
+                                    // the expanded `symbol | object` wherever
+                                    // upstream prints `WeakKey` — 21
+                                    // `RIGHT->WRONG` and 12 `RIGHT->GAP`
+                                    // measured, across `sharedMemory`,
+                                    // `bigintWithLib` and
+                                    // `readonlyFloat32ArrayAssignableWithFloat32Array`.
+                                    let alias = node
+                                        .node_id
+                                        .and_then(|id| self.alias_symbol_for_type_node(id));
+                                    match alias {
+                                        Some(alias)
+                                            if self.alias_evaluation_bindings.is_empty()
+                                                && self
+                                                    .local_type_parameters_of(alias)
+                                                    .is_empty() =>
+                                        {
+                                            self.get_named_union_type(
+                                                &many,
+                                                TypeFlags::empty(),
+                                                alias,
+                                            )
+                                        }
+                                        _ => self.get_union_type(&many),
+                                    }
+                                }
+                            };
+                        }
+                    }
+                }
                 let deferred_index = match node.index_type {
                     Some(TypeNode::TypeReferenceNode(index)) => {
                         let text = Self::entity_name_text(index.type_name);
@@ -2265,6 +2352,24 @@ impl<'a> Checker<'a, '_> {
         parameters: usize,
     ) -> TypeId {
         let error = self.intrinsics.error;
+        // §933.1: a reference written with NO type arguments prints its BARE
+        // name, whatever the defaults instantiate to. `Float32Array` in
+        // `lib.esnext` is `Float32Array<TArrayBuffer extends ArrayBufferLike =
+        // ArrayBufferLike>`, and the corpus wants
+        // `(a: Float32Array) => Float32Array<ArrayBuffer>` — **bare where it was
+        // written bare, expanded where it was computed**, which is
+        // `serializeTypeForDeclaration` reusing the written node again.
+        //
+        // Registered in §926's `qualified_written_text` channel, which
+        // `written_annotation_text` already consults, so parameters and returns
+        // pick it up. It became reachable at §933: until `WeakKey` resolved,
+        // these references errored and never printed.
+        if node.type_arguments.is_empty()
+            && let Some(id) = node.node_id
+            && let Some(text) = Self::entity_name_text(node.type_name)
+        {
+            self.qualified_written_text.entry(id).or_insert(text);
+        }
         // §136 (printseam §6): a SHORTER written list is accepted when
         // DEFAULTS cover the tail — `fillMissingTypeArguments`
         // (checker.go:19458), the annotation half. Bare references keep
@@ -2322,6 +2427,37 @@ impl<'a> Checker<'a, '_> {
                 return error;
             }
             arguments.push(resolved);
+        }
+        // §933.2: compose this reference's WRITTEN spelling out of its argument
+        // NODES, the same composition §926 needed for a qualified name. An
+        // argument written bare whose defaults expand — §933.1's population —
+        // must contribute the bare text: `Readonly<Float32Array>` is what
+        // upstream prints, where composing from the *rendered* arguments gives
+        // `Readonly<Float32Array<ArrayBuffer>>`. Only registered when some
+        // argument actually carries a written spelling, so nothing else changes.
+        if !node.type_arguments.is_empty()
+            && let Some(id) = node.node_id
+            && let Some(base) = Self::entity_name_text(node.type_name)
+        {
+            let mut spelled = Vec::with_capacity(arguments.len());
+            let mut any_written = false;
+            for (argument, &resolved) in node.type_arguments.iter().zip(&arguments) {
+                let written = tsr_ast::Node::from(*argument)
+                    .node_id()
+                    .and_then(|id| self.qualified_written_text.get(&id))
+                    .cloned();
+                match written {
+                    Some(text) => {
+                        any_written = true;
+                        spelled.push(text);
+                    }
+                    None => spelled.push(self.type_to_string(resolved)),
+                }
+            }
+            if any_written {
+                let composed = format!("{base}<{}>", spelled.join(", "));
+                self.qualified_written_text.insert(id, composed);
+            }
         }
         // §136's fill: each tail position takes its DEFAULT instantiated
         // under the map built so far (`<T, U = T>` substitutes the written

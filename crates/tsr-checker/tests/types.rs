@@ -2763,3 +2763,44 @@ fn a_sole_construct_signature_literal_is_not_callable() {
         "error"
     );
 }
+
+/// §933 — `X[keyof X]` is the union of every property type.
+///
+/// `getIndexedAccessType` distributes an indexed access over a union index, and
+/// `keyof X` is that union. The port had no arm for it, so
+/// `type WeakKey = WeakKeyTypes[keyof WeakKeyTypes]` — **`lib.es5.d.ts:1692`** —
+/// answered `error`, and with it every `WeakSet` and `WeakMap` use in the corpus.
+#[test]
+fn an_indexed_access_by_keyof_is_the_union_of_the_member_types() {
+    assert_eq!(
+        type_of_declaration(
+            "interface P { a: string; b: number; }\ndeclare const z: P[keyof P];",
+            "z"
+        ),
+        "string | number"
+    );
+}
+
+/// One property is not a one-member union.
+#[test]
+fn an_indexed_access_by_keyof_over_one_property_is_that_property() {
+    assert_eq!(
+        type_of_declaration("interface P { a: string; }\ndeclare const z: P[keyof P];", "z"),
+        "string"
+    );
+}
+
+/// The regression leg: a `keyof` over a **different** type is left to the
+/// deferred road, because the arm's whole licence is that the index is the
+/// `keyof` of the object it indexes.
+#[test]
+fn an_indexed_access_by_a_foreign_keyof_is_unchanged() {
+    assert_eq!(
+        type_of_declaration(
+            "interface P { a: string; b: number; }\ninterface R { a: string; }\n\
+             declare const z: P[keyof R];",
+            "z"
+        ),
+        "error"
+    );
+}
