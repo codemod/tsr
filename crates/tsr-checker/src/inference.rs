@@ -1571,6 +1571,42 @@ impl Checker<'_, '_> {
                 );
             }
         }
+        // §941: `inferFromIndexTypes` (`inference.go`). §937 added the property
+        // arm and stopped there; an INDEX signature is the other half of
+        // `inferFromObjectTypes`, and it is what a `ConcatArray<T>` target needs.
+        //
+        // `["a"].concat(["b"])` was `error` because `concat`'s rest element is
+        // `ConcatArray<T>` while the argument is `Array<string>`: two references
+        // with DIFFERENT targets, which §787's argument-wise arm admits only for
+        // the array pair. Upstream relates them structurally instead, and
+        // `ConcatArray<T>` carries `[n: number]: T` — so the element type flows
+        // from the source's own index info.
+        //
+        // Gated on the same `couldContainTypeVariables` answer the property arm
+        // uses, for the runtime reason §937 records.
+        if !target_names.is_empty() || self.get_index_infos_of_type(target).is_some() {
+            let target_infos = self.get_index_infos_of_type(target).unwrap_or_default();
+            if !target_infos.is_empty()
+                && self.target_could_contain_parameter(target, parameters, &mut Vec::new())
+            {
+                let source_infos = self.get_index_infos_of_type(source).unwrap_or_default();
+                for info in &target_infos {
+                    let Some(from) =
+                        source_infos.iter().find(|candidate| candidate.key == info.key)
+                    else {
+                        continue;
+                    };
+                    self.infer_from_types_within(
+                        from.value,
+                        info.value,
+                        original,
+                        parameters,
+                        out,
+                        depth + 1,
+                    );
+                }
+            }
+        }
         let (Some(target_signatures), Some(source_signatures)) =
             (self.signature_types.get(&target), self.signature_types.get(&source))
         else {

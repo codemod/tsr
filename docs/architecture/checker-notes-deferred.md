@@ -10028,3 +10028,56 @@ stdout to `FAILED|panicked at|error[` discards cargo's own status output,
 including the *"Blocking waiting for file lock"* line that would have answered the
 question immediately. **A command that cannot report why it is slow should not be
 the one you run when you need to know.**
+
+## §941 — `inferFromIndexTypes`, the other half of `inferFromObjectTypes` (+30)
+
+§937 added the property arm of `inferFromObjectTypes` and stopped there. An
+**index signature** is the other half, and it is how a structural array-like
+target carries its element type:
+
+```ts
+declare function f<T>(a: { [n: number]: T }): T;
+f(["a"]);                        // was: error     now: string
+declare function g<T>(a: { [n: number]: T; length: number }): T;
+g(["a"]);                        // was: error     now: string
+```
+
+For each of the target's index infos, the source's info with the same key
+supplies a candidate. Gated on the same `couldContainTypeVariables` answer §937's
+property arm uses, for the runtime reason §937 records.
+
+**25 `WRONG->RIGHT` + 5 `GAP->RIGHT`, zero adverse.** `right` 443,246 →
+**443,276**. `implicitIndexSignatures` 4, the `modularizeLibrary_*` family 9.
+
+### What this was aimed at, and did not reach
+
+The target was `["a"].concat(["b"])`, still `error`. `concat`'s rest element is
+`ConcatArray<T>` while the argument is `Array<string>` — two references with
+different targets, which §787's argument-wise arm admits only for the array pair,
+so upstream's structural route through the index signature is the way in.
+
+**It does not get there, and the residue is now pinned rather than guessed:**
+
+```ts
+declare function g4<T>(a: { [n: number]: T; length: number }): T;  g4(s)  // string ✓
+interface CC<T> { [n: number]: T; }        declare function g2<T>(a: CC<T>): T;  g2(s)  // error ✗
+interface CD<T> { readonly [n: number]: T; } declare function g3<T>(a: CD<T>): T; g3(s)  // error ✗
+```
+
+A **type literal** index target infers; a **generic interface reference** does
+not, and `readonly` and the extra `length` member are both irrelevant — `CC<T>`
+is the minimal failing shape. `get_index_infos_of_type`'s reference road
+instantiates each index value through `instantiate_for_reference`, and its own
+comment records that a value which cannot be rebuilt becomes `errorType`.
+**Which of those two steps fails here is not verified**, and saying so is cheaper
+than a guess that sends the next reader to the wrong function.
+
+*That is the reopening condition for `concat`, and it is one function, not a
+subsystem.*
+
+### On relation versus inference
+
+§936 already made the **relation** work: `takesConcat(s)` with
+`a: ConcatArray<string>` answers correctly. Only **inference** is blocked. Two
+roads reach the same pair of types and only one of them can read it, which is the
+same split §932 found between the call road and the contextual road.

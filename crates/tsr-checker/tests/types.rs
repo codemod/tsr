@@ -2963,3 +2963,35 @@ fn the_structural_positions_that_already_inferred_are_unchanged() {
 // `RIGHT->WRONG`**.
 //
 // Writing them here would have meant asserting `error` and calling it a test.
+
+/// §941 — `inferFromIndexTypes` (`inference.go`), the other half of
+/// `inferFromObjectTypes`.
+///
+/// §937 added the property arm and stopped there. An index signature is how a
+/// structural array-like target carries its element type, and without it
+/// `f<T>(a: { [n: number]: T }): T` collected no candidate at all.
+#[test]
+fn inference_reads_a_targets_index_signature() {
+    assert_eq!(
+        type_of_declaration(
+            "declare const o: { [n: number]: boolean };\n\
+             declare function f<T>(a: { [n: number]: T }): T;\nconst v = f(o);",
+            "v"
+        ),
+        "boolean"
+    );
+}
+
+/// The regression leg: a target with no index signature is untouched, so the
+/// arm cannot be firing on every object.
+#[test]
+fn a_target_without_an_index_signature_is_unchanged() {
+    assert_eq!(
+        type_of_declaration(
+            "declare const o: { x: boolean };\n\
+             declare function f<T>(a: { x: T }): T;\nconst v = f(o);",
+            "v"
+        ),
+        "boolean"
+    );
+}
