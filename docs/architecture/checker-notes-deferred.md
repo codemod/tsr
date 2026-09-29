@@ -10609,3 +10609,59 @@ Reverted whole — the arm measures zero and unmeasured code is §929's liabilit
 The object-alias case working while the function-alias case does not is the
 sharpest available clue and is left pointed at: whatever road answers `O<T>`'s
 members is the one `F<T>`'s signatures need.
+
+## §947.1 — the alias body resolves, and registering it costs 287 rows (refused)
+
+§947 pinned the blocker to *"a generic alias's body does not resolve under the
+bindings"* and named resolving it as the reopening condition. **That was right,
+and it is not enough.**
+
+### The body does resolve, once the right decline is lifted
+
+`function_types.rs` carries the same three-arm alias rule the union and literal
+roads do, and its generic arm is `Some(_) => return error`. §92 already exempts
+the union road under an alias evaluation; the function road does not. Lifting it
+for the alias being evaluated makes the body resolve, and the payoff is real:
+
+```ts
+type F<T> = (x: T) => void;
+declare function g<T>(cb: F<T>): T;   g((x: number) => {})   // error → number
+mkList([], compareNumbers)            // LinkedList<never> → LinkedList<number>
+```
+
+**`LinkedList<number>` is the row §942 and §941.1 both failed on**, and it comes
+out of the alias body, not out of priority. Three entries blamed three mechanisms;
+none of them was this one.
+
+### And it measures −271
+
+**16 `WRONG->RIGHT` against 287 `RIGHT->WRONG`** — `strictFunctionTypesErrors`
+120, `inferFromGenericFunctionReturnTypes2` 24, `nonInferrableTypePropagation1`
+13. Two distinct regression shapes, both from the `declared.rs` half:
+
+1. **The alias's printed name is lost.** `declare const fc: F<number>` printed
+   `F<number>` and now prints `(x: number) => void`, because the arm returns a
+   fresh `create_type_reference` instead of the type the normal road builds.
+2. **Unrelated printing is perturbed** — `strictFunctionTypesErrors` wants
+   `(cb: (x: Animal) => Animal) => void` and gets `(cb: typeof Foo.f1) => void`,
+   which has nothing to do with aliases.
+
+Narrowing the exemption from *"any evaluation in flight"* to *"this alias"*
+changed the number **not at all**, which is what established the regression is the
+early return rather than the exemption.
+
+### Reopening condition, sharpened twice now
+
+**Register the signatures on the type the normal road already builds — do not
+replace it.** The signatures are obtainable (verified) and the printed identity
+must not move (measured). Those two are separable; this attempt fused them by
+returning early.
+
+*§947 said "resolve the body". The body was never the whole job — the job is to
+resolve it and then put the result somewhere that does not change what the
+reference prints.*
+
+Reverted whole. The family's ledger now reads: §942 blamed priority, §941.1 blamed
+the fallthrough, §947 blamed the reference road, §947.1 found the body *and* the
+reason a naive registration cannot land. Each entry moved the diagnosis and none
+of them moved the number, which is worth saying plainly.
