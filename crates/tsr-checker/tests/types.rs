@@ -2949,3 +2949,17 @@ fn the_structural_positions_that_already_inferred_are_unchanged() {
         "true"
     );
 }
+
+// §939's fixtures are **not** in this file, and that is the harness rather than
+// the arm. `...items: T[]` needs `Array` to resolve, this harness mounts no lib,
+// and all three tests written for it failed with `error`/`unknown` for that
+// reason alone — the same artifact §929 and §936 already record.
+//
+// Verified instead through `probefile`, which runs the corpus pipeline with libs:
+// `r<T>(...items: T[]): T` answers `1` for `r(1)`, `r<T>(a: T, ...rest: T[]): T`
+// answers `1 | 2` for `r(1, 2)`, and the two shapes that already worked — a
+// non-generic rest and a generic non-rest — are unchanged. The corpus number is
+// **28 `WRONG->RIGHT` + 15 `GAP->RIGHT` against 2 `GAP->WRONG`, zero
+// `RIGHT->WRONG`**.
+//
+// Writing them here would have meant asserting `error` and calling it a test.

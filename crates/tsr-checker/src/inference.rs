@@ -331,9 +331,38 @@ impl Checker<'_, '_> {
         let decline = if benign { returned } else { error };
 
         // A rest parameter makes position-to-argument mapping a tuple problem
-        // (`getSpreadArgumentType`, `checker.go`), so the whole signature is a
+        // (`getSpreadArgumentType`, `checker.go`), so the whole signature was a
         // gap rather than the rest position alone.
-        if signature.parameters.iter().any(|parameter| parameter.rest) {
+        //
+        // **§939 narrows that to the tuple case it was actually about.** A rest
+        // written `...items: T[]` is not a tuple problem: every argument from
+        // that position on infers against the ELEMENT type, which is the arm
+        // added to the loop below. A rest over anything else — a tuple, a
+        // variadic, a type this port cannot read an element out of — still
+        // declines the whole signature.
+        //
+        // The blanket form made `r1<T>(...items: T[]): T` answer `error` for
+        // `r1(1)`, and with it `["a"].concat(["b"])`: an `Array`-shaped rest is
+        // how every variadic lib signature is written.
+        let rest_element = |checker: &mut Self, parameter: &crate::signatures::Parameter| {
+            checker.type_reference_targets.get(&parameter.r#type).cloned().and_then(
+                |(target, type_arguments)| match type_arguments.as_slice() {
+                    [single] => ["Array", "ReadonlyArray"]
+                        .iter()
+                        .any(|name| {
+                            checker
+                                .global_type_symbol(name)
+                                .map(|s| checker.binder.merged_symbol(s))
+                                == Some(checker.binder.merged_symbol(target))
+                        })
+                        .then_some(*single),
+                    _ => None,
+                },
+            )
+        };
+        let rest_parameters: Vec<crate::signatures::Parameter> =
+            signature.parameters.iter().filter(|parameter| parameter.rest).cloned().collect();
+        if rest_parameters.iter().any(|parameter| rest_element(self, parameter).is_none()) {
             return decline;
         }
         // One candidate per type parameter, from the positions typed by that
@@ -383,6 +412,37 @@ impl Checker<'_, '_> {
         // families through the caches).
         let mut buckets: Vec<Vec<InferenceInfo>> = vec![Vec::new(); arguments.len().max(1)];
         for (index, parameter) in signature.parameters.iter().enumerate() {
+            // §939: a REST parameter takes EVERY argument from its position on,
+            // each inferred against the rest's ELEMENT type.
+            //
+            // The loop is otherwise strictly positional, so `...items: T[]` saw
+            // exactly one argument and inferred it against `T[]` rather than
+            // `T` — which matches nothing, leaves `T` unmapped, and answers
+            // `error` for the whole call. `r1<T>(...items: T[]): T` called
+            // `r1(1, 2)` was `error`, and so was `["a"].concat(["b"])`: that
+            // shape is how every variadic lib signature is written.
+            //
+            // The element type is read the same way §341's spread arm reads it —
+            // an `Array`/`ReadonlyArray` reference with one argument. A rest
+            // over a TUPLE is §86's positional expansion and keeps its own road.
+            if parameter.rest {
+                let Some(element) = rest_element(self, parameter) else { continue };
+                for (position, &argument_expression) in arguments.iter().enumerate().skip(index) {
+                    if is_context_sensitive_argument(&argument_expression) {
+                        deferred.push(position);
+                        continue;
+                    }
+                    let Some(&argument) = argument_types.get(position) else { continue };
+                    self.infer_from_types(
+                        argument,
+                        element,
+                        &parameters,
+                        &mut buckets[position],
+                        0,
+                    );
+                }
+                continue;
+            }
             let Some(&argument_expression) = arguments.get(index) else { continue };
             if is_context_sensitive_argument(&argument_expression) {
                 deferred.push(index);

@@ -9874,3 +9874,62 @@ guard §938 deletes. It now asserts `string` under the name
 doc comment rather than deleted — the case it was named for
 (`contextualOverloadListFromUnionWithPrimitiveNoImplicitAny`) is still the reason
 the guard existed, and still the first place to look if this ever regresses.
+
+## §939 — a generic rest parameter, which declined the whole signature (+43)
+
+Probing lib shapes after §938:
+
+```ts
+declare function r1<T>(...items: T[]): T;   r1(1)        // error  ✗
+declare function r5(...items: number[]);    r5(1, 2)     // number ✓  non-generic
+declare function r4<T>(a: T[]): T;          r4([1])      // number ✓  generic, no rest
+["a"].concat(["b"])                                      // error  ✗
+```
+
+`inference.rs` declined **the whole signature** when any parameter was a rest:
+
+> A rest parameter makes position-to-argument mapping a tuple problem
+> (`getSpreadArgumentType`), so the whole signature is a gap rather than the rest
+> position alone.
+
+That is true of a rest over a **tuple**. It is not true of `...items: T[]`, and
+**an `Array`-shaped rest is how every variadic lib signature is written** —
+`concat`, `push`, `Promise.all`, `Math.max`. The blanket form took them all out.
+
+### What changed
+
+The guard now declines only a rest whose element type this port cannot read;
+an `Array`/`ReadonlyArray` rest with one type argument is admitted, and the
+inference loop gained the arm that goes with it: **every argument from the rest's
+position onward infers against the element type.** The loop was otherwise
+strictly positional, so before this a rest saw exactly one argument and inferred
+it against `T[]` — matching nothing.
+
+**28 `WRONG->RIGHT` + 15 `GAP->RIGHT` against 2 `GAP->WRONG`, zero
+`RIGHT->WRONG`.** `right` 443,090 → **443,133**. `underscoreTest1` 9,
+`typeArgumentsWithStringLiteralTypes01` 8, `literalTypeWidening` 15 across both
+directions.
+
+### The arm was written before the guard was found
+
+The first build added the loop arm and measured **nothing**, because the
+whole-signature decline sits *above* it and made it unreachable. That is worth
+recording as a method note: **a new arm that measures exactly zero is first
+evidence that something earlier returns**, not that the shape has no population.
+The same mistake would have read as "no corpus population" and closed the item.
+
+### `concat` is still a gap, and for a different reason
+
+`["a"].concat(["b"])` remains `error`. Its signature is an **overload set** over
+`ConcatArray<T>`, not a bare `T[]` rest, so it needs the overload walk to relate
+a `string[]` argument to `ConcatArray<string>` — §935/§936's territory, not this
+one. Recorded so the next reader does not expect §939 to have fixed it.
+
+### The tests are not in the unit harness, and that is stated
+
+All three fixtures need `Array` to resolve; the unit harness mounts no lib and
+they failed with `error`/`unknown` for that reason alone. They are replaced by a
+note in `tests/types.rs` recording what `probefile` verified against the real
+pipeline and what the corpus measured. **Writing them anyway would have meant
+asserting `error` and calling it a test** — the same call §936 made for its
+rejection leg.
