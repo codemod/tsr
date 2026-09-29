@@ -9573,3 +9573,65 @@ to each target signature" walk with its `Ternary` bookkeeping, and
 `signature_bearing` also counts **index signatures**, which this arm does not
 touch at all. Both remain `Unknown`, which is where row 6's refusal still earns
 its place.
+
+## §936 — `indexSignaturesRelatedTo`, which the relater had nowhere (+57)
+
+§935 closed by naming what it had deliberately left: *"`signature_bearing` also
+counts **index signatures**, which this arm does not touch at all."* Taking that
+up found something stronger than a gap in an arm — **`grep` for index infos in
+`relater.rs` returned nothing.** The relation was not narrow; it did not exist.
+
+So a target declaring only `[k: string]: T` was refused by row 6 as
+"signature-bearing", even though nothing about it needs `signatureRelatedTo`.
+
+### What is ported
+
+Only when the target declares **no call or construct signature**, so §935's
+population and this one cannot overlap — hence `declares_call_or_construct`,
+which is `signature_bearing` split in half.
+
+For each of the target's index infos:
+
+1. the source declares an applicable index info and the values relate
+   covariantly; or
+2. the source's property enumeration is complete and **every** property type
+   relates to the target's value type — upstream's `membersRelatedToIndexInfo`.
+
+`propertiesRelatedTo` still runs alongside, as upstream's conjunct.
+
+**53 `WRONG->RIGHT` + 4 `GAP->RIGHT`, zero adverse.** `right` 442,887 →
+**442,944**. `narrowingMutualSubtypes` 17, `noIterationTypeErrorsInCFA` 9,
+`arrayConcatMap` 8.
+
+### Measured, not assumed — again
+
+Key subtyping (`getApplicableIndexInfo`: a `string`-keyed source satisfies a
+`number`-keyed target, since every numeric key is a string key; the reverse does
+not hold) is **ported and measured zero change.** Kept because it is what upstream
+does, with the zero recorded.
+
+That is now **four restrictions in two entries** measured rather than argued, and
+all four were free. The pattern is worth stating plainly: *in this relater, the
+conservative choice has cost nothing every time it has been checked* — which is
+an argument for checking, not for being less conservative.
+
+### Still not ported
+
+- **`symbol` and pattern keys**, which `IndexInfo` does not model.
+- **`readonly` on an index signature** — a missing rejection, sharing that status
+  with every other `readonly` in this relater.
+- **An overload set** on either side (§935's residue).
+
+### A test that could not be written, and why that is recorded
+
+The rejection leg — a source member that does *not* relate — **is not asserted**.
+A call with a single candidate resolves to that candidate's return type whether or
+not the argument relates, and upstream does the same: `take(o)` is `number` and
+the argument error is reported separately. The test written for it asserted
+`error` and failed, and **the expectation was wrong rather than the code.**
+
+Where the rejection is observable is overload selection, which is exactly where
+this entry's 53 rows came from. Building an overload pair inside the lib-free unit
+harness whose selection turns on an index signature would assert the overload
+road, not this arm — so the absence is documented at the site instead of papered
+over with a fixture that tests something else.

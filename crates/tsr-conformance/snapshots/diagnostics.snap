@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics Summary:
 What a pass means: every diagnostic in upstream's .errors.txt reproduced exactly — same file, line, column and code, no more and no fewer — for cases that expect at least one; scanner, parser and binder only, with no checker (bd tsr-4sc)
-Passed         : 2622/5488 (47.78%)
-Failed         : 2866
+Passed         : 2632/5488 (47.96%)
+Failed         : 2856
 Skipped        : 6956 (excluded from the denominator)
 
   793  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -11,7 +11,7 @@ Skipped        : 6956 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   464  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 2866 failures:
+First 100 of 2856 failures:
 compiler/ClassDeclaration26
   2 unexpected (first TS1005 at ClassDeclaration26.ts(2,22)), 5 missing
 compiler/TransportStream
@@ -75,11 +75,11 @@ compiler/argumentsUsedInClassFieldInitializerOrStaticInitializationBlock
 compiler/arithmeticOnInvalidTypes2
   1 missing (first TS2365 at arithmeticOnInvalidTypes2.ts(2,14))
 compiler/arrayAssignmentTest1
-  4 unexpected (first TS2322 at arrayAssignmentTest1.ts(46,5)), 13 missing
+  9 unexpected (first TS2322 at arrayAssignmentTest1.ts(46,5)), 13 missing
 compiler/arrayAssignmentTest2
-  7 missing (first TS2322 at arrayAssignmentTest2.ts(51,1))
+  5 unexpected (first TS2322 at arrayAssignmentTest2.ts(53,1)), 7 missing
 compiler/arrayAssignmentTest4
-  2 missing (first TS2322 at arrayAssignmentTest4.ts(22,1))
+  1 unexpected (first TS2322 at arrayAssignmentTest4.ts(23,1)), 2 missing
 compiler/arrayAssignmentTest5
   2 missing (first TS2366 at arrayAssignmentTest5.ts(21,66))
 compiler/arrayAssignmentTest6
@@ -101,7 +101,7 @@ compiler/arrayIndexWithArrayFails
 compiler/arrayLiteralTypeInference
   4 missing (first TS2353 at arrayLiteralTypeInference.ts(14,14))
 compiler/arrayOfSubtypeIsAssignableToReadonlyArray
-  2 missing (first TS2322 at arrayOfSubtypeIsAssignableToReadonlyArray.ts(13,1))
+  1 missing (first TS2322 at arrayOfSubtypeIsAssignableToReadonlyArray.ts(18,1))
 compiler/arraySigChecking
   1 unexpected (first TS2322 at arraySigChecking.ts(18,5)), 3 missing
 compiler/arrayconcat
@@ -154,8 +154,6 @@ compiler/assignmentCompatability33
   1 missing (first TS2322 at assignmentCompatability33.ts(9,1))
 compiler/assignmentCompatability34
   1 missing (first TS2322 at assignmentCompatability34.ts(9,1))
-compiler/assignmentCompatability35
-  1 missing (first TS2322 at assignmentCompatability35.ts(9,1))
 compiler/assignmentCompatability37
   1 missing (first TS2322 at assignmentCompatability37.ts(9,1))
 compiler/assignmentCompatability38
@@ -212,3 +210,5 @@ compiler/awaitUnionPromise
   1 missing (first TS2322 at awaitUnionPromise.ts(13,11))
 compiler/awaitedType
   3 missing (first TS2589 at awaitedType.ts(22,12))
+compiler/awaitedTypeNoLib
+  1 missing (first TS2345 at awaitedTypeNoLib.ts(18,27))

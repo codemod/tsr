@@ -2856,3 +2856,49 @@ fn a_contravariant_parameter_is_related_covariantly_and_that_is_unsound() {
          covariantly. When `getVariances` lands, this must become `error`."
     );
 }
+
+/// §936 — `indexSignaturesRelatedTo`. The relater used index infos **nowhere**,
+/// and `signature_bearing` counts an index signature, so a target declaring only
+/// `[k: string]: T` refused outright even though nothing about it needs
+/// `signatureRelatedTo`. §935 left this arm untouched and said so.
+///
+/// Upstream's `membersRelatedToIndexInfo`: every property of the source must
+/// relate to the target's index value type.
+#[test]
+fn an_index_signature_target_is_satisfied_by_relating_members() {
+    assert_eq!(
+        type_of_declaration(
+            "interface D { [k: string]: number; }\ndeclare function take(d: D): number;\n\
+             declare const o: { a: number; b: number; };\nconst r = take(o);",
+            "r"
+        ),
+        "number"
+    );
+}
+
+// **The rejection leg is not asserted here, and that is a property of the
+// harness rather than a gap in the arm.** A call with a SINGLE candidate resolves
+// to that candidate's return type whether or not the argument relates — upstream
+// does the same, typing `take(o)` as `number` and reporting the argument error
+// separately. So a fixture with a non-relating member answers `number` either
+// way, and the test written for it failed by asserting `error`: the expectation
+// was wrong, not the code.
+//
+// Where the rejection IS observable is overload selection, which is where §936's
+// 53 `WRONG->RIGHT` came from (`narrowingMutualSubtypes` 17, `arrayConcatMap` 8).
+// Building an overload pair whose selection turns on an index signature inside
+// this lib-free harness would be asserting the overload road, not this arm.
+
+/// The source's own index signature is used directly when the keys match, which
+/// is the arm that does not need the member walk at all.
+#[test]
+fn an_index_signature_source_relates_by_its_value_type() {
+    assert_eq!(
+        type_of_declaration(
+            "interface D { [k: string]: number; }\ndeclare function take(d: D): number;\n\
+             declare const o: { [k: string]: number; };\nconst r = take(o);",
+            "r"
+        ),
+        "number"
+    );
+}

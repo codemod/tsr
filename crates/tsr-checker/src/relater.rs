@@ -697,6 +697,88 @@ impl Relater<'_, '_, '_> {
         Some(Ternary::all(parts))
     }
 
+    /// Whether `id` declares a CALL or CONSTRUCT signature — the half of
+    /// [`Relater::signature_bearing`] that §935's arm is about, split out so
+    /// §936's index arm cannot run on a type §935 should be judging.
+    fn declares_call_or_construct(&self, id: TypeId) -> bool {
+        if self.checker.signatures_of_type(id).is_some_and(|signatures| !signatures.is_empty()) {
+            return true;
+        }
+        let TypeData::Named { members: Some(owner), .. } = self.checker.type_of(id).data else {
+            return false;
+        };
+        self.checker.binder.symbols().get(owner).declarations.iter().any(|&declaration| {
+            let members = match self.checker.node_map.get(declaration) {
+                Some(tsr_ast::Node::InterfaceDeclaration(node)) => node.members,
+                Some(tsr_ast::Node::TypeLiteralNode(node)) => node.members,
+                _ => return false,
+            };
+            members.iter().any(|member| {
+                matches!(
+                    member,
+                    tsr_ast::TypeElement::CallSignatureDeclaration(_)
+                        | tsr_ast::TypeElement::ConstructSignatureDeclaration(_)
+                )
+            })
+        })
+    }
+
+    /// §936: `indexSignaturesRelatedTo` (`relater.go`), reduced to the two arms
+    /// upstream reaches for a plain object target.
+    ///
+    /// For each of the target's index infos:
+    ///
+    /// 1. the source declares an index info with **the same key type** and the
+    ///    values relate covariantly; or
+    /// 2. the source's property enumeration is complete and **every** property
+    ///    type relates to the target's value type — upstream's
+    ///    `membersRelatedToIndexInfo`.
+    ///
+    /// `None` when neither applies, which keeps row 6's `Unknown`.
+    ///
+    /// # Not ported
+    ///
+    /// - **Key subtyping is ported** (a `string`-keyed source satisfies a
+    ///   `number`-keyed target, since every numeric key is a string key; the
+    ///   reverse does not hold) and **measured zero change**. Kept because it is
+    ///   what `getApplicableIndexInfo` does, with the zero recorded so the next
+    ///   reader does not re-derive it — §935's discipline.
+    /// - **`symbol` and pattern keys**, which `IndexInfo` does not model.
+    /// - **`readonly` on the index signature**, which is a missing rejection and
+    ///   shares that status with every other `readonly` in this relater.
+    fn related_index_signatures(&mut self, source: TypeId, target: TypeId) -> Option<Ternary> {
+        let target_infos = self.checker.get_index_infos_of_type(target)?;
+        if target_infos.is_empty() {
+            return None;
+        }
+        let source_infos = self.checker.get_index_infos_of_type(source).unwrap_or_default();
+        let mut parts = Vec::with_capacity(target_infos.len());
+        for info in &target_infos {
+            let applicable =
+                source_infos.iter().find(|candidate| candidate.key == info.key).or_else(|| {
+                    // Upstream's `getApplicableIndexInfo`: a STRING index
+                    // applies to a NUMBER access, because every numeric key is
+                    // also a string key. The reverse does not hold.
+                    (info.key == self.checker.intrinsics.number)
+                        .then(|| {
+                            source_infos.iter().find(|c| c.key == self.checker.intrinsics.string)
+                        })
+                        .flatten()
+                });
+            if let Some(from) = applicable {
+                let (from_value, to_value) = (from.value, info.value);
+                parts.push(self.is_related_to(from_value, to_value));
+                continue;
+            }
+            let names = self.property_names_of(source)?;
+            for name in &names {
+                let member = self.checker.get_type_of_property_of_type(source, name)?;
+                parts.push(self.is_related_to(member, info.value));
+            }
+        }
+        Some(Ternary::all(parts))
+    }
+
     fn signature_bearing(&self, id: TypeId) -> bool {
         if self.checker.signatures_of_type(id).is_some_and(|signatures| !signatures.is_empty()) {
             return true;
@@ -1062,6 +1144,20 @@ impl Relater<'_, '_, '_> {
                 if let Some(signatures) = self.related_call_signatures(source, target) {
                     let properties = self.properties_related_to(source, target);
                     return Ternary::all(vec![signatures, properties]);
+                }
+                // §936: `indexSignaturesRelatedTo` (`relater.go`). §935 left this
+                // arm untouched and said so: `signature_bearing` counts INDEX
+                // signatures too, so a target declaring only `[k: string]: T`
+                // refused even though nothing about it needs
+                // `signatureRelatedTo`. The relater used index infos **nowhere**.
+                //
+                // Only when the target declares no call or construct signature,
+                // so §935's population and this one cannot overlap.
+                if !self.declares_call_or_construct(target)
+                    && let Some(indexes) = self.related_index_signatures(source, target)
+                {
+                    let properties = self.properties_related_to(source, target);
+                    return Ternary::all(vec![indexes, properties]);
                 }
                 reasons::note(reasons::Site::SignatureBearing);
                 return Ternary::Unknown;
