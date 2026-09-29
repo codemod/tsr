@@ -10206,3 +10206,48 @@ upstream's own sites**, starting with the empty-array/`never` candidate. §920.1
 already recorded that the sourceable priority bit had no population; §937 created
 one, §941.1 confirmed it, and this entry shows the two-level approximation does
 not reach it.
+
+## §943 — the mixin base, and a negative that says where it is *not* (no score change)
+
+The board's #2 root — *"member name of an access that ANSWERED ERROR"*, 1,458
+lines over **513 cases**, the widest by case count — clusters two mixin fixtures
+(`mixinAccessModifiers` 25, `mixinClassesMembers` 19). Probed:
+
+```ts
+class Base { b: number = 1 }
+const CE = class extends Base { m: string = "x" };      // typeof CE   ✓ concrete base
+function f() { return class extends Base { n = 2 } }     // typeof …   ✓ returned
+type Ctor<T> = new (...args: any[]) => T;
+function Mix<T extends Ctor<object>>(B: T) {
+    return class extends B { m: string = "x" };          // any        ✗ type-parameter base
+}
+```
+
+A class expression with a **concrete** base works, including as a function's
+inferred return. Only a **type-parameter** base collapses to `any`.
+
+`base_symbol_of_heritage_entry` names that case in its own comment — *"a type
+alias or a type parameter resolving here is a gap"* — so the obvious repair was
+to expand the parameter through its constraint's construct signature, which is
+upstream's mixin rule (`getBaseTypes` → `getApparentType`).
+
+**Written, and it measured exactly zero.** Not one transition, and the probe was
+unchanged: `M1 : any` still.
+
+### What the zero is worth
+
+By §939's and §941.1's rule — *an arm measuring zero is first evidence that
+something earlier returns* — this says the mixin decline **is not in
+`base_symbol_of_heritage_entry`**. The class expression's type is already `any`
+before any heritage symbol is asked for, so whatever decides it sits upstream of
+the members road entirely.
+
+That is a smaller claim than §941 made and a verified one: **the next reader
+should not start in `members.rs`.** Reverted whole, because unmeasured code is
+the liability §929 named and this arm has no measured population.
+
+### Not attempted
+
+Instrumenting the class-expression road to find where the `any` is minted. That
+is the next step and it is cheap — §941.1 found its answer with a single
+`eprintln` — but it is a new thread rather than the close of this one.
