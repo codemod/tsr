@@ -9819,3 +9819,58 @@ only moment it looks.
 
 *It is a bigger item than the priority model §937 named, and naming the wrong one
 would have sent the next session to the wrong file.*
+
+## §938 — `discriminateTypeByDiscriminableItems`, and §927's prediction half-confirmed (+82)
+
+§927 left two guards and wrote: *"Removing both guards is how you would know
+discrimination had landed — they have no other purpose."* Discrimination has now
+landed, and **the prediction is right about one guard and wrong about the other.**
+The difference is a measurement §927 had no way to make.
+
+### The capability was already there
+
+`discriminateTypeByDiscriminableItems` (`checker.go:30779`) selects the union
+constituent that the literal's own **context-free** members identify. This port
+has had that walk since §750, as `discriminate_union_root` — §912 calls it for
+`this`. `contextual_type_for_object_literal_element` did not, and §927 paid 11
+wins for declining instead.
+
+**Seventeenth instance this session of a capability present and a caller that does
+not consult it**, and the second time §927's own road was the caller.
+
+So the union member lookup now discriminates **first**, and when discrimination
+narrows to a single constituent that constituent's answer is authoritative —
+**including a miss**. `missingDiscriminants` writes
+`const item1: Item = { subkind: 1, kind: "b" }`; upstream picks the `{ kind: "b" }`
+constituent, which has no `subkind` at all, so there is no contextual type and the
+literal widens to `number`. Returning `None` there is the *answer*, not a decline,
+and that is why §927's guard 2 was needed and this is not.
+
+### Guard 1 removed, guard 2 kept, both measured
+
+| | measured after §938 |
+|---|---|
+| removing guard 1 (a **primitive** constituent) | **+6 `WRONG->RIGHT`, zero adverse** — removed |
+| removing guard 2 (a **unit** answer from a multi-constituent union) | +6 `WRONG->RIGHT` against **3 `RIGHT->WRONG`** — kept |
+
+Guard 2 survives because a literal with no **context-free** discriminant leaves
+`discriminate_union_root` answering the union unchanged, and the undiscriminated
+walk is still guessing there (`excessPropertyCheckWithUnions`). *§927 could not
+have distinguished the two guards; only running with discrimination in place
+does.*
+
+### Measurement
+
+**73 `WRONG->RIGHT` + 9 `GAP->RIGHT`, zero adverse.** `right` 443,008 →
+**443,090**. `contextualTypeWithUnionTypeMembers` 48 — §927's own top case, which
+it had already taken 86 from — `discriminantPropertyInference` 13,
+`assertionFunctionsCanNarrowByDiscriminant` 6.
+
+### A test whose subject was removed
+
+`a_union_with_a_primitive_constituent_supplies_nothing` asserted `any` for the
+guard §938 deletes. It now asserts `string` under the name
+`..._now_supplies_the_object_constituent`, with the guard's history kept in the
+doc comment rather than deleted — the case it was named for
+(`contextualOverloadListFromUnionWithPrimitiveNoImplicitAny`) is still the reason
+the guard existed, and still the first place to look if this ever regresses.

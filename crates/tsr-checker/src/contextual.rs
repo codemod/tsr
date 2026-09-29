@@ -943,7 +943,7 @@ impl<'a> Checker<'a, '_> {
         // bit-for-bit what it was; the union walk is only consulted on a miss.
         let property_type = match self.get_property_of_type(contextual, name) {
             Some(property) => self.get_type_of_symbol(property),
-            None => self.union_contextual_property_type(contextual, name)?,
+            None => self.union_contextual_property_type(contextual, name, object_literal)?,
         };
         // SS141: a reference context's member instantiates through the
         // reference (Computed<T>'s read serves () => T_call, not the
@@ -1000,17 +1000,53 @@ impl<'a> Checker<'a, '_> {
     ///
     /// Both guards would be removed by porting discrimination, and that is how
     /// you would know this entry was a stopgap rather than an answer.
-    fn union_contextual_property_type(&mut self, contextual: TypeId, name: &str) -> Option<TypeId> {
+    fn union_contextual_property_type(
+        &mut self,
+        contextual: TypeId,
+        name: &str,
+        literal: NodeId,
+    ) -> Option<TypeId> {
         let TypeData::Union { types, .. } = &self.store.get(contextual).data else {
             return self.contextual_property_type(contextual, name);
         };
         let constituents = types.clone();
-        if constituents
-            .iter()
-            .any(|&c| self.store.get(c).flags.intersects(crate::flags::TypeFlags::PRIMITIVE))
+        // §938: **discriminate first.** `discriminateTypeByDiscriminableItems`
+        // (`checker.go:30779`) selects the constituent the literal's own
+        // context-free members identify, and the member lookup then happens on
+        // that ONE type — which is what §927's second guard was standing in for.
+        //
+        // The port has had this since §750 as `discriminate_union_root`; §927
+        // declined instead of calling it, and paid 11 wins for the decline.
+        //
+        // When discrimination narrows to a single constituent, its answer is
+        // authoritative INCLUDING a miss: `missingDiscriminants` writes
+        // `const item1: Item = { subkind: 1, kind: "b" }` and upstream picks the
+        // `{ kind: "b" }` constituent, which has no `subkind` at all — so there
+        // is no contextual type and the literal widens to `number`. Returning
+        // `None` here is that answer, not a decline.
+        let discriminated = self.discriminate_union_root(contextual, literal);
+        if discriminated != contextual
+            && !matches!(self.store.get(discriminated).data, TypeData::Union { .. })
         {
-            return None;
+            return self
+                .get_property_of_type(discriminated, name)
+                .map(|property| self.get_type_of_symbol(property));
         }
+        // §927's FIRST guard is **removed by §938**, which is exactly the
+        // prediction §927 recorded: *"removing both guards is how you would know
+        // discrimination had landed"*. With the discriminating road above, the
+        // primitive-constituent decline measures **+6 `WRONG->RIGHT`, zero
+        // adverse** — `contextualOverloadListFromUnionWithPrimitiveNoImplicitAny`
+        // no longer needs a guard, because the shape it protected is now reached
+        // by a road that answers it.
+        //
+        // **§927's SECOND guard stays, and that half of the prediction is
+        // wrong.** Removing it after §938 measures +6 `WRONG->RIGHT` against
+        // **3 `RIGHT->WRONG`** (`excessPropertyCheckWithUnions`): a literal with
+        // no CONTEXT-FREE discriminant leaves `discriminate_union_root`
+        // answering the union unchanged, and the undiscriminated walk below is
+        // still guessing there. Measured, not assumed — and the measurement is
+        // what separates the two guards, which §927 had no way to tell apart.
         let member = self.contextual_property_type(contextual, name)?;
         // The unit may be a CONSTITUENT of the answer rather than the answer:
         // `subkind: 0` and `subkind: 1` union to `0 | 1`, which is not itself a

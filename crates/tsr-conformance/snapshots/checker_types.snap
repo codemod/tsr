@@ -3,7 +3,7 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
 Passed         : 6351/9538 (66.59%)
-Assertion lines: 443008/478855 (92.51%)  — a gradient, not a pass rate
+Assertion lines: 443090/478855 (92.53%)  — a gradient, not a pass rate
 Failed         : 3187
 Skipped        : 2906 (excluded from the denominator)
 
@@ -164,7 +164,7 @@ compiler/arrowFunctionsMissingTokens
 compiler/assertionFunctionWildcardImport2
   test.ts: >obj : string | null — expected >obj : string
 compiler/assertionFunctionsCanNarrowByDiscriminant
-  assertionFunctionsCanNarrowByDiscriminant.ts: >{ type: 'cat', canMeow: true } : { type: string; canMeow: boolean; } — expected >{ type: 'cat', canMeow: true } : { type: "cat"; canMeow: true; }
+  assertionFunctionsCanNarrowByDiscriminant.ts: >animal.canMeow : error — expected >animal.canMeow : true
 compiler/assignmentNonObjectTypeConstraints
   assignmentNonObjectTypeConstraints.ts: >x : T — expected >x : A | B
 compiler/assignmentToConditionalBrandedStringTemplateOrMapping

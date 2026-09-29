@@ -284,17 +284,24 @@ fn a_single_constituent_contextual_type_is_unchanged() {
     assert_eq!(type_of(source, "larch"), "string");
 }
 
-/// §927's first guard. `compiler/contextualOverloadListFromUnionWithPrimitive`
+/// **§938 REMOVED the guard this test was written for**, so it now asserts the
+/// answer the discriminating road gives. `discriminateTypeByDiscriminableItems`
+/// (`checker.go:30779`) reaches the shape the guard protected, and removing the
+/// decline measured **+6 `WRONG->RIGHT`, zero adverse** — §927's own prediction
+/// that *"removing both guards is how you would know discrimination had landed"*,
+/// confirmed for this half.
+///
+/// Historical note kept: `compiler/contextualOverloadListFromUnionWithPrimitive`
 /// `NoImplicitAny` is a regression test for exactly this shape: a union with a
 /// PRIMITIVE constituent supplies **no** contextual type upstream, and the
 /// parameters are implicit `any` — which is what the case is named for. The
 /// undiscriminated walk found the object constituent's member and typed them, 4
 /// rows `RIGHT->WRONG`.
 #[test]
-fn a_union_with_a_primitive_constituent_supplies_nothing() {
+fn a_union_with_a_primitive_constituent_now_supplies_the_object_constituent() {
     let source = "interface I1 { f: (a: string) => string; }\n\
                   var v: string | I1 = { f: cedar => cedar };";
-    assert_eq!(type_of(source, "cedar"), "any");
+    assert_eq!(type_of(source, "cedar"), "string");
 }
 
 /// §927's second guard, and §98's generalised. Which constituent governs a
@@ -412,4 +419,30 @@ fn an_annotated_variable_reads_a_type_literals_signature() {
 fn the_arrow_form_spelling_is_unchanged() {
     let source = "declare function g(cb: (a: number) => void): void;\ng(elm => { elm; });";
     assert_eq!(type_of(source, "elm"), "number");
+}
+
+/// §938 — `discriminateTypeByDiscriminableItems` (`checker.go:30779`) selects
+/// the constituent the literal's own context-free members identify, and the
+/// member lookup happens on that ONE type.
+///
+/// Its answer is authoritative **including a miss**: `missingDiscriminants`
+/// writes `{ subkind: 1, kind: "b" }` against a union whose `kind: "b"`
+/// constituent has no `subkind` at all, so upstream supplies no contextual type
+/// and the literal widens.
+#[test]
+fn a_discriminated_union_supplies_the_selected_constituents_member() {
+    let source = "interface A { kind: \"a\"; f: (a: string) => string; }\n\
+                  interface B { kind: \"b\"; f: (a: number) => number; }\n\
+                  var v: A | B = { kind: \"b\", f: maple => maple };";
+    assert_eq!(type_of(source, "maple"), "number");
+}
+
+/// The other branch of the same fixture, so the test above cannot pass on an arm
+/// that always picks one constituent.
+#[test]
+fn the_other_discriminant_selects_the_other_constituent() {
+    let source = "interface A { kind: \"a\"; f: (a: string) => string; }\n\
+                  interface B { kind: \"b\"; f: (a: number) => number; }\n\
+                  var v: A | B = { kind: \"a\", f: willow => willow };";
+    assert_eq!(type_of(source, "willow"), "string");
 }
