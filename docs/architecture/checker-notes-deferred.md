@@ -9744,12 +9744,12 @@ both caps were deleted rather than kept "just in case".
 
 ### Consequences accepted
 
-The 25 `GAP->WRONG` are §620's accepted direction and cluster in inference-priority
-cases — `returnTypeInferenceNotTooBroad` 8, `reverseMappedUnionInference` 7,
-`nestedTypeVariableInfersLiteral` 6. They are candidates this arm now *supplies*
-where upstream would rank them below a better one: **the inference-priority model
-(§920/§920.1) is their reopening condition**, and it is the same one already
-recorded there.
+The 25 `GAP->WRONG` are §620's accepted direction.
+
+> **CORRECTED by §937.1, same session.** This paragraph read: *"they cluster in
+> inference-priority cases … the inference-priority model (§920/§920.1) is their
+> reopening condition"*. **That was a guess from the case names and it is wrong.**
+> All 25 are one cause, and it is not inference priority. See §937.1.
 
 ### A test expectation that was wrong, again
 
@@ -9758,3 +9758,64 @@ bare type parameter takes the argument type **unwidened**, which this very file
 already asserts as `a_bare_type_parameter_is_the_argument_type_unwidened`. Third
 time this session a fixture I wrote encoded my expectation rather than the port's
 documented behaviour; the corrected line says so.
+
+
+## §937.1 — the 25 rows §937 mis-attributed, diagnosed (no score change)
+
+§937 closed by saying its 25 `GAP->WRONG` were inference-**priority** cases and
+pointing at §920/§920.1. **That was read off the case names, not off the rows.**
+The rows say something else, and they all say the same thing:
+
+```text
+nestedTypeVariableInfersLiteral   want { fields: "z"; }          got { fields: string; }
+returnTypeInferenceNotTooBroad    want { kind: "a"; a: 3; }      got { kind: string; a: number; }
+```
+
+**An object literal passed as a call argument has its members widened before
+inference ever sees them.** Upstream's baseline for the same line is
+`>{fields: "z"} : { fields: "z"; }` and `>fields : "z"`. Nothing about priority
+is involved: the literal `"z"` never reaches the inference walk at all.
+
+### Bisected to one sentence
+
+```ts
+declare function plain(a: { fields: "z" | "y" }): void;
+plain({ fields: "z" });          // { fields: "z"; }     ✓  non-generic callee
+declare function gen<A extends string>(a: { fields: A }): A;
+gen({ fields: "z" });            // { fields: string; }  ✗  generic callee
+declare function flat<A extends string>(a: A): A;
+flat("z");                       // "z"                  ✓  argument is not a literal
+```
+
+The contextual-type chain works, `is_literal_of_contextual_type`'s
+type-parameter arm is ported, and `§910`'s exclusion deliberately does *not*
+apply to a member of the argument literal itself. What breaks is narrower: for a
+**generic** callee, `contextual_type_for_argument_resolving` applies upstream's
+**fixing mapper** and instantiates the parameter type with `unknown`, so the
+member's contextual type is `unknown` instead of `A` — and `unknown` is not a
+literal-accepting context.
+
+Upstream does not hit this because it checks arguments *twice*: pass one against
+the **uninstantiated** parameter type `{ fields: A }`, where
+`isLiteralOfContextualType` sees a type variable with a `string` constraint and
+keeps the literal fresh.
+
+### One fix attempted and refused
+
+§134's return-mapper guard already keeps a type parameter adopted when it appears
+in the return type, but only when the **call itself** is contextually typed.
+Dropping that `contextual_call` condition — so a return-appearing parameter always
+stays adopted — measured **5 `WRONG->RIGHT` against 11 `RIGHT->WRONG` and 6
+`WRONG->GAP`**, and *did not even move the probe*. Reverted. The fixing mapper is
+not the only thing standing between the member and `A`.
+
+### The real reopening condition
+
+**A two-pass argument check**: candidates gathered against the uninstantiated
+parameter type, the argument re-checked against the instantiated one. That is
+upstream's shape (`checkExpressionWithContextualType` in pass one), and this
+port's single pass is what forces the choice between `A` and `unknown` at the
+only moment it looks.
+
+*It is a bigger item than the priority model §937 named, and naming the wrong one
+would have sent the next session to the wrong file.*
