@@ -1937,9 +1937,28 @@ impl Checker<'_, '_> {
             false
         });
         let keeps_literal = if !in_call_argument && self.maybe_type_of_kind(id, literalish) {
-            node_id
+            let first = node_id
                 .and_then(|node| self.get_contextual_type(node))
-                .and_then(|contextual| self.is_literal_of_contextual_type(id, contextual))
+                .and_then(|contextual| self.is_literal_of_contextual_type(id, contextual));
+            // §946: upstream's two-pass argument check, for the FRESHNESS
+            // question only. Pass one reads the parameter type as WRITTEN, where
+            // `isLiteralOfContextualType` sees a type variable and consults its
+            // primitive constraint. This port has a single pass, so by the time
+            // the question is asked the fixing mapper has already replaced `A`
+            // with `unknown` — and `nested({ fields: "z" })` widened `"z"` to
+            // `string`, so inference never saw the literal at all (§937.1's
+            // finding, whose reopening condition this is).
+            if first == Some(true) {
+                first
+            } else {
+                let saved = self.contextual_prefers_uninstantiated;
+                self.contextual_prefers_uninstantiated = true;
+                let retried = node_id
+                    .and_then(|node| self.get_contextual_type(node))
+                    .and_then(|contextual| self.is_literal_of_contextual_type(id, contextual));
+                self.contextual_prefers_uninstantiated = saved;
+                if retried == Some(true) { retried } else { first }
+            }
         } else {
             Some(false)
         };

@@ -2349,13 +2349,41 @@ impl<'a> Checker<'a, '_> {
             return if undecidable { None } else { Some(false) };
         }
         // `TypeFlagsInstantiableNonPrimitive` — the base-constraint arm.
+        //
+        // **§946 ported it.** It used to `return None`, and upstream's comment
+        // says exactly what it is for: *"if the contextual type is a type
+        // variable constrained to a primitive type, consider this a literal
+        // context for literals of that primitive type"* (`checker.go:25522`).
+        // The base constraint carries the primitive flag and the candidate
+        // carries the matching literal flag.
+        //
+        // Without it, `nested<A extends string>(a: { fields: A })` called with
+        // `{ fields: "z" }` had no literal context for `"z"` even once §946's
+        // pass-one read supplied `A` — the decline was the last of the three
+        // things standing between the literal and inference, and the other two
+        // (the fixing mapper, the single pass) are what §937.1 named.
         if flags.intersects(
             TF::TYPE_PARAMETER
                 .union(TF::INDEXED_ACCESS)
                 .union(TF::CONDITIONAL)
                 .union(TF::SUBSTITUTION),
         ) {
-            return None;
+            // `getBaseConstraintOfType`; a parameter with no constraint is
+            // `unknown` upstream, which matches no primitive, so a missing
+            // constraint is `Some(false)` rather than a decline.
+            let Some(constraint) = self.type_parameter_constraint(contextual) else {
+                return Some(false);
+            };
+            return Some(
+                self.maybe_type_of_kind(constraint, TF::STRING)
+                    && self.maybe_type_of_kind(candidate, TF::STRING_LITERAL)
+                    || self.maybe_type_of_kind(constraint, TF::NUMBER)
+                        && self.maybe_type_of_kind(candidate, TF::NUMBER_LITERAL)
+                    || self.maybe_type_of_kind(constraint, TF::BIG_INT)
+                        && self.maybe_type_of_kind(candidate, TF::BIG_INT_LITERAL)
+                    || self.maybe_type_of_kind(constraint, TF::BOOLEAN)
+                        && self.maybe_type_of_kind(candidate, TF::BOOLEAN_LITERAL),
+            );
         }
         Some(
             flags.intersects(

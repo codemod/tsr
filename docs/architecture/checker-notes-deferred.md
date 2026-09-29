@@ -10482,3 +10482,67 @@ three each wired a single road:
 *When a rule needs a contextual type, the question is never "which road is this?"
 but "does `get_contextual_type` answer here?"* Three entries were spent learning
 that, and the fourth cost one line.
+
+## §946 — the two-pass argument check, and the arm behind it (+26)
+
+§937.1 diagnosed this and named a **two-pass argument check** as the reopening
+condition. That diagnosis was right and incomplete: there were **three** things
+between the literal and inference, not one.
+
+```ts
+type Comparator<T> = (x: T, y: T) => number;
+declare function nested<A extends string>(a: { fields: A }): A;
+nested({ fields: "z" });     // was: string        upstream: "z"
+```
+
+### One: the single pass
+
+Upstream checks a call's arguments twice — pass one against the parameter type
+**as written** (`{ fields: A }`), pass two against the instantiated one. This port
+has a single pass, so the *freshness* question and the *answer* question read the
+same contextual type, and by then the fixing mapper has replaced `A` with
+`unknown`.
+
+`contextual_prefers_uninstantiated` is pass one, scoped to exactly one query: the
+freshness retry in `check_expression_for_mutable_location`. Nothing else reads it,
+and the fixing mapper is untouched for every other consumer.
+
+### Two: the base-constraint arm, which was a bare `return None`
+
+With `A` in hand the answer was still `string`, and instrumenting said why in one
+line:
+
+```text
+FRESH id="z" first=None ctx=Some("A") retried=None
+```
+
+`is_literal_of_contextual_type` **declined** every
+`TypeFlagsInstantiableNonPrimitive` contextual type. Upstream's own comment is the
+specification: *"if the contextual type is a type variable constrained to a
+primitive type, consider this a literal context for literals of that primitive
+type"* — the base constraint carries the primitive flag, the candidate carries the
+matching literal flag. An unconstrained parameter is `unknown` upstream, which
+matches no primitive, so it is `Some(false)` rather than a decline.
+
+### Three: §937.1's own attempt, which was the wrong lever
+
+§937.1 tried dropping §134's `contextual_call` condition so a return-appearing
+parameter stayed adopted. That measured **5 `WRONG->RIGHT` against 11
+`RIGHT->WRONG`** and did not move the probe. It was aimed at the fixing mapper,
+which is only the first of the three.
+
+### Measurement
+
+**26 `WRONG->RIGHT`, zero adverse.** `right` 443,347 → **443,373**.
+`inferStringLiteralUnionForBindingElement` 12, **`nestedTypeVariableInfersLiteral`
+10** — §937's own adverse case — and `objectRestBindingContextualInference` 2.
+
+### What this says about naming reopening conditions
+
+§937.1 named "a two-pass argument check" and was **right about the mechanism and
+wrong about its sufficiency**. Two of the three blockers were invisible from the
+rows it read; the second only surfaced under an `eprintln`.
+
+*A reopening condition is a direction, not a plan.* The habit that closed this was
+§941.1's — instrument at the point of failure instead of reasoning forward from
+the diagnosis.

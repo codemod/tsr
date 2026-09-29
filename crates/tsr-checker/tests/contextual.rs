@@ -530,3 +530,27 @@ fn a_contextual_type_without_this_leaves_the_function_alone() {
                   const f: N = function () { let alderx = this; return 1; };";
     assert_eq!(type_of(source, "alderx"), "any");
 }
+
+/// §946 — a type variable constrained to a primitive is a literal context.
+///
+/// `isLiteralOfContextualType`'s `InstantiableNonPrimitive` arm
+/// (`checker.go:25522`) consults the **base constraint**: upstream's own comment
+/// is *"if the contextual type is a type variable constrained to a primitive
+/// type, consider this a literal context for literals of that primitive type"*.
+/// This port declined the arm outright.
+#[test]
+fn a_primitive_constrained_type_variable_keeps_a_literal() {
+    let source = "declare function nested<A extends string>(a: { fields: A }): A;\n\
+                  const beechv = nested({ fields: \"z\" });";
+    assert_eq!(type_of(source, "beechv"), "\"z\"");
+}
+
+/// The pair: an UNCONSTRAINED type variable is `unknown` upstream, which matches
+/// no primitive, so the literal widens. Without this the arm could be answering
+/// "literal context" for every type variable.
+#[test]
+fn an_unconstrained_type_variable_does_not_keep_a_literal() {
+    let source = "declare function nested<A>(a: { fields: A }): A;\n\
+                  const mapleq = nested({ fields: \"z\" });";
+    assert_eq!(type_of(source, "mapleq"), "string");
+}

@@ -833,6 +833,20 @@ pub struct Checker<'a, 'n> {
     /// The values of [`Checker::instantiated_signatures`], for the O(1)
     /// membership test the call resolver makes.
     pub(crate) minted_signature_types: rustc_hash::FxHashSet<TypeId>,
+    /// §946: while set, `contextual_type_for_argument_resolving` answers the
+    /// **uninstantiated** parameter type instead of the one its fixing mapper
+    /// produces — upstream's PASS ONE.
+    ///
+    /// Upstream checks a call's arguments twice: once against the parameter type
+    /// as written (`{ fields: A }`, where `isLiteralOfContextualType` sees a type
+    /// variable and keeps a literal fresh), and once against the instantiated
+    /// one. This port has a single pass, so the freshness question and the
+    /// answer question read the same contextual type — and the fixing mapper has
+    /// already replaced `A` with `unknown` by then.
+    ///
+    /// Set only around the freshness query in
+    /// [`Checker::check_expression_for_mutable_location`]; nothing else reads it.
+    pub(crate) contextual_prefers_uninstantiated: bool,
     /// §937: memo for `Checker::target_could_contain_parameter`, upstream's
     /// `couldContainTypeVariables` gate on the property arm of inference.
     ///
@@ -1108,6 +1122,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             signature_types: FxHashMap::default(),
             instantiated_signatures: FxHashMap::default(),
             minted_signature_types: rustc_hash::FxHashSet::default(),
+            contextual_prefers_uninstantiated: false,
             could_contain_parameter_cache: rustc_hash::FxHashMap::default(),
             rendering_composites: rustc_hash::FxHashSet::default(),
         }

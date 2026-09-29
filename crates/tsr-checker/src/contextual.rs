@@ -1183,6 +1183,13 @@ impl<'a> Checker<'a, '_> {
                 }
                 parameter.r#type
             };
+            // §946: upstream's PASS ONE — the parameter type as WRITTEN, before
+            // the fixing mapper below replaces this signature's type parameters
+            // with `unknown`. Only the freshness query asks for it, and it asks
+            // through `contextual_prefers_uninstantiated`.
+            if self.contextual_prefers_uninstantiated {
+                return Some(parameter_type);
+            }
             // The third rung (the ladder test's final flip): upstream's
             // FIXING mapper — a context consumed with no inference
             // candidates fixes its type parameters to `unknown`
