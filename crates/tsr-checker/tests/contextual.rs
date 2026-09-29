@@ -470,3 +470,29 @@ fn a_required_parameter_in_the_same_position_is_unchanged() {
     let source = "declare function f(cb: (a: number) => void): void;\nf(rowan => { rowan; });";
     assert_eq!(type_of(source, "rowan"), "number");
 }
+
+/// §945 — a function expression ASSIGNED to a property takes that property's
+/// declared `this` parameter.
+///
+/// §928 ported `getContextualThisParameterType` for an object-literal method.
+/// Upstream reaches both forms through the same function; the difference is only
+/// which road supplies the contextual signature, and the assignment road was
+/// never wired — so `impl.em = function () { return this.a; }` answered
+/// `this : any` while `{ em() { return this.a } }` answered `{ a: number; }`.
+#[test]
+fn a_function_expression_assigned_to_a_property_adopts_its_this() {
+    let source = "interface I { hazelnut: number; em(this: { hazelnut: number }): number; }\n\
+                  declare const impl: I;\n\
+                  impl.em = function () { let cedarv = this.hazelnut; return cedarv; };";
+    assert_eq!(type_of(source, "cedarv"), "number");
+}
+
+/// The pair: the same assignment where the property's type carries **no** `this`
+/// parameter is untouched, so the arm cannot be typing every assigned function.
+#[test]
+fn an_assigned_function_without_a_contextual_this_is_unchanged() {
+    let source = "interface J { hazelnut: number; em(): number; }\n\
+                  declare const impl: J;\n\
+                  impl.em = function () { let rowanv = this.hazelnut; return rowanv; };";
+    assert_eq!(type_of(source, "rowanv"), "any");
+}

@@ -10399,3 +10399,42 @@ declining to assert it still cost nothing: the verification was three probes, an
 the alternative — an entry claiming §933's family closed — would have been true
 by luck rather than by measurement. *Being right is not the same as having
 checked, and the record should only ever claim the second.*
+
+## §945 — the same `this`, through the assignment road (+22)
+
+Root #5 of the board — *"property access: the property's own type is `any`"*, 952
+lines — clusters `thisTypeInFunctions` (20) and its negative (16). §928 already
+ported `getContextualThisParameterType` for an **object-literal method** and took
++7 there, so the residue looked like §928's own limit. It is not:
+
+```ts
+interface I { a: number; em(this: { a: number }): number }
+declare const impl: I;
+impl.em = function () { return this.a };   // this : any        ✗
+let obj: I = { a: 1, em() { return this.a } };  // { a: number; }  ✓
+```
+
+**A function expression assigned to a property.** Upstream reaches both forms
+through the same `getContextualThisParameterType`; the only difference is which
+road supplies the contextual signature, and the assignment road was never wired.
+
+`contextual_this_parameter_type` now takes a `FunctionExpression` on the right of
+a plain `=` whose left is a property access, reads that target's type, and adopts
+its signature's `this` parameter.
+
+**22 `WRONG->RIGHT`, zero adverse**, every one in `thisTypeInFunctions`. `right`
+443,304 → **443,326**. The printed signature comes with it:
+`function () { … }` now prints `(this: { a: number; }) => number`, which §928.1's
+`CONTAINS_THIS` gate already licenses.
+
+### Why this was worth finding twice
+
+§928 measured +7 and stopped at the object-literal arm; §928.1 reopened its
+refusal and took +3 more. Both were right about what they measured and neither
+asked whether the *same rule* had another entry point. **The board found the
+residue, not the entry** — its root said "the property's own type is `any`",
+which is true of the assignment's left side and says nothing about `this`.
+
+*A root that names a symptom will not name a mechanism, and the only way across is
+to read the rows.* That is the fourth entry this session where the root's label
+and the rows' cause were different things (§929, §933, §937.1, and this).

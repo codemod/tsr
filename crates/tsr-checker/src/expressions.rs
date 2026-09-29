@@ -1395,6 +1395,31 @@ impl Checker<'_, '_> {
     /// object-literal-method arm (`checker.go:29964`) is not ported and that
     /// call answers `None` here.
     pub(crate) fn contextual_this_parameter_type(&mut self, method: NodeId) -> Option<TypeId> {
+        // §945: a FUNCTION EXPRESSION assigned to a property takes the
+        // property's declared `this` parameter.
+        //
+        // `impl.em = function () { return this.a; }` against
+        // `interface I { em(this: { a: number }): number }` answered `this : any`
+        // while the object-literal form §928 ported — `{ em() { return this.a } }`
+        // — answered `{ a: number; }`. Upstream reaches both through the same
+        // `getContextualThisParameterType`; the difference here is only which
+        // road supplies the contextual signature, and the assignment road was
+        // never wired.
+        if self.nodes.kind(method) == SyntaxKind::FunctionExpression {
+            let parent = self.nodes.parent(method)?;
+            let Some(tsr_ast::Node::BinaryExpression(binary)) = self.node_map.get(parent) else {
+                return None;
+            };
+            if binary.operator_token.is_none_or(|token| token.kind != SyntaxKind::EqualsToken)
+                || binary.right.and_then(|right| right.node_id()) != Some(method)
+            {
+                return None;
+            }
+            let target = binary.left?;
+            let declared = self.check_expression(target);
+            let signature = self.contextual_signature_of_type(declared)?;
+            return Some(signature.this_parameter?.r#type);
+        }
         if self.nodes.kind(method) != SyntaxKind::MethodDeclaration {
             return None;
         }
