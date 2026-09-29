@@ -10438,3 +10438,47 @@ which is true of the assignment's left side and says nothing about `this`.
 *A root that names a symptom will not name a mechanism, and the only way across is
 to read the rows.* That is the fourth entry this session where the root's label
 and the rows' cause were different things (§929, §933, §937.1, and this).
+
+## §945.1 — ask the dispatch that already knows (+21)
+
+§945 wired **one** road by hand — a function expression assigned to a property —
+and closed by observing that §928 and §928.1 had each missed a second entry point
+into the same rule. The obvious next move was to check whether §945 had done it
+again. It had:
+
+```ts
+type W = (this: { a: number }) => number;
+const f: W = function () { return this.a };        // any ✗  annotated initialiser
+take(function () { return this.a });                // any ✗  call argument
+({ m: function () { return this.a } as W });        // any ✗  `as` assertion
+const g: W[] = [function () { return this.a }];     // any ✗  array element
+```
+
+**Four more entry points, all failing identically, and every one of them already
+had an arm in `get_contextual_type`.** The fix is to ask that dispatch instead of
+enumerating roads: one call, and the arms it grows later come free.
+
+**21 `WRONG->RIGHT`, zero adverse** — `protectedAccessThroughContextualThis` 11,
+`instantiateContextuallyTypedGenericThis` 5, `esDecorators-contextualTypes.2` 5.
+`right` 443,326 → **443,347**. None of the three is the case §945 fixed, which is
+the point.
+
+The assignment road keeps its own arm: `get_contextual_type` has no
+`BinaryExpression` arm, so §945's population is not reachable through the
+dispatch.
+
+### The pattern, stated so it stops recurring
+
+§928 → §928.1 → §945 → §945.1 is **one rule found four times**, and the first
+three each wired a single road:
+
+| entry | found by | wired |
+|---|---|---|
+| object-literal method | §928 | by hand |
+| its printed signature | §928.1 | by hand |
+| assignment to a property | §945 | by hand |
+| initialiser, argument, assertion, array element | §945.1 | **by the dispatch** |
+
+*When a rule needs a contextual type, the question is never "which road is this?"
+but "does `get_contextual_type` answer here?"* Three entries were spent learning
+that, and the fourth cost one line.

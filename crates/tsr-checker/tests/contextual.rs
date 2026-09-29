@@ -496,3 +496,37 @@ fn an_assigned_function_without_a_contextual_this_is_unchanged() {
                   impl.em = function () { let rowanv = this.hazelnut; return rowanv; };";
     assert_eq!(type_of(source, "rowanv"), "any");
 }
+
+/// §945.1 — the contextual `this` comes from `get_contextual_type`, so every arm
+/// that dispatch has works at once.
+///
+/// §945 wired the assignment road by hand. The sweep that followed found four
+/// more entry points failing identically — an annotated variable's initialiser,
+/// a call argument, an `as` assertion, and an array-literal element — and every
+/// one of them already had an arm in `get_contextual_type`. Wiring them
+/// individually would have been four more §945s.
+#[test]
+fn an_annotated_variables_function_initialiser_adopts_this() {
+    let source = "type W = (this: { juniper: number }) => number;\n\
+                  const f: W = function () { let larchx = this.juniper; return larchx; };";
+    assert_eq!(type_of(source, "larchx"), "number");
+}
+
+/// A call argument, which is a different arm of the same dispatch.
+#[test]
+fn a_function_argument_adopts_the_parameters_this() {
+    let source = "type W = (this: { juniper: number }) => number;\n\
+                  declare function take(cb: W): void;\n\
+                  take(function () { let cedarx = this.juniper; return cedarx; });";
+    assert_eq!(type_of(source, "cedarx"), "number");
+}
+
+/// The pair: a contextual type carrying **no** `this` parameter leaves the
+/// function alone, so the general road cannot be typing every function
+/// expression that has a context.
+#[test]
+fn a_contextual_type_without_this_leaves_the_function_alone() {
+    let source = "type N = () => number;\n\
+                  const f: N = function () { let alderx = this; return 1; };";
+    assert_eq!(type_of(source, "alderx"), "any");
+}

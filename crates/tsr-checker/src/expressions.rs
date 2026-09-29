@@ -1406,6 +1406,25 @@ impl Checker<'_, '_> {
         // road supplies the contextual signature, and the assignment road was
         // never wired.
         if self.nodes.kind(method) == SyntaxKind::FunctionExpression {
+            // §945.1: **ask `get_contextual_type` first.** §945 wired the
+            // assignment road by hand and the sweep that followed found four
+            // more entry points failing the same way — an annotated variable's
+            // initialiser, a call argument, an `as` assertion, an array-literal
+            // element under an annotated array type.
+            //
+            // Every one of those already has an arm in `get_contextual_type`.
+            // Wiring them one at a time would have been four more §945s; asking
+            // the dispatch that already knows is one line and covers the arms it
+            // grows later for free.
+            if let Some(contextual) = self.get_contextual_type(method)
+                && let Some(signature) = self.contextual_signature_of_type(contextual)
+                && let Some(this_parameter) = signature.this_parameter
+            {
+                return Some(this_parameter.r#type);
+            }
+            // The ASSIGNMENT road keeps its own arm: `get_contextual_type` has
+            // no `BinaryExpression` arm, so `impl.em = function () { … }` —
+            // §945's population — is not reachable through the dispatch.
             let parent = self.nodes.parent(method)?;
             let Some(tsr_ast::Node::BinaryExpression(binary)) = self.node_map.get(parent) else {
                 return None;
