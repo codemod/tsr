@@ -1449,11 +1449,49 @@ impl Checker<'_, '_> {
             }
             return None;
         }
-        let Some(signatures) = self.get_signatures_of_symbol(symbol) else {
-            if counted {
-                bump(&COUNTERS.callee_no_signatures);
-            }
-            return None;
+        // §932: the SINGLE-SIGNATURE COLLAPSE's type was unreadable here.
+        // `get_type_from_type_literal`'s §10.15 arm mints `{ (a: number): number }`
+        // as an anonymous type printed in arrow form and records its signature in
+        // `signature_types` — but **not** in `minted_signature_types`, so
+        // `is_instantiated_signature_type` above answers `false` and never looks.
+        // Control then falls to `get_signatures_of_symbol`, which reads the
+        // `__type` symbol's declarations; a `TypeLiteralNode` is not
+        // signature-shaped, so it answers `None` and the call gapped.
+        //
+        // Measured by the neighbour that worked: `{ (a: number): number; x: string }`
+        // is callable (two members, no collapse) and `{ new (a: number): number }`
+        // is constructible, while `{ (a: number): number }` alone answered
+        // `error` — **the same signature as §921/§922/§923, a road correct for
+        // one shape and silently incomplete for the neighbouring one, with the
+        // working half hiding the broken one.**
+        //
+        // `getSignaturesOfType` (`checker.go:18959`) reads the *type's*
+        // signatures, which is what `signature_types` holds, so consulting it
+        // here is upstream's own order rather than a fallback.
+        // Filtered by KIND. §10.15's collapse stores whichever signature the
+        // literal declared, call or construct, and reading it unfiltered
+        // answered a CONSTRUCT signature for a plain call — 3 `RIGHT->WRONG`,
+        // one of them in a case named for the confusion
+        // (`objectTypeWithConstructSignatureAppearsToBeFunctionType`, where
+        // upstream reports and answers `any`).
+        let from_type: Vec<Signature> = self
+            .signature_types
+            .get(&callee)
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|signature| signature.kind == SignatureKind::Call)
+            .collect();
+        let signatures = if from_type.is_empty() {
+            let Some(signatures) = self.get_signatures_of_symbol(symbol) else {
+                if counted {
+                    bump(&COUNTERS.callee_no_signatures);
+                }
+                return None;
+            };
+            signatures
+        } else {
+            from_type
         };
         match signatures.as_slice() {
             [signature] => {
@@ -1541,15 +1579,24 @@ impl Checker<'_, '_> {
             // 1 `RIGHT->WRONG` (`typePredicatesInUnion3:0:38`, `unknown` ->
             // `string`) because the narrowing road then trusted one member's
             // predicate for the whole union.
-            let list = if self.is_instantiated_signature_type(constituent) {
-                let signatures =
-                    self.signature_types.get(&constituent).cloned().unwrap_or_default();
-                if signatures.is_empty() {
-                    return None;
-                }
-                signatures
-            } else {
+            // §932: the type's own signatures first — `getSignaturesOfType`'s
+            // order — which is where both an INSTANTIATED signature type and
+            // §10.15's single-signature collapse keep theirs. Without this a
+            // union of two `{ (a: number): T }` literals could not be built at
+            // all, which is the limit §931.1 recorded as "a type literal's call
+            // signature is unrecoverable from its type".
+            let from_type: Vec<Signature> = self
+                .signature_types
+                .get(&constituent)
+                .cloned()
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|signature| signature.kind == SignatureKind::Call)
+                .collect();
+            let list = if from_type.is_empty() {
                 self.call_signatures_of_type(constituent)?
+            } else {
+                from_type
             };
             if list.is_empty() {
                 return None;

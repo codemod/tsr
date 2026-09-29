@@ -9244,9 +9244,83 @@ That is a separate, larger defect — the same one §439 has always been limited
 and it is now named: **a type literal's call signature is unrecoverable from its
 type.** Anything that needs signatures off such a type is blocked on it.
 
+> **CORRECTED by §932, immediately.** It is not a representational limit and
+> nothing was blocked on it. The signature *is* recorded on the type, in
+> `signature_types`, by §10.15's own collapse — **two readers simply did not
+> consult it.** Calling this "representational" was a diagnosis made from one
+> failing probe without opening the mint that produced the type.
+
 ### On the two adverse rows
 
 `unionTypeCallSignatures7` wants `"A with id" | "B with id"` and gets
 `` `${Name} with id` | `${Name} with id` `` — a template-literal type that was not
 instantiated. `GAP->WRONG`, §620's accepted direction, and a template-literal
 instantiation defect rather than a signature one.
+
+
+## §932 — the "representational limit" was a third unconsulted capability (+67)
+
+§931.1 closed by naming a limit: *"a type literal carrying a call signature is
+minted as a print-only named type with no symbol, so its signature is
+unrecoverable from the type."* **Every clause of that is wrong**, and the
+correction is the entry.
+
+### What was actually happening
+
+Probing for the boundary instead of asserting it:
+
+```ts
+declare var a: { (a: number): number; x: string; };  const ra = a(10);  // number  ✓
+declare var b: { (a: number): number; };             const rb = b(10);  // error  ✗
+declare var c: { new (a: number): number; };         const rc = new c(10); // number ✓
+```
+
+**A sole call signature.** The extra member in `a` means no collapse; `c` goes
+down the `new` road. §10.15's single-signature collapse mints the type as
+anonymous, prints it in arrow form, and records the signature in
+`signature_types` — but **not** in `minted_signature_types`, so the call road's
+`is_instantiated_signature_type` test answered `false` and never looked. Control
+fell to `get_signatures_of_symbol`, which reads the `__type` symbol's
+declarations, and a `TypeLiteralNode` is not signature-shaped, so it answered
+`None`.
+
+The type had its signature the whole time. **`getSignaturesOfType`
+(`checker.go:18959`) reads the *type's* signatures** — consulting
+`signature_types` first is upstream's own order, not a fallback.
+
+This is the **sixteenth** instance this session of *a capability present and a
+caller that does not consult it*, and the third in this family after §927 and
+§928. It is also §921/§922/§923's signature exactly: a road correct for one shape,
+silently incomplete for the neighbouring one, **with the working half hiding the
+broken one**.
+
+### The kind filter the measurement demanded
+
+§10.15 stores whichever signature the literal declared. Read unfiltered it
+answered a **construct** signature for a plain call: 3 `RIGHT->WRONG`, one of them
+in a case named for precisely that confusion —
+`objectTypeWithConstructSignatureAppearsToBeFunctionType`, where upstream reports
+and answers `any`. *When a regression lands in a case named after the mistake you
+just made, the case name is the review.*
+
+### Measurement
+
+**57 `WRONG->RIGHT` + 10 `GAP->RIGHT` against 1 `GAP->WRONG`, zero
+`RIGHT->WRONG`.** `right` 442,589 → **442,656**.
+`unionTypeCallSignatures` 25 — §931.1's own fixture, whose first line it had
+written off — `functionTypeArgumentAssignmentCompat` 6,
+`genericFunctionCallSignatureReturnTypeMismatch` 6. The same read was wired into
+§931.1's union builder, which is where those 25 come from.
+
+### The lesson, and it is about me
+
+§931.1 had the probe in front of it: `{ (a: number): number } | { … }` answered
+`error`, and *every row it won came through function type aliases*. From that it
+concluded the type could not carry a signature. **The cheaper explanation — that
+something did not read what was there — was not checked, and it had already been
+the answer fifteen times in this session.**
+
+A negative result about the port's *representation* deserves the same standard as
+a claim about the corpus (§926.1): open the mint. Naming a limit is the most
+expensive kind of wrong record, because the next session reads it and does not
+look.

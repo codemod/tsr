@@ -2708,3 +2708,58 @@ fn a_union_callee_with_one_agreed_return_answers_it_unwrapped() {
         "string"
     );
 }
+
+/// §932 — a type literal whose SOLE member is a call signature is callable.
+///
+/// `get_type_from_type_literal`'s §10.15 collapse mints `{ (a: number): number }`
+/// as an anonymous type printed in arrow form and records its signature in
+/// `signature_types` — but not in `minted_signature_types`, so the call road's
+/// `is_instantiated_signature_type` test answered `false` and never looked.
+/// Control fell to `get_signatures_of_symbol`, which reads the `__type` symbol's
+/// declarations; a `TypeLiteralNode` is not signature-shaped, so it answered
+/// `None` and the call gapped.
+///
+/// `getSignaturesOfType` (`checker.go:18959`) reads the **type's** signatures,
+/// so consulting `signature_types` first is upstream's own order.
+#[test]
+fn a_sole_call_signature_literal_is_callable() {
+    assert_eq!(
+        type_of_declaration("declare var b: { (a: number): number; };\nconst r = b(10);", "r"),
+        "number"
+    );
+}
+
+/// The two neighbours that **already worked**, which is how the defect was
+/// found: an extra member means no collapse, and a construct signature goes down
+/// the `new` road. Without these the test above could pass on a change that
+/// broke either.
+#[test]
+fn the_neighbours_of_the_sole_call_signature_literal_are_unchanged() {
+    assert_eq!(
+        type_of_declaration(
+            "declare var a: { (a: number): number; x: string; };\nconst r = a(10);",
+            "r"
+        ),
+        "number"
+    );
+    assert_eq!(
+        type_of_declaration(
+            "declare var c: { new (a: number): number; };\nconst r = new c(10);",
+            "r"
+        ),
+        "number"
+    );
+}
+
+/// §932's kind filter. §10.15 stores whichever signature the literal declared,
+/// so reading it unfiltered answered a CONSTRUCT signature for a plain call — 3
+/// `RIGHT->WRONG`, one in a case named for exactly this confusion
+/// (`objectTypeWithConstructSignatureAppearsToBeFunctionType`), where upstream
+/// reports and answers `any`.
+#[test]
+fn a_sole_construct_signature_literal_is_not_callable() {
+    assert_eq!(
+        type_of_declaration("declare var c: { new (a: number): number; };\nconst r = c(10);", "r"),
+        "error"
+    );
+}
