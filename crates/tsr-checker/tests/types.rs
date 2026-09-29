@@ -3032,3 +3032,37 @@ fn only_the_readonly_assignment_target_changes() {
         "10"
     );
 }
+
+/// §947.2 — a generic alias to a function type carries its signatures, and keeps
+/// its name.
+///
+/// `type F<T> = (x: T) => void` produced a reference with **no signatures**: not
+/// callable, not inferable. The non-generic `type G = (x: number) => void` worked
+/// and a generic *object* alias `type O<T> = { v: T }` worked, which is what made
+/// the shape findable.
+///
+/// Four entries blamed four other mechanisms first (§942 priority, §941.1 the
+/// fallthrough's shape, §947 the reference road, §947.1 a naive registration).
+#[test]
+fn a_generic_function_alias_is_inferable() {
+    assert_eq!(
+        type_of_declaration(
+            "type F<T> = (x: T) => void;\ndeclare function g<T>(cb: F<T>): T;\n\
+             const v = g((x: number) => {});",
+            "v"
+        ),
+        "number"
+    );
+}
+
+/// The regression leg that §947.1 failed: the reference must still **print its
+/// alias name**. `signature_types` is itself what makes a type render as a
+/// signature, so registering it without `alias_named_signature_types` turned
+/// `F<number>` into `(x: number) => void` — 287 `RIGHT->WRONG`.
+#[test]
+fn a_generic_function_alias_keeps_its_printed_name() {
+    assert_eq!(
+        type_of_declaration("type F<T> = (x: T) => void;\ndeclare const fc: F<number>;", "fc"),
+        "F<number>"
+    );
+}

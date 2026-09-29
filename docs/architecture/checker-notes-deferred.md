@@ -10665,3 +10665,43 @@ Reverted whole. The family's ledger now reads: §942 blamed priority, §941.1 bl
 the fallthrough, §947 blamed the reference road, §947.1 found the body *and* the
 reason a naive registration cannot land. Each entry moved the diagnosis and none
 of them moved the number, which is worth saying plainly.
+
+## §947.2 — the same registration, with the name kept (+18)
+
+§947.1 obtained the signatures and lost the name: **16 `WRONG->RIGHT` against 287
+`RIGHT->WRONG`**, because `signature_types` is *itself* what makes a type render
+as a signature (`checker.rs:1517` and `:1533`). Registering it turned
+`declare const fc: F<number>` from `F<number>` into `(x: number) => void`.
+
+`alias_named_signature_types` is the existing answer to exactly that question —
+`function_types.rs` inserts into it so a non-generic alias-named bake keeps its
+name, and the printer checks it at **both** signature-rendering sites. One extra
+insert is the whole difference.
+
+**18 `WRONG->RIGHT`, zero adverse.** `right` 443,373 → **443,391**.
+`inferFromGenericFunctionReturnTypes2` 17, `neverInference` 1.
+
+### The ledger this closes
+
+| entry | blamed | outcome |
+|---|---|---|
+| §942 | inference priority | built a 2-level model, refused |
+| §941.1 | the fallthrough's shape | refused, 8 against 5 |
+| §947 | the reference road | zero; found the body resolves to `error` |
+| §947.1 | — | found the decline; **−271** on the printed name |
+| §947.2 | — | **+18, zero adverse** |
+
+Five entries on one family. Four of them moved only the diagnosis, and each was
+wrong in a way the next one needed: §947 could not have looked for the decline
+without §942's negative, and §947.2 is §947.1 plus one line that §947.1's 287 rows
+identified.
+
+*The cost of the four is the price of the fifth, and the record is what makes that
+true rather than a consolation.*
+
+### What is still not reached
+
+`fc(1)` — a **direct call** through the alias — is still `error`. Inference reads
+`signature_types` and answers; the call road does not reach it for this type.
+That is §932's split again (two roads, one pair of types, one reader), now with a
+third instance, and it is the next step rather than part of this one.

@@ -2527,6 +2527,59 @@ impl<'a> Checker<'a, '_> {
         // parameters to the arguments with §91's own
         // `alias_evaluation_bindings` frame and RE-RESOLVE the recorded node.
         // Nothing here substitutes anything; the existing splice runs.
+        // §947.2: a GENERIC alias whose body is a FUNCTION or CONSTRUCTOR type
+        // gets its signatures — **without moving what the reference prints.**
+        //
+        // §947.1 did the first half and measured **−271**: 16 `WRONG->RIGHT`
+        // against 287 `RIGHT->WRONG`, because `signature_types` is *itself* what
+        // makes a type render as a signature (`checker.rs:1517`), so registering
+        // it turned `declare const fc: F<number>` from `F<number>` into
+        // `(x: number) => void`.
+        //
+        // `alias_named_signature_types` is the existing answer to exactly that
+        // question — `function_types.rs` inserts into it so a non-generic
+        // alias-named bake keeps its name — and the printer checks it at both
+        // signature-rendering sites. Registering there too is the whole
+        // difference between §947.1 and this.
+        if self.binder.symbols().get(symbol).flags.contains(tsr_binder::SymbolFlags::TYPE_ALIAS)
+            && let Some(declaration) =
+                self.binder.symbols().get(symbol).declarations.first().copied()
+            && let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration)
+            && let Some(
+                body_node @ (TypeNode::FunctionTypeNode(_) | TypeNode::ConstructorTypeNode(_)),
+            ) = alias.r#type
+            && self.variadic_alias_in_progress.insert(symbol)
+        {
+            let parameter_symbols: Vec<tsr_binder::SymbolId> = alias
+                .type_parameters
+                .iter()
+                .filter_map(|parameter| parameter.node_id)
+                .filter_map(|id| self.binder.symbol_of(id))
+                .collect();
+            let signatures =
+                if parameter_symbols.len() == arguments.len() && !parameter_symbols.is_empty() {
+                    let frame: rustc_hash::FxHashMap<tsr_binder::SymbolId, TypeId> =
+                        parameter_symbols.iter().copied().zip(arguments.iter().copied()).collect();
+                    self.alias_evaluation_bindings.push(frame);
+                    let body = self.get_type_from_type_node(body_node);
+                    self.alias_evaluation_bindings.pop();
+                    self.signature_types.get(&body).cloned()
+                } else {
+                    None
+                };
+            self.variadic_alias_in_progress.remove(&symbol);
+            if let Some(signatures) = signatures
+                && !signatures.is_empty()
+            {
+                let built = self.create_type_reference(symbol, arguments.clone());
+                if built != error {
+                    self.signature_types.insert(built, signatures);
+                    // The name survives: this is an alias-NAMED bake.
+                    self.alias_named_signature_types.insert(built);
+                    return built;
+                }
+            }
+        }
         if self.binder.symbols().get(symbol).flags.contains(tsr_binder::SymbolFlags::TYPE_ALIAS)
             && let Some(declaration) =
                 self.binder.symbols().get(symbol).declarations.first().copied()

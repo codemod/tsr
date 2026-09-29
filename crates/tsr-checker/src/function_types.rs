@@ -145,6 +145,15 @@ impl<'a> Checker<'a, '_> {
                 alias_named = true;
                 self.binder.symbols().get(alias).name.to_string()
             }
+            // §947.2: the alias currently being re-resolved renders its body
+            // STRUCTURALLY here, which is §92's exemption for the union road
+            // applied to this one. Keyed on `variadic_alias_in_progress` — the
+            // alias §947.2's caller inserted before re-resolving — so an
+            // unrelated function type reached during some other evaluation still
+            // declines.
+            Some(alias) if self.variadic_alias_in_progress.contains(&alias) => {
+                self.signature_to_string(&signature)
+            }
             Some(_) => return error,
         };
         // The symbol is `bindFunctionOrConstructorType`'s `__type` symbol, whose
