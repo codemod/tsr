@@ -671,18 +671,61 @@ impl Relater<'_, '_, '_> {
     fn related_call_signatures(&mut self, source: TypeId, target: TypeId) -> Option<Ternary> {
         let source_signatures = self.checker.call_signatures_of_type(source)?;
         let target_signatures = self.checker.call_signatures_of_type(target)?;
-        let ([source_signature], [target_signature]) =
-            (source_signatures.as_slice(), target_signatures.as_slice())
-        else {
+        if source_signatures.is_empty() || target_signatures.is_empty() {
             return None;
-        };
-        let (source_signature, target_signature) =
-            (source_signature.clone(), target_signature.clone());
+        }
+        // §936.1: §935 required exactly ONE signature per side and named the
+        // generalisation as its residue — upstream's *"some source signature
+        // relates to each target signature"* (`signaturesRelatedTo`,
+        // `relater.go:4441`, whose loop iterates the TARGET's list and searches
+        // the source's). That is this walk.
+        //
+        // An unjudgeable PAIR is skipped rather than failing the set, so a target
+        // signature with no judgeable partner leaves the set UNDECIDED (`None`)
+        // rather than rejected — a missing verdict, never a wrong one.
+        let mut parts = Vec::new();
+        for target_signature in &target_signatures {
+            let mut best: Option<Ternary> = None;
+            for source_signature in &source_signatures {
+                let Some(verdict) =
+                    self.one_signature_related_to(source_signature, target_signature)
+                else {
+                    continue;
+                };
+                if verdict == Ternary::Related {
+                    best = Some(Ternary::Related);
+                    break;
+                }
+                best = Some(match best {
+                    None | Some(Ternary::Unknown) => verdict,
+                    Some(held) => held,
+                });
+            }
+            parts.push(best?);
+        }
+        Some(Ternary::all(parts))
+    }
+
+    /// One source signature against one target signature — the comparison §935
+    /// ported, now the inner step of [`Relater::related_call_signatures`].
+    ///
+    /// `None` when the pair is outside what this port can judge, which lets the
+    /// caller keep looking rather than reading "cannot judge" as "not related".
+    fn one_signature_related_to(
+        &mut self,
+        source_signature: &crate::signatures::Signature,
+        target_signature: &crate::signatures::Signature,
+    ) -> Option<Ternary> {
         if !source_signature.type_parameters.is_empty()
             || !target_signature.type_parameters.is_empty()
             || source_signature.parameters.len() > target_signature.parameters.len()
             || source_signature.parameters.iter().any(|parameter| parameter.rest)
             || target_signature.parameters.iter().any(|parameter| parameter.rest)
+            // A TYPE PREDICATE declines the pair. Upstream compares predicates
+            // (`getTypePredicateOfSignature` on both sides); this port cannot, so
+            // ignoring one would be a missing REJECTION — a possible wrong
+            // accept. **Dropping the exclusion measured zero change**, so the
+            // safer form is kept and the zero recorded.
             || source_signature.predicate.is_some()
             || target_signature.predicate.is_some()
         {

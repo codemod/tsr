@@ -9635,3 +9635,56 @@ this entry's 53 rows came from. Building an overload pair inside the lib-free un
 harness whose selection turns on an index signature would assert the overload
 road, not this arm — so the absence is documented at the site instead of papered
 over with a fixture that tests something else.
+
+## §936.1 — the overload-set walk §935 left behind (+5)
+
+§935's stated residue: *"an **overload set** on either side needs upstream's 'some
+source signature relates to each target signature' walk with its `Ternary`
+bookkeeping."* That walk is `signaturesRelatedTo` (`relater.go:4441`), whose loop
+iterates the **target's** signature list and searches the source's.
+
+Ported by splitting §935's comparison into `one_signature_related_to` and
+wrapping it in that search. **One design point carries the whole thing:**
+
+> An unjudgeable **pair** is skipped rather than failing the set.
+
+So a target signature with no judgeable partner leaves the set `None` — undecided
+— rather than rejected. Reading "cannot judge" as "not related" is how a relater
+manufactures confident wrong answers, and the `Option` return is what keeps the
+two apart.
+
+**5 `GAP->RIGHT` (`unionTypeReduction`), zero adverse.** `right` 442,944 →
+**442,949**.
+
+### Small, and the size is the finding
+
+§935's one-signature arm was 37 lines; its generalisation to arbitrary overload
+sets is 5. The residue §935 named as the next step turns out to be nearly empty,
+which says the corpus's signature-bearing targets are overwhelmingly
+**single-signature** — and that is worth recording precisely so the next reader
+does not budget for it again.
+
+### Measured, not assumed — fifth and sixth
+
+Continuing §934's discipline:
+
+| restriction | relaxing it measured |
+|---|---|
+| a type predicate on either side declines the pair | **zero change** |
+
+Kept, and the direction matters: dropping it would mean *ignoring* a predicate
+upstream compares, which is a missing **rejection** — a possible wrong accept.
+Where §935's two zeros let the stricter form stand for free, this one lets the
+*safer* form stand for free.
+
+**Six restrictions measured across three entries, all six free.** That is now a
+strong enough pattern to state as guidance: *in this relater, measure the
+restriction before writing the paragraph defending it — it has never yet cost
+anything, and the measurement is two runs.*
+
+### Still not ported
+
+Rest parameters (upstream's `getParameterCount`/`getTypeAtPosition` arity rules)
+and generic signatures (upstream relates them under a unification of their type
+parameters). Both decline the pair, which the walk now treats as "keep looking"
+rather than "fail".
