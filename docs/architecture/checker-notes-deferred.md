@@ -10546,3 +10546,66 @@ rows it read; the second only surfaced under an `eprintln`.
 *A reopening condition is a direction, not a plan.* The habit that closed this was
 §941.1's — instrument at the point of failure instead of reasoning forward from
 the diagnosis.
+
+## §947 — a generic alias to a function type, and where it actually breaks (no score change)
+
+§946 changed the literal-freshness landscape, so §941.1's refused fallthrough was
+re-measured: **unchanged, 5 `RIGHT->WRONG` in `neverInference` exactly as before.**
+§946 did not unblock it, and chasing *why* found something else.
+
+### The `never` was never the problem
+
+```ts
+declare function mk2<T>(items: T[], c: (x: T) => number): T;
+mk2([], (x: number) => 1);                  // number  ✓  inline function type
+type Comparator<T> = (x: T, y: T) => number;
+mkList([], compareNumbers);                 // never   ✗  through the alias
+```
+
+§942 read this as inference **priority** — a `never` candidate outranking a real
+one. It is not. **The `number` candidate never arrives**, because the comparator's
+parameter type carries no signatures at all:
+
+```ts
+type F<T> = (x: T) => void;    declare const fc: F<number>;  fc(1);  // error, NOT CALLABLE
+type G    = (x: number) => void; declare const gc: G;        gc(1);  // void
+type O<T> = { v: T };          k<T>(o: O<T>)                         // infers ✓
+```
+
+**A generic alias to a FUNCTION type is not callable and not inferable**, while a
+non-generic one is and a generic alias to an OBJECT type is. That is a defect in
+its own right, far wider than the inference row that led here — `Comparator<T>`,
+`Selector<State>` and every `type F<T> = (…) => …` idiom lands on it.
+
+### The fix attempted, and where it actually breaks
+
+`function_types.rs` registers `signature_types` for a non-generic alias's mint, so
+the obvious repair was to re-resolve the body under §91's
+`alias_evaluation_bindings` frame — exactly what the variadic-tuple road beside it
+does — and copy the signatures onto the reference. Written, and it measured zero.
+
+Instrumented rather than guessed:
+
+```text
+ALIASBODY body=error err=true
+ALIASFN symbol_params=1 args=1 sigs=None
+```
+
+Arity matches and the frame is pushed; **the body itself resolves to `error`.**
+So the blocker is not the reference road and not the signature table — a generic
+alias's body does not resolve under the bindings at all, which is consistent with
+`get_declared_type_of_type_alias` short-circuiting a generic alias *before* its
+body is resolved (a limit its own doc records).
+
+### Reopening condition, and a correction to §942
+
+**Resolve a generic type alias's body.** That is the item, and it is upstream of
+everything three entries have blamed: §942 blamed priority, §941.1 blamed the
+fallthrough's shape, and this entry blamed the reference road. *All three were
+downstream of a body that never resolves.*
+
+Reverted whole — the arm measures zero and unmeasured code is §929's liability.
+
+The object-alias case working while the function-alias case does not is the
+sharpest available clue and is left pointed at: whatever road answers `O<T>`'s
+members is the one `F<T>`'s signatures need.
