@@ -9324,3 +9324,53 @@ A negative result about the port's *representation* deserves the same standard a
 a claim about the corpus (§926.1): open the mint. Naming a limit is the most
 expensive kind of wrong record, because the next session reads it and does not
 look.
+
+## §932.1 — the audit §932 called for, and its one remaining instance (+25)
+
+§932 closed by saying the other readers of `signature_types` /
+`minted_signature_types` had not been audited, and that the pattern had paid
+sixteen times. The audit is five `grep` hits and took less time than the entry
+arguing for it.
+
+### The readers, and what each does
+
+| reader | gate | verdict |
+|---|---|---|
+| `calls.rs:1409` | `is_instantiated_signature_type`, then §932's direct read | fixed by §932 |
+| **`contextual.rs:555`** | `is_instantiated_signature_type` only | **the remaining instance** |
+| `inference.rs:1594` | reads the table directly | already correct |
+| `expressions.rs:2640`, `members.rs:1564`/`:1849`, `checker.rs:1489`/`:1504` | read the table directly | already correct |
+
+So exactly one more, and it is the contextual side:
+
+```ts
+declare function f(cb: { (a: number): void }): void;
+f(oak => { oak; });     // oak : any      <- the literal
+declare function g(cb: (a: number) => void): void;
+g(elm => { elm; });     // elm : number   <- the arrow form
+var h: { (a: number): void } = birch => { birch; };   // birch : any
+```
+
+**Two spellings of one type, two answers**, and the collapse exists precisely to
+make them the same type. `getSignaturesOfType` (`checker.go:18959`) reads the
+type's signatures whatever minted it, so the gate is replaced by a direct read —
+filtered to CALL signatures for §932's reason.
+
+**24 `WRONG->RIGHT` + 1 `GAP->RIGHT`, zero adverse.** `right` 442,656 →
+**442,681**. `contextualTyping` 16, `contextualTypingWithGenericSignature` 3,
+`anonterface` 2.
+
+### The `is_instantiated_signature_type` gate is kept, narrowed
+
+It still answers `None` for an *instantiated* signature type that reaches this
+function without a single call signature, which is `bd tsr-0hc`'s freeze wire and
+a different question from the one the table answers. What changed is the order:
+**the table is read first, and the gate only decides what to do when the table is
+empty.**
+
+### Method note
+
+§932's own closing sentence was the instruction that produced this entry, and the
+work was trivial once stated. *The useful output of a wrong diagnosis was not the
+fix but the audit it implied* — and the audit was cheap in a way the original
+diagnosis had assumed it was not.

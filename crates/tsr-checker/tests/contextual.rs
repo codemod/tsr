@@ -375,3 +375,41 @@ fn a_method_with_no_contextual_this_parameter_is_unchanged() {
 // `docs/architecture/checker-notes-deferred.md` §928.1: ungated **10
 // `WRONG->RIGHT` against 12 `RIGHT->WRONG`**, gated on `NodeFacts::CONTAINS_THIS`
 // **+3 with zero adverse**. The 12 that disappear are the falsifier.
+
+/// §932.1 — a contextual signature read off a type literal, not just an arrow
+/// form.
+///
+/// §932 found that §10.15's single-signature collapse records its signature in
+/// `signature_types` without registering the type as *minted*, so every reader
+/// gated on `is_instantiated_signature_type` never looked. The contextual side
+/// was the second such reader:
+///
+/// ```ts
+/// declare function f(cb: { (a: number): void }): void;   // was: any
+/// declare function g(cb: (a: number) => void): void;     // was: number
+/// ```
+///
+/// Two spellings of one type, two answers. `getSignaturesOfType`
+/// (`checker.go:18959`) reads the type's signatures whatever minted it.
+#[test]
+fn a_contextual_signature_is_read_off_a_type_literal() {
+    let source = "declare function f(cb: { (a: number): void }): void;\nf(oak => { oak; });";
+    assert_eq!(type_of(source, "oak"), "number");
+}
+
+/// The same through an annotated variable rather than an argument, which is a
+/// different arm of `get_contextual_type` reaching the same reader.
+#[test]
+fn an_annotated_variable_reads_a_type_literals_signature() {
+    let source = "var h: { (a: number): void } = birch => { birch; };";
+    assert_eq!(type_of(source, "birch"), "number");
+}
+
+/// The arrow-form spelling, which already worked and must keep working — without
+/// it the two tests above could pass on a change that routed everything through
+/// the new read.
+#[test]
+fn the_arrow_form_spelling_is_unchanged() {
+    let source = "declare function g(cb: (a: number) => void): void;\ng(elm => { elm; });";
+    assert_eq!(type_of(source, "elm"), "number");
+}

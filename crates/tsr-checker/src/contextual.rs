@@ -552,11 +552,41 @@ impl<'a> Checker<'a, '_> {
     /// signatures declines here where upstream may still answer.
     pub(crate) fn contextual_signature_of_type(&mut self, contextual: TypeId) -> Option<Signature> {
         // The tsr-0hc type-first read (the freeze-breaking wire).
-        if self.is_instantiated_signature_type(contextual) {
-            let signatures = self.signature_types.get(&contextual).cloned().unwrap_or_default();
-            if let [signature] = signatures.as_slice() {
+        //
+        // **§932.1 removed the `is_instantiated_signature_type` gate** in favour
+        // of reading the table directly, which is §932's correction applied to
+        // the contextual side. §10.15's single-signature collapse records a
+        // signature here without registering the type as *minted*, so the gate
+        // answered `false` and the table was never read:
+        //
+        // ```ts
+        // declare function f(cb: { (a: number): void }): void;
+        // f(oak => { oak; });   //  oak : any     — the literal
+        // declare function g(cb: (a: number) => void): void;
+        // g(elm => { elm; });   //  elm : number  — the arrow form
+        // ```
+        //
+        // Two spellings of one type, two answers. `getSignaturesOfType`
+        // (`checker.go:18959`) reads the TYPE's signatures whatever minted it.
+        //
+        // Filtered to CALL signatures for §932's reason: the collapse stores
+        // whichever kind the literal declared, and a construct signature is not
+        // a contextual call signature.
+        let from_type: Vec<Signature> = self
+            .signature_types
+            .get(&contextual)
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|signature| signature.kind == crate::signatures::SignatureKind::Call)
+            .collect();
+        if !from_type.is_empty() {
+            if let [signature] = from_type.as_slice() {
                 return Some(signature.clone());
             }
+            return None;
+        }
+        if self.is_instantiated_signature_type(contextual) {
             return None;
         }
         if let Some(signature) = self.single_call_signature(contextual) {
