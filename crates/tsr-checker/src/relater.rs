@@ -665,6 +665,38 @@ impl Relater<'_, '_, '_> {
     /// [`Checker::signatures_of_type`] for a baked function-shaped type, and the
     /// members symbol's own declarations for an interface or type literal that
     /// writes a signature member.
+    /// §935: the one-call-signature arm of `signaturesRelatedTo`
+    /// (`relater.go:4441`). `None` when the shape is outside what this port can
+    /// decide, which keeps row 6's `Unknown`; `Some` is a real verdict.
+    fn related_call_signatures(&mut self, source: TypeId, target: TypeId) -> Option<Ternary> {
+        let source_signatures = self.checker.call_signatures_of_type(source)?;
+        let target_signatures = self.checker.call_signatures_of_type(target)?;
+        let ([source_signature], [target_signature]) =
+            (source_signatures.as_slice(), target_signatures.as_slice())
+        else {
+            return None;
+        };
+        let (source_signature, target_signature) =
+            (source_signature.clone(), target_signature.clone());
+        if !source_signature.type_parameters.is_empty()
+            || !target_signature.type_parameters.is_empty()
+            || source_signature.parameters.len() > target_signature.parameters.len()
+            || source_signature.parameters.iter().any(|parameter| parameter.rest)
+            || target_signature.parameters.iter().any(|parameter| parameter.rest)
+            || source_signature.predicate.is_some()
+            || target_signature.predicate.is_some()
+        {
+            return None;
+        }
+        let mut parts = Vec::with_capacity(source_signature.parameters.len() + 1);
+        for (from, to) in source_signature.parameters.iter().zip(&target_signature.parameters) {
+            parts.push(self.is_related_to(from.r#type, to.r#type));
+            parts.push(self.is_related_to(to.r#type, from.r#type));
+        }
+        parts.push(self.is_related_to(source_signature.r#type, target_signature.r#type));
+        Some(Ternary::all(parts))
+    }
+
     fn signature_bearing(&self, id: TypeId) -> bool {
         if self.checker.signatures_of_type(id).is_some_and(|signatures| !signatures.is_empty()) {
             return true;
@@ -994,7 +1026,43 @@ impl Relater<'_, '_, '_> {
             //
             // A signature-bearing TARGET still refuses: that is the real
             // `signatureRelatedTo` this port does not have.
+            // §935: `signaturesRelatedTo` (`relater.go:4441`) for the one
+            // shape this port can decide — **both sides carrying exactly one
+            // CALL signature**. Row 6's refusal above is right that a
+            // signature-bearing target cannot be decided by the property walk
+            // alone; it is not right that nothing can decide it.
+            //
+            // Conservative on purpose, and each restriction is a missing
+            // ACCEPTANCE rather than a possible wrong answer:
+            //
+            // - **One signature each.** An overload set needs upstream's
+            //   "some source signature relates to each target signature" walk
+            //   with its `Ternary` bookkeeping.
+            // - **Equal parameter counts**, no rests, no generics. Upstream
+            //   relates shorter-to-longer through `getParameterCount`'s arity
+            //   rules; declining is a gap.
+            // - **Parameters related in BOTH directions.** Upstream is
+            //   contravariant under `strictFunctionTypes` and bivariant for
+            //   methods, and this port tracks neither. Requiring both is
+            //   stricter than either, so it can only decline where upstream
+            //   accepts — never accept where upstream declines. **Relaxing it
+            //   to contravariant-only measured ZERO change**, so the strict
+            //   form is kept: it costs nothing and cannot answer wrongly.
+            //
+            // Two of these restrictions were measured and are free. Admitting a
+            // SHORTER source parameter list (upstream's arity rule) also
+            // measured zero; it is kept because it is what upstream does, and
+            // the zero is recorded so the next reader does not re-derive it.
+            // - **Returns covariant**, which is upstream's rule outright.
+            //
+            // The properties walk still runs and both must agree, which is
+            // upstream's shape: `signaturesRelatedTo` and `propertiesRelatedTo`
+            // are conjuncts.
             if self.signature_bearing(target) {
+                if let Some(signatures) = self.related_call_signatures(source, target) {
+                    let properties = self.properties_related_to(source, target);
+                    return Ternary::all(vec![signatures, properties]);
+                }
                 reasons::note(reasons::Site::SignatureBearing);
                 return Ternary::Unknown;
             }

@@ -9521,3 +9521,55 @@ were written by someone who had the harness to check and did not.
 The reopening condition is unchanged and now sharper: `getVariances`, after which
 this arm consults variance rather than assuming it, and the contravariance test
 flips to `error`.
+
+## §935 — `signaturesRelatedTo`, the one-signature arm (+37)
+
+The relater's row 6 refuses a **signature-bearing target** outright, with the note
+*"that is the real `signatureRelatedTo` this port does not have"*. It is the rung
+sitting under the board's largest root (`expression answered any: CallExpression`,
+1,902 lines), because an overload cannot be selected against a target the relater
+will not judge.
+
+Row 6 is right that a signature-bearing target cannot be decided by the property
+walk alone. It is not right that **nothing** can decide it.
+
+### What is ported
+
+Both sides carrying exactly **one call signature**:
+
+- equal or shorter source parameter list, no rests, no generics, no predicates;
+- parameters related in **both** directions;
+- returns related covariantly;
+- and `propertiesRelatedTo` still runs — upstream's two are conjuncts.
+
+**37 `WRONG->RIGHT`, zero adverse** (`typeGuardOfFormIsTypeOnInterfaces`).
+`right` 442,850 → **442,887**.
+
+### Three restrictions measured, two of them free
+
+Following §934's lesson directly — *a reasoned restriction with no number is the
+cheapest thing in this codebase to get wrong* — each restriction was measured
+rather than assumed:
+
+| restriction | relaxing it measured |
+|---|---|
+| parameters related in **both** directions | **zero change** |
+| equal parameter counts (vs. upstream's shorter-source rule) | **zero change** |
+| one signature per side | not attempted — needs upstream's `Ternary` walk |
+
+So the bivariant requirement is kept: it costs nothing and **cannot** answer
+wrongly, where contravariant-only could. Upstream's shorter-source arity rule is
+kept because it is what upstream does, and its zero is recorded so the next reader
+does not re-derive it.
+
+*This is the first entry in this session where the conservative choice was
+verified free rather than argued for.* That verification cost two `scorepair`
+runs.
+
+### What stays refused
+
+An **overload set** on either side needs upstream's "some source signature relates
+to each target signature" walk with its `Ternary` bookkeeping, and
+`signature_bearing` also counts **index signatures**, which this arm does not
+touch at all. Both remain `Unknown`, which is where row 6's refusal still earns
+its place.
