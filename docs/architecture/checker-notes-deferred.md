@@ -10144,3 +10144,65 @@ shape is not the problem.
 §937.1 made the opposite error: it *assumed* priority and the rows said literal
 widening. Here the rows say priority. **The difference between the two entries is
 that this one looked.**
+
+## §942 — the priority mechanism, built and refused (no score change)
+
+§941.1 named the inference-priority model as its reopening condition and said
+*"not another guard"*. This is that model, at the smallest size that could
+discharge the refusal: **two levels**, regular and low, with
+`getInferredType`'s rule that only the best priority present is read.
+
+Built:
+
+- `InferenceInfo::low_candidates` and `add_low_candidate`;
+- `effective_candidates()` — the regular set, or the low set when it is empty;
+- `infer_from_object_types` extracted from `infer_from_types_within`, so the
+  different-target reference fallthrough can run the structural walk into a
+  **scratch collection** and contribute at low priority;
+- `merge_info` carrying both levels.
+
+It works on the shape it was aimed at — `g2<T>(a: CC<T>)` with `string[]` infers
+`string`, `setMethods` gains 2 — and it **does not fix the rows it was built
+for**. `neverInference` keeps its **5 `RIGHT->WRONG`**, unchanged from §941.1.
+
+### Why, and it is not the mechanism
+
+```ts
+declare function mk2<T>(items: T[], c: (x: T) => number): T;
+mk2([], (x: number) => 1);                       // number  ✓  direct function type
+type Comparator<T> = (x: T, y: T) => number;
+declare function mkList<T>(items: T[], comparator: Comparator<T>): LinkedList<T>;
+mkList([], compareNumbers);                      // LinkedList<never>  ✗  through an alias
+```
+
+Both arguments contribute: `[]` gives `T := never`, the comparator gives
+`T := number`. Upstream answers `number`.
+
+**The two-level split ranks the wrong side.** The comparator's candidate arrives
+through the structural route — low — and `never` from the empty array arrives as
+a **regular** candidate, so `effective_candidates` prefers the `never`. Making
+structural candidates low is correct for §941.1's fallthrough and exactly
+backwards here.
+
+### What this buys, which is not nothing
+
+Upstream's priority is **not** "structural is worse than direct". It is a
+bitflag set per *inference site* — `InferencePriorityNakedTypeVariable`,
+`ReturnType`, and the rest — and the row that matters here is that an empty
+array's `never` is itself a low-priority candidate, not that a structural one is.
+
+So the finding is: **the mechanism is not the missing piece; the assignment of
+priorities is.** A two-level bucket was enough to *express* the rule and not
+enough to *be* it, and that is now measured rather than assumed — which is worth
+more to the next session than another entry that assumed the opposite.
+
+Reverted whole, including the extraction: unmeasured refactoring is the liability
+§929 named, and `infer_from_object_types` has no other caller.
+
+### Reopening condition, sharpened
+
+Not "a priority model" — **`InferencePriority` with upstream's own flags at
+upstream's own sites**, starting with the empty-array/`never` candidate. §920.1
+already recorded that the sourceable priority bit had no population; §937 created
+one, §941.1 confirmed it, and this entry shows the two-level approximation does
+not reach it.
