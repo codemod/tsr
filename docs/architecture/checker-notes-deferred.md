@@ -10736,3 +10736,24 @@ prevent.
 *A direct call through a generic function alias is simply rare in the corpus. The
 shape is common in real code, which is why it was worth closing and why the corpus
 is the arbiter of SIZE and not of CORRECTNESS (§800).*
+
+
+### §947.4 — the `new` road's copy, measured at zero and not kept
+
+The direct analogue of §947.3 on the `new` road. `type C<T> = new () => T` with
+`new cc()` where `cc: C<Thing>` answered `error`, while the non-generic
+`type D = new () => Thing` worked and inference through `C<T>` worked — the same
+split, one branch further along.
+
+Wired (the `new` road reading the type's own construct signatures before
+`get_signature_of_named_type`), **verified by probe** — `u1 : Thing` — and it
+measures **zero transitions**. Not kept.
+
+That is §929's and §940's rule applied to my own work: extra behaviour with no
+measured population is a liability, and the zero is the useful record. It would
+have been the **fourth** reader of `signature_types` wired into a road
+(§932 anonymous call, §932.1 contextual, §947.3 named call, this `new`), and the
+symmetry is not a reason on its own.
+
+*A generic constructor alias called with `new` does not occur in this corpus. If
+it ever does, the fix is eight lines and this note says where.*
