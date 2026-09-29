@@ -1356,7 +1356,38 @@ impl Checker<'_, '_> {
                 for (t, s) in ta.iter().zip(sa.iter()) {
                     self.infer_from_types_within(*s, *t, original, parameters, out, depth + 1);
                 }
+                return;
             }
+            // §941.1 TRIED falling through here — two references with DIFFERENT
+            // targets going on to the structural walk below, which is upstream's
+            // `inferFromObjectTypes` — and it is **refused**.
+            //
+            // It works for the shape it was written for: `Array<string>` against
+            // `ConcatArray<T>` (different targets, so the argument-wise arm above
+            // declines) then infers `T := string` through the index signature,
+            // and `one<T>(...items: ConcatArray<T>[])` answers `string[]` where
+            // it answered `error`.
+            //
+            // **Measured: 8 `WRONG->RIGHT` against 5 `RIGHT->WRONG`**
+            // (`neverInference`), and restricting the fallthrough to targets
+            // carrying an index signature did not move the adverse rows at all.
+            //
+            // The rows say why, and this time they were read rather than guessed:
+            // `LinkedList<number>` becomes `LinkedList<never>`. A `never[]` or
+            // empty-array source contributes a `never` candidate through the
+            // structural walk, and upstream ranks that below a better one —
+            // `InferencePriority`, the model §920/§920.1 describes and this port
+            // does not have. Without it the extra candidates are not extra
+            // information, they are noise that wins.
+            //
+            // **Reopening condition: the inference-priority model.** Not another
+            // guard on this fallthrough; two were tried and the second changed
+            // nothing, which is the signal that the shape is not the problem.
+            //
+            // How it was found is worth keeping: §941's index arm was
+            // instrumented and printed NOTHING for the shape it was written for
+            // — the second time this session an arm measuring zero turned out to
+            // be unreachable rather than unpopulated (§939 was the first).
             return;
         }
         if let TypeData::Union { types, .. } = &self.store.get(target).data {

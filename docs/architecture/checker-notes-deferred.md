@@ -10075,9 +10075,72 @@ than a guess that sends the next reader to the wrong function.
 *That is the reopening condition for `concat`, and it is one function, not a
 subsystem.*
 
+> **CORRECTED by §941.1.** It is not `get_index_infos_of_type`, and it is not one
+> function. Instrumenting §941's arm showed it is **never reached** for that
+> shape: the reference arm above returns unconditionally when both sides are
+> references. Removing that return works and is **refused on its number** — see
+> §941.1.
+
 ### On relation versus inference
 
 §936 already made the **relation** work: `takesConcat(s)` with
 `a: ConcatArray<string>` answers correctly. Only **inference** is blocked. Two
 roads reach the same pair of types and only one of them can read it, which is the
 same split §932 found between the call road and the contextual road.
+
+
+## §941.1 — the arm was unreachable, and the fallthrough is refused (no score change)
+
+§941 closed by pinning its residue to `CC<T>` and saying *"which of those two
+steps fails is not verified"*. It then named `get_index_infos_of_type` as the
+likely place and called it **one function, not a subsystem**. Both halves of that
+guess were wrong, and the instrument said so in one run.
+
+### The arm was never reached
+
+An `eprintln` in §941's index arm printed **nothing** for
+`g2<T>(a: CC<T>)` called with `string[]`. The cause is four lines above it:
+
+```rust
+let same_target = ts == ss || self.is_array_like_pair(ts, ss);
+if same_target && ta.len() == sa.len() { … }
+return;                     // ← unconditional
+```
+
+Two references with **different** targets decline the argument-wise walk and then
+**return**, ending the inference before §937's property arm or §941's index arm
+can look. Upstream's `inferFromObjectTypes` is exactly that fallthrough.
+
+**This is the second time this session that an arm measuring zero turned out to
+be unreachable rather than unpopulated** — §939 was the first, and there the
+zero-reading nearly closed the item as "no corpus population". Twice is a rule:
+*instrument before concluding a shape has no population.*
+
+### The fallthrough works, and is refused
+
+Letting different-target references fall through:
+
+```ts
+declare function g2<T>(a: CC<T>): T;              g2(s)    // error → string
+declare function one<T>(...items: ConcatArray<T>[]): T[];  one(s) // error → string[]
+```
+
+**8 `WRONG->RIGHT` against 5 `RIGHT->WRONG`** (`neverInference`). Restricting it
+to targets that carry an index signature moved the adverse rows **not at all**.
+
+The rows were read this time rather than inferred from the case name:
+`LinkedList<number>` becomes `LinkedList<never>`. A `never[]` or empty-array
+source contributes a `never` candidate through the structural walk, and upstream
+ranks that below a better one — `InferencePriority`, the model §920/§920.1
+describes and this port does not have. **Without priority the extra candidates
+are not extra information; they are noise that wins.**
+
+### Reopening condition
+
+The inference-priority model — **not** another guard on this fallthrough. Two
+guards were tried and the second changed nothing, which is the signal that the
+shape is not the problem.
+
+§937.1 made the opposite error: it *assumed* priority and the rows said literal
+widening. Here the rows say priority. **The difference between the two entries is
+that this one looked.**
