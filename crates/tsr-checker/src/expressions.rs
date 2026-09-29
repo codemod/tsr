@@ -2341,6 +2341,42 @@ impl Checker<'_, '_> {
             && self.call_signatures_of_type(callee_type).is_some_and(|c| !c.is_empty())
     }
 
+    /// §948: the instance type one constructor-ish type constructs, for the
+    /// intersection arm of [`Checker::check_new_expression`]. `None` when the
+    /// constituent offers no construct signature this port can read.
+    fn construct_return_of(&mut self, id: TypeId) -> Option<TypeId> {
+        if let Some(signature) =
+            self.get_signature_of_named_type(id, crate::signatures::SignatureKind::Construct)
+        {
+            return Some(signature.r#type);
+        }
+        let TypeData::Anonymous { symbol, .. } = self.store.get(id).data else { return None };
+        // A CLASS's static side offers no signature to read when the class
+        // declares no constructor — the road below reaches its instance type
+        // through `get_declared_type_of_symbol`, which is what `new N()` with
+        // `N: typeof A` already does.
+        if self
+            .binder
+            .symbols()
+            .get(self.binder.merged_symbol(symbol))
+            .flags
+            .intersects(tsr_binder::SymbolFlags::CLASS)
+        {
+            let declared = self.get_declared_type_of_symbol(symbol);
+            return (declared != self.intrinsics.error).then_some(declared);
+        }
+        let signatures = self.get_signatures_of_symbol(symbol)?;
+        let constructs: Vec<_> = signatures
+            .into_iter()
+            .filter(|signature| {
+                signature.kind != crate::signatures::SignatureKind::Call
+                    && signature.type_parameters.is_empty()
+            })
+            .collect();
+        let [single] = constructs.as_slice() else { return None };
+        Some(single.r#type)
+    }
+
     /// The type of `new C()`.
     ///
     /// Ported from `Checker.resolveNewExpression` (`checker.go:8575`), reduced to
@@ -2457,6 +2493,43 @@ impl Checker<'_, '_> {
         // class symbol. Reaching the symbol through the type rather than through
         // the callee's syntax is what makes `new (C)()` and an aliased class
         // work the same way.
+        // §948: `new` on an INTERSECTION of constructor types answers the
+        // INTERSECTION of the instance types.
+        //
+        // `declare const Mixed3: typeof M2 & typeof M1 & typeof C1;`
+        // `new Mixed3()` is `M2 & M1 & C1` upstream
+        // (`conformance/mixinClassesMembers`, which is where the board's mixin
+        // cluster actually lives — **not** in a class expression extending a type
+        // parameter, which is what §943.1 examined). We answered `error`.
+        //
+        // `getInstantiatedConstructSignatures` reaches each constituent's
+        // construct signature and the result carries every instance type;
+        // resolving each constituent through this same road and intersecting the
+        // returns is that, reduced to the shape this port can decide.
+        //
+        // Declines whole if any constituent has no construct signature, which
+        // keeps the gap rather than answering a smaller intersection.
+        if let TypeData::Intersection { types, .. } = &self.store.get(callee_type).data {
+            let constituents = types.clone();
+            let mut instances = Vec::with_capacity(constituents.len());
+            let mut every = !constituents.is_empty();
+            for constituent in constituents {
+                match self.construct_return_of(constituent) {
+                    Some(instance) if instance != error => instances.push(instance),
+                    _ => {
+                        every = false;
+                        break;
+                    }
+                }
+            }
+            if every && !instances.is_empty() {
+                let combined = self.get_intersection_type(&instances, None);
+                if combined != error {
+                    bump(&COUNTERS.new_resolved);
+                    return combined;
+                }
+            }
+        }
         let TypeData::Anonymous { symbol, .. } = self.store.get(callee_type).data else {
             // A constructor **interface** — `DateConstructor`, `ErrorConstructor`
             // — whose construct signatures live in its members rather than in

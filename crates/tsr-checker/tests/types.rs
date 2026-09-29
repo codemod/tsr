@@ -3084,3 +3084,50 @@ fn a_generic_function_alias_keeps_its_printed_name() {
         "F<number>"
     );
 }
+
+/// §948 — `new` on an INTERSECTION of constructor types answers the intersection
+/// of the instance types.
+///
+/// `declare const Mixed: typeof A & typeof B; new Mixed()` is `A & B` upstream
+/// and was `error` here. Found by chasing the board's "mixin" cluster and
+/// discovering it is **not** the class-expression mixin §943.1 examined —
+/// `mixinClassesMembers` writes `typeof M1 & typeof C1` and never uses
+/// `class extends B`.
+#[test]
+fn new_on_an_intersection_of_constructors_intersects_the_instances() {
+    assert_eq!(
+        type_of_declaration(
+            "declare class A { a: number; }\ndeclare class B { b: string; }\n\
+             declare const M: typeof A & typeof B;\nconst v = new M();",
+            "v"
+        ),
+        "A & B"
+    );
+}
+
+/// The members of the result are reachable, which is what the corpus rows
+/// actually assert — 43 of §948's 67 were `GAP->RIGHT` on member reads.
+#[test]
+fn the_intersected_instance_carries_both_sides_members() {
+    assert_eq!(
+        type_of_declaration(
+            "declare class A { a: number; }\ndeclare class B { b: string; }\n\
+             declare const M: typeof A & typeof B;\nconst v = new M().a;",
+            "v"
+        ),
+        "number"
+    );
+}
+
+/// The regression leg: a single constructor is untouched, so the arm cannot be
+/// firing on every `new`.
+#[test]
+fn new_on_a_single_constructor_is_unchanged() {
+    assert_eq!(
+        type_of_declaration(
+            "declare class A { a: number; }\ndeclare const N: typeof A;\nconst v = new N();",
+            "v"
+        ),
+        "A"
+    );
+}

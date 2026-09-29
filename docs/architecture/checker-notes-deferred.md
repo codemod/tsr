@@ -10757,3 +10757,50 @@ symmetry is not a reason on its own.
 
 *A generic constructor alias called with `new` does not occur in this corpus. If
 it ever does, the fix is eight lines and this note says where.*
+
+## §948 — `new` on an intersection of constructors (+67)
+
+### The mixin cluster is not the mixin pattern
+
+§943 and §943.1 chased the board's mixin cases to a class expression extending a
+type parameter, located the decline at `symbols.rs:2648`, and concluded it needs
+`getBaseTypeVariableOfClass`'s intersection static side — an exact-match
+structural print that §947.1's −271 made look expensive.
+
+**`mixinClassesMembers` contains no such class expression.** It writes
+
+```ts
+declare const Mixed3: typeof M2 & typeof M1 & typeof C1;
+new Mixed3()        // M2 & M1 & C1 upstream;  error here
+```
+
+An **intersection of constructor types**, which is a different rule and a much
+smaller one. Reading the baseline before starting the port is what found it; two
+entries had gone by on the case *names*.
+
+### What is ported
+
+`check_new_expression` gains an intersection arm: resolve each constituent's
+construct return and intersect them. A constituent with no readable construct
+signature declines the **whole** arm rather than answering a smaller
+intersection.
+
+`construct_return_of` reads a class's instance type through
+`get_declared_type_of_symbol` — a class that declares no constructor offers no
+signature to read, which is why the first build measured nothing and the probe
+said `kind=intersection` with a failing constituent.
+
+**43 `GAP->RIGHT` + 24 `WRONG->RIGHT`, zero adverse**, every one in
+`mixinClassesMembers`. `right` 443,392 → **443,459**.
+
+### On having declined this
+
+The previous entry declined to start the mixin port on risk/reward — the exact
+print, and §947.1's fresh −271. That reasoning was about the *wrong port*: the
+44 lines the board attributed to "mixins" were never behind
+`getBaseTypeVariableOfClass` at all, and the real rule cost one arm and one
+helper with zero adverse rows.
+
+*Declining work because a nearby thing regressed is not the same as measuring it*,
+and the case names had already been misleading twice in this file (§929, §933,
+§937.1, §945 — this is the fifth).
