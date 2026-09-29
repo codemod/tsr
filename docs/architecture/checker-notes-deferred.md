@@ -10705,3 +10705,34 @@ true rather than a consolation.*
 `signature_types` and answers; the call road does not reach it for this type.
 That is §932's split again (two roads, one pair of types, one reader), now with a
 third instance, and it is the next step rather than part of this one.
+
+## §947.3 — the call road's half, and an honest +1
+
+§947.2 closed by naming what it had not reached: `fc(1)` with `fc: F<number>` was
+still `error`. Inference read `signature_types` and answered; the **call** road
+never reached it, because §947.2 registers on a `TypeData::Named` reference and
+the named-callee branch consults `get_signature_of_named_type` and
+`signature_candidates_of_named_type` — neither of which looks at the table.
+
+`getSignaturesOfType` (`checker.go:18959`) reads the **type's** signatures, so the
+named branch now does too, filtered by kind for §932's reason.
+
+**Third instance of §932's split** — two roads reach the same pair of types and
+only one reads the table. §932 wired the anonymous branch, §932.1 the contextual
+one, this the named one. *Three separate entries to wire one table into three
+readers, each found only when something downstream failed.*
+
+### +1, and that is the whole return
+
+**1 `GAP->RIGHT` (`correlatedUnions`), zero adverse.** `right` 443,391 →
+**443,392**.
+
+Twenty lines of code for one line of coverage. It is kept because it is measured,
+faithful, and completes the alias family — `type F<T> = (…) => …` is now callable
+*and* inferable, where before it was neither — but the number is the number, and
+inflating "completeness" into value would be the kind of claim this file exists to
+prevent.
+
+*A direct call through a generic function alias is simply rare in the corpus. The
+shape is common in real code, which is why it was worth closing and why the corpus
+is the arbiter of SIZE and not of CORRECTNESS (§800).*

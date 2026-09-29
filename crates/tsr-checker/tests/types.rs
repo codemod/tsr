@@ -3055,6 +3055,24 @@ fn a_generic_function_alias_is_inferable() {
     );
 }
 
+/// §947.3's half: a DIRECT call through the alias. `fc(1)` with
+/// `fc: F<number>` was `error` — inference read `signature_types` and answered
+/// while the CALL road never reached it for a `TypeData::Named` callee. Third
+/// instance of §932's split (§932 wired the anonymous branch, §932.1 the
+/// contextual one, §947.3 the named one), and worth **+1** on the corpus: the
+/// shape is rare, and the value is that the alias family is now complete —
+/// callable *and* inferable — rather than the line.
+#[test]
+fn a_generic_function_alias_is_callable() {
+    assert_eq!(
+        type_of_declaration(
+            "type F<T> = (x: T) => void;\ndeclare const fc: F<number>;\nconst v = fc(1);",
+            "v"
+        ),
+        "void"
+    );
+}
+
 /// The regression leg that §947.1 failed: the reference must still **print its
 /// alias name**. `signature_types` is itself what makes a type render as a
 /// signature, so registering it without `alias_named_signature_types` turned

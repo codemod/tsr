@@ -1369,6 +1369,36 @@ impl Checker<'_, '_> {
             // declarations and an interface declaration is not signature-shaped,
             // so this needs its own route (`bd tsr-4sa`,
             // `docs/architecture/checker-notes-namedcallee.md`).
+            // §947.3: the type's OWN signatures first — `getSignaturesOfType`
+            // (`checker.go:18959`) reads them off the type, and a NAMED type can
+            // carry them. §947.2 registers a generic function alias's signatures
+            // on its reference, which is a `TypeData::Named`, so `fc(1)` with
+            // `fc: F<number>` reached this branch and found nothing.
+            //
+            // **Third instance of §932's split** — two roads reach the same pair
+            // of types and only one reads the table. §932 wired the anonymous
+            // branch and §932.1 the contextual one; this is the named branch.
+            let from_type: Vec<Signature> = self
+                .signature_types
+                .get(&callee)
+                .cloned()
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|signature| signature.kind == SignatureKind::Call)
+                .collect();
+            if let [single] = from_type.as_slice() {
+                if counted {
+                    bump(&COUNTERS.single_candidate);
+                }
+                return Some(single.clone());
+            }
+            if !from_type.is_empty()
+                && let Some(arguments) = arguments
+                && let Some(chosen) =
+                    self.choose_overload(&from_type, arguments, has_type_arguments)
+            {
+                return Some(chosen);
+            }
             let named = self.get_signature_of_named_type(callee, SignatureKind::Call);
             if named.is_some() {
                 return named;
