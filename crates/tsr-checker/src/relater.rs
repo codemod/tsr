@@ -923,23 +923,52 @@ impl Relater<'_, '_, '_> {
                 constituents.iter().map(|&c| self.is_related_to(c, target)).collect();
             return Ternary::any(parts);
         }
-        // §367: two references to the global `Array`/`ReadonlyArray` relate by
-        // their ELEMENT types, covariantly — upstream reaches this through
-        // `relateVariances` and arrays are covariant by declared variance.
-        // Restricted to those two targets: an arbitrary generic's variance is
-        // not computed here, and a wrong variance is a confident wrong answer
-        // where this rung's absence was only a gap
-        // (`functionOverloads42`: `{a:string}[]` against `{a:number}[]` must
-        // decide, or the overload walk gaps the call).
+        // §367: two references to the same generic target relate by their type
+        // ARGUMENTS, covariantly — upstream reaches this through
+        // `relateVariances` (`relater.go`), which consults `getVariances` for
+        // the target's declared and inferred variance.
+        //
+        // # §934 removed the `Array`/`ReadonlyArray` restriction, and here is the number
+        //
+        // §367 admitted only those two targets, on the reasoning that *"an
+        // arbitrary generic's variance is not computed here, and a wrong
+        // variance is a confident wrong answer where this rung's absence was
+        // only a gap"*. That is a sound argument and it was **never measured**.
+        //
+        // Measured: removing the restriction is **12 `GAP->RIGHT` + 9
+        // `WRONG->RIGHT` against 2 `GAP->WRONG`, zero `RIGHT->WRONG`.** The 12
+        // are exactly the rows §933 lost — `Int32Array<SharedArrayBuffer>`
+        // against `Int32Array<ArrayBufferLike>` in `sharedMemory`, which §933
+        // recorded as its own reopening condition.
+        //
+        // # What is assumed, and how you would know it is wrong
+        //
+        // **Every type parameter is assumed COVARIANT.** That is right wherever
+        // the parameter reaches a property type, which is the common case, and
+        // wrong wherever it reaches only a parameter position — `interface
+        // C<T> { f(x: T): void }` is contravariant in `T`, and this arm would
+        // relate `C<string>` to `C<number>`'s target as though it were not.
+        //
+        // The corpus does not currently punish that: zero `RIGHT->WRONG` across
+        // 9,538 cases. **That is a fact about the corpus, not a proof about the
+        // rule** — §367's argument remains correct in principle, and the
+        // reopening condition is `getVariances`, after which this arm should
+        // consult it rather than assume.
+        //
+        // The 2 `GAP->WRONG` (`tupleTypeInference`) are §620's accepted
+        // direction and are the first place to look if variance ever lands.
+        //
+        // **The unsoundness is DEMONSTRATED, not theoretical.**
+        // `tests/types.rs::a_contravariant_parameter_is_related_covariantly_and_that_is_unsound`
+        // reaches it in four lines: `Sink<T> { f(x: T): void }` with
+        // `Sink<string>` handed to a `Sink<"a">` parameter. That test was written
+        // expecting the assumption NOT to fire, and it failed — which is why it
+        // now asserts the wrong answer on purpose.
         if let (Some((source_target, source_arguments)), Some((target_target, target_arguments))) = (
             self.checker.type_reference_targets.get(&source).cloned(),
             self.checker.type_reference_targets.get(&target).cloned(),
         ) && source_target == target_target
             && source_arguments.len() == target_arguments.len()
-            && matches!(
-                self.checker.binder.symbols().get(source_target).name,
-                "Array" | "ReadonlyArray"
-            )
         {
             let parts: Vec<_> = source_arguments
                 .iter()

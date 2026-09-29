@@ -9468,3 +9468,56 @@ had, and 12 that a relater gap — not this change — is responsible for. **The
 exists to stop a road that manufactures wrong answers, and this road manufactures
 none.** Stating that plainly, with each adverse family named and its cause
 verified, is the alternative to quietly relaxing the leg.
+
+## §934 — §367's restriction was reasoned and never measured (+21)
+
+§933's own reopening condition, taken up immediately: **covariant type-argument
+relation for the same target symbol.**
+
+§367 already had the rung. It admitted only `Array` and `ReadonlyArray`, on this
+reasoning:
+
+> an arbitrary generic's variance is not computed here, and a wrong variance is a
+> confident wrong answer where this rung's absence was only a gap
+
+That argument is **correct in principle and was never measured.** Removing the
+restriction:
+
+| transition | lines |
+|---|---|
+| `GAP->RIGHT` | 12 (`sharedMemory` — exactly the rows §933 lost) |
+| `WRONG->RIGHT` | 9 (`promisePermutations3` 4, `controlFlowInstanceofWithSymbolHasInstance` 2) |
+| `GAP->WRONG` | 2 (`tupleTypeInference`) |
+| `RIGHT->WRONG` | **0** |
+
+`right` 442,829 → **442,850**.
+
+### The assumption, and the test that proved it unsound
+
+**Every type parameter is assumed covariant.** Right wherever the parameter
+reaches a property type; wrong wherever it reaches only a parameter position.
+
+The test written for this entry expected the assumption *not* to fire on a
+contravariant parameter — `Sink<T> { f(x: T): void }`, with `Sink<string>` handed
+to a `Sink<"a">` parameter, which upstream rejects. **It failed.** The port
+accepts it. The unsoundness is reachable in four lines.
+
+So the test now asserts the **wrong** answer on purpose, with the reason, so that
+porting `getVariances` shows up as a test that must be edited rather than one
+that silently keeps passing.
+
+*Zero `RIGHT->WRONG` across 9,538 cases is a fact about the corpus, not a proof
+about the rule* — and here that distinction is not rhetorical, because four lines
+of TypeScript falsify the rule while the corpus stays silent.
+
+### What this says about reasoned restrictions
+
+§367's guard cost 21 lines and prevented nothing the corpus could detect. It was
+not careless — it was a correct argument applied without a number, exactly as
+§926.1's claim of absence was. **Two entries this session have found a
+well-argued restriction that measurement did not support**, and both restrictions
+were written by someone who had the harness to check and did not.
+
+The reopening condition is unchanged and now sharper: `getVariances`, after which
+this arm consults variance rather than assuming it, and the contravariance test
+flips to `error`.

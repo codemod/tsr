@@ -2804,3 +2804,55 @@ fn an_indexed_access_by_a_foreign_keyof_is_unchanged() {
         "error"
     );
 }
+
+/// §934 — two references to the same generic target relate by their type
+/// arguments, not just `Array`/`ReadonlyArray`.
+///
+/// §367 admitted only those two targets because *"an arbitrary generic's variance
+/// is not computed here"*. Measured, removing the restriction is **12
+/// `GAP->RIGHT` + 9 `WRONG->RIGHT` against 2 `GAP->WRONG`, zero
+/// `RIGHT->WRONG`** — the 12 being exactly the rows §933 recorded as its own
+/// reopening condition.
+///
+/// The assertion is on a CALL, because that is where the relation is observable
+/// from this harness: the overload has to accept `Box<"a">` for `Box<string>`.
+#[test]
+fn two_references_to_one_generic_relate_by_their_arguments() {
+    assert_eq!(
+        type_of_declaration(
+            "interface Box<T> { v: T; }\ndeclare function take(b: Box<string>): number;\n\
+             declare const b: Box<\"a\">;\nconst r = take(b);",
+            "r"
+        ),
+        "number"
+    );
+}
+
+/// The covariance ASSUMPTION, and **it is unsound — demonstrably, not
+/// theoretically.**
+///
+/// `Sink<T> { f(x: T): void }` is CONTRAVARIANT in `T`. Upstream rejects
+/// `Sink<string>` where `Sink<"a">` is wanted; this port accepts it, because §934
+/// assumes every type parameter is covariant.
+///
+/// This test was written expecting `error` — asserting that the assumption did
+/// not fire — and **it failed, which is the useful outcome**: the unsoundness is
+/// reachable in four lines. Zero corpus rows punish it (9,538 cases), so it costs
+/// nothing measured today, and that is a fact about the corpus rather than a
+/// proof about the rule.
+///
+/// It asserts the WRONG answer on purpose, so that porting `getVariances` shows
+/// up as a test that must be edited rather than one that silently keeps passing.
+#[test]
+fn a_contravariant_parameter_is_related_covariantly_and_that_is_unsound() {
+    assert_eq!(
+        type_of_declaration(
+            "interface Sink<T> { f(x: T): void; }\ndeclare function take(s: Sink<\"a\">): number;\n\
+             declare const s: Sink<string>;\nconst r = take(s);",
+            "r"
+        ),
+        "number",
+        "upstream answers `error` here; this port accepts a contravariant argument \
+         covariantly. When `getVariances` lands, this must become `error`."
+    );
+}
