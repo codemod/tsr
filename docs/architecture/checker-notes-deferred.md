@@ -9933,3 +9933,48 @@ note in `tests/types.rs` recording what `probefile` verified against the real
 pipeline and what the corpus measured. **Writing them anyway would have meant
 asserting `error` and calling it a test** — the same call §936 made for its
 rejection leg.
+
+## §940 — `|| parameter.optional`, three words worth 111 lines
+
+The same sweep that found §939's rest guard found this one line in
+`contextual_type_for_argument`'s memo road:
+
+```rust
+if parameter.rest || parameter.optional {
+    return None;
+}
+```
+
+The `rest` half is a real shape question — a rest position maps to many
+arguments, which is what §939 is about. **The `optional` half is not a question
+at all.** An optional parameter has a perfectly good declared type, and upstream
+contextually types its argument with it; nothing about `?` makes the position
+unreadable.
+
+Removing three words: **77 `WRONG->RIGHT` + 34 `GAP->RIGHT` against 1
+`GAP->WRONG` and 1 `WRONG->GAP`, zero `RIGHT->WRONG`.** `right` 443,133 →
+**443,244**, net **+111**. `importCallExpression*` alone is 23 rows across five
+cases.
+
+### What makes this one different from the rest of the seam
+
+Every earlier restriction on this seam came with a paragraph arguing for it —
+§367's variance, row 6's `signatureRelatedTo`, §939's tuple problem, §927's
+discrimination. Each was *reasoned and unmeasured*. **This one was never reasoned
+either.** It is two conditions joined by `||` where only the first has a story,
+and it has sat in the highest-traffic function in the contextual module.
+
+*The seam is not only "restrictions whose number was never taken". It is also
+"conditions that were never separated".* A compound guard hides the unargued half
+behind the argued one, and nothing in the comment above it distinguishes them.
+
+### The rest half, measured and not kept
+
+Reading a rest's element type here — exactly the read §939 gave inference —
+**measured zero change**, so it is not kept. Fifteen lines of unmeasured
+behaviour is the liability §929 named when it declined to keep its own
+zero-measuring copy, and the zero is the useful record.
+
+That is the tenth restriction measured on this seam across seven entries, and the
+second where the measurement said *"do not keep it"* rather than *"the cautious
+form is free"*.

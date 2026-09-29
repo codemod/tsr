@@ -1097,7 +1097,18 @@ impl<'a> Checker<'a, '_> {
             && let Some(memo) = self.call_inference_signatures.get(&call_id)
         {
             let parameter = memo.parameters.get(index)?;
-            if parameter.rest || parameter.optional {
+            // §940: the `|| parameter.optional` that stood here is **removed**,
+            // and it was worth **+111** — 77 `WRONG->RIGHT` + 34 `GAP->RIGHT`
+            // against 1 `GAP->WRONG`, zero `RIGHT->WRONG`. An optional parameter
+            // has a perfectly good declared type and upstream contextually types
+            // its argument with it; nothing about `?` makes the position
+            // unreadable. `importCallExpression*` alone is 23 of the rows.
+            //
+            // The `rest` half stays. Reading a rest's ELEMENT type here — the
+            // same read §939 gave inference — was written and **measured zero
+            // change**, so it is not kept: fifteen lines of unmeasured behaviour
+            // is the liability §929 named, and the zero is the useful record.
+            if parameter.rest {
                 return None;
             }
             return Some(parameter.r#type);

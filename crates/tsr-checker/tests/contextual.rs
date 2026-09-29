@@ -446,3 +446,27 @@ fn the_other_discriminant_selects_the_other_constituent() {
                   var v: A | B = { kind: \"a\", f: willow => willow };";
     assert_eq!(type_of(source, "willow"), "string");
 }
+
+/// §940 — an OPTIONAL parameter contextually types its argument.
+///
+/// `contextual_type_for_argument`'s memo road declined `parameter.rest ||
+/// parameter.optional`. The `rest` half is a real shape question; the
+/// `optional` half was not — an optional parameter has a perfectly good declared
+/// type and upstream contextually types its argument with it. Nothing about `?`
+/// makes the position unreadable.
+///
+/// Measured: **77 `WRONG->RIGHT` + 34 `GAP->RIGHT` against 1 `GAP->WRONG`, zero
+/// `RIGHT->WRONG`.**
+#[test]
+fn an_optional_parameter_contextually_types_its_argument() {
+    let source = "declare function f(cb?: (a: number) => void): void;\nf(hazel => { hazel; });";
+    assert_eq!(type_of(source, "hazel"), "number");
+}
+
+/// The pair: a REQUIRED parameter in the same position already worked, so the
+/// test above cannot pass on a change that types every argument position.
+#[test]
+fn a_required_parameter_in_the_same_position_is_unchanged() {
+    let source = "declare function f(cb: (a: number) => void): void;\nf(rowan => { rowan; });";
+    assert_eq!(type_of(source, "rowan"), "number");
+}
