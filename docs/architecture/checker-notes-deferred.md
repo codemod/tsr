@@ -10251,3 +10251,57 @@ the liability §929 named and this arm has no measured population.
 Instrumenting the class-expression road to find where the `any` is minted. That
 is the next step and it is cheap — §941.1 found its answer with a single
 `eprintln` — but it is a new thread rather than the close of this one.
+
+## §943.1 — the mixin `any`, located (no score change)
+
+§943 ended by naming its own next step: *"instrumenting the class-expression road
+to find where the `any` is minted… it is cheap"*. It was, and this is the answer.
+
+### It is not a cascade, and not `members.rs`
+
+`probefile` on the mixin fixture prints the decisive line directly:
+
+```text
+>Mix : <T extends Ctor<object>>(B: T) => any
+>class extends B { m: string = "x"; } : error      ← here
+>M1 : any
+```
+
+**The class expression itself is `error`**; the function's `any` return and the
+call's `any` are both downstream of it. §943's zero was right for the reason it
+gave — `base_symbol_of_heritage_entry` is the members road and this never reaches
+it — and the `check_expression` arm is innocent too: it is
+`get_type_of_symbol(symbol)`, with no heritage in it.
+
+### Where it is, and why it is deliberate
+
+`symbols.rs:2648`, in the class-expression **naming** road, with the reason
+already written:
+
+> A class expression extending a PARAMETER — the mixin pattern — is an
+> INTERSECTION upstream (`getBaseTypeVariableOfClass`, `checker.go:16936`), never
+> a bare `typeof (Anonymous class)`: its static side prints structurally as
+> `{ new (...): (Anonymous class); … } & TBase`.
+
+The guard is a syntactic proxy for *"the base is a type variable"*, and it
+declines the name, which makes the whole expression `error`.
+
+### This one does not belong to the session's seam
+
+Eleven restrictions were measured across this session on the principle that *a
+reasoned restriction with no number is the cheapest thing to get wrong*. **This is
+not one of them.** Removing it would print `typeof (Anonymous class)` where
+upstream prints an intersection — a **manufactured wrong answer**, which is what
+§620 disqualifies, and the comment names the exact baseline
+(`compiler/anonClassDeclarationEmitIsAnon`) that would catch it.
+
+So the guard stays without a measurement, and that is the right call: *the seam is
+restrictions whose cost was never taken, not restrictions whose reason is
+inconvenient.*
+
+### Reopening condition
+
+`getBaseTypeVariableOfClass` (`checker.go:16936`) — the intersection static side.
+Until then the mixin family is a gap by construction, and the 44 lines in
+`mixinAccessModifiers`/`mixinClassesMembers` are waiting on that one type
+constructor rather than on anything in the members or expression roads.
