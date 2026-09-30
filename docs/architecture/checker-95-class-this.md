@@ -25,7 +25,7 @@ annotations to conceal their dependent failures.
 
 ## Accepted measurement and limits
 
-Measured checkpoint `CLASS_THIS_COMMIT`: 448,096/478,855 correct assertions
+Measured checkpoint `15643d99`: 448,096/478,855 correct assertions
 (93.58%), 6,557/9,538 complete cases (68.75%). Another 6,817 correct assertions
 are required for 95%. Aligned verdicts: 474,243 total;448,096 right;4,628 gap;
 21,519 wrong. Against 1609ae84:310 WRONG→RIGHT,32 GAP→RIGHT,zero RIGHT losses,

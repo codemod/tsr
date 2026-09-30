@@ -24,7 +24,7 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-09-30
 
-Measured on **`CLASS_THIS_COMMIT`**: **448,096/478,855 assertions (93.58%)**,
+Measured on **`15643d99`**: **448,096/478,855 assertions (93.58%)**,
 **6,557/9,538 complete cases (68.75%)**. The active 95% target requires 454,913
 correct assertions; **6,817 remain**. The denominator and pinned oracle are
 unchanged. Aligned verdicts: **474,243 total;448,096 right;4,628 gap;21,519 wrong**.
@@ -1141,7 +1141,7 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-### Current priorities at `CLASS_THIS_COMMIT` — 2026-09-30
+### Current priorities at `15643d99` — 2026-09-30
 
 Inference priorities, independent contextual return mappers, captured structural
 substitution, call/construct signature kinds, measured reference variances,
@@ -3685,7 +3685,7 @@ version of bare `any`.
 
 ## 5. Refused, with the number that refused it
 
-### Class this annotations at `CLASS_THIS_COMMIT`
+### Class this annotations at `15643d99`
 
 getThisType now observes container/static/constructor boundaries and uses the
 class expression this identity. The initial six RIGHT losses were repaired through
@@ -9151,7 +9151,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
-| 2026-09-30 | `CLASS_THIS_COMMIT` | **68.75%** | **6,557** | **448,096/478,855 assertions (93.58%).** +342 correct since `1609ae84`:310 W→R,32 G→R,zero RIGHT losses;11 G→W remain in the deficit. Ports class this annotation/container identity,written error recovery and globalThis runtime-property recovery. Release workspace tests/clippy pass;3,380 anchors resolve;snapshot refreshed. [Evidence and remaining work](docs/architecture/checker-95-class-this.md). 6,817 assertions remain;goal active. |
+| 2026-09-30 | `15643d99` | **68.75%** | **6,557** | **448,096/478,855 assertions (93.58%).** +342 correct since `1609ae84`:310 W→R,32 G→R,zero RIGHT losses;11 G→W remain in the deficit. Ports class this annotation/container identity,written error recovery and globalThis runtime-property recovery. Release workspace tests/clippy pass;3,380 anchors resolve;snapshot refreshed. [Evidence and remaining work](docs/architecture/checker-95-class-this.md). 6,817 assertions remain;goal active. |
 | 2026-09-30 | `1609ae84` | **68.61%** | **6,544** | **447,754/478,855 assertions (93.51%).** +12 correct since `90bccd3b`: 10 W→R and 2 G→R, zero RIGHT losses and no new wrong answers. Ports implicit syntax/reference infer constraints, direct dependent constraint resolution and any branch unions through the inference mapper. All nine controls and release workspace tests/clippy pass; 3,380 anchors resolve; snapshot refreshed. [Evidence and remaining work](docs/architecture/checker-95-implicit-infer.md). 7,159 assertions remain; goal active. |
 | 2026-09-30 | `90bccd3b` | **68.60%** | **6,543** | **447,742/478,855 assertions (93.50%).** +85 correct since `ac8d33ed`: 50 W→R and 35 G→R, zero RIGHT losses; 10 G→W remain in the deficit. Ports explicit closed infer constraints across merged declarations, nested conditional continuation and union/never distribution with enclosing alias names. Release workspace tests/clippy pass; 3,380 anchors resolve; snapshot refreshed. [Evidence and remaining work](docs/architecture/checker-95-infer-constraints.md). 7,171 assertions remain; goal active. |
 | 2026-09-28 | the §876 landing | **91.83%** | **6,230** (+2) | **+37, ZERO adverse, and the FIRST bar in six whose named case closed completely** | **checker-1: §876 — a pattern-named default is refused for a reason that only applies to PARAMETERS.** `destructure.rs` refused every binding element whose name is a pattern and which carries an initializer, naming `padObjectLiteralType`/`padTupleType` as unported. **The mechanism is real; the condition guarding it upstream is not the one the refusal assumed.** `checkDeclarationInitializer` (`checker.go:16806`) runs that padding only under `ast.IsParameterDeclaration(ast.GetRootDeclaration(declaration))` — for a `const`/`let`/`for` destructuring it simply returns the initializer's type. Narrowed to parameter-rooted elements. `GAP→RIGHT 26` + `WRONG→RIGHT 11`, **not one line lost**, and the surfacing case's **18 gaps all closed**. **Why this one closed and the last five did not**: §844, §846, §858, §861 and §875 were gates whose CATEGORY was too narrow, so the surfacing case had a second defect behind the first; §876 was a refusal whose CONDITION was too broad — the named mechanism was real and simply guarded differently upstream — and removing the over-reach left nothing behind it. **Fourth instance this session of a gate narrower than the condition it stands for** (§863, §870, §875, §876). **Two more test expectations written from intuition, and the port was right both times** (seventh and eighth this session): an `any` source destructures to `any` through a nested pattern and never reaches the default, so both `string` guesses were wrong. Both pinned as they behave, with the note that **the witness for §876 is the corpus — 18 gaps closed — and not those two lines**. `docs/architecture/checker-notes-deferred.md` §876 |
