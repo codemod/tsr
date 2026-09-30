@@ -11607,3 +11607,116 @@ And the per-case ranking names the next item unambiguously:
 **Five of the top twelve are the tuple/variadic family — 866 lines between them** —
 which is §950's 1,380-line item, still blocked on the same representation change and
 still the largest single thing on the board.
+
+## §956 — the variadic tuple's spellings, and §40's gate on the wrong road (+125, zero `RIGHT->WRONG`)
+
+The largest entry of this session, and it did **not** need the element-flags
+representation §950 sized at 1,380 lines and deferred twice as a multi-session port.
+
+### The gate that belonged to a different road
+
+§40 built the print-only variadic road and gated it:
+
+```rust
+if any(RestTypeNode) && !any(NamedTupleMember | OptionalTypeNode)
+```
+
+so `[...T, number?]` was `errorType`, and with it **every signature holding one** —
+`<T extends unknown[]>(t1: [...T], t2: [...T, number?]) => T` printed `any` in
+`variadicTuples1`.
+
+**Nothing about those two element kinds needs the element LIST.** This road composes
+TEXT, and `number?` and `label: T` are *spellings*, not structures. The restriction
+is real — but it belongs to the road **below** this one, the element-list mint, which
+genuinely cannot represent a rest. §40 wrote a correct restriction on the wrong
+road, and it cost the whole node.
+
+*Removing it is the second time this session a long-standing gate turned out to be
+guarding the wrong thing (§951's `getNonArrayRestType` was the first), and both were
+found by asking what the gate was protecting rather than whether it was justified.*
+
+### What the parser actually does, which the first draft got wrong
+
+A labelled rest is **`RestTypeNode(NamedTupleMember(..))`**, not a
+`NamedTupleMember` carrying `...`: `parse_tuple_element`
+(`crates/tsr-parser/src/types.rs:713`) consumes the `...` first and **recurses**,
+and every member is built with `NamedTupleMember::new(None, ..)` — so
+**`dot_dot_dot_token` is never set by this parser at all.** The first guard tested
+that field and was dead code; `[a: string, ...c: boolean[]]` stayed `error` while
+`[string, ...boolean[]]` worked, which is what exposed it.
+
+### The alias-naming rule, derived from 42 oracle rows
+
+Extending §79.1's alias arm to rest-bearing bodies gained a great deal and
+**reproduced §40's recorded 13 `RIGHT->WRONG` on `excessivelyLargeTupleSpread`
+exactly** — the strongest confirmation of an old note this project has had. Two
+narrowings, each from evidence rather than taste:
+
+**1. Name only a body that stayed a print-only spelling.** A rest over a CONCRETE
+tuple SPLICES into a real element list, and that list is what access, instantiation
+and the relater consume; a bare name over it loses them. `variadic_tuple_nodes` is
+the print-only mint's own registration (§791), so the test is *"did the body remain
+a spelling"* rather than a syntactic re-derivation. This killed all 13.
+
+**2. Not when the rest operand is a named REFERENCE.** Scanning every non-generic
+rest-bearing tuple alias in the corpus baselines — **42 of them** — they split
+cleanly:
+
+```
+type T06 = [string, ...string[]]          >T06 : T06                      NAME
+type NonEmptyStringArray =
+           [string, ...Array<string>]     >… : [string, ...string[]]       STRUCT
+type Unbounded = [...Numbers, boolean]    >… : [...number[], boolean]      STRUCT
+type T04 = [...[...string[]]]             >T04 : T04                      NAME
+type AliasRest = [...p: number[]]         >AliasRest : AliasRest          NAME
+type MixedSpread =
+           [first: boolean, ...[second: string]]  >… : [first: boolean, second: string]  STRUCT
+```
+
+**The axis is whether NORMALISATION rewrote anything.** `...string[]` is already
+normal, so the tuple upstream creates carries the alias; `...Array<string>` and
+`...Numbers` normalise to `...string[]` and `...number[]`, creating a *different*
+tuple that the alias is not on. `[...[...string[]]]` splices to itself, so the name
+survives — which is why a purely syntactic "rest over a tuple literal" test would
+have been wrong, and the spelling test plus the reference test together are what
+match all 42.
+
+`RIGHT->WRONG` went **20 → 6 → 0** across those two narrowings.
+
+### The measurement
+
+**+118 `WRONG->RIGHT`, +7 `GAP->RIGHT`, against 6 `GAP->WRONG` and ZERO
+`RIGHT->WRONG`.** `right` 443,604 → **443,729 (+125)**, lines 92.64% → **92.66%**.
+
+`variadicTuples2` 34, `variadicTuples1` 24, `contextualTypeTupleEnd` 16,
+`namedTupleMembers` 6, `singletonLabeledTuple` 1.
+
+### What this says about §4.-8's 1,380-line item
+
+**It is smaller than measured, and the measurement was not wrong — the attribution
+was.** §950 counted 1,380 wrong lines whose want contains `...` or is a tuple, and
+concluded the blocker was the representation. 125 of them were a *print* gate on the
+wrong road, reachable with no representation change at all.
+
+The element-flags work is still real for what remains (an element list cannot hold
+optional/rest, so access, instantiation and relations over variadic tuples still
+decline), but the board's estimate for it should now be read as **~1,255 lines and
+falling**, and the next reader should check for more misplaced gates before starting
+a 54-site refactor.
+
+*Two sessions' worth of my own estimates have now been corrected by opening the
+thing rather than sizing it: §948, §954, and this.*
+
+### The fourth lib-dependent fixture, and an admission
+
+Both unit assertions for the alias rule need the global `Array`
+(`[string, ...string[]]` and `[string, ...Array<string>]` alike) and these fixtures
+load no libs. The labelled-element leg was re-expressed over a TYPE PARAMETER rest,
+which needs none; the array legs are corpus-asserted with the 42-row table recorded
+in the test file.
+
+**This is the fourth lib-dependent fixture this session (§951, §953, §955, here),
+and the previous entry stated the pattern was "predictable enough to check before
+writing the assertion."** I then wrote two more before checking. The check is one
+question — *does this spelling need a global?* — and it is now recorded in three
+places, which is evidence that recording it is not what makes me do it.

@@ -1992,7 +1992,15 @@ impl<'a> Checker<'a, '_> {
         if let Some(alias) = node.node_id.and_then(|id| self.alias_symbol_for_type_node(id))
             && self.local_type_parameters_of(alias).is_empty()
             && !node.elements.is_empty()
-            && !node.elements.iter().any(|e| matches!(e, TypeNode::RestTypeNode(_)))
+            // §956: the REST exclusion is gone. §40 added it because a
+            // rest-bearing body did not RESOLVE — the arm minted a name over an
+            // `any` body and cost 13 `RIGHT->WRONG` on `excessivelyLargeTupleSpread`.
+            // §956 makes those bodies resolve, so the premise is gone, and
+            // upstream plainly names them: `>WithOptAndRest : WithOptAndRest`
+            // for `[first: number, second?: number, ...rest: string[]]`
+            // (`namedTupleMembers`). The `structural == error` check below is what
+            // still protects the old case — a body that cannot resolve declines
+            // here exactly as before.
         {
             // (`type foo = []` prints `[]`, not `foo` —
             // `typeAliasDeclarationEmit3`'s 3 R→W named the empty gate.)
@@ -2005,6 +2013,54 @@ impl<'a> Checker<'a, '_> {
             let structural = self.tuple_type_node_structural(node);
             if structural == error {
                 return error;
+            }
+            // §956: a rest-bearing body is named ONLY when it stayed a PRINT-ONLY
+            // variadic. §40's 13 `RIGHT->WRONG` on `excessivelyLargeTupleSpread`
+            // reproduce exactly when this is left out, which is what established
+            // the distinction: a rest over a CONCRETE tuple SPLICES into a real
+            // element list, and that list is what access, instantiation and the
+            // relater consume — putting a bare name over it loses them. A body
+            // that stayed a spelling has no such consumers, so the name is free.
+            //
+            // `variadic_tuple_nodes` is the print-only mint's own registration
+            // (§791), so the test is "did the body remain a spelling" rather than
+            // a syntactic re-derivation of the same question.
+            // A rest whose operand is written as a NAMED REFERENCE also loses the
+            // alias, and that was derived from the oracle rather than guessed —
+            // 42 non-generic rest-bearing tuple aliases across the corpus
+            // baselines split cleanly:
+            //
+            // ```
+            // type T06 = [string, ...string[]]          >T06 : T06                    NAME
+            // type NonEmptyStringArray =
+            //            [string, ...Array<string>]     >… : [string, ...string[]]     STRUCT
+            // type Unbounded = [...Numbers, boolean]    >… : [...number[], boolean]    STRUCT
+            // type T04 = [...[...string[]]]             >T04 : T04                    NAME
+            // ```
+            //
+            // The axis is whether NORMALISATION REWROTE anything. `...string[]` is
+            // already normal, so the tuple upstream creates carries the alias;
+            // `...Array<string>` and `...Numbers` normalise to `...string[]` and
+            // `...number[]`, which creates a DIFFERENT tuple and the alias is not
+            // on it. A rest over a tuple LITERAL that splices is the same story and
+            // the `variadic_tuple_nodes` test above already catches it
+            // (`MixedSpread`), while `[...[...string[]]]` splices to itself and
+            // keeps the name.
+            let rest_over_a_reference = node.elements.iter().any(|element| {
+                let TypeNode::RestTypeNode(rest) = element else { return false };
+                match rest.r#type {
+                    Some(TypeNode::TypeReferenceNode(_)) => true,
+                    Some(TypeNode::NamedTupleMember(member)) => {
+                        matches!(member.r#type, Some(TypeNode::TypeReferenceNode(_)))
+                    }
+                    _ => false,
+                }
+            });
+            if node.elements.iter().any(|e| matches!(e, TypeNode::RestTypeNode(_)))
+                && (!self.variadic_tuple_nodes.contains_key(&structural)
+                    || rest_over_a_reference)
+            {
+                return structural;
             }
             let name = self.binder.symbols().get(alias).name.to_string();
             let named = self.store.new_named(TypeFlags::OBJECT, name, None);
@@ -2027,20 +2083,67 @@ impl<'a> Checker<'a, '_> {
         // PRINT-ONLY variadic — the text composed from resolved element
         // prints, minted with no element-list entry so access,
         // instantiation, and relations keep declining.
-        if node.elements.iter().any(|element| matches!(element, TypeNode::RestTypeNode(_)))
-            && !node.elements.iter().any(|element| {
-                matches!(element, TypeNode::NamedTupleMember(_) | TypeNode::OptionalTypeNode(_))
-            })
-        {
+        //
+        // **§956 removes the second half of that gate.** §40 declined the whole
+        // node when a rest element sat beside an OPTIONAL or NAMED one, so
+        // `[...T, number?]` was `errorType` and with it every signature holding
+        // one — `<T extends unknown[]>(t1: [...T], t2: [...T, number?]) => T`
+        // printed `any` in `variadicTuples1`. Nothing about those two element
+        // kinds needs the element LIST: this road composes TEXT, and `number?`
+        // and `label: T` are spellings, not structures. The gate was excluding
+        // them because the road BELOW it — the real element-list mint — cannot
+        // represent a rest, not because this one cannot print them.
+        //
+        // A LABELLED rest is `RestTypeNode(NamedTupleMember(..))`, NOT a
+        // `NamedTupleMember` carrying `...`: `parse_tuple_element`
+        // (`tsr-parser/src/types.rs:713`) consumes the `...` first and RECURSES,
+        // and it constructs every member with `NamedTupleMember::new(None, ..)`
+        // — so **`dot_dot_dot_token` is never set by this parser at all**. A
+        // first draft tested that field and was dead code; the nesting is
+        // unwrapped in the loop instead.
+        if node.elements.iter().any(|element| matches!(element, TypeNode::RestTypeNode(_))) {
             let mut pieces = Vec::with_capacity(node.elements.len());
             let mut spliced: Option<Vec<TypeId>> = Some(Vec::new());
+            // §956: an optional or named element forbids the SPLICE below — the
+            // spliced path builds a real element list, which carries neither a
+            // `?` nor a label, so a splice would silently drop what the source
+            // wrote. Text composition is unaffected.
+            let spellings_only = node.elements.iter().any(|element| {
+                matches!(element, TypeNode::NamedTupleMember(_) | TypeNode::OptionalTypeNode(_))
+            });
+            if spellings_only {
+                spliced = None;
+            }
             for element in node.elements {
-                let (prefix, inner) = match element {
-                    TypeNode::RestTypeNode(rest) => {
-                        let Some(inner) = rest.r#type else { return error };
-                        ("...", inner)
+                let (prefix, suffix, inner) = match element {
+                    // §956: `[a: string, b?: number, ...c: T]` — the label, the
+                    // `?`, and a labelled REST all print as written. Upstream
+                    // reuses the node, so the spelling is the answer.
+                    TypeNode::RestTypeNode(rest) => match rest.r#type {
+                        // The labelled rest, unwrapped one level.
+                        Some(TypeNode::NamedTupleMember(member)) => {
+                            let (Some(inner), Some(name)) = (member.r#type, member.name) else {
+                                return error;
+                            };
+                            let question =
+                                if member.question_token.is_some() { "?" } else { "" };
+                            (format!("...{}{question}: ", name.text), String::new(), inner)
+                        }
+                        Some(inner) => ("...".to_string(), String::new(), inner),
+                        None => return error,
+                    },
+                    TypeNode::NamedTupleMember(member) => {
+                        let (Some(inner), Some(name)) = (member.r#type, member.name) else {
+                            return error;
+                        };
+                        let question = if member.question_token.is_some() { "?" } else { "" };
+                        (format!("{}{question}: ", name.text), String::new(), inner)
                     }
-                    other => ("", *other),
+                    TypeNode::OptionalTypeNode(optional) => {
+                        let Some(inner) = optional.r#type else { return error };
+                        (String::new(), "?".to_string(), inner)
+                    }
+                    other => (String::new(), String::new(), *other),
                 };
                 let resolved = self.get_type_from_type_node(inner);
                 if resolved == error {
@@ -2060,7 +2163,7 @@ impl<'a> Checker<'a, '_> {
                         spliced = None;
                     }
                 }
-                pieces.push(format!("{prefix}{}", self.type_to_string(resolved)));
+                pieces.push(format!("{prefix}{}{suffix}", self.type_to_string(resolved)));
             }
             if let Some(flat) = spliced {
                 let readonly = node

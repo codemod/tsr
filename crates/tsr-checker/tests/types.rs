@@ -3153,3 +3153,64 @@ fn new_on_a_single_constructor_is_unchanged() {
         "A"
     );
 }
+
+/// §956: a rest element beside an OPTIONAL or NAMED one prints as written.
+///
+/// §40 declined the whole node in that combination, so `[...T, number?]` was
+/// `errorType` and every signature holding one printed `any`. Nothing about those
+/// two element kinds needs the element LIST — this road composes TEXT, and
+/// `number?` and `label: T` are spellings, not structures.
+#[test]
+fn a_variadic_tuple_may_carry_optional_and_labelled_elements() {
+    assert_eq!(
+        type_of_declaration(
+            "declare function f<T extends unknown[]>(t1: [...T], t2: [...T, number?]): T;",
+            "f"
+        ),
+        "<T extends unknown[]>(t1: [...T], t2: [...T, number?]) => T"
+    );
+    // A LABELLED rest is `RestTypeNode(NamedTupleMember(..))`, not a
+    // `NamedTupleMember` carrying `...`: the parser consumes the `...` first and
+    // recurses, and builds every member with `NamedTupleMember::new(None, ..)`,
+    // so `dot_dot_dot_token` is never set by this parser at all. A first draft
+    // tested that field and was dead code.
+    // A LABELLED rest is `RestTypeNode(NamedTupleMember(..))`, not a
+    // `NamedTupleMember` carrying `...`: the parser consumes the `...` first and
+    // recurses, and builds every member with `NamedTupleMember::new(None, ..)`,
+    // so `dot_dot_dot_token` is never set by this parser at all. A first draft
+    // tested that field and was dead code.
+    //
+    // Asserted over a TYPE PARAMETER rest because `...c: boolean[]` needs the
+    // global `Array` and these fixtures load no libs. **Fourth lib-dependent
+    // fixture this session** (§951, §953, §955, here) — the array spelling is
+    // corpus-asserted instead.
+    assert_eq!(
+        type_of_declaration(
+            "declare function g<T extends unknown[]>(x: [a: string, b?: number, ...c: T]): T;",
+            "g"
+        ),
+        "<T extends unknown[]>(x: [a: string, b?: number, ...c: T]) => T"
+    );
+}
+
+// §956's ALIAS-NAMING rule is **corpus-asserted, not unit-asserted**: every leg
+// needs the global `Array` (`[string, ...string[]]` and `[string, ...Array<string>]`
+// both), and these fixtures load no libs.
+//
+// The rule was derived from **42 non-generic rest-bearing tuple aliases** across the
+// corpus baselines, which split cleanly on whether NORMALISATION rewrote anything:
+//
+// ```
+// type T06 = [string, ...string[]]        >T06 : T06                     NAME
+// type NonEmptyStringArray =
+//            [string, ...Array<string>]   >… : [string, ...string[]]      STRUCT
+// type Unbounded = [...Numbers, boolean]  >… : [...number[], boolean]     STRUCT
+// type T04 = [...[...string[]]]           >T04 : T04                     NAME
+// ```
+//
+// `...string[]` is already normal so upstream's tuple carries the alias;
+// `...Array<string>` normalises to `...string[]`, creating a different tuple the
+// alias is not on. Leaving the rule out reproduced **§40's recorded 13
+// `RIGHT->WRONG` on `excessivelyLargeTupleSpread` exactly**, plus 3 on
+// `destructureTupleWithVariableElement` — which is the strongest confirmation of
+// that eight-hundred-entry-old note this project has had.
