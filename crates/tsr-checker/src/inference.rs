@@ -629,6 +629,30 @@ impl Checker<'_, '_> {
             );
             self.infer_from_types(return_source, returned, &parameters, &mut return_mapper, 0);
         }
+        // inferTypeArguments (checker.go:9467) sets the non-array rest's
+        // implied arity before this and ordinary argument inference.
+        let implied_rest = spread_rest_position.and_then(|position| {
+            let parameter = signature.parameters.get(position)?.r#type;
+            parameters
+                .contains(&parameter)
+                .then_some((parameter, arguments.len().saturating_sub(position)))
+        });
+        if let Some((parameter, arity)) = implied_rest {
+            if let Some(info) = infos.iter_mut().find(|info| info.type_parameter == parameter) {
+                info.implied_arity = Some(arity);
+            } else {
+                infos.push(InferenceInfo {
+                    type_parameter: parameter,
+                    priority: InferencePriority::MAX_VALUE,
+                    implied_arity: Some(arity),
+                    candidates: Vec::new(),
+                    contra_candidates: Vec::new(),
+                    fixed_type: None,
+                    is_fixed: false,
+                    top_level: true,
+                });
+            }
+        }
         // inferTypeArguments infers the receiver against the signature's
         // this type after contextual returns and before ordinary arguments.
         if let Some(this_parameter) = &signature.this_parameter
@@ -655,6 +679,22 @@ impl Checker<'_, '_> {
         // themselves measured -610: early member checks freeze the summit
         // families through the caches).
         let mut buckets: Vec<Vec<InferenceInfo>> = vec![Vec::new(); arguments.len().max(1)];
+        // Each bucket shares the context's arity metadata, without sharing
+        // candidates: candidate order still follows argument position.
+        if let Some((parameter, arity)) = implied_rest {
+            for bucket in &mut buckets {
+                bucket.push(InferenceInfo {
+                    type_parameter: parameter,
+                    priority: InferencePriority::MAX_VALUE,
+                    implied_arity: Some(arity),
+                    candidates: Vec::new(),
+                    contra_candidates: Vec::new(),
+                    fixed_type: None,
+                    is_fixed: false,
+                    top_level: true,
+                });
+            }
+        }
         let mut inferred_type_parameters = Vec::new();
         for (index, parameter) in signature.parameters.iter().enumerate() {
             // §939: a REST parameter takes EVERY argument from its position on,
@@ -966,6 +1006,7 @@ impl Checker<'_, '_> {
                                                 merged.push(InferenceInfo {
                                                     type_parameter: parameter,
                                                     priority: InferencePriority::MAX_VALUE,
+                                                    implied_arity: None,
                                                     candidates: Vec::new(),
                                                     contra_candidates: Vec::new(),
                                                     fixed_type: None,
@@ -1192,6 +1233,7 @@ impl Checker<'_, '_> {
                             infos.push(InferenceInfo {
                                 type_parameter,
                                 priority: InferencePriority::MAX_VALUE,
+                                implied_arity: None,
                                 candidates: Vec::new(),
                                 contra_candidates: Vec::new(),
                                 fixed_type: partial
@@ -2093,6 +2135,7 @@ impl Checker<'_, '_> {
                     InferenceInfo {
                         type_parameter: parameter,
                         priority: InferencePriority::MAX_VALUE,
+                        implied_arity: None,
                         candidates: Vec::new(),
                         contra_candidates: Vec::new(),
                         fixed_type: None,
@@ -2462,7 +2505,7 @@ impl Checker<'_, '_> {
     /// The single-variadic middle of `inferFromObjectTypes`
     /// (`internal/checker/inference.go`), using `sliceTupleType`'s mutable slice.
     /// Optional suffixes need speculative inference priority and are left to
-    /// that path; multiple variadic elements need implied arity.
+    /// that path. Adjacent variadics split using the call's implied arity.
     fn infer_from_variadic_tuple(
         &mut self,
         source: TypeId,
@@ -2491,18 +2534,79 @@ impl Checker<'_, '_> {
         let Some((source_elements, _)) = self.tuple_element_lists.get(&source).cloned() else {
             return false;
         };
-        let mut rest_index = None;
+        let mut rest_indices = Vec::new();
         let mut targets = Vec::with_capacity(elements.len());
         for (index, element) in elements.iter().enumerate() {
             if element.optional || element.r#type == self.intrinsics.error {
                 return false;
             }
-            if element.spread && rest_index.replace(index).is_some() {
-                return false;
+            if element.spread {
+                rest_indices.push(index);
             }
             targets.push(element.r#type);
         }
-        let Some(start) = rest_index else { return false };
+        let Some(&start) = rest_indices.first() else { return false };
+        if rest_indices.len() > 1 {
+            let [first, second] = rest_indices.as_slice() else { return false };
+            if *second != first + 1
+                || !parameters.contains(&targets[*first])
+                || !parameters.contains(&targets[*second])
+            {
+                return false;
+            }
+            let Some(arity) = out
+                .iter()
+                .find(|info| info.type_parameter == targets[*first])
+                .and_then(|info| info.implied_arity)
+            else {
+                return false;
+            };
+            let end_skip = targets.len() - second - 1;
+            if source_elements.len() < start + end_skip {
+                return false;
+            }
+            for index in 0..start {
+                self.infer_from_types_within(
+                    source_elements[index],
+                    targets[index],
+                    original,
+                    parameters,
+                    out,
+                    depth + 1,
+                );
+            }
+            let first_skip = (end_skip + source_elements.len()).saturating_sub(arity);
+            let first_slice = self.slice_tuple_type(source, start, first_skip).unwrap();
+            let second_slice = self.slice_tuple_type(source, start + arity, end_skip).unwrap();
+            self.infer_from_types_within(
+                first_slice,
+                targets[*first],
+                original,
+                parameters,
+                out,
+                depth + 1,
+            );
+            self.infer_from_types_within(
+                second_slice,
+                targets[*second],
+                original,
+                parameters,
+                out,
+                depth + 1,
+            );
+            let end = source_elements.len() - end_skip;
+            for index in 0..end_skip {
+                self.infer_from_types_within(
+                    source_elements[end + index],
+                    targets[second + 1 + index],
+                    original,
+                    parameters,
+                    out,
+                    depth + 1,
+                );
+            }
+            return true;
+        }
         let array_rest = self.tuple_spread_array_element(targets[start]);
         if !parameters.contains(&targets[start]) && array_rest.is_none() {
             return false;
@@ -4648,6 +4752,8 @@ mod tests {
 pub(crate) struct InferenceInfo {
     pub(crate) type_parameter: TypeId,
     pub(crate) priority: InferencePriority,
+    /// Supplied rest-argument count (inferTypeArguments, checker.go:9467).
+    pub(crate) implied_arity: Option<usize>,
     pub(crate) candidates: Vec<TypeId>,
     /// `InferenceInfo.contraCandidates`, kept separate from output positions.
     pub(crate) contra_candidates: Vec<TypeId>,
@@ -4707,6 +4813,7 @@ fn add_directional_candidate(
         infos.push(InferenceInfo {
             type_parameter,
             priority,
+            implied_arity: None,
             candidates: if contravariant { Vec::new() } else { vec![candidate] },
             contra_candidates: if contravariant { vec![candidate] } else { Vec::new() },
             fixed_type: None,
@@ -4733,6 +4840,9 @@ pub(crate) fn merge_info(infos: &mut Vec<InferenceInfo>, from: &InferenceInfo) {
         add_directional_candidate(infos, from.type_parameter, candidate, true, from.priority);
     }
     if let Some(existing) = infos.iter_mut().find(|i| i.type_parameter == from.type_parameter) {
+        if existing.implied_arity.is_none() {
+            existing.implied_arity = from.implied_arity;
+        }
         existing.top_level &= from.top_level;
         existing.is_fixed |= from.is_fixed;
         if existing.fixed_type.is_none() {
