@@ -24,7 +24,7 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-09-30
 
-Measured on **`THIS_ARGUMENT_COMMIT`**: **448,122/478,855 assertions (93.58%)**,
+Measured on **`a88f8a1e`**: **448,122/478,855 assertions (93.58%)**,
 **6,558/9,538 complete cases (68.76%)**. The active 95% target requires 454,913
 correct assertions; **6,791 remain**. The denominator and pinned oracle are
 unchanged. Aligned verdicts: **474,243 total;448,122 right;4,628 gap;21,493 wrong**.
@@ -1140,7 +1140,7 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-### Current priorities at `THIS_ARGUMENT_COMMIT` — 2026-09-30
+### Current priorities at `a88f8a1e` — 2026-09-30
 
 Inference priorities, independent contextual return mappers, captured structural
 substitution, call/construct signature kinds, measured reference variances,
@@ -3686,7 +3686,7 @@ version of bare `any`.
 
 ## 5. Refused, with the number that refused it
 
-### Generic this argument inference at `THIS_ARGUMENT_COMMIT`
+### Generic this argument inference at `a88f8a1e`
 
 Receiver inference now precedes ordinary arguments after contextual return
 inference,including property/indexed/wrapped/optional calls and void for bare
@@ -9161,7 +9161,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
-| 2026-09-30 | `THIS_ARGUMENT_COMMIT` | **68.76%** | **6,558** | **448,122/478,855 assertions (93.58%).** +26 W→R since15643d99,zero RIGHT losses,no new wrong. Ports generic this-argument receiver inference with wrapper/optional-chain handling. Pinned controls and release workspace tests/clippy pass;3,380 anchors resolve;snapshot refreshed. [Evidence and remaining work](docs/architecture/checker-95-this-argument.md). 6,791 assertions remain;goal active. |
+| 2026-09-30 | `a88f8a1e` | **68.76%** | **6,558** | **448,122/478,855 assertions (93.58%).** +26 W→R since15643d99,zero RIGHT losses,no new wrong. Ports generic this-argument receiver inference with wrapper/optional-chain handling. Pinned controls and release workspace tests/clippy pass;3,380 anchors resolve;snapshot refreshed. [Evidence and remaining work](docs/architecture/checker-95-this-argument.md). 6,791 assertions remain;goal active. |
 | 2026-09-30 | `15643d99` | **68.75%** | **6,557** | **448,096/478,855 assertions (93.58%).** +342 correct since `1609ae84`:310 W→R,32 G→R,zero RIGHT losses;11 G→W remain in the deficit. Ports class this annotation/container identity,written error recovery and globalThis runtime-property recovery. Release workspace tests/clippy pass;3,380 anchors resolve;snapshot refreshed. [Evidence and remaining work](docs/architecture/checker-95-class-this.md). 6,817 assertions remain;goal active. |
 | 2026-09-30 | `1609ae84` | **68.61%** | **6,544** | **447,754/478,855 assertions (93.51%).** +12 correct since `90bccd3b`: 10 W→R and 2 G→R, zero RIGHT losses and no new wrong answers. Ports implicit syntax/reference infer constraints, direct dependent constraint resolution and any branch unions through the inference mapper. All nine controls and release workspace tests/clippy pass; 3,380 anchors resolve; snapshot refreshed. [Evidence and remaining work](docs/architecture/checker-95-implicit-infer.md). 7,159 assertions remain; goal active. |
 | 2026-09-30 | `90bccd3b` | **68.60%** | **6,543** | **447,742/478,855 assertions (93.50%).** +85 correct since `ac8d33ed`: 50 W→R and 35 G→R, zero RIGHT losses; 10 G→W remain in the deficit. Ports explicit closed infer constraints across merged declarations, nested conditional continuation and union/never distribution with enclosing alias names. Release workspace tests/clippy pass; 3,380 anchors resolve; snapshot refreshed. [Evidence and remaining work](docs/architecture/checker-95-infer-constraints.md). 7,171 assertions remain; goal active. |

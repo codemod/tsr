@@ -14,7 +14,7 @@ fixed-denominator measurement and release gates determine acceptance.
 
 ## Accepted measurement and limits
 
-Checkpoint `THIS_ARGUMENT_COMMIT`:448,122/478,855 correct assertions (93.58%),
+Checkpoint `a88f8a1e`:448,122/478,855 correct assertions (93.58%),
 6,558/9,538 complete cases (68.76%). Another 6,791 correct assertions are needed
 for 95%. Aligned verdicts:474,243 total;448,122 right;4,628 gap;21,493 wrong.
 Against15643d99:26 WRONG→RIGHT,zero RIGHT losses,no new wrong answers.
