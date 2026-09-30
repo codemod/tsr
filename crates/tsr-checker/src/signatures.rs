@@ -4773,12 +4773,24 @@ impl<'a> Checker<'a, '_> {
             out.push('>');
         }
         out.push('(');
-        for (index, parameter) in
-            signature.this_parameter.iter().chain(signature.parameters.iter()).enumerate()
-        {
-            if index > 0 {
+        // §957: the separator is written when the previous parameter actually
+        // EMITTED something, not from the index.
+        //
+        // A rest parameter whose tuple expansion is EMPTY prints nothing — an
+        // expanded `...x` over a contextual tuple that the fixed parameters
+        // already consumed — and an index-driven separator then left a stray
+        // one: `(a: number, b: boolean, c: string, ) => void` where upstream
+        // records `(a: number, b: boolean, c: string) => void`
+        // (`restTuplesFromContextualTypes`, whose SAME syntax prints
+        // `...x: string[]` under a rest-tailed contextual tuple — so the empty
+        // expansion is upstream's answer, and only the comma was wrong).
+        let mut emitted_a_parameter = false;
+        for parameter in signature.this_parameter.iter().chain(signature.parameters.iter()) {
+            let separator_before = out.len();
+            if emitted_a_parameter {
                 out.push_str(", ");
             }
+            let separator_at = out.len();
             // §88 (`checker-notes-narrow.md`): a REST parameter over a PLAIN
             // tuple EXPANDS when no written annotation is carried —
             // `...args: [number, boolean]` prints `args_0: number, args_1:
@@ -4831,6 +4843,11 @@ impl<'a> Checker<'a, '_> {
                                 render(self, resolved)
                             ));
                             out.push_str(&pieces.join(", "));
+                            if out.len() > separator_at {
+                                emitted_a_parameter = true;
+                            } else {
+                                out.truncate(separator_before);
+                            }
                             continue;
                         }
                     }
@@ -4854,6 +4871,11 @@ impl<'a> Checker<'a, '_> {
                     ));
                 }
                 out.push_str(&pieces.join(", "));
+                if out.len() > separator_at {
+                    emitted_a_parameter = true;
+                } else {
+                    out.truncate(separator_before);
+                }
                 continue;
             }
             if parameter.rest {
@@ -4866,6 +4888,11 @@ impl<'a> Checker<'a, '_> {
             } else {
                 let text = render(self, parameter.r#type);
                 out.push_str(&text);
+            }
+            if out.len() > separator_at {
+                emitted_a_parameter = true;
+            } else {
+                out.truncate(separator_before);
             }
         }
         out.push_str(") => ");

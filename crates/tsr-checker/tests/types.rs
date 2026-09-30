@@ -3214,3 +3214,45 @@ fn a_variadic_tuple_may_carry_optional_and_labelled_elements() {
 // `RIGHT->WRONG` on `excessivelyLargeTupleSpread` exactly**, plus 3 on
 // `destructureTupleWithVariableElement` — which is the strongest confirmation of
 // that eight-hundred-entry-old note this project has had.
+
+/// §957: a GENERIC alias whose body is a REST-BEARING tuple prints the STRUCTURE,
+/// while a plain tuple body keeps the name.
+///
+/// The same normalisation axis §956 derived for non-generic aliases: a plain tuple
+/// is interned WITH the alias, a rest-bearing one is built by
+/// `createNormalizedTupleType` whose normalisation creates a different type the
+/// alias is not on. Oracle: `>TV0 : [string, ...T]` and `>Foo : Foo<T, U>`.
+///
+/// Newly reachable because §956 made these bodies resolve at all.
+#[test]
+fn a_generic_tuple_alias_prints_its_structure_only_when_it_has_a_rest() {
+    assert_eq!(
+        type_of_declaration(
+            "type TV0<T extends unknown[]> = [string, ...T];\ndeclare const x: TV0<[]>;",
+            "x"
+        ),
+        "[string]"
+    );
+    // A plain tuple body keeps the name — the alias survives interning.
+    assert_eq!(
+        type_of_declaration("type Foo<T, U> = [T, U];\ndeclare const x: Foo<string, number>;", "x"),
+        "Foo<string, number>"
+    );
+}
+
+/// §957: a parameter separator is written only when the previous parameter
+/// actually EMITTED something.
+///
+/// A rest parameter whose tuple expansion is empty prints nothing, and an
+/// index-driven separator left a stray one — `(a: number, ) => void`. Upstream
+/// records the empty expansion itself (the same syntax prints `...x: string[]`
+/// under a rest-tailed contextual tuple), so only the comma was wrong.
+#[test]
+fn an_empty_rest_expansion_leaves_no_trailing_separator() {
+    let printed = type_of_declaration(
+        "declare function f<T extends unknown[]>(...args: [number, ...T]): void;",
+        "f"
+    );
+    assert!(!printed.contains(", )"), "stray separator in {printed}");
+    assert!(!printed.contains("( "), "stray leading separator in {printed}");
+}

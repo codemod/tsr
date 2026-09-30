@@ -4231,6 +4231,35 @@ impl<'a> Checker<'a, '_> {
             {
                 return self.get_type_from_type_node(body);
             }
+            // §957: a GENERIC alias whose body is a REST-BEARING tuple prints the
+            // STRUCTURE, not `Name<Params>`. Same normalisation axis §956 derived
+            // for the non-generic case, and the oracle splits generic
+            // tuple-bodied aliases the same way:
+            //
+            // ```
+            // type Foo<T, U> = [T, U]                >Foo : Foo<T, U>              NAME
+            // type V0<…> = [A, B?, ...T, ...C[]]     >V0 : [A, (B | undefined)?, ...T, ...C[]]   STRUCT
+            // type V1<…> = [A, ...T, B, ...C[], D]   >V1 : [A, ...T, B, ...C[], D]  STRUCT
+            // type TV0<T extends unknown[]> = [string, ...T]   >TV0 : [string, ...T]  STRUCT
+            // ```
+            //
+            // A plain tuple is interned WITH the alias; a rest-bearing one is built
+            // by `createNormalizedTupleType`, whose normalisation creates a
+            // different type that the alias is not on. **Newly reachable because
+            // §956 made these bodies resolve at all** — before it, `[string, ...T]`
+            // beside an optional element was `errorType`, so this arm had nothing
+            // to return.
+            if let Some(declaration) =
+                self.binder.symbols().get(symbol).declarations.first().copied()
+                && let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration)
+                && let Some(TypeNode::TupleTypeNode(body)) = alias.r#type
+                && body.elements.iter().any(|e| matches!(e, TypeNode::RestTypeNode(_)))
+            {
+                let structural = self.get_type_from_type_node(TypeNode::TupleTypeNode(body));
+                if structural != error {
+                    return structural;
+                }
+            }
             let name = self.binder.symbols().get(symbol).name.to_string();
             return self.store.new_named(
                 TypeFlags::OBJECT,

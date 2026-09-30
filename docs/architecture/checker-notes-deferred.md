@@ -11720,3 +11720,78 @@ and the previous entry stated the pattern was "predictable enough to check befor
 writing the assertion."** I then wrote two more before checking. The check is one
 question — *does this spelling need a global?* — and it is now recorded in three
 places, which is evidence that recording it is not what makes me do it.
+
+## §957 — two legs the §956 road opened, measured in one run (+14, zero adverse)
+
+§956's own note said to look for more misplaced gates before attempting the
+element-flags refactor. Both legs here were found by asking the three top tuple
+cases what their FIRST remaining mismatch was — one `casequery` call each — and both
+were reachable only because §956 made variadic bodies resolve.
+
+### Leg 1 — the generic rest-tuple alias (+6)
+
+`variadicTuples1`'s first mismatch was `>TV0 : TV0<T>` against `[string, ...T]`.
+§956 derived the name-versus-structure axis for NON-generic aliases; scanning every
+**generic** tuple-bodied alias in the baselines (24 of them) splits the same way:
+
+```
+type Foo<T, U> = [T, U]                >Foo : Foo<T, U>                          NAME
+type TV0<T extends unknown[]> = [string, ...T]   >TV0 : [string, ...T]           STRUCT
+type V0<…> = [A, B?, ...T, ...C[]]     >V0 : [A, (B | undefined)?, ...T, ...C[]]  STRUCT
+type V1<…> = [A, ...T, B, ...C[], D]   >V1 : [A, ...T, B, ...C[], D]             STRUCT
+```
+
+Same mechanism: a plain tuple is interned WITH the alias; a rest-bearing one is
+built by `createNormalizedTupleType`, whose normalisation creates a different type
+the alias is not on. **Only reachable because §956 made the body resolve** — before
+it the arm would have had nothing to return but `errorType`.
+
+**+6 `WRONG->RIGHT`, zero adverse.**
+
+### Leg 2 — a malformed print (+8)
+
+`restTuplesFromContextualTypes`'s first mismatch was
+`(a: number, b: boolean, c: string, ) => void` — **a stray separator**. A rest
+parameter whose tuple expansion is EMPTY emits nothing, while the separator was
+written from the loop INDEX.
+
+The empty expansion is upstream's own answer, which two adjacent baseline rows make
+unambiguous — the identical syntax prints differently under two contextual tuples:
+
+```
+(function (a, b, c, ...x){})(...t1)   >… : (a: number, b: boolean, c: string) => void
+(function (a, b, c, ...x){})(...t2)   >… : (a: number, b: boolean, c: string, ...x: string[]) => void
+```
+
+So only the comma was wrong. Fixed by writing the separator **only when the previous
+parameter actually emitted something**, and truncating back when it did not.
+
+**+8 `WRONG->RIGHT`, zero adverse** — `emitDefaultParametersFunctionExpressionES6` 4,
+`restTuplesFromContextualTypes` 3, `genericRestParameters2` 1.
+
+**The first version of this fix was wrong in a way that would have measured as
+nothing.** Emission was tracked at the END of the loop body — but two expansion arms
+`continue` past it, and those are exactly the parameters the fix is about, so the
+flag would never have been set for them. Caught by reading the control flow before
+measuring rather than after. *A fix whose bookkeeping skips its own subject looks
+identical to a fix that was not needed.*
+
+### The measurement
+
+**+14 `WRONG->RIGHT`, zero adverse.** `right` 443,729 → **443,743**, one case flipped
+(6,374 → 6,375), lines **92.67%**.
+
+### What is left in the tuple family, honestly
+
+Both legs were PRINTS. The element-flags work §4.-8 describes is still entirely
+unported, and what remains behind it is behavioural rather than cosmetic: an element
+list cannot hold optional or rest, so **access, instantiation and relations over
+variadic tuples still decline**. `variadicTuples2`'s next mismatch is
+`>V16 : [...string[], ...number[]]` against `(string | number)[]` — two rests over
+arrays collapsing to one array of the union, which is `createNormalizedTupleType`'s
+own reduction and needs the flags to express.
+
+§956 took 125 lines out of that item and this takes 14 more; the board's ~1,255
+should now read **~1,240**, and the pattern of the last two entries — *the print gate
+was misplaced, the behaviour was not* — is the thing to check next rather than a
+reason to expect more of it.
