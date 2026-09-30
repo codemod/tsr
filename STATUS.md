@@ -1125,6 +1125,42 @@ fresh run at `7cecc02` (fourth session; every row within noise). Two lists, beca
 project's ordering rule has two halves: **rank by the conversion, and where the
 conversion is unknown, rank by how cheap it is to find out.**
 
+### 4.-8 THE PROPAGATION MULTIPLIER, 2026-09-29 (§950) — read this before picking an item
+
+Measured whole at `66ab9d82` by `examples/wrongflip.rs` and `examples/wrongdelta.rs`.
+
+```
+WRONG lines             25,054
+  ROOT                   3,546  (14.15%)
+  propagated/sibling     6,012  (24.00%)
+  propagated/descendant  4,690  (18.72%)
+  propagated/declaration 3,282  (13.10%)
+  UNKNOWN                7,524  (30.03%)
+```
+
+**Only 14.15% of wrong lines are roots, and 13,851 of them (55%) answer `any`.**
+The `any` mass is *not* a missing capability — apparent-type member access on
+primitives was probed directly and is entirely correct (`n.toFixed`, `s.charAt`,
+`a.push` all right); those lines are lines whose **receiver** was already `any`.
+
+> **The leverage is the ~7:1 ratio between wrong lines and root wrong lines, not
+> the size of any row.** `ArrayLiteralExpression` measures it directly: 311 ROOT
+> lines against 630 wrong lines in that node kind. Every entry §925–§949 was found
+> by reading a printed wrong line, which is a 6-in-7 chance of working on a symptom.
+
+**The largest coherent item, sized: tuple / variadic-tuple prints, 1,380 wrong
+lines across 258 cases** (`variadicTuples1` 143, `strictBindCallApply1` 92,
+`variadicTuples2` 84, `genericDefaults` 79, `genericRestParameters1` 60). The
+forcing constraint is the representation — `checker.rs:774` is
+`FxHashMap<TypeId, (Vec<TypeId>, bool)>` with **no per-element flags**, against
+upstream's per-element `TupleElementInfo` and `createNormalizedTupleTypeEx`
+(`checker.go:23303`); the port approximates it with four parallel side tables.
+**Not started.** §950 records the staged shape (a fifth table defaulting to
+"required", printer and type-node mint only, 54 readers migrated one entry at a
+time) and why widening the tuple itself is the §947.1 failure mode at larger scale.
+
+---
+
 ### 4.-7 WHEN THE ORACLE ITSELF SAYS `error`, 2026-09-27 (§820) — the rule ADR-0038 and ADR-0039 each describe half of
 
 **Verified against upstream, not inferred**, because every ceiling argument on
@@ -8806,6 +8842,34 @@ in `bd` — the local database is not initialised in this checkout (`bd create`
 reports "Run 'bd init'"), so recording it here is the durable form until someone
 with the database can file it.
 
+### The generic-alias print rule — refused at ~214 lines against a 287-row precedent (§950, 2026-09-29)
+
+`declared.rs:3945` mints `format!("{name}<{}>", parameters.join(", "))` for **every**
+generic type alias. Upstream does not: `getDeclaredTypeOfTypeAlias`
+(`checker.go:23837`) is `getTypeFromTypeNode(typeNode)` and nothing else — the
+`Name<T>` print comes from the node builder finding `type.alias`, which only the
+constructors upstream threads an alias symbol through (union, intersection,
+conditional, type literal, mapped) ever set, never the interned ones (tuple, array,
+index, indexed access, reference).
+
+**The blanket mint is an approximation, and it is already right 83% of the time.**
+Over every generic alias declaration in the corpus baselines: **1,285 total, 1,071
+(83.3%) printed `Name<...>`, 214 (16.7%) printed structurally**, with no clean
+body-shape discriminator (`keyof`, 31 structural against 3 named, is the only near
+signal).
+
+Refused because the upside is ~214 declaration lines and the change *is* the
+printed identity of every generic alias. **§947.1 priced exactly that move at 287
+`RIGHT->WRONG`**, and its recorded lesson — *register the resolved body on the type
+the normal road already builds, do not replace it* — has no "register alongside"
+form available here.
+
+*Reopening condition:* give the type store a real optional alias-symbol field that
+the constructors set and the printer consults, i.e. port
+`getAliasSymbolForTypeNode`'s threading, and then **delete** the blanket mint rather
+than conditionalise it. That is a store change and must be priced as one, not as a
+print fix.
+
 ## 6. Instruments
 
 **`examples/parserextra.rs`** (§220) — per case, every parser diagnostic the baseline has **no** entry for at that position. `extragap` counts the extra column by code and `extraonly` lists cases blocked by an extra *alone*; this is the only view that says **where** the 1,288 invented parser lines are. Its answer is a distribution: 326 of 383 cases invent one to four lines.
@@ -9749,3 +9813,4 @@ that were true of a different population than the one they were quoted about.
 | 2026-09-29 | `HEAD` | **66.76%** | **6,368** | **§947.3 — the call road's half, and an honest +1 (zero adverse).** §947.2 closed by naming what it had not reached: `fc(1)` with `fc: F<number>` was still `error`. Inference read `signature_types` and answered; the CALL road never did, because §947.2 registers on a `TypeData::Named` reference and the named-callee branch consults `get_signature_of_named_type`/`signature_candidates_of_named_type`, neither of which looks at the table. `getSignaturesOfType` (`checker.go:18959`) reads the TYPE's signatures, so the named branch now does too, filtered by kind for §932's reason. **Third instance of §932's split** — §932 wired the anonymous branch, §932.1 the contextual one, §947.3 the named one. *Three separate entries to wire ONE table into three readers, each found only when something downstream failed*: the table is the intended interface and its readers were built independently. **1 G→R (`correlatedUnions`), zero adverse. Twenty lines of code for one line of coverage, and that is not dressed up.** Kept because it is measured, faithful and completes the alias family — `type F<T> = (…) => …` is now callable AND inferable where it was neither — but *inflating "completeness" into value would be the kind of claim this file exists to prevent*. A direct call through a generic function alias is rare in THIS corpus and common in real code: §800's distinction, the corpus is the arbiter of SIZE and not of CORRECTNESS. **The alias family (§942 → §947.3, six entries) is now closed end to end**: four diagnoses, one +18, one +1. `checker-notes-deferred.md` §947.3. checker session |
 | 2026-09-29 | `HEAD` | **66.76%** | **6,368** | **§948 — `new` on an INTERSECTION of constructors (+67, zero adverse). The port the previous entry DECLINED, and the refusal was based on an inherited misdiagnosis.** §943/§943.1 chased the board's "mixin" cluster to a class expression extending a type parameter and located the decline at `symbols.rs:2648`, concluding it needs `getBaseTypeVariableOfClass`'s exact-match structural print; the entry before this one declined to start it on risk/reward, citing §947.1's fresh −271. **`mixinClassesMembers` contains no such class expression.** It writes `declare const Mixed3: typeof M2 & typeof M1 & typeof C1` and `new Mixed3()`, which is `M2 & M1 & C1` upstream and `error` here — an **intersection of constructor types**, a different and much smaller rule. *One `grep` of the `.types` baseline found it; two entries had gone by on the case NAMES.* `check_new_expression` gains an intersection arm (resolve each constituent's construct return, intersect; a constituent with no readable signature declines the WHOLE arm). `construct_return_of` reads a class's instance type via `get_declared_type_of_symbol` — a class declaring no constructor offers no signature, which is why the first build measured nothing and instrumentation said `kind=intersection` with a failing constituent. **43 G→R + 24 W→R, zero adverse**, every row in `mixinClassesMembers`. *Declining work because a NEARBY thing regressed is not the same as measuring it.* **Fifth time this session a case name pointed at the wrong mechanism** (§929, §933, §937.1, §945, §948) and the first where it cost a refusal rather than a detour. Process: **fourth orphaned doc comment** of the day (helper inserted between a doc block and its `fn`, 3 clippy errors) — fixed by inserting before the doc run. `checker-notes-deferred.md` §948. checker session |
 | 2026-09-29 | `HEAD` | **66.76%** | **6,368** | **§949 — the last two §929-shaped amplifiers, measured TOGETHER (+1 kept, one refused), and the seam declared exhausted ON EVIDENCE.** Two independent hypotheses, **two scoring runs instead of four**: both legs written and measured in one, then bisected in one more to attribute. *This is the process change this session's own retrospective called for, applied.* **Leg 1 kept** — `index_signature_member` declined on an unresolvable value type and the caller turns a declined index member into a **whole-literal** `error`, so `{ a: string; [k: number]: Bad }` printed nothing and **lost the good `a`**; it now carries the written spelling through §929's channel. **+1 `WRONG->RIGHT` (`returnTypeTypeArguments`), zero adverse.** **Leg 2 refused** — the same move on `tuple_type_node_structural`'s rest branch WORKS (`[string, ...Bad[]]` prints) and measured **3 `GAP->WRONG`, zero wins** (`inferTInParentheses`, `largeTupleTypes`, `mappedTypeTupleConstraintAssignability`); reverted. Worth distinguishing from **§930.3**, which refused the same idea on the **concrete** tuple road for a *shape* reason — there an element becomes a real `TypeId` consumed by access and the relater, whereas here nothing consumes the composed text, so this refusal is **purely the number**. One pinned test flipped: `an_unrenderable_index_signature_gaps_the_whole_literal` had pinned `{ [k: string]: keyof T }` as `error`. Its **union-key assertion is deliberately left standing**, and the pair now states the rule — the whole-literal rejection **still holds for a member this port cannot SPELL, and no longer holds for one whose value type merely fails to RESOLVE**. *Spellability, not resolvability, is where the literal gaps*; relaxing both rows would have deleted that distinction instead of recording it. **The finding that closes the search: §929's family paid +469, +33, +41, +1, and three refusals — the two amplifiers left after §930 are worth ONE LINE between them.** Earlier entries *asserted* the seam was thinning; this one **establishes** it, which is the difference between a hunch and a finding, and it means **the remaining ~11,550 lines are not hiding another §929.** §1's aligned `scorepair` view corrected here too: it had stood at `right 438,014 gap 7,418 wrong 28,811` from a pre-§925 compiler while the `checker_types` row one line above it was fresh — two rows of the same table describing two different compilers. |
+| 2026-09-29 | `66ab9d8` | **66.76%** | **6,368** | **§950 — where the remaining 25,054 wrong lines actually are (MEASUREMENT ONLY, no code; precedent §947.4).** §949 closed a search without saying what to do next, and this session's own caveat was *"my size estimates may be describing the wrong work"* — so this entry spends its whole budget measuring instead of moving. **Only 14.15% of wrong lines are ROOT** (3,546 of 25,054; sibling 24.00%, descendant 18.72%, declaration 13.10%, unknown 30.03%), and **13,851 of 25,136 (55%) answer the single string `any`** — top substitutions `number->any` 1,685, `string->any` 1,400, `() => string->any` 146, `(fractionDigits?: number) => string->any` 84. The obvious reading — apparent-type member access on primitives is unported — was **probed and is false**: `n.toFixed`, `n.toString`, `s.charAt`, `a.push` are all exactly right, so those are lines whose **receiver** was already `any`. **The actionable consequence: the leverage is the ~7:1 ratio between wrong lines and ROOT wrong lines, not the size of any row** — `ArrayLiteralExpression` measures it at 311 ROOT against 630 in-kind — and every entry §925–§949 was found by reading a printed wrong line, which is by construction a 6-in-7 chance of working on a symptom. **Largest coherent item sized: tuple/variadic prints, 1,380 lines / 258 cases**, forcing constraint is `checker.rs:774`'s `(Vec<TypeId>, bool)` with **no per-element flags** against upstream's `TupleElementInfo` + `createNormalizedTupleTypeEx` (`checker.go:23303`), today approximated by four parallel side tables; **not started**, staged shape recorded. **One item measured and REFUSED: the generic-alias print rule** — `declared.rs:3945` mints `Name<Params>` for every generic alias where upstream just resolves the body, but that blanket mint is **already right 1,071/1,285 = 83.3%** of corpus alias declarations, so the upside is ~214 lines against changing the printed identity of every generic alias, which **§947.1 priced at 287 `RIGHT->WRONG`**; reopening condition is a store-level alias-symbol field, priced as a store change and not a print fix. **Also a process note: the first instrument reached for was `wrongdelta` expecting a ranking, when its own header says it is the joinable dump and `wrongflip` is the classifier** — read the doc comment first; there are 109 of these and their headers are precise. **Worth of the entry: no lines, four guesses replaced by four numbers, and three of the four were things I believed at the start and would have acted on.** |
