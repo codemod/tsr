@@ -24,7 +24,7 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-09-30
 
-Measured on **`CONDITIONAL_CODE`**: **447,657/478,855 assertions (93.48%)**,
+Measured on **`ac8d33ed`**: **447,657/478,855 assertions (93.48%)**,
 **6,542/9,538 complete cases (68.59%)**. The active 95% target requires 454,913
 correct assertions; **7,256 remain**. The denominator and pinned oracle are
 unchanged. Aligned verdicts: **474,243 total; 447,657 right; 4,718 gap; 21,868
@@ -1141,7 +1141,7 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-### Current priorities at `CONDITIONAL_CODE` — 2026-09-30
+### Current priorities at `ac8d33ed` — 2026-09-30
 
 Inference priorities, independent contextual return mappers, captured structural
 substitution, call/construct signature kinds, measured reference variances,
@@ -3676,7 +3676,7 @@ version of bare `any`.
 
 ## 5. Refused, with the number that refused it
 
-### Conditional infer scope and mapper at `CONDITIONAL_CODE`
+### Conditional infer scope and mapper at `ac8d33ed`
 
 Infer parameters now bind to the enclosing conditional and resolve only in its
 true branch. Concrete non-union conditional aliases infer and instantiate the
@@ -9834,7 +9834,7 @@ holds only the numbers.
 
 | 2026-09-30 | `18ce162e` | **68.45%** | **6,529** | **95% goal checkpoint: 447,414/478,855 assertions (93.43%).** +3,579 correct versus the initial working tree (443,835), zero previously RIGHT assertions lost; 284 G→W and 16 W→G disclosed. Ports inference priorities, contextual callback fixing and return mappers, captured structural substitution, signature kinds, reference variance measurement, tuple normalization/relations and identity homomorphic tuple maps. Count resets retain instantiation depth. Release workspace tests and clippy pass; 3,383 anchors resolve. Snapshot refreshed. [Mechanisms, constraints and review fallback](docs/architecture/checker-95-checkpoint.md). 7,499 assertions remain; goal active. User directs verified changes to be committed and pushed to main. |
 | 2026-09-30 | `f6405d4d` | **68.48%** | **6,532** | **447,501/478,855 assertions (93.45%).** +87 correct since `18ce162e`: 75 W→R and 12 G→R, zero RIGHT losses or other status transitions. Ports generic tuple indexed-access deferral, numeric iteration projections, type parameter iteration constraints and tuple destructuring slices with readonly removal and optional/label preservation. Release workspace tests and clippy pass; 3,380 anchors resolve. Snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-tuple-reads.md). 7,412 assertions remain; 95% goal active. |
-| 2026-09-30 | `CONDITIONAL_CODE` | **68.59%** | **6,542** | **447,657/478,855 assertions (93.48%).** +156 correct since `f6405d4d`: 88 W→R and 68 G→R, zero RIGHT losses; 8 G→W remain in the deficit. Ports conditional-local infer binding/visibility, semantic infer identities, signature-less inference mappers and strict conditional variance, plus concrete rest tuple position inference. Unsupported targets defer. Release workspace tests/clippy pass; 3,380 anchors resolve; snapshot refreshed. Binder symbols 8,497/8,497 (100%). [Evidence and remaining work](docs/architecture/checker-95-conditional-infer.md). 7,256 assertions remain; goal active. |
+| 2026-09-30 | `ac8d33ed` | **68.59%** | **6,542** | **447,657/478,855 assertions (93.48%).** +156 correct since `f6405d4d`: 88 W→R and 68 G→R, zero RIGHT losses; 8 G→W remain in the deficit. Ports conditional-local infer binding/visibility, semantic infer identities, signature-less inference mappers and strict conditional variance, plus concrete rest tuple position inference. Unsupported targets defer. Release workspace tests/clippy pass; 3,380 anchors resolve; snapshot refreshed. Binder symbols 8,497/8,497 (100%). [Evidence and remaining work](docs/architecture/checker-95-conditional-infer.md). 7,256 assertions remain; goal active. |
 
 ## 8. Updating this file
 
