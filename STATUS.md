@@ -24,21 +24,22 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-09-30
 
-Measured on **`f6405d4d`**: **447,501/478,855 assertions (93.45%)**,
-**6,532/9,538 complete cases (68.48%)**. The active 95% target requires 454,913
-correct assertions; **7,412 remain**. The denominator and pinned oracle are
-unchanged. Aligned verdicts: **474,243 total; 447,501 right; 4,794 gap; 21,948
-wrong**. Other suites below retain their prior historical measurements.
+Measured on **`CONDITIONAL_CODE`**: **447,657/478,855 assertions (93.48%)**,
+**6,542/9,538 complete cases (68.59%)**. The active 95% target requires 454,913
+correct assertions; **7,256 remain**. The denominator and pinned oracle are
+unchanged. Aligned verdicts: **474,243 total; 447,657 right; 4,718 gap; 21,868
+wrong**. Binder symbols were also remeasured at **8,497/8,497 (100%)**; other
+suites below retain their historical measurements.
 
-This unit adds **75 WRONG→RIGHT and 12 GAP→RIGHT**, with **zero RIGHT losses**
-and no other status transitions, relative to `18ce162e` (447,414). The previous
-checkpoint's initial-tree attribution and gap-to-wrong transitions remain in
-[its evidence](docs/architecture/checker-95-checkpoint.md).
+This unit adds **88 WRONG→RIGHT and 68 GAP→RIGHT**, with **zero RIGHT losses**
+relative to `f6405d4d` (447,501). It also adds **8 GAP→WRONG**, retained in the
+reported deficit. The initial-tree attribution and preceding checkpoint
+transitions remain in their evidence documents.
 Release workspace tests, workspace clippy with warnings denied, all **3,380
-upstream anchors**, and the whitespace check pass. The snapshot is refreshed.
-[Tuple reads, iteration, slices and limitations](docs/architecture/checker-95-tuple-reads.md)
-records the mechanisms, controls and manual review. The goal and `tsr-6` remain
-active. Verified changes commit and push to `main` per the user's instruction.
+upstream anchors**, and whitespace checks pass. The checker snapshot is refreshed.
+[Conditional inference mechanisms and limits](docs/architecture/checker-95-conditional-infer.md)
+records the controls and manual review. The goal and `tsr-6` remain active.
+Verified changes commit and push to `main` per the user's instruction.
 
 ### Previous whole-suite measurement — historical
 
@@ -1140,7 +1141,7 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-### Current priorities at `f6405d4d` — 2026-09-30
+### Current priorities at `CONDITIONAL_CODE` — 2026-09-30
 
 Inference priorities, independent contextual return mappers, captured structural
 substitution, call/construct signature kinds, measured reference variances,
@@ -1150,12 +1151,19 @@ deferred maps normalize after substitution. This supersedes the older board's
 claims that these mechanisms are wholly unported. General transformed maps,
 recursive generic signature relations and union matching remain incomplete.
 
+Infer declarations now have conditional-local identities and true-branch scope.
+Concrete conditional inference uses a signature-less mapper with strict variance
+and literal candidates; fixed and concrete rest tuple targets contribute their
+positions. Explicit/implicit infer constraints, distribution and nested
+conditionals remain incomplete (`tsr-6.3`). Eight new wrong answers from former
+gaps remain in the reported deficit.
+
 The largest remaining combined gap/wrong cases are `correlatedUnions` (187),
 `strictBindCallApply1` (183), `privacyLocalInternalReferenceImportWithExport`
 (176), `typeParameterConstModifiersReturnsAndYields` (149), and `temporal` (147).
-`variadicTuples1` falls from 165 to 135 deficits after the indexed-read, iteration
-constraint and destructuring slice ports. Conditional tuple inference and bind
-signature inference remain candidates; `tsr-6.1` tracks the generic signature
+`variadicTuples1` has 123 deficits after the tuple reads and first conditional
+inference ports. Constrained infer contexts and conditional distribution are
+next; bind signature inference remains a candidate; `tsr-6.1` tracks the generic signature
 prerequisite for union matching. These counts are deficits, not predicted gains.
 
 Measured at **`b00738d`** by `examples/depend.rs`, re-confirmed unchanged by a
@@ -3667,6 +3675,17 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+### Conditional infer scope and mapper at `CONDITIONAL_CODE`
+
+Infer parameters now bind to the enclosing conditional and resolve only in its
+true branch. Concrete non-union conditional aliases infer and instantiate the
+extends target before relating it. Written signature annotations keep infer
+spelling. Unsupported targets defer, including incomplete recursive array alias
+metadata. Constrained infer parameters, distribution, any branch unions and
+nested conditionals remain in `tsr-6.3`; eight gap-to-wrong results are disclosed.
+[Evidence and limits](docs/architecture/checker-95-conditional-infer.md).
+
 
 ### Tuple reads and slices reopened at `f6405d4d`
 
@@ -9815,6 +9834,7 @@ holds only the numbers.
 
 | 2026-09-30 | `18ce162e` | **68.45%** | **6,529** | **95% goal checkpoint: 447,414/478,855 assertions (93.43%).** +3,579 correct versus the initial working tree (443,835), zero previously RIGHT assertions lost; 284 G→W and 16 W→G disclosed. Ports inference priorities, contextual callback fixing and return mappers, captured structural substitution, signature kinds, reference variance measurement, tuple normalization/relations and identity homomorphic tuple maps. Count resets retain instantiation depth. Release workspace tests and clippy pass; 3,383 anchors resolve. Snapshot refreshed. [Mechanisms, constraints and review fallback](docs/architecture/checker-95-checkpoint.md). 7,499 assertions remain; goal active. User directs verified changes to be committed and pushed to main. |
 | 2026-09-30 | `f6405d4d` | **68.48%** | **6,532** | **447,501/478,855 assertions (93.45%).** +87 correct since `18ce162e`: 75 W→R and 12 G→R, zero RIGHT losses or other status transitions. Ports generic tuple indexed-access deferral, numeric iteration projections, type parameter iteration constraints and tuple destructuring slices with readonly removal and optional/label preservation. Release workspace tests and clippy pass; 3,380 anchors resolve. Snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-tuple-reads.md). 7,412 assertions remain; 95% goal active. |
+| 2026-09-30 | `CONDITIONAL_CODE` | **68.59%** | **6,542** | **447,657/478,855 assertions (93.48%).** +156 correct since `f6405d4d`: 88 W→R and 68 G→R, zero RIGHT losses; 8 G→W remain in the deficit. Ports conditional-local infer binding/visibility, semantic infer identities, signature-less inference mappers and strict conditional variance, plus concrete rest tuple position inference. Unsupported targets defer. Release workspace tests/clippy pass; 3,380 anchors resolve; snapshot refreshed. Binder symbols 8,497/8,497 (100%). [Evidence and remaining work](docs/architecture/checker-95-conditional-infer.md). 7,256 assertions remain; goal active. |
 
 ## 8. Updating this file
 

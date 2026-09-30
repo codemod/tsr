@@ -1408,3 +1408,25 @@ fn compatible_declarations_still_merge_into_one_symbol() {
         "an interface and a namespace merge: {i:?}"
     );
 }
+
+#[test]
+fn infer_parameters_belong_to_their_conditional_and_only_its_true_branch() {
+    let arena = Arena::new();
+    let source = "type U = number; type C<T> = T extends [infer U, U] ? U : U; type D<T> = T extends infer U ? U : U;";
+    let bound = bind(&arena, source);
+    let outer = resolve_type(&bound, bound.root(), "U").expect("outer alias");
+    let extends = identifier_at(&bound, source.find(", U").unwrap() + 2);
+    let first_true = identifier_at(&bound, source.find("? U").unwrap() + 2);
+    let first_false = identifier_at(&bound, source.find(": U").unwrap() + 2);
+    let second_true = identifier_at(&bound, source.rfind("? U").unwrap() + 2);
+    let second_false = identifier_at(&bound, source.rfind(": U").unwrap() + 2);
+    let first = resolve_type(&bound, first_true, "U").expect("first inferred parameter");
+    let second = resolve_type(&bound, second_true, "U").expect("second inferred parameter");
+    assert_ne!(first, outer);
+    assert_ne!(second, outer);
+    assert_ne!(first, second);
+    assert_eq!(resolve_type(&bound, extends, "U"), Some(outer));
+    assert_eq!(resolve_type(&bound, first_false, "U"), Some(outer));
+    assert_eq!(resolve_type(&bound, second_false, "U"), Some(outer));
+    assert_eq!(bound.result.symbols().get(first).declarations.len(), 1);
+}

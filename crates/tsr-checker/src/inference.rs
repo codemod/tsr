@@ -82,6 +82,44 @@ pub(crate) struct InferenceContextSnapshot {
 }
 
 impl Checker<'_, '_> {
+    /// The signature-less inference context used by getConditionalType.
+    /// getTypeFromInference preserves candidates rather than applying the
+    /// signature's argument widening or common-supertype selection.
+    pub(crate) fn infer_conditional_parameters(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+        parameters: &[TypeId],
+    ) -> Vec<(TypeId, TypeId)> {
+        let mut infos = Vec::new();
+        self.infer_from_types_with_priority(
+            source,
+            target,
+            parameters,
+            &mut infos,
+            0,
+            InferencePriority::NO_CONSTRAINTS | InferencePriority::ALWAYS_STRICT,
+        );
+        parameters
+            .iter()
+            .map(|&parameter| {
+                let inferred =
+                    if let Some(info) = infos.iter().find(|i| i.type_parameter == parameter) {
+                        if !info.candidates.is_empty() {
+                            self.get_union_type(&info.candidates)
+                        } else if !info.contra_candidates.is_empty() {
+                            self.get_intersection_type(&info.contra_candidates, None)
+                        } else {
+                            self.intrinsics.unknown
+                        }
+                    } else {
+                        self.intrinsics.unknown
+                    };
+                (parameter, inferred)
+            })
+            .collect()
+    }
+
     /// The type of a call whose resolved signature is generic.
     ///
     /// Ported from `Checker.inferTypeArguments` (`checker.go:9390`) followed by
@@ -2368,7 +2406,8 @@ impl Checker<'_, '_> {
             targets.push(element.r#type);
         }
         let Some(start) = rest_index else { return false };
-        if !parameters.contains(&targets[start]) {
+        let array_rest = self.tuple_spread_array_element(targets[start]);
+        if !parameters.contains(&targets[start]) && array_rest.is_none() {
             return false;
         }
         let end_skip = targets.len() - start - 1;
@@ -2386,22 +2425,44 @@ impl Checker<'_, '_> {
                 depth + 1,
             );
         }
-        let sliced = if let Some(mask) = self.tuple_optional_masks.get(&source).cloned() {
-            let labels = self
-                .tuple_labels
-                .get(&source)
-                .cloned()
-                .unwrap_or_else(|| vec![None; source_elements.len()]);
-            let elements: Vec<_> = source_elements[start..end]
-                .iter()
-                .copied()
-                .zip(mask[start..end].iter().copied())
-                .collect();
-            self.create_optional_tuple_type(&elements, &labels[start..end], false)
+        if let Some(array_rest) = array_rest {
+            // A zero-length slice contributes no array element inference.
+            if start < end {
+                let middle = self.get_union_type(&source_elements[start..end]);
+                self.infer_from_types_within(
+                    middle,
+                    array_rest,
+                    original,
+                    parameters,
+                    out,
+                    depth + 1,
+                );
+            }
         } else {
-            self.create_tuple_type(source_elements[start..end].to_vec(), false)
-        };
-        self.infer_from_types_within(sliced, targets[start], original, parameters, out, depth + 1);
+            let sliced = if let Some(mask) = self.tuple_optional_masks.get(&source).cloned() {
+                let labels = self
+                    .tuple_labels
+                    .get(&source)
+                    .cloned()
+                    .unwrap_or_else(|| vec![None; source_elements.len()]);
+                let elements: Vec<_> = source_elements[start..end]
+                    .iter()
+                    .copied()
+                    .zip(mask[start..end].iter().copied())
+                    .collect();
+                self.create_optional_tuple_type(&elements, &labels[start..end], false)
+            } else {
+                self.create_tuple_type(source_elements[start..end].to_vec(), false)
+            };
+            self.infer_from_types_within(
+                sliced,
+                targets[start],
+                original,
+                parameters,
+                out,
+                depth + 1,
+            );
+        }
         for index in 0..end_skip {
             self.infer_from_types_within(
                 source_elements[end + index],
@@ -2921,6 +2982,18 @@ impl Checker<'_, '_> {
         // FLAGS, touching no member at all; written that way
         // ([`Checker::target_could_contain_parameter`]) the run is back to 20
         // seconds with the arm unbounded.
+        // inferFromTypes avoids apparent constraint reads under NoConstraints
+        // for instantiable and intersection sources in this structural arm.
+        if self.inference_priority.contains(InferencePriority::NO_CONSTRAINTS)
+            && self.store.get(source).flags.intersects(
+                crate::flags::TypeFlags::TYPE_PARAMETER
+                    | crate::flags::TypeFlags::INDEXED_ACCESS
+                    | crate::flags::TypeFlags::CONDITIONAL
+                    | crate::flags::TypeFlags::INTERSECTION,
+            )
+        {
+            return;
+        }
         let target_names =
             if self.target_could_contain_parameter(target, parameters, &mut Vec::new()) {
                 self.property_names_of(target)
@@ -3032,7 +3105,9 @@ impl Checker<'_, '_> {
         depth: usize,
     ) {
         let saved = (self.inference_contravariant, self.inference_bivariant);
-        if self.strict_function_types {
+        if self.strict_function_types
+            || self.inference_priority.contains(InferencePriority::ALWAYS_STRICT)
+        {
             self.inference_contravariant = !self.inference_contravariant;
         }
         self.inference_bivariant |= matches!(

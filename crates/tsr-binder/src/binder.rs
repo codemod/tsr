@@ -3592,6 +3592,38 @@ impl<'a, 'n> Binder<'a, 'n> {
             return Some(symbol);
         }
 
+        // bindTypeParameter files an infer declaration in the conditional
+        // whose extends subtree contains it, independently of b.container.
+        if matches!(node, Node::TypeParameterDeclaration(_))
+            && matches!(self.ancestors.last(), Some((_, Node::InferTypeNode(_))))
+        {
+            let name = self.declaration_name(node).unwrap_or(INTERNAL_MISSING);
+            let container = self.ancestors.windows(2).rev().find_map(|pair| {
+                let (id, Node::ConditionalTypeNode(conditional)) = pair[0] else {
+                    return None;
+                };
+                (conditional.extends_type.and_then(|node| Node::from(node).node_id())
+                    == Some(pair[1].0))
+                .then_some(id)
+            });
+            let symbol = if let Some(container) = container {
+                self.declare_into(
+                    Destination::Locals,
+                    container,
+                    None,
+                    name,
+                    SymbolFlags::TYPE_PARAMETER,
+                    id,
+                )
+            } else {
+                let symbol = self.symbols.create(name, SymbolFlags::TYPE_PARAMETER);
+                self.symbols.get_mut(symbol).declarations.push(id);
+                symbol
+            };
+            self.node_symbols[id.index()] = Some(symbol);
+            return Some(symbol);
+        }
+
         let (flags, destination) = self.classify(node, id)?;
 
         // A *late-bound* name — `[Symbol.iterator]`, `[k]`, `[foo()]` — is

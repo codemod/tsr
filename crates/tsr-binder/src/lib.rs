@@ -608,6 +608,10 @@ impl<'a> BindResult<'a> {
                 && !self.symbol_is_declared_within(found, exclude, nodes)
                 && !self.parameter_hidden_from_type_parameter_list(found, node, last, nodes)
                 && !self.local_type_hidden_outside_body(found, node, last, meaning, nodes, node_map)
+                // resolveNameHelper exposes conditional infer locals only in
+                // the true branch; check/extends/false continue outward.
+                && !matches!(node_map.get(node), Some(tsr_ast::Node::ConditionalTypeNode(conditional))
+                    if conditional.true_type.and_then(|node| tsr_ast::Node::from(node).node_id()) != last)
             {
                 return Some(found);
             }

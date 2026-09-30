@@ -191,6 +191,12 @@ impl<'a> Checker<'a, '_> {
             TypeNode::FunctionTypeNode(node) => self.get_type_from_function_type_node(node),
             TypeNode::ConstructorTypeNode(node) => self.get_type_from_constructor_type_node(node),
             TypeNode::TypeQueryNode(node) => self.get_type_from_type_query_node(node),
+            // getTypeFromInferTypeNode reads the declared parameter identity.
+            TypeNode::InferTypeNode(node) => node
+                .type_parameter
+                .and_then(|parameter| parameter.node_id)
+                .and_then(|id| self.binder.symbol_of(id))
+                .map_or(self.intrinsics.error, |symbol| self.get_declared_type_of_symbol(symbol)),
             // `getTypeFromTypeNodeWorker`'s `ast.KindTypePredicate` case
             // (`checker.go:22858`). A predicate's *type* is `void` under an
             // `asserts` modifier and `boolean` otherwise; the predicate itself
@@ -4821,8 +4827,17 @@ impl<'a> Checker<'a, '_> {
         self.alias_evaluation_bindings.push(frame);
         let error = self.intrinsics.error;
         let mut result = None;
+        let has_infer_parameters =
+            conditional.node_id.and_then(|id| self.binder.locals(id)).is_some_and(|locals| {
+                locals.values().any(|&symbol| {
+                    self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_PARAMETER)
+                })
+            });
         if let Some(check_node) = conditional.check_type {
             let check = self.get_type_from_type_node(check_node);
+            if check != error {
+                result = self.evaluate_conditional_inference(conditional, check);
+            }
             let keys = if extends_is_never { self.literal_key_texts(check) } else { None };
             if check != error
                 && let Some(keys) = keys
@@ -4841,6 +4856,10 @@ impl<'a> Checker<'a, '_> {
             // types rather than guessing, so an undecidable check keeps the
             // gap — the decline is in the safe direction.
             if result.is_none()
+                // An infer target must be related through its inference mapper.
+                // Falling back to an unmapped target can select a false branch
+                // merely because the structural inference path is incomplete.
+                && !has_infer_parameters
                 && !extends_is_never
                 && check != error
                 && let Some(extends_node) = conditional.extends_type
@@ -4964,6 +4983,79 @@ impl<'a> Checker<'a, '_> {
             self.alias_evaluated_types.insert(evaluated);
         }
         result
+    }
+
+    /// getConditionalType's inference context for a concrete check. Generic,
+    /// union and any checks still need deferred/distributive conditional types.
+    fn evaluate_conditional_inference(
+        &mut self,
+        conditional: &tsr_ast::ConditionalTypeNode<'a>,
+        check: TypeId,
+    ) -> Option<TypeId> {
+        use crate::relater::{Relation, Ternary};
+        if self
+            .store
+            .get(check)
+            .flags
+            .intersects(TypeFlags::ANY | TypeFlags::UNION | TypeFlags::NEVER)
+            || self.mentions_any_type_parameter(check, 2)
+        {
+            return None;
+        }
+        let symbols: Vec<_> = self
+            .binder
+            .locals(conditional.node_id?)?
+            .values()
+            .copied()
+            .filter(|&symbol| {
+                self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_PARAMETER)
+            })
+            .collect();
+        if symbols.is_empty() {
+            return None;
+        }
+        let parameters: Vec<_> =
+            symbols.iter().map(|&symbol| self.get_declared_type_of_symbol(symbol)).collect();
+        // Constrained inference requires the conditional context's constraint
+        // mapper, including dependent infer constraints, before relation.
+        if parameters.iter().any(|&parameter| self.type_parameter_constraint(parameter).is_some()) {
+            return None;
+        }
+        let target = self.get_type_from_type_node(conditional.extends_type?);
+        if target == self.intrinsics.error || self.unresolved_types.contains(&target) {
+            return None;
+        }
+        // A retained alias reference may denote a recursive array without
+        // carrying normalized array arguments. The structural relation cannot
+        // prove a failed array match from that incomplete source metadata.
+        if self.tuple_spread_array_element(target).is_some()
+            && !self.tuple_element_lists.contains_key(&check)
+            && !self.variadic_tuple_elements.contains_key(&check)
+            && self.tuple_spread_array_element(check).is_none()
+            && self.type_reference_targets.get(&check).is_some_and(|(symbol, _)| {
+                self.binder.symbols().get(*symbol).flags.contains(SymbolFlags::TYPE_ALIAS)
+            })
+        {
+            return None;
+        }
+        let map = self.infer_conditional_parameters(check, target, &parameters);
+        let names: Vec<_> =
+            symbols.iter().map(|&symbol| self.binder.symbols().get(symbol).name).collect();
+        let target = self.instantiate_type(target, &map, &parameters, &names);
+        if target == self.intrinsics.error {
+            return None;
+        }
+        let branch = match self.relate_ternary(check, target, Relation::Assignable) {
+            Ternary::Related => conditional.true_type?,
+            Ternary::NotRelated => conditional.false_type?,
+            Ternary::Unknown => return None,
+        };
+        let frame =
+            symbols.into_iter().zip(map.into_iter().map(|(_, inferred)| inferred)).collect();
+        self.alias_evaluation_bindings.push(frame);
+        let result = self.get_type_from_type_node(branch);
+        self.alias_evaluation_bindings.pop();
+        (result != self.intrinsics.error).then_some(result)
     }
 
     /// §92: evaluate ANY generic alias body under bindings — the

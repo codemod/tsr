@@ -3724,6 +3724,11 @@ impl<'a> Checker<'a, '_> {
     /// lost. The admission-flag walk below (§77/§77.1/§108.1/§137) is the
     /// gate's home; `bd tsr-5o2`'s 9-line family stays recorded.
     pub(crate) fn written_annotation_text(&mut self, annotation: TypeNode<'a>) -> Option<String> {
+        // The node builder reuses an infer annotation in a written signature,
+        // while its semantic type remains the parameter's declaration identity.
+        if matches!(annotation, TypeNode::InferTypeNode(_)) {
+            return Self::written_type_text(annotation, &mut false, &mut false);
+        }
         // §926: a qualified type reference whose printed name was SHORTENED
         // keeps its written spelling here. Upstream prints the same reference
         // two ways — `param : publicClass` from the symbol, `myMethod : (param:
