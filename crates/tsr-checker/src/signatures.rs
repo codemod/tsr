@@ -3432,6 +3432,41 @@ impl<'a> Checker<'a, '_> {
         {
             return Some(text.clone());
         }
+        // §952.3: an annotation that WRITES an indexed access keeps its written
+        // spelling, which is the admission §952.2 turned out to need.
+        //
+        // §952.2 made `Obj["stringProp"]` RESOLVE (to `string`), and that is
+        // right — but upstream's node builder **reuses the written node** in a
+        // signature print, so the corpus wants
+        // `(obj: Obj) => Promise<Obj["stringProp"]>` and not
+        // `(obj: Obj) => Promise<string>`. Without this the resolution cost 6
+        // `RIGHT->WRONG` in `asyncFunctionReturnType` alone, whose baseline shows
+        // the written form on nine separate signature rows
+        // (`asyncFunctionReturnType.types:33,43,57,71,81,95,109,119,133`).
+        //
+        // This is §730's rule for a different operator — *"was it WRITTEN that
+        // way"* rather than *"is the operand concrete"* — and it is §947.2's
+        // lesson in its general form: **resolve the type, but do not move what
+        // the reference prints.** The two are separable here because the written
+        // node is still in hand at the print.
+        //
+        // The test is syntactic and recurses through the composites an
+        // annotation can nest one in, because the indexed access that matters is
+        // usually a TYPE ARGUMENT (`Promise<Obj["stringProp"]>`) rather than the
+        // annotation itself.
+        if Self::annotation_writes_an_indexed_access(annotation) {
+            let mut single_quoted = false;
+            let mut array_headed = false;
+            let mut void_union = false;
+            if let Some(text) = Self::written_type_text_flags(
+                annotation,
+                &mut single_quoted,
+                &mut array_headed,
+                &mut void_union,
+            ) {
+                return Some(text);
+            }
+        }
         // §730: a written `keyof X` is returned unconditionally — the
         // single-quote / array-head / void-union gate below is about REUSING a
         // fresh render, a different question. Here the written operator IS the
@@ -3598,6 +3633,31 @@ impl<'a> Checker<'a, '_> {
     /// §108's flag walk. `void_union` joins the admission set: a WRITTEN
     /// union carrying `void` keeps its order — the fresh render sorts void
     /// first (`callWithMissingVoid`'s `number | void`).
+    /// §952.3: whether the annotation as WRITTEN contains an indexed access,
+    /// at the top level or nested in a composite. See
+    /// [`Checker::written_annotation_text`] for why that decides the print.
+    fn annotation_writes_an_indexed_access(annotation: TypeNode<'_>) -> bool {
+        match annotation {
+            TypeNode::IndexedAccessTypeNode(_) => true,
+            TypeNode::TypeReferenceNode(reference) => {
+                reference.type_arguments.iter().copied().any(Self::annotation_writes_an_indexed_access)
+            }
+            TypeNode::ArrayTypeNode(array) => {
+                array.element_type.is_some_and(Self::annotation_writes_an_indexed_access)
+            }
+            TypeNode::ParenthesizedTypeNode(paren) => {
+                paren.r#type.is_some_and(Self::annotation_writes_an_indexed_access)
+            }
+            TypeNode::UnionTypeNode(union) => {
+                union.types.iter().copied().any(Self::annotation_writes_an_indexed_access)
+            }
+            TypeNode::IntersectionTypeNode(intersection) => {
+                intersection.types.iter().copied().any(Self::annotation_writes_an_indexed_access)
+            }
+            _ => false,
+        }
+    }
+
     pub(crate) fn written_type_text_flags(
         annotation: TypeNode<'_>,
         single_quoted: &mut bool,

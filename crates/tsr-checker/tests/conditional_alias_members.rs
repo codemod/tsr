@@ -400,3 +400,63 @@ fn a_mapped_type_that_is_not_the_identity_still_declines() {
         "error"
     );
 }
+
+/// §952.2: a STRING-LITERAL index naming a property answers that property's
+/// type — `getIndexedAccessType`'s concrete road, which §619 had recorded as a
+/// standing limitation and never measured.
+#[test]
+fn a_literal_index_naming_a_property_resolves() {
+    assert_eq!(
+        type_of_last_expression(
+            "type O = { x: string };\ndeclare let v: O[\"x\"];\nv;"
+        ),
+        "string"
+    );
+    assert_eq!(
+        type_of_last_expression(
+            "interface I { a: boolean }\ndeclare let v: I[\"a\"];\nv;"
+        ),
+        "boolean"
+    );
+    // §952.2 through §952's mapped members: the modifier is applied by
+    // `get_type_of_property_of_type`, so this arm needs no mapped-specific
+    // knowledge of its own.
+    assert_eq!(
+        type_of_last_expression(
+            "type P<T> = { [K in keyof T]?: T[K] };\ndeclare let v: P<{ x: string }>[\"x\"];\nv;"
+        ),
+        "string | undefined"
+    );
+    // A NUMERIC-literal name is an index, not a property name, and the arm
+    // above this one owns it — asserted through a TUPLE, which needs no libs.
+    // (`string[][0]` is the array form of the same leg and is NOT expressible
+    // here: this harness loads no libs, so `string[]` has no `Array` to read an
+    // element from. Same limit §951's regression leg ran into.)
+    //
+    // `normalise_number` is NOT the numeric test — it returns its input
+    // unchanged for text it cannot read, so a first draft using it excluded
+    // every ordinary property name and made this whole arm look unreachable.
+    assert_eq!(
+        type_of_last_expression("declare let v: [string, number][0];\nv;"),
+        "string"
+    );
+}
+
+/// §952.1: `keyof` over a homomorphic identity mapped type is the SOURCE's key
+/// set, because the mapping preserves names.
+///
+/// **Measured at ZERO corpus transitions** — the spelling has no population in
+/// the corpus at all. Kept, against §137.1's "reverted rather than kept as
+/// unpinned surface" precedent, precisely because this test is what removes the
+/// "unpinned" half: the behaviour is verifiable against the language without the
+/// corpus, and `keys_of` answering `error` here was a defect whether or not a
+/// baseline row happens to witness it.
+#[test]
+fn keyof_a_homomorphic_identity_mapped_type_is_the_sources_keys() {
+    assert_eq!(
+        type_of_last_expression(
+            "type O = { x: string; y: number };\ntype P<T> = { [K in keyof T]?: T[K] };\ndeclare let v: keyof P<O>;\nv;"
+        ),
+        "\"x\" | \"y\""
+    );
+}

@@ -11268,3 +11268,158 @@ access over the same identity mint (the owner already exists), then the
 transforming template (needs per-key instantiation), then the tuple and array
 branches of `instantiateMappedType` (the array branch needs no element flags —
 `Boxified<string[]>` is `Box<string>[]` — while the tuple branch needs §950's).
+
+## §953 — the concrete indexed access, and the print that had to stay written (+50, 1 `RIGHT->WRONG`)
+
+§952 gave mapped types members and named `keyof` and indexed access as the next
+slices, "both reachable from here". They were — but not for the reason given, and
+the larger half turned out not to be mapped-specific at all.
+
+### §952.1 — `keyof` over the identity mint (kept, measured at ZERO)
+
+`keys_of` reaches a `type_reference_targets` entry and, for a TYPE_ALIAS target,
+runs `evaluate_alias_body` — which cannot evaluate a MAPPED body. So
+`keyof Partial<O>` stayed `errorType` even after §952 supplied a member owner:
+**the owner is not what this road reads.** An identity mapping preserves names, so
+the keys are the source's, which is one arm ahead of the alias branch.
+
+**Measured at exactly zero corpus transitions** — that spelling has no population at
+all. §137.1's precedent is *"reverted rather than kept as unpinned surface"*, and
+this is **kept against it**, with the reason stated: a pinned unit test removes the
+"unpinned" half, and `keys_of` answering `error` for a resolvable key set was a
+defect whether or not a baseline row happens to witness it. The zero is recorded
+here so nobody later reads the arm as having paid for itself.
+
+### §952.2 — the concrete indexed access, which was never mapped-specific
+
+`Partial<O>["x"]` needed a **string-literal index** arm, and §619 had recorded
+*"literal indexes resolve concretely upstream and stay declined here"* as a
+standing limitation. It was never measured. Upstream's `getIndexedAccessType`
+resolves exactly this; the numeric and tuple arms already ported are its two
+special cases.
+
+So the arm is general — `O["x"]` is `string`, `I["a"]` is `boolean` — and §952's
+mapped members come along **for free**, because `get_type_of_property_of_type`
+applies the modifier. The mapped case needed no mapped-specific code at all.
+
+**A false start worth recording.** The first draft guarded with
+`normalise_number(&name) != name` to exclude numeric index names. But
+`normalise_number` returns its input unchanged for text whose value it cannot read,
+so `normalise_number("x") == "x"` — the guard excluded **every ordinary property
+name** and the arm looked unreachable: `O["x"]` stayed `error` and I went looking
+for the fault in the mint, the member owner and the alias road before checking the
+predicate. `name.parse::<f64>().is_err()` is the test that actually separates a
+name from an index.
+
+*A guard that silently matches nothing is indistinguishable from an arm that never
+runs, and I spent three probes on the wrong half of the change because of it.*
+
+### The print had to stay written, and that was 16 of the 17 regressions
+
+§952.2 alone measured **+34 with 17 `RIGHT->WRONG`**. `casequery` and the baseline
+together named it in one look:
+
+```
+asyncFunctionReturnType.types:33   >fIndexedTypeForStringProp : (obj: Obj) => Promise<Obj["stringProp"]>
+```
+
+Upstream **reuses the written node** in a signature print. The type resolves to
+`string` — that part is right — but the corpus wants `Promise<Obj["stringProp"]>`,
+on nine separate signature rows in that one case.
+
+**This is §947.2's lesson in its general form: resolve the type, but do not move
+what the reference prints.** The two are separable here because the written node is
+still in hand at the print, and the mechanism already existed — §730 returns a
+written `keyof X` unconditionally on exactly this argument (*"was it WRITTEN that
+way"* rather than *"is the operand concrete"*). §953 adds the same admission for a
+written indexed access, recursing through the composites an annotation nests one in,
+because the one that matters is usually a TYPE ARGUMENT rather than the annotation
+itself.
+
+**17 `RIGHT->WRONG` became 1.**
+
+### The measurement
+
+**+27 `WRONG->RIGHT`, +24 `GAP->RIGHT`, against 1 `RIGHT->WRONG` and 2
+`GAP->WRONG`** — 51 to 3. `right` 443,530 → **443,580 (+50)**.
+
+`uniqueSymbols` 9, `controlFlowElementAccessNoCrash1` 6,
+`genericFunctionInference2` 5, `uniqueSymbolsDeclarations` 5,
+`uniqueSymbolsDeclarationsErrors` 4+4, `conditionalTypes2` 4.
+
+### The one regression, named exactly
+
+`unionPropertyOfProtectedAndIntersectionProperty`, and the whole case is 11 lines
+so it could be compared against the oracle in full:
+
+```
+             ours (§953)   upstream
+_3  (Foo & Bar)['foo']        error      number     ← still wrong, unchanged
+_4  (Foo | Bar)['foo']       number      any        ← THE regression
+_5  (Foo | (Foo & Bar))['foo'] error     number     ← still wrong, unchanged
+```
+
+`_4` is upstream's **error**: `foo` is `protected` in two unrelated classes, so the
+union's property is not accessible, and an erroring line prints `any` in a case that
+has an errors baseline (§4.-7's rule). This port does not model protected
+accessibility, so it projects the union and answers `number`. It was RIGHT before
+only because the access failed for an unrelated reason — the same
+right-by-coincidence shape §952's override documented, here in a single row.
+
+**Safety leg overridden at 51:3**, with the reopening condition being the mechanism
+rather than the row: *model protected-property accessibility in the union
+projection, and `_4` returns to `RIGHT` without touching this arm.* `_3` and `_5`
+are the intersection half of the same case and remain wrong — they are not this
+entry's, and the arm deliberately does not reach an intersection object.
+
+### A pinned stand-in came due a FIFTH time, and the gate caught it
+
+`a_predicate_whose_type_is_unported_gaps_and_a_ported_one_does_not` pairs a
+predicate whose type node this port can resolve against one it cannot, to pin the
+rule that *a construct refuses whole*. Its "cannot" half has needed re-pointing
+four times already (plain `keyof T` → §35, a mapped type → §905, a conditional →
+§906, then `{ a: keyof T }["a"]`).
+
+§953 ported the fourth, so the line began asserting `error` against **the correct
+answer** — `{ a: keyof T }["a"]` is `keyof T`, and the predicate now reads
+`<T>(x: unknown, o: T) => x is keyof T`. **The full gate failed on it**, which is
+precisely the job that test exists to do, and it is worth noting that the entry's
+own probes and the corpus run had both been green: nothing else in the session
+would have told me the construct had been retired.
+
+The fifth stand-in is a **transforming mapped type**, and it is a better choice than
+the previous four for a reason worth recording: those were constructs nobody had got
+to yet, so each one broke this line when it landed. §952 refuses this one **by a
+recorded decision with its own pinned falsifier**, so it stops being a valid
+stand-in only when someone builds per-key template instantiation — and that person
+will already be reading §952. The retired fourth is kept as a pin on the answer it
+now gives, rather than deleted.
+
+### A second pinned test flipped, and what the two have in common
+
+`an_indexed_access_by_a_foreign_keyof_is_unchanged` asserted that `P[keyof R]` is
+`error`. §730 evaluates a concrete `keyof` to its key set, so `keyof R` over a
+one-property `R` **is** the literal `"a"`, and §952.2's road answers `P["a"]` —
+which is upstream's answer, since `getIndexedAccessType` distributes over the index.
+
+**The old expectation was pinning a PORT LIMITATION, not upstream behaviour**, and
+the test's name said so: *"is unchanged"*. Renamed to
+`..._is_not_the_933_road`, which is the invariant actually worth holding, and given
+a second leg: a MULTI-key foreign `keyof` still gaps, because `keyof Q` is a union
+there and neither road takes it — §952.2 wants a single literal, §933 wants the
+object's own `keyof`. Distributing over a union index is the unported piece, and
+`string | number` is the answer that will appear when it lands.
+
+**Both flipped tests had the same defect, and it is worth naming.** Each asserted a
+gap as though it were the specification, with no note of what upstream answers. A
+pin that records only *"this port says `error` here"* cannot tell a later reader
+whether the `error` is correct, and both of these were sitting on answers upstream
+gives plainly. The two new legs state upstream's answer either way — the resolved
+one where it now resolves, the gap WITH the answer it will become.
+
+### What this leaves
+
+Mapped types: **994 → ~944** wrong lines. The ranked remainder is unchanged from
+§4.-9 except that slice 1 is now done: next is the transforming template (per-key
+instantiation), then `instantiateMappedType`'s array branch (55 lines, no element
+flags needed), then the tuple branch behind §950's representation work.

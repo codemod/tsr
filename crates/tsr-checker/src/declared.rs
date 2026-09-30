@@ -587,6 +587,46 @@ impl<'a> Checker<'a, '_> {
                         }
                     }
                 }
+                // §952.2: a STRING-LITERAL index naming a PROPERTY answers that
+                // property's type. §619 recorded *"literal indexes resolve
+                // concretely upstream and stay declined here"* as a limitation
+                // and it was never measured; upstream's `getIndexedAccessType`
+                // resolves exactly this, and the numeric and tuple arms above are
+                // the two special cases of it that were already ported.
+                //
+                // Reached only where the road answered `error`, so the failure
+                // direction is gap→wrong rather than right→wrong — the same
+                // argument §620 makes for the arm above it.
+                //
+                // This is what makes §952's mapped members reachable from the
+                // TYPE side: `Partial<O>["x"]` is `string | undefined` because
+                // `get_type_of_property_of_type` applies the mapping's modifier,
+                // so the arm needs no mapped-specific knowledge of its own.
+                if let (Some(object_node), Some(index_node)) = (node.object_type, node.index_type) {
+                    let object_type = self.get_type_from_type_node(object_node);
+                    if object_type != self.intrinsics.error {
+                        let index_type = self.get_type_from_type_node(index_node);
+                        if let crate::types::TypeData::StringLiteral(name) =
+                            self.store.get(index_type).data.clone()
+                            // A numeric-literal NAME is a numeric index and the
+                            // arm above owns it (`isNumericLiteralName`).
+                            //
+                            // `normalise_number` is NOT the test: it returns its
+                            // input unchanged for text whose value it cannot
+                            // read, so `normalise_number("x") == "x"` and a
+                            // first draft using it excluded every ordinary
+                            // property name — `O["x"]` stayed `error` and the arm
+                            // looked unreachable. A failed parse is the test that
+                            // actually separates a name from an index.
+                            && name.parse::<f64>().is_err()
+                            && let Some(member) =
+                                self.get_type_of_property_of_type(object_type, &name)
+                            && member != self.intrinsics.error
+                        {
+                            return member;
+                        }
+                    }
+                }
                 // §933: `X[keyof X]` — the union of EVERY property type.
                 //
                 // `getIndexedAccessType` (`checker.go:22292` region) distributes
@@ -4581,6 +4621,20 @@ impl<'a> Checker<'a, '_> {
             return None;
         }
         if let Some((target, arguments)) = self.type_reference_targets.get(&id).cloned() {
+            // §952.1: a homomorphic IDENTITY mapped type's keys are the
+            // SOURCE's, because the mapping preserves names — that is what
+            // "identity" means here, and the `as`-clause shape that would not
+            // preserve them is refused at §952's mint.
+            //
+            // Without this the alias branch below runs `evaluate_alias_body` on
+            // a MAPPED body, which cannot be evaluated, so `keyof Partial<O>`
+            // answered `errorType` even after §952 gave the mint a member owner.
+            // The owner is not what this road reads; the reference target is.
+            if self.mapped_identity_optionality.contains_key(&id)
+                && let [source] = arguments.as_slice()
+            {
+                return self.keys_of(*source);
+            }
             if self.global_type_symbol_with_arity("Omit", 2) == Some(target) && arguments.len() == 2
             {
                 let base = self.keys_of(arguments[0])?;

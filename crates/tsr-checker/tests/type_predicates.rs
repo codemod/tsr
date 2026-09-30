@@ -186,19 +186,40 @@ fn a_predicate_whose_type_is_unported_gaps_and_a_ported_one_does_not() {
     // and §905 minted that; a CONDITIONAL replaced that and §906 minted it too,
     // before this comment's ink was dry.
     //
-    // What still gaps is `keyof` over a GENERIC operand — §730's evaluator is
-    // gated on a concrete one — so that is the fourth stand-in. Re-pointed
-    // again, exactly as the original paragraph instructs: not deleted.
+    // The fourth stand-in was `{ a: keyof T }["a"]` — an indexed access over a
+    // literal holding a generic `keyof`. **§953 ported it, and the stand-in has
+    // now come due a FIFTH time**: `getIndexedAccessType`'s literal-index road
+    // resolves that to `keyof T`, so this line began asserting `error` against
+    // the CORRECT answer (`<T>(x: unknown, o: T) => x is keyof T`). The test
+    // failed in §953's gate, which is exactly what it exists to do.
+    //
+    // The fifth stand-in is a TRANSFORMING mapped type. That is a better choice
+    // than the previous four, and the reason is worth stating: the first four
+    // were constructs nobody had got to yet, so each landed and broke this line.
+    // §952 refuses this one **by a recorded decision** with its own pinned
+    // falsifier — answering from the source's members would give `string` where
+    // upstream gives `Box<string>` — so it stops being a valid stand-in only
+    // when someone builds per-key template instantiation, and that person will
+    // be reading §952 already.
     //
     // The pair still discriminates what it was written for: the refused half is
     // the standing rule that a construct refuses WHOLE, so a predicate whose own
     // type node this port cannot resolve is a gap rather than `x is error`.
     assert_eq!(
         type_of_declaration(
-            "declare function f<T>(x: unknown, o: T): x is { a: keyof T }[\"a\"];",
+            "type Box<V> = { v: V };\ntype B<T> = { [K in keyof T]: Box<T[K]> };\ndeclare function f<T>(x: unknown, o: T): x is B<{ a: string }>[\"a\"];",
             "f"
         ),
         "error"
+    );
+    // And the construct §953 DID port, pinned as the answer it now gives, so the
+    // fourth stand-in's retirement is recorded rather than merely deleted.
+    assert_eq!(
+        type_of_declaration(
+            "declare function f<T>(x: unknown, o: T): x is { a: keyof T }[\"a\"];",
+            "f"
+        ),
+        "<T>(x: unknown, o: T) => x is keyof T"
     );
     assert_eq!(
         type_of_declaration("declare function g<T>(x: unknown, o: T): x is T;", "g"),
