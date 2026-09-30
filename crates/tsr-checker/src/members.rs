@@ -68,6 +68,15 @@ impl Checker<'_, '_> {
         &mut self,
         node: &tsr_ast::PropertyAccessExpression<'_>,
     ) -> TypeId {
+        // Direct public reads (including the property's name in a baseline)
+        // share the expression's cached result. Rechecking an access after
+        // its call exhausted the instantiation budget must not change it.
+        if let Some(id) = node.node_id
+            && let Some(&cached) = self.node_types.get(&id)
+        {
+            return cached;
+        }
+        self.instantiation_count = 0;
         // §944: a property access that is the TARGET of an assignment and names
         // a READONLY property answers `any`.
         //
@@ -966,6 +975,23 @@ impl Checker<'_, '_> {
     /// (`crate::relater`'s `properties_related_to`) meaning what it did.
     #[must_use]
     pub fn get_type_of_property_of_type(&mut self, id: TypeId, name: &str) -> Option<TypeId> {
+        if let Some(property) = self
+            .anonymous_properties
+            .get(&id)
+            .and_then(|(properties, instantiated)| {
+                instantiated
+                    .then(|| properties.iter().find(|property| property.name == name))
+                    .flatten()
+            })
+            .cloned()
+        {
+            return Some(if property.optional {
+                self.get_optional_type(property.r#type, true)
+            } else {
+                property.r#type
+            });
+        }
+
         // §829.2, a PROBE and nothing else (`TSR_PROJ_TRACE=<name>`): print what
         // the projection has in hand for one property name, so the 193-line
         // "the property TYPES; the projection fails" bucket can be told apart
@@ -1059,6 +1085,17 @@ impl Checker<'_, '_> {
         // `>strNumTuple[2] : undefined` (the TS2493 diagnostic lives beside
         // it, not in the type). The round-trip test rejects `"01"`/`"-0"`,
         // which name no element. `checker-notes-tuple.md` §8.
+        if self.variadic_tuple_elements.contains_key(&id) {
+            if name == "length" {
+                return Some(self.intrinsics.number);
+            }
+            if let Ok(index) = name.parse::<usize>()
+                && index.to_string() == name
+                && let Some(element) = self.variadic_tuple_element_type(id, index, false)
+            {
+                return Some(element);
+            }
+        }
         if let Some((elements, _)) = self.tuple_element_lists.get(&id)
             && let Ok(index) = name.parse::<usize>()
             && index.to_string() == name
@@ -1119,17 +1156,20 @@ impl Checker<'_, '_> {
             && let Some((elements, _)) = self.tuple_element_lists.get(&id)
         {
             let count = elements.len();
-            let optional = self
+            let min_length = self
                 .tuple_optional_masks
                 .get(&id)
-                .is_some_and(|mask| mask.iter().any(|&optional| optional));
-            if !optional {
-                return Some(self.store.intern_literal(
-                    crate::flags::TypeFlags::NUMBER_LITERAL,
-                    crate::types::TypeData::NumberLiteral(count.to_string()),
-                    false,
-                ));
-            }
+                .map_or(count, |mask| mask.iter().filter(|&&optional| !optional).count());
+            let lengths: Vec<_> = (min_length..=count)
+                .map(|length| {
+                    self.store.intern_literal(
+                        crate::flags::TypeFlags::NUMBER_LITERAL,
+                        crate::types::TypeData::NumberLiteral(length.to_string()),
+                        false,
+                    )
+                })
+                .collect();
+            return Some(self.get_union_type(&lengths));
         }
         if let Some(property) = self.get_property_of_type(id, name) {
             let declared = self.get_type_of_symbol(property);
@@ -1329,7 +1369,8 @@ impl Checker<'_, '_> {
             let constituents = types.clone();
             let mut hits = Vec::new();
             for constituent in constituents {
-                if let Some(member) = self.get_type_of_property_of_type(constituent, name) {
+                let apparent = self.apparent_type(constituent);
+                if let Some(member) = self.get_type_of_property_of_type(apparent, name) {
                     hits.push((constituent, member));
                 }
             }
@@ -1614,12 +1655,14 @@ impl Checker<'_, '_> {
             if class_static {
                 fallbacks.push("Function");
             }
-            if let Some(signatures) = self.signature_types.get(&id)
-                && !signatures.is_empty()
-            {
-                let all_construct = signatures.iter().all(|signature| {
-                    !matches!(signature.kind, crate::signatures::SignatureKind::Call)
-                });
+            let has_call = self
+                .signatures_of_type_kind(id, crate::signatures::SignatureKind::Call)
+                .is_some_and(|signatures| !signatures.is_empty());
+            let has_construct = self
+                .signatures_of_type_kind(id, crate::signatures::SignatureKind::Construct)
+                .is_some_and(|signatures| !signatures.is_empty());
+            if has_call || has_construct {
+                let all_construct = !has_call;
                 // §846: `CallableFunction`/`NewableFunction` are
                 // `getGlobalStrictFunctionType`'s answer, and that function is
                 // gated on the flag:

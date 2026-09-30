@@ -10,6 +10,15 @@ use tsr_ast::{Node, Statement, SyntaxKind};
 use tsr_checker::Checker;
 use tsr_core::Arena;
 
+#[test]
+fn a_reduced_intersection_return_keeps_its_written_annotation() {
+    assert_eq!(type_of_annotation("var f: () => boolean & null;"), "() => boolean & null");
+    assert_eq!(
+        type_of_annotation("var f: <T extends {}>(value: T & ({} | null)) => void;"),
+        "<T extends {}>(value: T & ({} | null)) => void"
+    );
+}
+
 /// Type the annotation of the first `var`/`let`/`const` in the source.
 ///
 /// The annotation rather than the initialiser, because a function *type node*

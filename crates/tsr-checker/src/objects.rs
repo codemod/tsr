@@ -49,6 +49,18 @@ use crate::{
     types::{TypeData, TypeId},
 };
 
+/// A property-only anonymous object's member types, retained for
+/// `instantiateAnonymousType` and `instantiateSymbol` (checker.go).
+#[derive(Clone)]
+pub(crate) struct AnonymousProperty {
+    pub(crate) name: String,
+    pub(crate) printed_name: String,
+    pub(crate) printed_type: String,
+    pub(crate) optional: bool,
+    pub(crate) readonly: bool,
+    pub(crate) r#type: TypeId,
+}
+
 /// One rendered member of a structural object type.
 ///
 /// **Three shapes, not one with optional fields.** A property has a name and a
@@ -723,6 +735,15 @@ impl Checker<'_, '_> {
         // arm would have served the implied type.
         let contextual_pattern = node.node_id.and_then(|id| self.contextual_binding_pattern(id));
         let mut members = Vec::with_capacity(node.properties.len());
+        let mut typed_properties: Vec<AnonymousProperty> = Vec::new();
+        let property_only = node.properties.iter().all(|property| {
+            matches!(
+                property,
+                tsr_ast::ObjectLiteralElementLike::PropertyAssignment(_)
+                    | tsr_ast::ObjectLiteralElementLike::ShorthandPropertyAssignment(_)
+            )
+        });
+
         // §206: the index-signature half §201 left as a gap. A computed name
         // whose type IS string-, number- or symbol-like contributes an INDEX
         // SIGNATURE rather than a member (`checker.go:13195-13205`), whose
@@ -1540,6 +1561,29 @@ impl Checker<'_, '_> {
             // PROPERTY assignments collapse to one row
             // (`symbolProperty36`'s `{ [Symbol.isConcatSpreadable]: 0,
             // [Symbol.isConcatSpreadable]: 1 }` prints one member).
+            if property_only {
+                let semantic_name = property_node_id
+                    .and_then(|id| self.binder.symbol_of(id))
+                    .map(|symbol| self.binder.symbols().get(symbol).name.to_string())
+                    .or_else(|| property_name_text(&name_node).map(str::to_string));
+                if let Some(semantic_name) = semantic_name {
+                    let property = AnonymousProperty {
+                        name: semantic_name,
+                        printed_name: name.clone(),
+                        printed_type: printed.clone(),
+                        optional: member_optional,
+                        readonly: const_context,
+                        r#type: member_type,
+                    };
+                    if let Some(index) =
+                        typed_properties.iter().position(|p| p.name == property.name)
+                    {
+                        typed_properties[index] = property;
+                    } else {
+                        typed_properties.push(property);
+                    }
+                }
+            }
             upsert_member(
                 &mut members,
                 Member::Property {
@@ -1718,6 +1762,9 @@ impl Checker<'_, '_> {
         // arrangement `get_type_from_type_literal` relies on for `__type`.
         let symbol = node.node_id.and_then(|id| self.binder.symbol_of(id));
         let minted = self.store.new_named(TypeFlags::OBJECT, printed, symbol);
+        if property_only && typed_properties.len() == members.len() {
+            self.anonymous_properties.insert(minted, (typed_properties, false));
+        }
         // SS185: upstream's `ObjectFlagsJSLiteral` — an object literal
         // created in a JS FILE is a "JS literal" type, which
         // `getPropertyTypeForIndexType`'s failure path answers `any` for
@@ -1776,6 +1823,19 @@ impl Checker<'_, '_> {
         let error = self.intrinsics.error;
         if source == error {
             return None;
+        }
+        if let Some((properties, true)) = self.anonymous_properties.get(&source) {
+            return Some(
+                properties
+                    .iter()
+                    .map(|property| Member::Property {
+                        name: property.printed_name.clone(),
+                        optional: property.optional,
+                        readonly: false,
+                        printed: property.printed_type.clone(),
+                    })
+                    .collect(),
+            );
         }
         // An instantiated reference is deliberately a gap here, not a spread of
         // the target's members: those members' declared types are the

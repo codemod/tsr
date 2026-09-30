@@ -358,7 +358,8 @@ impl Checker<'_, '_> {
             // the parameter was spelled.
             if let Some(tsr_ast::Node::CallExpression(call)) = self.node_map.get(parent)
                 && let Some(contextual) = self.contextual_type_for_argument(call, id)
-                && self.variadic_tuple_nodes.contains_key(&contextual)
+                && (self.variadic_tuple_nodes.contains_key(&contextual)
+                    || self.variadic_tuple_elements.contains_key(&contextual))
             {
                 break 'context TupleContext::Annotated;
             }
@@ -530,13 +531,17 @@ impl Checker<'_, '_> {
     /// `isGenericMappedType` remains unported.
     fn array_literal_has_a_tuple_contextual_type(&mut self, id: tsr_ast::NodeId) -> bool {
         let Some(contextual) = self.get_contextual_type(id) else { return false };
-        if self.tuple_element_lists.contains_key(&contextual) {
+        if self.tuple_element_lists.contains_key(&contextual)
+            || self.variadic_tuple_elements.contains_key(&contextual)
+        {
             return true;
         }
         let crate::types::TypeData::Union { types, .. } = &self.store.get(contextual).data else {
             return false;
         };
-        types.iter().any(|t| self.tuple_element_lists.contains_key(t))
+        types.iter().any(|t| {
+            self.tuple_element_lists.contains_key(t) || self.variadic_tuple_elements.contains_key(t)
+        })
     }
 
     pub(crate) fn check_array_literal(&mut self, node: &ArrayLiteralExpression<'_>) -> TypeId {
@@ -598,6 +603,64 @@ impl Checker<'_, '_> {
                 return self.store.new_named(TypeFlags::OBJECT, printed, None);
             }
             return self.create_tuple_type(elements, false);
+        }
+        // `checkArrayLiteral` keeps array-like spread operands as variadic
+        // tuple arguments. Normalization expands tuples and retains generic
+        // operands; outside tuple context they contribute operand[number].
+        if node.elements.iter().any(|element| matches!(element, Expression::SpreadElement(_))) {
+            let mut arguments = Vec::with_capacity(node.elements.len());
+            let mut supported = true;
+            for element in node.elements {
+                let (t, spread) = if let Expression::SpreadElement(spread) = element {
+                    let Some(operand) = spread.expression else { return error };
+                    let t = self.check_expression(operand);
+                    if !self.tuple_array_like(t) {
+                        supported = false;
+                        break;
+                    }
+                    (t, true)
+                } else if matches!(element, Expression::OmittedExpression(_)) {
+                    supported = false;
+                    break;
+                } else {
+                    (self.check_expression_for_mutable_location(*element), false)
+                };
+                if self.is_error(t) {
+                    return error;
+                }
+                arguments.push(crate::tuples::TupleElement {
+                    r#type: t,
+                    spread,
+                    optional: false,
+                    label: None,
+                });
+            }
+            if supported {
+                let const_argument = node
+                    .node_id
+                    .is_some_and(|id| self.array_literal_argument_of_const_type_parameter(id));
+                let const_context = node.node_id.is_some_and(|id| self.is_const_context(id));
+                if const_context || const_argument || self.array_literal_in_tuple_context(node) {
+                    return self
+                        .normalize_variadic_tuple(arguments, const_context && !const_argument);
+                }
+                let mut elements = Vec::with_capacity(arguments.len());
+                for argument in arguments {
+                    let t = if argument.spread {
+                        self.tuple_index_type(argument.r#type, self.intrinsics.number, false)
+                            .unwrap_or(error)
+                    } else {
+                        argument.r#type
+                    };
+                    if self.is_error(t) {
+                        return error;
+                    }
+                    elements.push(t);
+                }
+                let element = self.get_union_type(&elements);
+                let Some(array) = self.global_type_symbol("Array") else { return error };
+                return self.create_type_reference(array, vec![element]);
+            }
         }
         // §6.3 (`checker-notes-arrays.md`): a literal with a TUPLE spread
         // mints a tuple — plain elements widened in place, tuple spreads

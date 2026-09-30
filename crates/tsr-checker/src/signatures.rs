@@ -75,6 +75,10 @@ pub struct Parameter {
 /// `extends` constraint, and a default.
 #[derive(Debug, Clone)]
 pub struct TypeParameter {
+    /// The parameter's type identity, including parameters propagated from
+    /// another signature by higher-order inference (`Signature.typeParameters`,
+    /// `internal/checker/types.go`).
+    pub resolved_type: Option<TypeId>,
     /// The `const` modifier (§33, `checker-notes-callres.md`) — printed as
     /// written; inference does not yet act on it.
     pub is_const: bool,
@@ -125,10 +129,9 @@ pub enum SignatureKind {
 /// `createTypePredicateFromTypePredicateNode` (`relater.go:2084`). Upstream's
 /// four `TypePredicateKind` values are the two booleans here: `asserts` for the
 /// `Asserts*` pair and a `None` [`Self::parameter_name`] for the `This` pair.
-/// Upstream also carries `parameterIndex`, which only the narrowing path reads
-/// (`narrowTypeByTypePredicate`) and which this port has no use for — see
-/// `docs/architecture/checker-notes-typepred.md` §1 for why narrowing is a
-/// different item.
+/// Upstream also carries `parameterIndex`. Signature inference derives that
+/// index from the parameter name and the signature's value parameters when
+/// comparing predicate kinds (`typePredicateKindsMatch`).
 ///
 /// **The type is a [`TypeId`] and not rendered text**, so that
 /// `instantiate_signature` can substitute it the way `instantiateTypePredicate`
@@ -158,6 +161,11 @@ pub struct TypePredicate {
 pub struct Signature {
     /// The declaration this signature came from.
     pub declaration: NodeId,
+    /// The signature before its latest instantiation (`Signature.target`,
+    /// `internal/checker/types.go`). Callback comparison reads original
+    /// parameter types to distinguish an instantiated generic parameter from
+    /// a written function parameter.
+    pub target: Option<std::sync::Arc<Signature>>,
     /// Call, construct, or abstract construct — see [`SignatureKind`].
     pub kind: SignatureKind,
     /// Type parameters, in source order.
@@ -187,6 +195,42 @@ pub struct Signature {
     /// (`relater.go:2049`), and the instantiated target's — are not built; see
     /// `docs/architecture/checker-notes-typepred.md` §1.
     pub predicate: Option<TypePredicate>,
+}
+
+impl Signature {
+    /// Ported from `typePredicateKindsMatch` (`internal/checker/relater.go`).
+    /// Missing parameter metadata leaves the comparison unsupported.
+    pub(crate) fn predicate_kinds_match(&self, target: &Self) -> Option<bool> {
+        let (source, target_predicate) = (self.predicate.as_ref()?, target.predicate.as_ref()?);
+        if source.asserts != target_predicate.asserts
+            || source.parameter_name.is_some() != target_predicate.parameter_name.is_some()
+        {
+            return Some(false);
+        }
+        let (Some(source_name), Some(target_name)) =
+            (&source.parameter_name, &target_predicate.parameter_name)
+        else {
+            return Some(true);
+        };
+        let source_index =
+            self.parameters.iter().position(|parameter| &parameter.name == source_name)?;
+        let target_index =
+            target.parameters.iter().position(|parameter| &parameter.name == target_name)?;
+        Some(source_index == target_index)
+    }
+
+    /// Ported from `applyToReturnTypes` (`internal/checker/inference.go`):
+    /// matching predicates contribute their asserted types instead of the
+    /// signatures' boolean return types.
+    pub(crate) fn inference_return_types(&self, target: &Self) -> (TypeId, TypeId) {
+        if let (Some(source), Some(target_predicate)) = (&self.predicate, &target.predicate)
+            && self.predicate_kinds_match(target) == Some(true)
+            && let (Some(source_type), Some(target_type)) = (source.r#type, target_predicate.r#type)
+        {
+            return (source_type, target_type);
+        }
+        (self.r#type, target.r#type)
+    }
 }
 
 /// A function-like declaration's body.
@@ -225,6 +269,226 @@ struct SignatureParts<'a> {
 }
 
 impl<'a> Checker<'a, '_> {
+    /// Ported from `ast.HasContextSensitiveParameters` (`internal/ast/utilities.go`).
+    pub(crate) fn has_context_sensitive_parameters(&self, declaration: NodeId) -> bool {
+        let generic = match self.node_map.get(declaration) {
+            Some(Node::ArrowFunction(node)) => !node.type_parameters.is_empty(),
+            Some(Node::FunctionExpression(node)) => !node.type_parameters.is_empty(),
+            Some(Node::FunctionDeclaration(node)) => !node.type_parameters.is_empty(),
+            Some(Node::MethodDeclaration(node)) => !node.type_parameters.is_empty(),
+            _ => return false,
+        };
+        if generic {
+            return false;
+        }
+        let Some(parts) = self.signature_parts_of(declaration) else { return false };
+        parts.parameters.iter().any(|parameter| parameter.r#type.is_none())
+            || (self.nodes.kind(declaration) != SyntaxKind::ArrowFunction
+                && !parts
+                    .parameters
+                    .first()
+                    .is_some_and(|parameter| Self::is_this_parameter_declaration(parameter))
+                && self.binder.facts(declaration).contains(tsr_binder::NodeFacts::CONTAINS_THIS))
+    }
+
+    /// Only parameters with no written type read the contextual fixing mapper.
+    pub(crate) fn consumed_contextual_parameter_types(
+        &self,
+        declaration: NodeId,
+        context: &Signature,
+    ) -> Vec<TypeId> {
+        let Some(parts) = self.signature_parts_of(declaration) else { return Vec::new() };
+        let own: Vec<_> = parts
+            .parameters
+            .iter()
+            .filter(|parameter| !Self::is_this_parameter_declaration(parameter))
+            .collect();
+        let mut consumed: Vec<_> = context
+            .parameters
+            .iter()
+            .enumerate()
+            .filter_map(|(index, parameter)| {
+                own.get(index).is_some_and(|own| own.r#type.is_none()).then_some(parameter.r#type)
+            })
+            .collect();
+        if self.nodes.kind(declaration) != SyntaxKind::ArrowFunction
+            && self.binder.facts(declaration).contains(tsr_binder::NodeFacts::CONTAINS_THIS)
+            && !parts
+                .parameters
+                .first()
+                .is_some_and(|parameter| Self::is_this_parameter_declaration(parameter))
+        {
+            consumed.extend(context.this_parameter.iter().map(|parameter| parameter.r#type));
+        }
+        consumed
+    }
+
+    /// Context-sensitive returned/yielded functions checked inside their
+    /// enclosing function's contextual return type (isContextSensitive).
+    pub(crate) fn context_sensitive_function_contents(
+        &self,
+        declaration: NodeId,
+    ) -> Vec<tsr_ast::Expression<'a>> {
+        let Some(parts) = self.signature_parts_of(declaration) else { return Vec::new() };
+        match parts.body {
+            Some(Body::Expression(expression)) => vec![expression],
+            Some(Body::Block(block)) => self
+                .return_expressions_of(block, declaration)
+                .into_iter()
+                .flatten()
+                .chain(
+                    self.yield_expressions_of(block, declaration)
+                        .into_iter()
+                        .filter_map(|(_, _, expression)| expression),
+                )
+                .collect(),
+            None => Vec::new(),
+        }
+    }
+
+    /// The anyFunctionType wildcard from Checker construction (checker.go),
+    /// carrying no signatures and excluded from type-parameter candidates.
+    pub(crate) fn get_any_function_type(&mut self) -> TypeId {
+        if let Some(id) = self.any_function_type {
+            return id;
+        }
+        let id =
+            self.store.new_named(crate::flags::TypeFlags::OBJECT, "Function".to_string(), None);
+        self.signature_types.insert(id, Vec::new());
+        self.anonymous_properties.insert(id, (Vec::new(), true));
+        self.any_function_type = Some(id);
+        id
+    }
+
+    /// checkFunctionExpressionOrObjectLiteralMethod's return-only signature
+    /// under `SkipContextSensitive` (`internal/checker/checker.go`).
+    pub(crate) fn context_free_function_type(&mut self, declaration: NodeId) -> Option<TypeId> {
+        if self.has_context_sensitive_parameters(declaration) {
+            return None;
+        }
+        let parts = self.signature_parts_of(declaration)?;
+        if parts.return_annotation.is_some()
+            || parts.asterisk
+            || crate::check::has_modifier(parts.modifiers, SyntaxKind::AsyncKeyword)
+        {
+            return None;
+        }
+        let expressions = match parts.body? {
+            Body::Expression(expression) => vec![Some(expression)],
+            Body::Block(block) => self.return_expressions_of(block, declaration),
+        };
+        let mut types = Vec::new();
+        for expression in expressions {
+            let ty = match expression {
+                Some(expression) => self.context_free_return_expression_type(expression)?,
+                None => self.intrinsics.void,
+            };
+            if !types.contains(&ty) {
+                types.push(ty);
+            }
+        }
+        let returned = match types.as_slice() {
+            [] => self.intrinsics.void,
+            [single] => *single,
+            many => self.union_with_subtype_reduction(many)?,
+        };
+        let signature = Signature {
+            declaration,
+            target: None,
+            kind: SignatureKind::Call,
+            type_parameters: Vec::new(),
+            this_parameter: None,
+            parameters: Vec::new(),
+            r#type: returned,
+            predicate: None,
+            written_return: None,
+        };
+        let text = self.signature_to_string(&signature);
+        let id = self.store.new_named(crate::flags::TypeFlags::OBJECT, text, None);
+        self.signature_types.insert(id, vec![signature]);
+        self.anonymous_properties.insert(id, (Vec::new(), true));
+        Some(id)
+    }
+
+    fn context_free_return_expression_type(
+        &mut self,
+        expression: tsr_ast::Expression<'a>,
+    ) -> Option<TypeId> {
+        use tsr_ast::Expression;
+        match expression {
+            Expression::ArrowFunction(_) | Expression::FunctionExpression(_)
+                if self.is_context_sensitive_argument(&expression) =>
+            {
+                Some(self.get_any_function_type())
+            }
+            Expression::ParenthesizedExpression(node) => {
+                self.context_free_return_expression_type(node.expression?)
+            }
+            Expression::ConditionalExpression(node) => {
+                let a = self.context_free_return_expression_type(node.when_true?)?;
+                let b = self.context_free_return_expression_type(node.when_false?)?;
+                self.union_with_subtype_reduction(&[a, b])
+            }
+            _ if !self.is_context_sensitive_argument(&expression) => {
+                let ty = self.check_expression(expression);
+                (ty != self.intrinsics.error).then_some(ty)
+            }
+            _ => None,
+        }
+    }
+
+    /// Ported from `Checker.isContextSensitiveFunctionLikeDeclaration`,
+    /// `Checker.hasContextSensitiveReturnExpression` and
+    /// `Checker.hasContextSensitiveYieldExpression` (`internal/checker/checker.go`),
+    /// including `ast.HasContextSensitiveParameters` (`internal/ast/utilities.go`).
+    pub(crate) fn is_context_sensitive_function_like(&self, declaration: NodeId) -> bool {
+        let (generic, annotated) = match self.node_map.get(declaration) {
+            Some(Node::ArrowFunction(node)) => {
+                (!node.type_parameters.is_empty(), node.r#type.is_some())
+            }
+            Some(Node::FunctionExpression(node)) => {
+                (!node.type_parameters.is_empty(), node.r#type.is_some())
+            }
+            Some(Node::FunctionDeclaration(node)) => {
+                (!node.type_parameters.is_empty(), node.r#type.is_some())
+            }
+            Some(Node::MethodDeclaration(node)) => {
+                (!node.type_parameters.is_empty(), node.r#type.is_some())
+            }
+            _ => return false,
+        };
+        let Some(parts) = self.signature_parts_of(declaration) else { return false };
+        if self.has_context_sensitive_parameters(declaration) {
+            return true;
+        }
+        let Some(body) = parts.body else { return false };
+        if !generic && !annotated {
+            let sensitive = match body {
+                Body::Expression(expression) => self.is_context_sensitive_argument(&expression),
+                Body::Block(block) => self
+                    .return_expressions_of(block, declaration)
+                    .iter()
+                    .flatten()
+                    .any(|expression| self.is_context_sensitive_argument(expression)),
+            };
+            if sensitive {
+                return true;
+            }
+        }
+        if parts.asterisk
+            && let Body::Block(block) = body
+        {
+            return self.yield_expressions_of(block, declaration).iter().any(
+                |(_, _, expression)| {
+                    expression
+                        .as_ref()
+                        .is_some_and(|expression| self.is_context_sensitive_argument(expression))
+                },
+            );
+        }
+        false
+    }
+
     /// The call signatures a symbol has.
     ///
     /// Ported from `Checker.getSignaturesOfSymbol` (`checker.go:19806`),
@@ -832,6 +1096,7 @@ impl<'a> Checker<'a, '_> {
         }
         Some(Signature {
             declaration,
+            target: None,
             kind: self.signature_kind_of(declaration),
             type_parameters,
             this_parameter,
@@ -2248,7 +2513,11 @@ impl<'a> Checker<'a, '_> {
             // records the same hazard from the parameter side). The
             // annotation road cannot cycle: a type NODE never re-enters a
             // body's return inference.
-            let signature = self.contextual_signature(declaration)?;
+            let crate::contextual::ContextualSignature::Present(signature) =
+                self.contextual_signature_result(declaration)?
+            else {
+                return Some(widened);
+            };
             return if self.is_literal_of_contextual_type(id, signature.r#type)? {
                 Some(self.get_regular_type_of_literal_type(id))
             } else {
@@ -2406,6 +2675,13 @@ impl<'a> Checker<'a, '_> {
     /// `maybeTypeOfKind` (`checker.go`): the type or any constituent of a
     /// union/intersection carries one of `kind`'s flags.
     pub(crate) fn maybe_type_of_kind(&self, id: TypeId, kind: crate::flags::TypeFlags) -> bool {
+        // The legacy deferred-keyof representation keeps its index identity
+        // in a side table. Treat it as TypeFlagsIndex for kind queries.
+        if kind.intersects(crate::flags::TypeFlags::INDEX)
+            && self.deferred_keyof_types.contains(&id)
+        {
+            return true;
+        }
         let ty = self.store.get(id);
         if ty.flags.intersects(kind) {
             return true;
@@ -3392,6 +3668,38 @@ impl<'a> Checker<'a, '_> {
             r#type = self.intrinsics.any;
             written_text = Some(spelled);
         }
+        // §959: an ALL-RESTS tuple annotation carries its written spelling, which
+        // is the seam §958 was refused for the want of.
+        //
+        // This road — the identifier parameter — only ever set `written_text` for an
+        // annotation it could not RESOLVE (the arm above). The binding-pattern road
+        // at `:3338` already calls `written_annotation_text`; this one never did, so
+        // a resolvable annotation's spelling could only reach the printer by being
+        // the resolved type's OWN text. That is exactly why §958's reduction cost 10
+        // `RIGHT->WRONG`: it replaced the print-only mint (whose text IS the
+        // spelling) with `Array<boolean>`, and there was nowhere else for
+        // `[...boolean[]]` to live.
+        //
+        // Upstream holds both answers at once — `genericRestParameters2` prints
+        // `...x: [...boolean[]]` for a rest annotated with an all-rests tuple and
+        // `...x: boolean[]` for one whose tuple has a FIXED element and expands
+        // positionally — so the spelling belongs on the parameter, not on the type.
+        //
+        // **Scoped to the all-rests shape on purpose.** Every other tuple annotation
+        // already prints correctly from its resolved type, and §137's recorded
+        // measurement (+323/−270, reverted) is what a blanket written-reuse costs.
+        let written_text = written_text.or_else(|| {
+            let annotation = node.r#type?;
+            let TypeNode::TupleTypeNode(tuple) = annotation else { return None };
+            if tuple.elements.is_empty()
+                || !tuple.elements.iter().all(|e| matches!(e, TypeNode::RestTypeNode(_)))
+            {
+                return None;
+            }
+            let mut single_quoted = false;
+            let mut array_headed = false;
+            Self::written_type_text(annotation, &mut single_quoted, &mut array_headed)
+        });
         Some(Parameter {
             name: name_text,
             // Filled in by the caller: optionality needs the whole list.
@@ -3454,7 +3762,7 @@ impl<'a> Checker<'a, '_> {
         // annotation can nest one in, because the indexed access that matters is
         // usually a TYPE ARGUMENT (`Promise<Obj["stringProp"]>`) rather than the
         // annotation itself.
-        if Self::annotation_writes_an_indexed_access(annotation) {
+        if Self::annotation_needs_operator_spelling(annotation) {
             let mut single_quoted = false;
             let mut array_headed = false;
             let mut void_union = false;
@@ -3636,23 +3944,22 @@ impl<'a> Checker<'a, '_> {
     /// §952.3: whether the annotation as WRITTEN contains an indexed access,
     /// at the top level or nested in a composite. See
     /// [`Checker::written_annotation_text`] for why that decides the print.
-    fn annotation_writes_an_indexed_access(annotation: TypeNode<'_>) -> bool {
+    fn annotation_needs_operator_spelling(annotation: TypeNode<'_>) -> bool {
         match annotation {
-            TypeNode::IndexedAccessTypeNode(_) => true,
-            TypeNode::TypeReferenceNode(reference) => {
-                reference.type_arguments.iter().copied().any(Self::annotation_writes_an_indexed_access)
-            }
+            TypeNode::IndexedAccessTypeNode(_) | TypeNode::IntersectionTypeNode(_) => true,
+            TypeNode::TypeReferenceNode(reference) => reference
+                .type_arguments
+                .iter()
+                .copied()
+                .any(Self::annotation_needs_operator_spelling),
             TypeNode::ArrayTypeNode(array) => {
-                array.element_type.is_some_and(Self::annotation_writes_an_indexed_access)
+                array.element_type.is_some_and(Self::annotation_needs_operator_spelling)
             }
             TypeNode::ParenthesizedTypeNode(paren) => {
-                paren.r#type.is_some_and(Self::annotation_writes_an_indexed_access)
+                paren.r#type.is_some_and(Self::annotation_needs_operator_spelling)
             }
             TypeNode::UnionTypeNode(union) => {
-                union.types.iter().copied().any(Self::annotation_writes_an_indexed_access)
-            }
-            TypeNode::IntersectionTypeNode(intersection) => {
-                intersection.types.iter().copied().any(Self::annotation_writes_an_indexed_access)
+                union.types.iter().copied().any(Self::annotation_needs_operator_spelling)
             }
             _ => false,
         }
@@ -3702,6 +4009,12 @@ impl<'a> Checker<'a, '_> {
                 _ => None,
             },
             TypeNode::LiteralTypeNode(literal) => match literal.literal? {
+                Node::KeywordExpression(keyword) => match keyword.kind {
+                    SyntaxKind::NullKeyword => Some("null".to_string()),
+                    SyntaxKind::TrueKeyword => Some("true".to_string()),
+                    SyntaxKind::FalseKeyword => Some("false".to_string()),
+                    _ => None,
+                },
                 Node::StringLiteral(string) => {
                     if string.token_flags.contains(tsr_ast::TokenFlags::SINGLE_QUOTE) {
                         *single_quoted = true;
@@ -3884,6 +4197,59 @@ impl<'a> Checker<'a, '_> {
                     "{{ {readonly}[{name} in {constraint}{remapped}]{question}: {template}; }}"
                 ))
             }
+            // §959: this walk had **no tuple arm at all**, so `written_type_text`
+            // answered `None` for every tuple annotation. That is why three separate
+            // attempts to give `...x: [...boolean[]]` its written spelling all
+            // measured as nothing: `qualified_written_text` at the reduction site,
+            // an arm in `written_annotation_text`, and populating the parameter's
+            // `written_text` each ran correctly and each asked this function, which
+            // could not render a tuple.
+            //
+            // *The renderer being unable to spell the shape looked identical to the
+            // three call sites not firing.*
+            TypeNode::TupleTypeNode(tuple) => {
+                let mut pieces = Vec::with_capacity(tuple.elements.len());
+                for element in tuple.elements {
+                    // The same four element spellings §956 composes on the
+                    // print-only road, and a labelled rest is
+                    // `RestTypeNode(NamedTupleMember(..))` for the reason recorded
+                    // there.
+                    let (prefix, suffix, inner) = match element {
+                        TypeNode::RestTypeNode(rest) => match rest.r#type {
+                            Some(TypeNode::NamedTupleMember(member)) => {
+                                let (Some(inner), Some(name)) = (member.r#type, member.name) else {
+                                    return None;
+                                };
+                                let question =
+                                    if member.question_token.is_some() { "?" } else { "" };
+                                (format!("...{}{question}: ", name.text), String::new(), inner)
+                            }
+                            Some(inner) => ("...".to_string(), String::new(), inner),
+                            None => return None,
+                        },
+                        TypeNode::NamedTupleMember(member) => {
+                            let (Some(inner), Some(name)) = (member.r#type, member.name) else {
+                                return None;
+                            };
+                            let question = if member.question_token.is_some() { "?" } else { "" };
+                            (format!("{}{question}: ", name.text), String::new(), inner)
+                        }
+                        TypeNode::OptionalTypeNode(optional) => {
+                            let inner = optional.r#type?;
+                            (String::new(), "?".to_string(), inner)
+                        }
+                        other => (String::new(), String::new(), *other),
+                    };
+                    let rendered = Self::written_type_text_flags(
+                        inner,
+                        single_quoted,
+                        array_headed,
+                        void_union,
+                    )?;
+                    pieces.push(format!("{prefix}{rendered}{suffix}"));
+                }
+                Some(format!("[{}]", pieces.join(", ")))
+            }
             TypeNode::ArrayTypeNode(array) => {
                 let element = array.element_type?;
                 let inner = Self::written_type_text_flags(
@@ -3931,12 +4297,17 @@ impl<'a> Checker<'a, '_> {
                     {
                         *void_union = true;
                     }
-                    parts.push(Self::written_type_text_flags(
+                    let text = Self::written_type_text_flags(
                         *constituent,
                         single_quoted,
                         array_headed,
                         void_union,
-                    )?);
+                    )?;
+                    parts.push(if matches!(constituent, TypeNode::IntersectionTypeNode(_)) {
+                        format!("({text})")
+                    } else {
+                        text
+                    });
                 }
                 (parts.len() > 1).then(|| parts.join(" | "))
             }
@@ -4072,9 +4443,32 @@ impl<'a> Checker<'a, '_> {
             None => Some(self.intrinsics.any),
         };
         let default = resolve(self, node.default_type)?;
-        let written_constraint =
-            node.constraint.and_then(|annotation| self.written_annotation_text(annotation));
-        Some(TypeParameter { is_const, name, constraint, written_constraint, default })
+        let written_constraint = node.constraint.and_then(|annotation| {
+            self.written_annotation_text(annotation).or_else(|| {
+                // A mapped reference can resolve to a tuple while the node
+                // builder reuses the reference written in the constraint.
+                let resolved = constraint?;
+                if !matches!(annotation, TypeNode::TypeReferenceNode(_))
+                    || !(self.tuple_element_lists.contains_key(&resolved)
+                        || self.variadic_tuple_elements.contains_key(&resolved))
+                {
+                    return None;
+                }
+                Self::written_type_text(annotation, &mut false, &mut false)
+            })
+        });
+        let resolved_type = node
+            .node_id
+            .and_then(|id| self.binder.symbol_of(id))
+            .map(|symbol| self.get_declared_type_of_symbol(symbol));
+        Some(TypeParameter {
+            resolved_type,
+            is_const,
+            name,
+            constraint,
+            written_constraint,
+            default,
+        })
     }
 
     /// Call, construct, or abstract construct, read off the declaration.
@@ -4366,6 +4760,7 @@ impl<'a> Checker<'a, '_> {
         let Some(parts) = self.signature_parts_of(node) else { return error };
         let unannotated = parts.parameters.iter().any(|parameter| parameter.r#type.is_none());
         if unannotated
+            && self.is_context_sensitive_function_like(node)
             && !self.has_no_contextual_type(node)
             // §809: an IMMEDIATELY INVOKED function is not in this guard's
             // domain. The guard exists because an unannotated parameter under a
@@ -4412,13 +4807,25 @@ impl<'a> Checker<'a, '_> {
                 // the materialized signature's parameter types to mention no
                 // type parameter - a half-grounded context types arrows
                 // confidently wrong (generatedContextualTyping's 48 G->W).
-                let grounded = self.contextual_signature(node).is_some_and(|signature| {
-                    signature
-                        .parameters
-                        .iter()
-                        .all(|parameter| !self.mentions_any_type_parameter(parameter.r#type, 2))
+                let grounded = self.contextual_signature_result(node).is_some_and(|signature| {
+                    match signature {
+                        crate::contextual::ContextualSignature::Present(signature) => signature.parameters.iter().enumerate().all(|(index, parameter)| {
+                            parts.parameters.iter().filter(|own| !Self::is_this_parameter_declaration(own)).nth(index).is_some_and(|own| own.r#type.is_some())
+                                || !self.mentions_any_type_parameter(parameter.r#type, 2)
+                        }),
+                        // A computed nil context licenses ordinary implicit
+                        // parameters. Generic call failures additionally need
+                        // inferSignatureInstantiationForOverloadFailure's
+                        // SkipContextSensitive pass (checker.go). Only its decisive
+                        // fixed callback-arity failure is currently ported.
+                        // Keep that caller's existing decline until its error
+                        // candidate can be instantiated without these arguments.
+                        crate::contextual::ContextualSignature::Absent => !self.single_generic_argument_context(node),
+                    }
                 });
-                !grounded && !(self.single_generic_argument_context(node)
+                let propagated = self.nodes.parent(node).is_some_and(|parent|
+                    self.higher_order_context_calls.contains(&parent));
+                !grounded && !((propagated || self.single_generic_argument_context(node))
                     && self.contextual_signature(node).is_some())
             }
         {
@@ -4859,13 +5266,19 @@ impl<'a> Checker<'a, '_> {
             {
                 let elements = elements.clone();
                 let mask = self.tuple_optional_masks.get(&parameter.r#type).cloned();
+                let labels = self.tuple_labels.get(&parameter.r#type).cloned();
                 let mut pieces = Vec::with_capacity(elements.len());
                 for (position, &element) in elements.iter().enumerate() {
                     let optional =
                         mask.as_ref().is_some_and(|m| m.get(position).copied().unwrap_or(false));
                     pieces.push(format!(
-                        "{}_{position}{}: {}",
-                        parameter.name,
+                        "{}{}: {}",
+                        labels
+                            .as_ref()
+                            .and_then(|labels| labels.get(position))
+                            .cloned()
+                            .flatten()
+                            .unwrap_or_else(|| format!("{}_{position}", parameter.name)),
                         if optional { "?" } else { "" },
                         render(self, element)
                     ));
@@ -4936,10 +5349,32 @@ impl<'a> Checker<'a, '_> {
             out.push('>');
         }
         out.push('(');
-        for (index, parameter) in
-            signature.this_parameter.iter().chain(signature.parameters.iter()).enumerate()
-        {
-            if index > 0 {
+        let mut emitted = false;
+        for parameter in signature.this_parameter.iter().chain(signature.parameters.iter()) {
+            if parameter.rest
+                && parameter.written_text.is_none()
+                && let Some((elements, _)) = self.tuple_element_lists.get(&parameter.r#type)
+            {
+                let mask = self.tuple_optional_masks.get(&parameter.r#type);
+                let labels = self.tuple_labels.get(&parameter.r#type);
+                for (index, &element) in elements.iter().enumerate() {
+                    if emitted {
+                        out.push_str(", ");
+                    }
+                    let name = labels
+                        .and_then(|labels| labels.get(index))
+                        .cloned()
+                        .flatten()
+                        .unwrap_or_else(|| format!("{}_{index}", parameter.name));
+                    out.push_str(&name);
+                    let optional = mask.and_then(|mask| mask.get(index)).copied().unwrap_or(false);
+                    out.push_str(if optional { "?: " } else { ": " });
+                    out.push_str(&self.type_to_string(element));
+                    emitted = true;
+                }
+                continue;
+            }
+            if emitted {
                 out.push_str(", ");
             }
             if parameter.rest {
@@ -4951,6 +5386,7 @@ impl<'a> Checker<'a, '_> {
                 Some(written) => out.push_str(written),
                 None => out.push_str(&self.type_to_string(parameter.r#type)),
             }
+            emitted = true;
         }
         out.push_str(") => ");
         // `serializeReturnTypeForSignature` consults

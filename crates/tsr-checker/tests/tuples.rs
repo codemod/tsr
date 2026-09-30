@@ -9,6 +9,94 @@ use tsr_ast::Statement;
 use tsr_checker::Checker;
 use tsr_core::Arena;
 
+#[test]
+fn a_variadic_tuple_exposes_its_fixed_prefix() {
+    assert_eq!(
+        type_of_declaration(
+            "interface Array<T> { length: number }\n\
+             declare const t: [string, ...number[]]; const a = t[0];",
+            "a",
+        ),
+        "string"
+    );
+}
+
+#[test]
+fn a_rest_tuple_exposes_its_unbounded_element() {
+    assert_eq!(
+        type_of_declaration(
+            "interface Array<T> { length: number }\n\
+             declare const t: [string, ...number[]]; const a = t[2];",
+            "a",
+        ),
+        "number"
+    );
+}
+
+#[test]
+fn a_named_rest_tuple_exposes_its_fixed_prefix() {
+    assert_eq!(
+        type_of_declaration(
+            "interface Array<T> { length: number }\n\
+             type Tuple = [string, ...number[]]; declare const t: Tuple; const a = t[0];",
+            "a",
+        ),
+        "string"
+    );
+}
+
+#[test]
+fn an_optional_tuple_has_a_union_of_possible_lengths() {
+    assert_eq!(
+        type_of_declaration(
+            "declare const t: [string, number?, boolean?]; const a = t.length;",
+            "a"
+        ),
+        "1 | 2 | 3"
+    );
+}
+
+fn type_of_assignment_target(source: &str) -> String {
+    let arena = Arena::new();
+    let parsed = tsr_parser::parse(&arena, source);
+    assert!(parsed.diagnostics.is_empty());
+    let bound = tsr_binder::bind(
+        &arena,
+        parsed.source_file,
+        &parsed.nodes,
+        tsr_binder::FileInfo { name: "t.ts", text: source },
+    );
+    let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+    let Some(Statement::ExpressionStatement(statement)) = parsed.source_file.statements.last()
+    else {
+        panic!("an assignment statement");
+    };
+    let Some(tsr_ast::Expression::BinaryExpression(binary)) = statement.expression else {
+        panic!("an assignment expression");
+    };
+    let t = checker.check_expression(binary.left.expect("assignment target"));
+    checker.type_to_string(t)
+}
+
+#[test]
+fn a_readonly_optional_tuple_length_write_is_erroneous() {
+    assert_eq!(
+        type_of_assignment_target("declare const t: readonly [number?]; t.length = 0;"),
+        "any"
+    );
+}
+
+#[test]
+fn a_readonly_rest_tuple_element_write_is_erroneous() {
+    assert_eq!(
+        type_of_assignment_target(
+            "interface Array<T> { length: number }\n\
+         declare const t: readonly [number, ...number[]]; t[2] = 0;"
+        ),
+        "any"
+    );
+}
+
 /// The printed type of the first declaration's name.
 fn type_of_declaration(source: &str, name: &str) -> String {
     let arena = Arena::new();

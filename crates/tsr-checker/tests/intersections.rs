@@ -12,6 +12,10 @@ use tsr_checker::Checker;
 use tsr_core::Arena;
 
 fn type_of_annotation_at(source: &str, index: usize) -> String {
+    type_of_annotation_with_null_checks(source, index, true)
+}
+
+fn type_of_annotation_with_null_checks(source: &str, index: usize, strict: bool) -> String {
     let arena = Arena::new();
     let parsed = tsr_parser::parse(&arena, source);
     assert!(
@@ -26,16 +30,22 @@ fn type_of_annotation_at(source: &str, index: usize) -> String {
         tsr_binder::FileInfo { name: "test.ts", text: source },
     );
     let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
-    let Statement::VariableStatement(statement) = parsed.source_file.statements[index] else {
-        panic!("statement {index} must be a variable statement");
+    checker.set_strict_null_checks(strict);
+    let annotation = match parsed.source_file.statements[index] {
+        Statement::VariableStatement(statement) => statement
+            .declaration_list
+            .and_then(|list| list.declarations.first().copied())
+            .and_then(|declaration| declaration.r#type),
+        Statement::FunctionDeclaration(function) => {
+            function.parameters.first().and_then(|parameter| parameter.r#type)
+        }
+        _ => panic!("statement {index} must declare a variable or function"),
     };
-    let annotation = statement
-        .declaration_list
-        .and_then(|list| list.declarations.first().copied())
-        .and_then(|declaration| declaration.r#type)
-        .expect("an annotation");
+    let annotation = annotation.expect("an annotation");
     let id = checker.get_type_from_type_node(annotation);
-    checker.type_to_string(id)
+    checker
+        .type_to_string_at(id, tsr_ast::Node::from(annotation).node_id().expect("a type node"))
+        .unwrap_or_else(|| checker.type_to_string(id))
 }
 
 /// Two interfaces, then the annotation under test.
@@ -64,6 +74,17 @@ fn a_union_constituent_is_parenthesised() {
     // …and the union inside is still sorted by *its* rule, so the two orders
     // coexist in one printed type.
     assert_eq!(with_two_interfaces("A & (number | string)"), "A & (string | number)");
+}
+
+#[test]
+fn an_intersection_origin_keeps_parentheses_when_it_joins_another_union() {
+    assert_eq!(
+        type_of_annotation_at(
+            "interface A {} interface B {} interface C {} var x: false | ((A | B) & C);",
+            3
+        ),
+        "false | ((A | B) & C)"
+    );
 }
 
 #[test]
@@ -129,14 +150,37 @@ fn a_constituent_this_port_cannot_type_makes_the_whole_intersection_a_gap() {
 }
 
 #[test]
-fn an_empty_object_constituent_is_a_gap() {
-    // `X & {}` has reduction rules of its own upstream — it deliberately skips
-    // supertype reduction, and `{}` is removed beside a definitely-non-nullable
-    // type. Neither is ported, so the intersection is a gap rather than a
-    // plausible `A & {}` or `A`.
-    assert_eq!(with_two_interfaces("A & {}"), "error");
+fn an_empty_object_is_removed_beside_a_definitely_non_nullable_type() {
+    assert_eq!(with_two_interfaces("A & {}"), "A");
+    assert_eq!(with_two_interfaces("{} & string"), "string");
+    assert_eq!(with_two_interfaces("{} & {}"), "{}");
+    assert_eq!(with_two_interfaces("{} & unknown"), "{}");
+    assert_eq!(with_two_interfaces("{} & any"), "any");
     // A *non*-empty object literal type is unaffected.
     assert_eq!(with_two_interfaces("A & { a: string }"), "A & { a: string; }");
+}
+
+#[test]
+fn empty_objects_and_nullable_intersections_follow_strict_null_checks() {
+    for strict in [true, false] {
+        assert_eq!(type_of_annotation_with_null_checks("var x: {} & null;", 0, strict), "never");
+        assert_eq!(
+            type_of_annotation_with_null_checks("var x: {} & undefined;", 0, strict),
+            "never"
+        );
+    }
+    assert_eq!(
+        type_of_annotation_with_null_checks("var x: { a: number } & null;", 0, true),
+        "never"
+    );
+    assert_eq!(
+        type_of_annotation_with_null_checks("var x: { a: number } & null;", 0, false),
+        "null"
+    );
+    assert_eq!(
+        type_of_annotation_with_null_checks("var x: unknown & undefined;", 0, false),
+        "undefined"
+    );
 }
 
 #[test]
@@ -145,4 +189,28 @@ fn a_type_alias_names_its_intersection() {
         type_of_annotation_at("interface A {}\ninterface B {}\ntype T = A & B;\nvar x: T;", 3),
         "T"
     );
+}
+
+#[test]
+fn an_intersection_distributes_over_union_operands_and_removes_empty_branches() {
+    assert_eq!(with_two_interfaces("(string | number) & string"), "string");
+    assert_eq!(with_two_interfaces("(string | number) & (number | boolean)"), "number");
+    assert_eq!(with_two_interfaces("(string | number) & (\"x\" | 1)"), "\"x\" | 1");
+    assert_eq!(with_two_interfaces("(string | null) & (number | null)"), "null");
+    assert_eq!(with_two_interfaces("(string | undefined) & (number | undefined)"), "undefined");
+    assert_eq!(with_two_interfaces("{} & (string | null)"), "string");
+}
+
+#[test]
+fn primitive_constraints_reduce_an_intersection_with_a_type_variable() {
+    assert_eq!(
+        type_of_annotation_at("function f<T extends string>(value: T & number) {}", 0),
+        "never"
+    );
+    assert_eq!(
+        type_of_annotation_at("function f<T extends \"x\" | \"y\">(value: T & string) {}", 0),
+        "T"
+    );
+    assert_eq!(type_of_annotation_at("function f<T>(value: T & string) {}", 0), "T & string");
+    assert_eq!(type_of_annotation_at("function f<T extends {}>(value: T & {}) {}", 0), "T");
 }

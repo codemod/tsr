@@ -48,19 +48,9 @@
 //! relates here and would not upstream. The property **names** and **types**
 //! are fully checked; the modifiers on them are not.
 //!
-//! # `strictNullChecks` is assumed on
-//!
-//! `isSimpleTypeRelatedTo` branches on `c.strictNullChecks` in two places: with
-//! it **off**, `undefined` and `null` are assignable to everything except
-//! `never`. The two readings are not symmetric — assuming *off* makes the
-//! relation maximally permissive, which is the direction that manufactures wrong
-//! answers. Assuming *on* costs correctness only on files that actually disable
-//! it, and costs it as a gap. So the strict reading is hard-coded.
-//!
-//! **The note this paragraph replaced said to delete it "when options arrive".
-//! They have arrived** — ADR-0042 sets [`Checker::strict_null_checks`] from
-//! `CompilerOptions` — and the hard-coding is now a plain unfinished arm rather
-//! than a forced choice. Reading the field is the fix.
+//! `isSimpleTypeRelatedTo` reads [`Checker::strict_null_checks`]. In non-strict
+//! mode, `undefined` and `null` relate to every non-union/intersection target
+//! except `never`; composite targets continue through the structured walk.
 //!
 //! # The recursion limits are exercised, and that was measured
 //!
@@ -532,6 +522,20 @@ impl Checker<'_, '_> {
         reasons::finish(outer, answer == Ternary::Unknown);
         answer
     }
+
+    pub(crate) fn compare_signature_ternary(
+        &mut self,
+        source: &crate::signatures::Signature,
+        target: &crate::signatures::Signature,
+    ) -> Option<Ternary> {
+        let mut relater = Relater {
+            checker: self,
+            relation: Relation::Assignable,
+            results: FxHashMap::default(),
+            depth: 0,
+        };
+        relater.one_signature_related_to(source, target, false, false)
+    }
 }
 
 impl Relater<'_, '_, '_> {
@@ -543,6 +547,16 @@ impl Relater<'_, '_, '_> {
         // before comparing identity, so that `"a"` fresh and `"a"` regular are
         // one type here even though they are two interned types.
         let source = self.checker.get_regular_type_of_literal_type(source);
+        if let Some([sup, sub, other]) = self.checker.variance_markers
+            && [sup, sub, other].contains(&source)
+            && [sup, sub, other].contains(&target)
+        {
+            return if source == target || (source == sub && target == sup) {
+                Ternary::Related
+            } else {
+                Ternary::NotRelated
+            };
+        }
         let target = self.checker.get_regular_type_of_literal_type(target);
         if source == target {
             return Ternary::Related;
@@ -561,6 +575,24 @@ impl Relater<'_, '_, '_> {
             Some(false) => return Ternary::NotRelated,
             None => {}
         }
+        // anyFunctionType has no properties, and function expressions have
+        // no own property requirements. Their call-signature relation is the
+        // wildcard rule even when no symbol member table is attached.
+        if self.checker.any_function_type == Some(source)
+            && self.is_plain_function_expression_type(target)
+        {
+            return Ternary::Related;
+        }
+        if self.checker.any_function_type == Some(target)
+            && self.is_plain_function_expression_type(source)
+        {
+            return Ternary::NotRelated;
+        }
+        if self.is_plain_function_expression_type(source)
+            && self.is_plain_function_expression_type(target)
+        {
+            return self.recursive_type_related_to(source, target);
+        }
         // §17 (`checker-notes-assign.md`): both-own-private class pairs are
         // nominal — NotRelated by the private-identity rule, decided from
         // syntax.
@@ -570,6 +602,26 @@ impl Relater<'_, '_, '_> {
         let composite = TypeFlags::UNION.union(TypeFlags::INTERSECTION);
         let s = self.checker.type_of(source).flags;
         let t = self.checker.type_of(target).flags;
+        let source_tuple = self.checker.tuple_element_lists.contains_key(&source)
+            || self.checker.variadic_tuple_elements.contains_key(&source);
+        let target_tuple = self.checker.tuple_element_lists.contains_key(&target)
+            || self.checker.variadic_tuple_elements.contains_key(&target);
+        let tuple_array_pair = (source_tuple
+            && self.checker.tuple_spread_array_element(target).is_some())
+            || (target_tuple && self.checker.tuple_spread_array_element(source).is_some());
+        // structuredTypeRelatedTo compares primitive sources through their
+        // apparent wrapper type (internal/checker/relater.go). Keep indexed
+        // targets unsupported until their sourceIsPrimitive rules are ported.
+        if s.intersects(TypeFlags::PRIMITIVE)
+            && !s.intersects(TypeFlags::NULLABLE | TypeFlags::VOID)
+            && t.intersects(TypeFlags::OBJECT)
+            && self.checker.get_index_infos_of_type(target).is_none_or(|infos| infos.is_empty())
+        {
+            let apparent = self.checker.apparent_type(source);
+            if apparent != source {
+                return self.is_related_to(apparent, target);
+            }
+        }
         // Two object types with members reach the structural arm; upstream's
         // gate is `source.flags&TypeFlags::StructuredOrInstantiable != 0 &&
         // target.flags&...`, and `Named { members: Some(_) }` is the whole of
@@ -577,6 +629,8 @@ impl Relater<'_, '_, '_> {
         if s.intersects(composite)
             || t.intersects(composite)
             || (self.has_members(source) && self.has_members(target))
+            || (source_tuple && target_tuple)
+            || tuple_array_pair
         {
             return self.recursive_type_related_to(source, target);
         }
@@ -643,6 +697,23 @@ impl Relater<'_, '_, '_> {
         matches!(&self.checker.type_of(id).data, TypeData::Named { members: Some(_), .. })
     }
 
+    fn is_plain_function_expression_type(&self, id: TypeId) -> bool {
+        self.checker.signature_types.get(&id).is_some_and(|signatures| {
+            !signatures.is_empty()
+                && signatures.iter().all(|signature| {
+                    matches!(
+                        self.checker.nodes.kind(signature.declaration),
+                        tsr_ast::SyntaxKind::ArrowFunction
+                            | tsr_ast::SyntaxKind::FunctionExpression
+                            | tsr_ast::SyntaxKind::FunctionType
+                            | tsr_ast::SyntaxKind::MethodSignature
+                            | tsr_ast::SyntaxKind::MethodDeclaration
+                            | tsr_ast::SyntaxKind::CallSignature
+                    )
+                })
+        })
+    }
+
     /// Whether a non-firing [`Relater::is_simple_type_related_to`] is an answer
     /// about `id`. See [`FLAG_DECIDABLE`].
     fn flag_decidable(&self, id: TypeId) -> bool {
@@ -669,6 +740,12 @@ impl Relater<'_, '_, '_> {
     /// (`relater.go:4441`). `None` when the shape is outside what this port can
     /// decide, which keeps row 6's `Unknown`; `Some` is a real verdict.
     fn related_call_signatures(&mut self, source: TypeId, target: TypeId) -> Option<Ternary> {
+        if self.checker.any_function_type == Some(source) {
+            return Some(Ternary::Related);
+        }
+        if self.checker.any_function_type == Some(target) {
+            return Some(Ternary::NotRelated);
+        }
         let source_signatures = self.checker.call_signatures_of_type(source)?;
         let target_signatures = self.checker.call_signatures_of_type(target)?;
         if source_signatures.is_empty() || target_signatures.is_empty() {
@@ -688,7 +765,7 @@ impl Relater<'_, '_, '_> {
             let mut best: Option<Ternary> = None;
             for source_signature in &source_signatures {
                 let Some(verdict) =
-                    self.one_signature_related_to(source_signature, target_signature)
+                    self.one_signature_related_to(source_signature, target_signature, false, false)
                 else {
                     continue;
                 };
@@ -715,28 +792,186 @@ impl Relater<'_, '_, '_> {
         &mut self,
         source_signature: &crate::signatures::Signature,
         target_signature: &crate::signatures::Signature,
+        callback: bool,
+        bivariant_callback: bool,
     ) -> Option<Ternary> {
-        if !source_signature.type_parameters.is_empty()
-            || !target_signature.type_parameters.is_empty()
-            || source_signature.parameters.len() > target_signature.parameters.len()
-            || source_signature.parameters.iter().any(|parameter| parameter.rest)
-            || target_signature.parameters.iter().any(|parameter| parameter.rest)
-            // A TYPE PREDICATE declines the pair. Upstream compares predicates
-            // (`getTypePredicateOfSignature` on both sides); this port cannot, so
-            // ignoring one would be a missing REJECTION — a possible wrong
-            // accept. **Dropping the exclusion measured zero change**, so the
-            // safer form is kept and the zero recorded.
-            || source_signature.predicate.is_some()
-            || target_signature.predicate.is_some()
+        let source_top = self.checker.signature_is_top(source_signature);
+        let target_top = self.checker.signature_is_top(target_signature);
+        let strict_top = matches!(self.relation, Relation::Subtype | Relation::StrictSubtype);
+        if target_top && !(strict_top && source_top) {
+            return Some(Ternary::Related);
+        }
+        if strict_top && source_top && !target_top {
+            return Some(Ternary::NotRelated);
+        }
+        let target_count = self.checker.signature_parameter_count(target_signature);
+        let source_minimum = self.checker.signature_min_argument_count(source_signature);
+        let source_count = self.checker.signature_parameter_count(source_signature);
+        if !self.checker.signature_has_effective_rest(target_signature)
+            && if self.relation == Relation::StrictSubtype {
+                self.checker.signature_has_effective_rest(source_signature)
+                    || source_count > target_count
+            } else {
+                source_minimum > target_count
+            }
         {
-            return None;
+            return Some(Ternary::NotRelated);
         }
-        let mut parts = Vec::with_capacity(source_signature.parameters.len() + 1);
-        for (from, to) in source_signature.parameters.iter().zip(&target_signature.parameters) {
-            parts.push(self.is_related_to(from.r#type, to.r#type));
-            parts.push(self.is_related_to(to.r#type, from.r#type));
+        let shared_type_parameters = if !source_signature.type_parameters.is_empty()
+            && source_signature.type_parameters.len() == target_signature.type_parameters.len()
+        {
+            match (
+                self.checker.type_parameter_types(source_signature),
+                self.checker.type_parameter_types(target_signature),
+            ) {
+                (Some(source), Some(target)) => source == target,
+                _ => false,
+            }
+        } else {
+            source_signature.type_parameters.is_empty()
+                && target_signature.type_parameters.is_empty()
+        };
+        let instantiated_source = if !shared_type_parameters
+            && !source_signature.type_parameters.is_empty()
+        {
+            Some(
+                self.checker
+                    .instantiate_signature_in_context(source_signature.clone(), target_signature)?,
+            )
+        } else {
+            None
+        };
+        let source_signature = instantiated_source.as_ref().unwrap_or(source_signature);
+        let source_count = self.checker.signature_parameter_count(source_signature);
+        let source_minimum = self.checker.signature_min_argument_count(source_signature);
+        let target_minimum = self.checker.signature_min_argument_count(target_signature);
+        let non_array_rest = self.checker.signature_non_array_rest_type(source_signature).is_some()
+            || self.checker.signature_non_array_rest_type(target_signature).is_some();
+        let parameter_count = if non_array_rest {
+            source_count.min(target_count)
+        } else {
+            source_count.max(target_count)
+        };
+        let rest_index = non_array_rest.then(|| parameter_count.checked_sub(1)).flatten();
+        let strict_variance = !callback
+            && self.checker.strict_function_types
+            && !matches!(
+                self.checker.nodes.kind(target_signature.declaration),
+                tsr_ast::SyntaxKind::MethodDeclaration
+                    | tsr_ast::SyntaxKind::MethodSignature
+                    | tsr_ast::SyntaxKind::Constructor
+            );
+        let mut parts = Vec::with_capacity(parameter_count + 1);
+        if let (Some(source_this), Some(target_this)) =
+            (&source_signature.this_parameter, &target_signature.this_parameter)
+            && source_this.r#type != self.checker.intrinsics.void
+        {
+            let reverse = self.is_related_to(target_this.r#type, source_this.r#type);
+            parts.push(if strict_variance {
+                reverse
+            } else {
+                Ternary::any([self.is_related_to(source_this.r#type, target_this.r#type), reverse])
+            });
         }
-        parts.push(self.is_related_to(source_signature.r#type, target_signature.r#type));
+        for index in 0..parameter_count {
+            let source_type = if rest_index == Some(index) {
+                Some(self.checker.signature_rest_or_any_at_position(source_signature, index))
+            } else {
+                self.checker.signature_type_at_position(source_signature, index)
+            };
+            let target_type = if rest_index == Some(index) {
+                Some(self.checker.signature_rest_or_any_at_position(target_signature, index))
+            } else {
+                self.checker.signature_type_at_position(target_signature, index)
+            };
+            let (Some(from), Some(to)) = (source_type, target_type) else { continue };
+            if self.checker.is_error(from) || self.checker.is_error(to) {
+                return None;
+            }
+            if from == to && self.relation != Relation::StrictSubtype {
+                continue;
+            }
+            let source_non_nullable = self.checker.get_non_nullable_type(from);
+            let target_non_nullable = self.checker.get_non_nullable_type(to);
+            let source_callback = if !callback
+                && !self
+                    .checker
+                    .signature_has_instantiated_generic_parameter(source_signature, index)
+            {
+                self.checker.single_call_signature(source_non_nullable)
+            } else {
+                None
+            };
+            let target_callback = if !callback
+                && !self
+                    .checker
+                    .signature_has_instantiated_generic_parameter(target_signature, index)
+            {
+                self.checker.single_call_signature(target_non_nullable)
+            } else {
+                None
+            };
+            let nullable = crate::flow::TypeFacts::IS_UNDEFINED | crate::flow::TypeFacts::IS_NULL;
+            if !callback
+                && let (Some(source_callback), Some(target_callback)) =
+                    (source_callback, target_callback)
+                && source_callback.predicate.is_none()
+                && target_callback.predicate.is_none()
+                && self.checker.get_type_facts(from) & nullable
+                    == self.checker.get_type_facts(to) & nullable
+            {
+                parts.push(self.one_signature_related_to(
+                    &target_callback,
+                    &source_callback,
+                    true,
+                    !strict_variance,
+                )?);
+            } else {
+                let reverse = self.is_related_to(to, from);
+                parts.push(if callback || strict_variance {
+                    reverse
+                } else {
+                    Ternary::any([self.is_related_to(from, to), reverse])
+                });
+            }
+            if self.relation == Relation::StrictSubtype
+                && index >= source_minimum
+                && index < target_minimum
+                && self.is_related_to(from, to) != Ternary::NotRelated
+            {
+                return Some(Ternary::NotRelated);
+            }
+        }
+        if target_signature.r#type != self.checker.intrinsics.void
+            && target_signature.r#type != self.checker.intrinsics.any
+        {
+            if target_signature.predicate.is_some() {
+                if source_signature.predicate.is_some() {
+                    if !source_signature.predicate_kinds_match(target_signature)? {
+                        return Some(Ternary::NotRelated);
+                    }
+                    let source = source_signature.predicate.as_ref()?.r#type;
+                    let target = target_signature.predicate.as_ref()?.r#type;
+                    parts.push(match (source, target) {
+                        (Some(source), Some(target)) => self.is_related_to(source, target),
+                        (None, None) => Ternary::Related,
+                        _ => Ternary::NotRelated,
+                    });
+                } else if !target_signature.predicate.as_ref()?.asserts {
+                    return Some(Ternary::NotRelated);
+                }
+            } else {
+                let forward = self.is_related_to(source_signature.r#type, target_signature.r#type);
+                parts.push(if bivariant_callback {
+                    Ternary::any([
+                        self.is_related_to(target_signature.r#type, source_signature.r#type),
+                        forward,
+                    ])
+                } else {
+                    forward
+                });
+            }
+        }
         Some(Ternary::all(parts))
     }
 
@@ -823,6 +1058,9 @@ impl Relater<'_, '_, '_> {
     }
 
     fn signature_bearing(&self, id: TypeId) -> bool {
+        if self.checker.any_function_type == Some(id) {
+            return true;
+        }
         if self.checker.signatures_of_type(id).is_some_and(|signatures| !signatures.is_empty()) {
             return true;
         }
@@ -961,15 +1199,20 @@ impl Relater<'_, '_, '_> {
         if s.intersects(TypeFlags::ES_SYMBOL_LIKE) && t.intersects(TypeFlags::ES_SYMBOL) {
             return Some(true);
         }
-        // The two `strictNullChecks`-off arms are collapsed to their strict
-        // reading; see the module docs for why the permissive one is not the
-        // safe default to guess.
+        // isSimpleTypeRelatedTo: in non-strict null checking, nullable
+        // sources relate to every non-union/intersection target except never.
         if s.intersects(TypeFlags::UNDEFINED)
-            && t.intersects(TypeFlags::UNDEFINED.union(TypeFlags::VOID))
+            && ((!self.checker.strict_null_checks
+                && !t.intersects(TypeFlags::UNION | TypeFlags::INTERSECTION))
+                || t.intersects(TypeFlags::UNDEFINED.union(TypeFlags::VOID)))
         {
             return Some(true);
         }
-        if s.intersects(TypeFlags::NULL) && t.intersects(TypeFlags::NULL) {
+        if s.intersects(TypeFlags::NULL)
+            && ((!self.checker.strict_null_checks
+                && !t.intersects(TypeFlags::UNION | TypeFlags::INTERSECTION))
+                || t.intersects(TypeFlags::NULL))
+        {
             return Some(true);
         }
         // Upstream guards this with a `strictSubtypeRelation` exception for a
@@ -1080,59 +1323,75 @@ impl Relater<'_, '_, '_> {
                 constituents.iter().map(|&c| self.is_related_to(c, target)).collect();
             return Ternary::any(parts);
         }
-        // §367: two references to the same generic target relate by their type
-        // ARGUMENTS, covariantly — upstream reaches this through
-        // `relateVariances` (`relater.go`), which consults `getVariances` for
-        // the target's declared and inferred variance.
-        //
-        // # §934 removed the `Array`/`ReadonlyArray` restriction, and here is the number
-        //
-        // §367 admitted only those two targets, on the reasoning that *"an
-        // arbitrary generic's variance is not computed here, and a wrong
-        // variance is a confident wrong answer where this rung's absence was
-        // only a gap"*. That is a sound argument and it was **never measured**.
-        //
-        // Measured: removing the restriction is **12 `GAP->RIGHT` + 9
-        // `WRONG->RIGHT` against 2 `GAP->WRONG`, zero `RIGHT->WRONG`.** The 12
-        // are exactly the rows §933 lost — `Int32Array<SharedArrayBuffer>`
-        // against `Int32Array<ArrayBufferLike>` in `sharedMemory`, which §933
-        // recorded as its own reopening condition.
-        //
-        // # What is assumed, and how you would know it is wrong
-        //
-        // **Every type parameter is assumed COVARIANT.** That is right wherever
-        // the parameter reaches a property type, which is the common case, and
-        // wrong wherever it reaches only a parameter position — `interface
-        // C<T> { f(x: T): void }` is contravariant in `T`, and this arm would
-        // relate `C<string>` to `C<number>`'s target as though it were not.
-        //
-        // The corpus does not currently punish that: zero `RIGHT->WRONG` across
-        // 9,538 cases. **That is a fact about the corpus, not a proof about the
-        // rule** — §367's argument remains correct in principle, and the
-        // reopening condition is `getVariances`, after which this arm should
-        // consult it rather than assume.
-        //
-        // The 2 `GAP->WRONG` (`tupleTypeInference`) are §620's accepted
-        // direction and are the first place to look if variance ever lands.
-        //
-        // **The unsoundness is DEMONSTRATED, not theoretical.**
-        // `tests/types.rs::a_contravariant_parameter_is_related_covariantly_and_that_is_unsound`
-        // reaches it in four lines: `Sink<T> { f(x: T): void }` with
-        // `Sink<string>` handed to a `Sink<"a">` parameter. That test was written
-        // expecting the assumption NOT to fire, and it failed — which is why it
-        // now asserts the wrong answer on purpose.
-        if let (Some((source_target, source_arguments)), Some((target_target, target_arguments))) = (
-            self.checker.type_reference_targets.get(&source).cloned(),
-            self.checker.type_reference_targets.get(&target).cloned(),
-        ) && source_target == target_target
+        if let Some(answer) = self.tuples_related_to(source, target) {
+            return answer;
+        }
+        if let Some(answer) = self.tuple_array_related_to(source, target) {
+            return answer;
+        }
+        if self.is_plain_function_expression_type(source)
+            && self.is_plain_function_expression_type(target)
+        {
+            return self.related_call_signatures(source, target).unwrap_or(Ternary::Unknown);
+        }
+        // relateVariances (internal/checker/relater.go): shared reference
+        // targets compare their arguments in the measured directions. Marker
+        // instances and an active recursive measurement compare structurally.
+        if !self.checker.variance_marker_types.contains(&source)
+            && !self.checker.variance_marker_types.contains(&target)
+            && let (
+                Some((source_symbol, source_arguments)),
+                Some((target_symbol, target_arguments)),
+            ) = (
+                self.checker.type_reference_targets.get(&source).cloned(),
+                self.checker.type_reference_targets.get(&target).cloned(),
+            )
+            && source_symbol == target_symbol
             && source_arguments.len() == target_arguments.len()
         {
-            let parts: Vec<_> = source_arguments
-                .iter()
-                .zip(&target_arguments)
-                .map(|(&s_arg, &t_arg)| self.is_related_to(s_arg, t_arg))
-                .collect();
-            return Ternary::all(parts);
+            let measured = self.checker.inference_variances(source_symbol);
+            let variances = match measured {
+                Some(variances) if variances.len() == source_arguments.len() => variances,
+                None if !self.checker.variance_in_progress.is_empty() => return Ternary::Unknown,
+                _ if self.checker.variance_in_progress.is_empty() => {
+                    // Until Unmeasurable/Unreliable flags are represented, keep
+                    // the existing default covariance for unmeasured targets.
+                    vec![crate::variances::Variance::Covariant; source_arguments.len()]
+                }
+                _ => Vec::new(),
+            };
+            if variances.len() == source_arguments.len() {
+                let allows_covariant_void =
+                    target_arguments.iter().zip(&variances).any(|(&target, variance)| {
+                        *variance == crate::variances::Variance::Covariant
+                            && self.checker.type_of(target).flags.intersects(TypeFlags::VOID)
+                    });
+                let mut parts = Vec::new();
+                for ((source, target), variance) in
+                    source_arguments.into_iter().zip(target_arguments).zip(variances)
+                {
+                    use crate::variances::Variance;
+                    parts.push(match variance {
+                        Variance::Covariant => self.is_related_to(source, target),
+                        Variance::Contravariant => self.is_related_to(target, source),
+                        Variance::Invariant => {
+                            let forward = self.is_related_to(source, target);
+                            let reverse = self.is_related_to(target, source);
+                            Ternary::all([forward, reverse])
+                        }
+                        Variance::Bivariant => {
+                            let forward = self.is_related_to(source, target);
+                            let reverse = self.is_related_to(target, source);
+                            Ternary::any([forward, reverse])
+                        }
+                        Variance::Independent => Ternary::Related,
+                    });
+                }
+                let result = Ternary::all(parts);
+                if result != Ternary::NotRelated || !allows_covariant_void {
+                    return result;
+                }
+            }
         }
         if self.has_members(source) && self.has_members(target) {
             // Row 6 of `checker-notes-assign.md` §2, checked **before** the
@@ -1212,6 +1471,168 @@ impl Relater<'_, '_, '_> {
         // Nothing was compared, so nothing was decided.
         reasons::note(reasons::Site::CompositeShape);
         Ternary::Unknown
+    }
+
+    /// Fixed and concrete-rest tuples in propertiesRelatedTo
+    /// (internal/checker/relater.go). Generic variadic operands still require
+    /// base-constraint resolution and retain an unknown relation here.
+    fn tuples_related_to(&mut self, source: TypeId, target: TypeId) -> Option<Ternary> {
+        let (target_elements, target_readonly) = self.tuple_relation_elements(target)?;
+        let target_generic = target_elements.iter().any(|element| {
+            element.spread && self.checker.tuple_spread_array_element(element.r#type).is_none()
+        });
+        if !target_generic {
+            let constraint = self.checker.tuple_base_constraint(source);
+            if constraint != source {
+                return Some(self.is_related_to(constraint, target));
+            }
+        }
+        let (source_elements, source_readonly) =
+            if let Some(tuple) = self.tuple_relation_elements(source) {
+                tuple
+            } else {
+                self.checker.tuple_spread_array_element(source)?;
+                let (symbol, _) = self.checker.type_reference_targets.get(&source)?;
+                let symbol = self.checker.binder.merged_symbol(*symbol);
+                let readonly = self
+                    .checker
+                    .global_type_symbol("ReadonlyArray")
+                    .is_some_and(|readonly| self.checker.binder.merged_symbol(readonly) == symbol);
+                (
+                    vec![crate::tuples::TupleElement {
+                        r#type: source,
+                        spread: true,
+                        optional: false,
+                        label: None,
+                    }],
+                    readonly,
+                )
+            };
+        if source_readonly && !target_readonly {
+            return Some(Ternary::NotRelated);
+        }
+        if source_elements.iter().chain(&target_elements).any(|element| {
+            element.spread && self.checker.tuple_spread_array_element(element.r#type).is_none()
+        }) {
+            return Some(Ternary::Unknown);
+        }
+        let source_rest = source_elements.iter().any(|element| element.spread);
+        let target_rest = target_elements.iter().any(|element| element.spread);
+        let source_min =
+            source_elements.iter().filter(|element| !element.optional && !element.spread).count();
+        let target_min =
+            target_elements.iter().filter(|element| !element.optional && !element.spread).count();
+        let source_arity = source_elements.len();
+        let target_arity = target_elements.len();
+        if (!source_rest && source_arity < target_min)
+            || (!target_rest && target_arity < source_min)
+            || (!target_rest && (source_rest || target_arity < source_arity))
+        {
+            return Some(Ternary::NotRelated);
+        }
+        let target_start = target_elements.iter().take_while(|element| !element.spread).count();
+        let target_end = target_elements.iter().rev().take_while(|element| !element.spread).count();
+        let mut parts = Vec::with_capacity(source_arity);
+        for (position, element) in source_elements.iter().enumerate() {
+            let from_end = source_arity - 1 - position;
+            let target_position = if target_rest && position >= target_start {
+                target_arity - 1 - from_end.min(target_end)
+            } else {
+                position
+            };
+            let Some(target_element) = target_elements.get(target_position) else {
+                return Some(Ternary::NotRelated);
+            };
+            if !target_element.optional
+                && !target_element.spread
+                && (element.optional || element.spread)
+            {
+                return Some(Ternary::NotRelated);
+            }
+            let source_type = if element.spread {
+                self.checker.tuple_spread_array_element(element.r#type)?
+            } else {
+                element.r#type
+            };
+            let target_type = if target_element.spread {
+                self.checker.tuple_spread_array_element(target_element.r#type)?
+            } else if target_element.optional
+                && self.checker.strict_null_checks
+                && !self.checker.exact_optional_property_types
+            {
+                self.checker
+                    .get_union_type(&[target_element.r#type, self.checker.intrinsics.undefined])
+            } else {
+                target_element.r#type
+            };
+            parts.push(self.is_related_to(source_type, target_type));
+        }
+        Some(Ternary::all(parts))
+    }
+
+    fn tuple_relation_elements(
+        &self,
+        id: TypeId,
+    ) -> Option<(Vec<crate::tuples::TupleElement>, bool)> {
+        if let Some(tuple) = self.checker.variadic_tuple_elements.get(&id) {
+            return Some(tuple.clone());
+        }
+        let (types, readonly) = self.checker.tuple_element_lists.get(&id)?;
+        let mask = self.checker.tuple_optional_masks.get(&id);
+        Some((
+            types
+                .iter()
+                .enumerate()
+                .map(|(index, &t)| crate::tuples::TupleElement {
+                    r#type: t,
+                    spread: false,
+                    optional: mask.and_then(|mask| mask.get(index)).copied().unwrap_or(false),
+                    label: None,
+                })
+                .collect(),
+            *readonly,
+        ))
+    }
+
+    /// structuredTypeRelatedTo's tuple-to-array index comparison
+    /// (internal/checker/relater.go).
+    fn tuple_array_related_to(&mut self, source: TypeId, target: TypeId) -> Option<Ternary> {
+        let fixed = self.checker.tuple_element_lists.get(&source).cloned();
+        if fixed.is_none() && !self.checker.variadic_tuple_elements.contains_key(&source) {
+            return None;
+        }
+        let target_element = self.checker.tuple_spread_array_element(target)?;
+        let constraint = self.checker.tuple_base_constraint(source);
+        if constraint != source {
+            return Some(self.is_related_to(constraint, target));
+        }
+        let (target_symbol, _) = self.checker.type_reference_targets.get(&target)?;
+        let target_symbol = self.checker.binder.merged_symbol(*target_symbol);
+        let readonly_array = self
+            .checker
+            .global_type_symbol("ReadonlyArray")
+            .map(|symbol| self.checker.binder.merged_symbol(symbol));
+        if self.checker.tuple_is_readonly(source) && readonly_array != Some(target_symbol) {
+            return Some(Ternary::NotRelated);
+        }
+        let source_element = if let Some((mut elements, _)) = fixed {
+            if self.checker.strict_null_checks
+                && self
+                    .checker
+                    .tuple_optional_masks
+                    .get(&source)
+                    .is_some_and(|mask| mask.iter().any(|&optional| optional))
+            {
+                elements.push(self.checker.intrinsics.undefined);
+            }
+            self.checker.get_union_type(&elements)
+        } else {
+            let Some(element) = self.checker.variadic_tuple_index_union(source) else {
+                return Some(Ternary::Unknown);
+            };
+            element
+        };
+        Some(self.is_related_to(source_element, target_element))
     }
 
     /// Every property of `target` has a corresponding property of `source`, and

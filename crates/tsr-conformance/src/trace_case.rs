@@ -449,6 +449,8 @@ pub fn apply_test_directives(
         // all eleven here from the raw string map, and `types_producer` derived
         // two of them differently.
         strict_null_checks: tristate("strictnullchecks", base.strict_null_checks),
+        strict_function_types: tristate("strictfunctiontypes", base.strict_function_types),
+        strict_bind_call_apply: tristate("strictbindcallapply", base.strict_bind_call_apply),
         strict_property_initialization: tristate(
             "strictpropertyinitialization",
             base.strict_property_initialization,
@@ -763,5 +765,18 @@ mod tests {
         assert!(options.jsx_factory.is_empty());
         assert!(options.jsx_fragment_factory.is_empty());
         assert!(options.react_namespace.is_empty());
+    }
+
+    #[test]
+    fn explicit_function_strictness_overrides_the_strict_directive() {
+        let options = applied(&[
+            ("strict", "true"),
+            ("strictfunctiontypes", "false"),
+            ("strictbindcallapply", "false"),
+        ]);
+        assert!(!options.strict_option_value(options.strict_function_types));
+        assert!(!options.strict_option_value(options.strict_bind_call_apply));
+        let options = applied(&[("strict", "false"), ("strictfunctiontypes", "true")]);
+        assert!(options.strict_option_value(options.strict_function_types));
     }
 }

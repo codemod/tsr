@@ -129,6 +129,21 @@ use crate::{
     types::{TypeData, TypeId},
 };
 
+/// A resolved contextual-signature lookup, distinct from an unsupported lookup.
+pub(crate) enum ContextualSignature {
+    Absent,
+    Present(Box<Signature>),
+}
+
+impl ContextualSignature {
+    fn into_signature(self) -> Option<Signature> {
+        match self {
+            Self::Absent => None,
+            Self::Present(signature) => Some(*signature),
+        }
+    }
+}
+
 impl<'a> Checker<'a, '_> {
     /// The type an unannotated parameter takes from its context, if any.
     ///
@@ -205,58 +220,62 @@ impl<'a> Checker<'a, '_> {
             let Some(Node::CallExpression(call)) = self.node_map.get(iife) else {
                 return None;
             };
-            // §771 (`:29468`): the REST arm — `getSpreadArgumentType(args,
-            // index, len(args), anyType, …)`. The call site passes `anyType`
-            // as the rest type, which collapses most of that function: no
-            // const context, no tuple contextual element, and
-            // `maybeTypeOfKind(any, Primitive|…)` is false, so every remaining
-            // argument contributes its WIDENED type as a REQUIRED tuple
-            // element. `((...numbers) => …)(5, 6, 7)` is
-            // `[number, number, number]`, which the baseline states outright.
-            //
-            // This is §769 re-applied. §769 wrote the same arm, measured it at
-            // 21:9 adverse and REVERTED it: a tuple inherited no `Array<T>`
-            // members then, so giving a parameter its correct tuple type took
-            // `noNumbers.some(…)` from RIGHT to GAP. §770 fixed that, and
-            // STATUS §5 named this as the re-application.
-            //
-            // A SPREAD argument (`f(...xs)`) takes the variadic/rest legs at
-            // `:29504` and `:29528`; those are not ported and decline here, so
-            // the arm answers only for plain argument lists.
-            // §795 (`:29504`/`:29528`): the SPREAD-ARGUMENT legs, §771's
-            // recorded residue. `(function (a, b, c) {})(...t1)` with
-            // `t1: [number, boolean, string]` types `a`, `b`, `c` positionally
-            // off the tuple's elements — the baseline records `>a : number`,
-            // `>b : boolean`, `>c : string`
-            // (`restTuplesFromContextualTypes.types:11-13`), and a rest
-            // parameter takes the remaining elements as a tuple
-            // (`>x : [number, boolean, string]`, `:21`).
-            //
-            // Admitted only for a call whose arguments are EXACTLY one spread
-            // over a CONCRETE tuple. That is the whole of upstream's
-            // decidable slice here: a spread mixed with plain arguments needs
-            // the position arithmetic `getSpreadArgumentType` does over
-            // several sources, and a spread of an array has no element to
-            // land on. Both keep declining, as they did before this arm.
-            if let [tsr_ast::Expression::SpreadElement(spread)] = call.arguments
-                && let Some(operand) = spread.expression
+            // getEffectiveCallArguments expands tuple spreads. Their element
+            // types, optionality and labels form the same effective positions
+            // used by getSpreadArgumentType (internal/checker/checker.go).
+            if call
+                .arguments
+                .iter()
+                .any(|argument| matches!(argument, tsr_ast::Expression::SpreadElement(_)))
             {
-                let operand_type = self.check_expression(operand);
-                let (elements, _) = self.tuple_element_lists.get(&operand_type).cloned()?;
-                if parameters[index].dot_dot_dot_token.is_some() {
-                    let tail: Vec<TypeId> = elements.into_iter().skip(index).collect();
-                    return Some(self.create_tuple_type(tail, false));
+                let mut elements = Vec::new();
+                for argument in call.arguments {
+                    let (argument, spread) = match argument {
+                        tsr_ast::Expression::SpreadElement(spread) => (spread.expression?, true),
+                        argument => (*argument, false),
+                    };
+                    let r#type = self.check_expression(argument);
+                    if r#type == self.intrinsics.error || spread && !self.tuple_array_like(r#type) {
+                        return None;
+                    }
+                    elements.push(crate::tuples::TupleElement {
+                        r#type: if spread { r#type } else { self.get_widened_literal_type(r#type) },
+                        spread,
+                        optional: false,
+                        label: None,
+                    });
                 }
-                return elements.get(index).copied();
-            }
-            if parameters[index].dot_dot_dot_token.is_some() {
-                if call
-                    .arguments
-                    .iter()
-                    .any(|argument| matches!(argument, tsr_ast::Expression::SpreadElement(_)))
-                {
+                let arguments = self.normalize_variadic_tuple(elements, false);
+                if arguments == self.intrinsics.error {
                     return None;
                 }
+                let signature = Signature {
+                    declaration: function,
+                    target: None,
+                    kind: crate::signatures::SignatureKind::Call,
+                    type_parameters: Vec::new(),
+                    this_parameter: None,
+                    parameters: vec![crate::signatures::Parameter {
+                        name: "args".to_owned(),
+                        optional: false,
+                        rest: true,
+                        r#type: arguments,
+                        written_text: None,
+                    }],
+                    r#type: self.intrinsics.void,
+                    written_return: None,
+                    predicate: None,
+                };
+                let contextual = if parameters[index].dot_dot_dot_token.is_some() {
+                    Some(self.signature_rest_type_at_position(&signature, index))
+                } else {
+                    self.signature_type_at_position(&signature, index).or_else(|| {
+                        parameters[index].initializer.is_none().then_some(self.intrinsics.undefined)
+                    })
+                }?;
+                return (contextual != self.intrinsics.error).then_some(contextual);
+            }
+            if parameters[index].dot_dot_dot_token.is_some() {
                 let mut elements = Vec::new();
                 for argument in call.arguments.iter().skip(index) {
                     let argument_type = self.check_expression(*argument);
@@ -305,95 +324,14 @@ impl<'a> Checker<'a, '_> {
         let asking_for_rest = own_rest == Some(index);
 
         let signature = self.contextual_signature(function)?;
-        // §86 (`checker-notes-narrow.md`): a SINGLE REST parameter over
-        // tuples expands positionally — `(...args: ['A', number] | ['B',
-        // string]) => void` types parameter 0 as `"A" | "B"` and parameter
-        // 1 as `number | string` (`getTypeAtPosition`;
-        // `restTuplesFromContextualTypes`, `dependentDestructuredVariables`'
-        // f50/f51). Every tuple must be long enough; a non-tuple
-        // constituent declines.
-        if let [rest] = signature.parameters.as_slice()
-            && rest.rest
-        {
-            let constituents: Vec<TypeId> = match &self.store.get(rest.r#type).data {
-                TypeData::Union { types, .. } => types.clone(),
-                _ => vec![rest.r#type],
-            };
-            let mut positional = Vec::with_capacity(constituents.len());
-            for constituent in constituents {
-                if let Some((elements, readonly)) = self.tuple_element_lists.get(&constituent) {
-                    if asking_for_rest {
-                        // §86.2: the own rest takes the tuple SLICE from its
-                        // position — `(a, ...rest)` under `(...args:
-                        // [number, string, boolean])` types `rest: [string,
-                        // boolean]` (`getRestTypeAtPosition`'s slice).
-                        let (elements, readonly) = (elements.clone(), *readonly);
-                        if index > elements.len() {
-                            return None;
-                        }
-                        let slice = elements[index..].to_vec();
-                        positional.push(self.create_tuple_type(slice, readonly));
-                        continue;
-                    }
-                    positional.push(*elements.get(index)?);
-                    continue;
-                }
-                // §87: a trailing-rest variadic — prefix positions index,
-                // tail positions take the rest's element type; resolved
-                // lazily from the recorded node.
-                let tuple_node = *self.tuple_rest_tails.get(&constituent)?;
-                let Some(tsr_ast::Node::TupleTypeNode(tuple)) = self.node_map.get(tuple_node)
-                else {
-                    return None;
-                };
-                let [prefix @ .., tsr_ast::TypeNode::RestTypeNode(rest)] = tuple.elements else {
-                    return None;
-                };
-                if asking_for_rest {
-                    // The own rest takes the WHOLE tail array when it sits at
-                    // or past the prefix boundary; a rest that would swallow
-                    // prefix elements needs slice minting — declined.
-                    if index < prefix.len() {
-                        return None;
-                    }
-                    let tail_node = rest.r#type?;
-                    let resolved = self.get_type_from_type_node(tail_node);
-                    if resolved == self.intrinsics.error {
-                        return None;
-                    }
-                    positional.push(resolved);
-                    continue;
-                }
-                let member = if let Some(member) = prefix.get(index) {
-                    *member
-                } else {
-                    let Some(tsr_ast::TypeNode::ArrayTypeNode(array)) = rest.r#type else {
-                        return None;
-                    };
-                    array.element_type?
-                };
-                let resolved = self.get_type_from_type_node(member);
-                if resolved == self.intrinsics.error {
-                    return None;
-                }
-                positional.push(resolved);
-            }
-            return Some(self.get_union_type(&positional));
-        }
-        let contextual = signature.parameters.get(index)?;
-        // A contextual parameter that is itself optional or rest carries a type
-        // whose relationship to the position is not the plain one — upstream
-        // reaches those through `getRestTypeAtPosition` and the optionality
-        // rules in `crate::optionality`. Neither is asserted from here.
-        //
-        // **§940.1 split this one too and measured zero**, so both halves stay.
-        // Unlike the three memo-road guards it resembles, this comment argues
-        // for the optional half as well as the rest half, and the measurement
-        // agrees with it.
-        if contextual.optional || contextual.rest {
-            return None;
-        }
-        Some(contextual.r#type)
+        // getContextuallyTypedParameterType delegates both ordinary and rest
+        // positions to the effective signature (internal/checker/checker.go).
+        let contextual = if asking_for_rest {
+            Some(self.signature_rest_type_at_position(&signature, index))
+        } else {
+            self.signature_type_at_position(&signature, index)
+        }?;
+        (contextual != self.intrinsics.error).then_some(contextual)
     }
 
     /// The parameter list of `function`, if it is a form that can be
@@ -437,42 +375,23 @@ impl<'a> Checker<'a, '_> {
         &self,
         function: NodeId,
     ) -> Option<&'a [&'a ParameterDeclaration<'a>]> {
+        if !self.is_context_sensitive_function_like(function) {
+            return None;
+        }
         match self.node_map.get(function)? {
             Node::ArrowFunction(node) => Some(node.parameters),
             Node::FunctionExpression(node) => Some(node.parameters),
+            Node::MethodDeclaration(node)
+                if self.nodes.parent(function).is_some_and(|parent| {
+                    self.nodes.kind(parent) == tsr_ast::SyntaxKind::ObjectLiteralExpression
+                }) =>
+            {
+                Some(node.parameters)
+            }
             _ => None,
         }
     }
 
-    /// The signature `function` is contextually typed by, whichever context
-    /// supplies it.
-    ///
-    /// Ported from `Checker.getContextualSignature` (`checker.go:10264`), which
-    /// reaches every context through one `getContextualType` switch — here
-    /// [`Checker::get_contextual_type`].
-    ///
-    /// §886 ports the **union** arm's decidable half. Upstream iterates the
-    /// constituents and collects each one's contextual call signature
-    /// (`checker.go:10272-10292`); this port keeps the collection and declines
-    /// where upstream would *combine*:
-    ///
-    /// | constituents yielding a signature | upstream | here |
-    /// |---|---|---|
-    /// | 0 | `nil` | `None` |
-    /// | 1 | that signature | that signature |
-    /// | 2+ | `compareSignaturesIdentical`, then `createUnionSignature` | `None` |
-    ///
-    /// The one-signature case is the whole of an optional member: `k?(a: any):
-    /// any` gives `((a: any) => any) | undefined`, and `undefined` has no call
-    /// signature, so exactly one survives. The previous refusal called this
-    /// *"picking one member's signature is a guess"* — it is not a guess when
-    /// the other constituents contribute nothing, which is the only case ported.
-    ///
-    /// Two or more stays refused: telling "identical, so combine" from "different,
-    /// so `nil`" needs `compareSignaturesIdentical`, and `createUnionSignature`
-    /// needs a signature whose return type is a union of the members'. Neither
-    /// exists here, and answering with an arbitrary member would be the guess the
-    /// old comment described.
     pub(crate) fn get_contextual_type_of_call(&mut self, call: NodeId) -> Option<TypeId> {
         self.get_contextual_type(call)
     }
@@ -497,9 +416,7 @@ impl<'a> Checker<'a, '_> {
         if left.kind != right.kind
             || !left.type_parameters.is_empty()
             || !right.type_parameters.is_empty()
-            || left.r#type != right.r#type
             || left.parameters.len() != right.parameters.len()
-            || left.this_parameter.is_some() != right.this_parameter.is_some()
         {
             return false;
         }
@@ -510,107 +427,216 @@ impl<'a> Checker<'a, '_> {
     }
 
     pub(crate) fn contextual_signature(&mut self, function: NodeId) -> Option<Signature> {
-        let contextual = self.get_contextual_type(function)?;
+        self.contextual_signature_result(function)?.into_signature()
+    }
+
+    /// `getContextualSignature` (checker.go). The outer `None` is an
+    /// unresolved port path; `Absent` is upstream's computed nil result.
+    pub(crate) fn contextual_signature_result(
+        &mut self,
+        function: NodeId,
+    ) -> Option<ContextualSignature> {
+        // getApparentTypeOfContextualType routes object literal methods through
+        // getContextualTypeForObjectLiteralMethod (internal/checker/checker.go).
+        let contextual = match self.node_map.get(function)? {
+            Node::MethodDeclaration(method)
+                if self.nodes.parent(function).is_some_and(|parent| {
+                    self.nodes.kind(parent) == tsr_ast::SyntaxKind::ObjectLiteralExpression
+                }) =>
+            {
+                self.contextual_type_for_object_literal_named_element(function, method.name)?
+            }
+            _ => self.get_contextual_type(function)?,
+        };
         if let TypeData::Union { types, .. } = &self.store.get(contextual).data {
             let constituents = types.clone();
             let mut found: Option<Signature> = None;
             for constituent in constituents {
-                let Some(signature) = self.contextual_signature_of_type(constituent) else {
+                let ContextualSignature::Present(signature) =
+                    self.contextual_call_signature(constituent, Some(function))?
+                else {
                     continue;
                 };
+                let signature = *signature;
                 if let Some(existing) = &found {
-                    // §927: upstream's `getContextualSignature`
-                    // (`checker.go:10281`) keeps going when the constituents
-                    // agree — `compareSignaturesIdentical` — and only builds a
-                    // `createUnionSignature` when they do not. This port used
-                    // to decline the moment a second constituent offered a
-                    // signature, which took out the whole
-                    // `I1<T> | I2<T>` family: two interfaces declaring the SAME
-                    // member is the shape the corpus writes, and the two
-                    // signatures are identical every time.
-                    //
-                    // The identity test is by resolved `TypeId`, which is this
-                    // port's canonical identity for an interned type, not by
-                    // printed text. **Non-identical constituents still
-                    // decline**: `createUnionSignature` (a union of the
-                    // parameter types, a union of the returns) is not ported,
-                    // and guessing one member's signature there is the guess the
-                    // old comment rightly refused.
+                    // getContextualSignature compares parameters while ignoring
+                    // this and return types, then unions the return types.
                     if !Self::signatures_identical(existing, &signature) {
-                        return None;
+                        return Some(ContextualSignature::Absent);
                     }
+                    let return_type = self.get_union_type(&[existing.r#type, signature.r#type]);
+                    let existing = found.as_mut().expect("a contextual signature");
+                    existing.r#type = return_type;
+                    existing.written_return = None;
+                    existing.predicate = None;
                     continue;
                 }
                 found = Some(signature);
             }
-            return found;
+            return Some(found.map_or(ContextualSignature::Absent, |signature| {
+                ContextualSignature::Present(Box::new(signature))
+            }));
         }
-        self.contextual_signature_of_type(contextual)
+        self.contextual_call_signature(contextual, Some(function))
     }
 
-    /// `getContextualCallSignature` (`checker.go:10305`) for one non-union type:
-    /// the single call signature the type offers, by the three reads
-    /// [`Checker::contextual_signature`] has always used.
-    ///
-    /// Upstream additionally filters by arity (`isAritySmaller`) and intersects
-    /// what is left; neither is ported, so a type with two or more call
-    /// signatures declines here where upstream may still answer.
+    /// Ported from `Checker.getContextualCallSignature`, `isAritySmaller` and
+    /// `getIntersectedSignatures` (checker.go). Type-owned signatures include
+    /// callable interfaces; arity is measured after expanding fixed tuple rests.
     pub(crate) fn contextual_signature_of_type(&mut self, contextual: TypeId) -> Option<Signature> {
-        // The tsr-0hc type-first read (the freeze-breaking wire).
-        //
-        // **§932.1 removed the `is_instantiated_signature_type` gate** in favour
-        // of reading the table directly, which is §932's correction applied to
-        // the contextual side. §10.15's single-signature collapse records a
-        // signature here without registering the type as *minted*, so the gate
-        // answered `false` and the table was never read:
-        //
-        // ```ts
-        // declare function f(cb: { (a: number): void }): void;
-        // f(oak => { oak; });   //  oak : any     — the literal
-        // declare function g(cb: (a: number) => void): void;
-        // g(elm => { elm; });   //  elm : number  — the arrow form
-        // ```
-        //
-        // Two spellings of one type, two answers. `getSignaturesOfType`
-        // (`checker.go:18959`) reads the TYPE's signatures whatever minted it.
-        //
-        // Filtered to CALL signatures for §932's reason: the collapse stores
-        // whichever kind the literal declared, and a construct signature is not
-        // a contextual call signature.
-        let from_type: Vec<Signature> = self
-            .signature_types
-            .get(&contextual)
-            .cloned()
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|signature| signature.kind == crate::signatures::SignatureKind::Call)
-            .collect();
-        if !from_type.is_empty() {
-            if let [signature] = from_type.as_slice() {
-                return Some(signature.clone());
-            }
+        self.contextual_call_signature(contextual, None)?.into_signature()
+    }
+
+    fn contextual_call_signature(
+        &mut self,
+        contextual: TypeId,
+        function: Option<NodeId>,
+    ) -> Option<ContextualSignature> {
+        if contextual == self.intrinsics.error {
             return None;
         }
-        if self.is_instantiated_signature_type(contextual) {
+        if self.store.get(contextual).flags.intersects(
+            crate::flags::TypeFlags::PRIMITIVE
+                | crate::flags::TypeFlags::ANY
+                | crate::flags::TypeFlags::UNKNOWN,
+        ) {
+            return Some(ContextualSignature::Absent);
+        }
+        // An unevaluated alias's symbol has no call members of its own.
+        // An empty table there cannot establish that its body is non-callable.
+        if !self.signature_types.contains_key(&contextual)
+            && matches!(self.store.get(contextual).data,
+                TypeData::Named { members: Some(owner), .. }
+                if self.binder.symbols().get(owner).flags.contains(tsr_binder::SymbolFlags::TYPE_ALIAS))
+        {
             return None;
         }
-        if let Some(signature) = self.single_call_signature(contextual) {
-            return Some(signature);
-        }
-        // §75 (`checker-notes-narrow.md`): a GENERIC single contextual
-        // signature passes through UNINSTANTIATED — `const fn1: <T>(x: T) =>
-        // void = t => …` types `t : T`, the signature's OWN type parameter,
-        // because the arrow ADOPTS the contextual generics
-        // (`contextualOuterTypeParameters`). `single_call_signature`'s
-        // generic decline is for CALL positions, where printing a bare `T`
-        // would be wrong; here it is exactly upstream's answer.
-        let TypeData::Anonymous { symbol, .. } = self.store.get(contextual).data else {
-            return None;
+        let parameters = match function.and_then(|function| self.node_map.get(function)) {
+            Some(Node::ArrowFunction(f)) => f.parameters,
+            Some(Node::FunctionExpression(f)) => f.parameters,
+            Some(Node::MethodDeclaration(f)) => f.parameters,
+            _ => &[][..],
         };
-        match self.get_signatures_of_symbol(symbol)?.as_slice() {
-            [signature] => Some(signature.clone()),
-            _ => None,
+        let required = parameters
+            .iter()
+            .filter(|p| !is_this_parameter(p))
+            .take_while(|p| {
+                p.initializer.is_none()
+                    && p.question_token.is_none()
+                    && p.dot_dot_dot_token.is_none()
+            })
+            .count();
+        let mut signatures = Vec::new();
+        for signature in self.call_signatures_of_type(contextual)? {
+            let signature = self.instantiate_signature_for_reference(contextual, signature)?;
+            let expanded = self.expand_contextual_tuple_rest(signature.clone());
+            if expanded.parameters.iter().any(|p| p.rest) || expanded.parameters.len() >= required {
+                signatures.push(signature);
+            }
         }
+        let mut signatures = signatures.into_iter();
+        let Some(mut combined) = signatures.next() else {
+            return Some(ContextualSignature::Absent);
+        };
+        for signature in signatures {
+            if !self.no_implicit_any {
+                return Some(ContextualSignature::Absent);
+            }
+            let left = self.expand_contextual_tuple_rest(combined);
+            let right = self.expand_contextual_tuple_rest(signature);
+            combined = self.combine_contextual_overload_signatures(left, right)?;
+        }
+        Some(ContextualSignature::Present(Box::new(combined)))
+    }
+
+    /// `getExpandedParameters` (checker.go), the fixed tuple-rest case.
+    fn expand_contextual_tuple_rest(&self, mut signature: Signature) -> Signature {
+        let Some(rest) = signature.parameters.last().filter(|p| p.rest) else {
+            return signature;
+        };
+        let Some((elements, _)) = self.tuple_element_lists.get(&rest.r#type) else {
+            return signature;
+        };
+        let rest_type = rest.r#type;
+        let rest_name = rest.name.clone();
+        let expanded: Vec<_> = elements
+            .iter()
+            .enumerate()
+            .map(|(i, &t)| crate::signatures::Parameter {
+                name: self
+                    .tuple_labels
+                    .get(&rest_type)
+                    .and_then(|labels| labels.get(i))
+                    .and_then(Clone::clone)
+                    .unwrap_or_else(|| format!("{rest_name}_{i}")),
+                optional: self
+                    .tuple_optional_masks
+                    .get(&rest_type)
+                    .and_then(|mask| mask.get(i))
+                    .copied()
+                    .unwrap_or(false),
+                rest: false,
+                r#type: t,
+                written_text: None,
+            })
+            .collect();
+        signature.parameters.pop();
+        signature.parameters.extend(expanded);
+        signature
+    }
+
+    /// `combineUnionOrIntersectionMemberSignatures` and
+    /// `combineUnionOrIntersectionParameters` (checker.go), at isUnion=false.
+    /// Generic unification and effective array rests remain deferred.
+    fn combine_contextual_overload_signatures(
+        &mut self,
+        mut left: Signature,
+        right: Signature,
+    ) -> Option<Signature> {
+        if !left.type_parameters.is_empty()
+            || !right.type_parameters.is_empty()
+            || left.parameters.iter().chain(&right.parameters).any(|p| p.rest)
+        {
+            return None;
+        }
+        let minimum = |signature: &Signature| {
+            signature.parameters.iter().rposition(|p| !p.optional).map_or(0, |i| i + 1)
+        };
+        let left_min = minimum(&left);
+        let right_min = minimum(&right);
+        let mut parameters = Vec::new();
+        for i in 0..left.parameters.len().max(right.parameters.len()) {
+            let a = left.parameters.get(i);
+            let b = right.parameters.get(i);
+            let name = match (a, b) {
+                (Some(a), Some(b)) if a.name == b.name => a.name.clone(),
+                (Some(a), None) => a.name.clone(),
+                (None, Some(b)) => b.name.clone(),
+                _ => format!("arg{i}"),
+            };
+            let a_type = a.map_or(self.intrinsics.unknown, |p| p.r#type);
+            let b_type = b.map_or(self.intrinsics.unknown, |p| p.r#type);
+            parameters.push(crate::signatures::Parameter {
+                name,
+                optional: i >= left_min && i >= right_min,
+                rest: false,
+                r#type: self.get_union_type(&[a_type, b_type]),
+                written_text: None,
+            });
+        }
+        left.parameters = parameters;
+        left.this_parameter = match (left.this_parameter, right.this_parameter) {
+            (Some(mut a), Some(b)) => {
+                a.r#type = self.get_union_type(&[a.r#type, b.r#type]);
+                a.written_text = None;
+                Some(a)
+            }
+            (a, b) => a.or(b),
+        };
+        left.r#type = self.get_intersection_type(&[left.r#type, right.r#type], None);
+        left.written_return = None;
+        left.predicate = None;
+        Some(left)
     }
 
     /// The type `node` is expected to have, from where it is written.
@@ -716,6 +742,24 @@ impl<'a> Checker<'a, '_> {
                 Some(self.get_type_from_type_node(annotation))
             }
             Node::CallExpression(call) => self.contextual_type_for_argument(call, node),
+            Node::TemplateSpan(_) => {
+                let template_id = self.nodes.parent(parent)?;
+                let Node::TemplateExpression(template) = self.node_map.get(template_id)? else {
+                    return None;
+                };
+                let tagged_id = self.nodes.parent(template_id)?;
+                let Node::TaggedTemplateExpression(tagged) = self.node_map.get(tagged_id)? else {
+                    return None;
+                };
+                let index = template.template_spans.iter().position(|span| {
+                    span.expression.and_then(|expression| expression.node_id()) == Some(node)
+                })?;
+                self.contextual_type_for_template_substitution(
+                    tagged,
+                    index,
+                    template.template_spans.len(),
+                )
+            }
             // §155 (`checker-notes-ctx.md`): a NEW argument's context through
             // the §90 arity road — the sole non-generic constructor's written
             // annotation at this position. The recursion the module doc
@@ -743,21 +787,7 @@ impl<'a> Checker<'a, '_> {
             // rule for object-literal members; this is it at the dispatch
             // site, with the same reentrancy guard and JS-file decline.
             Node::BinaryExpression(binary) => {
-                if binary
-                    .operator_token
-                    .is_none_or(|token| token.kind != tsr_ast::SyntaxKind::EqualsToken)
-                    || binary.right.and_then(|e| e.node_id()) != Some(node)
-                    || self.in_js_file(node)
-                {
-                    return None;
-                }
-                let left = binary.left?;
-                if !self.narrow_value_stack.insert(parent) {
-                    return None;
-                }
-                let checked = self.check_expression(left);
-                self.narrow_value_stack.remove(&parent);
-                (checked != self.intrinsics.error).then_some(checked)
+                self.contextual_type_for_binary_operand(parent, binary, node)
             }
             // SS115: a ternary BRANCH answers the conditional's own context;
             // the CONDITION answers nil
@@ -770,6 +800,10 @@ impl<'a> Checker<'a, '_> {
                 }
                 self.get_contextual_type(parent)
             }
+            Node::YieldExpression(yield_expression) => self.contextual_type_for_yield_operand(
+                parent,
+                yield_expression.asterisk_token.is_some(),
+            ),
             Node::PropertyAssignment(element) => {
                 self.contextual_type_for_object_literal_element(parent, element)
             }
@@ -787,24 +821,20 @@ impl<'a> Checker<'a, '_> {
             // the Array-reference and tuple halves this port can read.
             Node::ArrayLiteralExpression(literal) => {
                 let contextual = self.get_contextual_type(parent)?;
-                if let Some((target, arguments)) =
-                    self.type_reference_targets.get(&contextual).cloned()
-                    && arguments.len() == 1
-                    && ["Array", "ReadonlyArray"].iter().any(|name| {
-                        self.global_type_symbol(name).map(|s| self.binder.merged_symbol(s))
-                            == Some(self.binder.merged_symbol(target))
-                    })
-                {
-                    return Some(arguments[0]);
-                }
-                if let Some((elements, _)) = self.tuple_element_lists.get(&contextual) {
-                    let index = literal
-                        .elements
-                        .iter()
-                        .position(|element| element.node_id() == Some(node))?;
-                    return elements.get(index).copied();
-                }
-                None
+                let index = literal.elements.iter().position(|e| e.node_id() == Some(node))?;
+                let first_spread =
+                    literal.elements.iter().position(|e| matches!(e, Expression::SpreadElement(_)));
+                let last_spread = literal
+                    .elements
+                    .iter()
+                    .rposition(|e| matches!(e, Expression::SpreadElement(_)));
+                self.contextual_type_for_element_expression(
+                    contextual,
+                    index,
+                    literal.elements.len(),
+                    first_spread,
+                    last_spread,
+                )
             }
             // §68.3: a CONCISE arrow body's contextual type is the arrow's
             // own contextual signature's return
@@ -846,11 +876,335 @@ impl<'a> Checker<'a, '_> {
                     Node::ArrowFunction(f) => f.r#type,
                     Node::MethodDeclaration(f) => f.r#type,
                     _ => None,
-                }?;
-                Some(self.get_type_from_type_node(annotation))
+                };
+                if let Some(annotation) = annotation {
+                    return Some(self.get_type_from_type_node(annotation));
+                }
+                // getContextualReturnType also uses the non-generic contextual
+                // signature of function expressions and object literal methods.
+                let signature = self.contextual_signature(function)?;
+                (signature.r#type != self.intrinsics.error).then_some(signature.r#type)
             }
             _ => None,
         }
+    }
+
+    /// Ported from Checker.getContextualTypeForBinaryOperand
+    /// (`internal/checker/checker.go`). Assignment declarations in JavaScript
+    /// and synthesized binding-pattern contexts remain unsupported.
+    fn contextual_type_for_binary_operand(
+        &mut self,
+        binary_id: NodeId,
+        binary: &'a tsr_ast::BinaryExpression<'a>,
+        operand: NodeId,
+    ) -> Option<TypeId> {
+        use tsr_ast::SyntaxKind;
+        if let Some(annotation) = binary.r#type {
+            return Some(self.get_type_from_type_node(annotation));
+        }
+        let right = binary.right.and_then(|expression| expression.node_id()) == Some(operand);
+        match binary.operator_token?.kind {
+            SyntaxKind::BarBarToken | SyntaxKind::QuestionQuestionToken => {
+                if let Some(contextual) = self.get_contextual_type(binary_id) {
+                    return Some(contextual);
+                }
+                if !right {
+                    return None;
+                }
+            }
+            SyntaxKind::AmpersandAmpersandToken | SyntaxKind::CommaToken => {
+                return right.then(|| self.get_contextual_type(binary_id)).flatten();
+            }
+            SyntaxKind::EqualsToken
+            | SyntaxKind::AmpersandAmpersandEqualsToken
+            | SyntaxKind::BarBarEqualsToken
+            | SyntaxKind::QuestionQuestionEqualsToken => {
+                if !right || self.in_js_file(operand) {
+                    return None;
+                }
+            }
+            _ => return None,
+        }
+        let left = binary.left?;
+        if !self.narrow_value_stack.insert(binary_id) {
+            return None;
+        }
+        let checked = self.check_expression(left);
+        self.narrow_value_stack.remove(&binary_id);
+        (checked != self.intrinsics.error).then_some(checked)
+    }
+
+    /// getContextualTypeForYieldOperand (internal/checker/checker.go), for
+    /// the global iterator/iterable references whose iteration slots are known.
+    fn contextual_type_for_yield_operand(
+        &mut self,
+        yield_id: NodeId,
+        delegates: bool,
+    ) -> Option<TypeId> {
+        let function = self.containing_function(yield_id)?;
+        let (annotation, modifiers) = match self.node_map.get(function)? {
+            Node::FunctionDeclaration(node) => (node.r#type, node.modifiers),
+            Node::FunctionExpression(node) => (node.r#type, node.modifiers),
+            Node::MethodDeclaration(node) => (node.r#type, node.modifiers),
+            _ => return None,
+        };
+        let contextual = if let Some(annotation) = annotation {
+            self.get_type_from_type_node(annotation)
+        } else {
+            self.contextual_signature(function)?.r#type
+        };
+        let (target, arguments) = self.type_reference_targets.get(&contextual)?.clone();
+        let supported = [
+            ("Iterator", 3),
+            ("Iterable", 3),
+            ("IterableIterator", 3),
+            ("Generator", 3),
+            ("AsyncIterator", 3),
+            ("AsyncIterable", 3),
+            ("AsyncIterableIterator", 3),
+            ("AsyncGenerator", 3),
+        ]
+        .into_iter()
+        .any(|(name, arity)| {
+            self.global_type_symbol_with_arity(name, arity).is_some_and(|symbol| {
+                self.binder.merged_symbol(symbol) == self.binder.merged_symbol(target)
+            })
+        });
+        if !supported {
+            return None;
+        }
+        let yielded = *arguments.first()?;
+        let is_async = crate::check::has_modifier(modifiers, tsr_ast::SyntaxKind::AsyncKeyword);
+        if !delegates {
+            return if is_async { self.awaited_type_no_alias(yielded) } else { Some(yielded) };
+        }
+        let returned = self.get_contextual_type(yield_id).unwrap_or(self.intrinsics.never);
+        let next = arguments.get(2).copied().unwrap_or(self.intrinsics.unknown);
+        let generator = self.global_type_symbol_with_arity("Generator", 3)?;
+        let sync = self.create_type_reference(generator, vec![yielded, returned, next]);
+        if is_async {
+            let generator = self.global_type_symbol_with_arity("AsyncGenerator", 3)?;
+            let asynchronous = self.create_type_reference(generator, vec![yielded, returned, next]);
+            Some(self.get_union_type(&[sync, asynchronous]))
+        } else {
+            Some(sync)
+        }
+    }
+
+    /// getContextualTypeForSubstitutionExpression and getEffectiveCallArguments
+    /// (internal/checker/checker.go). The synthetic strings argument occupies
+    /// position zero. This port's inferred tag memo is shifted past that slot.
+    fn contextual_type_for_template_substitution(
+        &mut self,
+        tagged: &'a tsr_ast::TaggedTemplateExpression<'a>,
+        index: usize,
+        substitution_count: usize,
+    ) -> Option<TypeId> {
+        let call_id = tagged.node_id?;
+        if let Some(memo) = self.call_inference_signatures.get(&call_id).cloned() {
+            return self.contextual_argument_type(&memo, index, substitution_count);
+        }
+        if !self.resolving_signature_calls.insert(call_id) {
+            return Some(self.intrinsics.any);
+        }
+        let answer = self.contextual_type_for_template_substitution_resolving(
+            tagged,
+            index,
+            substitution_count,
+        );
+        self.resolving_signature_calls.remove(&call_id);
+        answer
+    }
+
+    fn contextual_type_for_template_substitution_resolving(
+        &mut self,
+        tagged: &'a tsr_ast::TaggedTemplateExpression<'a>,
+        index: usize,
+        substitution_count: usize,
+    ) -> Option<TypeId> {
+        let receiver = self.check_expression(tagged.tag?);
+        let candidates = self.call_signatures_of_type(receiver)?;
+        let mut signature = if let [single] = candidates.as_slice() {
+            single.clone()
+        } else {
+            let mut applicable = candidates
+                .into_iter()
+                .filter(|candidate| Self::arity_accepts(candidate, substitution_count + 1));
+            let chosen = applicable.next()?;
+            if applicable.next().is_some() {
+                return None;
+            }
+            chosen
+        };
+        signature = self.instantiate_signature_for_reference(receiver, signature)?;
+        if !signature.type_parameters.is_empty() {
+            // Unresolved inference has no serving memo. Written arguments can
+            // still decide the context without checking a substitution again.
+            if tagged.type_arguments.len() != signature.type_parameters.len() {
+                return None;
+            }
+            let parameters = self.type_parameter_types(&signature)?;
+            let written: Vec<_> = tagged
+                .type_arguments
+                .iter()
+                .map(|&argument| self.get_type_from_type_node(argument))
+                .collect();
+            if written.contains(&self.intrinsics.error) {
+                return None;
+            }
+            let names: Vec<_> =
+                signature.type_parameters.iter().map(|parameter| parameter.name.clone()).collect();
+            let name_refs: Vec<_> = names.iter().map(String::as_str).collect();
+            let map: Vec<_> = parameters.iter().copied().zip(written).collect();
+            let contextual =
+                self.contextual_argument_type(&signature, index + 1, substitution_count + 1)?;
+            let image = self.instantiate_type(contextual, &map, &parameters, &name_refs);
+            return (image != self.intrinsics.error).then_some(image);
+        }
+        self.contextual_argument_type(&signature, index + 1, substitution_count + 1)
+    }
+
+    /// `getContextualTypeForElementExpression` (internal/checker/checker.go).
+    /// A known suffix aligns from the end of a rest tuple; positions around
+    /// spreads instead receive the union of the remaining possible elements.
+    fn contextual_type_for_element_expression(
+        &mut self,
+        contextual: TypeId,
+        index: usize,
+        length: usize,
+        first_spread: Option<usize>,
+        last_spread: Option<usize>,
+    ) -> Option<TypeId> {
+        if let TypeData::Union { types, .. } = &self.store.get(contextual).data {
+            let types = types.clone();
+            let mut mapped = Vec::new();
+            for part in types {
+                match self.contextual_type_for_element_expression(
+                    part,
+                    index,
+                    length,
+                    first_spread,
+                    last_spread,
+                ) {
+                    Some(element) => mapped.push(element),
+                    // A missing object lookup may be an unresolved mapped/index
+                    // signature. Dropping it would fabricate a contextual
+                    // signature from the other union constituents.
+                    None if self.store.get(part).flags.intersects(
+                        crate::flags::TypeFlags::OBJECT | crate::flags::TypeFlags::TYPE_PARAMETER,
+                    ) =>
+                    {
+                        return None;
+                    }
+                    None => {}
+                }
+            }
+            return (!mapped.is_empty()).then(|| self.get_union_type_without_reduction(&mapped));
+        }
+        let elements = if let Some((elements, _)) = self.variadic_tuple_elements.get(&contextual) {
+            Some(elements.clone())
+        } else if let Some((types, _)) = self.tuple_element_lists.get(&contextual) {
+            let mask = self.tuple_optional_masks.get(&contextual);
+            Some(
+                types
+                    .iter()
+                    .enumerate()
+                    .map(|(position, &r#type)| crate::tuples::TupleElement {
+                        r#type,
+                        spread: false,
+                        optional: mask.is_some_and(|m| m.get(position) == Some(&true)),
+                        label: None,
+                    })
+                    .collect(),
+            )
+        } else {
+            None
+        };
+        if let Some(elements) = elements {
+            let fixed_start =
+                elements.iter().position(|element| element.spread).unwrap_or(elements.len());
+            let element_type = |checker: &mut Self, element: &crate::tuples::TupleElement| {
+                if element.optional {
+                    checker.get_union_type_without_reduction(&[
+                        element.r#type,
+                        checker.intrinsics.undefined,
+                    ])
+                } else {
+                    element.r#type
+                }
+            };
+            if first_spread.is_none_or(|spread| index < spread) && index < fixed_start {
+                return Some(element_type(self, &elements[index]));
+            }
+            let offset = if last_spread.is_none_or(|spread| index > spread) {
+                length.saturating_sub(index)
+            } else {
+                0
+            };
+            let fixed_end = if offset > 0 && fixed_start < elements.len() {
+                elements.iter().rev().take_while(|element| !element.spread).count()
+            } else {
+                0
+            };
+            if offset > 0 && offset <= fixed_end {
+                return Some(element_type(self, &elements[elements.len() - offset]));
+            }
+            let start = first_spread.map_or(fixed_start, |spread| fixed_start.min(spread));
+            let skip = last_spread.map_or(fixed_end, |spread| fixed_end.min(length - spread));
+            let end = elements.len() - skip;
+            if start >= end {
+                return None;
+            }
+            let mut types = Vec::with_capacity(end - start);
+            for element in &elements[start..end] {
+                let r#type = if element.spread {
+                    self.resolved_indexed_access_type(
+                        element.r#type,
+                        self.intrinsics.number,
+                        false,
+                    )?
+                } else {
+                    element_type(self, element)
+                };
+                types.push(r#type);
+            }
+            return Some(self.get_union_type_without_reduction(&types));
+        }
+        if first_spread.is_none_or(|spread| index < spread)
+            && let Some(property) =
+                self.get_type_of_property_of_type(contextual, &index.to_string())
+        {
+            return Some(property);
+        }
+        if first_spread.is_none_or(|spread| index < spread)
+            && let Some(info) = self.get_applicable_index_info(contextual, self.intrinsics.number)
+        {
+            return Some(info.value);
+        }
+        self.tuple_spread_array_element(contextual)
+    }
+
+    /// The rest-argument context used by `getSpreadArgumentType`, alongside
+    /// ordinary `getTypeAtPosition` parameters (internal/checker/checker.go).
+    fn contextual_argument_type(
+        &mut self,
+        signature: &Signature,
+        index: usize,
+        argument_count: usize,
+    ) -> Option<TypeId> {
+        let rest = signature.parameters.iter().position(|parameter| parameter.rest);
+        if let Some(rest) = rest
+            && index >= rest
+        {
+            return self.contextual_type_for_element_expression(
+                signature.parameters[rest].r#type,
+                index - rest,
+                argument_count - rest,
+                None,
+                None,
+            );
+        }
+        signature.parameters.get(index).map(|parameter| parameter.r#type)
     }
 
     /// The type an object literal's property assignment is expected to have.
@@ -905,8 +1259,7 @@ impl<'a> Checker<'a, '_> {
     /// - **`ShorthandPropertyAssignment`**, which shares upstream's arm
     ///   (`checker.go:29376`) but cannot hold a function expression, so it could
     ///   never reach [`Checker::get_contextually_typed_parameter_type`].
-    /// - **A `SpreadAssignment` or an object-literal method**, each a separate
-    ///   upstream branch (`checker.go:29378`, `checker.go:29964`).
+    /// - **A `SpreadAssignment`**, a separate upstream branch (`checker.go:29378`).
     fn contextual_type_for_object_literal_element(
         &mut self,
         element: NodeId,
@@ -919,11 +1272,24 @@ impl<'a> Checker<'a, '_> {
         if let Some(annotation) = assignment.r#type {
             return Some(self.get_type_from_type_node(annotation));
         }
+        self.contextual_type_for_object_literal_named_element(element, assignment.name)
+    }
+
+    /// The common property lookup of getContextualTypeForObjectLiteralElement
+    /// and getContextualTypeForObjectLiteralMethod. A method's return annotation
+    /// is not its contextual function type.
+    fn contextual_type_for_object_literal_named_element(
+        &mut self,
+        element: NodeId,
+        property_name: PropertyName<'a>,
+    ) -> Option<TypeId> {
         // `c.hasBindableName(element)` (`checker.go:29927`) reduced to the names
         // `get_property_of_type` can be keyed by. See "Not ported" above.
-        let name = match assignment.name {
-            PropertyName::Identifier(name) => name.text,
-            PropertyName::StringLiteral(name) => name.text,
+        let name = match property_name {
+            PropertyName::Identifier(name) => name.text.to_string(),
+            PropertyName::StringLiteral(name) => name.text.to_string(),
+            PropertyName::NumericLiteral(name) => name.text.to_string(),
+            PropertyName::ComputedPropertyName(name) => self.late_bound_symbol_member_name(name)?.0,
             _ => return None,
         };
         // `objectLiteral := element.Parent` (`checker.go:29924`). No check that
@@ -946,9 +1312,9 @@ impl<'a> Checker<'a, '_> {
         //
         // `get_property_of_type` stays FIRST so the single-constituent road is
         // bit-for-bit what it was; the union walk is only consulted on a miss.
-        let property_type = match self.get_property_of_type(contextual, name) {
+        let property_type = match self.get_property_of_type(contextual, &name) {
             Some(property) => self.get_type_of_symbol(property),
-            None => self.union_contextual_property_type(contextual, name, object_literal)?,
+            None => self.union_contextual_property_type(contextual, &name, object_literal)?,
         };
         // SS141: a reference context's member instantiates through the
         // reference (Computed<T>'s read serves () => T_call, not the
@@ -1099,28 +1465,14 @@ impl<'a> Checker<'a, '_> {
         // road - it is what upstream's resolved-signature threading gives
         // the second pass.
         if let Some(call_id) = call.node_id
-            && let Some(memo) = self.call_inference_signatures.get(&call_id)
+            && let Some(memo) = self.call_inference_signatures.get(&call_id).cloned()
         {
-            let parameter = memo.parameters.get(index)?;
-            // §940: the `|| parameter.optional` that stood here is **removed**,
-            // and it was worth **+111** — 77 `WRONG->RIGHT` + 34 `GAP->RIGHT`
-            // against 1 `GAP->WRONG`, zero `RIGHT->WRONG`. An optional parameter
-            // has a perfectly good declared type and upstream contextually types
-            // its argument with it; nothing about `?` makes the position
-            // unreadable. `importCallExpression*` alone is 23 of the rows.
-            //
-            // The `rest` half stays. Reading a rest's ELEMENT type here — the
-            // same read §939 gave inference — was written and **measured zero
-            // change**, so it is not kept: fifteen lines of unmeasured behaviour
-            // is the liability §929 named, and the zero is the useful record.
-            // §940.1: `|| parameter.optional` removed here too, +2
-            // (`primitiveUnionDetection`). Three sibling guards carried the same
-            // compound shape §940 split, and none of the three had a reason
-            // written for the optional half.
-            if parameter.rest {
-                return None;
-            }
-            return Some(parameter.r#type);
+            return self.contextual_argument_type(&memo, index, call.arguments.len());
+        }
+        if let Some(call_id) = call.node_id
+            && let Some(resolved) = self.resolved_call_signatures.get(&call_id).cloned()
+        {
+            return self.contextual_argument_type(&resolved, index, call.arguments.len());
         }
         let callee = call.expression?;
         // §469 — the signature-links table's read, `checker.go:29785`: while
@@ -1156,11 +1508,8 @@ impl<'a> Checker<'a, '_> {
         index: usize,
     ) -> Option<TypeId> {
         let callee_type = self.check_expression(callee);
-        if let Some(parameter) = self
-            .single_call_signature(callee_type)
-            .and_then(|s| s.parameters.into_iter().nth(index))
-        {
-            return Some(parameter.r#type);
+        if let Some(signature) = self.single_call_signature(callee_type) {
+            return self.contextual_argument_type(&signature, index, call.arguments.len());
         }
         // Iteration 4 arm (a) (checker-notes-callres2.md, the priority
         // read): a SINGLE GENERIC candidate's parameter type flows AS-IS -
@@ -1170,24 +1519,22 @@ impl<'a> Checker<'a, '_> {
         // SS75 semantics, extended from the annotation road to here). The
         // SS70 mention guard stays on the multi-candidate agreement path
         // below, where position-stability is a real question.
-        if let TypeData::Anonymous { symbol, .. } = self.store.get(callee_type).data
-            && let Some(signatures) = self.get_signatures_of_symbol(symbol)
+        if let Some(signatures) = self.call_signatures_of_type(callee_type)
             && let [single] = signatures.as_slice()
             && !single.type_parameters.is_empty()
         {
             let single = single.clone();
-            let parameter_type = {
-                let parameter = single.parameters.get(index)?;
-                if parameter.rest {
-                    return None;
-                }
-                parameter.r#type
-            };
+            let parameter_type =
+                self.contextual_argument_type(&single, index, call.arguments.len())?;
             // §946: upstream's PASS ONE — the parameter type as WRITTEN, before
             // the fixing mapper below replaces this signature's type parameters
             // with `unknown`. Only the freshness query asks for it, and it asks
             // through `contextual_prefers_uninstantiated`.
-            if self.contextual_prefers_uninstantiated {
+            if self.contextual_prefers_uninstantiated
+                || self
+                    .uninstantiated_context_node
+                    .is_some_and(|node| call.arguments[index].node_id() == Some(node))
+            {
                 return Some(parameter_type);
             }
             // The third rung (the ladder test's final flip): upstream's
@@ -1257,10 +1604,7 @@ impl<'a> Checker<'a, '_> {
         // agreement is what upstream's per-candidate contextual pass
         // converges to when the position's type mentions no type parameter
         // (`parenthesizedContexualTyping2`'s FuncType callbacks, 73 lines).
-        let TypeData::Anonymous { symbol, .. } = self.store.get(callee_type).data else {
-            return None;
-        };
-        let candidates = self.get_signatures_of_symbol(symbol)?;
+        let candidates = self.call_signatures_of_type(callee_type)?;
         // SS114 family 1: when the candidates DISAGREE at this index (or a
         // candidate lacks the position), upstream would contextually type
         // through the RESOLVED signature - the first discriminator of which
@@ -1272,27 +1616,23 @@ impl<'a> Checker<'a, '_> {
         let by_arity: Vec<&Signature> =
             candidates.iter().filter(|c| c.parameters.len() == call.arguments.len()).collect();
         if let [chosen] = by_arity.as_slice() {
-            let parameter = chosen.parameters.get(index)?;
-            if parameter.rest {
+            let parameter_type =
+                self.contextual_argument_type(chosen, index, call.arguments.len())?;
+            if self.mentions_any_type_parameter(parameter_type, 2) {
                 return None;
             }
-            if self.mentions_any_type_parameter(parameter.r#type, 2) {
-                return None;
-            }
-            return Some(parameter.r#type);
+            return Some(parameter_type);
         }
         let mut agreed: Option<TypeId> = None;
         for candidate in &candidates {
-            let parameter = candidate.parameters.get(index)?;
-            if parameter.rest {
-                return None;
-            }
-            if self.mentions_any_type_parameter(parameter.r#type, 2) {
+            let parameter_type =
+                self.contextual_argument_type(candidate, index, call.arguments.len())?;
+            if self.mentions_any_type_parameter(parameter_type, 2) {
                 return None;
             }
             match agreed {
-                None => agreed = Some(parameter.r#type),
-                Some(t) if t == parameter.r#type => {}
+                None => agreed = Some(parameter_type),
+                Some(t) if t == parameter_type => {}
                 Some(_) => return None,
             }
         }
@@ -1343,10 +1683,15 @@ impl<'a> Checker<'a, '_> {
     }
 
     pub(crate) fn single_call_signature(&mut self, id: TypeId) -> Option<Signature> {
-        let TypeData::Anonymous { symbol, .. } = self.store.get(id).data else {
+        // Read resolved signatures before declaration symbols: a receiver's
+        // type arguments have already been applied to this type. Unresolved
+        // named types still require the contextual overload/intersection path.
+        if !self.signature_types.contains_key(&id)
+            && !matches!(self.store.get(id).data, TypeData::Anonymous { .. })
+        {
             return None;
-        };
-        match self.get_signatures_of_symbol(symbol)?.as_slice() {
+        }
+        match self.call_signatures_of_type(id)?.as_slice() {
             [signature] if signature.type_parameters.is_empty() => Some(signature.clone()),
             _ => None,
         }

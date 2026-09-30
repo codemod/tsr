@@ -849,7 +849,9 @@ impl<'a> Checker<'a, '_> {
 
     /// Is this the `this` parameter — the one that is a type annotation wearing
     /// a parameter's syntax?
-    fn is_this_parameter_declaration(parameter: &tsr_ast::ParameterDeclaration<'_>) -> bool {
+    pub(crate) fn is_this_parameter_declaration(
+        parameter: &tsr_ast::ParameterDeclaration<'_>,
+    ) -> bool {
         matches!(parameter.name, Some(tsr_ast::BindingName::Identifier(name)) if name.text == "this")
     }
 }

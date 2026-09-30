@@ -1,5 +1,10 @@
 # Agent Instructions
 
+## Git delivery
+
+Always commit and push verified changes to `main`, as requested by the user.
+Preserve unrelated local configuration and work.
+
 This project uses **bd** (beads) for issue tracking. Run `bd prime` for full workflow context.
 
 > **Architecture in one line:** Issues live in a local Dolt database

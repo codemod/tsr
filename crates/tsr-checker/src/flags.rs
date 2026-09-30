@@ -111,6 +111,15 @@ impl TypeFlags {
     pub const ENUM_LIKE: Self = Self::ENUM.union(Self::ENUM_LITERAL);
     /// `TypeFlagsESSymbolLike` — `types.go:476`.
     pub const ES_SYMBOL_LIKE: Self = Self::ES_SYMBOL.union(Self::UNIQUE_ES_SYMBOL);
+    /// `TypeFlagsDefinitelyNonNullable` — `types.go:479`.
+    pub const DEFINITELY_NON_NULLABLE: Self = Self::STRING_LIKE
+        .union(Self::NUMBER_LIKE)
+        .union(Self::BIG_INT_LIKE)
+        .union(Self::BOOLEAN_LIKE)
+        .union(Self::ENUM_LIKE)
+        .union(Self::ES_SYMBOL_LIKE)
+        .union(Self::OBJECT)
+        .union(Self::NON_PRIMITIVE);
     /// `TypeFlagsPrimitive` — `types.go:478`.
     ///
     /// Every domain a value can inhabit without being an object. Used by the

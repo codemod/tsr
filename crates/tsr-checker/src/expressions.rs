@@ -40,6 +40,11 @@ impl Checker<'_, '_> {
             return cached;
         }
 
+        // checkExpressionEx resets the per-expression instantiation budget
+        // (internal/checker/checker.go). Depth remains shared with the active
+        // instantiation stack; an exhausted prior expression cannot poison
+        // an independent check.
+        self.instantiation_count = 0;
         self.computations += 1;
         let computed = self.check_expression_worker(expression);
 
@@ -3722,5 +3727,69 @@ pub(crate) fn evaluate_constant_expression(
             Some(EvaluatedValue::Text(folded))
         }
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn with_initializer(source: &str, check: impl FnOnce(&mut Checker<'_, '_>, Expression<'_>)) {
+        let arena = tsr_core::Arena::new();
+        let parsed = tsr_parser::parse(&arena, source);
+        assert!(parsed.diagnostics.is_empty());
+        let bound = tsr_binder::bind(
+            &arena,
+            parsed.source_file,
+            &parsed.nodes,
+            tsr_binder::FileInfo { name: "budget.ts", text: source },
+        );
+        let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+        let tsr_ast::Statement::VariableStatement(statement) =
+            parsed.source_file.statements.last().copied().unwrap()
+        else {
+            panic!("variable")
+        };
+        let initializer = statement.declaration_list.unwrap().declarations[0].initializer.unwrap();
+        check(&mut checker, initializer);
+    }
+
+    #[test]
+    fn expression_checks_reset_the_count_but_keep_the_instantiation_depth() {
+        with_initializer(
+            "declare function infer<T>(input: T): [T]; const observed = infer(1);",
+            |checker, initializer| {
+                checker.instantiation_count = 5_000_000;
+                let result = checker.check_expression(initializer);
+                assert_eq!(checker.type_to_string(result), "[number]");
+                assert!(checker.instantiation_count < 5_000_000);
+            },
+        );
+        with_initializer(
+            "declare function infer<T>(input: T): [T]; const observed = infer(1);",
+            |checker, initializer| {
+                checker.instantiation_depth = 100;
+                let result = checker.check_expression(initializer);
+                assert!(checker.is_error(result));
+                assert_eq!(checker.instantiation_depth, 100);
+            },
+        );
+    }
+
+    #[test]
+    fn direct_property_reads_reuse_the_checked_access_after_budget_exhaustion() {
+        with_initializer(
+            "interface Box<T> { map<U>(value: U): [T, U]; }
+            declare const box: Box<number>; const observed = box.map;",
+            |checker, initializer| {
+                let original = checker.check_expression(initializer);
+                assert!(!checker.is_error(original));
+                checker.instantiation_count = 5_000_000;
+                let Expression::PropertyAccessExpression(access) = initializer else {
+                    panic!("access")
+                };
+                assert_eq!(checker.check_property_access_expression(access), original);
+            },
+        );
     }
 }

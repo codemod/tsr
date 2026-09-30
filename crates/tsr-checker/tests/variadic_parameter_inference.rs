@@ -1,35 +1,6 @@
-//! A parameter spelled `[...T]` puts its argument in TUPLE context and infers
-//! `T` from it. §793.
-//!
-//! ```ts
-//! declare function f<T extends unknown[]>(t: [...T]): T;
-//! f([1, 2]);   // T := [number, number]
-//! ```
-//!
-//! This port answered `errorType`. Two independent gaps had to close together,
-//! and **each one alone measured ZERO corpus transitions** — which is the whole
-//! reason this is one section and not two:
-//!
-//! 1. **Inference.** `[...T]` is built as a §40 PRINT-ONLY variadic: a named
-//!    type with no element list and no reference target, so every arm of
-//!    `infer_from_types_within` missed it and `T` collected no candidate.
-//! 2. **Contextual typing.** Every arm of `array_literal_tuple_context_kind`
-//!    reads an ANNOTATION — an assertion, an annotated declaration, an
-//!    assignment target. A CALL ARGUMENT has none of those, so the literal
-//!    stayed `number[]` however the parameter was spelled, and inferring from
-//!    it gave `number[]` where upstream gives `[number, number]`.
-//!
-//! Fixing (1) alone made the call answer `number[]` instead of a gap — a
-//! confident wrong answer replacing an honest one — and the corpus said so by
-//! not moving. Fixing both is +22.
-//!
-//! # What is admitted, and what is not
-//!
-//! Only a SINGLE rest over a name resolving to one of this inference's own
-//! parameters. `[...T]` is upstream's idiom for *"this parameter is the whole
-//! tuple"*. Anything else — `[string, ...T]`, two rests — needs the source
-//! SPLIT across positions, which is tuple-splitting machinery this port does
-//! not have, and those keep declining.
+//! Variadic tuple inference and substitution, following `inferFromObjectTypes`
+//! and `instantiateTypeWorker` in typescript-go. Fixed prefixes and suffixes
+//! constrain the inferred middle; indexed accesses resolve after substitution.
 
 use tsr_ast::Statement;
 use tsr_checker::Checker;
@@ -66,6 +37,178 @@ fn type_of_initialiser(source: &str, name: &str) -> String {
 
 const LIB: &str = "interface Array<T> { length: number }\n\
                    interface ReadonlyArray<T> { length: number }\n";
+
+#[test]
+fn generic_array_spreads_keep_their_indexed_element_type() {
+    let source = format!(
+        "{LIB}function f<T extends readonly unknown[]>(t: T) {{ return [...t]; }}\n\
+         declare const t: readonly [1, 2]; const a = f(t);"
+    );
+    assert_eq!(type_of_initialiser(&source, "a"), "(1 | 2)[]");
+}
+
+#[test]
+fn function_parameters_infer_a_named_rest_tuple() {
+    let source = format!(
+        "{LIB}declare function f<A extends unknown[], R>(fn: (...args: A) => R): A;\n\
+         const a = f((x: number, y: string) => true);"
+    );
+    assert_eq!(type_of_initialiser(&source, "a"), "[x: number, y: string]");
+}
+
+#[test]
+fn an_array_rest_in_a_function_remains_unbounded_during_inference() {
+    let source = format!(
+        "{LIB}declare function f<A extends unknown[]>(fn: (...args: A) => void): A;\n\
+         const a = f((x: number, ...rest: string[]) => {{}});"
+    );
+    assert_eq!(type_of_initialiser(&source, "a"), "[x: number, ...rest: string[]]");
+}
+
+#[test]
+fn a_fixed_function_prefix_is_not_included_in_the_inferred_rest() {
+    let source = format!(
+        "{LIB}declare function f<A extends unknown[]>(fn: (first: boolean, ...args: A) => void): A;\n\
+         const a = f((first: boolean, x: number, y: string) => {{}});"
+    );
+    assert_eq!(type_of_initialiser(&source, "a"), "[x: number, y: string]");
+}
+
+#[test]
+fn a_constrained_generic_function_infers_from_its_base_signature() {
+    let source = format!(
+        "{LIB}declare function f<T>(fn: (x: T) => T): T;\n\
+         declare function g<U extends number>(x: U): U; const a = f(g);"
+    );
+    assert_eq!(type_of_initialiser(&source, "a"), "number");
+}
+
+#[test]
+fn a_generic_callback_reads_fixed_outer_inferences_before_its_own_inference() {
+    let source =
+        "declare function apply<T, U, V>(first: T, second: U, callback: (a: T, b: U) => V): V;
+        declare function same<W>(first: W, second: W): W;
+        const observed = apply(1, 1, same);";
+    assert_eq!(type_of_initialiser(source, "observed"), "number");
+}
+
+#[test]
+fn a_generic_contextual_return_preserves_its_own_type_parameter() {
+    let source = format!(
+        "{LIB}declare function wrap<A, B>(f: (a: A) => B): (a: A) => B;\n\
+         const a: <A>(x: A) => A[] = wrap(x => [x]);"
+    );
+    assert_eq!(type_of_initialiser(&source, "a"), "(a: A) => A[]");
+}
+
+#[test]
+fn a_wrapper_propagates_its_function_arguments_type_parameter() {
+    let source = format!(
+        "{LIB}declare function wrap<A, B>(f: (a: A) => B): (a: A) => B;\n\
+         declare function list<T>(x: T): T[]; const a = wrap(list);"
+    );
+    assert_eq!(type_of_initialiser(&source, "a"), "<T>(a: T) => T[]");
+}
+
+#[test]
+fn a_propagated_function_can_be_called_with_a_concrete_argument() {
+    let source = format!(
+        "{LIB}declare function wrap<A, B>(f: (a: A) => B): (a: A) => B;\n\
+         declare function list<T>(x: T): T[]; const wrapped = wrap(list); const a = wrapped(1);"
+    );
+    assert_eq!(type_of_initialiser(&source, "a"), "number[]");
+}
+
+#[test]
+fn a_generic_composition_context_types_its_later_callback() {
+    let source = format!(
+        "{LIB}declare function pipe<A extends unknown[], B, C>(f: (...args: A) => B, g: (b: B) => C): (...args: A) => C;\n\
+         declare function list<T>(x: T): T[]; const a = pipe(list, x => x.length);"
+    );
+    assert_eq!(type_of_initialiser(&source, "a"), "<T>(x: T) => number");
+}
+
+#[test]
+fn an_overloaded_generic_composition_context_types_its_later_callback() {
+    let source = format!(
+        "{LIB}declare function pipe<A extends unknown[], B>(f: (...args: A) => B): (...args: A) => B;\n\
+         declare function pipe<A extends unknown[], B, C>(f: (...args: A) => B, g: (b: B) => C): (...args: A) => C;\n\
+         declare function list<T>(x: T): T[]; const a = pipe(list, x => x.length);"
+    );
+    assert_eq!(type_of_initialiser(&source, "a"), "<T>(x: T) => number");
+}
+
+#[test]
+fn returned_variadic_tuple_splices_concrete_type_arguments() {
+    let source = format!(
+        "{LIB}declare function f<T extends unknown[]>(): [string, ...T, number];\n\
+         const a = f<[boolean, string]>();"
+    );
+    assert_eq!(type_of_initialiser(&source, "a"), "[string, boolean, string, number]");
+}
+
+#[test]
+fn returned_variadic_tuple_substitutes_array_type_arguments() {
+    let source = format!(
+        "{LIB}declare function f<T extends unknown[]>(): [string, ...T];\n\
+         const a = f<number[]>();"
+    );
+    assert_eq!(type_of_initialiser(&source, "a"), "[string, ...number[]]");
+}
+
+#[test]
+fn returned_variadic_tuple_preserves_optional_suffix() {
+    let source = format!(
+        "{LIB}declare function f<T extends unknown[]>(): [...T, boolean?];\n\
+         const a = f<[string, number]>();"
+    );
+    assert_eq!(type_of_initialiser(&source, "a"), "[string, number, boolean?]");
+}
+
+#[test]
+fn returned_variadic_tuple_distributes_a_union_argument() {
+    let source = format!(
+        "{LIB}declare function f<T extends unknown[]>(): [number, ...T];\n\
+         const a = f<[string] | [boolean]>();"
+    );
+    assert_eq!(type_of_initialiser(&source, "a"), "[number, string] | [number, boolean]");
+}
+
+#[test]
+fn returned_variadic_tuple_with_never_argument_is_never() {
+    let source = format!(
+        "{LIB}declare function f<T extends unknown[]>(): [number, ...T];\n\
+         const a = f<never>();"
+    );
+    assert_eq!(type_of_initialiser(&source, "a"), "never");
+}
+
+#[test]
+fn a_variadic_tuple_index_type_resolves_after_substitution() {
+    let source = format!(
+        "{LIB}declare function f<T extends unknown[]>(): [string, ...T][1];\n\
+         const a = f<[number]>();"
+    );
+    assert_eq!(type_of_initialiser(&source, "a"), "number");
+}
+
+#[test]
+fn a_variadic_tuple_fixed_index_type_is_already_known() {
+    let source = format!(
+        "{LIB}declare function f<T extends unknown[]>(): [string, ...T][0];\n\
+         const a = f<[number]>();"
+    );
+    assert_eq!(type_of_initialiser(&source, "a"), "string");
+}
+
+#[test]
+fn a_generic_variadic_element_access_resolves_after_inference() {
+    let source = format!(
+        "{LIB}function f<T extends unknown[]>(t: [string, ...T]) {{ return t[1]; }}\n\
+         declare const t: [string, number]; const a = f(t);"
+    );
+    assert_eq!(type_of_initialiser(&source, "a"), "number");
+}
 
 /// The head case. Both halves are needed: without the contextual half this
 /// answers `number[]`, without the inference half it answers `error`.
@@ -107,14 +250,46 @@ fn a_plain_array_parameter_still_infers_the_element() {
     assert_eq!(type_of_initialiser(&source, "a"), "number");
 }
 
-/// The decline: a variadic with a LEADING element needs the source split
-/// across positions, which this port cannot do, so it stays a gap rather than
-/// guessing which elements belong to `T`.
+/// `inferFromObjectTypes` infers the slice between fixed prefix/suffix elements.
 #[test]
-fn a_variadic_with_a_leading_element_still_declines() {
+fn a_variadic_with_a_leading_element_infers_the_remaining_slice() {
     let source = format!(
         "{LIB}declare function f<T extends unknown[]>(t: [string, ...T]): T;\n\
          const a = f([\"s\", 1]);"
     );
-    assert_ne!(type_of_initialiser(&source, "a"), "[number]");
+    assert_eq!(type_of_initialiser(&source, "a"), "[number]");
+}
+
+#[test]
+fn a_variadic_with_fixed_prefix_and_suffix_infers_the_middle() {
+    let source = format!(
+        "{LIB}declare function f<T extends unknown[]>(t: [string, ...T, boolean]): T;\n\
+         const a = f([\"s\", 1, \"x\", true]);"
+    );
+    assert_eq!(type_of_initialiser(&source, "a"), "[number, string]");
+}
+
+#[test]
+fn an_empty_middle_infers_an_empty_tuple() {
+    let source = format!(
+        "{LIB}declare function f<T extends unknown[]>(t: [string, ...T, boolean]): T;\n\
+         const a = f([\"s\", true]);"
+    );
+    assert_eq!(type_of_initialiser(&source, "a"), "[]");
+}
+
+#[test]
+fn a_generic_function_argument_uses_the_contextual_return_parameters() {
+    let source = format!(
+        "{LIB}declare function wrap<A, B>(f: (a: A) => B): (a: A) => B;\n\
+         declare function list<T>(x: T): T[]; const a: <A>(x: A) => A[] = wrap(list);"
+    );
+    assert_eq!(type_of_initialiser(&source, "a"), "(a: A) => A[]");
+}
+
+#[test]
+fn conflicting_contextual_signature_inputs_keep_the_error_recovery_type() {
+    let source = "declare function f<U>(cb: (a: number, b: string) => U): U;\n\
+                  declare function g<T>(a: T, b: T): T; const a = f(g);";
+    assert_eq!(type_of_initialiser(source, "a"), "unknown");
 }

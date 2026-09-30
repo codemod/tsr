@@ -88,6 +88,14 @@ fn last_expression_statement<'a>(statements: &[Statement<'a>]) -> Option<tsr_ast
 }
 
 #[test]
+fn assignment_filtering_preserves_a_named_union_when_every_member_survives() {
+    assert_eq!(
+        type_of_last_expression("type Choice = 'a' | 'b'; let value: Choice = undefined; value;"),
+        "Choice"
+    );
+}
+
+#[test]
 fn a_truthiness_guard_removes_the_falsy_constituents() {
     // The narrowing this slice is for. `undefined` is falsy-only, so a truthy
     // guard drops it; `string` and `number` can be either, so they stay.

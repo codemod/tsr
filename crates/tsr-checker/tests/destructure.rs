@@ -12,6 +12,13 @@ use tsr_ast::{BindingName, Statement};
 use tsr_checker::Checker;
 use tsr_core::Arena;
 
+#[test]
+fn a_distributed_generic_constraint_supplies_a_common_destructured_property() {
+    let source = "type Params = { foo: string } & ({ tag: \"a\" } | { tag: \"b\" });\n\
+                  function f<T extends Params>({ foo }: T) {}";
+    assert_eq!(type_of_binding(source, "foo"), "string");
+}
+
 /// Find the binding element declaring `name` anywhere in the fixture's
 /// variable statements, function declaration parameters, or `for-of` heads,
 /// and return its printed symbol type.

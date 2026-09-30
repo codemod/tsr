@@ -2850,32 +2850,19 @@ fn two_references_to_one_generic_relate_by_their_arguments() {
     );
 }
 
-/// The covariance ASSUMPTION, and **it is unsound — demonstrably, not
-/// theoretically.**
-///
-/// `Sink<T> { f(x: T): void }` is CONTRAVARIANT in `T`. Upstream rejects
-/// `Sink<string>` where `Sink<"a">` is wanted; this port accepts it, because §934
-/// assumes every type parameter is covariant.
-///
-/// This test was written expecting `error` — asserting that the assumption did
-/// not fire — and **it failed, which is the useful outcome**: the unsoundness is
-/// reachable in four lines. Zero corpus rows punish it (9,538 cases), so it costs
-/// nothing measured today, and that is a fact about the corpus rather than a
-/// proof about the rule.
-///
-/// It asserts the WRONG answer on purpose, so that porting `getVariances` shows
-/// up as a test that must be edited rather than one that silently keeps passing.
+/// Method parameters remain bivariant under strictFunctionTypes. The call
+/// retains its declared return type. Directional variance is tested directly
+/// against annotations in tests/relater.rs, where argument applicability is
+/// observable independently of the call's return type.
 #[test]
-fn a_contravariant_parameter_is_related_covariantly_and_that_is_unsound() {
+fn a_generic_method_argument_keeps_the_declared_call_return_type() {
     assert_eq!(
         type_of_declaration(
             "interface Sink<T> { f(x: T): void; }\ndeclare function take(s: Sink<\"a\">): number;\n\
              declare const s: Sink<string>;\nconst r = take(s);",
             "r"
         ),
-        "number",
-        "upstream answers `error` here; this port accepts a contravariant argument \
-         covariantly. When `getVariances` lands, this must become `error`."
+        "number"
     );
 }
 
@@ -3251,7 +3238,7 @@ fn a_generic_tuple_alias_prints_its_structure_only_when_it_has_a_rest() {
 fn an_empty_rest_expansion_leaves_no_trailing_separator() {
     let printed = type_of_declaration(
         "declare function f<T extends unknown[]>(...args: [number, ...T]): void;",
-        "f"
+        "f",
     );
     assert!(!printed.contains(", )"), "stray separator in {printed}");
     assert!(!printed.contains("( "), "stray leading separator in {printed}");

@@ -482,7 +482,22 @@ impl Checker<'_, '_> {
         {
             return declared;
         }
-        self.union_type_worker(types, TypeFlags::empty(), None, false)
+        self.union_type_worker(types, TypeFlags::empty(), None, false, true)
+    }
+
+    /// `getUnionTypeEx(..., UnionReductionNone)`: contextual tuple slices
+    /// preserve all possible element types, including literals beside bases.
+    pub(crate) fn get_union_type_without_reduction(&mut self, types: &[TypeId]) -> TypeId {
+        if types.is_empty() {
+            return self.intrinsics.never;
+        }
+        if types.contains(&self.intrinsics.error) {
+            return self.intrinsics.error;
+        }
+        if types.len() == 1 || types.iter().all(|&id| id == types[0]) {
+            return types[0];
+        }
+        self.union_type_worker(types, TypeFlags::empty(), None, false, false)
     }
 
     /// [`Checker::get_union_type`] for a consumer that will never **print** the
@@ -512,7 +527,7 @@ impl Checker<'_, '_> {
         if types.len() == 1 || types.iter().all(|&t| t == types[0]) {
             return types[0];
         }
-        self.union_type_worker(types, TypeFlags::empty(), None, true)
+        self.union_type_worker(types, TypeFlags::empty(), None, true, true)
     }
 
     /// `getUnionTypeEx` with an alias (`checker.go:25628`), **minus the
@@ -546,7 +561,7 @@ impl Checker<'_, '_> {
         if types.is_empty() {
             return self.intrinsics.never;
         }
-        self.union_type_worker(types, extra_flags, Some(symbol), false)
+        self.union_type_worker(types, extra_flags, Some(symbol), false, true)
     }
 
     /// `Checker.getUnionTypeWorker` (`checker.go:25653`) at
@@ -557,6 +572,7 @@ impl Checker<'_, '_> {
         extra_flags: TypeFlags,
         symbol: Option<SymbolId>,
         unprinted: bool,
+        reduce_literals: bool,
     ) -> TypeId {
         let (mut set, includes) = self.add_types_to_union(types);
 
@@ -613,7 +629,7 @@ impl Checker<'_, '_> {
             None
         };
 
-        if includes.flags.intersects(TypeFlags::ANY_OR_UNKNOWN) {
+        if reduce_literals && includes.flags.intersects(TypeFlags::ANY_OR_UNKNOWN) {
             if includes.flags.contains(TypeFlags::ANY) {
                 // `checker.go:25659`: `IncludesError` wins over `IncludesAny`,
                 // which is upstream's own "a gap in a constituent is a gap in
@@ -623,9 +639,10 @@ impl Checker<'_, '_> {
             return self.intrinsics.unknown;
         }
 
-        if includes
-            .flags
-            .intersects(TypeFlags::ENUM | TypeFlags::LITERAL | TypeFlags::UNIQUE_ES_SYMBOL)
+        if reduce_literals
+            && includes
+                .flags
+                .intersects(TypeFlags::ENUM | TypeFlags::LITERAL | TypeFlags::UNIQUE_ES_SYMBOL)
         {
             set = self.remove_redundant_literal_types(set, includes.flags);
         }
@@ -672,15 +689,12 @@ impl Checker<'_, '_> {
         built
     }
 
-    /// §53: mint a union whose SPELLING comes from `entries` (unexpanded)
-    /// while `set` is the flattened member list; registers the origin for
-    /// later projection. An entry whose print is `error` declines whole.
-    /// §816 (`checker-notes-deferred.md`): give a union an INDEX ORIGIN, so a
-    /// concrete `keyof X` prints `keyof X` while its constituents stay the key
-    /// literals that were actually computed.
+    /// Keep a union's denormalized origin spelling while retaining its resolved
+    /// constituents. Used by `keyof` and distributive intersections.
     ///
     /// Upstream's `getLiteralTypeFromProperties` attaches
-    /// `origin = newIndexType(t)` and the node builder prints a union's origin
+    /// `origin = newIndexType(t)` and distributive intersections attach a shorter
+    /// intersection origin. The node builder prints a union's origin
     /// in preference to the union (`nodebuilderimpl.go:3439`, then the `Index`
     /// arm at `:3472`). Here the origin is the union's own interned text, which
     /// makes the origin-carrying union a *distinct* type from the bare one —
@@ -689,7 +703,7 @@ impl Checker<'_, '_> {
     /// Declines a union that already prints as a symbol's name, and anything
     /// that is not a union at all (a one-key `keyof` is its single literal
     /// upstream too, because a one-element union collapses and takes no origin).
-    pub(crate) fn index_origin_union(&mut self, union: TypeId, origin_text: String) -> TypeId {
+    pub(crate) fn union_with_origin_text(&mut self, union: TypeId, origin_text: String) -> TypeId {
         let TypeData::Union { types, symbol, .. } = &self.store.get(union).data else {
             return union;
         };
@@ -822,6 +836,9 @@ impl Checker<'_, '_> {
         // `string[] | Color` order class): an origin spelling is claimed
         // ONLY when every entry is an ENUM-named union or a non-object
         // plain type. Everything else keeps the pre-§53 GAP.
+        let intersection_origin = entries
+            .iter()
+            .any(|&entry| matches!(self.store.get(entry).data, TypeData::Intersection { .. }));
         for &entry in &entries {
             let flags = self.store.get(entry).flags;
             let enum_union = flags.contains(TypeFlags::UNION)
@@ -836,7 +853,7 @@ impl Checker<'_, '_> {
                         if self.binder.symbols().get(*symbol).flags
                             .contains(tsr_binder::SymbolFlags::TYPE_ALIAS));
             let plain = !flags.intersects(TypeFlags::OBJECT | TypeFlags::UNION);
-            if !(enum_union || alias_union || plain) {
+            if !(enum_union || alias_union || plain || intersection_origin) {
                 // §58.1 (`checker-notes-narrow.md`): before declining, a set
                 // that IS a named union's member set answers the named type —
                 // the join of `State`'s constituent with `State` itself
@@ -867,7 +884,7 @@ impl Checker<'_, '_> {
             if printed == "error" {
                 return self.intrinsics.error;
             }
-            parts.push(printed);
+            parts.push(parenthesised(&self.store, entry));
         }
         if set.is_empty() {
             return self.intrinsics.never;
@@ -937,7 +954,7 @@ impl Checker<'_, '_> {
                     // for one would be worse than treating it as opaque.
                     _ => (vec![id], false),
                 };
-                includes.named_union |= named;
+                includes.named_union |= named || self.union_origin.contains_key(&id);
                 for constituent in constituents {
                     self.add_type_to_union(&mut types, &mut includes, constituent);
                 }

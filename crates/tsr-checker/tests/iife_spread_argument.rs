@@ -26,12 +26,8 @@
 //! dead end. This one was cashed twice, months apart, by sessions that only had
 //! to re-read it.
 //!
-//! # What is admitted
-//!
-//! Exactly one spread over a CONCRETE tuple. A spread mixed with plain
-//! arguments needs the position arithmetic `getSpreadArgumentType` does over
-//! several sources; a spread of an array has no element to land on. Both keep
-//! declining.
+//! Effective positions now also cover mixed arguments, variadic tuples and
+//! array spreads; further controls live in `tests/contextual.rs`.
 
 use tsr_ast::{Expression, Statement};
 use tsr_checker::Checker;
@@ -96,13 +92,11 @@ fn a_trailing_rest_takes_only_the_tail() {
     assert_eq!(parameter_types(&source), vec!["number", "[boolean, string]"]);
 }
 
-/// The decline: a spread of an ARRAY has no element to land on, so the
-/// parameters keep whatever the ordinary road gives them rather than being
-/// handed a position that does not exist.
+/// An array spread supplies its element type at every effective position.
 #[test]
-fn a_spread_of_an_array_still_declines() {
+fn a_spread_of_an_array_supplies_each_parameter_type() {
     let source = "interface Array<T> { length: number }\n\
                   declare const xs: number[];\n\
                   (function (a, b) {})(...xs);";
-    assert_ne!(parameter_types(source), vec!["number", "number"]);
+    assert_eq!(parameter_types(source), vec!["number", "number"]);
 }

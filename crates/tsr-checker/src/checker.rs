@@ -266,6 +266,8 @@ pub struct Checker<'a, 'n> {
     /// set that are GENERIC. `isGenericIndexType` needs that distinction and
     /// the printed text is not a sound way to recover it.
     pub(crate) deferred_keyof_types: rustc_hash::FxHashSet<TypeId>,
+    /// The operand of a deferred `IndexType`, for substitution (types.go).
+    pub(crate) deferred_keyof_operands: FxHashMap<TypeId, TypeId>,
     /// §813: the DEFERRED `keyof X` / `X[Y]` mints, as a set of their own.
     ///
     /// A subset of [`Self::unresolved_types`] rather than a new kind of type.
@@ -283,6 +285,11 @@ pub struct Checker<'a, 'n> {
     /// the §31 type-reference mint is in it too, and upstream has a real,
     /// resolved type for `Foo<T>` whose facts it can actually read.
     pub(crate) deferred_index_mints: rustc_hash::FxHashSet<TypeId>,
+    /// Structured deferred indexed accesses, matching `IndexedAccessType`
+    /// (`internal/checker/types.go`), with the persistent `IncludeUndefined` bit.
+    pub(crate) deferred_indexed_access_types: FxHashMap<TypeId, (TypeId, TypeId, bool)>,
+    /// `getIndexedAccessTypeOrUndefined`'s interning key (`checker.go`).
+    pub(crate) deferred_indexed_access_cache: FxHashMap<(TypeId, TypeId, bool), TypeId>,
     /// A class symbol to its `this` type, upstream's `d.thisType`
     /// (`checker.go:17334`). One per class, so `this` has a stable identity
     /// inside one.
@@ -332,6 +339,15 @@ pub struct Checker<'a, 'n> {
     /// types instead of erroring on the circularity.
     pub(crate) call_inference_signatures:
         rustc_hash::FxHashMap<tsr_ast::NodeId, crate::signatures::Signature>,
+    /// Completed `signatureLinks.resolvedSignature` (`getResolvedSignature`,
+    /// internal/checker/checker.go), currently retained for calls with context-
+    /// sensitive arguments. Later contextual reads use the selected signature.
+    pub(crate) resolved_call_signatures:
+        rustc_hash::FxHashMap<tsr_ast::NodeId, crate::signatures::Signature>,
+    /// Calls currently serving contextual signatures containing type parameters
+    /// propagated from a generic argument (`instantiateTypeWithSingleGenericCallSignature`,
+    /// internal/checker/checker.go).
+    pub(crate) higher_order_context_calls: rustc_hash::FxHashSet<tsr_ast::NodeId>,
     /// §469: the signature-links table, reduced to the ONE bit upstream reads
     /// on the contextual road — whether a call's signature resolution is in
     /// flight. Upstream parks `resolvingSignature` in `signatureLinks` before
@@ -427,6 +443,33 @@ pub struct Checker<'a, 'n> {
     /// **on**; each is a separately measurable change and `bd tsr-e10` names
     /// the optionality one.
     pub(crate) strict_null_checks: bool,
+
+    /// `strictFunctionTypes`, used by `compareSignaturesRelated`
+    /// (`internal/checker/relater.go`) for parameter variance.
+    pub(crate) strict_function_types: bool,
+    /// Current structural inference direction (`InferenceState`,
+    /// internal/checker/inference.go), restored around each entry walk.
+    pub(crate) inference_contravariant: bool,
+    pub(crate) inference_bivariant: bool,
+    /// Current `InferenceState.priority` (`internal/checker/inference.go`).
+    pub(crate) inference_priority: crate::inference::InferencePriority,
+    /// Active `InferenceContext` snapshots for nested call return inference.
+    pub(crate) active_inference_contexts:
+        FxHashMap<NodeId, crate::inference::InferenceContextSnapshot>,
+    /// `silentNeverType`, the `NoDefault` mapper's non-inferrable wildcard.
+    pub(crate) silent_never_type: Option<TypeId>,
+    /// `varianceLinks`, the recursion sentinel, and synthetic marker types
+    /// used by `getVariancesWorker` (internal/checker/relater.go).
+    pub(crate) variance_cache: FxHashMap<SymbolId, Option<Vec<crate::variances::Variance>>>,
+    pub(crate) variance_in_progress: rustc_hash::FxHashSet<SymbolId>,
+    pub(crate) variance_markers: Option<[TypeId; 3]>,
+    pub(crate) variance_marker_types: rustc_hash::FxHashSet<TypeId>,
+    /// Contextual signature instantiations and their recursion sentinel,
+    /// corresponding to cached signatures in checker.go.
+    pub(crate) signature_context_cache:
+        FxHashMap<crate::inference::SignatureContextKey, crate::signatures::Signature>,
+    pub(crate) signature_context_in_progress:
+        rustc_hash::FxHashSet<crate::inference::SignatureContextKey>,
 
     /// `strictBindCallApply` (`checker.go:919-926`), read by the property
     /// fallback chain in [`crate::members`] and nothing else.
@@ -613,6 +656,12 @@ pub struct Checker<'a, 'n> {
     /// a re-mint through the symbol road silently widens
     /// (`{ readonly a: 1; }` became `{ readonly a: number; }`). ADR-0003.
     pub(crate) object_literal_members: rustc_hash::FxHashMap<TypeId, Vec<crate::objects::Member>>,
+    /// Captured semantic members of property-only anonymous type literals.
+    /// Instantiation maps these `TypeId`s; property reads use the same images.
+    pub(crate) anonymous_properties:
+        rustc_hash::FxHashMap<TypeId, (Vec<crate::objects::AnonymousProperty>, bool)>,
+    pub(crate) instantiated_objects: rustc_hash::FxHashMap<(TypeId, Vec<(TypeId, TypeId)>), TypeId>,
+    pub(crate) any_function_type: Option<TypeId>,
     pub(crate) object_literal_index_infos:
         rustc_hash::FxHashMap<crate::types::TypeId, Vec<crate::index_signatures::IndexInfo>>,
     /// The identifier the JSX namespace hangs off, `getJsxNamespace`'s
@@ -794,6 +843,10 @@ pub struct Checker<'a, 'n> {
     /// is upstream's error and its target prints `any` (`mappedTypes6`), which a
     /// reused member owner cannot know on its own.
     pub(crate) mapped_identity_optionality: FxHashMap<TypeId, (Option<bool>, Option<bool>)>,
+    /// Deferred homomorphic identity maps retain their type-variable source
+    /// (instantiateMappedType, internal/checker/checker.go). A tuple spread
+    /// can follow its array constraint without erasing the generic operand.
+    pub(crate) mapped_identity_sources: FxHashMap<TypeId, TypeId>,
     pub(crate) tuple_element_lists: FxHashMap<TypeId, (Vec<TypeId>, bool)>,
     /// §79: interning for optional-element tuples, keyed on (member,
     /// optional) pairs so `[number, string?]` and `[number, string]` stay
@@ -802,6 +855,9 @@ pub struct Checker<'a, 'n> {
     /// §79: which positions of an optional-element tuple carry `?` — read at
     /// the index roads, where an optional element answers `| undefined`.
     pub(crate) tuple_optional_masks: FxHashMap<TypeId, Vec<bool>>,
+    /// Tuple labels retained across `instantiateTypeWorker` rebuilds, matching
+    /// typescript-go's `TupleElementInfo.labeledDeclaration` (`types.go`).
+    pub(crate) tuple_labels: FxHashMap<TypeId, Vec<Option<String>>>,
     /// §87: a trailing-rest variadic's tuple NODE — resolved lazily by
     /// positional consumers; the print stays §40's.
     pub(crate) tuple_rest_tails: FxHashMap<TypeId, tsr_ast::NodeId>,
@@ -813,6 +869,12 @@ pub struct Checker<'a, 'n> {
     /// an alias instantiation can re-resolve the node with its type parameters
     /// bound and let §40's own splice run on concrete arguments.
     pub(crate) variadic_tuple_nodes: FxHashMap<TypeId, tsr_ast::NodeId>,
+    /// Resolved tuple arguments and element information before normalization,
+    /// corresponding to typescript-go's `TupleElementInfo` (`types.go`).
+    pub(crate) variadic_tuple_elements: FxHashMap<TypeId, (Vec<crate::tuples::TupleElement>, bool)>,
+    /// Interned normalized variadic references, matching `createTypeReference`
+    /// (`internal/checker/checker.go`).
+    pub(crate) variadic_tuple_types: FxHashMap<(Vec<crate::tuples::TupleElement>, bool), TypeId>,
     /// §791: the variadic aliases whose normalisation is in progress. A
     /// variadic body can reference its own alias, and the re-resolve below
     /// re-enters this road; without the guard that is an unbounded recursion
@@ -870,6 +932,9 @@ pub struct Checker<'a, 'n> {
     /// Set only around the freshness query in
     /// [`Checker::check_expression_for_mutable_location`]; nothing else reads it.
     pub(crate) contextual_prefers_uninstantiated: bool,
+    /// Raw contextual query for inferTypeArguments applies to this expression
+    /// only; nested callback parameter checks still use their fixing mapper.
+    pub(crate) uninstantiated_context_node: Option<NodeId>,
     /// §937: memo for `Checker::target_could_contain_parameter`, upstream's
     /// `couldContainTypeVariables` gate on the property arm of inference.
     ///
@@ -893,16 +958,13 @@ pub struct Checker<'a, 'n> {
     /// identities (`interface List<T> { next: List<List<T>> }`), and the cap of
     /// 100 is what makes ADR-0029's modest stack budget safe. `bd tsr-el3.2`.
     pub(crate) instantiation_depth: u32,
-    /// How many instantiations this checker has performed in total.
+    /// How many instantiations have run since the current expression check.
     ///
     /// Upstream's `c.instantiationCount` (`checker.go:591`), the other half of
-    /// the `checker.go:22111` guard. **A recorded divergence:** upstream resets
-    /// it to zero per checked statement (`checker.go:2246`, `:2509`, `:7563`);
-    /// this port has no check traversal to reset from (ADR-0040), so the budget
-    /// of 5,000,000 is per checker — per file, as the conformance harness
-    /// constructs one checker per case. Stricter than upstream on a file whose
-    /// statements would legitimately instantiate more than 5M types in
-    /// aggregate, which no corpus case does.
+    /// the `checker.go:22111` guard. checkExpressionEx resets it before its
+    /// worker (`checker.go:7563`); this port does the same in `check_expression`.
+    /// The statement/deferred-node reset sites remain outside this port's
+    /// on-demand expression traversal.
     pub(crate) instantiation_count: u32,
 }
 
@@ -1058,13 +1120,18 @@ impl<'a, 'n> Checker<'a, 'n> {
             literal_this_types: FxHashMap::default(),
             unresolved_types: rustc_hash::FxHashSet::default(),
             deferred_keyof_types: rustc_hash::FxHashSet::default(),
+            deferred_keyof_operands: FxHashMap::default(),
             deferred_index_mints: rustc_hash::FxHashSet::default(),
+            deferred_indexed_access_types: FxHashMap::default(),
+            deferred_indexed_access_cache: FxHashMap::default(),
             resolutions: Resolutions::new(),
             flow_analysis_disabled: false,
             flow_disabled_containers: rustc_hash::FxHashSet::default(),
             shared_flows: Vec::new(),
             narrow_value_stack: std::collections::HashSet::new(),
             call_inference_signatures: rustc_hash::FxHashMap::default(),
+            resolved_call_signatures: rustc_hash::FxHashMap::default(),
+            higher_order_context_calls: rustc_hash::FxHashSet::default(),
             resolving_signature_calls: rustc_hash::FxHashSet::default(),
             contextual_return_in_flight: rustc_hash::FxHashSet::default(),
             contextual_return_depth: 0,
@@ -1078,6 +1145,18 @@ impl<'a, 'n> Checker<'a, 'n> {
             instantiation_depth: 0,
             instantiation_count: 0,
             strict_null_checks: true,
+            strict_function_types: true,
+            inference_contravariant: false,
+            inference_bivariant: false,
+            inference_priority: crate::inference::InferencePriority::NONE,
+            active_inference_contexts: FxHashMap::default(),
+            silent_never_type: None,
+            variance_cache: FxHashMap::default(),
+            variance_in_progress: rustc_hash::FxHashSet::default(),
+            variance_markers: None,
+            variance_marker_types: rustc_hash::FxHashSet::default(),
+            signature_context_cache: FxHashMap::default(),
+            signature_context_in_progress: rustc_hash::FxHashSet::default(),
             // Mirrors `strict_null_checks`' struct default; every corpus road
             // calls `apply_compiler_options`, which overrides both.
             strict_bind_call_apply: true,
@@ -1102,6 +1181,9 @@ impl<'a, 'n> Checker<'a, 'n> {
             js_literal_types: rustc_hash::FxHashSet::default(),
             fresh_object_literal_types: rustc_hash::FxHashSet::default(),
             object_literal_members: rustc_hash::FxHashMap::default(),
+            anonymous_properties: rustc_hash::FxHashMap::default(),
+            instantiated_objects: rustc_hash::FxHashMap::default(),
+            any_function_type: None,
             object_literal_index_infos: rustc_hash::FxHashMap::default(),
             pattern_implied_members: rustc_hash::FxHashMap::default(),
             jsx_namespace: "React".to_string(),
@@ -1136,17 +1218,22 @@ impl<'a, 'n> Checker<'a, 'n> {
             decorator_error_reported: rustc_hash::FxHashSet::default(),
             tuple_types: FxHashMap::default(),
             mapped_identity_optionality: FxHashMap::default(),
+            mapped_identity_sources: FxHashMap::default(),
             tuple_element_lists: FxHashMap::default(),
             optional_tuple_types: FxHashMap::default(),
             tuple_optional_masks: FxHashMap::default(),
+            tuple_labels: FxHashMap::default(),
             tuple_rest_tails: FxHashMap::default(),
             variadic_tuple_nodes: FxHashMap::default(),
+            variadic_tuple_elements: FxHashMap::default(),
+            variadic_tuple_types: FxHashMap::default(),
             variadic_alias_in_progress: rustc_hash::FxHashSet::default(),
             type_parameter_symbols: FxHashMap::default(),
             signature_types: FxHashMap::default(),
             instantiated_signatures: FxHashMap::default(),
             minted_signature_types: rustc_hash::FxHashSet::default(),
             contextual_prefers_uninstantiated: false,
+            uninstantiated_context_node: None,
             could_contain_parameter_cache: rustc_hash::FxHashMap::default(),
             rendering_composites: rustc_hash::FxHashSet::default(),
         }
@@ -1204,8 +1291,14 @@ impl<'a, 'n> Checker<'a, 'n> {
     /// constructor consults `strict_null_checks` at build time, so flipping it
     /// once types exist leaves a store built under two configurations.
     pub fn apply_compiler_options(&mut self, options: &tsr_core::CompilerOptions) {
+        let previous_strict_function_types = self.strict_function_types;
         // The strict family (`checker.go:919-926`).
         self.strict_null_checks = options.strict_option_value(options.strict_null_checks);
+        self.strict_function_types = options.strict_option_value(options.strict_function_types);
+        if self.strict_function_types != previous_strict_function_types {
+            self.variance_cache.clear();
+            self.signature_context_cache.clear();
+        }
         self.strict_bind_call_apply = options.strict_option_value(options.strict_bind_call_apply);
         self.no_implicit_this = options.strict_option_value(options.no_implicit_this);
         self.legacy_decorators = options.experimental_decorators.is_true();
@@ -1587,9 +1680,19 @@ impl<'a, 'n> Checker<'a, 'n> {
                 self.rendering_composites.insert(id);
                 let mut parts = Vec::with_capacity(entries.len());
                 let mut complete = true;
+                let multiple = entries.len() > 1;
                 for entry in entries {
                     if let Some(part) = self.type_to_string_at(entry, reference) {
-                        parts.push(part);
+                        let intersection =
+                            matches!(
+                                self.store.get(entry).data,
+                                crate::types::TypeData::Intersection { .. }
+                            ) && !crate::printing::prints_as_a_single_token(self.store.get(entry));
+                        parts.push(if multiple && intersection {
+                            format!("({part})")
+                        } else {
+                            part
+                        });
                     } else {
                         complete = false;
                         break;

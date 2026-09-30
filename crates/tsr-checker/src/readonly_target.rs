@@ -285,6 +285,11 @@ impl Checker<'_, '_> {
         {
             return false;
         }
+        // Tuple targets synthesize a readonly `length` property; there is no
+        // binder symbol for it to carry `CheckFlagsReadonly` in this port.
+        if name == "length" && self.tuple_is_readonly(receiver_type) {
+            return true;
+        }
         // §952: a homomorphic `readonly` mapping makes EVERY member read-only,
         // and the reused member owner cannot say so — the modifier lives beside
         // the mint. `Readonly<Bar>`'s `x4.a = 1` is upstream's error and the

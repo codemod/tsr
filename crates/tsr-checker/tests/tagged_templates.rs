@@ -83,6 +83,13 @@ fn a_template_with_substitutions_still_takes_the_tags_return_type() {
 }
 
 #[test]
+fn consuming_a_callback_context_keeps_its_inference_fixed_and_widened() {
+    let source = "declare function tag<T>(strings: any, callback: (input: T) => T, value: T): T;
+        const result = tag`${item => item} ${10}`;";
+    assert_eq!(type_of_last(source), "number");
+}
+
+#[test]
 fn a_generic_tag_is_a_gap() {
     // A generic signature's return type depends on inference over the template
     // strings array and each substitution. `String.raw` and every typed template

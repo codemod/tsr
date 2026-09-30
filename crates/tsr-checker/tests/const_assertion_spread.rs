@@ -1,26 +1,6 @@
-//! A tuple spread inside `as const` SPLICES. §792.
-//!
-//! `[1, ...t] as const` with `t: [boolean]` is `readonly [1, boolean]`
-//! upstream. This port answered `errorType`: `check_const_assertion`
-//! (`assertions.rs`) declined any spread outright.
-//!
-//! §105's comment gave the reason as *"readonly MEMBERS are slice 2, behind
-//! the value-spelling carriage"*. That reason is real and does not cover this
-//! case — splicing a tuple needs no member machinery, only its element list.
-//! A refusal's stated reason has to be re-read against the case in hand, not
-//! inherited.
-//!
-//! # Where this came from
-//!
-//! STATUS §5's §790 refused variadic tuples as a subsystem and priced them at
-//! ~780 lines. §791 built the ANNOTATION half for +2 and corrected the estimate:
-//! those four cases share a language feature, not a fix. Re-deriving per
-//! POSITION — which is what §791's correction asked for — put the expression
-//! half here, in `as const`, and it is worth **+80**.
-//!
-//! Restricted to operands that HAVE an element list: a spread of an array, or
-//! of §40's print-only variadic, still declines, because there is nothing to
-//! splice and inventing a length would be a confident wrong answer.
+//! Array-like spreads in const assertions retain tuple arguments until
+//! normalization expands concrete tuples or combines unbounded rest elements.
+//! Corresponds to `checkArrayLiteral` and `TupleNormalizer.normalize` in tsgo.
 
 use tsr_ast::Statement;
 use tsr_checker::Checker;
@@ -85,7 +65,31 @@ fn a_plain_const_assertion_is_unchanged() {
 /// The decline. An ARRAY spread has no element list, so there is no length to
 /// splice and the operand keeps its gap rather than inventing one.
 #[test]
-fn an_array_spread_still_declines() {
+fn an_array_spread_retains_an_unbounded_rest() {
     let source = format!("{LIB}declare const t: number[];\nconst a = [1, ...t] as const;");
-    assert_eq!(type_of_initialiser(&source, "a"), "error");
+    assert_eq!(type_of_initialiser(&source, "a"), "readonly [1, ...number[]]");
+}
+
+#[test]
+fn a_generic_spread_is_substituted_in_a_const_return() {
+    let source = format!(
+        "{LIB}function f<T extends unknown[]>(t: [...T]) {{ return [1, ...t, 2] as const; }}\n\
+         const a = f(['hello', true]);"
+    );
+    assert_eq!(type_of_initialiser(&source, "a"), "readonly [1, string, boolean, 2]");
+}
+
+#[test]
+fn multiple_array_spreads_normalize_to_a_single_rest() {
+    let source = format!(
+        "{LIB}declare const t: number[]; declare const u: string[];\n\
+         const a = [1, ...t, true, ...u, 2] as const;"
+    );
+    assert_eq!(type_of_initialiser(&source, "a"), "readonly [1, ...(string | number | true)[], 2]");
+}
+
+#[test]
+fn an_any_spread_still_produces_an_array() {
+    let source = format!("{LIB}declare const t: any; const a = [...t];");
+    assert_eq!(type_of_initialiser(&source, "a"), "any[]");
 }

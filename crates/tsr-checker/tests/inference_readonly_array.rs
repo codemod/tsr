@@ -11,10 +11,8 @@
 //! array-like, because a mutable array IS a readonly one and their single type
 //! argument occupies the same slot.
 //!
-//! Restricted to those two globals rather than any structurally-compatible
-//! pair: inference that admits a target it cannot justify produces a
-//! CANDIDATE, and a wrong candidate is a confident wrong answer rather than a
-//! missing one.
+//! Other reference targets infer structurally through shared members rather
+//! than pairing their type arguments by position.
 
 use tsr_ast::Statement;
 use tsr_checker::Checker;
@@ -84,15 +82,19 @@ fn a_readonly_array_construct_parameter_infers() {
     assert_eq!(type_of(&source, "a"), "S<number>");
 }
 
-/// The restriction, stated as a test: two UNRELATED generic references are
-/// still not inferred across. Admitting them would produce a candidate this
-/// port cannot justify.
+/// Different reference targets infer through their matching properties.
 #[test]
-fn two_unrelated_references_still_do_not_infer_across() {
+fn different_reference_targets_require_structural_matches() {
     let source = format!(
         "{LIB}interface Box<T> {{ v: T }}\ninterface Bag<T> {{ v: T }}\n\
          declare function mk<T>(b: Box<T>): T;\ndeclare const bag: Bag<number>;\n\
          const a = mk(bag);"
     );
-    assert_ne!(type_of(&source, "a"), "number");
+    assert_eq!(type_of(&source, "a"), "number");
+    let unrelated = format!(
+        "{LIB}interface Box<T> {{ v: T }}\ninterface Bag<T> {{ other: T }}\n\
+         declare function mk<T>(b: Box<T>): T;\ndeclare const bag: Bag<number>;\n\
+         const a = mk(bag);"
+    );
+    assert_ne!(type_of(&unrelated, "a"), "number");
 }

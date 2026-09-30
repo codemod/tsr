@@ -282,7 +282,7 @@ impl<'a> Checker<'a, '_> {
                         // records the printed form as the residue.
                         if self.keyof_origin_applies(target) {
                             let text = format!("keyof {}", self.type_to_string(target));
-                            self.index_origin_union(union, text)
+                            self.union_with_origin_text(union, text)
                         } else {
                             union
                         }
@@ -461,6 +461,12 @@ impl<'a> Checker<'a, '_> {
                         // `x[k]` where `k: keyof T` can defer rather than
                         // answer `any`.
                         self.deferred_keyof_types.insert(id);
+                        if let Some(operand) = node.r#type {
+                            let operand = self.get_type_from_type_node(operand);
+                            if operand != self.intrinsics.error {
+                                self.deferred_keyof_operands.insert(id, operand);
+                            }
+                        }
                         // §813: also a DEFERRED mint, for getAdjustedTypeWithFacts.
                         self.deferred_index_mints.insert(id);
                         id
@@ -513,6 +519,20 @@ impl<'a> Checker<'a, '_> {
             // line changes. Literal indexes resolve concretely upstream and
             // stay declined here.
             TypeNode::IndexedAccessTypeNode(node) => {
+                if let (Some(object), Some(index)) = (node.object_type, node.index_type) {
+                    let object = self.get_type_from_type_node(object);
+                    let index = self.get_type_from_type_node(index);
+                    if self.store.get(object).flags.contains(TypeFlags::TYPE_PARAMETER)
+                        && let Some(t) = self.resolved_indexed_access_type(object, index, false)
+                    {
+                        return t;
+                    }
+                    if self.variadic_tuple_elements.contains_key(&object)
+                        && let Some(t) = self.tuple_index_type(object, index, false)
+                    {
+                        return t;
+                    }
+                }
                 // §620: the CONCRETE arm, ahead of the deferred one. The road
                 // below prints `T[K]` as written for a type-PARAMETER index and
                 // answers `error` for everything else — *"Literal indexes
@@ -863,6 +883,14 @@ impl<'a> Checker<'a, '_> {
                         self.unresolved_types.insert(id);
                         // §813: also a DEFERRED mint, for getAdjustedTypeWithFacts.
                         self.deferred_index_mints.insert(id);
+                        if let (Some(object), Some(index)) = (node.object_type, node.index_type) {
+                            let object = self.get_type_from_type_node(object);
+                            let index = self.get_type_from_type_node(index);
+                            if object != self.intrinsics.error && index != self.intrinsics.error {
+                                self.deferred_indexed_access_types
+                                    .insert(id, (object, index, false));
+                            }
+                        }
                         id
                     }
                     _ => self.intrinsics.error,
@@ -1313,6 +1341,7 @@ impl<'a> Checker<'a, '_> {
         let mut signatures = Vec::new();
         let mut indexes = Vec::new();
         let mut properties = Vec::with_capacity(node.members.len());
+        let mut typed_properties = Vec::with_capacity(node.members.len());
         // SS333: computed property signatures whose name cannot late-bind
         // contribute an INDEX (`var v: { [e]: number }` with unresolved `e`
         // records `{ [x: number]: number; }`, `parserComputedPropertyName13`),
@@ -1657,6 +1686,16 @@ impl<'a> Checker<'a, '_> {
                     .unwrap_or_else(|| self.type_to_string(member_type)),
                 _ => self.type_to_string(member_type),
             };
+            if let Some(symbol) = property.node_id.and_then(|id| self.binder.symbol_of(id)) {
+                typed_properties.push(crate::objects::AnonymousProperty {
+                    name: self.binder.symbols().get(symbol).name.to_string(),
+                    printed_name: name.clone(),
+                    printed_type: printed.clone(),
+                    optional,
+                    readonly,
+                    r#type: member_type,
+                });
+            }
             properties.push(crate::objects::Member::Property { name, optional, readonly, printed });
         }
         if !computed_indexes.is_empty() && indexes.is_empty() {
@@ -1734,8 +1773,13 @@ impl<'a> Checker<'a, '_> {
         };
         // The binder gives a type literal its own anonymous `__type` symbol,
         // whose members table is where a property access on this type looks.
-        let members = node.node_id.and_then(|id| self.binder.symbol_of(id));
-        self.store.new_named(TypeFlags::OBJECT, printed, members)
+        let owner = node.node_id.and_then(|id| self.binder.symbol_of(id));
+        let structural = printed.starts_with('{');
+        let minted = self.store.new_named(TypeFlags::OBJECT, printed, owner);
+        if structural && typed_properties.len() == node.members.len() {
+            self.anonymous_properties.insert(minted, (typed_properties, false));
+        }
+        minted
     }
 
     /// Ported from `Checker.getTypeFromUnionTypeNode` (`checker.go:24209`).
@@ -1992,15 +2036,15 @@ impl<'a> Checker<'a, '_> {
         if let Some(alias) = node.node_id.and_then(|id| self.alias_symbol_for_type_node(id))
             && self.local_type_parameters_of(alias).is_empty()
             && !node.elements.is_empty()
-            // §956: the REST exclusion is gone. §40 added it because a
-            // rest-bearing body did not RESOLVE — the arm minted a name over an
-            // `any` body and cost 13 `RIGHT->WRONG` on `excessivelyLargeTupleSpread`.
-            // §956 makes those bodies resolve, so the premise is gone, and
-            // upstream plainly names them: `>WithOptAndRest : WithOptAndRest`
-            // for `[first: number, second?: number, ...rest: string[]]`
-            // (`namedTupleMembers`). The `structural == error` check below is what
-            // still protects the old case — a body that cannot resolve declines
-            // here exactly as before.
+        // §956: the REST exclusion is gone. §40 added it because a
+        // rest-bearing body did not RESOLVE — the arm minted a name over an
+        // `any` body and cost 13 `RIGHT->WRONG` on `excessivelyLargeTupleSpread`.
+        // §956 makes those bodies resolve, so the premise is gone, and
+        // upstream plainly names them: `>WithOptAndRest : WithOptAndRest`
+        // for `[first: number, second?: number, ...rest: string[]]`
+        // (`namedTupleMembers`). The `structural == error` check below is what
+        // still protects the old case — a body that cannot resolve declines
+        // here exactly as before.
         {
             // (`type foo = []` prints `[]`, not `foo` —
             // `typeAliasDeclarationEmit3`'s 3 R→W named the empty gate.)
@@ -2056,9 +2100,19 @@ impl<'a> Checker<'a, '_> {
                     _ => false,
                 }
             });
+            // §959 corrects §956's proxy here. It read
+            // `!variadic_tuple_nodes.contains_key(&structural)` — "the body did not
+            // stay a print-only spelling" — which was right while a rest-bearing body
+            // had only TWO outcomes, a spelling or a spliced tuple. The reduction
+            // above adds a THIRD, an ARRAY, and the old test sent
+            // `type T03 = [...string[]]` and `type V15 = [...string[], ...number[]]`
+            // to the structure where upstream names both.
+            //
+            // The question was always *"did normalisation produce a positional TUPLE
+            // this name would hide"*, so ask that directly: a spliced tuple registers
+            // in `tuple_element_lists` and neither a spelling nor an array does.
             if node.elements.iter().any(|e| matches!(e, TypeNode::RestTypeNode(_)))
-                && (!self.variadic_tuple_nodes.contains_key(&structural)
-                    || rest_over_a_reference)
+                && (self.tuple_element_lists.contains_key(&structural) || rest_over_a_reference)
             {
                 return structural;
             }
@@ -2069,6 +2123,12 @@ impl<'a> Checker<'a, '_> {
             }
             if let Some(mask) = self.tuple_optional_masks.get(&structural).cloned() {
                 self.tuple_optional_masks.insert(named, mask);
+            }
+            if let Some(labels) = self.tuple_labels.get(&structural).cloned() {
+                self.tuple_labels.insert(named, labels);
+            }
+            if let Some(elements) = self.variadic_tuple_elements.get(&structural).cloned() {
+                self.variadic_tuple_elements.insert(named, elements);
             }
             return named;
         }
@@ -2103,17 +2163,8 @@ impl<'a> Checker<'a, '_> {
         // unwrapped in the loop instead.
         if node.elements.iter().any(|element| matches!(element, TypeNode::RestTypeNode(_))) {
             let mut pieces = Vec::with_capacity(node.elements.len());
-            let mut spliced: Option<Vec<TypeId>> = Some(Vec::new());
-            // §956: an optional or named element forbids the SPLICE below — the
-            // spliced path builds a real element list, which carries neither a
-            // `?` nor a label, so a splice would silently drop what the source
-            // wrote. Text composition is unaffected.
-            let spellings_only = node.elements.iter().any(|element| {
-                matches!(element, TypeNode::NamedTupleMember(_) | TypeNode::OptionalTypeNode(_))
-            });
-            if spellings_only {
-                spliced = None;
-            }
+            let mut resolved_elements = Vec::with_capacity(node.elements.len());
+            let mut spliced: Option<Vec<(TypeId, bool, Option<String>)>> = Some(Vec::new());
             for element in node.elements {
                 let (prefix, suffix, inner) = match element {
                     // §956: `[a: string, b?: number, ...c: T]` — the label, the
@@ -2125,8 +2176,7 @@ impl<'a> Checker<'a, '_> {
                             let (Some(inner), Some(name)) = (member.r#type, member.name) else {
                                 return error;
                             };
-                            let question =
-                                if member.question_token.is_some() { "?" } else { "" };
+                            let question = if member.question_token.is_some() { "?" } else { "" };
                             (format!("...{}{question}: ", name.text), String::new(), inner)
                         }
                         Some(inner) => ("...".to_string(), String::new(), inner),
@@ -2149,16 +2199,47 @@ impl<'a> Checker<'a, '_> {
                 if resolved == error {
                     return error;
                 }
+                let member = match element {
+                    TypeNode::NamedTupleMember(member) => Some(*member),
+                    TypeNode::RestTypeNode(rest) => match rest.r#type {
+                        Some(TypeNode::NamedTupleMember(member)) => Some(member),
+                        _ => None,
+                    },
+                    _ => None,
+                };
+                resolved_elements.push(crate::tuples::TupleElement {
+                    r#type: resolved,
+                    spread: matches!(element, TypeNode::RestTypeNode(_)),
+                    optional: matches!(element, TypeNode::OptionalTypeNode(_))
+                        || member.is_some_and(|member| member.question_token.is_some()),
+                    label: member.and_then(|member| member.name).map(|name| name.text.to_string()),
+                });
                 // A rest over a CONCRETE tuple splices — upstream expands it
                 // flat (`excessivelyLargeTupleSpread`, the §40 falsifier's
                 // population); any other rest keeps the whole print-only.
                 if let Some(flat) = spliced.as_mut() {
-                    if prefix.is_empty() {
-                        flat.push(resolved);
+                    if !matches!(element, TypeNode::RestTypeNode(_)) {
+                        let (optional, label) = match element {
+                            TypeNode::NamedTupleMember(member) => (
+                                member.question_token.is_some(),
+                                member.name.map(|name| name.text.to_string()),
+                            ),
+                            TypeNode::OptionalTypeNode(_) => (true, None),
+                            _ => (false, None),
+                        };
+                        flat.push((resolved, optional, label));
                     } else if let Some((inner_elements, _)) =
                         self.tuple_element_lists.get(&resolved).cloned()
                     {
-                        flat.extend(inner_elements);
+                        let mask = self.tuple_optional_masks.get(&resolved);
+                        let labels = self.tuple_labels.get(&resolved);
+                        flat.extend(inner_elements.into_iter().enumerate().map(|(index, t)| {
+                            (
+                                t,
+                                mask.and_then(|m| m.get(index)).copied().unwrap_or(false),
+                                labels.and_then(|l| l.get(index)).cloned().flatten(),
+                            )
+                        }));
                     } else {
                         spliced = None;
                     }
@@ -2170,7 +2251,63 @@ impl<'a> Checker<'a, '_> {
                     .node_id
                     .and_then(|id| self.nodes.parent(id))
                     .is_some_and(|parent| self.is_readonly_type_operator(parent));
-                return self.create_tuple_type(flat, readonly);
+                if flat.iter().any(|(_, optional, label)| *optional || label.is_some()) {
+                    let elements: Vec<_> =
+                        flat.iter().map(|(t, optional, _)| (*t, *optional)).collect();
+                    let labels: Vec<_> = flat.into_iter().map(|(_, _, label)| label).collect();
+                    return self.create_optional_tuple_type(&elements, &labels, readonly);
+                }
+                return self
+                    .create_tuple_type(flat.into_iter().map(|(t, _, _)| t).collect(), readonly);
+            }
+            // §959 (§958's rule, landed once the spelling had somewhere to live): a
+            // tuple made ONLY of rests over array-likes IS an array of the union of
+            // their element types — `createNormalizedTupleType`, since two unbounded
+            // rests cannot be expressed positionally.
+            //
+            // ```
+            // [...boolean[]]                  boolean[]            11 rows, genericRestParameters2
+            // [...string[], ...Array<number>] (string | number)[]  variadicTuples2 V16-V18
+            // [...any]                        any[]                variadicTuples1
+            // ```
+            //
+            // The ALIAS road is untouched, which is §956's rule doing its work:
+            // `type T03 = [...string[]]` still prints `T03` because nothing was
+            // rewritten, while `V16 = [...string[], ...Array<number>]` prints the
+            // structure — the two differ only in §956's reference test.
+            //
+            // A rest over something that is NOT an array-like keeps the decline:
+            // `[...string]` is upstream's `any[]` by way of an ERROR, and answering
+            // it here would be inventing that error's recovery.
+            if node.elements.iter().all(|element| matches!(element, TypeNode::RestTypeNode(_))) {
+                let mut element_types = Vec::with_capacity(node.elements.len());
+                let mut every_operand_is_an_array = true;
+                for element in node.elements {
+                    let TypeNode::RestTypeNode(rest) = element else { continue };
+                    let Some(operand) = rest.r#type else { return error };
+                    let resolved = self.get_type_from_type_node(operand);
+                    if self.store.get(resolved).flags.contains(TypeFlags::ANY) {
+                        element_types.push(resolved);
+                        continue;
+                    }
+                    if let Some(single) = self.tuple_spread_array_element(resolved) {
+                        element_types.push(single);
+                    } else {
+                        every_operand_is_an_array = false;
+                        break;
+                    }
+                }
+                if every_operand_is_an_array && !element_types.is_empty() {
+                    let element = self.get_union_type(&element_types);
+                    let readonly = node
+                        .node_id
+                        .and_then(|id| self.nodes.parent(id))
+                        .is_some_and(|parent| self.is_readonly_type_operator(parent));
+                    let target = if readonly { "ReadonlyArray" } else { "Array" };
+                    if let Some(target) = self.global_type_symbol(target) {
+                        return self.create_type_reference(target, vec![element]);
+                    }
+                }
             }
             let readonly = node
                 .node_id
@@ -2179,6 +2316,7 @@ impl<'a> Checker<'a, '_> {
             let text =
                 format!("{}[{}]", if readonly { "readonly " } else { "" }, pieces.join(", "));
             let minted = self.store.new_named(TypeFlags::OBJECT, text, None);
+            self.variadic_tuple_elements.insert(minted, (resolved_elements, readonly));
             // §791: remember the NODE. This mint is print-only precisely
             // because a rest element resolved to something with no element
             // list — a type parameter. Once that parameter is BOUND to a
@@ -2310,7 +2448,7 @@ impl<'a> Checker<'a, '_> {
                     // never `[first: string?]`.
                     Some(label) if optional => format!("{label}?: {text}"),
                     Some(label) => format!("{label}: {text}"),
-                    None if optional => format!("{text}?"),
+                    None if optional => format!("{}?", self.optional_tuple_element_text(element)),
                     None => text,
                 }
             })
@@ -2323,6 +2461,7 @@ impl<'a> Checker<'a, '_> {
         let mask: Vec<bool> = elements.iter().map(|&(_, optional)| optional).collect();
         self.tuple_element_lists.insert(id, (plain, readonly));
         self.tuple_optional_masks.insert(id, mask);
+        self.tuple_labels.insert(id, labels.to_vec());
         self.optional_tuple_types.insert(key, id);
         id
     }
@@ -2510,6 +2649,292 @@ impl<'a> Checker<'a, '_> {
             crate::types::TypeData::Named { members: Some(owner), .. } => Some(*owner),
             crate::types::TypeData::Anonymous { symbol, .. } => Some(*symbol),
             _ => None,
+        }
+    }
+
+    /// The syntactic identity-template subset of isHomomorphicMappedType.
+    fn identity_mapped_alias_node(
+        &self,
+        symbol: SymbolId,
+    ) -> Option<&'a tsr_ast::MappedTypeNode<'a>> {
+        if self.binder.symbols().get(symbol).flags.contains(tsr_binder::SymbolFlags::TYPE_ALIAS)
+            && let Some(declaration) =
+                self.binder.symbols().get(symbol).declarations.first().copied()
+            && let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration)
+            && let Some(TypeNode::MappedTypeNode(mapped)) = alias.r#type
+            && let [parameter_declaration] = self.local_type_parameters_of(symbol)
+            && let Some(parameter_name) = parameter_declaration.name.map(|name| name.text)
+            && let Some(mapped_parameter) = mapped.type_parameter
+            && let Some(key_name) = mapped_parameter.name.map(|name| name.text)
+            // The constraint must be `keyof T` for the alias's own parameter —
+            // upstream's `isHomomorphicMappedType` test, syntactically.
+            && let Some(TypeNode::TypeOperatorNode(operator)) = mapped_parameter.constraint
+            && operator.operator.kind == SyntaxKind::KeyOfKeyword
+            && Self::type_node_names(operator.r#type) == Some(parameter_name)
+            // No `as` clause: a key remapping changes the NAMES, which is
+            // exactly what reusing the source's owner cannot express.
+            && mapped.name_type.is_none()
+            // The template must be `T[P]` — the identity.
+            && let Some(TypeNode::IndexedAccessTypeNode(access)) = mapped.r#type
+            && Self::type_node_names(access.object_type) == Some(parameter_name)
+            && Self::type_node_names(access.index_type) == Some(key_name)
+        {
+            Some(mapped)
+        } else {
+            None
+        }
+    }
+
+    /// A mapped alias reference whose normalization may remove the enclosing
+    /// alias identity. Other alias bodies keep their existing resolution path.
+    fn identity_mapped_alias_reference_body(&mut self, symbol: SymbolId) -> Option<TypeNode<'a>> {
+        if !self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_ALIAS) {
+            return None;
+        }
+        let declaration = self.binder.symbols().get(symbol).declarations.first().copied()?;
+        let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration) else {
+            return None;
+        };
+        let body @ TypeNode::TypeReferenceNode(reference) = alias.r#type? else {
+            return None;
+        };
+        let mapped = self.resolve_entity_name(reference.type_name?, SymbolFlags::TYPE)?;
+        self.identity_mapped_alias_node(mapped).map(|_| body)
+    }
+
+    fn is_normalized_mapped_sequence(&mut self, resolved: TypeId) -> bool {
+        self.tuple_element_lists.contains_key(&resolved)
+            || self.variadic_tuple_elements.contains_key(&resolved)
+            || (resolved != self.intrinsics.error
+                && !self.store.get(resolved).flags.contains(TypeFlags::ANY)
+                && self.tuple_spread_array_element(resolved).is_some())
+    }
+
+    /// The array/tuple branch of getTypeAliasInstantiation. The mapped body
+    /// retains its deferred variadic operands until the alias's own parameters
+    /// are substituted; createNormalizedTupleType then flattens those operands.
+    fn instantiate_normalized_mapped_alias(
+        &mut self,
+        symbol: SymbolId,
+        arguments: &[TypeId],
+    ) -> Option<TypeId> {
+        let body = self.identity_mapped_alias_reference_body(symbol)?;
+        if !self.variadic_alias_in_progress.insert(symbol) {
+            return None;
+        }
+        let resolved = (|| {
+            let parameters = self.local_type_parameter_types_of(symbol)?;
+            if parameters.is_empty() || parameters.len() != arguments.len() {
+                return None;
+            }
+            let body = self.get_type_from_type_node(body);
+            if !self.is_normalized_mapped_sequence(body) {
+                return None;
+            }
+            let types: Vec<_> = parameters.iter().map(|&(t, _)| t).collect();
+            let names: Vec<_> = parameters.iter().map(|(_, name)| name.as_str()).collect();
+            let map: Vec<_> = types.iter().copied().zip(arguments.iter().copied()).collect();
+            let instantiated = self.instantiate_type(body, &map, &types, &names);
+            self.is_normalized_mapped_sequence(instantiated).then_some(instantiated)
+        })();
+        self.variadic_alias_in_progress.remove(&symbol);
+        resolved
+    }
+
+    /// The identity-template part of instantiateMappedType
+    /// (internal/checker/checker.go), shared by written and computed references.
+    fn instantiate_identity_mapped_alias(
+        &mut self,
+        symbol: SymbolId,
+        arguments: &[TypeId],
+    ) -> Option<TypeId> {
+        let error = self.intrinsics.error;
+        if arguments.len() == 1
+            && let Some(mapped) = self.identity_mapped_alias_node(symbol)
+        {
+            // instantiateMappedType leaves primitive constituents unchanged.
+            if self.type_of(arguments[0]).flags.intersects(TypeFlags::PRIMITIVE | TypeFlags::NEVER)
+            {
+                return Some(arguments[0]);
+            }
+            // `?` and `+?` add optionality, `-?` removes it, absent leaves it.
+            let optionality =
+                mapped.question_token.map(|token| !matches!(token.kind, SyntaxKind::MinusToken));
+            // `readonly` / `+readonly` add, `-readonly` removes. The parser puts
+            // the `+`/`-` in this slot, so a bare `readonly` is the keyword
+            // itself.
+            let readonly =
+                mapped.readonly_token.map(|token| !matches!(token.kind, SyntaxKind::MinusToken));
+            if self.store.get(arguments[0]).flags.contains(TypeFlags::TYPE_PARAMETER)
+                || self.mapped_identity_sources.contains_key(&arguments[0])
+            {
+                let key = (symbol, arguments.to_vec());
+                if let Some(&existing) = self.instantiations.get(&key) {
+                    return Some(existing);
+                }
+                let name = self.binder.symbols().get(symbol).name.to_string();
+                let text = format!("{name}<{}>", self.type_to_string(arguments[0]));
+                let deferred = self.store.new_named(TypeFlags::OBJECT, text, None);
+                self.type_reference_targets.insert(deferred, key.clone());
+                self.mapped_identity_sources.insert(deferred, arguments[0]);
+                self.mapped_identity_optionality.insert(deferred, (optionality, readonly));
+                self.instantiations.insert(key, deferred);
+                return Some(deferred);
+            }
+            // instantiateMappedType branches on tuples and arrays before
+            // resolving object members. Tuple masks and labels carry the
+            // element information needed by instantiateMappedTupleType.
+            let tuple = self.variadic_tuple_elements.get(&arguments[0]).cloned().or_else(|| {
+                self.tuple_element_lists.get(&arguments[0]).map(|(types, readonly)| {
+                    let mask = self.tuple_optional_masks.get(&arguments[0]);
+                    let labels = self.tuple_labels.get(&arguments[0]);
+                    (
+                        types
+                            .iter()
+                            .enumerate()
+                            .map(|(index, &t)| crate::tuples::TupleElement {
+                                r#type: t,
+                                spread: false,
+                                optional: mask
+                                    .and_then(|mask| mask.get(index))
+                                    .copied()
+                                    .unwrap_or(false),
+                                label: labels
+                                    .and_then(|labels| labels.get(index))
+                                    .cloned()
+                                    .flatten(),
+                            })
+                            .collect(),
+                        *readonly,
+                    )
+                })
+            });
+            if let Some((mut elements, source_readonly)) = tuple {
+                if elements
+                    .iter()
+                    .any(|element| element.spread && !self.tuple_array_like(element.r#type))
+                {
+                    return None;
+                }
+                let mut variable_part = false;
+                for element in &mut elements {
+                    if element.spread {
+                        variable_part = true;
+                        if self.tuple_spread_array_element(element.r#type).is_none() {
+                            // instantiateMappedTupleType applies the map
+                            // itself to a Variadic operand, retaining it until
+                            // that operand is substituted and normalized.
+                            element.r#type =
+                                self.instantiate_identity_mapped_alias(symbol, &[element.r#type])?;
+                            continue;
+                        }
+                        // A Rest element maps through an array, then extracts
+                        // its element type. Readonly belongs to the tuple,
+                        // rather than the array used to represent this rest.
+                        let rest = self.tuple_spread_array_element(element.r#type)?;
+                        let mapped =
+                            self.instantiate_identity_mapped_element(rest, optionality, true);
+                        let array = self.global_type_symbol("Array")?;
+                        element.r#type = self.create_type_reference(array, vec![mapped]);
+                    } else {
+                        // Indexed access into an optional tuple slot includes
+                        // undefined unless exact optionality uses missingType.
+                        // Missing is removed when printing an optional slot.
+                        let template = if element.optional
+                            && self.strict_null_checks
+                            && !self.exact_optional_property_types
+                        {
+                            self.get_union_type(&[element.r#type, self.intrinsics.undefined])
+                        } else {
+                            element.r#type
+                        };
+                        let template_optionality = if self.exact_optional_property_types
+                            && !variable_part
+                            && optionality == Some(true)
+                        {
+                            None
+                        } else {
+                            optionality
+                        };
+                        element.r#type = self.instantiate_identity_mapped_element(
+                            template,
+                            template_optionality,
+                            element.optional || variable_part,
+                        );
+                        element.optional = optionality.unwrap_or(element.optional);
+                    }
+                }
+                return Some(
+                    self.normalize_variadic_tuple(elements, readonly.unwrap_or(source_readonly)),
+                );
+            }
+            if let Some((source_target, source_arguments)) =
+                self.type_reference_targets.get(&arguments[0]).cloned()
+                && let [element] = source_arguments.as_slice()
+                && let source_readonly = ["Array", "ReadonlyArray"].iter().position(|global| {
+                    self.global_type_symbol(global).map(|s| self.binder.merged_symbol(s))
+                        == Some(self.binder.merged_symbol(source_target))
+                })
+                && let Some(source_readonly) = source_readonly
+            {
+                let mapped_element =
+                    self.instantiate_identity_mapped_element(*element, optionality, true);
+                // `readonly`/`+readonly` picks `ReadonlyArray`, `-readonly` picks
+                // `Array`, and an absent modifier keeps whichever the source was.
+                let target_name = match readonly {
+                    Some(true) => "ReadonlyArray",
+                    Some(false) => "Array",
+                    None => ["Array", "ReadonlyArray"][source_readonly],
+                };
+                let Some(target) = self.global_type_symbol(target_name) else { return Some(error) };
+                return Some(self.create_type_reference(target, vec![mapped_element]));
+            }
+            let source_owner = self.members_owner_of(arguments[0])?;
+            let printed_arguments: Vec<String> =
+                arguments.iter().map(|&a| self.type_to_string(a)).collect();
+            let name = self.binder.symbols().get(symbol).name.to_string();
+            let text = format!("{name}<{}>", printed_arguments.join(", "));
+            let key = (text.clone(), symbol);
+            if let Some(&existing) = self.qualified_reference_types.get(&key) {
+                return Some(existing);
+            }
+            let minted = self.store.new_named(TypeFlags::OBJECT, text, Some(source_owner));
+            self.mapped_identity_optionality.insert(minted, (optionality, readonly));
+            self.qualified_reference_types.insert(key, minted);
+            self.type_reference_targets.insert(minted, (symbol, arguments.to_vec()));
+            return Some(minted);
+        }
+        None
+    }
+
+    /// The identity-template case of instantiateMappedTypeTemplate.
+    fn instantiate_identity_mapped_element(
+        &mut self,
+        element: TypeId,
+        optionality: Option<bool>,
+        is_optional: bool,
+    ) -> TypeId {
+        if !self.strict_null_checks {
+            return element;
+        }
+        match optionality {
+            Some(true) => {
+                let types = match &self.store.get(element).data {
+                    crate::types::TypeData::Union { types, .. } => types.as_slice(),
+                    _ => std::slice::from_ref(&element),
+                };
+                if types.iter().any(|&t| {
+                    self.store.get(t).flags.intersects(TypeFlags::UNDEFINED | TypeFlags::VOID)
+                }) {
+                    element
+                } else {
+                    self.get_union_type(&[element, self.intrinsics.undefined])
+                }
+            }
+            Some(false) if is_optional => {
+                self.get_type_with_facts(element, crate::flow::TypeFacts::NE_UNDEFINED)
+            }
+            _ => element,
         }
     }
 
@@ -2760,31 +3185,27 @@ impl<'a> Checker<'a, '_> {
             && self.variadic_alias_in_progress.insert(symbol)
         {
             let body = self.get_type_from_type_node(body_node);
-            if let Some(&tuple_node) = self.variadic_tuple_nodes.get(&body) {
-                let parameter_symbols: Vec<tsr_binder::SymbolId> = alias
+            if self.variadic_tuple_elements.contains_key(&body) {
+                let parameter_symbols: Vec<_> = alias
                     .type_parameters
                     .iter()
                     .filter_map(|parameter| parameter.node_id)
                     .filter_map(|id| self.binder.symbol_of(id))
                     .collect();
-                if parameter_symbols.len() == arguments.len() && !parameter_symbols.is_empty() {
-                    let frame: rustc_hash::FxHashMap<tsr_binder::SymbolId, TypeId> =
-                        parameter_symbols.iter().copied().zip(arguments.iter().copied()).collect();
-                    self.alias_evaluation_bindings.push(frame);
-                    let resolved = match self.node_map.get(tuple_node) {
-                        Some(Node::TupleTypeNode(tuple)) => {
-                            Some(self.tuple_type_node_structural(tuple))
-                        }
-                        _ => None,
-                    };
-                    self.alias_evaluation_bindings.pop();
-                    // Only a SPLICED answer is taken. A re-resolve that is
-                    // still print-only means an argument was itself generic,
-                    // and the alias reference remains the honest print.
-                    if let Some(resolved) = resolved
-                        && resolved != error
-                        && self.tuple_element_lists.contains_key(&resolved)
-                    {
+                let parameters: Vec<_> = parameter_symbols
+                    .into_iter()
+                    .map(|symbol| self.get_declared_type_of_symbol(symbol))
+                    .collect();
+                let names = self.local_type_parameter_names_of(symbol);
+                let names: Vec<_> = names.iter().map(String::as_str).collect();
+                if parameters.len() == arguments.len() && !parameters.is_empty() {
+                    let map: Vec<_> =
+                        parameters.iter().copied().zip(arguments.iter().copied()).collect();
+                    // `createNormalizedTupleType` handles arrays, union arguments,
+                    // and never as well as concrete tuple splices. All consumers
+                    // use the same resolved element metadata and normalization.
+                    let resolved = self.instantiate_type(body, &map, &parameters, &names);
+                    if resolved != error {
                         self.variadic_alias_in_progress.remove(&symbol);
                         return resolved;
                     }
@@ -2823,97 +3244,8 @@ impl<'a> Checker<'a, '_> {
         // `Box<string>` — a confident wrong answer in place of a missing one,
         // which is the same line `record_index_info` draws for a literal-union
         // `Record` key (§785).
-        if self.binder.symbols().get(symbol).flags.contains(tsr_binder::SymbolFlags::TYPE_ALIAS)
-            && let Some(declaration) =
-                self.binder.symbols().get(symbol).declarations.first().copied()
-            && let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration)
-            && let Some(TypeNode::MappedTypeNode(mapped)) = alias.r#type
-            && arguments.len() == 1
-            && let [parameter_declaration] = self.local_type_parameters_of(symbol)
-            && let Some(parameter_name) = parameter_declaration.name.map(|name| name.text)
-            && let Some(mapped_parameter) = mapped.type_parameter
-            && let Some(key_name) = mapped_parameter.name.map(|name| name.text)
-            // The constraint must be `keyof T` for the alias's own parameter —
-            // upstream's `isHomomorphicMappedType` test, syntactically.
-            && let Some(TypeNode::TypeOperatorNode(operator)) = mapped_parameter.constraint
-            && operator.operator.kind == SyntaxKind::KeyOfKeyword
-            && Self::type_node_names(operator.r#type) == Some(parameter_name)
-            // No `as` clause: a key remapping changes the NAMES, which is
-            // exactly what reusing the source's owner cannot express.
-            && mapped.name_type.is_none()
-            // The template must be `T[P]` — the identity.
-            && let Some(TypeNode::IndexedAccessTypeNode(access)) = mapped.r#type
-            && Self::type_node_names(access.object_type) == Some(parameter_name)
-            && Self::type_node_names(access.index_type) == Some(key_name)
-            && let Some(source_owner) = self.members_owner_of(arguments[0])
-        {
-            let printed_arguments: Vec<String> =
-                arguments.iter().map(|&a| self.type_to_string(a)).collect();
-            let name = self.binder.symbols().get(symbol).name.to_string();
-            let text = format!("{name}<{}>", printed_arguments.join(", "));
-            let key = (text.clone(), symbol);
-            if let Some(&existing) = self.qualified_reference_types.get(&key) {
-                return existing;
-            }
-            let minted = self.store.new_named(TypeFlags::OBJECT, text, Some(source_owner));
-            // `?` and `+?` add optionality, `-?` removes it, absent leaves it.
-            let optionality =
-                mapped.question_token.map(|token| !matches!(token.kind, SyntaxKind::MinusToken));
-            // `readonly` / `+readonly` add, `-readonly` removes. The parser puts
-            // the `+`/`-` in this slot, so a bare `readonly` is the keyword
-            // itself.
-            let readonly =
-                mapped.readonly_token.map(|token| !matches!(token.kind, SyntaxKind::MinusToken));
-            // §955: an ARRAY source maps ELEMENTWISE — upstream's
-            // `instantiateMappedType` branches on `isArrayType(t)` before it ever
-            // resolves members, and `instantiateMappedArrayType` rebuilds an array
-            // over the mapped element. `Partial<string[]>` is
-            // `(string | undefined)[]` and `Readonly<number[]>` is
-            // `readonly number[]` (`mappedTypesArraysTuples.types:23,29`), never a
-            // named reference with the array's own members.
-            //
-            // **This arm also repairs a wrong answer §952 introduced.** §952 tested
-            // only for a members OWNER, and an array reference has one — `Array`'s
-            // — so `Partial<string[]>` took the identity road and answered
-            // `p.length : number | undefined`, where upstream's `length` on
-            // `(string | undefined)[]` is plainly `number`. That is a confident
-            // wrong answer in place of a missing one, and §952's own falsifier
-            // section is where the line was drawn; it went unnoticed because the
-            // entry measured +39 overall. Recorded rather than quietly fixed.
-            //
-            // The TUPLE branch is NOT here: it needs per-element flags, which
-            // `tuple_element_lists` does not carry (§4.-8 / §950).
-            if let Some((source_target, source_arguments)) =
-                    self.type_reference_targets.get(&arguments[0]).cloned()
-                && let [element] = source_arguments.as_slice()
-                && let source_readonly = ["Array", "ReadonlyArray"].iter().position(|global| {
-                    self.global_type_symbol(global).map(|s| self.binder.merged_symbol(s))
-                        == Some(self.binder.merged_symbol(source_target))
-                })
-                && let Some(source_readonly) = source_readonly
-            {
-                let mapped_element = match optionality {
-                    Some(true) => {
-                        let undefined = self.intrinsics.undefined;
-                        self.get_union_type(&[*element, undefined])
-                    }
-                    Some(false) => self.get_non_nullable_type(*element),
-                    None => *element,
-                };
-                // `readonly`/`+readonly` picks `ReadonlyArray`, `-readonly` picks
-                // `Array`, and an absent modifier keeps whichever the source was.
-                let target_name = match readonly {
-                    Some(true) => "ReadonlyArray",
-                    Some(false) => "Array",
-                    None => ["Array", "ReadonlyArray"][source_readonly],
-                };
-                let Some(target) = self.global_type_symbol(target_name) else { return error };
-                return self.create_type_reference(target, vec![mapped_element]);
-            }
-            self.mapped_identity_optionality.insert(minted, (optionality, readonly));
-            self.qualified_reference_types.insert(key, minted);
-            self.type_reference_targets.insert(minted, (symbol, arguments));
-            return minted;
+        if let Some(mapped) = self.instantiate_identity_mapped_alias(symbol, &arguments) {
+            return mapped;
         }
         // §46 (`checker-notes-narrow.md`): a generic ALIAS reference whose
         // body is a type literal answers the §41 shape — name+args print,
@@ -3621,8 +3953,16 @@ impl<'a> Checker<'a, '_> {
         arguments: Vec<TypeId>,
         display: Option<usize>,
     ) -> TypeId {
+        if let Some(mapped) = self.instantiate_identity_mapped_alias(symbol, &arguments) {
+            self.instantiations.insert((symbol, arguments), mapped);
+            return mapped;
+        }
         if let Some(&cached) = self.instantiations.get(&(symbol, arguments.clone())) {
             return cached;
+        }
+        if let Some(mapped) = self.instantiate_normalized_mapped_alias(symbol, &arguments) {
+            self.instantiations.insert((symbol, arguments), mapped);
+            return mapped;
         }
         let shown = display.unwrap_or(arguments.len()).min(arguments.len());
         let printed = self.type_reference_text(symbol, &arguments[..shown]);
@@ -4260,6 +4600,18 @@ impl<'a> Checker<'a, '_> {
                     return structural;
                 }
             }
+            // A homomorphic mapping that normalizes to an array or tuple
+            // creates the normalized type without the enclosing alias identity
+            // (instantiateMappedType -> createNormalizedTupleType, checker.go).
+            if let Some(body) = self.identity_mapped_alias_reference_body(symbol)
+                && self.variadic_alias_in_progress.insert(symbol)
+            {
+                let resolved = self.get_type_from_type_node(body);
+                self.variadic_alias_in_progress.remove(&symbol);
+                if self.is_normalized_mapped_sequence(resolved) {
+                    return resolved;
+                }
+            }
             let name = self.binder.symbols().get(symbol).name.to_string();
             return self.store.new_named(
                 TypeFlags::OBJECT,
@@ -4787,6 +5139,199 @@ impl<'a> Checker<'a, '_> {
             return !self.binder.symbols().get(*symbol).flags.contains(SymbolFlags::TYPE_ALIAS);
         }
         matches!(&self.store.get(target).data, crate::types::TypeData::Named { members, .. } if members.is_some())
+    }
+
+    /// `getIndexTypeEx` and `getLiteralTypeFromProperties` (checker.go), for
+    /// substituted keyof operands. Property syntax distinguishes numeric names
+    /// from quoted numeric names; index signatures contribute their key types.
+    pub(crate) fn resolved_keyof_type(&mut self, target: TypeId) -> Option<TypeId> {
+        if target == self.intrinsics.error {
+            return None;
+        }
+        if self.store.get(target).flags.contains(TypeFlags::TYPE_PARAMETER) {
+            let text = format!("keyof {}", self.type_to_string(target));
+            let id = self.store.new_named(TypeFlags::INDEX, text, None);
+            self.deferred_keyof_types.insert(id);
+            self.deferred_keyof_operands.insert(id, target);
+            self.deferred_index_mints.insert(id);
+            return Some(id);
+        }
+        if self.store.get(target).flags.contains(TypeFlags::UNKNOWN) {
+            return Some(self.intrinsics.never);
+        }
+        if self.store.get(target).flags.intersects(TypeFlags::ANY | TypeFlags::NEVER) {
+            return Some(self.get_union_type(&[
+                self.intrinsics.string,
+                self.intrinsics.number,
+                self.intrinsics.es_symbol,
+            ]));
+        }
+        if let crate::types::TypeData::Union { types, .. } = &self.store.get(target).data {
+            let types = types.clone();
+            let mut keys = Vec::with_capacity(types.len());
+            for t in types {
+                keys.push(self.resolved_keyof_type(t)?);
+            }
+            return Some(self.get_intersection_type(&keys, None));
+        }
+        if let crate::types::TypeData::Intersection { types, .. } = &self.store.get(target).data {
+            let types = types.clone();
+            let mut keys = Vec::with_capacity(types.len());
+            for t in types {
+                keys.push(self.resolved_keyof_type(t)?);
+            }
+            return Some(self.get_union_type(&keys));
+        }
+        let apparent = self.apparent_type(target);
+        let names = self.resolved_keyof_property_names(apparent)?;
+        let mut keys = Vec::with_capacity(names.len());
+        for name in names {
+            let property = self.get_property_of_type(apparent, &name)?;
+            if !self.binder.symbols().get(property).flags.intersects(SymbolFlags::VALUE) {
+                continue;
+            }
+            let declaration = self
+                .binder
+                .symbols()
+                .get(property)
+                .value_declaration
+                .or_else(|| self.binder.symbols().get(property).declarations.first().copied());
+            let (property_name, modifiers) = match declaration.and_then(|id| self.node_map.get(id))
+            {
+                Some(Node::PropertySignatureDeclaration(p)) => (Some(p.name), p.modifiers),
+                Some(Node::PropertyDeclaration(p)) => (Some(p.name), p.modifiers),
+                Some(Node::MethodSignatureDeclaration(p)) => (Some(p.name), p.modifiers),
+                Some(Node::MethodDeclaration(p)) => (Some(p.name), p.modifiers),
+                Some(Node::GetAccessorDeclaration(p)) => (Some(p.name), p.modifiers),
+                Some(Node::SetAccessorDeclaration(p)) => (Some(p.name), p.modifiers),
+                Some(Node::PropertyAssignment(p)) => (Some(p.name), &[][..]),
+                Some(Node::ShorthandPropertyAssignment(p)) => (Some(p.name), &[][..]),
+                _ => (None, &[][..]),
+            };
+            if modifiers.iter().any(|modifier| {
+                matches!(modifier, tsr_ast::ModifierLike::Token(token)
+                if matches!(token.kind, SyntaxKind::PrivateKeyword | SyntaxKind::ProtectedKeyword))
+            }) {
+                continue;
+            }
+            let key = match property_name {
+                Some(tsr_ast::PropertyName::PrivateIdentifier(_)) => continue,
+                Some(tsr_ast::PropertyName::NumericLiteral(literal)) => self.store.intern_literal(
+                    TypeFlags::NUMBER_LITERAL,
+                    crate::types::TypeData::NumberLiteral(crate::printing::normalise_number(
+                        literal.text,
+                    )),
+                    false,
+                ),
+                Some(tsr_ast::PropertyName::ComputedPropertyName(computed)) => {
+                    let expression = computed.expression?;
+                    let t = self.check_expression(expression);
+                    if t == self.intrinsics.error {
+                        return None;
+                    }
+                    self.get_regular_type_of_literal_type(t)
+                }
+                _ => self.store.intern_literal(
+                    TypeFlags::STRING_LITERAL,
+                    crate::types::TypeData::StringLiteral(name),
+                    false,
+                ),
+            };
+            keys.push(key);
+        }
+        let enum_object = matches!(self.store.get(apparent).data,
+            crate::types::TypeData::Anonymous { symbol, .. }
+            if self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::REGULAR_ENUM));
+        for info in self.get_index_infos_of_type(apparent)? {
+            // The synthetic reverse-mapping index is enumNumberIndexInfo,
+            // which getLiteralTypeFromProperties excludes from keyof.
+            if enum_object && info.key == self.intrinsics.number {
+                continue;
+            }
+            keys.push(info.key);
+            if info.key == self.intrinsics.string {
+                keys.push(self.intrinsics.number);
+            }
+        }
+        let union = self.get_union_type(&keys);
+        Some(if self.keyof_origin_applies(target) {
+            let text = format!("keyof {}", self.type_to_string(target));
+            self.union_with_origin_text(union, text)
+        } else {
+            union
+        })
+    }
+
+    fn resolved_keyof_property_names(&mut self, target: TypeId) -> Option<Vec<String>> {
+        match self.store.get(target).data {
+            crate::types::TypeData::Anonymous { symbol, .. } => {
+                let mut named: Vec<_> = self
+                    .binder
+                    .symbols()
+                    .get(symbol)
+                    .exports
+                    .iter()
+                    .filter(|(_, member)| {
+                        self.binder.symbols().get(**member).flags.intersects(SymbolFlags::VALUE)
+                    })
+                    .map(|(name, &member)| {
+                        (
+                            self.binder.symbols().get(member).declarations.first().copied(),
+                            (*name).to_string(),
+                        )
+                    })
+                    .collect();
+                named.sort();
+                Some(named.into_iter().map(|(_, name)| name).collect())
+            }
+            crate::types::TypeData::Named { members: Some(owner), .. }
+                if !self.binder.symbols().get(owner).flags.contains(SymbolFlags::TYPE_ALIAS) =>
+            {
+                let mut names = Vec::new();
+                self.collect_keyof_property_names(owner, &mut names, &mut Vec::new())?;
+                Some(names)
+            }
+            _ => self.keys_of(target),
+        }
+    }
+
+    fn collect_keyof_property_names(
+        &mut self,
+        owner: SymbolId,
+        names: &mut Vec<String>,
+        visiting: &mut Vec<SymbolId>,
+    ) -> Option<()> {
+        if visiting.len() > 32 || visiting.contains(&owner) {
+            return None;
+        }
+        visiting.push(owner);
+        let mut own: Vec<_> = self
+            .binder
+            .symbols()
+            .get(owner)
+            .members
+            .iter()
+            .filter(|(_, member)| {
+                self.binder.symbols().get(**member).flags.intersects(SymbolFlags::VALUE)
+            })
+            .map(|(name, &member)| {
+                (
+                    self.binder.symbols().get(member).declarations.first().copied(),
+                    (*name).to_string(),
+                )
+            })
+            .collect();
+        own.sort();
+        for (_, name) in own {
+            if !names.contains(&name) {
+                names.push(name);
+            }
+        }
+        for base in self.base_symbols_of(owner)? {
+            self.collect_keyof_property_names(base, names, visiting)?;
+        }
+        visiting.pop();
+        Some(())
     }
 
     /// §91: the property-name set of a type, in declaration order, or `None`

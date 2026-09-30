@@ -95,6 +95,19 @@ impl Checker<'_, '_> {
         {
             let object_type = self.check_expression(receiver);
             let index_type = self.check_expression(index);
+            if self.tuple_is_readonly(object_type)
+                && (self
+                    .store
+                    .get(index_type)
+                    .flags
+                    .intersects(crate::flags::TypeFlags::NUMBER_LIKE)
+                    || self.property_name_from_index(index_type).is_some_and(|name| {
+                        name == "length"
+                            || name.parse::<usize>().is_ok_and(|index| index.to_string() == name)
+                    }))
+            {
+                return self.intrinsics.any;
+            }
             let readonly_target = self
                 .property_name_from_index(index_type)
                 .and_then(|name| self.get_property_of_type(object_type, &name))
@@ -303,6 +316,11 @@ impl Checker<'_, '_> {
                 self.assignment_target_kind(id)
                     != crate::expressions::AssignmentTargetKind::Definite
             });
+        if self.variadic_tuple_elements.contains_key(&object_type)
+            && let Some(t) = self.tuple_index_type(object_type, index_type, include_undefined)
+        {
+            return t;
+        }
         // §381: a symbol-typed ENTITY index names a late-bound member — the
         // same chain-and-flags test as `late_bound_symbol_member_name`, so
         // the lookup key and the member's printed spelling cannot drift.
@@ -422,6 +440,13 @@ impl Checker<'_, '_> {
         // the primitive arms only (`crate::members` says so), so every
         // non-primitive receiver answers exactly as before.
         let apparent = self.apparent_type(object_type);
+        if let Ok(index) = name.parse::<usize>()
+            && index.to_string() == name
+            && let Some(element) =
+                self.variadic_tuple_element_type(object_type, index, include_undefined)
+        {
+            return element;
+        }
         if !names_a_private_member
             && let Some(property_type) = self.get_type_of_property_of_type(apparent, &name)
         {
@@ -470,6 +495,89 @@ impl Checker<'_, '_> {
             return self.intrinsics.any;
         }
         error
+    }
+
+    /// `getIndexedAccessTypeOrUndefined` (checker.go), without an expression
+    /// node. Generic operands remain captured; concrete keys project members,
+    /// index signatures, and tuple/array elements. Union keys require every
+    /// member lookup to succeed before their read types are unioned.
+    pub(crate) fn resolved_indexed_access_type(
+        &mut self,
+        object: TypeId,
+        index: TypeId,
+        include_undefined: bool,
+    ) -> Option<TypeId> {
+        use crate::flags::TypeFlags;
+        if object == self.intrinsics.error || index == self.intrinsics.error {
+            return None;
+        }
+        if let Some(t) = self.tuple_index_type(object, index, include_undefined) {
+            return Some(t);
+        }
+        let index_generic = self.indexed_access_index_is_generic(index);
+        if self.store.get(object).flags.contains(TypeFlags::TYPE_PARAMETER) || index_generic {
+            if self.store.get(object).flags.intersects(TypeFlags::ANY | TypeFlags::UNKNOWN) {
+                return Some(object);
+            }
+            let key = (object, index, include_undefined);
+            if let Some(&cached) = self.deferred_indexed_access_cache.get(&key) {
+                return Some(cached);
+            }
+            let text = format!("{}[{}]", self.type_to_string(object), self.type_to_string(index));
+            let id = self.store.new_named(TypeFlags::INDEXED_ACCESS, text, None);
+            self.deferred_indexed_access_types.insert(id, key);
+            self.deferred_indexed_access_cache.insert(key, id);
+            self.deferred_index_mints.insert(id);
+            return Some(id);
+        }
+        if object == self.intrinsics.any {
+            return Some(object);
+        }
+        if let crate::types::TypeData::Union { types, .. } = &self.store.get(index).data {
+            let types = types.clone();
+            let mut values = Vec::with_capacity(types.len());
+            for index in types {
+                let value = self.resolved_indexed_access_type(object, index, include_undefined)?;
+                // formatUnionTypes compares enum members by their regular
+                // types when collapsing the complete enum (printer.go).
+                values.push(if self.enum_member_owners.contains_key(&value) {
+                    self.get_regular_type_of_literal_type(value)
+                } else {
+                    value
+                });
+            }
+            return Some(self.get_union_type(&values));
+        }
+        if let Some(name) = self.property_name_from_index(index) {
+            let apparent = self.apparent_type(object);
+            if let Some(value) = self.get_type_of_property_of_type(apparent, &name) {
+                return Some(value);
+            }
+        }
+        let apparent = self.apparent_type(object);
+        let info = self.get_applicable_index_info(apparent, index)?;
+        Some(self.include_unchecked_undefined(info.value, include_undefined, object, index))
+    }
+
+    fn indexed_access_index_is_generic(&self, index: TypeId) -> bool {
+        use crate::flags::TypeFlags;
+        if self
+            .store
+            .get(index)
+            .flags
+            .intersects(TypeFlags::TYPE_PARAMETER | TypeFlags::INDEX | TypeFlags::INDEXED_ACCESS)
+            || self.deferred_keyof_types.contains(&index)
+            || self.deferred_indexed_access_types.contains_key(&index)
+        {
+            return true;
+        }
+        match &self.store.get(index).data {
+            crate::types::TypeData::Union { types, .. }
+            | crate::types::TypeData::Intersection { types, .. } => {
+                types.iter().any(|&t| self.indexed_access_index_is_generic(t))
+            }
+            _ => false,
+        }
     }
 
     /// Mint the deferred `Object[Index]` of a generic indexed access, or
@@ -538,11 +646,7 @@ impl Checker<'_, '_> {
         if !index_is_generic {
             return None;
         }
-        let object = crate::printing::type_to_string(self.store.get(object_type));
-        let index = crate::printing::type_to_string(self.store.get(index_type));
-        let id = self.store.new_named(TypeFlags::ANY, format!("{object}[{index}]"), None);
-        self.unresolved_types.insert(id);
-        Some(id)
+        self.resolved_indexed_access_type(object_type, index_type, false)
     }
 
     /// `isForInVariableForNumericPropertyNames` (`checker.go:8179`): the
@@ -655,7 +759,8 @@ impl Checker<'_, '_> {
         // measured (`indexerWithTuple`) belongs to that road.
         let numeric_literal =
             self.store.get(index_type).flags.contains(crate::flags::TypeFlags::NUMBER_LITERAL);
-        let is_tuple = self.tuple_element_lists.contains_key(&object_type);
+        let is_tuple = self.tuple_element_lists.contains_key(&object_type)
+            || self.variadic_tuple_elements.contains_key(&object_type);
         let admits = index_type == self.intrinsics.number || (numeric_literal && !is_tuple);
         if !admits {
             return None;
@@ -663,6 +768,8 @@ impl Checker<'_, '_> {
         let element = if let Some((elements, _)) = self.tuple_element_lists.get(&object_type) {
             let elements = elements.clone();
             self.get_union_type(&elements)
+        } else if let Some(element) = self.variadic_tuple_index_union(object_type) {
+            element
         } else {
             let (target, arguments) = self.type_reference_targets.get(&object_type)?.clone();
             if arguments.len() != 1 {

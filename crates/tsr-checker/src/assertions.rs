@@ -139,50 +139,14 @@ impl<'a> Checker<'a, '_> {
         // whole — readonly MEMBERS are slice 2, behind the value-spelling
         // carriage.
         if let Expression::ArrayLiteralExpression(array) = inner {
+            if array.elements.iter().any(|element| matches!(element, Expression::SpreadElement(_)))
+            {
+                return self.check_array_literal(array);
+            }
             let mut elements = Vec::with_capacity(array.elements.len());
             for element in array.elements {
                 let element_type = match element {
-                    // §792: a SPREAD of a concrete tuple SPLICES. `tup2`'s
-                    // `return [1, ...t, 2, ...u, 3] as const` is the shape
-                    // (`variadicTuples1`), and upstream answers
-                    // `readonly [1, ...T, 2, ...U, 3]` — for concrete `T`/`U`
-                    // that is a flat readonly tuple.
-                    //
-                    // §105's comment said spreads *"decline the operand
-                    // whole"* because readonly MEMBERS were slice 2. That
-                    // reason does not cover this: splicing a tuple needs no
-                    // member machinery, only its element list.
-                    //
-                    // Restricted to operands that HAVE an element list. A
-                    // spread of an array, or of §40's print-only variadic,
-                    // still declines — there is nothing to splice and
-                    // inventing a length would be a confident wrong answer.
-                    Expression::SpreadElement(spread) => {
-                        let Some(operand) = spread.expression else {
-                            return self.intrinsics.error;
-                        };
-                        let operand_type = self.check_expression(operand);
-                        let Some((spliced, _)) =
-                            self.tuple_element_lists.get(&operand_type).cloned()
-                        else {
-                            return self.intrinsics.error;
-                        };
-                        // Upstream's own cap, transcribed:
-                        // `if len(spreadTypes)+len(n.types) >= 10_000` reports
-                        // *"Expression produces a tuple type that is too large
-                        // to represent"* and answers `errorType`
-                        // (`checker.go:23379`), printed `any`. Without it
-                        // `compiler/excessivelyLargeTupleSpread` — a case that
-                        // exists to exercise exactly this bound — gets the
-                        // giant tuple this port would happily build, measured
-                        // at 2 RIGHT→WRONG.
-                        if spliced.len() + elements.len() >= 10_000 {
-                            return self.intrinsics.error;
-                        }
-                        elements.extend(spliced);
-                        continue;
-                    }
-                    Expression::OmittedExpression(_) => {
+                    Expression::SpreadElement(_) | Expression::OmittedExpression(_) => {
                         return self.intrinsics.error;
                     }
                     nested @ (Expression::ArrayLiteralExpression(_)

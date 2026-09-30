@@ -12,6 +12,403 @@
 use tsr_checker::Checker;
 use tsr_core::Arena;
 
+#[test]
+fn a_type_predicate_contributes_its_asserted_type_to_return_inference() {
+    let source = "declare const guard: (input: unknown) => input is number;
+        declare function infer<T>(callback: (value: unknown) => value is T): T;
+        const observed = infer(guard);";
+    assert_eq!(type_of_with_options(source, "observed", false, true), "number");
+}
+
+#[test]
+fn predicate_inference_matches_parameter_positions_with_different_names() {
+    let source = "declare const guard: (unused: unknown, input: unknown) => input is string;
+        declare function infer<T>(callback: (first: unknown, value: unknown) => value is T): T;
+        const observed = infer(guard);";
+    assert_eq!(type_of_with_options(source, "observed", false, true), "string");
+}
+
+#[test]
+fn a_rejected_overload_does_not_supply_the_next_callbacks_parameter_type() {
+    let source = "declare function choose<T>(mode: 'first', callback: (input: string) => T): T;
+        declare function choose<T>(mode: 'second', callback: (input: number) => T): T;
+        const result = choose('second', observed => observed);";
+    assert_eq!(type_of_with_options(source, "observed", false, true), "number");
+    assert_eq!(type_of_with_options(source, "result", false, true), "number");
+}
+
+#[test]
+fn contextual_overload_selection_accepts_a_callback_with_fewer_parameters() {
+    let source = "declare function choose<T>(mode: 'first', callback: (input: string, index: number) => T): T;
+        declare function choose<T>(mode: 'second', callback: (input: number, index: number) => T): T;
+        const result = choose('second', observed => observed);";
+    assert_eq!(type_of_with_options(source, "observed", false, true), "number");
+    assert_eq!(type_of_with_options(source, "result", false, true), "number");
+}
+
+#[test]
+fn a_generic_arrow_does_not_inherit_contextual_parameter_types() {
+    let source = "const callback: (input: number) => number = <T>(observed) => 0;";
+    assert_eq!(type_of(source, "observed"), "any");
+}
+
+#[test]
+fn a_parenthesized_callback_consumes_the_generic_inference() {
+    let source = "declare function invoke<T>(value: T, callback: (input: T) => T): T;
+        invoke(1, (observed => observed));";
+    assert_eq!(type_of_with_options(source, "observed", false, true), "number");
+}
+
+#[test]
+fn conditional_callbacks_consume_the_generic_inference() {
+    let source = "declare const choose: boolean;
+        declare function invoke<T>(value: T, callback: (input: T) => T): T;
+        invoke(1, choose ? observed => observed : other => other);";
+    assert_eq!(type_of_with_options(source, "observed", false, true), "number");
+    assert_eq!(type_of_with_options(source, "other", false, true), "number");
+}
+
+#[test]
+fn logical_callback_operands_inherit_the_generic_call_context() {
+    let source = "declare const fallback: (input: number) => number;
+        declare function invoke<T>(value: T, callback: (input: T) => T): T;
+        invoke(1, fallback || (observed => observed));";
+    assert_eq!(type_of_with_options(source, "observed", false, true), "number");
+}
+
+#[test]
+fn a_nullish_callback_operand_inherits_the_variables_annotation() {
+    let source = "declare const fallback: ((input: string) => number) | undefined;
+        const callback: (input: string) => number = fallback ?? (observed => 0);";
+    assert_eq!(type_of(source, "observed"), "string");
+}
+
+#[test]
+fn an_uncontextualized_or_uses_the_left_operands_type_for_the_right() {
+    let source = "declare const fallback: ((input: boolean) => void) | undefined;
+        const callback = fallback || (observed => {});";
+    assert_eq!(type_of(source, "observed"), "boolean");
+}
+
+#[test]
+fn logical_and_types_only_the_right_callback_from_the_outer_context() {
+    let source = "declare const choose: boolean;
+        const callback: (input: string) => number = choose && (observed => 0);";
+    assert_eq!(type_of(source, "observed"), "string");
+}
+
+#[test]
+fn a_logical_assignment_types_its_right_callback_from_the_target() {
+    let source = "let callback: (input: number) => number;
+        callback ||= observed => observed;";
+    assert_eq!(type_of(source, "observed"), "number");
+}
+
+#[test]
+fn returning_a_context_sensitive_function_defers_its_producer() {
+    let source = "declare function invoke<T>(value: T, producer: () => (input: T) => T): T;
+        invoke(1, () => observed => observed);";
+    assert_eq!(type_of_with_options(source, "observed", false, true), "number");
+}
+
+#[test]
+fn a_block_returning_a_context_sensitive_function_defers_its_producer() {
+    let source = "declare function invoke<T>(value: T, producer: () => (input: T) => T): T;
+        invoke(1, function () { return observed => observed; });";
+    assert_eq!(type_of_with_options(source, "observed", false, true), "number");
+}
+
+#[test]
+fn return_only_inference_keeps_noncontextual_returned_functions() {
+    let source = "declare function useMemo<T>(produce: () => T): T;
+        function make(choose: boolean) {
+            const callback: (input: string) => boolean = useMemo(() => {
+                if (choose) return () => true;
+                return observed => observed.length > 0;
+            });
+            return callback;
+        }";
+    assert_eq!(type_of_with_options(source, "observed", false, true), "any");
+}
+
+#[test]
+fn a_fixing_read_with_no_candidates_keeps_its_fallback() {
+    let source = "declare function define<T>(options: {
+            consume(value: T): void; produce(this: { value: any }): T;
+        }): T;
+        define({
+            consume(observed) {},
+            produce() { return this.value; }
+        });";
+    assert_eq!(type_of_with_options(source, "observed", false, true), "unknown");
+}
+
+#[test]
+fn a_written_parameter_type_contributes_before_an_untyped_sibling_fixes() {
+    let source = "interface Params { one: number; two: string }
+        declare function define<T, R>(options: {
+            fetch(params: T, extra: number): R; consume(value: R): void;
+        }): T;
+        const observed = define({
+            fetch(params: Params, extra) { return 123; }, consume(value) {}
+        });";
+    assert_eq!(type_of_with_options(source, "observed", false, true), "Params");
+}
+
+#[test]
+fn yielded_callbacks_receive_the_generators_contextual_yield_type() {
+    let source = "interface Iterator<T, R = any, N = any> { next(): { value: T } }
+        interface Generator<T, R = any, N = any> extends Iterator<T, R, N> {}
+        function* produce(): Iterator<(input: string) => number, any, any> {
+            yield observed => 0;
+        }";
+    assert_eq!(type_of_with_options(source, "observed", false, true), "string");
+}
+
+#[test]
+fn rest_tuple_callbacks_align_the_fixed_suffix_from_the_end() {
+    let source = "interface Array<T> { length: number; [index: number]: T }
+        type Callbacks = [...((input: number) => void)[], (output: string) => void];
+        declare function invoke(...callbacks: Callbacks): void;
+        invoke(first => first, middle => middle, last => last);";
+    assert_eq!(type_of(source, "first"), "number");
+    assert_eq!(type_of(source, "middle"), "number");
+    assert_eq!(type_of(source, "last"), "string");
+}
+
+#[test]
+fn contextual_rest_parameters_include_the_remaining_fixed_prefix() {
+    let source = "interface Array<T> { [index: number]: T }
+        const callback: (...args: [number, boolean, ...string[]]) => void =
+            (first, ...remaining) => {};";
+    assert_eq!(type_of(source, "first"), "number");
+    assert_eq!(type_of(source, "remaining"), "[boolean, ...string[]]");
+}
+
+#[test]
+fn contextual_positions_follow_a_leading_parameter_before_a_tuple_rest() {
+    let source = "interface Array<T> { [index: number]: T }
+        const callback: (head: number, ...args: [boolean, ...string[]]) => void =
+            (first, second, ...remaining) => {};";
+    assert_eq!(type_of(source, "first"), "number");
+    assert_eq!(type_of(source, "second"), "boolean");
+    assert_eq!(type_of(source, "remaining"), "string[]");
+}
+
+#[test]
+fn a_contextual_rest_parameter_can_capture_ordinary_signature_parameters() {
+    let source = "const callback: (head: number, tail: string) => void = (...remaining) => {};";
+    assert_eq!(type_of(source, "remaining"), "[head: number, tail: string]");
+}
+
+#[test]
+fn ordinary_contextual_parameters_preserve_deferred_template_literal_types() {
+    let source = "const callback: (input: `${number}`) => void = observed => {};";
+    assert_eq!(type_of(source, "observed"), "`${number}`");
+}
+
+#[test]
+fn immediately_invoked_parameters_expand_mixed_variadic_tuple_arguments() {
+    let source = "interface Array<T> { [index: number]: T }
+        declare const supplied: [boolean, ...string[]];
+        (function(first, second, third, ...remaining) {})(1, ...supplied);";
+    assert_eq!(type_of(source, "first"), "number");
+    assert_eq!(type_of(source, "second"), "boolean");
+    assert_eq!(type_of(source, "third"), "string");
+    assert_eq!(type_of(source, "remaining"), "string[]");
+}
+
+#[test]
+fn immediately_invoked_rest_parameters_preserve_generic_spread_tails() {
+    let source = "interface Array<T> { [index: number]: T }
+        function invoke<T extends any[]>(supplied: T) {
+            (function(first, ...remaining) {})(1, 2, ...supplied);
+        }";
+    assert_eq!(type_of(source, "first"), "number");
+    assert_eq!(type_of(source, "remaining"), "[number, ...T]");
+}
+
+#[test]
+fn immediately_invoked_tuple_spreads_retain_optional_element_types() {
+    let source = "declare const supplied: [number, string?];
+        (function(first, second, ...remaining) {})(...supplied);";
+    assert_eq!(type_of(source, "first"), "number");
+    assert_eq!(type_of(source, "second"), "string | undefined");
+    assert_eq!(type_of(source, "remaining"), "[]");
+}
+
+#[test]
+fn array_tuple_context_uses_both_fixed_ends() {
+    let source = "interface Array<T> { length: number; [index: number]: T }
+        type Callbacks = [(start: boolean) => void, ...((input: number) => void)[], (end: string) => void];
+        const callbacks: Callbacks = [first => first, middle => middle, last => last];";
+    assert_eq!(type_of(source, "first"), "boolean");
+    assert_eq!(type_of(source, "middle"), "number");
+    assert_eq!(type_of(source, "last"), "string");
+}
+
+#[test]
+fn a_spread_before_a_fixed_tuple_element_receives_all_possible_types() {
+    let source = "interface Array<T> { length: number; [index: number]: T }
+        declare const supplied: ((input: string) => void)[];
+        const callbacks: [(head: string) => void, number] = [...supplied, final => final];";
+    assert_eq!(type_of(source, "final"), "string");
+}
+
+#[test]
+fn a_union_of_tuple_contexts_maps_each_constituent() {
+    let source = "const callbacks: [number] | [(input: string) => void] = [item => item];";
+    assert_eq!(type_of(source, "item"), "string");
+}
+
+#[test]
+fn object_literal_method_parameters_take_the_matching_property_context() {
+    let source = "interface Handlers { process(input: string): number }
+        const handlers: Handlers = { process(value): number { return value.length; } };";
+    assert_eq!(type_of(source, "value"), "string");
+}
+
+#[test]
+fn object_literal_method_context_instantiates_a_generic_receiver() {
+    let source = "interface Handlers<T> { process(input: T): void }
+        const handlers: Handlers<number> = { process(value) { value; } };";
+    assert_eq!(type_of(source, "value"), "number");
+}
+
+#[test]
+fn a_producer_method_contributes_to_its_generic_sibling_context() {
+    let source = "interface Options<T> { produce(): T; consume(input: T): void }
+        declare function define<T>(options: Options<T>): T;
+        define({ consume(value) {}, produce() { return 42; } });";
+    assert_eq!(type_of_with_options(source, "value", false, true), "number");
+}
+
+#[test]
+fn a_class_method_does_not_receive_object_literal_method_context() {
+    let source = "interface Handlers { process(input: string): void }
+        class Handler implements Handlers { process(value) { value; } }";
+    assert_eq!(type_of(source, "value"), "any");
+}
+
+#[test]
+fn template_substitution_context_skips_the_strings_argument() {
+    let source = "declare function tag(strings: any, a: (head: number) => void, b: (tail: string) => void): void;
+        tag`first ${first => first} second ${second => second}`;";
+    assert_eq!(type_of(source, "first"), "number");
+    assert_eq!(type_of(source, "second"), "string");
+}
+
+#[test]
+fn template_substitution_context_uses_written_generic_arguments() {
+    let source = "declare function tag<T>(strings: any, callback: (input: T) => void): void;
+        tag<boolean>`value ${item => item}`;";
+    assert_eq!(type_of(source, "item"), "boolean");
+}
+
+#[test]
+fn consuming_a_callback_context_resolves_all_candidates_before_widening() {
+    let source = "declare function invoke<T>(first: T, second: T, callback: (input: T) => T): T;
+        invoke(1, 2, observed => observed);";
+    assert_eq!(type_of_with_options(source, "observed", false, true), "number");
+}
+
+#[test]
+fn a_primitive_constraint_keeps_a_combined_literal_callback_context() {
+    let source = "declare function invoke<T extends number>(first: T, second: T, callback: (input: T) => T): T;
+        invoke(1, 2, observed => observed);";
+    assert_eq!(type_of_with_options(source, "observed", false, true), "1 | 2");
+}
+
+#[test]
+fn a_const_parameter_keeps_its_literal_callback_context() {
+    let source = "declare function invoke<const T>(value: T, callback: (input: T) => T): T;
+        invoke(1, observed => observed);";
+    assert_eq!(type_of_with_options(source, "observed", false, true), "1");
+}
+
+#[test]
+fn nullable_candidates_preserve_the_nonnullable_callback_context() {
+    let source = "interface A { a: A } interface B extends A { b: number }
+        declare const b: B;
+        declare function f<T, U>(first: T, callback: (input: T) => U, last: T): [T, U];
+        f(b, observed => observed.a, null);";
+    assert_eq!(type_of_with_null_checks(source, "observed", false), "B");
+}
+
+#[test]
+fn fixing_an_object_callback_preserves_its_producer_inference() {
+    let source =
+        "interface Opts<P, D, M> { fetch: (params: P, other: number) => D; map: (data: D) => M }
+        declare function example<P, D, M>(options: Opts<P, D, M>): (params: P) => M;
+        interface Params { one: number; two: string }
+        example({ fetch: (params: Params) => 123, map: observed => observed });";
+    assert_eq!(type_of_with_options(source, "observed", false, true), "number");
+}
+
+#[test]
+fn fixing_an_object_callback_uses_its_context_sensitive_producer_inference() {
+    let source =
+        "interface Opts<P, D, M> { fetch: (params: P, other: number) => D; map: (data: D) => M }
+        declare function example<P, D, M>(options: Opts<P, D, M>): (params: P) => M;
+        interface Params { one: number; two: string }
+        example({ fetch: (params: Params, other) => 123, map: observed => observed });";
+    assert_eq!(type_of_with_options(source, "observed", false, true), "number");
+}
+
+#[test]
+fn a_chain_of_contextual_producers_infers_each_successive_callback() {
+    let source = "type Chain<A, B> = { a(): A; b(input: A): B; c(input: B): void };
+        declare function run<A, B>(options: Chain<A, B>): void;
+        run({ a: () => 0, b: previous => 'a', c: observed => {} });";
+    assert_eq!(type_of_with_options(source, "observed", false, true), "string");
+}
+
+#[test]
+fn a_chain_of_contextual_methods_infers_each_successive_callback() {
+    let source = "type Chain<A, B> = { a(): A; b(input: A): B; c(input: B): void };
+        declare function run<A, B>(options: Chain<A, B>): void;
+        run({ a() { return 0; }, b(previous) { return 'a'; }, c(observed) {} });";
+    assert_eq!(type_of_with_options(source, "observed", false, true), "string");
+}
+
+#[test]
+fn a_context_sensitive_method_produces_its_siblings_inference() {
+    let source = "interface Opts<P, D, M> { fetch(params: P, other: number): D; map(data: D): M }
+        declare function example<P, D, M>(options: Opts<P, D, M>): (params: P) => M;
+        interface Params { one: number; two: string }
+        example({ fetch(params: Params, other) { return 123; }, map(observed) { return observed; } });";
+    assert_eq!(type_of_with_options(source, "observed", false, true), "number");
+}
+
+#[test]
+fn a_later_method_cannot_replace_an_inference_fixed_by_an_earlier_method() {
+    let source = "interface Int<T, U> { method(input: T): U }
+        declare function run<T, U>(first: T, second: Int<T, U>, third: Int<U, T>): T;
+        run('', { method(observed) { return observed.length; } }, { method(other) { return undefined; } });";
+    assert_eq!(type_of_with_null_checks(source, "observed", false), "string");
+}
+
+#[test]
+fn a_callback_reads_a_later_noncontextual_producer_before_fixing() {
+    let source = "declare function run<T = unknown>(options: { consume: (input: T) => void; produce: () => T }): void;
+        run({ consume: observed => {}, produce: () => 123 });";
+    assert_eq!(type_of_with_options(source, "observed", false, true), "number");
+}
+
+#[test]
+fn error_inference_keeps_noncontextual_object_members_as_sources() {
+    let source = "enum First { X } enum Second { X }
+        declare function run<T, U>(options: { write: (input: T) => U; read: () => T }, other: T): U;
+        run({ write: observed => observed, read: () => First.X }, Second.X);";
+    assert_eq!(type_of_with_options(source, "observed", false, true), "First");
+}
+
+#[test]
+fn an_untagged_template_does_not_contextually_type_a_substitution() {
+    let source = "const text = `value ${item => item}`;";
+    assert_eq!(type_of(source, "item"), "any");
+}
+
 /// The printed type of the local `name`, wherever in the file it is declared.
 ///
 /// The same walk `tests/members.rs` uses. It finds the parameter's symbol
@@ -29,6 +426,33 @@ use tsr_core::Arena;
 /// the answer. Every arrow parameter below therefore has a name that appears
 /// nowhere else in its fixture.
 fn type_of(source: &str, name: &str) -> String {
+    type_of_with_implicit_any_check(source, name, false)
+}
+
+fn type_of_with_implicit_any_check(source: &str, name: &str, no_implicit_any: bool) -> String {
+    type_of_with_options(source, name, no_implicit_any, false)
+}
+
+fn type_of_with_options(
+    source: &str,
+    name: &str,
+    no_implicit_any: bool,
+    resolve_calls: bool,
+) -> String {
+    type_of_with_compiler_options(source, name, no_implicit_any, resolve_calls, true)
+}
+
+fn type_of_with_null_checks(source: &str, name: &str, strict_null_checks: bool) -> String {
+    type_of_with_compiler_options(source, name, false, true, strict_null_checks)
+}
+
+fn type_of_with_compiler_options(
+    source: &str,
+    name: &str,
+    no_implicit_any: bool,
+    resolve_calls: bool,
+    strict_null_checks: bool,
+) -> String {
     let arena = Arena::new();
     let parsed = tsr_parser::parse(&arena, source);
     assert!(
@@ -43,6 +467,29 @@ fn type_of(source: &str, name: &str) -> String {
         tsr_binder::FileInfo { name: "test.ts", text: source },
     );
     let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+    if no_implicit_any || !strict_null_checks {
+        checker.apply_compiler_options(&tsr_core::CompilerOptions {
+            no_implicit_any: if no_implicit_any {
+                tsr_core::Tristate::True
+            } else {
+                tsr_core::Tristate::False
+            },
+            strict_null_checks: if strict_null_checks {
+                tsr_core::Tristate::True
+            } else {
+                tsr_core::Tristate::False
+            },
+            ..Default::default()
+        });
+    }
+    if resolve_calls {
+        for index in 0..parsed.nodes.len() {
+            let id = tsr_ast::NodeId::new(u32::try_from(index).unwrap());
+            if let Some(tsr_ast::Node::CallExpression(call)) = parsed.node_map.get(id) {
+                checker.check_expression(tsr_ast::Expression::CallExpression(call));
+            }
+        }
+    }
     for index in 0..parsed.nodes.len() {
         #[allow(clippy::cast_possible_truncation)]
         let id = tsr_ast::NodeId::new(index as u32);
@@ -553,4 +1000,84 @@ fn an_unconstrained_type_variable_does_not_keep_a_literal() {
     let source = "declare function nested<A>(a: { fields: A }): A;\n\
                   const mapleq = nested({ fields: \"z\" });";
     assert_eq!(type_of(source, "mapleq"), "string");
+}
+
+#[test]
+fn a_generic_receivers_method_supplies_instantiated_callback_types() {
+    let source = "interface Box<T> { apply(cb: (value: T) => void): void }\n\
+                  declare const box: Box<string>; box.apply(item => item);";
+    assert_eq!(type_of(source, "item"), "string");
+}
+
+#[test]
+fn overloaded_generic_receiver_methods_keep_the_receivers_type_arguments() {
+    let source = "interface Box<T> {\n\
+                    apply(cb: (value: T) => boolean): boolean;\n\
+                    apply(cb: (value: T) => unknown, context?: any): boolean;\n\
+                  }\n\
+                  declare const box: Box<string>; box.apply(item => true);";
+    assert_eq!(type_of(source, "item"), "string");
+}
+
+#[test]
+fn a_named_callable_interface_supplies_contextual_parameter_types() {
+    let source = "interface Callback { (value: number): void }\n\
+                  const callback: Callback = item => item;";
+    assert_eq!(type_of(source, "item"), "number");
+}
+
+#[test]
+fn a_generic_callable_interface_instantiates_its_contextual_signature() {
+    let source = "interface Callback<T> { (value: T): void }\n\
+                  const callback: Callback<string> = item => item;";
+    assert_eq!(type_of(source, "item"), "string");
+}
+
+#[test]
+fn a_callable_signatures_own_type_parameter_shadows_the_interfaces_parameter() {
+    let source = "interface Callback<T> { <T>(value: T): void }\n\
+                  const callback: Callback<string> = item => item;";
+    assert_eq!(type_of(source, "item"), "T");
+}
+
+#[test]
+fn contextual_union_signatures_ignore_return_types_when_comparing_parameters() {
+    let source = "const callback: ((value: number) => string) | ((value: number) => number) =\n\
+                  item => item;";
+    assert_eq!(type_of(source, "item"), "number");
+}
+
+#[test]
+fn contextual_overloads_filter_out_signatures_with_too_few_parameters() {
+    let source = "interface Callback { (value: number): void; (value: string, extra: boolean): void }\n\
+                  const callback: Callback = (item, extra) => item;";
+    assert_eq!(type_of(source, "item"), "string");
+    assert_eq!(type_of(source, "extra"), "boolean");
+}
+
+#[test]
+fn contextual_overloads_union_corresponding_parameter_types() {
+    let source = "interface Callback { (value: number): void; (value: string): void }\n\
+                  const callback: Callback = item => item;";
+    assert_eq!(type_of_with_implicit_any_check(source, "item", true), "string | number");
+}
+
+#[test]
+fn contextual_overloads_decline_when_implicit_any_checking_is_disabled() {
+    let source = "interface Callback { (value: number): void; (value: string): void }\n\
+                  const callback: Callback = item => item;";
+    assert_eq!(type_of(source, "item"), "any");
+}
+
+#[test]
+fn incompatible_union_signature_parameters_leave_the_function_without_context() {
+    let source = "const callback: ((value: number) => void) | ((value: string) => void) =\n\
+                  item => item;";
+    assert_eq!(type_of(source, "item"), "any");
+}
+
+#[test]
+fn a_non_callable_union_constituent_does_not_remove_the_callable_context() {
+    let source = "const callback: ((value: number) => void) | undefined = item => item;";
+    assert_eq!(type_of(source, "item"), "number");
 }

@@ -83,6 +83,165 @@ fn assignable(source: &str) -> bool {
     })
 }
 
+fn array_tuple_assignable(from: &str, to: &str) -> bool {
+    let source = format!(
+        "interface Array<T> {{ length: number; [index: number]: T }}
+        interface ReadonlyArray<T> {{ readonly length: number; readonly [index: number]: T }}
+        let source: {from}; let target: {to};"
+    );
+    with_checker(&source, |checker, statements| {
+        let source = annotation_type(checker, statements, 2);
+        let target = annotation_type(checker, statements, 3);
+        checker.is_type_assignable_to(source, target)
+    })
+}
+
+#[test]
+fn fixed_tuple_relations_check_readonly_arity_and_optional_elements() {
+    assert!(assignable("let source: [number]; let target: readonly [number];"));
+    assert!(!assignable("let source: readonly [number]; let target: [number];"));
+    assert!(assignable("let source: [number]; let target: [number, string?];"));
+    assert!(!assignable("let source: [number?]; let target: [number];"));
+    assert!(!assignable("let source: [number, string]; let target: [number];"));
+    assert!(!assignable("let source: [number]; let target: [string];"));
+    assert!(assignable("let source: [number | undefined]; let target: [number?];"));
+}
+
+#[test]
+fn tuple_array_relations_compare_index_types_and_readonly_state() {
+    let related = array_tuple_assignable;
+    assert!(related("[number, number]", "number[]"));
+    assert!(!related("[number, string]", "number[]"));
+    assert!(related("readonly [number]", "ReadonlyArray<number>"));
+    assert!(!related("readonly [number]", "number[]"));
+    assert!(related("[]", "string[]"));
+    assert!(!related("number[]", "[number?]"));
+    assert!(!related("number[]", "[]"));
+    assert!(related("[number, ...string[]]", "(number | string)[]"));
+    assert!(!related("[number, ...string[]]", "number[]"));
+    assert!(!related("[number?]", "number[]"));
+    assert!(related("[number?]", "(number | undefined)[]"));
+}
+
+#[test]
+fn rest_tuple_relations_align_required_prefixes_and_suffixes() {
+    let related = array_tuple_assignable;
+    assert!(related("[number, string, string]", "[number, ...string[]]"));
+    assert!(!related("[number, number]", "[number, ...string[]]"));
+    assert!(related("[number, number, string]", "[...number[], string]"));
+    assert!(!related("[number, number]", "[...number[], string]"));
+    assert!(related("[number, ...string[]]", "[number, ...(string | number)[]]"));
+    assert!(!related("[number, ...string[]]", "[number, string, ...string[]]"));
+    assert!(!related("[number, ...string[]]", "[number, string?]"));
+    assert!(related("[number]", "[number, ...string[]]"));
+    assert!(!related("[]", "[number, ...string[]]"));
+    assert!(!related("[...number[], string]", "[...string[], string]"));
+}
+
+#[test]
+fn array_to_rest_tuple_relations_keep_required_and_readonly_bounds() {
+    let related = array_tuple_assignable;
+    assert!(related("number[]", "[number?, ...number[]]"));
+    assert!(!related("number[]", "[number, ...number[]]"));
+    assert!(related("ReadonlyArray<number>", "readonly [number?, ...number[]]"));
+    assert!(!related("ReadonlyArray<number>", "[number?, ...number[]]"));
+    assert!(!related("string[]", "[number?, ...number[]]"));
+}
+
+#[test]
+fn exact_optional_tuple_targets_require_explicit_undefined() {
+    with_checker(
+        "let source: [number | undefined]; let target: [number?];",
+        |checker, statements| {
+            let source = annotation_type(checker, statements, 0);
+            let target = annotation_type(checker, statements, 1);
+            assert!(checker.is_type_assignable_to(source, target));
+            checker.apply_compiler_options(&tsr_core::CompilerOptions {
+                strict: tsr_core::Tristate::True,
+                exact_optional_property_types: tsr_core::Tristate::True,
+                ..Default::default()
+            });
+            assert!(!checker.is_type_assignable_to(source, target));
+        },
+    );
+}
+
+#[test]
+fn generic_variadic_sources_use_only_concrete_array_or_tuple_constraints() {
+    use tsr_checker::relater::Ternary;
+    let relation = |parameters: &str, from: &str, to: &str| {
+        let source = format!(
+            "interface Array<T> {{ length: number; [index: number]: T }}
+            interface ReadonlyArray<T> {{ readonly length: number; readonly [index: number]: T }}
+            declare function compare<{parameters}>(source: {from}, target: {to}): void;"
+        );
+        with_checker(&source, |checker, statements| {
+            let Statement::FunctionDeclaration(function) = statements[2] else {
+                panic!("function")
+            };
+            let source = checker.get_type_from_type_node(function.parameters[0].r#type.unwrap());
+            let target = checker.get_type_from_type_node(function.parameters[1].r#type.unwrap());
+            checker.relate_ternary(source, target, tsr_checker::relater::Relation::Assignable)
+        })
+    };
+    assert_eq!(
+        relation("T extends string[]", "[number, ...T]", "[number, ...string[]]"),
+        Ternary::Related
+    );
+    assert_eq!(
+        relation("T extends string[]", "[number, ...T]", "[number, ...boolean[]]"),
+        Ternary::NotRelated
+    );
+    assert_eq!(
+        relation(
+            "T extends readonly [string, boolean]",
+            "[number, ...T]",
+            "[number, string, boolean]"
+        ),
+        Ternary::Related
+    );
+    assert_eq!(
+        relation("U extends string[], T extends U", "[number, ...T]", "[number, ...string[]]"),
+        Ternary::Related
+    );
+    assert_eq!(
+        relation(
+            "T extends [string] | [boolean]",
+            "[number, ...T]",
+            "[number, ...(string | boolean)[]]"
+        ),
+        Ternary::Related
+    );
+    assert_eq!(
+        relation("T extends string[]", "[number, ...T]", "(number | string)[]"),
+        Ternary::Related
+    );
+    assert_eq!(
+        relation("T extends string[]", "readonly [number, ...T]", "(number | string)[]"),
+        Ternary::NotRelated
+    );
+}
+
+#[test]
+fn nonstrict_nullable_sources_relate_to_objects_but_not_never() {
+    for nullable in ["null", "undefined"] {
+        let source = format!("let a: {nullable}; let b: {{ value: number }}; let c: never;");
+        with_checker(&source, |checker, statements| {
+            let a = annotation_type(checker, statements, 0);
+            let b = annotation_type(checker, statements, 1);
+            let c = annotation_type(checker, statements, 2);
+            assert!(!checker.is_type_assignable_to(a, b));
+            checker.apply_compiler_options(&tsr_core::CompilerOptions {
+                strict_null_checks: tsr_core::Tristate::False,
+                ..Default::default()
+            });
+            assert!(checker.is_type_assignable_to(a, b));
+            assert!(!checker.is_type_assignable_to(b, a));
+            assert!(!checker.is_type_assignable_to(a, c));
+        });
+    }
+}
+
 /// Both directions at once, so a symmetric bug cannot pass as a correct answer.
 fn both_ways(source: &str) -> (bool, bool) {
     with_checker(source, |checker, statements| {
@@ -90,6 +249,306 @@ fn both_ways(source: &str) -> (bool, bool) {
         let b = annotation_type(checker, statements, 1);
         (checker.is_type_assignable_to(a, b), checker.is_type_assignable_to(b, a))
     })
+}
+
+#[test]
+fn strict_function_parameters_are_contravariant() {
+    assert_eq!(
+        both_ways("let a: (value: string) => void; let b: (value: 'a') => void;"),
+        (true, false)
+    );
+}
+
+#[test]
+fn generic_reference_inputs_follow_measured_contravariance() {
+    let source = "interface Sink<T> { consume: (value: T) => void }
+        let broad: Sink<string>; let narrow: Sink<'a'>;";
+    with_checker(source, |checker, statements| {
+        let broad = annotation_type(checker, statements, 1);
+        let narrow = annotation_type(checker, statements, 2);
+        assert!(checker.is_type_assignable_to(broad, narrow));
+        assert!(!checker.is_type_assignable_to(narrow, broad));
+    });
+}
+
+#[test]
+fn generic_reference_methods_follow_measured_bivariance() {
+    let source = "interface Sink<T> { consume(value: T): void }
+        let broad: Sink<string>; let narrow: Sink<'a'>;";
+    with_checker(source, |checker, statements| {
+        let broad = annotation_type(checker, statements, 1);
+        let narrow = annotation_type(checker, statements, 2);
+        assert!(checker.is_type_assignable_to(broad, narrow));
+        assert!(checker.is_type_assignable_to(narrow, broad));
+    });
+}
+
+#[test]
+fn generic_reference_inputs_and_outputs_require_invariance() {
+    let source = "interface Cell<T> { read: () => T; write: (value: T) => void }
+        let broad: Cell<string>; let narrow: Cell<'a'>;";
+    with_checker(source, |checker, statements| {
+        let broad = annotation_type(checker, statements, 1);
+        let narrow = annotation_type(checker, statements, 2);
+        assert!(!checker.is_type_assignable_to(broad, narrow));
+        assert!(!checker.is_type_assignable_to(narrow, broad));
+    });
+}
+
+#[test]
+fn unused_reference_parameters_are_independent() {
+    let source = "interface Phantom<T> { value: number }
+        let text: Phantom<string>; let numeric: Phantom<number>;";
+    with_checker(source, |checker, statements| {
+        let text = annotation_type(checker, statements, 1);
+        let numeric = annotation_type(checker, statements, 2);
+        assert!(checker.is_type_assignable_to(text, numeric));
+        assert!(checker.is_type_assignable_to(numeric, text));
+    });
+}
+
+#[test]
+fn covariance_to_void_can_fall_back_to_structural_return_comparison() {
+    let source = "interface Producer<T> { produce: () => T }
+        let numeric: Producer<number>; let ignored: Producer<void>;";
+    with_checker(source, |checker, statements| {
+        let numeric = annotation_type(checker, statements, 1);
+        let ignored = annotation_type(checker, statements, 2);
+        assert!(checker.is_type_assignable_to(numeric, ignored));
+        assert!(!checker.is_type_assignable_to(ignored, numeric));
+    });
+}
+
+#[test]
+fn changing_strict_function_types_invalidates_measured_variance() {
+    let source = "interface Cell<T> { read: () => T; write: (value: T) => void }
+        let broad: Cell<string>; let narrow: Cell<'a'>;";
+    with_checker(source, |checker, statements| {
+        let broad = annotation_type(checker, statements, 1);
+        let narrow = annotation_type(checker, statements, 2);
+        assert!(!checker.is_type_assignable_to(narrow, broad));
+        checker.apply_compiler_options(&tsr_core::CompilerOptions {
+            strict_function_types: tsr_core::Tristate::False,
+            ..Default::default()
+        });
+        assert!(checker.is_type_assignable_to(narrow, broad));
+    });
+}
+
+#[test]
+fn generic_signatures_instantiate_from_contextual_inputs() {
+    assert!(assignable("let a: <T>(value: T) => T; let b: (value: number) => number;"));
+    assert!(!assignable(
+        "let a: <T extends number>(value: T) => T; let b: (value: string) => string;"
+    ));
+    assert!(assignable("let a: <T>(value: T) => T; let b: <U>(value: U) => U;"));
+}
+
+#[test]
+fn contextual_return_inference_fills_parameters_missing_from_inputs() {
+    assert!(assignable("let a: <T>() => T; let b: () => string;"));
+    assert!(!assignable("let a: <T>(value: T) => T; let b: (value: number) => string;"));
+}
+
+#[test]
+fn generic_callback_comparison_terminates_with_nested_signatures() {
+    assert!(assignable(
+        "let a: <T>(callback: (value: T) => T) => T;
+        let b: <U>(callback: (value: U) => U) => U;"
+    ));
+}
+
+#[test]
+fn nonstrict_function_parameters_are_bivariant() {
+    let source = "let a: (value: string) => void; let b: (value: 'a') => void;";
+    with_checker(source, |checker, statements| {
+        checker.apply_compiler_options(&tsr_core::CompilerOptions {
+            strict_function_types: tsr_core::Tristate::False,
+            ..Default::default()
+        });
+        let a = annotation_type(checker, statements, 0);
+        let b = annotation_type(checker, statements, 1);
+        assert!(checker.is_type_assignable_to(a, b));
+        assert!(checker.is_type_assignable_to(b, a));
+    });
+}
+
+#[test]
+fn callback_return_variance_follows_strict_function_types() {
+    let source = "let a: (callback: () => number) => void;
+        let b: (callback: () => number | string) => void;";
+    assert_eq!(both_ways(source), (false, true));
+    with_checker(source, |checker, statements| {
+        checker.apply_compiler_options(&tsr_core::CompilerOptions {
+            strict_function_types: tsr_core::Tristate::False,
+            ..Default::default()
+        });
+        let a = annotation_type(checker, statements, 0);
+        let b = annotation_type(checker, statements, 1);
+        assert!(checker.is_type_assignable_to(a, b));
+        assert!(checker.is_type_assignable_to(b, a));
+    });
+}
+
+#[test]
+fn predicate_relations_compare_asserted_types_and_parameter_positions() {
+    assert!(assignable(
+        "let a: (input: unknown) => input is number;
+        let b: (value: unknown) => value is number;"
+    ));
+    assert!(!assignable(
+        "let a: (input: unknown) => input is number;
+        let b: (value: unknown) => value is string;"
+    ));
+    assert!(!assignable(
+        "let a: (input: unknown, ignored: unknown) => input is number;
+        let b: (unused: unknown, value: unknown) => value is number;"
+    ));
+    assert!(!assignable(
+        "let a: (input: unknown) => boolean;
+        let b: (value: unknown) => value is number;"
+    ));
+}
+
+#[test]
+fn function_this_parameters_are_compared_and_void_sources_are_permitted() {
+    assert!(!assignable(
+        "let a: (this: string) => void;
+        let b: (this: number) => void;"
+    ));
+    assert!(assignable(
+        "let a: (this: void) => void;
+        let b: (this: number) => void;"
+    ));
+}
+
+#[test]
+fn strict_subtype_signature_arity_counts_optional_parameters() {
+    let source = "let a: (value: number, index?: number) => void;
+        let b: (value: number) => void;";
+    with_checker(source, |checker, statements| {
+        let a = annotation_type(checker, statements, 0);
+        let b = annotation_type(checker, statements, 1);
+        assert!(checker.is_type_assignable_to(a, b));
+        assert!(!checker.is_type_strict_subtype_of(a, b));
+        assert!(checker.is_type_strict_subtype_of(b, a));
+    });
+}
+
+#[test]
+fn fixed_tuple_rests_expand_parameter_types_and_required_arity() {
+    assert_eq!(
+        both_ways(
+            "let a: (...args: [number, string]) => void;
+            let b: (first: number, second: string) => void;"
+        ),
+        (true, true)
+    );
+    assert!(!assignable(
+        "let a: (...args: [number, string]) => void;
+        let b: (first: number) => void;"
+    ));
+    assert!(assignable(
+        "let a: (...args: [number, string?]) => void;
+        let b: (first: number) => void;"
+    ));
+}
+
+#[test]
+fn array_rests_compare_each_effective_parameter_contravariantly() {
+    assert_eq!(
+        both_ways(
+            "let a: (...args: string[]) => void;
+            let b: (first: 'a', second: 'a') => void;
+            interface Array<T> { [index: number]: T }"
+        ),
+        (true, false)
+    );
+    assert!(!assignable(
+        "let a: (...args: string[]) => void;
+        let b: (first: string, second: number) => void;
+        interface Array<T> { [index: number]: T }"
+    ));
+}
+
+#[test]
+fn a_variable_tuple_rest_keeps_its_fixed_prefix() {
+    assert!(assignable(
+        "let a: (...args: [number, ...string[]]) => void;
+        let b: (first: number, second: 'a', third: 'b') => void;
+        interface Array<T> { [index: number]: T }"
+    ));
+    assert!(!assignable(
+        "let a: (...args: [number, ...string[]]) => void;
+        let b: (first: string, second: 'a') => void;
+        interface Array<T> { [index: number]: T }"
+    ));
+}
+
+#[test]
+fn trailing_void_parameters_can_be_omitted_in_signature_comparison() {
+    assert!(assignable(
+        "let a: (value: number, unused: void) => void;
+        let b: (value: number) => void;"
+    ));
+    assert!(!assignable(
+        "let a: (value: number, extra: string) => void;
+        let b: (value: number) => void;"
+    ));
+}
+
+#[test]
+fn top_signatures_accept_any_inputs_and_results() {
+    for rest in ["any", "any[]", "never", "never[]"] {
+        let source = format!(
+            "let a: (input: number) => string;
+            let b: (...args: {rest}) => unknown;
+            interface Array<T> {{ [index: number]: T }}"
+        );
+        assert!(assignable(&source), "{rest}");
+    }
+}
+
+#[test]
+fn top_signatures_are_not_strict_subtypes_of_concrete_signatures() {
+    with_checker(
+        "let a: (...args: any) => any; let b: (input: number) => string;",
+        |checker, statements| {
+            let a = annotation_type(checker, statements, 0);
+            let b = annotation_type(checker, statements, 1);
+            assert!(checker.is_type_assignable_to(a, b));
+            assert!(!checker.is_type_strict_subtype_of(a, b));
+            assert!(checker.is_type_strict_subtype_of(b, a));
+        },
+    );
+}
+
+#[test]
+fn method_parameters_remain_bivariant_under_strict_function_types() {
+    assert_eq!(
+        both_ways(
+            "let a: { apply(value: string): void };
+            let b: { apply(value: 'a'): void };"
+        ),
+        (true, true)
+    );
+}
+
+#[test]
+fn instantiated_generic_method_inputs_use_ordinary_parameter_comparison() {
+    for (source, target) in [("string", "'a'"), ("'a'", "string")] {
+        let fixture = format!(
+            "let a: Generic<(input: {source}) => void>;
+            let b: {{ accept(callback: (input: {target}) => void): void }};
+            interface Generic<T> {{ accept(callback: T): void }}"
+        );
+        assert_eq!(both_ways(&fixture), (true, true));
+    }
+    assert!(!assignable(
+        "let a: Generic<(input: string) => void>;
+        let b: { accept(callback: (input: number) => void): void };
+        interface Generic<T> { accept(callback: T): void }"
+    ));
 }
 
 /// A literal is assignable to its base primitive, and not the other way round.

@@ -71,6 +71,20 @@ fn type_of_initialiser(source: &str, name: &str) -> String {
 const LIB: &str = "interface Array<T> { length: number }\n\
                    interface ReadonlyArray<T> { length: number }\n";
 
+/// `instantiateTypeWorker` retains the tuple target's element information.
+#[test]
+fn instantiated_tuple_retains_labels_and_optional_elements() {
+    let source =
+        format!("{LIB}declare function f<T>(): [first: T, second?: T];\nconst a = f<number>();");
+    assert_eq!(type_of_initialiser(&source, "a"), "[first: number, second?: number]");
+}
+
+#[test]
+fn instantiated_readonly_tuple_retains_optional_elements() {
+    let source = format!("{LIB}declare function f<T>(): readonly [T, T?];\nconst a = f<string>();");
+    assert_eq!(type_of_initialiser(&source, "a"), "readonly [string, string?]");
+}
+
 /// Both positions contribute the same candidate.
 #[test]
 fn a_tuple_parameter_infers_from_its_elements() {

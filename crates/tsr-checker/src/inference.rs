@@ -1,112 +1,29 @@
-//! Type argument inference for a call to a generic signature.
+//! Type argument inference for generic signatures.
 //!
-//! Ported from `Checker.inferTypeArguments` (`checker.go:9390`) and the part of
-//! `Checker.getSignatureInstantiation` (`checker.go:19293`) a return type needs,
-//! reduced to the inference rules that need **no type relation**.
+//! Ported from inferTypeArguments (internal/checker/checker.go) and inferTypes /
+//! getInferredType (internal/checker/inference.go). The walk accumulates
+//! covariant and contravariant candidates separately, measures reference
+//! variances, and applies inference priority before choosing candidates.
 //!
-//! # Why this is a slice and not the algorithm
+//! Contextual return inference is weaker than argument inference. Outer
+//! inference contexts carry independent ordinary and return mappers, and
+//! callbacks fix only the parameters read by their contextual types.
 //!
-//! Upstream's inference is `inferTypes` (`inference.go:53`) — a structural walk
-//! of source against target that accumulates candidates under a priority
-//! lattice, tracks contravariant positions separately, and resolves each type
-//! parameter through `getInferredType` (`inference.go:1406`) with fallbacks to
-//! the constraint and the default. Every part of that machinery exists to handle
-//! a type parameter that appears *somewhere inside* a parameter's type — `T[]`,
-//! `(x: T) => U`, `Partial<T>`, a mapped type — because then the candidate has
-//! to be dug out of the argument's type rather than read off it.
+//! Substitution rebuilds references, unions, intersections, tuples, signatures,
+//! indexed accesses, and anonymous property types when their metadata is known.
+//! Unknown structural metadata remains a gap. Union matching, general mapped
+//! inference, recursive generic signature relations, and dependent constraint
+//! resolution still have unported parts; their local guards record the limits.
 //!
-//! [`Checker::infer_from_types`] (`bd tsr-g30h`) is four arms of that walk, and
-//! its own doc comment says which and why the rest cannot be expressed here.
-//! **There is still no priority lattice and no contravariant bucket**: every
-//! position is walked covariantly and two positions that disagree gap the whole
-//! call. The rule below is arm 1 of four.
+//! Closed constraints filter pure return candidates, or select the compatible
+//! candidate direction before falling back to the constraint. Written type
+//! argument constraint diagnostics are not implemented here.
 //!
-//! Measured over the corpus source carried in the `.types` baselines
-//! (`vendor/typescript-go/testdata/baselines/reference/submodule`), of 1,145
-//! declarations initialised by a call to a locally declared generic function:
-//!
-//! | shape | count | share |
-//! |---|---|---|
-//! | no type parameter written bare in a parameter position | 605 | 53% |
-//! | every type parameter written bare in a parameter position | 370 | 32% |
-//! | explicit type arguments, `f<string>(x)` | 93 | 8% |
-//! | some, but not all, written bare | 77 | 7% |
-//!
-//! The 53% row is the cliff. `bd tsr-g30h` takes the part of it that the two
-//! substitution reverse indices make decomposable — references against
-//! references, signatures against signatures, and a restricted union arm — and
-//! refuses the rest; `docs/architecture/checker-notes-infer2.md` sizes both
-//! halves by counterfactual. The bare-parameter row remains the one where the
-//! candidate *is* the argument type, a lookup rather than an inference.
-//!
-//! # Nothing is widened, and that is not an omission
-//!
-//! `getCovariantInference` (`inference.go`) widens an inferred literal only when
-//! the type parameter "was fixed during inference or does not occur at top level
-//! in the return type". Both cases this module answers have the type parameter
-//! *as* the return type, so upstream does not widen either, and the oracle says
-//! so directly
-//! (`baselines/reference/submodule/conformance/callGenericFunctionWithZeroTypeArguments.types:10`):
-//!
-//! ```text
-//! var r = f(1);
-//! >r : number
-//! >f(1) : 1
-//! >f : <T>(x: T) => T
-//! ```
-//!
-//! The call is `1`; the `number` on `r` comes from the *declaration site*,
-//! where [`Checker::get_widened_literal_type`] already runs. A port that widened
-//! the candidate would print `number` on the call line and be wrong while
-//! looking right on the variable, which is exactly why that fixture is the test.
-//!
-//! The other half of the rule is visible in
-//! `conformance/genericCallWithConstraintsTypeArgumentInference2.types:17`,
-//! where `<T, U extends T>(t: T) => U` applied to `1` prints `number`: `T` does
-//! *not* occur at top level in the return type there, so upstream widens it,
-//! and `U` falls back to its constraint. That call has a type parameter with no
-//! bare parameter position and is a gap here — which is the reason this module
-//! does not have to know about widening at all.
-//!
-//! # What answers `errorType`
-//!
-//! A spread argument, a rest parameter, a type parameter [`Checker::infer_from_types`]
-//! finds no candidate for, two positions disagreeing about the same type
-//! parameter, a candidate that is `null` or `undefined` (upstream widens it and
-//! this port does not), a return type [`Checker::instantiate_type`] cannot
-//! rebuild, an argument whose own type is a gap, and — for a call with written
-//! type arguments — the wrong count of them, a defaulted type parameter, or an
-//! argument that does not resolve.
-//!
-//! # Written type arguments need substitution, not inference, and that is why
-//! they are here
-//!
-//! `f<string>(x)` skips inference entirely: `checkTypeArguments`
-//! (`checker.go:9269`) validates what the caller wrote and
-//! `getSignatureInstantiation` (`checker.go:19293`) substitutes it. So the two
-//! paths share their *second* half — the substitution — which is why they share
-//! a module, and why the same limit binds both. Of the 40 explicit-type-argument
-//! calls in the corpus whose callee has a written return annotation, 14 return a
-//! bare type parameter and are answered, 5 mention no type parameter and are
-//! free, and **21 return a type that merely contains one** — `T[]`, `[T, U]`,
-//! `C<T>` — which needs a structural rebuild.
-//!
-//! That rebuild is now [`Checker::instantiate_type`], and it covers exactly the
-//! shapes whose construction is interned on a `(symbol, arguments)` pair:
-//! `T[]`, `Array<T>`, `C<T>` and a union of those. **`[T, U]` and `(x: T) => U`
-//! are still gaps**, and not by oversight — a tuple and a function type are not
-//! built through `create_type_reference`, so there is no pair to reverse and
-//! nothing to rebuild them from. They become answerable when they gain a
-//! structured `TypeData`, not before.
-//!
-//! **The constraint check is not ported.** `f<string>(x)` where `T extends
-//! number` is an error upstream and answers `string` here. That is the one
-//! wrong answer in this module rather than a gap, and it is accepted because
-//! gapping every constrained type parameter would gap the correct calls too,
-//! and `is_type_assignable_to` cannot judge a constraint outside the primitive
-//! domains anyway (`crate::calls::SELECTABLE` records the same limit). Every
-//! such call is already a diagnostic upstream, so the line is not one a correct
-//! program contains.
+//! Literal inference and declaration widening are separate. For example,
+//! conformance/callGenericFunctionWithZeroTypeArguments.types records `f(1)`
+//! as `1`, while the variable initialized by that call is `number`. The tests
+//! assert the call expression so declaration widening cannot hide an incorrect
+//! inference result.
 
 use tsr_ast::{Expression, Node, NodeId};
 
@@ -115,6 +32,54 @@ use crate::{
     signatures::Signature,
     types::{TypeData, TypeId},
 };
+
+/// Identity of two concrete signature views for contextual instantiation.
+/// Types include return, this, predicates, inputs, constraints, defaults and
+/// owned parameter identities. Original inputs affect callback comparison.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct SignatureContextKey {
+    source: NodeId,
+    target: NodeId,
+    source_parameters: Vec<TypeId>,
+    target_parameters: Vec<TypeId>,
+    source_types: Vec<TypeId>,
+    target_types: Vec<TypeId>,
+    source_original_inputs: Vec<TypeId>,
+    target_original_inputs: Vec<TypeId>,
+}
+
+bitflags::bitflags! {
+    /// Ported from `InferencePriority` (`internal/checker/checker.go`).
+    /// Lower numeric priorities replace weaker candidates; certain flags
+    /// request a union/intersection rather than a common super/subtype.
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+    pub(crate) struct InferencePriority: u16 {
+        const NONE = 0;
+        const NAKED_TYPE_VARIABLE = 1 << 0;
+        const SPECULATIVE_TUPLE = 1 << 1;
+        const SUBSTITUTE_SOURCE = 1 << 2;
+        const HOMOMORPHIC_MAPPED_TYPE = 1 << 3;
+        const PARTIAL_HOMOMORPHIC_MAPPED_TYPE = 1 << 4;
+        const MAPPED_TYPE_CONSTRAINT = 1 << 5;
+        const CONTRAVARIANT_CONDITIONAL = 1 << 6;
+        const RETURN_TYPE = 1 << 7;
+        const LITERAL_KEYOF = 1 << 8;
+        const NO_CONSTRAINTS = 1 << 9;
+        const ALWAYS_STRICT = 1 << 10;
+        const MAX_VALUE = 1 << 11;
+        const IMPLIES_COMBINATION = Self::RETURN_TYPE.bits()
+            | Self::MAPPED_TYPE_CONSTRAINT.bits() | Self::LITERAL_KEYOF.bits();
+    }
+}
+
+/// A snapshot of the active `InferenceContext` used by an inner call's
+/// `cloneInferenceContext(..., NoDefault)` (internal/checker/checker.go).
+#[derive(Clone, Debug)]
+pub(crate) struct InferenceContextSnapshot {
+    pub(crate) signature: Signature,
+    pub(crate) inferences: Vec<InferenceInfo>,
+    pub(crate) return_inferences: Vec<InferenceInfo>,
+}
 
 impl Checker<'_, '_> {
     /// The type of a call whose resolved signature is generic.
@@ -149,7 +114,58 @@ impl Checker<'_, '_> {
         arguments: &[Expression<'_>],
         instantiated: Option<&mut Option<Signature>>,
     ) -> TypeId {
+        self.check_generic_call_with_mode(signature, call, arguments, instantiated, false)
+    }
+
+    fn check_generic_call_with_mode(
+        &mut self,
+        signature: &Signature,
+        call: Option<NodeId>,
+        arguments: &[Expression<'_>],
+        instantiated: Option<&mut Option<Signature>>,
+        overload_failure: bool,
+    ) -> TypeId {
+        let previous = call.and_then(|call| {
+            self.active_inference_contexts.insert(
+                call,
+                InferenceContextSnapshot {
+                    signature: signature.clone(),
+                    inferences: Vec::new(),
+                    return_inferences: Vec::new(),
+                },
+            )
+        });
+        let result = self.check_generic_call_worker(
+            signature,
+            call,
+            arguments,
+            instantiated,
+            overload_failure,
+        );
+        if let Some(call) = call {
+            if let Some(previous) = previous {
+                self.active_inference_contexts.insert(call, previous);
+            } else {
+                self.active_inference_contexts.remove(&call);
+            }
+        }
+        result
+    }
+
+    fn check_generic_call_worker(
+        &mut self,
+        signature: &Signature,
+        call: Option<NodeId>,
+        arguments: &[Expression<'_>],
+        instantiated: Option<&mut Option<Signature>>,
+        overload_failure: bool,
+    ) -> TypeId {
         let error = self.intrinsics.error;
+        // inferSignatureInstantiationForOverloadFailure (checker.go) skips
+        // context-sensitive arguments. A function requiring more parameters
+        // than its callback context makes applicability fail by arity alone.
+        let skip_context_sensitive =
+            overload_failure || self.generic_callback_arity_failure(signature, arguments);
         // Upstream checks every argument (`checkExpression` through
         // `getEffectiveCallArguments`) whatever it then does with them, and the
         // arguments are needed here anyway. A spread has no single position to
@@ -163,15 +179,19 @@ impl Checker<'_, '_> {
             }
             // Context-sensitive arguments type in phase 2 (ORDER, not
             // exclusion); the placeholder is error and phase 2 overwrites.
-            if is_context_sensitive_argument(&argument) {
-                argument_types.push(self.intrinsics.error);
+            if self.is_context_sensitive_argument(&argument) {
+                argument_types.push(if skip_context_sensitive {
+                    self.intrinsics.undefined
+                } else {
+                    self.intrinsics.error
+                });
             } else {
                 argument_types.push(self.check_expression(argument));
             }
         }
         if spread {
             for &argument in arguments {
-                if is_context_sensitive_argument(&argument) {
+                if self.is_context_sensitive_argument(&argument) {
                     let _ = self.check_expression(argument);
                 }
             }
@@ -237,16 +257,14 @@ impl Checker<'_, '_> {
         if returned == error {
             return error;
         }
-        // §35's contained leg (`checker-notes-callres.md`): a type
-        // parameter whose CONSTRAINT is a minted deferred type (`keyof T`)
-        // steers upstream's literal retention (`isLiteralOfContextualType`
-        // keeps `'b'` under a keyof-constrained parameter) — machinery this
-        // inference lacks, and the mint had been the accidental gate. The
-        // call declines as it always had.
+        // A deferred keyof constraint now participates in primitive literal
+        // retention (hasPrimitiveConstraint). Other unresolved constraints
+        // still cannot support inference or constraint checking.
         if signature.type_parameters.iter().any(|parameter| {
-            parameter
-                .constraint
-                .is_some_and(|constraint| self.unresolved_types.contains(&constraint))
+            parameter.constraint.is_some_and(|constraint| {
+                self.unresolved_types.contains(&constraint)
+                    && !self.deferred_keyof_types.contains(&constraint)
+            })
         }) {
             return error;
         }
@@ -324,7 +342,9 @@ impl Checker<'_, '_> {
         // machinery is run for its side effects, never to change the call's
         // own type.
         let benign = !self.mentions_type_parameter(returned, &parameters, &names);
-        if benign && instantiated.is_none() && !arguments.iter().any(is_context_sensitive_argument)
+        if benign
+            && instantiated.is_none()
+            && !arguments.iter().any(|argument| self.is_context_sensitive_argument(argument))
         {
             return returned;
         }
@@ -443,15 +463,54 @@ impl Checker<'_, '_> {
         // through the consumption rule below) and infer; the resolver then
         // answers per parameter over the collector.
         let mut infos: Vec<InferenceInfo> = Vec::new();
-        // Stage 1, third spec (the read's literal text): the return seed
-        // builds a SEPARATE returnMapper consulted ONLY when instantiating
-        // contextual types (the memo below); it never enters the inference
-        // set and never the final map.
+        // inferTypeArguments (checker.go) makes a weak ReturnType inference
+        // into the final context and an independent ordinary-priority pass
+        // for returnMapper. Our contextual-type road supplies written types;
+        // unannotated binding-pattern contexts are not computed here.
         let mut return_mapper: Vec<InferenceInfo> = Vec::new();
+        let previous_uninstantiated = self.uninstantiated_context_node;
+        self.uninstantiated_context_node = call;
+        let contextual_return = call.and_then(|call| self.get_contextual_type_of_call(call));
+        self.uninstantiated_context_node = previous_uninstantiated;
         if let Some(call_id) = call
-            && let Some(outer) = self.get_contextual_type_of_call(call_id)
+            && let Some(outer) = contextual_return
         {
-            self.infer_from_types(outer, returned, &parameters, &mut return_mapper, 0);
+            // An outer context's uninferred parameters map to silentNever
+            // under NoDefault. Keeping their identities would make an inner
+            // default infer an unresolved outer variable instead of its default.
+            // `inferTypeArguments` instantiates a single generic contextual
+            // signature with its own parameters so they remain actual types,
+            // rather than being erased by signature inference (checker.go).
+            let outer = if let Some(signatures) = self.signature_types.get(&outer).cloned()
+                && let [signature] = signatures.as_slice()
+                && !signature.type_parameters.is_empty()
+            {
+                let mut signature = signature.clone();
+                signature.type_parameters.clear();
+                let text = self.type_to_string(outer);
+                let source = self.store.new_named(crate::flags::TypeFlags::OBJECT, text, None);
+                self.signature_types.insert(source, vec![signature]);
+                source
+            } else {
+                outer
+            };
+            let return_source = self.instantiate_outer_inference_context(outer, call_id, false);
+            let outer = self.instantiate_outer_inference_context(outer, call_id, true);
+            self.infer_from_types_with_priority(
+                outer,
+                returned,
+                &parameters,
+                &mut infos,
+                0,
+                InferencePriority::RETURN_TYPE,
+            );
+            self.infer_from_types(return_source, returned, &parameters, &mut return_mapper, 0);
+        }
+        if let Some(call) = call
+            && let Some(context) = self.active_inference_contexts.get_mut(&call)
+        {
+            context.inferences.clone_from(&infos);
+            context.return_inferences.clone_from(&return_mapper);
         }
         let mut deferred: Vec<usize> = Vec::new();
         // SS140: candidates collect into PER-ARGUMENT buckets merged in
@@ -461,6 +520,7 @@ impl Checker<'_, '_> {
         // themselves measured -610: early member checks freeze the summit
         // families through the caches).
         let mut buckets: Vec<Vec<InferenceInfo>> = vec![Vec::new(); arguments.len().max(1)];
+        let mut inferred_type_parameters = Vec::new();
         for (index, parameter) in signature.parameters.iter().enumerate() {
             // §939: a REST parameter takes EVERY argument from its position on,
             // each inferred against the rest's ELEMENT type.
@@ -515,8 +575,16 @@ impl Checker<'_, '_> {
                     continue;
                 };
                 for (position, &argument_expression) in arguments.iter().enumerate().skip(index) {
-                    if is_context_sensitive_argument(&argument_expression) {
-                        deferred.push(position);
+                    if self.is_context_sensitive_argument(&argument_expression) {
+                        if !skip_context_sensitive
+                            || matches!(
+                                argument_expression,
+                                Expression::ObjectLiteralExpression(_)
+                                    | Expression::ArrayLiteralExpression(_)
+                            )
+                        {
+                            deferred.push(position);
+                        }
                         continue;
                     }
                     let Some(&argument) = argument_types.get(position) else { continue };
@@ -531,16 +599,84 @@ impl Checker<'_, '_> {
                 continue;
             }
             let Some(&argument_expression) = arguments.get(index) else { continue };
-            if is_context_sensitive_argument(&argument_expression) {
+            if self.is_context_sensitive_argument(&argument_expression) {
                 deferred.push(index);
                 continue;
             }
             let Some(&argument) = argument_types.get(index) else { continue };
+            let mut existing: Vec<_> = buckets.iter().flatten().cloned().collect();
+            for info in &return_mapper {
+                if !existing.iter().any(|current| current.type_parameter == info.type_parameter) {
+                    existing.push(info.clone());
+                }
+            }
+            if !skip_context_sensitive
+                && self.infer_higher_order_argument(
+                    argument,
+                    parameter.r#type,
+                    returned,
+                    (signature, &parameters, &existing),
+                    &mut buckets[index],
+                    &mut inferred_type_parameters,
+                )
+            {
+                continue;
+            }
+            if !skip_context_sensitive
+                && self.infer_generic_function_in_context(
+                    argument,
+                    parameter.r#type,
+                    (signature, &parameters, &existing),
+                    &mut buckets[index],
+                )
+            {
+                continue;
+            }
             self.infer_from_types(argument, parameter.r#type, &parameters, &mut buckets[index], 0);
         }
         if !deferred.is_empty()
             && let Some(call_id) = call
         {
+            // inferFromIntraExpressionSites reads the candidate signature's
+            // uninstantiated context. Without it, a member lookup takes the
+            // stateless fallback and prematurely fills its parameters with unknown.
+            let owns_memo = !self.call_inference_signatures.contains_key(&call_id);
+            if owns_memo {
+                self.call_inference_signatures.insert(call_id, signature.clone());
+            }
+            // SkipContextSensitive retains a return-only signature when the
+            // function has no contextual parameters. Nested contextual
+            // functions become anyFunctionType until the fixing pass.
+            for &index in &deferred {
+                let Some(mut argument) = arguments.get(index).copied() else { continue };
+                while let Expression::ParenthesizedExpression(node) = argument {
+                    let Some(inner) = node.expression else { break };
+                    argument = inner;
+                }
+                if !matches!(
+                    argument,
+                    Expression::ArrowFunction(_) | Expression::FunctionExpression(_)
+                ) {
+                    continue;
+                }
+                let Some(declaration) = argument.node_id() else { continue };
+                let Some(parameter) = signature.parameters.get(index) else { continue };
+                let Some(contexts) = self.call_signatures_of_type(parameter.r#type) else {
+                    continue;
+                };
+                let [context] = contexts.as_slice() else { continue };
+                if self.mentions_type_parameter(context.r#type, &parameters, &names)
+                    && let Some(source) = self.context_free_function_type(declaration)
+                {
+                    self.infer_from_types(
+                        source,
+                        parameter.r#type,
+                        &parameters,
+                        &mut buckets[index],
+                        0,
+                    );
+                }
+            }
             // The consumption rule: serve the pass-1 inferences as the
             // instantiated contexts for the deferred arguments, marking the
             // consumed parameters fixed. Parameters whose types still
@@ -564,7 +700,7 @@ impl Checker<'_, '_> {
                     let elements = self.tuple_element_lists.get(&parameter_type).cloned();
                     if let Some((element_types, _)) = elements {
                         for (position, &element) in array.elements.iter().enumerate() {
-                            if is_context_sensitive_argument(&element) {
+                            if self.is_context_sensitive_argument(&element) {
                                 continue;
                             }
                             let Some(&element_type) = element_types.get(position) else {
@@ -586,14 +722,41 @@ impl Checker<'_, '_> {
                 else {
                     continue;
                 };
-                for property in literal.properties {
-                    // SS138: a NON-context-sensitive method member harvests
-                    // its signature type against the property type.
-                    if let tsr_ast::ObjectLiteralElementLike::MethodDeclaration(method) = property
-                        && !method.parameters.iter().any(|p| p.r#type.is_none())
-                        && let Some(method_id) = method.node_id
-                    {
-                        let name = match method.name {
+                // inferFromIntraExpressionSites processes the non-contextual
+                // sites before a fixing read. Context-sensitive sites then
+                // contribute in their written order.
+                for contextual_pass in [false, true] {
+                    if contextual_pass && skip_context_sensitive {
+                        continue;
+                    }
+                    for property in literal.properties {
+                        let (property_name, value, method) = match property {
+                            tsr_ast::ObjectLiteralElementLike::PropertyAssignment(assignment) => {
+                                let Some(value) = assignment.initializer else { continue };
+                                (assignment.name, Some(value), None)
+                            }
+                            tsr_ast::ObjectLiteralElementLike::MethodDeclaration(method) => {
+                                (method.name, None, Some(method))
+                            }
+                            _ => continue,
+                        };
+                        let contextual_site = value.as_ref().map_or_else(
+                            || {
+                                method.is_some_and(|method| {
+                                    method.node_id.is_some_and(|id| {
+                                        self.is_context_sensitive_function_like(id)
+                                    })
+                                })
+                            },
+                            |argument| self.is_context_sensitive_argument(argument),
+                        );
+                        if contextual_site != contextual_pass {
+                            continue;
+                        }
+                        let site_id = value
+                            .and_then(|value| value.node_id())
+                            .or_else(|| method.and_then(|method| method.node_id));
+                        let name = match property_name {
                             tsr_ast::PropertyName::Identifier(name) => name.text,
                             tsr_ast::PropertyName::StringLiteral(name) => name.text,
                             _ => continue,
@@ -603,81 +766,178 @@ impl Checker<'_, '_> {
                             continue;
                         };
                         let property_type = self.get_type_of_symbol(property_symbol);
-                        let checked = self.get_type_of_function_expression(method_id);
-                        if checked != error {
-                            self.infer_from_types(
-                                checked,
-                                property_type,
-                                &parameters,
-                                &mut buckets[index],
-                                0,
-                            );
-                        }
-                        continue;
-                    }
-                    let tsr_ast::ObjectLiteralElementLike::PropertyAssignment(assignment) =
-                        property
-                    else {
-                        continue;
-                    };
-                    let Some(value) = assignment.initializer else { continue };
-                    let name = match assignment.name {
-                        tsr_ast::PropertyName::Identifier(name) => name.text,
-                        tsr_ast::PropertyName::StringLiteral(name) => name.text,
-                        _ => continue,
-                    };
-                    let Some(property_symbol) = self.get_property_of_type(parameter_type, name)
-                    else {
-                        continue;
-                    };
-                    let property_type = self.get_type_of_symbol(property_symbol);
-                    // SS141: a REFERENCE parameter's member carries the
-                    // target's own type parameters - instantiate through the
-                    // reference so inference sees the call's parameters.
-                    let property_type = {
-                        let image = self.instantiate_for_reference(parameter_type, property_type);
-                        if image == error { property_type } else { image }
-                    };
-                    // SS137 (slice 2): members process IN ORDER, a
-                    // context-sensitive value checking under the inferences
-                    // accumulated so far (upstream's non-omitted pass with
-                    // inferFromIntraExpressionSites firing per site) - its
-                    // RETURN then contributes: `produce: _a => 0` infers
-                    // T := number for `consume`.
-                    if is_context_sensitive_argument(&value)
-                        && let Some(literal_id) = literal.node_id
-                    {
-                        let so_far: Vec<(TypeId, TypeId)> = {
-                            let mut merged: Vec<InferenceInfo> = Vec::new();
-                            for bucket in &buckets {
-                                for info in bucket {
-                                    for &candidate in &info.candidates {
-                                        add_candidate(&mut merged, info.type_parameter, candidate);
+                        // SS141: a REFERENCE parameter's member carries the
+                        // target's own type parameters - instantiate through the
+                        // reference so inference sees the call's parameters.
+                        let property_type = {
+                            let image =
+                                self.instantiate_for_reference(parameter_type, property_type);
+                            if image == error { property_type } else { image }
+                        };
+                        // Context-sensitive methods and property values use
+                        // the same intra-expression mapper before their return
+                        // types contribute to the following member's context.
+                        if contextual_site && let Some(literal_id) = literal.node_id {
+                            let so_far: Vec<(TypeId, TypeId)> = {
+                                let mut merged: Vec<InferenceInfo> = Vec::new();
+                                for bucket in &buckets {
+                                    for info in bucket {
+                                        merge_info(&mut merged, info);
                                     }
                                 }
+                                // InferenceTypeMapper.Map fixes a candidate at
+                                // the first contextual read, before checking the
+                                // body of this site or any following member.
+                                if let Some(site_id) = site_id {
+                                    let previous =
+                                        self.intra_expression_member_maps.remove(&literal_id);
+                                    let functions = value.map_or_else(
+                                        || vec![site_id],
+                                        |value| self.context_sensitive_functions(value),
+                                    );
+                                    let mut consumed = Vec::new();
+                                    for function in functions {
+                                        if let Some(contextual) =
+                                            self.contextual_signature(function)
+                                        {
+                                            consumed.extend(
+                                                self.consumed_contextual_parameter_types(
+                                                    function,
+                                                    &contextual,
+                                                ),
+                                            );
+                                        }
+                                    }
+                                    if let Some(previous) = previous {
+                                        self.intra_expression_member_maps
+                                            .insert(literal_id, previous);
+                                    }
+                                    if !consumed.is_empty() {
+                                        // A fixing read also fixes an inference
+                                        // with no candidates to its fallback.
+                                        for (position, &parameter) in parameters.iter().enumerate()
+                                        {
+                                            if !merged
+                                                .iter()
+                                                .any(|info| info.type_parameter == parameter)
+                                                && consumed.iter().any(|&ty| {
+                                                    self.mentions_type_parameter(
+                                                        ty,
+                                                        &[parameter],
+                                                        &[names[position]],
+                                                    )
+                                                })
+                                            {
+                                                merged.push(InferenceInfo {
+                                                    type_parameter: parameter,
+                                                    priority: InferencePriority::MAX_VALUE,
+                                                    candidates: Vec::new(),
+                                                    contra_candidates: Vec::new(),
+                                                    fixed_type: None,
+                                                    is_fixed: true,
+                                                    top_level: true,
+                                                });
+                                            }
+                                        }
+                                        for info in &mut merged {
+                                            let Some(position) = parameters
+                                                .iter()
+                                                .position(|&p| p == info.type_parameter)
+                                            else {
+                                                continue;
+                                            };
+                                            if consumed.iter().any(|&t| {
+                                                self.mentions_type_parameter(
+                                                    t,
+                                                    &[info.type_parameter],
+                                                    &[names[position]],
+                                                )
+                                            }) {
+                                                info.is_fixed = true;
+                                            }
+                                        }
+                                    }
+                                }
+                                // The non-fixing mapper still resolves every read
+                                // through getInferredType. Missing candidates use
+                                // their fallback, then remain open for later sites.
+                                let mut map = Vec::new();
+                                for (position, &parameter) in parameters.iter().enumerate() {
+                                    let inferred = merged
+                                        .iter()
+                                        .find(|info| {
+                                            info.type_parameter == parameter
+                                                && (info.has_candidates()
+                                                    || info.fixed_type.is_some())
+                                        })
+                                        .map(|info| {
+                                            self.inferred_type_from_info(
+                                                info, signature, position, &merged,
+                                            )
+                                            .unwrap_or(error)
+                                        });
+                                    let inferred = inferred.unwrap_or_else(|| {
+                                        let declaration = &signature.type_parameters[position];
+                                        declaration.default.or(declaration.constraint).map_or(
+                                            self.intrinsics.unknown,
+                                            |fallback| {
+                                                self.instantiate_type(
+                                                    fallback,
+                                                    &map,
+                                                    &parameters,
+                                                    &names,
+                                                )
+                                            },
+                                        )
+                                    });
+                                    map.push((parameter, inferred));
+                                }
+                                for info in merged.iter_mut().filter(|info| info.is_fixed) {
+                                    info.fixed_type = map
+                                        .iter()
+                                        .find(|(tp, _)| *tp == info.type_parameter)
+                                        .map(|(_, image)| *image);
+                                    for bucket in &mut buckets {
+                                        if let Some(existing) = bucket.iter_mut().find(|existing| {
+                                            existing.type_parameter == info.type_parameter
+                                        }) {
+                                            existing.is_fixed = true;
+                                            existing.fixed_type = info.fixed_type;
+                                        }
+                                    }
+                                    if !buckets[index].iter().any(|existing| {
+                                        existing.type_parameter == info.type_parameter
+                                    }) {
+                                        buckets[index].push(info.clone());
+                                    }
+                                }
+                                map
+                            };
+                            self.intra_expression_member_maps.insert(
+                                literal_id,
+                                (
+                                    so_far,
+                                    parameters.clone(),
+                                    names.iter().map(ToString::to_string).collect(),
+                                ),
+                            );
+                            if let Some(value_id) = site_id {
+                                self.evict_subtree(value_id);
                             }
-                            flatten_infos(&merged)
-                        };
-                        self.intra_expression_member_maps.insert(
-                            literal_id,
-                            (
-                                so_far,
-                                parameters.clone(),
-                                names.iter().map(ToString::to_string).collect(),
-                            ),
-                        );
-                        if let Some(value_id) = value.node_id() {
-                            self.evict_subtree(value_id);
                         }
+                        let checked = match (value, site_id) {
+                            (Some(value), _) => self.check_expression(value),
+                            (None, Some(method)) => self.get_type_of_function_expression(method),
+                            _ => continue,
+                        };
+                        self.infer_from_types(
+                            checked,
+                            property_type,
+                            &parameters,
+                            &mut buckets[index],
+                            0,
+                        );
                     }
-                    let checked = self.check_expression(value);
-                    self.infer_from_types(
-                        checked,
-                        property_type,
-                        &parameters,
-                        &mut buckets[index],
-                        0,
-                    );
                 }
             }
             for bucket in buckets.drain(..) {
@@ -685,127 +945,228 @@ impl Checker<'_, '_> {
                     merge_info(&mut infos, &info);
                 }
             }
-            let mut partial: Vec<(TypeId, TypeId)> = flatten_infos(&infos);
-            // argument-partial OVER returnMapper: mapper entries fill only
-            // parameters the arguments left empty.
-            for entry in flatten_infos(&return_mapper) {
-                if !partial.iter().any(|&(tp, _)| tp == entry.0) {
-                    partial.push(entry);
-                }
+            if let Some(context) = self.active_inference_contexts.get_mut(&call_id) {
+                context.inferences.clone_from(&infos);
             }
-            for (position, &type_parameter) in parameters.iter().enumerate() {
-                if !partial.iter().any(|&(tp, _)| tp == type_parameter)
-                    && let Some(constraint) =
-                        signature.type_parameters.get(position).and_then(|tp| tp.constraint)
-                {
-                    partial.push((type_parameter, constraint));
+            if !skip_context_sensitive {
+                let Some(mut partial) = self.inference_map(&infos, signature, &parameters) else {
+                    return decline;
+                };
+                // argument-partial OVER returnMapper: mapper entries fill only
+                // parameters the arguments left empty.
+                let Some(return_map) = self.inference_map(&return_mapper, signature, &parameters)
+                else {
+                    return decline;
+                };
+                for entry in return_map {
+                    if !partial.iter().any(|&(tp, _)| tp == entry.0) {
+                        partial.push(entry);
+                    }
                 }
-            }
-            // The FIXING mapper's final leg (`getInferredType`,
-            // `inference.go:1317`, same fallback as the resolution loop's
-            // no-candidate arm below): a parameter no argument or constraint
-            // reached fixes to `unknown` at serve time. This supersedes the
-            // SS75 uninstantiated-serve — the map is now TOTAL, so contexts
-            // always serve instantiated; `someGenerics6(n => n, ...)` is the
-            // head case (upstream: `(n: unknown) => unknown`; the ladder
-            // test's third flip).
-            // §134 returnMapper guard, same as arm (a)'s: a call in
-            // contextual position keeps its unfixed parameters (upstream's
-            // returnMapper is a live source there); only a
-            // statement-position call fills to `unknown`.
-            // §134 refined per-parameter: the returnMapper sources only
-            // parameters that APPEAR in the return type, so a contextual
-            // call protects exactly those; everything else fixes
-            // (contextualTypingTwoInstancesOfSameTypeParameter's giveback
-            // found the coarse call-level guard wrong by 4).
-            let contextual_call = self.get_contextual_type_of_call(call_id).is_some();
-            let mut filled = false;
-            for (position, &type_parameter) in parameters.iter().enumerate() {
-                if partial.iter().any(|&(tp, _)| tp == type_parameter) {
-                    continue;
+                for (position, &type_parameter) in parameters.iter().enumerate() {
+                    if !partial.iter().any(|&(tp, _)| tp == type_parameter)
+                        && let Some(constraint) =
+                            signature.type_parameters.get(position).and_then(|tp| tp.constraint)
+                    {
+                        partial.push((type_parameter, constraint));
+                    }
                 }
-                if contextual_call
-                    && self.mentions_type_parameter(returned, &[type_parameter], &[names[position]])
-                {
-                    continue;
+                // The FIXING mapper's final leg (`getInferredType`,
+                // `inference.go:1317`, same fallback as the resolution loop's
+                // no-candidate arm below): a parameter no argument or constraint
+                // reached fixes to `unknown` at serve time. This supersedes the
+                // SS75 uninstantiated-serve — the map is now TOTAL, so contexts
+                // always serve instantiated; `someGenerics6(n => n, ...)` is the
+                // head case (upstream: `(n: unknown) => unknown`; the ladder
+                // test's third flip).
+                // §134 returnMapper guard, same as arm (a)'s: a call in
+                // contextual position keeps its unfixed parameters (upstream's
+                // returnMapper is a live source there); only a
+                // statement-position call fills to `unknown`.
+                // §134 refined per-parameter: the returnMapper sources only
+                // parameters that APPEAR in the return type, so a contextual
+                // call protects exactly those; everything else fixes
+                // (contextualTypingTwoInstancesOfSameTypeParameter's giveback
+                // found the coarse call-level guard wrong by 4).
+                let contextual_call = self.get_contextual_type_of_call(call_id).is_some();
+                let mut filled = false;
+                for (position, &type_parameter) in parameters.iter().enumerate() {
+                    if partial.iter().any(|&(tp, _)| tp == type_parameter) {
+                        continue;
+                    }
+                    if contextual_call
+                        && self.mentions_type_parameter(
+                            returned,
+                            &[type_parameter],
+                            &[names[position]],
+                        )
+                    {
+                        continue;
+                    }
+                    partial.push((type_parameter, self.intrinsics.unknown));
+                    filled = true;
                 }
-                partial.push((type_parameter, self.intrinsics.unknown));
-                filled = true;
-            }
-            // Totality, not fill-count, is what licenses the unconditional
-            // serve below.
-            let filled = filled
-                && parameters
-                    .iter()
-                    .all(|&type_parameter| partial.iter().any(|&(tp, _)| tp == type_parameter));
-            let mut memo = signature.clone();
-            for parameter in &mut memo.parameters {
-                let image = self.instantiate_type(parameter.r#type, &partial, &parameters, &names);
-                // With the fill the map is TOTAL and the image always
-                // serves; without it (contextual-position call) the SS75
-                // mentions guard returns — a half-instantiated context was
-                // the first reunion's measured 363-G-to-W cause.
-                if image != error
-                    && (filled || !self.mentions_type_parameter(image, &parameters, &names))
-                {
-                    parameter.r#type = image;
-                    for &(consumed, _) in &partial {
-                        if let Some(info) = infos.iter_mut().find(|i| i.type_parameter == consumed)
+                // Totality, not fill-count, is what licenses the unconditional
+                // serve below.
+                let filled = filled
+                    && parameters
+                        .iter()
+                        .all(|&type_parameter| partial.iter().any(|&(tp, _)| tp == type_parameter));
+                // InferenceTypeMapper.Map fixes a parameter when a contextual
+                // signature actually reads it, then calls getInferredType. Probe
+                // those signatures against the uninstantiated serving memo so the
+                // parameter identities survive the contextual property lookup.
+                if owns_memo {
+                    // Probe the raw parameter identities, before the intra-expression
+                    // substitution maps the object members to their inferred types.
+                    let mut member_maps = Vec::new();
+                    for &index in &deferred {
+                        if let Some(Expression::ObjectLiteralExpression(literal)) =
+                            arguments.get(index)
+                            && let Some(id) = literal.node_id
+                            && let Some(map) = self.intra_expression_member_maps.remove(&id)
                         {
-                            info.is_fixed = true;
+                            member_maps.push((id, map));
+                        }
+                    }
+                    let mut consumed_types = Vec::new();
+                    for &index in &deferred {
+                        for function in self.context_sensitive_functions(arguments[index]) {
+                            if let Some(contextual) = self.contextual_signature(function) {
+                                consumed_types.extend(
+                                    self.consumed_contextual_parameter_types(function, &contextual),
+                                );
+                            }
+                        }
+                    }
+                    self.intra_expression_member_maps.extend(member_maps);
+                    self.call_inference_signatures.remove(&call_id);
+                    for (position, &type_parameter) in parameters.iter().enumerate() {
+                        if !consumed_types.iter().any(|&contextual| {
+                            self.mentions_type_parameter(
+                                contextual,
+                                &[type_parameter],
+                                &[names[position]],
+                            )
+                        }) {
+                            continue;
+                        }
+                        let Some(info_index) =
+                            infos.iter().position(|info| info.type_parameter == type_parameter)
+                        else {
+                            infos.push(InferenceInfo {
+                                type_parameter,
+                                priority: InferencePriority::MAX_VALUE,
+                                candidates: Vec::new(),
+                                contra_candidates: Vec::new(),
+                                fixed_type: partial
+                                    .iter()
+                                    .find(|(tp, _)| *tp == type_parameter)
+                                    .map(|(_, image)| *image),
+                                is_fixed: true,
+                                top_level: true,
+                            });
+                            continue;
+                        };
+                        infos[info_index].is_fixed = true;
+                        let info = &infos[info_index];
+                        if !info.has_candidates() && info.fixed_type.is_none() {
+                            infos[info_index].fixed_type = partial
+                                .iter()
+                                .find(|(tp, _)| *tp == type_parameter)
+                                .map(|(_, image)| *image);
+                            continue;
+                        }
+                        let Some(inferred) =
+                            self.inferred_type_from_info(info, signature, position, &infos)
+                        else {
+                            return decline;
+                        };
+                        partial.retain(|&(parameter, _)| parameter != type_parameter);
+                        partial.push((type_parameter, inferred));
+                        infos[info_index].fixed_type = Some(inferred);
+                    }
+                }
+                let mut memo = signature.clone();
+                for parameter in &mut memo.parameters {
+                    let image =
+                        self.instantiate_type(parameter.r#type, &partial, &parameters, &names);
+
+                    // With the fill the map is TOTAL and the image always
+                    // serves; without it (contextual-position call) the SS75
+                    // mentions guard returns — a half-instantiated context was
+                    // the first reunion's measured 363-G-to-W cause.
+                    if image != error
+                        && (filled || !self.mentions_type_parameter(image, &parameters, &names))
+                    {
+                        parameter.r#type = image;
+                    }
+                }
+                if owns_memo {
+                    self.call_inference_signatures.insert(call_id, memo);
+                    if !inferred_type_parameters.is_empty() || !return_mapper.is_empty() {
+                        self.higher_order_context_calls.insert(call_id);
+                    }
+                }
+                // SS135: member-map registration for deferred literal arguments.
+                let mut registered_literals: Vec<tsr_ast::NodeId> = Vec::new();
+                if owns_memo {
+                    for &index in &deferred {
+                        if let Some(&Expression::ObjectLiteralExpression(literal)) =
+                            arguments.get(index)
+                            && let Some(literal_id) = literal.node_id
+                        {
+                            self.intra_expression_member_maps.insert(
+                                literal_id,
+                                (
+                                    partial.clone(),
+                                    parameters.clone(),
+                                    names.iter().map(ToString::to_string).collect(),
+                                ),
+                            );
+                            registered_literals.push(literal_id);
                         }
                     }
                 }
-            }
-            let owns_memo = !self.call_inference_signatures.contains_key(&call_id);
-            if owns_memo {
-                self.call_inference_signatures.insert(call_id, memo);
-            }
-            // SS135: member-map registration for deferred literal arguments.
-            let mut registered_literals: Vec<tsr_ast::NodeId> = Vec::new();
-            if owns_memo {
                 for &index in &deferred {
-                    if let Some(&Expression::ObjectLiteralExpression(literal)) =
-                        arguments.get(index)
-                        && let Some(literal_id) = literal.node_id
-                    {
-                        self.intra_expression_member_maps.insert(
-                            literal_id,
-                            (
-                                partial.clone(),
-                                parameters.clone(),
-                                names.iter().map(ToString::to_string).collect(),
-                            ),
+                    if let Some(context) = self.active_inference_contexts.get_mut(&call_id) {
+                        context.inferences.clone_from(&infos);
+                    }
+                    // SS135: the argument may have been checked EAGERLY during
+                    // overload selection (calls.rs) with no memo present - the
+                    // cached answers of its whole subtree are pre-context and
+                    // must not survive into this contextual re-check (the
+                    // summit's freeze pattern, third recurrence).
+                    if let Some(id) = arguments[index].node_id() {
+                        self.evict_subtree(id);
+                    }
+                    let checked = self.check_expression(arguments[index]);
+
+                    if let Some(slot) = argument_types.get_mut(index) {
+                        *slot = checked;
+                    }
+                    if let Some(parameter) = signature.parameters.get(index) {
+                        self.infer_from_types(
+                            checked,
+                            parameter.r#type,
+                            &parameters,
+                            &mut infos,
+                            0,
                         );
-                        registered_literals.push(literal_id);
                     }
                 }
-            }
-            for &index in &deferred {
-                // SS135: the argument may have been checked EAGERLY during
-                // overload selection (calls.rs) with no memo present - the
-                // cached answers of its whole subtree are pre-context and
-                // must not survive into this contextual re-check (the
-                // summit's freeze pattern, third recurrence).
-                if let Some(id) = arguments[index].node_id() {
-                    self.evict_subtree(id);
+                if owns_memo {
+                    self.call_inference_signatures.remove(&call_id);
+                    self.higher_order_context_calls.remove(&call_id);
+                    // The member maps PERSIST - member reads are LAZY (the
+                    // walker asks for property/parameter types long after this
+                    // call resolved), and upstream's answer is stable because
+                    // the resolved signature's mapper never expires. A window
+                    // here measured ZERO: every read arrived after removal.
+                    let _ = registered_literals;
                 }
-                let checked = self.check_expression(arguments[index]);
-                if let Some(slot) = argument_types.get_mut(index) {
-                    *slot = checked;
-                }
-                if let Some(parameter) = signature.parameters.get(index) {
-                    self.infer_from_types(checked, parameter.r#type, &parameters, &mut infos, 0);
-                }
-            }
-            if owns_memo {
+            } else if owns_memo {
                 self.call_inference_signatures.remove(&call_id);
-                // The member maps PERSIST - member reads are LAZY (the
-                // walker asks for property/parameter types long after this
-                // call resolved), and upstream's answer is stable because
-                // the resolved signature's mapper never expires. A window
-                // here measured ZERO: every read arrived after removal.
-                let _ = registered_literals;
             }
         } else {
             for bucket in buckets.drain(..) {
@@ -820,93 +1181,17 @@ impl Checker<'_, '_> {
                 }
             }
         }
-        let candidates: Vec<(TypeId, TypeId)> = flatten_infos(&infos);
         let mut map = Vec::with_capacity(parameters.len());
         for (position, &type_parameter) in parameters.iter().enumerate() {
-            // `getCovariantInference` (`inference.go`) unions the candidates.
-            // This port cannot build that union in general — it would need the
-            // subtype reduction refused at `bd tsr-eak` — but `never` is the
-            // **identity** for union and `add_type_to_union` (`crate::unions`)
-            // drops it, so a `never` candidate beside any other contributes
-            // nothing and can be struck without deciding anything.
-            //
-            // `f([], 3)` against `<T>(arr: T[], elemnt: T) => T` is the case
-            // that forced this: `T[]` against `never[]` yields `never`, `T`
-            // against `3` yields `3`, and upstream answers `3`
-            // (`baselines/reference/submodule/compiler/undefinedInferentialTyping.types:12`).
-            // Without the strike the two disagree and the call gaps — which is
-            // how the bar's second leg found it.
-            let never = self.intrinsics.never;
-            let has_other = candidates
-                .iter()
-                .any(|&(from, inferred)| from == type_parameter && inferred != never);
-            // This parameter's candidates in add order, never-struck (see
-            // above), deduped — `getCovariantInference`'s input.
-            let list: Vec<TypeId> = {
-                let mut seen = Vec::new();
-                for &(from, inferred) in &candidates {
-                    if from == type_parameter
-                        && !(has_other && inferred == never)
-                        && !seen.contains(&inferred)
-                    {
-                        seen.push(inferred);
-                    }
-                }
-                seen
-            };
-            // §162 → the pipeline (`getCovariantInference`,
-            // `inference.go:1434`): the widening decision now reads the REAL
-            // `topLevel`/`isFixed` fields (the foundation's steps 2/4) —
-            // `widenLiteralTypes := !primitiveConstraint && inference.topLevel
-            // && (inference.isFixed || !isTypeParameterAtTopLevelInReturnType(..))`.
-            // `typeArgumentsWithStringLiteralTypes01` sits on the isFixed
-            // disjunct (a consumed context widens DESPITE a top-level return);
-            // `<T>(x: T) => T` on the unfixed one (keeps `5`, upstream too).
-            let top_level = infos
-                .iter()
-                .find(|info| info.type_parameter == type_parameter)
-                .is_none_or(|info| info.top_level);
-            let is_fixed = infos
-                .iter()
-                .find(|info| info.type_parameter == type_parameter)
-                .is_some_and(|info| info.is_fixed);
-            let primitive_constraint = self.parameter_has_primitive_constraint(signature, position);
-            let widen_literals = !primitive_constraint
-                && top_level
-                && (is_fixed
-                    || !self
-                        .is_type_parameter_at_top_level_in_return_type(signature, type_parameter));
             let mut candidate = None;
-            if !list.is_empty() {
-                // Stage 2 — base candidates under the widening decision
-                // (`inference.go:1444-1451`); a primitive-flavored constraint
-                // keeps literals regular, widening maps each to its base.
-                let base: Vec<TypeId> = {
-                    let mut out = Vec::with_capacity(list.len());
-                    for &t in &list {
-                        let mapped = if primitive_constraint {
-                            self.get_regular_type_of_literal_type(t)
-                        } else if widen_literals {
-                            self.get_widened_literal_type(t)
-                        } else {
-                            t
-                        };
-                        if !out.contains(&mapped) {
-                            out.push(mapped);
-                        }
-                    }
-                    out
+            if let Some(info) = infos.iter().find(|info| info.type_parameter == type_parameter)
+                && (info.has_candidates() || info.fixed_type.is_some())
+            {
+                let Some(resolved) =
+                    self.inferred_type_from_info(info, signature, position, &infos)
+                else {
+                    return decline;
                 };
-                // Stage 3 — combination (`getCommonSupertype`,
-                // `inference.go:1530`): same-base literal sets union;
-                // everything else takes the leftmost-supertype walk, with the
-                // relater's third verdict declining the call whole — a gap
-                // beats a wrong. Stage 4 (`getWidenedType`) is identity here:
-                // this port's candidates carry no freshness to erase, and
-                // object-literal widening is unported at this site (stated).
-                let resolved =
-                    if base.len() == 1 { Some(base[0]) } else { self.covariant_combination(&base) };
-                let Some(resolved) = resolved else { return decline };
                 candidate = Some(resolved);
             }
             // `getWidenedType` (`checker.go:16090`): with `strictNullChecks`
@@ -982,13 +1267,24 @@ impl Checker<'_, '_> {
                                     .type_of(argument)
                                     .flags
                                     .intersects(crate::flags::TypeFlags::NULLABLE)
+                                    && self
+                                        .intersection_inference_source(
+                                            argument,
+                                            parameter.r#type,
+                                            &parameters,
+                                        )
+                                        .is_none_or(|(remaining, _)| remaining.is_some())
                             }) && self.mentions_type_parameter(
                                 parameter.r#type,
                                 &[type_parameter],
                                 &[name],
                             )
                         });
-                    if structural_source_supplied {
+                    if structural_source_supplied
+                        && !infos
+                            .iter()
+                            .any(|info| info.type_parameter == type_parameter && info.is_fixed)
+                    {
                         return decline;
                     }
                     let Some(default) = signature
@@ -1008,6 +1304,16 @@ impl Checker<'_, '_> {
                         } else {
                             self.intrinsics.unknown
                         };
+                        let fallback = if skip_context_sensitive
+                            && let Some(constraint) = signature.type_parameters[position].constraint
+                        {
+                            self.instantiate_type(constraint, &map, &parameters, &names)
+                        } else {
+                            fallback
+                        };
+                        if fallback == error {
+                            return decline;
+                        }
                         map.push((type_parameter, fallback));
                         continue;
                     };
@@ -1023,25 +1329,895 @@ impl Checker<'_, '_> {
                 }
             }
         }
+        // inferSignatureInstantiationForOverloadFailure uses a fresh inference
+        // context with SkipContextSensitive. A definite applicability failure
+        // therefore discards the fixing caused by callbacks in the normal pass.
+        // Unknown relations cannot establish this error-recovery path.
+        if !skip_context_sensitive
+            && (arguments.iter().any(|argument| self.is_context_sensitive_argument(argument))
+                || argument_types.iter().any(|argument| self.signature_types.get(argument).is_some_and(|signatures| matches!(signatures.as_slice(), [signature] if !signature.type_parameters.is_empty()))))
+            && !signature.parameters.iter().any(|parameter| parameter.rest)
+        {
+            let failed =
+                argument_types.iter().zip(&signature.parameters).any(|(&argument, parameter)| {
+                    let image = self.instantiate_type(parameter.r#type, &map, &parameters, &names);
+                    argument != error
+                        && image != error
+                        && self.generic_argument_is_inapplicable(argument, image)
+                });
+            if failed {
+                return self.check_generic_call_with_mode(
+                    signature,
+                    call,
+                    arguments,
+                    instantiated,
+                    true,
+                );
+            }
+        }
+        if overload_failure && let Some(call_id) = call {
+            // The error signature is checked again after inference with
+            // SkipContextSensitive. Its callback contexts use the recovered
+            // type arguments, not the cached normal-pass fixing mapper.
+            if let Some(context) =
+                self.instantiate_signature(signature.clone(), &map, &parameters, &names)
+            {
+                let previous = self.call_inference_signatures.insert(call_id, context);
+                for &argument in arguments {
+                    if self.is_context_sensitive_argument(&argument) {
+                        if let Some(id) = argument.node_id() {
+                            self.evict_subtree(id);
+                        }
+                        self.check_expression(argument);
+                    }
+                }
+                if let Some(previous) = previous {
+                    self.call_inference_signatures.insert(call_id, previous);
+                } else {
+                    self.call_inference_signatures.remove(&call_id);
+                }
+            }
+        }
         if let Some(slot) = instantiated {
+            let returned_image = self.instantiate_type(returned, &map, &parameters, &names);
+            let returned_image =
+                self.propagate_return_type_parameters(returned_image, &inferred_type_parameters);
+            if returned_image == error {
+                return decline;
+            }
             let mut instance = signature.clone();
             for parameter in &mut instance.parameters {
                 let image = self.instantiate_type(parameter.r#type, &map, &parameters, &names);
                 if image == error {
-                    return decline;
+                    // A caller may request the resolved signature for later
+                    // contextual reads. Unsupported parameter substitution
+                    // does not invalidate an independently resolved return.
+                    return returned_image;
                 }
                 parameter.r#type = image;
-            }
-            let returned_image = self.instantiate_type(returned, &map, &parameters, &names);
-            if returned_image == error {
-                return decline;
             }
             instance.r#type = returned_image;
             instance.type_parameters = Vec::new();
             *slot = Some(instance);
             return returned_image;
         }
-        self.instantiate_type(returned, &map, &parameters, &names)
+        let returned = self.instantiate_type(returned, &map, &parameters, &names);
+        self.propagate_return_type_parameters(returned, &inferred_type_parameters)
+    }
+
+    /// Ported from `getInferredType` (`internal/checker/inference.go`), selecting
+    /// between the independently collected input and output candidates.
+    fn inferred_type_from_info(
+        &mut self,
+        info: &InferenceInfo,
+        signature: &Signature,
+        position: usize,
+        infos: &[InferenceInfo],
+    ) -> Option<TypeId> {
+        use crate::relater::{Relation, Ternary};
+        let inferred =
+            self.unconstrained_inferred_type_from_info(info, signature, position, infos)?;
+        let Some(constraint) = signature.type_parameters.get(position).and_then(|p| p.constraint)
+        else {
+            return Some(inferred);
+        };
+        let owned = self.type_parameter_types(signature)?;
+        let names: Vec<_> = signature.type_parameters.iter().map(|p| p.name.as_str()).collect();
+        // Dependent constraints need the context's non-fixing mapper. Keep
+        // them on the existing resolution road until that mapper is complete.
+        if self.mentions_type_parameter(constraint, &owned, &names)
+            || self.relate_ternary(inferred, constraint, Relation::Assignable)
+                != Ternary::NotRelated
+        {
+            return Some(inferred);
+        }
+        // getInferredType (internal/checker/inference.go) filters pure return
+        // speculation against the constraint before considering a fallback.
+        if info.priority == InferencePriority::RETURN_TYPE {
+            let constituents = match &self.store.get(inferred).data {
+                TypeData::Union { types, .. } => types.clone(),
+                _ => vec![inferred],
+            };
+            let filtered: Vec<_> = constituents
+                .into_iter()
+                .filter(|&t| {
+                    self.relate_ternary(t, constraint, Relation::Assignable) != Ternary::NotRelated
+                })
+                .collect();
+            if !filtered.is_empty() {
+                return Some(self.get_union_type(&filtered));
+            }
+        }
+        let covariant = (!info.candidates.is_empty())
+            .then(|| self.inferred_covariant_type(info, signature, position))
+            .flatten();
+        let contravariant = (!info.contra_candidates.is_empty())
+            .then(|| self.inferred_contravariant_type(info))
+            .flatten();
+        let fallback = if covariant == Some(inferred) { contravariant } else { covariant };
+        Some(
+            fallback
+                .filter(|&t| {
+                    self.relate_ternary(t, constraint, Relation::Assignable) != Ternary::NotRelated
+                })
+                .unwrap_or(constraint),
+        )
+    }
+
+    fn unconstrained_inferred_type_from_info(
+        &mut self,
+        info: &InferenceInfo,
+        signature: &Signature,
+        position: usize,
+        infos: &[InferenceInfo],
+    ) -> Option<TypeId> {
+        use crate::{
+            flags::TypeFlags,
+            relater::{Relation, Ternary},
+        };
+        if let Some(fixed) = info.fixed_type {
+            return Some(fixed);
+        }
+        let covariant = if info.candidates.is_empty() {
+            None
+        } else {
+            Some(self.inferred_covariant_type(info, signature, position)?)
+        };
+        let contravariant = if info.contra_candidates.is_empty() {
+            None
+        } else {
+            Some(self.inferred_contravariant_type(info)?)
+        };
+        let (Some(covariant), Some(contravariant)) = (covariant, contravariant) else {
+            return covariant.or(contravariant);
+        };
+        let mut accepts_covariant = false;
+        let mut unknown = false;
+        for &candidate in &info.contra_candidates {
+            match self.relate_ternary(covariant, candidate, Relation::Assignable) {
+                Ternary::Related => accepts_covariant = true,
+                Ternary::Unknown => unknown = true,
+                Ternary::NotRelated => {}
+            }
+        }
+        if !accepts_covariant && unknown {
+            return None;
+        }
+        let mut conflicting = false;
+        for other in infos {
+            if other.type_parameter != info.type_parameter
+                && self.type_parameter_constraint(other.type_parameter) != Some(info.type_parameter)
+            {
+                continue;
+            }
+            for &candidate in &other.candidates {
+                match self.relate_ternary(candidate, covariant, Relation::Assignable) {
+                    Ternary::NotRelated => conflicting = true,
+                    Ternary::Unknown => return None,
+                    Ternary::Related => {}
+                }
+            }
+        }
+        Some(
+            if !self.type_of(covariant).flags.intersects(TypeFlags::NEVER | TypeFlags::ANY)
+                && accepts_covariant
+                && !conflicting
+            {
+                covariant
+            } else {
+                contravariant
+            },
+        )
+    }
+
+    /// `getMapperFromContext(cloneInferenceContext(outer, NoDefault))`, used
+    /// by `inferTypeArguments` (internal/checker/checker.go).
+    fn instantiate_outer_inference_context(
+        &mut self,
+        t: TypeId,
+        node: NodeId,
+        no_default: bool,
+    ) -> TypeId {
+        let mut parent = self.nodes.parent(node);
+        let context = loop {
+            let Some(node) = parent else { return t };
+            if let Some(context) = self.active_inference_contexts.get(&node) {
+                break context.clone();
+            }
+            parent = self.nodes.parent(node);
+        };
+        let Some(parameters) = self.type_parameter_types(&context.signature) else { return t };
+        let names: Vec<_> =
+            context.signature.type_parameters.iter().map(|p| p.name.as_str()).collect();
+        let silent = if let Some(silent) = self.silent_never_type {
+            silent
+        } else {
+            let silent =
+                self.store.new_named(crate::flags::TypeFlags::NEVER, "never".to_owned(), None);
+            self.silent_never_type = Some(silent);
+            silent
+        };
+        let mut map = Vec::new();
+        for (position, &parameter) in parameters.iter().enumerate() {
+            let source_infos = if !no_default
+                && context.return_inferences.iter().any(|info| info.type_parameter == parameter)
+            {
+                &context.return_inferences
+            } else {
+                &context.inferences
+            };
+            let image = source_infos
+                .iter()
+                .find(|info| info.type_parameter == parameter)
+                .filter(|info| info.has_candidates() || info.fixed_type.is_some())
+                .and_then(|info| {
+                    self.inferred_type_from_info(info, &context.signature, position, source_infos)
+                })
+                .unwrap_or_else(|| {
+                    if no_default {
+                        silent
+                    } else {
+                        let declaration = &context.signature.type_parameters[position];
+                        let fallback = declaration
+                            .default
+                            .or(declaration.constraint)
+                            .unwrap_or(self.intrinsics.unknown);
+                        self.instantiate_type(fallback, &map, &parameters, &names)
+                    }
+                });
+            map.push((parameter, image));
+        }
+        self.instantiate_type(t, &map, &parameters, &names)
+    }
+
+    /// `ObjectFlagsNonInferrableType` propagation through instantiated type
+    /// arguments (internal/checker/checker.go, inference.go). silentNever is
+    /// an internal absence of inference, distinct from a real never candidate.
+    fn contains_silent_never(&self, t: TypeId, seen: &mut Vec<TypeId>) -> bool {
+        if Some(t) == self.silent_never_type {
+            return true;
+        }
+        if seen.contains(&t) {
+            return false;
+        }
+        seen.push(t);
+        let contains = if let Some((_, arguments)) = self.type_reference_targets.get(&t) {
+            arguments.iter().any(|&t| self.contains_silent_never(t, seen))
+        } else if let Some((elements, _)) = self.tuple_element_lists.get(&t) {
+            elements.iter().any(|&t| self.contains_silent_never(t, seen))
+        } else if let Some((elements, _)) = self.variadic_tuple_elements.get(&t) {
+            elements.iter().any(|element| self.contains_silent_never(element.r#type, seen))
+        } else if let TypeData::Union { types, .. } | TypeData::Intersection { types, .. } =
+            &self.store.get(t).data
+        {
+            types.iter().any(|&t| self.contains_silent_never(t, seen))
+        } else {
+            false
+        };
+        seen.pop();
+        contains
+    }
+
+    /// Ported from `getContravariantInference` and `getCommonSubtype`
+    /// (`internal/checker/inference.go`). Priority-driven intersections remain
+    /// separate from this ordinary candidate-selection path.
+    fn inferred_contravariant_type(&mut self, info: &InferenceInfo) -> Option<TypeId> {
+        use crate::relater::{Relation, Ternary};
+        if info.priority.intersects(InferencePriority::IMPLIES_COMBINATION) {
+            return Some(self.get_intersection_type(&info.contra_candidates, None));
+        }
+        let mut inferred = None;
+        for &candidate in &info.contra_candidates {
+            let Some(previous) = inferred else {
+                inferred = Some(candidate);
+                continue;
+            };
+            match self.relate_ternary(candidate, previous, Relation::Subtype) {
+                Ternary::Related => inferred = Some(candidate),
+                Ternary::Unknown => return None,
+                Ternary::NotRelated => {}
+            }
+        }
+        inferred
+    }
+
+    /// Resolve mapper entries through getInferredType rather than flattening
+    /// multiple candidates into substitutions for the same type parameter.
+    fn inference_map(
+        &mut self,
+        infos: &[InferenceInfo],
+        signature: &Signature,
+        parameters: &[TypeId],
+    ) -> Option<Vec<(TypeId, TypeId)>> {
+        let mut map = Vec::new();
+        for (position, &parameter) in parameters.iter().enumerate() {
+            if let Some(info) = infos.iter().find(|info| info.type_parameter == parameter)
+                && (info.has_candidates() || info.fixed_type.is_some())
+            {
+                let image = self.inferred_type_from_info(info, signature, position, infos)?;
+                map.push((parameter, image));
+            }
+        }
+        Some(map)
+    }
+
+    /// getCovariantInference (internal/checker/inference.go), shared by final
+    /// type-argument resolution and a contextual fixing mapper. Object/array
+    /// literal candidate normalization and getWidenedType remain separate ports.
+    fn inferred_covariant_type(
+        &mut self,
+        info: &InferenceInfo,
+        signature: &Signature,
+        position: usize,
+    ) -> Option<TypeId> {
+        let never = self.intrinsics.never;
+        let has_other = info.candidates.iter().any(|&candidate| candidate != never);
+        let primitive_constraint = self.parameter_has_primitive_constraint(signature, position)
+            || signature.type_parameters.get(position).is_some_and(|parameter| parameter.is_const);
+        let widen_literals = !primitive_constraint
+            && info.top_level
+            && (info.is_fixed
+                || !self
+                    .is_type_parameter_at_top_level_in_return_type(signature, info.type_parameter));
+        let mut base = Vec::with_capacity(info.candidates.len());
+        for &candidate in &info.candidates {
+            if has_other && candidate == never {
+                continue;
+            }
+            let candidate = if primitive_constraint {
+                self.get_regular_type_of_literal_type(candidate)
+            } else if widen_literals {
+                self.get_widened_literal_type(candidate)
+            } else {
+                candidate
+            };
+            if !base.contains(&candidate) {
+                base.push(candidate);
+            }
+        }
+        if let [single] = base.as_slice() {
+            Some(*single)
+        } else if info.priority.intersects(InferencePriority::IMPLIES_COMBINATION) {
+            self.union_with_subtype_reduction(&base)
+        } else {
+            self.covariant_combination(&base)
+        }
+    }
+
+    /// The primitive argument and callback-return cases of
+    /// getSignatureApplicabilityError (internal/checker/checker.go).
+    /// Other structural relations require the remaining applicability walk.
+    fn generic_argument_is_inapplicable(&mut self, source: TypeId, target: TypeId) -> bool {
+        use crate::{
+            flags::TypeFlags,
+            relater::{Relation, Ternary},
+        };
+        let primitive_mismatch = |checker: &mut Self, source: TypeId, target: TypeId| {
+            checker.store.get(source).flags.intersects(TypeFlags::PRIMITIVE)
+                && checker.store.get(target).flags.intersects(TypeFlags::PRIMITIVE)
+                && checker.relate_ternary(source, target, Relation::Assignable)
+                    == Ternary::NotRelated
+        };
+        if primitive_mismatch(self, source, target) {
+            return true;
+        }
+        let (Some(sources), Some(targets)) =
+            (self.call_signatures_of_type(source), self.call_signatures_of_type(target))
+        else {
+            return false;
+        };
+        let ([source], [target]) = (sources.as_slice(), targets.as_slice()) else { return false };
+        if !source.type_parameters.is_empty() && target.type_parameters.is_empty() {
+            return self.compare_signature_ternary(source, target) == Some(Ternary::NotRelated);
+        }
+        source.type_parameters.is_empty()
+            && target.type_parameters.is_empty()
+            && target.r#type != self.intrinsics.void
+            && primitive_mismatch(self, source.r#type, target.r#type)
+    }
+
+    /// `isAritySmaller` and `inferSignatureInstantiationForOverloadFailure`
+    /// (checker.go), the decisive fixed callback-arity failure.
+    fn generic_callback_arity_failure(
+        &mut self,
+        signature: &Signature,
+        arguments: &[Expression<'_>],
+    ) -> bool {
+        if signature.parameters.iter().any(|p| p.rest) {
+            return false;
+        }
+        for (argument, parameter) in arguments.iter().zip(&signature.parameters) {
+            if !self.is_context_sensitive_argument(argument) {
+                continue;
+            }
+            let source_parameters = match argument {
+                Expression::ArrowFunction(f) => f.parameters,
+                Expression::FunctionExpression(f) => f.parameters,
+                _ => continue,
+            };
+            let required = source_parameters
+                .iter()
+                .filter(|p| !Self::is_this_parameter_declaration(p))
+                .take_while(|p| {
+                    p.initializer.is_none()
+                        && p.question_token.is_none()
+                        && p.dot_dot_dot_token.is_none()
+                })
+                .count();
+            let Some(targets) = self.call_signatures_of_type(parameter.r#type) else { continue };
+            let [target] = targets.as_slice() else { continue };
+            if !target.parameters.iter().any(|p| p.rest) && target.parameters.len() < required {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// The propagation branch of `instantiateTypeWithSingleGenericCallSignature`
+    /// (`internal/checker/checker.go`). Adopt fresh candidates only when
+    /// parameter inference contributes and does not overlap existing inferences.
+    fn infer_higher_order_argument(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+        returned: TypeId,
+        context: (&Signature, &[TypeId], &[InferenceInfo]),
+        out: &mut Vec<InferenceInfo>,
+        propagated: &mut Vec<crate::signatures::TypeParameter>,
+    ) -> bool {
+        let (_, parameters, existing) = context;
+        let Some(return_signatures) = self.signature_types.get(&returned) else { return false };
+        let [return_signature] = return_signatures.as_slice() else { return false };
+        if !return_signature.type_parameters.is_empty()
+            || parameters.iter().all(|parameter| {
+                existing
+                    .iter()
+                    .any(|info| info.type_parameter == *parameter && info.has_candidates())
+            })
+        {
+            return false;
+        }
+        let (Some(source_signatures), Some(target_signatures)) =
+            (self.signature_types.get(&source), self.signature_types.get(&target))
+        else {
+            return false;
+        };
+        let ([source_signature], [target_signature]) =
+            (source_signatures.as_slice(), target_signatures.as_slice())
+        else {
+            return false;
+        };
+        if source_signature.type_parameters.is_empty()
+            || !target_signature.type_parameters.is_empty()
+        {
+            return false;
+        }
+        if matches!(source_signature.kind, crate::signatures::SignatureKind::Call)
+            != matches!(target_signature.kind, crate::signatures::SignatureKind::Call)
+        {
+            return false;
+        }
+        let (source_signature, target_signature) =
+            (source_signature.clone(), target_signature.clone());
+        let Some(own) = self.type_parameter_types(&source_signature) else { return false };
+        if own.len() != source_signature.type_parameters.len() {
+            return false;
+        }
+        let mut used: Vec<_> = propagated.iter().map(|p| p.name.clone()).collect();
+        let mut unique = source_signature.type_parameters.clone();
+        let mut map = Vec::new();
+        for (parameter, &original) in unique.iter_mut().zip(&own) {
+            let mut image = original;
+            if used.contains(&parameter.name) {
+                let base = parameter.name.trim_end_matches(|c: char| c.is_ascii_digit());
+                let base = if base.is_empty() { &parameter.name } else { base };
+                let mut index = 1;
+                let mut name = format!("{base}{index}");
+                while used.contains(&name) {
+                    index += 1;
+                    name = format!("{base}{index}");
+                }
+                image = self.store.new_named(
+                    crate::flags::TypeFlags::TYPE_PARAMETER,
+                    name.clone(),
+                    None,
+                );
+                if let Some(&symbol) = self.type_parameter_symbols.get(&original) {
+                    self.type_parameter_symbols.insert(image, symbol);
+                }
+                parameter.name = name;
+            }
+            parameter.resolved_type = Some(image);
+            used.push(parameter.name.clone());
+            map.push((original, image));
+        }
+        let names: Vec<_> =
+            source_signature.type_parameters.iter().map(|p| p.name.as_str()).collect();
+        let Some(mut instantiated) =
+            self.instantiate_signature(source_signature.clone(), &map, &own, &names)
+        else {
+            return false;
+        };
+        for (parameter, unique) in instantiated.type_parameters.iter_mut().zip(&unique) {
+            parameter.name.clone_from(&unique.name);
+        }
+        let mut candidates = Vec::new();
+        let saved = (self.inference_contravariant, self.inference_bivariant);
+        self.inference_contravariant = true;
+        self.inference_bivariant = false;
+        self.apply_to_parameter_types(
+            &instantiated,
+            &target_signature,
+            None,
+            parameters,
+            &mut candidates,
+            0,
+        );
+        (self.inference_contravariant, self.inference_bivariant) = saved;
+        if candidates.iter().all(|info| !info.has_candidates()) {
+            return false;
+        }
+        let (source_return, target_return) = instantiated.inference_return_types(&target_signature);
+        self.infer_from_types(source_return, target_return, parameters, &mut candidates, 0);
+        if candidates.iter().any(|candidate| {
+            existing.iter().any(|info| {
+                candidate.type_parameter == info.type_parameter && info.has_candidates()
+            })
+        }) {
+            return false;
+        }
+        for candidate in &candidates {
+            merge_info(out, candidate);
+        }
+        propagated.extend(instantiated.type_parameters);
+        true
+    }
+
+    /// The fallback of `instantiateTypeWithSingleGenericCallSignature`:
+    /// `instantiateSignatureInContextOf` (checker.go) infers the argument's
+    /// own parameters from the surrounding signature under the current mapper.
+    fn infer_generic_function_in_context(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+        context: (&Signature, &[TypeId], &[InferenceInfo]),
+        out: &mut Vec<InferenceInfo>,
+    ) -> bool {
+        let (outer_signature, parameters, existing) = context;
+        let (Some(source_signatures), Some(target_signatures)) =
+            (self.signature_types.get(&source), self.signature_types.get(&target))
+        else {
+            return false;
+        };
+        let ([source_signature], [target_signature]) =
+            (source_signatures.as_slice(), target_signatures.as_slice())
+        else {
+            return false;
+        };
+        if source_signature.type_parameters.is_empty()
+            || !target_signature.type_parameters.is_empty()
+            || matches!(source_signature.kind, crate::signatures::SignatureKind::Call)
+                != matches!(target_signature.kind, crate::signatures::SignatureKind::Call)
+        {
+            return false;
+        }
+        let (mut source_signature, target_signature) =
+            (source_signature.clone(), target_signature.clone());
+        let source_required =
+            source_signature.parameters.iter().filter(|p| !p.optional && !p.rest).count();
+        if !target_signature.parameters.iter().any(|p| p.rest)
+            && source_required > target_signature.parameters.len()
+        {
+            return false;
+        }
+        let Some(own) = self.type_parameter_types(&source_signature) else { return false };
+        let outer_names: Vec<_> = parameters.iter().map(|&p| self.type_to_string(p)).collect();
+        let outer_names: Vec<_> = outer_names.iter().map(String::as_str).collect();
+        // instantiateSignatureInContextOf uses a non-fixing mapper when
+        // the contextual rest type is a type parameter. Every other input
+        // mapper read fixes the consumed outer inference before owned inference.
+        let non_fixing = target_signature.parameters.last().is_some_and(|parameter| {
+            parameter.rest
+                && self
+                    .type_of(parameter.r#type)
+                    .flags
+                    .contains(crate::flags::TypeFlags::TYPE_PARAMETER)
+        });
+        let mut fixed_updates = Vec::new();
+        let mut outer_map = Vec::with_capacity(parameters.len());
+        for (position, &parameter) in parameters.iter().enumerate() {
+            let consumed = target_signature
+                .parameters
+                .iter()
+                .any(|input| self.mentions_type_parameter(input.r#type, &[parameter], &[]))
+                || target_signature.this_parameter.as_ref().is_some_and(|input| {
+                    self.mentions_type_parameter(input.r#type, &[parameter], &[])
+                });
+            let mut info =
+                existing.iter().find(|info| info.type_parameter == parameter).cloned().unwrap_or(
+                    InferenceInfo {
+                        type_parameter: parameter,
+                        priority: InferencePriority::MAX_VALUE,
+                        candidates: Vec::new(),
+                        contra_candidates: Vec::new(),
+                        fixed_type: None,
+                        is_fixed: false,
+                        top_level: true,
+                    },
+                );
+            if consumed && !non_fixing {
+                info.is_fixed = true;
+            }
+            let image = if info.has_candidates() || info.fixed_type.is_some() {
+                let Some(image) =
+                    self.inferred_type_from_info(&info, outer_signature, position, existing)
+                else {
+                    return false;
+                };
+                image
+            } else {
+                outer_signature
+                    .type_parameters
+                    .get(position)
+                    .and_then(|parameter| parameter.default.or(parameter.constraint))
+                    .unwrap_or(self.intrinsics.unknown)
+            };
+            outer_map.push((parameter, image));
+            if consumed && !non_fixing {
+                info.fixed_type = Some(image);
+                fixed_updates.push(info);
+            }
+        }
+        let Some(contextual) = self.instantiate_signature(
+            target_signature.clone(),
+            &outer_map,
+            parameters,
+            &outer_names,
+        ) else {
+            return false;
+        };
+        let mut inferences = Vec::new();
+        self.apply_to_parameter_types(
+            &contextual,
+            &source_signature,
+            None,
+            &own,
+            &mut inferences,
+            0,
+        );
+        let own_names: Vec<_> =
+            source_signature.type_parameters.iter().map(|p| p.name.clone()).collect();
+        let own_names: Vec<_> = own_names.iter().map(String::as_str).collect();
+        let mut own_map = Vec::with_capacity(own.len());
+        for (position, (&parameter, declaration)) in
+            own.iter().zip(&source_signature.type_parameters).enumerate()
+        {
+            let info = inferences.iter().find(|info| info.type_parameter == parameter);
+            let image = if let Some(info) = info
+                && info.has_candidates()
+            {
+                let Some(image) =
+                    self.inferred_type_from_info(info, &source_signature, position, &inferences)
+                else {
+                    return false;
+                };
+                image
+            } else {
+                declaration.default.or(declaration.constraint).unwrap_or(self.intrinsics.unknown)
+            };
+            // Contextual signature instantiation infers covariantly from
+            // inputs. Conflicting inputs retain the error-recovery path.
+            if info
+                .into_iter()
+                .flat_map(|info| info.candidates.iter().chain(&info.contra_candidates))
+                .any(|&candidate| {
+                    self.relate_ternary(candidate, image, crate::relater::Relation::Assignable)
+                        == crate::relater::Ternary::NotRelated
+                })
+            {
+                return false;
+            }
+            own_map.push((parameter, image));
+        }
+        for (index, declaration) in source_signature.type_parameters.iter().enumerate() {
+            if let Some(constraint) = declaration.constraint {
+                let constraint = self.instantiate_type(constraint, &own_map, &own, &own_names);
+                if constraint == self.intrinsics.error {
+                    return false;
+                }
+                let checked =
+                    self.instantiate_type(own_map[index].1, &outer_map, parameters, &outer_names);
+                if self.relate_ternary(checked, constraint, crate::relater::Relation::Assignable)
+                    == crate::relater::Ternary::NotRelated
+                {
+                    own_map[index].1 = constraint;
+                }
+            }
+        }
+        source_signature.type_parameters.clear();
+        let Some(instantiated) =
+            self.instantiate_signature(source_signature, &own_map, &own, &own_names)
+        else {
+            return false;
+        };
+        for info in fixed_updates {
+            merge_info(out, &info);
+        }
+        self.infer_from_signature_parameters(
+            &instantiated,
+            &target_signature,
+            target,
+            parameters,
+            out,
+            0,
+        );
+        let (source_return, target_return) = instantiated.inference_return_types(&target_signature);
+        self.infer_from_types(source_return, target_return, parameters, out, 0);
+        true
+    }
+
+    /// `instantiateSignatureInContextOf` without an outer inference context,
+    /// used by `compareSignaturesRelated`. Inputs have ordinary priority;
+    /// return types supply lower-priority candidates for remaining parameters.
+    pub(crate) fn instantiate_signature_in_context(
+        &mut self,
+        signature: Signature,
+        contextual: &Signature,
+    ) -> Option<Signature> {
+        let missing = self.intrinsics.error;
+        let types = |signature: &Signature| {
+            [
+                signature.r#type,
+                signature.this_parameter.as_ref().map_or(missing, |parameter| parameter.r#type),
+                signature
+                    .predicate
+                    .as_ref()
+                    .and_then(|predicate| predicate.r#type)
+                    .unwrap_or(missing),
+            ]
+            .into_iter()
+            .chain(signature.parameters.iter().map(|parameter| parameter.r#type))
+            .chain(signature.type_parameters.iter().flat_map(|parameter| {
+                [parameter.constraint.unwrap_or(missing), parameter.default.unwrap_or(missing)]
+            }))
+            .collect()
+        };
+        let key = SignatureContextKey {
+            source: signature.declaration,
+            target: contextual.declaration,
+            source_parameters: self.type_parameter_types(&signature)?,
+            target_parameters: self.type_parameter_types(contextual)?,
+            source_types: types(&signature),
+            target_types: types(contextual),
+            source_original_inputs: signature
+                .target
+                .iter()
+                .flat_map(|signature| signature.parameters.iter().map(|parameter| parameter.r#type))
+                .collect(),
+            target_original_inputs: contextual
+                .target
+                .iter()
+                .flat_map(|signature| signature.parameters.iter().map(|parameter| parameter.r#type))
+                .collect(),
+        };
+        if let Some(cached) = self.signature_context_cache.get(&key) {
+            return Some(cached.clone());
+        }
+        if !self.signature_context_in_progress.insert(key.clone()) {
+            return None;
+        }
+        let result = self.instantiate_signature_in_context_worker(signature, contextual);
+        self.signature_context_in_progress.remove(&key);
+        if let Some(result) = &result {
+            self.signature_context_cache.insert(key, result.clone());
+        }
+        result
+    }
+
+    fn instantiate_signature_in_context_worker(
+        &mut self,
+        mut signature: Signature,
+        contextual: &Signature,
+    ) -> Option<Signature> {
+        let own = self.type_parameter_types(&signature)?;
+        let saved =
+            (self.inference_contravariant, self.inference_bivariant, self.inference_priority);
+        self.inference_contravariant = false;
+        self.inference_bivariant = false;
+        self.inference_priority = InferencePriority::NONE;
+        let mut inferences = Vec::new();
+        self.apply_to_parameter_types(contextual, &signature, None, &own, &mut inferences, 0);
+        let (source_return, target_return) = contextual.inference_return_types(&signature);
+        self.infer_from_types_with_priority(
+            source_return,
+            target_return,
+            &own,
+            &mut inferences,
+            0,
+            InferencePriority::RETURN_TYPE,
+        );
+        (self.inference_contravariant, self.inference_bivariant, self.inference_priority) = saved;
+        let owned_names: Vec<_> =
+            signature.type_parameters.iter().map(|parameter| parameter.name.clone()).collect();
+        let names: Vec<_> = owned_names.iter().map(String::as_str).collect();
+        let mut map = Vec::new();
+        for (position, (&parameter, declaration)) in
+            own.iter().zip(&signature.type_parameters).enumerate()
+        {
+            let inferred = if let Some(info) = inferences
+                .iter()
+                .find(|info| info.type_parameter == parameter && info.has_candidates())
+            {
+                self.inferred_type_from_info(info, &signature, position, &inferences)?
+            } else {
+                declaration.default.or(declaration.constraint).unwrap_or(self.intrinsics.unknown)
+            };
+            map.push((parameter, inferred));
+        }
+        for (index, declaration) in signature.type_parameters.iter().enumerate() {
+            if let Some(constraint) = declaration.constraint {
+                let constraint = self.instantiate_type(constraint, &map, &own, &names);
+                if self.is_error(constraint) {
+                    return None;
+                }
+                if self.relate_ternary(
+                    map[index].1,
+                    constraint,
+                    crate::relater::Relation::Assignable,
+                ) == crate::relater::Ternary::NotRelated
+                {
+                    map[index].1 = constraint;
+                }
+            }
+        }
+        signature.type_parameters.clear();
+        self.instantiate_signature(signature, &map, &own, &names)
+    }
+
+    /// `getSignatureInstantiation` adds propagated parameters to its single
+    /// returned function signature (`internal/checker/checker.go`).
+    fn propagate_return_type_parameters(
+        &mut self,
+        returned: TypeId,
+        parameters: &[crate::signatures::TypeParameter],
+    ) -> TypeId {
+        if parameters.is_empty() || self.is_error(returned) {
+            return returned;
+        }
+        let Some(signatures) = self.signature_types.get(&returned).cloned() else {
+            return returned;
+        };
+        let [signature] = signatures.as_slice() else { return returned };
+        let TypeData::Anonymous { symbol, .. } = self.store.get(returned).data else {
+            return returned;
+        };
+        let mut signature = signature.clone();
+        signature.type_parameters = parameters.to_vec();
+        let text = self.signature_to_string(&signature);
+        let id = self.store.new_anonymous(crate::flags::TypeFlags::OBJECT, text, symbol, true);
+        self.signature_types.insert(id, vec![signature]);
+        self.minted_signature_types.insert(id);
+        id
     }
 
     /// `inferFromTypes` (`inference.go:1236`) — walk a *source* type against a
@@ -1066,8 +2242,8 @@ impl Checker<'_, '_> {
     ///    before `bd tsr-g30h`.
     /// 2. **`inferFromTypeArguments`** (`inference.go:1046`) — two references
     ///    to the same target symbol with equal argument counts, argument for
-    ///    argument. **Variance is not consulted**: upstream picks
-    ///    covariant/contravariant/invariant per position, and every position
+    ///    argument. Measured contravariant positions reverse the direction;
+    ///    unmeasured reference positions retain the existing covariant walk. Each position
     ///    here is walked covariantly, which is safe only because a
     ///    disagreement between two positions gaps the whole call rather than
     ///    picking one.
@@ -1115,11 +2291,128 @@ impl Checker<'_, '_> {
         out: &mut Vec<InferenceInfo>,
         depth: usize,
     ) {
+        self.infer_from_types_with_priority(
+            source,
+            target,
+            parameters,
+            out,
+            depth,
+            InferencePriority::NONE,
+        );
+    }
+
+    /// Ported from `inferTypes` (`internal/checker/inference.go`).
+    fn infer_from_types_with_priority(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+        parameters: &[TypeId],
+        out: &mut Vec<InferenceInfo>,
+        depth: usize,
+        priority: InferencePriority,
+    ) {
         // Every entry walk's ORIGINAL target is the target it starts from;
         // the recursion below preserves it so the top-level test
         // (`inference.go:207-208`) reads the whole parameter type, not the
         // constituent the walk has descended to.
+        let saved =
+            (self.inference_contravariant, self.inference_bivariant, self.inference_priority);
+        self.inference_contravariant = false;
+        self.inference_bivariant = false;
+        self.inference_priority = priority;
         self.infer_from_types_within(source, target, target, parameters, out, depth);
+        (self.inference_contravariant, self.inference_bivariant, self.inference_priority) = saved;
+    }
+
+    /// The single-variadic middle of `inferFromObjectTypes`
+    /// (`internal/checker/inference.go`), using `sliceTupleType`'s mutable slice.
+    /// Optional suffixes need speculative inference priority and are left to
+    /// that path; multiple variadic elements need implied arity.
+    fn infer_from_variadic_tuple(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+        original: TypeId,
+        parameters: &[TypeId],
+        out: &mut Vec<InferenceInfo>,
+        depth: usize,
+    ) -> bool {
+        let Some((elements, _)) = self.variadic_tuple_elements.get(&target).cloned() else {
+            return false;
+        };
+        if let [element] = elements.as_slice()
+            && element.spread
+            && parameters.contains(&element.r#type)
+        {
+            add_directional_candidate(
+                out,
+                element.r#type,
+                source,
+                self.inference_contravariant && !self.inference_bivariant,
+                self.inference_priority,
+            );
+            return true;
+        }
+        let Some((source_elements, _)) = self.tuple_element_lists.get(&source).cloned() else {
+            return false;
+        };
+        let mut rest_index = None;
+        let mut targets = Vec::with_capacity(elements.len());
+        for (index, element) in elements.iter().enumerate() {
+            if element.optional || element.r#type == self.intrinsics.error {
+                return false;
+            }
+            if element.spread && rest_index.replace(index).is_some() {
+                return false;
+            }
+            targets.push(element.r#type);
+        }
+        let Some(start) = rest_index else { return false };
+        if !parameters.contains(&targets[start]) {
+            return false;
+        }
+        let end_skip = targets.len() - start - 1;
+        if source_elements.len() < start + end_skip {
+            return false;
+        }
+        let end = source_elements.len() - end_skip;
+        for index in 0..start {
+            self.infer_from_types_within(
+                source_elements[index],
+                targets[index],
+                original,
+                parameters,
+                out,
+                depth + 1,
+            );
+        }
+        let sliced = if let Some(mask) = self.tuple_optional_masks.get(&source).cloned() {
+            let labels = self
+                .tuple_labels
+                .get(&source)
+                .cloned()
+                .unwrap_or_else(|| vec![None; source_elements.len()]);
+            let elements: Vec<_> = source_elements[start..end]
+                .iter()
+                .copied()
+                .zip(mask[start..end].iter().copied())
+                .collect();
+            self.create_optional_tuple_type(&elements, &labels[start..end], false)
+        } else {
+            self.create_tuple_type(source_elements[start..end].to_vec(), false)
+        };
+        self.infer_from_types_within(sliced, targets[start], original, parameters, out, depth + 1);
+        for index in 0..end_skip {
+            self.infer_from_types_within(
+                source_elements[end + index],
+                targets[start + 1 + index],
+                original,
+                parameters,
+                out,
+                depth + 1,
+            );
+        }
+        true
     }
 
     /// §937's `couldContainTypeVariables` (`checker.go:22184`) — whether a
@@ -1137,7 +2430,7 @@ impl Checker<'_, '_> {
     /// So: a reference consults its arguments, a union its constituents, an
     /// object-ish symbol answers `true` outright, everything else `false`.
     ///
-    /// **Separate from [`Checker::type_mentions_parameter`] on purpose.** That
+    /// **Separate from [`Checker::mentions_type_parameter`] on purpose.** That
     /// one is §787's union strike-out gate, whose documented conservative
     /// direction is `false`, and it is measured for that use.
     ///
@@ -1215,37 +2508,6 @@ impl Checker<'_, '_> {
             ) {
                 return true;
             }
-        }
-        false
-    }
-
-    /// Whether `id` is, or structurally contains, one of `parameters`. §787.
-    ///
-    /// Used to keep the union strike-out off constituents that still carry an
-    /// inference variable — see the call site. The walk follows type-reference
-    /// ARGUMENTS and union constituents, which is every shape this port builds
-    /// that can nest a parameter; anything else answers `false`, and `false` is
-    /// the conservative direction because it only re-enables a strike that was
-    /// already the previous behaviour.
-    fn type_mentions_parameter(&mut self, id: TypeId, parameters: &[TypeId], depth: usize) -> bool {
-        if parameters.contains(&id) {
-            return true;
-        }
-        if depth > 8 {
-            return false;
-        }
-        if let Some((_, arguments)) = self.type_reference_targets.get(&id).cloned()
-            && arguments
-                .into_iter()
-                .any(|argument| self.type_mentions_parameter(argument, parameters, depth + 1))
-        {
-            return true;
-        }
-        if let TypeData::Union { types, .. } = &self.store.get(id).data {
-            let constituents = types.clone();
-            return constituents
-                .into_iter()
-                .any(|c| self.type_mentions_parameter(c, parameters, depth + 1));
         }
         false
     }
@@ -1336,6 +2598,52 @@ impl Checker<'_, '_> {
         self.store.new_named(crate::flags::TypeFlags::OBJECT, text, Some(owner))
     }
 
+    /// `inferFromMatchingTypes` and `inferToMultipleTypes` (inference.go), for
+    /// an intersection with one naked inference variable and no nested ones.
+    /// An identical source constituent is removed before inference; consuming
+    /// the entire source deliberately produces no candidate.
+    fn intersection_inference_source(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+        parameters: &[TypeId],
+    ) -> Option<(Option<TypeId>, TypeId)> {
+        let TypeData::Intersection { types, .. } = &self.store.get(target).data else {
+            return None;
+        };
+        let targets = types.clone();
+        let variables: Vec<_> =
+            targets.iter().copied().filter(|id| parameters.contains(id)).collect();
+        let [variable] = variables.as_slice() else { return None };
+        let names: Vec<_> = parameters.iter().map(|&id| self.type_to_string(id)).collect();
+        let names: Vec<_> = names.iter().map(String::as_str).collect();
+        if targets
+            .iter()
+            .any(|&id| id != *variable && self.mentions_type_parameter(id, parameters, &names))
+        {
+            return None;
+        }
+        if matches!(self.store.get(source).data, TypeData::Union { .. }) {
+            return Some((Some(source), *variable));
+        }
+        let sources = match &self.store.get(source).data {
+            TypeData::Intersection { types, .. } => types.clone(),
+            _ => vec![source],
+        };
+        // inferFromMatchingTypes also infers from identical matches. A match
+        // of the naked variable contributes before the lower-priority remainder.
+        if sources.contains(variable) {
+            return Some((Some(*variable), *variable));
+        }
+        let remaining: Vec<_> = sources.into_iter().filter(|id| !targets.contains(id)).collect();
+        let source = if remaining.is_empty() {
+            None
+        } else {
+            Some(self.get_intersection_type(&remaining, None))
+        };
+        Some((source, *variable))
+    }
+
     fn infer_from_types_within(
         &mut self,
         source: TypeId,
@@ -1352,49 +2660,50 @@ impl Checker<'_, '_> {
         if depth > 16 {
             return;
         }
-        // §793: a parameter typed `[...T]` infers `T` from the WHOLE argument.
-        //
-        // `f<T extends unknown[]>(t: [...T]): T` called with `[1, 2]` infers
-        // `T := [number, number]` upstream. This port built `[...T]` as a §40
-        // PRINT-ONLY variadic — a named type with no element list and no
-        // reference target — so every arm below missed it, `T` collected no
-        // candidate, and the call answered `errorType`.
-        //
-        // The shape admitted is exactly the one that is decidable: a recorded
-        // variadic node (§791's `variadic_tuple_nodes`) whose elements are a
-        // SINGLE rest over a name that resolves to one of THIS inference's
-        // parameters. `[...T]` is upstream's idiom for "this parameter is the
-        // whole tuple"; anything else — `[string, ...T]`, two rests — needs
-        // the source split across positions, which is the tuple-splitting
-        // machinery this port does not have, and those keep declining.
-        if let Some(&node) = self.variadic_tuple_nodes.get(&target)
-            && let Some(tsr_ast::Node::TupleTypeNode(tuple)) = self.node_map.get(node)
-            && let [tsr_ast::TypeNode::RestTypeNode(rest)] = tuple.elements
-            && let Some(tsr_ast::TypeNode::TypeReferenceNode(reference)) = rest.r#type
-            && let Some(tsr_ast::EntityName::Identifier(name)) = reference.type_name
-            && let Some(name_id) = name.node_id
-            && let Some(symbol) = self.binder.resolve_name(
-                self.nodes,
-                self.node_map,
-                name_id,
-                name.text,
-                tsr_binder::SymbolFlags::TYPE,
-            )
-            && let Some(&matched) =
-                parameters.iter().find(|&&p| self.type_parameter_symbols.get(&p) == Some(&symbol))
-        {
-            add_candidate(out, matched, source);
+        if self.infer_from_variadic_tuple(source, target, original, parameters, out, depth) {
             return;
         }
         if parameters.contains(&target) {
-            add_candidate(out, target, source);
+            if self.any_function_type == Some(source)
+                || self.contains_silent_never(source, &mut Vec::new())
+            {
+                return;
+            }
+            // inferFromTypes keeps both candidates and topLevel unchanged once
+            // the inference is fixed (internal/checker/inference.go).
+            if out.iter().any(|info| info.type_parameter == target && info.is_fixed) {
+                return;
+            }
+            add_directional_candidate(
+                out,
+                target,
+                source,
+                self.inference_contravariant && !self.inference_bivariant,
+                self.inference_priority,
+            );
             // `inference.go:207-208`: a candidate arriving where the walk's
             // original target does not carry the parameter at TOP LEVEL marks
             // the inference nested, and the widening decision reads it.
-            if !self.is_type_parameter_at_top_level(original, target)
+            if !self.inference_priority.contains(InferencePriority::RETURN_TYPE)
+                && !self.is_type_parameter_at_top_level(original, target)
                 && let Some(info) = out.iter_mut().find(|i| i.type_parameter == target)
             {
                 info.top_level = false;
+            }
+            return;
+        }
+        if let Some((remaining, variable)) =
+            self.intersection_inference_source(source, target, parameters)
+        {
+            if let Some(source) = remaining {
+                self.infer_from_types_within(
+                    source,
+                    variable,
+                    original,
+                    parameters,
+                    out,
+                    depth + 1,
+                );
             }
             return;
         }
@@ -1440,42 +2749,22 @@ impl Checker<'_, '_> {
             // 180 wrong lines against 37 right for exactly this reason.
             let same_target = ts == ss || self.is_array_like_pair(ts, ss);
             if same_target && ta.len() == sa.len() {
-                for (t, s) in ta.iter().zip(sa.iter()) {
+                let variances = self.inference_variances(ts);
+                for (index, (t, s)) in ta.iter().zip(sa.iter()).enumerate() {
+                    let saved = self.inference_contravariant;
+                    if variances.as_ref().and_then(|variances| variances.get(index))
+                        == Some(&crate::variances::Variance::Contravariant)
+                    {
+                        self.inference_contravariant = !saved;
+                    }
                     self.infer_from_types_within(*s, *t, original, parameters, out, depth + 1);
+                    self.inference_contravariant = saved;
                 }
                 return;
             }
-            // §941.1 TRIED falling through here — two references with DIFFERENT
-            // targets going on to the structural walk below, which is upstream's
-            // `inferFromObjectTypes` — and it is **refused**.
-            //
-            // It works for the shape it was written for: `Array<string>` against
-            // `ConcatArray<T>` (different targets, so the argument-wise arm above
-            // declines) then infers `T := string` through the index signature,
-            // and `one<T>(...items: ConcatArray<T>[])` answers `string[]` where
-            // it answered `error`.
-            //
-            // **Measured: 8 `WRONG->RIGHT` against 5 `RIGHT->WRONG`**
-            // (`neverInference`), and restricting the fallthrough to targets
-            // carrying an index signature did not move the adverse rows at all.
-            //
-            // The rows say why, and this time they were read rather than guessed:
-            // `LinkedList<number>` becomes `LinkedList<never>`. A `never[]` or
-            // empty-array source contributes a `never` candidate through the
-            // structural walk, and upstream ranks that below a better one —
-            // `InferencePriority`, the model §920/§920.1 describes and this port
-            // does not have. Without it the extra candidates are not extra
-            // information, they are noise that wins.
-            //
-            // **Reopening condition: the inference-priority model.** Not another
-            // guard on this fallthrough; two were tried and the second changed
-            // nothing, which is the signal that the shape is not the problem.
-            //
-            // How it was found is worth keeping: §941's index arm was
-            // instrumented and printed NOTHING for the shape it was written for
-            // — the second time this session an arm measuring zero turned out to
-            // be unreachable rather than unpopulated (§939 was the first).
-            return;
+            // inferFromObjectTypes (internal/checker/inference.go) continues
+            // structurally when the reference targets differ. Candidate
+            // direction and priority resolve the resulting inferences.
         }
         if let TypeData::Union { types, .. } = &self.store.get(target).data {
             let constituents = types.clone();
@@ -1565,39 +2854,6 @@ impl Checker<'_, '_> {
             // measured over the corpus pair.
             let source_is_wildcard =
                 source == self.intrinsics.never || source == self.intrinsics.any;
-            if !source_is_wildcard
-                && constituents
-                    .iter()
-                    .any(|&c| !parameters.contains(&c) && self.is_type_assignable_to(source, c))
-            {
-                return;
-            }
-            // `inferToMultipleTypes` (`inference.go:700`) strikes the target
-            // constituents the source already matches **before** anything
-            // reaches the naked type variable. `f1(1, "hello")` against
-            // `<T>(x: T, y: string | T) => T` is the case: `"hello"` matches
-            // the `string` constituent, so upstream infers nothing from that
-            // position and the answer is `1`
-            // (`baselines/reference/submodule/conformance/unionTypeInference.types:27`).
-            // Without this the naked `T` also collects `"hello"`, the two
-            // positions disagree and a right line becomes a gap — which is how
-            // the bar's second leg found it.
-            //
-            // `is_type_assignable_to` decides this over exactly the domain it
-            // is proved on — primitives, literals and unions of them
-            // (`crate::relater`) — and answers `false` between two object types
-            // rather than guessing, which is a refusal in the safe direction
-            // here: it leaves the position contributing a candidate, and a
-            // disagreeing candidate gaps.
-            //
-            // `never` and `any` are excluded as sources: both are assignable
-            // to everything, so they would strike every union position and
-            // contribute nothing anywhere. Upstream infers *from* them
-            // normally — `never` is a real candidate — and including them cost
-            // **84 converted lines** against the two the strike was added for,
-            // measured over the corpus pair.
-            let source_is_wildcard =
-                source == self.intrinsics.never || source == self.intrinsics.any;
             // §787: the strike must skip every constituent that MENTIONS an
             // inference parameter, not only one that IS one.
             //
@@ -1616,7 +2872,7 @@ impl Checker<'_, '_> {
             // constituent is closed.
             if !source_is_wildcard
                 && constituents.clone().into_iter().any(|c| {
-                    !self.type_mentions_parameter(c, parameters, 0)
+                    !self.mentions_type_parameter(c, parameters, &[])
                         && self.is_type_assignable_to(source, c)
                 })
             {
@@ -1725,35 +2981,233 @@ impl Checker<'_, '_> {
                 }
             }
         }
-        let (Some(target_signatures), Some(source_signatures)) =
-            (self.signature_types.get(&target), self.signature_types.get(&source))
-        else {
-            return;
-        };
-        let ([t], [s]) = (target_signatures.as_slice(), source_signatures.as_slice()) else {
-            return;
-        };
-        // A signature carrying its own type parameters is refused: upstream
-        // erases them first (`getErasedSignature`, `checker.go:19700`), which
-        // this port has no route to.
-        if !t.type_parameters.is_empty() || !s.type_parameters.is_empty() {
-            return;
+        for kind in
+            [crate::signatures::SignatureKind::Call, crate::signatures::SignatureKind::Construct]
+        {
+            let (Some(target_signatures), Some(source_signatures)) = (
+                self.signatures_of_type_kind(target, kind),
+                self.signatures_of_type_kind(source, kind),
+            ) else {
+                continue;
+            };
+            if source_signatures.is_empty() {
+                continue;
+            }
+            // inferFromSignatures matches the last signatures first, repeating
+            // the first source when the target has additional overloads.
+            for (index, target_signature) in target_signatures.iter().enumerate() {
+                let source_index =
+                    (source_signatures.len() + index).saturating_sub(target_signatures.len());
+                let Some(t) = self.signature_for_inference(target_signature.clone(), true) else {
+                    continue;
+                };
+                let Some(s) =
+                    self.signature_for_inference(source_signatures[source_index].clone(), false)
+                else {
+                    continue;
+                };
+                self.infer_from_signature_parameters(&s, &t, original, parameters, out, depth);
+                let (source_return, target_return) = s.inference_return_types(&t);
+                self.infer_from_types_within(
+                    source_return,
+                    target_return,
+                    original,
+                    parameters,
+                    out,
+                    depth + 1,
+                );
+            }
         }
-        if t.parameters.iter().chain(&s.parameters).any(|parameter| parameter.rest) {
-            return;
+    }
+
+    /// `applyToParameterTypes` (`internal/checker/inference.go`), including
+    /// fixed tuple-rest positions and the remaining source parameter tuple.
+    fn infer_from_signature_parameters(
+        &mut self,
+        s: &Signature,
+        t: &Signature,
+        original: TypeId,
+        parameters: &[TypeId],
+        out: &mut Vec<InferenceInfo>,
+        depth: usize,
+    ) {
+        let saved = (self.inference_contravariant, self.inference_bivariant);
+        if self.strict_function_types {
+            self.inference_contravariant = !self.inference_contravariant;
         }
-        let (t, s) = (t.clone(), s.clone());
-        for (tp, sp) in t.parameters.iter().zip(s.parameters.iter()) {
+        self.inference_bivariant |= matches!(
+            self.nodes.kind(t.declaration),
+            tsr_ast::SyntaxKind::MethodDeclaration
+                | tsr_ast::SyntaxKind::MethodSignature
+                | tsr_ast::SyntaxKind::Constructor
+        );
+        self.apply_to_parameter_types(s, t, Some(original), parameters, out, depth);
+        (self.inference_contravariant, self.inference_bivariant) = saved;
+    }
+
+    /// `applyToParameterTypes` visits inputs without choosing their variance.
+    /// Contextual instantiation uses covariant inference, while structural
+    /// signature inference supplies its strict-function direction separately.
+    fn apply_to_parameter_types(
+        &mut self,
+        s: &Signature,
+        t: &Signature,
+        original: Option<TypeId>,
+        parameters: &[TypeId],
+        out: &mut Vec<InferenceInfo>,
+        depth: usize,
+    ) {
+        let source_elements = self.signature_tuple_arguments(s);
+        let target_elements = self.signature_tuple_arguments(t);
+        let source_start = source_elements.iter().position(|element| element.spread);
+        let target_start = target_elements.iter().position(|element| element.spread);
+        let target_fixed = target_start.unwrap_or(target_elements.len());
+        let paired = if source_start.is_some() {
+            target_fixed
+        } else {
+            source_elements.len().min(target_fixed)
+        };
+        if let (Some(source_this), Some(target_this)) = (&s.this_parameter, &t.this_parameter) {
             self.infer_from_types_within(
-                sp.r#type,
-                tp.r#type,
-                original,
+                source_this.r#type,
+                target_this.r#type,
+                original.unwrap_or(target_this.r#type),
                 parameters,
                 out,
                 depth + 1,
             );
         }
-        self.infer_from_types_within(s.r#type, t.r#type, original, parameters, out, depth + 1);
+        let source_rest = source_start
+            .map(|start| self.normalize_variadic_tuple(source_elements[start..].to_vec(), false));
+        for (index, target_element) in target_elements.iter().take(paired).enumerate() {
+            let source_type = if source_start.is_none_or(|start| index < start) {
+                source_elements[index].r#type
+            } else {
+                let index_type = self.store.intern_literal(
+                    crate::flags::TypeFlags::NUMBER_LITERAL,
+                    TypeData::NumberLiteral((index - source_start.unwrap()).to_string()),
+                    false,
+                );
+                self.tuple_index_type(source_rest.unwrap(), index_type, false)
+                    .unwrap_or(self.intrinsics.error)
+            };
+            self.infer_from_types_within(
+                source_type,
+                target_element.r#type,
+                original.unwrap_or(target_element.r#type),
+                parameters,
+                out,
+                depth + 1,
+            );
+        }
+        if let Some(target_start) = target_start {
+            let target_rest =
+                self.normalize_variadic_tuple(target_elements[target_start..].to_vec(), false);
+            let source_slice = if let Some(start) = source_start
+                && paired > start
+            {
+                let element = self
+                    .tuple_index_type(source_rest.unwrap(), self.intrinsics.number, false)
+                    .unwrap_or(self.intrinsics.error);
+                let Some(array) = self.global_type_symbol_with_arity("Array", 1) else {
+                    return;
+                };
+                self.create_type_reference(array, vec![element])
+            } else {
+                self.normalize_variadic_tuple(source_elements[paired..].to_vec(), false)
+            };
+            self.infer_from_types_within(
+                source_slice,
+                target_rest,
+                original.unwrap_or(target_rest),
+                parameters,
+                out,
+                depth + 1,
+            );
+        }
+    }
+
+    /// The tuple used by `getRestTypeAtPosition` and `applyToParameterTypes`
+    /// (`internal/checker/relater.go`, `inference.go`). Tuple rest parameters
+    /// contribute their element flags and labels; other rests remain variadic.
+    pub(crate) fn signature_tuple_arguments(
+        &self,
+        signature: &Signature,
+    ) -> Vec<crate::tuples::TupleElement> {
+        let mut elements = Vec::new();
+        for parameter in &signature.parameters {
+            if parameter.rest {
+                if let Some((types, _)) = self.tuple_element_lists.get(&parameter.r#type) {
+                    let mask = self.tuple_optional_masks.get(&parameter.r#type);
+                    let labels = self.tuple_labels.get(&parameter.r#type);
+                    elements.extend(types.iter().enumerate().map(|(index, &t)| {
+                        crate::tuples::TupleElement {
+                            r#type: t,
+                            spread: false,
+                            optional: mask
+                                .and_then(|mask| mask.get(index))
+                                .copied()
+                                .unwrap_or(false),
+                            label: labels.and_then(|labels| labels.get(index)).cloned().flatten(),
+                        }
+                    }));
+                    continue;
+                }
+                if let Some((rest, _)) = self.variadic_tuple_elements.get(&parameter.r#type) {
+                    elements.extend(rest.iter().cloned());
+                    continue;
+                }
+            }
+            elements.push(crate::tuples::TupleElement {
+                r#type: parameter.r#type,
+                spread: parameter.rest,
+                optional: parameter.optional,
+                label: Some(parameter.name.clone()),
+            });
+        }
+        elements
+    }
+
+    /// `getBaseSignature` for a source and `getErasedSignature` for a target
+    /// (`internal/checker/checker.go`). Source parameters map to constraints
+    /// or unknown, with interdependent constraints expanded before erasure.
+    fn signature_for_inference(
+        &mut self,
+        mut signature: Signature,
+        erase: bool,
+    ) -> Option<Signature> {
+        if signature.type_parameters.is_empty() {
+            return Some(signature);
+        }
+        let own = self.type_parameter_types(&signature)?;
+        if own.len() != signature.type_parameters.len() {
+            return None;
+        }
+        let names: Vec<_> = signature.type_parameters.iter().map(|p| p.name.clone()).collect();
+        let names: Vec<_> = names.iter().map(String::as_str).collect();
+        let eraser: Vec<_> =
+            own.iter().map(|&parameter| (parameter, self.intrinsics.any)).collect();
+        let map = if erase {
+            eraser
+        } else {
+            let mut constraints: Vec<_> = signature
+                .type_parameters
+                .iter()
+                .map(|p| p.constraint.unwrap_or(self.intrinsics.unknown))
+                .collect();
+            let immediate: Vec<_> = own.iter().copied().zip(constraints.iter().copied()).collect();
+            for _ in 1..own.len() {
+                for constraint in &mut constraints {
+                    *constraint = self.instantiate_type(*constraint, &immediate, &own, &names);
+                }
+            }
+            for constraint in &mut constraints {
+                *constraint = self.instantiate_type(*constraint, &eraser, &own, &names);
+            }
+            own.iter().copied().zip(constraints).collect()
+        };
+        signature.type_parameters.clear();
+        self.instantiate_signature(signature, &map, &own, &names)
     }
 
     /// `Checker.instantiateType` (`checker.go:22100`) — substitution, over the
@@ -1852,6 +3306,22 @@ impl Checker<'_, '_> {
         names: &[&str],
     ) -> TypeId {
         let error = self.intrinsics.error;
+        if let Some(&operand) = self.deferred_keyof_operands.get(&id) {
+            let operand = self.instantiate_type(operand, map, parameters, names);
+            return self.resolved_keyof_type(operand).unwrap_or(error);
+        }
+        if let Some((object, index, include_undefined)) =
+            self.deferred_indexed_access_types.get(&id).copied()
+        {
+            let object = self.instantiate_type(object, map, parameters, names);
+            let index = self.instantiate_type(index, map, parameters, names);
+            if object == error || index == error {
+                return error;
+            }
+            return self
+                .resolved_indexed_access_type(object, index, include_undefined)
+                .unwrap_or(error);
+        }
         if let Some((symbol, arguments)) = self.type_reference_targets.get(&id).cloned() {
             let mut substituted = Vec::with_capacity(arguments.len());
             for argument in arguments {
@@ -1908,6 +3378,22 @@ impl Checker<'_, '_> {
         if self.signature_types.contains_key(&id) {
             return self.instantiate_signature_type(id, map, parameters, names);
         }
+        if let Some((properties, _)) = self.anonymous_properties.get(&id).cloned() {
+            return self.instantiate_anonymous_properties(id, properties, map, parameters, names);
+        }
+        // A variadic tuple normalizes after its type arguments are mapped
+        // (`instantiateTypeWorker` -> `createNormalizedTupleType`, checker.go).
+        // Map the captured types rather than re-resolving syntax: a conditional
+        // alias's inferred bindings may no longer be in scope at this point.
+        if let Some((mut elements, readonly)) = self.variadic_tuple_elements.get(&id).cloned() {
+            for element in &mut elements {
+                element.r#type = self.instantiate_type(element.r#type, map, parameters, names);
+                if element.r#type == error {
+                    return error;
+                }
+            }
+            return self.normalize_variadic_tuple(elements, readonly);
+        }
         // Arm 6 (§37, `checker-notes-narrow.md`): a tuple carries its element
         // ids in `tuple_element_lists`, so it substitutes element-wise and
         // re-mints through the same constructor.
@@ -1920,9 +3406,63 @@ impl Checker<'_, '_> {
                 }
                 substituted.push(image);
             }
+            // `instantiateTypeWorker` rebuilds a reference against the original
+            // tuple target: optionality and labels belong to that target, not
+            // to the substituted element types (`checker.go`).
+            if let Some(mask) = self.tuple_optional_masks.get(&id).cloned() {
+                let labels = self
+                    .tuple_labels
+                    .get(&id)
+                    .cloned()
+                    .unwrap_or_else(|| vec![None; substituted.len()]);
+                let elements: Vec<_> = substituted.into_iter().zip(mask).collect();
+                return self.create_optional_tuple_type(&elements, &labels, readonly);
+            }
             return self.create_tuple_type(substituted, readonly);
         }
         error
+    }
+
+    /// `instantiateAnonymousType` and `instantiateSymbol` (checker.go), for
+    /// property-only type literals. Keep the owner for member identity and
+    /// capture mapped member types for subsequent reads and instantiations.
+    fn instantiate_anonymous_properties(
+        &mut self,
+        id: TypeId,
+        mut properties: Vec<crate::objects::AnonymousProperty>,
+        map: &[(TypeId, TypeId)],
+        parameters: &[TypeId],
+        names: &[&str],
+    ) -> TypeId {
+        let key = (id, map.to_vec());
+        if let Some(&cached) = self.instantiated_objects.get(&key) {
+            return cached;
+        }
+        let TypeData::Named { members: owner, .. } = self.store.get(id).data else {
+            return self.intrinsics.error;
+        };
+        let mut rendered = Vec::with_capacity(properties.len());
+        for property in &mut properties {
+            let original = property.r#type;
+            property.r#type = self.instantiate_type(original, map, parameters, names);
+            if property.r#type == self.intrinsics.error {
+                return self.intrinsics.error;
+            }
+            if property.r#type != original {
+                property.printed_type = self.type_to_string(property.r#type);
+            }
+            rendered.push(crate::objects::Member::Property {
+                name: property.printed_name.clone(),
+                optional: property.optional,
+                readonly: property.readonly,
+                printed: property.printed_type.clone(),
+            });
+        }
+        let text = crate::objects::render_object_type(&rendered);
+        let minted = self.store.new_named(crate::flags::TypeFlags::OBJECT, text, owner);
+        self.anonymous_properties.insert(minted, (properties, true));
+        self.instantiated_objects.insert(key, minted);
+        minted
     }
 
     /// Arm 5: a baked signature type, rebuilt with substituted parts.
@@ -2233,21 +3773,55 @@ impl Checker<'_, '_> {
         renamed
     }
 
+    /// `instantiateSignatureEx` (checker.go), using an object reference's
+    /// mapper while preserving the signature's own type parameters.
+    pub(crate) fn instantiate_signature_for_reference(
+        &mut self,
+        receiver: TypeId,
+        signature: Signature,
+    ) -> Option<Signature> {
+        let Some((symbol, arguments)) = self.type_reference_targets.get(&receiver).cloned() else {
+            return Some(signature);
+        };
+        let parameters = self.local_type_parameter_types_of(symbol)?;
+        if parameters.len() != arguments.len() {
+            return None;
+        }
+        let own: Vec<_> = signature.type_parameters.iter().map(|p| p.name.clone()).collect();
+        let map: Vec<_> = parameters
+            .iter()
+            .zip(arguments)
+            .filter_map(|((id, name), argument)| (!own.contains(name)).then_some((*id, argument)))
+            .collect();
+        let ids: Vec<_> =
+            parameters.iter().filter(|(_, name)| !own.contains(name)).map(|(id, _)| *id).collect();
+        let names: Vec<_> = parameters
+            .iter()
+            .filter(|(_, name)| !own.contains(name))
+            .map(|(_, name)| name.as_str())
+            .collect();
+        self.instantiate_signature(signature, &map, &ids, &names)
+    }
+
     /// One signature with every carried type substituted, or `None` when any
     /// part refuses.
-    fn instantiate_signature(
+    pub(crate) fn instantiate_signature(
         &mut self,
         mut signature: Signature,
         map: &[(TypeId, TypeId)],
         parameters: &[TypeId],
         names: &[&str],
     ) -> Option<Signature> {
+        let target = std::sync::Arc::new(signature.clone());
         let error = self.intrinsics.error;
         let substitute = |checker: &mut Self, id: TypeId| -> Option<TypeId> {
             let image = checker.instantiate_type(id, map, parameters, names);
             (image != error).then_some(image)
         };
         for parameter in &mut signature.type_parameters {
+            if let Some(id) = parameter.resolved_type {
+                parameter.resolved_type = Some(substitute(self, id)?);
+            }
             if let Some(constraint) = parameter.constraint {
                 let image = substitute(self, constraint)?;
                 if image != constraint {
@@ -2288,6 +3862,7 @@ impl Checker<'_, '_> {
         {
             predicate.r#type = Some(substitute(self, id)?);
         }
+        signature.target = Some(target);
         Some(signature)
     }
 
@@ -2310,6 +3885,14 @@ impl Checker<'_, '_> {
     /// has no symbol, which keeps a partial map from producing a partial
     /// substitution.
     pub(crate) fn type_parameter_types(&mut self, signature: &Signature) -> Option<Vec<TypeId>> {
+        if let Some(types) = signature
+            .type_parameters
+            .iter()
+            .map(|parameter| parameter.resolved_type)
+            .collect::<Option<Vec<_>>>()
+        {
+            return Some(types);
+        }
         let declarations = match self.node_map.get(signature.declaration)? {
             Node::FunctionDeclaration(node) => node.type_parameters,
             Node::FunctionExpression(node) => node.type_parameters,
@@ -2340,38 +3923,89 @@ impl Checker<'_, '_> {
         Some(symbols.into_iter().map(|symbol| self.get_declared_type_of_symbol(symbol)).collect())
     }
 
-    /// Whether a type mentions any of `parameters`, anywhere.
+    /// Whether a type contains any of the owned inference parameters.
     ///
-    /// Stands in for asking `couldContainTypeVariablesWorker` (`checker.go:22184`) of an
-    /// instantiated type, and is deliberately **over-eager**: it answers the
-    /// identity and the constituents of a union or an intersection
-    /// structurally, and then falls back to scanning the *printed* form for a
-    /// type parameter's name as a whole identifier.
-    ///
-    /// The scan exists because a type that merely *contains* a type parameter
-    /// carries no structural evidence of it here — `T[]`, `C<T>` and
-    /// `(x: T) => void` are all a [`TypeData::Named`] or
-    /// [`TypeData::Anonymous`] whose payload is a string. Without the scan, a
-    /// signature returning `T[]` would look parameter-free and be answered with
-    /// the uninstantiated `T[]`, which prints `T[]` where upstream prints
-    /// `number[]`. A false positive costs a gap; a false negative costs a wrong
-    /// answer, so the bias is chosen.
+    /// Follows reference arguments, signatures (including predicates), object
+    /// properties, tuple elements and union/intersection constituents by identity.
+    /// A generic signature's same-named bound parameter is a different type.
+    /// Shapes without structural metadata retain the printed-identifier fallback
+    /// until their type graph has been ported.
     pub(crate) fn mentions_type_parameter(
         &self,
         id: TypeId,
         parameters: &[TypeId],
         names: &[&str],
     ) -> bool {
+        self.mentions_type_parameter_inner(id, parameters, names, &mut Vec::new())
+    }
+
+    /// Type-parameter identity through the type graph, including bound generic
+    /// signatures. The printed fallback is retained only for shapes without
+    /// structural metadata; a same-named bound parameter never matches it.
+    fn mentions_type_parameter_inner(
+        &self,
+        id: TypeId,
+        parameters: &[TypeId],
+        names: &[&str],
+        visited: &mut Vec<TypeId>,
+    ) -> bool {
         if parameters.contains(&id) {
             return true;
         }
+        if visited.contains(&id) {
+            return false;
+        }
+        visited.push(id);
         let ty = self.store.get(id);
+        if ty.flags.intersects(
+            crate::flags::TypeFlags::TYPE_PARAMETER
+                | crate::flags::TypeFlags::PRIMITIVE
+                | crate::flags::TypeFlags::ANY_OR_UNKNOWN
+                | crate::flags::TypeFlags::NEVER,
+        ) {
+            return false;
+        }
+        if let Some((_, arguments)) = self.type_reference_targets.get(&id) {
+            return arguments
+                .iter()
+                .any(|&ty| self.mentions_type_parameter_inner(ty, parameters, names, visited));
+        }
+        if let Some(signatures) = self.signature_types.get(&id) {
+            return signatures.iter().any(|signature| {
+                signature
+                    .parameters
+                    .iter()
+                    .map(|p| p.r#type)
+                    .chain(signature.this_parameter.iter().map(|p| p.r#type))
+                    .chain(std::iter::once(signature.r#type))
+                    .chain(signature.predicate.iter().filter_map(|predicate| predicate.r#type))
+                    .chain(
+                        signature
+                            .type_parameters
+                            .iter()
+                            .flat_map(|p| [p.constraint, p.default].into_iter().flatten()),
+                    )
+                    .any(|ty| self.mentions_type_parameter_inner(ty, parameters, names, visited))
+            });
+        }
+        if let Some((properties, _)) = self.anonymous_properties.get(&id) {
+            return properties.iter().any(|property| {
+                self.mentions_type_parameter_inner(property.r#type, parameters, names, visited)
+            });
+        }
+        if let Some((elements, _)) = self.tuple_element_lists.get(&id) {
+            return elements
+                .iter()
+                .any(|&ty| self.mentions_type_parameter_inner(ty, parameters, names, visited));
+        }
         let constituents: &[TypeId] = match &ty.data {
             TypeData::Union { types, .. } | TypeData::Intersection { types, .. } => types,
             _ => &[],
         };
-        if constituents.iter().any(|&t| self.mentions_type_parameter(t, parameters, names)) {
-            return true;
+        if !constituents.is_empty() {
+            return constituents
+                .iter()
+                .any(|&t| self.mentions_type_parameter_inner(t, parameters, names, visited));
         }
         let text = crate::printing::type_to_string(ty);
         names.iter().any(|name| mentions_identifier(&text, name))
@@ -2799,7 +4433,7 @@ mod tests {
     }
 
     #[test]
-    fn a_generic_source_signature_is_refused_because_erasure_is_unported() {
+    fn a_generic_source_signature_uses_its_base_constraint() {
         // `conformance/genericCallWithFunctionTypedArguments.types:17` —
         // `>foo(<U>(x: U) => '') : unknown`. Upstream erases the source
         // signature's own type parameters (`getErasedSignature`) before
@@ -2810,7 +4444,7 @@ mod tests {
                 "function foo<T>(x: (a: T) => T) { return x(null); }\nvar r = foo(<U>(x: U) => '');",
                 "foo"
             ),
-            "error"
+            "unknown"
         );
     }
 
@@ -2841,7 +4475,12 @@ mod tests {
 #[derive(Clone, Debug)]
 pub(crate) struct InferenceInfo {
     pub(crate) type_parameter: TypeId,
+    pub(crate) priority: InferencePriority,
     pub(crate) candidates: Vec<TypeId>,
+    /// `InferenceInfo.contraCandidates`, kept separate from output positions.
+    pub(crate) contra_candidates: Vec<TypeId>,
+    /// Cached `InferenceInfo.inferredType` after a fixing mapper read.
+    pub(crate) fixed_type: Option<TypeId>,
     /// Upstream InferenceInfo.isFixed: set by the consumption rule when an
     /// inferred type is served for contextual instantiation; read by the
     /// widening decision.
@@ -2854,10 +4493,18 @@ pub(crate) struct InferenceInfo {
     pub(crate) top_level: bool,
 }
 
-pub(crate) fn add_candidate(
+impl InferenceInfo {
+    fn has_candidates(&self) -> bool {
+        !self.candidates.is_empty() || !self.contra_candidates.is_empty()
+    }
+}
+
+fn add_directional_candidate(
     infos: &mut Vec<InferenceInfo>,
     type_parameter: TypeId,
     candidate: TypeId,
+    contravariant: bool,
+    priority: InferencePriority,
 ) {
     if let Some(info) = infos.iter_mut().find(|i| i.type_parameter == type_parameter) {
         // `inference.go:183`: a FIXED inference set refuses new candidates —
@@ -2867,16 +4514,30 @@ pub(crate) fn add_candidate(
         if info.is_fixed {
             return;
         }
+        if priority.bits() < info.priority.bits() {
+            info.candidates.clear();
+            info.contra_candidates.clear();
+            info.top_level = true;
+            info.priority = priority;
+        }
+        if priority != info.priority {
+            return;
+        }
         // Upstream dedups at the add site (`slices.Contains`,
         // `inference.go:202`); the resolver's union/supertype stages assume
         // the same.
-        if !info.candidates.contains(&candidate) {
-            info.candidates.push(candidate);
+        let candidates =
+            if contravariant { &mut info.contra_candidates } else { &mut info.candidates };
+        if !candidates.contains(&candidate) {
+            candidates.push(candidate);
         }
     } else {
         infos.push(InferenceInfo {
             type_parameter,
-            candidates: vec![candidate],
+            priority,
+            candidates: if contravariant { Vec::new() } else { vec![candidate] },
+            contra_candidates: if contravariant { vec![candidate] } else { Vec::new() },
+            fixed_type: None,
             is_fixed: false,
             top_level: true,
         });
@@ -2887,23 +4548,25 @@ pub(crate) fn add_candidate(
 /// flat pair merge used to drop: `top_level` ANDs (one nested source marks the
 /// parameter nested for good, `inference.go:208`) and `is_fixed` ORs.
 pub(crate) fn merge_info(infos: &mut Vec<InferenceInfo>, from: &InferenceInfo) {
+    if !from.has_candidates()
+        && !infos.iter().any(|info| info.type_parameter == from.type_parameter)
+    {
+        infos.push(from.clone());
+        return;
+    }
     for &candidate in &from.candidates {
-        add_candidate(infos, from.type_parameter, candidate);
+        add_directional_candidate(infos, from.type_parameter, candidate, false, from.priority);
+    }
+    for &candidate in &from.contra_candidates {
+        add_directional_candidate(infos, from.type_parameter, candidate, true, from.priority);
     }
     if let Some(existing) = infos.iter_mut().find(|i| i.type_parameter == from.type_parameter) {
         existing.top_level &= from.top_level;
         existing.is_fixed |= from.is_fixed;
-    }
-}
-
-pub(crate) fn flatten_infos(infos: &[InferenceInfo]) -> Vec<(TypeId, TypeId)> {
-    let mut out = Vec::new();
-    for info in infos {
-        for &candidate in &info.candidates {
-            out.push((info.type_parameter, candidate));
+        if existing.fixed_type.is_none() {
+            existing.fixed_type = from.fixed_type;
         }
     }
-    out
 }
 
 impl Checker<'_, '_> {
@@ -2947,19 +4610,12 @@ impl Checker<'_, '_> {
         use crate::flags::TypeFlags;
         signature.type_parameters.get(parameter_position).and_then(|tp| tp.constraint).is_some_and(
             |constraint| {
-                let flags = self.store.get(constraint).flags;
-                flags.intersects(
-                    TypeFlags::STRING
-                        | TypeFlags::NUMBER
-                        | TypeFlags::BOOLEAN
-                        | TypeFlags::BIG_INT
-                        | TypeFlags::UNIT,
-                ) || matches!(
-                    &self.store.get(constraint).data,
-                    crate::types::TypeData::Union { types, .. }
-                        if types.iter().all(|&t| {
-                            self.store.get(t).flags.intersects(TypeFlags::UNIT)
-                        })
+                self.maybe_type_of_kind(
+                    constraint,
+                    TypeFlags::PRIMITIVE
+                        | TypeFlags::INDEX
+                        | TypeFlags::TEMPLATE_LITERAL
+                        | TypeFlags::STRING_MAPPING,
                 )
             },
         )
@@ -3095,10 +4751,11 @@ impl Checker<'_, '_> {
     /// summit's freeze pattern generalized from "the arrow and its
     /// parameters" to the whole argument subtree (an object literal's
     /// member arrows live two levels down).
-    fn evict_subtree(&mut self, root: NodeId) {
+    pub(crate) fn evict_subtree(&mut self, root: NodeId) {
         let mut stack = vec![root];
         while let Some(id) = stack.pop() {
             self.node_types.remove(&id);
+            self.resolved_call_signatures.remove(&id);
             if let Some(symbol) = self.binder.symbol_of(id) {
                 self.symbol_types.remove(&symbol);
             }
@@ -3107,36 +4764,4 @@ impl Checker<'_, '_> {
             }
         }
     }
-}
-
-/// A function-like argument with any unannotated parameter (upstream's
-/// isContextSensitive slice relevant to call inference).
-pub(crate) fn is_context_sensitive_argument(argument: &Expression<'_>) -> bool {
-    let parameters = match argument {
-        Expression::ArrowFunction(node) => node.parameters,
-        Expression::FunctionExpression(node) => node.parameters,
-        // SS135: a literal CONTAINING a context-sensitive function is itself
-        // context-sensitive (upstream isContextSensitive walks object and
-        // array literals) - it defers so its members can consume the
-        // intra-expression inferences harvested from its other members.
-        Expression::ObjectLiteralExpression(node) => {
-            return node.properties.iter().any(|property| match property {
-                tsr_ast::ObjectLiteralElementLike::PropertyAssignment(assignment) => {
-                    assignment.initializer.as_ref().is_some_and(is_context_sensitive_argument)
-                }
-                // SS138: a method member with an unannotated parameter makes
-                // the literal context-sensitive exactly as an arrow value
-                // does (upstream isContextSensitive on the method).
-                tsr_ast::ObjectLiteralElementLike::MethodDeclaration(method) => {
-                    method.parameters.iter().any(|p| p.r#type.is_none())
-                }
-                _ => false,
-            });
-        }
-        Expression::ArrayLiteralExpression(node) => {
-            return node.elements.iter().any(is_context_sensitive_argument);
-        }
-        _ => return false,
-    };
-    parameters.iter().any(|p| p.r#type.is_none())
 }

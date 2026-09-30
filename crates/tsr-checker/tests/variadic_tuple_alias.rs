@@ -1,38 +1,6 @@
-//! A generic alias whose body is a variadic tuple NORMALISES at instantiation.
-//! §791.
-//!
-//! `type TV0<T extends unknown[]> = [string, ...T]` instantiated as
-//! `TV0<[boolean]>` is `[string, boolean]` upstream — the rest element is
-//! SPLICED, not substituted. This port printed the alias reference.
-//!
-//! # Why the obvious route is the wrong one
-//!
-//! `instantiate_type`'s Arm 6 (`inference.rs`) substitutes a tuple
-//! element-wise through `tuple_element_lists` and re-mints with
-//! `create_tuple_type`. A §40 print-only variadic has **no** element-list
-//! entry — that is exactly what "print-only" means — so Arm 6 answers
-//! `errorType`, and teaching it to splice would mean adding per-element
-//! rest-ness to the tuple representation, a type-model change.
-//!
-//! None of that is needed. §40's *structural* road already splices a rest over
-//! a concrete tuple (it is how `excessivelyLargeTupleSpread` works); all it
-//! lacked was the type parameter being concrete. So this binds the alias's type
-//! parameters to the arguments using §91's own `alias_evaluation_bindings`
-//! frame and **re-resolves the recorded node**. Nothing substitutes anything;
-//! the existing splice runs.
-//!
-//! STATUS §5's §790 entry refused this as a subsystem and named the
-//! prerequisite wrongly twice before a trace inside the branch settled it. The
-//! entry is corrected there; the short version is that *a silent fall-through
-//! and an unreached branch look identical from outside*.
-//!
-//! # What it is worth
-//!
-//! **+2 corpus lines, zero adverse** — and that number is the point. §790
-//! predicted ~780 lines behind this subsystem. Those lines are **not** in
-//! annotation positions, which is all this arm reaches; they are in EXPRESSION
-//! positions (array literals with spreads, `as const`, `bind`-style
-//! signatures). The estimate is corrected in STATUS.
+//! Generic tuple aliases normalize their resolved arguments after substitution.
+//! These fixtures cover concrete, optional, array, union, and never spreads,
+//! following `createNormalizedTupleTypeEx` in typescript-go.
 
 use tsr_ast::Statement;
 use tsr_checker::Checker;
@@ -107,14 +75,40 @@ fn an_empty_tuple_argument_collapses_the_rest() {
     );
 }
 
-/// The decline, and the reason the arm is safe: an argument that is not a
-/// concrete tuple leaves the alias reference standing rather than inventing a
-/// normalisation. Upstream answers `[string, ...string[]]` here, so this stays
-/// an honest gap.
+/// Array arguments normalize the variadic element into an unbounded rest.
 #[test]
-fn a_non_tuple_argument_declines_rather_than_guessing() {
+fn an_array_argument_normalizes_to_a_rest() {
     assert_eq!(
         type_of_annotation(&format!("{ALIASES}declare let a: TV0<string[]>;")),
-        "TV0<string[]>"
+        "[string, ...string[]]"
+    );
+}
+
+#[test]
+fn a_union_argument_distributes_the_alias_body() {
+    assert_eq!(
+        type_of_annotation(&format!("{ALIASES}declare let a: TV1<[boolean] | [number]>;")),
+        "[string, number, number] | [string, boolean, number]"
+    );
+}
+
+#[test]
+fn a_never_argument_annihilates_the_alias_body() {
+    assert_eq!(type_of_annotation(&format!("{ALIASES}declare let a: TV1<never>;")), "never");
+}
+
+#[test]
+fn an_optional_spread_before_a_required_suffix_keeps_undefined() {
+    assert_eq!(
+        type_of_annotation(&format!("{ALIASES}declare let a: TV1<[boolean?]>;")),
+        "[string, boolean | undefined, number]"
+    );
+}
+
+#[test]
+fn an_any_argument_becomes_an_any_array_rest() {
+    assert_eq!(
+        type_of_annotation(&format!("{ALIASES}declare let a: TV1<any>;")),
+        "[string, ...any[], number]"
     );
 }

@@ -241,6 +241,9 @@ bitflags::bitflags! {
         /// stop `getNonUndefinedType` callers stripping where upstream
         /// strips.
         const IS_UNDEFINED = 1 << 24;
+        /// `TypeFactsIsNull` (`internal/checker/checker.go`), including
+        /// union constituents when comparing nullable callback parameters.
+        const IS_NULL = 1 << 25;
     }
 }
 
@@ -2414,7 +2417,7 @@ impl Checker<'_, '_> {
             return declared;
         }
         let mut kept = Vec::with_capacity(constituents.len());
-        for constituent in constituents {
+        for &constituent in &constituents {
             // SS160: the reference-identity slice answers first; its
             // undecidables keep the old road.
             match self.reference_assignable_decidable(assigned, constituent) {
@@ -2438,6 +2441,11 @@ impl Checker<'_, '_> {
             let ty = self.store.get(assigned);
             ty.flags.contains(TypeFlags::BOOLEAN_LITERAL) && ty.fresh
         };
+        // filterType preserves the input when every constituent survives,
+        // including the alias/origin carried by the declared union.
+        if kept == constituents && !assigned_is_fresh_boolean {
+            return declared;
+        }
         let kept = if assigned_is_fresh_boolean {
             kept.into_iter().map(|t| self.get_fresh_type_of_literal_type(t)).collect()
         } else {
@@ -2554,19 +2562,37 @@ impl Checker<'_, '_> {
         &mut self,
         t: TypeId,
     ) -> Option<Vec<crate::signatures::Signature>> {
+        self.signatures_of_type_kind(t, crate::signatures::SignatureKind::Call)
+    }
+
+    /// getSignaturesOfType (internal/checker/checker.go) uses separate call
+    /// and construct sets; abstract constructors belong to the construct set.
+    pub(crate) fn signatures_of_type_kind(
+        &mut self,
+        t: TypeId,
+        kind: crate::signatures::SignatureKind,
+    ) -> Option<Vec<crate::signatures::Signature>> {
+        let is_call = kind == crate::signatures::SignatureKind::Call;
+        if let Some(signatures) = self.signature_types.get(&t) {
+            return Some(
+                signatures
+                    .iter()
+                    .filter(|s| (s.kind == crate::signatures::SignatureKind::Call) == is_call)
+                    .cloned()
+                    .collect(),
+            );
+        }
         match self.store.get(t).data {
             TypeData::Anonymous { symbol, .. } => {
                 let signatures = self.get_signatures_of_symbol(symbol)?;
                 Some(
                     signatures
                         .into_iter()
-                        .filter(|s| s.kind == crate::signatures::SignatureKind::Call)
+                        .filter(|s| (s.kind == crate::signatures::SignatureKind::Call) == is_call)
                         .collect(),
                 )
             }
-            TypeData::Named { .. } => {
-                self.signature_candidates_of_named_type(t, crate::signatures::SignatureKind::Call)
-            }
+            TypeData::Named { .. } => self.signature_candidates_of_named_type(t, kind),
             _ => None,
         }
     }
@@ -7581,6 +7607,7 @@ impl Checker<'_, '_> {
             // set is seven bits, not eight.
             return TypeFacts::FALSY
                 | null_facts
+                | TypeFacts::IS_NULL
                 | TypeFacts::TYPEOF_EQ_OBJECT
                 | (typeof_ne_all - TypeFacts::TYPEOF_NE_OBJECT);
         }
