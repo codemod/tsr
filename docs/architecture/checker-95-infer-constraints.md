@@ -1,6 +1,6 @@
 # Infer constraints and conditional continuation
 
-Measured source checkpoint `INFER_CONSTRAINTS_COMMIT`, against `ac8d33ed`:
+Measured source checkpoint `90bccd3b`, against `ac8d33ed`:
 447,742/478,855 correct assertions (93.50%), an increase of 85. The 95% target
 requires another 7,171 correct assertions. Pinned upstream remains
 `5b1047d10d32e7d5b446be4de56b126ff42f82bb`; the corpus and denominator are unchanged.
