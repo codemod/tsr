@@ -16,7 +16,7 @@ Goal remains active below 95%.
 
 ## Accepted measurement and limits
 
-Checkpoint `IMPLIED_ARITY_COMMIT`:448,134/478,855 correct assertions (93.58%),
+Checkpoint `c438a8aa`:448,134/478,855 correct assertions (93.58%),
 6,558/9,538 complete cases (68.76%). Another 6,779 assertions are needed for
 95%. Aligned verdicts:474,243 total;448,134 right;4,628 gap;21,481 wrong.
 Against a88f8a1e:12 WRONG→RIGHT,all in variadicTuples1;zero RIGHT losses and
