@@ -11423,3 +11423,93 @@ Mapped types: **994 → ~944** wrong lines. The ranked remainder is unchanged fr
 §4.-9 except that slice 1 is now done: next is the transforming template (per-key
 instantiation), then `instantiateMappedType`'s array branch (55 lines, no element
 flags needed), then the tuple branch behind §950's representation work.
+
+## §954 — the transforming mapped template: BUILT, measured at +2, and refused
+
+§4.-9 ranked this as the mapped board's slice 2, immediately after the one §953
+landed. It was built whole — per-key template instantiation, the substitution
+upstream does in `instantiateMappedType` — and it **works**:
+
+```
+type Box<V> = { v: V };
+type Boxify<T> = { [P in keyof T]: Box<T[P]> };
+declare let b: Boxify<{ x: string; y: number }>;
+>b.x : Box<string>          ✓
+>b.y : Box<number>          ✓
+type Stringify<T> = { [P in keyof T]: string };
+>s2.x : string              ✓
+>p.x : string | undefined   ✓   (§952's identity road, untouched)
+```
+
+**It measures +1 `WRONG->RIGHT` and +1 `GAP->RIGHT` against 2 `GAP->WRONG`.
+`right` 443,580 → 443,582: two lines, one to one.** Every transition is in
+`mappedTypeModifiers`. **Refused and reverted.**
+
+### The shape of the thing refused
+
+It composed unusually cleanly, which is why it was worth building before pricing:
+bind `T` to the source and `P` to the key's literal, push an
+`alias_evaluation_bindings` frame, resolve the template node. `Box<T[P]>` becomes
+`Box<{x: string}["x"]>` and **§953's literal-index arm reads it** — so the template
+road needed no indexed-access machinery of its own. Three entries composing is the
+argument for the decomposition §952 chose.
+
+What it costs is not the idea but the surface: a fourth mapped side table, a
+per-key resolution with binding frames and a depth guard, and a hand-rolled
+syntactic recursion predicate. **§137.1 and §947.4 are the precedent — an arm that
+measures nothing is not kept as surface** — and unlike §952.1 (also zero, kept)
+there is no small pinned behaviour here that a test alone secures; it is a whole
+mechanism.
+
+### Two bugs found on the way, both worth more than the arm
+
+**1. A guard that matched by substring.** Self-recursive templates had to be
+excluded (`DeepReadonly<T> = { readonly [P in keyof T]: DeepReadonly<T[P]> }`
+re-enters its own resolution). The first version tested
+`written_type_text(template).contains(&alias_name)`, which is wrong for **any alias
+whose name is a prefix of something in its own template**:
+
+```
+type B<T> = { [K in keyof T]: Box<T[K]> }      "Box<T[K]>".contains("B") == true
+```
+
+so ordinary transforming templates were excluded. **It passed every probe, because
+the probe happened to name that alias `Boxify`.** A unit test with a one-letter
+alias caught it immediately. *The probe and the guard agreed by coincidence, which
+is the most expensive kind of agreement.*
+
+**2. Excluding a shape from the table is not the same as declining it.** The first
+fix left self-recursive templates registered nowhere, which sent them to §952's
+IDENTITY road — and that answered the **source's** member type: `d.x : string`
+where upstream gives a nested `D<...>`. That is a confident wrong answer in place of
+a missing one, **precisely the line §952's falsifier was written to hold**, and the
+falsifier is what caught it. Declining the arm whole returns it to the ordinary
+reference road and a gap.
+
+*An excluded case still needs to be told where to go. Both bugs were the same error
+in different clothing: a negative condition written as though it were inert.*
+
+### The correction this forces to §4.-9
+
+**My ranking was wrong, and it was wrong in the direction that costs most** — it put
+a two-line item second on a 944-line board. The mapped family's value is therefore
+NOT in the template road, and the remaining candidates re-rank by what is left
+rather than by what was assumed:
+
+| case | wrong lines | what it needs |
+|---|---:|---|
+| `mappedTypeIndexedAccessConstraint` | 87 | a mapped type's CONSTRAINT, not its members |
+| `reverseMappedPartiallyInferableTypes` | 77 | reverse mapped types (inference THROUGH a mapping) |
+| `reverseMappedTypeIntersectionConstraint` | 66 | the same |
+| `mappedTypeRecursiveInference` | 62 | the same, recursive |
+| `mappedTypeRelationships` | 41 | the RELATER over mapped types |
+
+Four of the top five are **inference and relations through a mapping, not member
+resolution** — a different subsystem from the one §952–§954 worked in, and none of
+it is unlocked by what this entry built. `instantiateMappedType`'s ARRAY branch (55
+lines, no element flags needed) is the only remaining member-side item and is now
+the best-evidenced next step in this family.
+
+*Three entries (§952, §953, §954) were justified by one ranking, and the ranking's
+own second item turned out to be worth two lines. The board is only as good as the
+last thing that tested it.*
