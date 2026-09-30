@@ -1,6 +1,6 @@
 # Implicit infer constraints and any checks
 
-Measured at `IMPLICIT_INFER_COMMIT`, against `90bccd3b`: 447,754/478,855
+Measured at `1609ae84`, against `90bccd3b`: 447,754/478,855
 correct assertions (93.51%); 6,544/9,538 complete cases (68.61%). Another 7,159 correct assertions are needed for 95%.
 Pinned tsgo remains `5b1047d10d32e7d5b446be4de56b126ff42f82bb`; the corpus is unchanged.
 
