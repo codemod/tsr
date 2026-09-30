@@ -22,12 +22,16 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
-**Re-measured whole at the §876 landing, 2026-09-28 (`checker_types` and
-`diagnostics` rows; the 100%-and-stable suites are carried from the §814 run).
-Measured whole at the §814 landing, 2026-09-27, by one release
-`cargo run -p tsr-conformance --bin coverage` over every suite**, and the table
-below is that run. The previous header measured `185877d` (2026-08-08) and the
-table under it had not been re-run since — it was telling readers
+**Re-measured whole at the §949 landing, 2026-09-29, by one
+`cargo run -p tsr-conformance --bin coverage` over every suite — every row in the
+fresh table below is from that run, including the aligned `scorepair` view, which
+had been left standing from an older compiler (see the correction note under it).**
+The headers this one replaces, kept for the corrections they record: re-measured
+whole at the §876 landing, 2026-09-28 (`checker_types` and `diagnostics` rows only;
+the 100%-and-stable suites carried from the §814 run), and before that measured
+whole at the §814 landing, 2026-09-27. The header before *those* measured
+`185877d` (2026-08-08) and the table under it had not been re-run since — it was
+telling readers
 `checker_types` was at **84.63%** when the suite reads **91.47%**, and
 `diagnostics` **25.62%** against **47.38%**. Corrected in place, and the size of
 the correction is the point: §7's rows had been carrying the true numbers for
@@ -58,8 +62,8 @@ had not.
 | `dts_emit` | 333/373 | 89.28% | — |
 | `dts_shape` | 858/1,006 | 85.29% | — |
 | `isolated_declarations` | 13/15 | 86.67% | — |
-| **`checker_types`** | **6,368/9,538** | **66.76%** | **92.61%** (443,459/478,855) |
-| **`diagnostics`** | **2,612/5,488** | **47.59%** | — |
+| **`checker_types`** | **6,368/9,538** | **66.76%** | **92.61%** (443,460/478,855) |
+| **`diagnostics`** | **2,632/5,488** | **47.96%** | — |
 | `parser_reachable_target` | 5,031/10,570 | 47.60% | — |
 | `dts_reachable_target` | 492/1,162 | 42.34% | — |
 
@@ -67,12 +71,17 @@ had not.
 transition matrix in §7 is quoted against:
 
 ```
-TOTAL 474,243   right 438,014   gap 7,418   wrong 28,811
+TOTAL 474,243   right 443,460   gap 5,652   wrong 25,131
 ```
+
+*(Corrected at §949: this block stood at `right 438,014 gap 7,418 wrong 28,811`,
+measured before the §925–§949 run, while the `checker_types` row above it had been
+refreshed. The two were describing different compilers — exactly the staleness this
+section's own header warns about, one row apart from itself.)*
 
 **Read the gap and wrong columns together, because their ratio has inverted.**
 The gap was 46,049 against 20,105 wrong when this file last carried an aligned
-view; it is now **7,418 gap against 28,811 wrong**. The remaining work is
+view; it is now **5,652 gap against 25,131 wrong**. The remaining work is
 overwhelmingly *lines this port computes and gets wrong*, not lines it declines —
 which changes what an instrument has to do to be useful, since every probe built
 to walk gap roots (`depend.rs`, `cyclegap.rs`, `gaproot.rs`) now addresses 20% of
@@ -9739,3 +9748,4 @@ that were true of a different population than the one they were quoted about.
 | 2026-09-29 | `HEAD` | **66.76%** | **6,368** | **§947 / §947.1 / §947.2 — a generic alias to a FUNCTION type had no signatures (+18, zero adverse), after four entries blamed four other things.** `type F<T> = (x: T) => void` produced a reference that was **neither callable nor inferable**, while the non-generic `type G = (x: number) => void` worked and a generic OBJECT alias `type O<T> = { v: T }` worked. `function_types.rs`'s generic-alias arm is `Some(_) => return error`, and §92 already exempts the UNION road under an alias evaluation while the function road does not. **§947.1 lifted it, got the signatures, and measured −271**: 16 W→R against **287 R→W** (`strictFunctionTypesErrors` 120) — because **`signature_types` is ITSELF what makes a type render as a signature** (`checker.rs:1517`/`:1533`), so `declare const fc: F<number>` went from `F<number>` to `(x: number) => void`. Narrowing the exemption changed the number **not at all**, which proved the fault was the registration, not the exemption. **§947.2 is §947.1 plus ONE LINE** — `alias_named_signature_types.insert(built)`, the existing mechanism `function_types.rs` already uses so a non-generic alias-named bake keeps its name, checked by the printer at both rendering sites. **+18, zero adverse**; `inferFromGenericFunctionReturnTypes2` 17. **The ledger**: §942 blamed inference priority (built a 2-level model, refused); §941.1 blamed the fallthrough's shape (refused, 8 against 5); §947 blamed the reference road (zero, found the body resolves to `error`); §947.1 found the decline and lost the name; §947.2 landed. **Five entries on one family, four moving only the diagnosis — and each was wrong in a way the next one needed.** *The cost of the four is the price of the fifth, and the record is what makes that true rather than a consolation.* Still not reached: a DIRECT call `fc(1)` is `error` — inference reads `signature_types`, the call road does not reach it for this type. **§932's split for the third time** (two roads, one pair of types, one reader). `checker-notes-deferred.md` §947, §947.1, §947.2. checker session |
 | 2026-09-29 | `HEAD` | **66.76%** | **6,368** | **§947.3 — the call road's half, and an honest +1 (zero adverse).** §947.2 closed by naming what it had not reached: `fc(1)` with `fc: F<number>` was still `error`. Inference read `signature_types` and answered; the CALL road never did, because §947.2 registers on a `TypeData::Named` reference and the named-callee branch consults `get_signature_of_named_type`/`signature_candidates_of_named_type`, neither of which looks at the table. `getSignaturesOfType` (`checker.go:18959`) reads the TYPE's signatures, so the named branch now does too, filtered by kind for §932's reason. **Third instance of §932's split** — §932 wired the anonymous branch, §932.1 the contextual one, §947.3 the named one. *Three separate entries to wire ONE table into three readers, each found only when something downstream failed*: the table is the intended interface and its readers were built independently. **1 G→R (`correlatedUnions`), zero adverse. Twenty lines of code for one line of coverage, and that is not dressed up.** Kept because it is measured, faithful and completes the alias family — `type F<T> = (…) => …` is now callable AND inferable where it was neither — but *inflating "completeness" into value would be the kind of claim this file exists to prevent*. A direct call through a generic function alias is rare in THIS corpus and common in real code: §800's distinction, the corpus is the arbiter of SIZE and not of CORRECTNESS. **The alias family (§942 → §947.3, six entries) is now closed end to end**: four diagnoses, one +18, one +1. `checker-notes-deferred.md` §947.3. checker session |
 | 2026-09-29 | `HEAD` | **66.76%** | **6,368** | **§948 — `new` on an INTERSECTION of constructors (+67, zero adverse). The port the previous entry DECLINED, and the refusal was based on an inherited misdiagnosis.** §943/§943.1 chased the board's "mixin" cluster to a class expression extending a type parameter and located the decline at `symbols.rs:2648`, concluding it needs `getBaseTypeVariableOfClass`'s exact-match structural print; the entry before this one declined to start it on risk/reward, citing §947.1's fresh −271. **`mixinClassesMembers` contains no such class expression.** It writes `declare const Mixed3: typeof M2 & typeof M1 & typeof C1` and `new Mixed3()`, which is `M2 & M1 & C1` upstream and `error` here — an **intersection of constructor types**, a different and much smaller rule. *One `grep` of the `.types` baseline found it; two entries had gone by on the case NAMES.* `check_new_expression` gains an intersection arm (resolve each constituent's construct return, intersect; a constituent with no readable signature declines the WHOLE arm). `construct_return_of` reads a class's instance type via `get_declared_type_of_symbol` — a class declaring no constructor offers no signature, which is why the first build measured nothing and instrumentation said `kind=intersection` with a failing constituent. **43 G→R + 24 W→R, zero adverse**, every row in `mixinClassesMembers`. *Declining work because a NEARBY thing regressed is not the same as measuring it.* **Fifth time this session a case name pointed at the wrong mechanism** (§929, §933, §937.1, §945, §948) and the first where it cost a refusal rather than a detour. Process: **fourth orphaned doc comment** of the day (helper inserted between a doc block and its `fn`, 3 clippy errors) — fixed by inserting before the doc run. `checker-notes-deferred.md` §948. checker session |
+| 2026-09-29 | `HEAD` | **66.76%** | **6,368** | **§949 — the last two §929-shaped amplifiers, measured TOGETHER (+1 kept, one refused), and the seam declared exhausted ON EVIDENCE.** Two independent hypotheses, **two scoring runs instead of four**: both legs written and measured in one, then bisected in one more to attribute. *This is the process change this session's own retrospective called for, applied.* **Leg 1 kept** — `index_signature_member` declined on an unresolvable value type and the caller turns a declined index member into a **whole-literal** `error`, so `{ a: string; [k: number]: Bad }` printed nothing and **lost the good `a`**; it now carries the written spelling through §929's channel. **+1 `WRONG->RIGHT` (`returnTypeTypeArguments`), zero adverse.** **Leg 2 refused** — the same move on `tuple_type_node_structural`'s rest branch WORKS (`[string, ...Bad[]]` prints) and measured **3 `GAP->WRONG`, zero wins** (`inferTInParentheses`, `largeTupleTypes`, `mappedTypeTupleConstraintAssignability`); reverted. Worth distinguishing from **§930.3**, which refused the same idea on the **concrete** tuple road for a *shape* reason — there an element becomes a real `TypeId` consumed by access and the relater, whereas here nothing consumes the composed text, so this refusal is **purely the number**. One pinned test flipped: `an_unrenderable_index_signature_gaps_the_whole_literal` had pinned `{ [k: string]: keyof T }` as `error`. Its **union-key assertion is deliberately left standing**, and the pair now states the rule — the whole-literal rejection **still holds for a member this port cannot SPELL, and no longer holds for one whose value type merely fails to RESOLVE**. *Spellability, not resolvability, is where the literal gaps*; relaxing both rows would have deleted that distinction instead of recording it. **The finding that closes the search: §929's family paid +469, +33, +41, +1, and three refusals — the two amplifiers left after §930 are worth ONE LINE between them.** Earlier entries *asserted* the seam was thinning; this one **establishes** it, which is the difference between a hunch and a finding, and it means **the remaining ~11,550 lines are not hiding another §929.** §1's aligned `scorepair` view corrected here too: it had stood at `right 438,014 gap 7,418 wrong 28,811` from a pre-§925 compiler while the `checker_types` row one line above it was fresh — two rows of the same table describing two different compilers. |

@@ -118,8 +118,13 @@ fn a_method_groups_with_the_properties_and_not_with_the_call_signatures() {
 
 #[test]
 fn an_unrenderable_index_signature_gaps_the_whole_literal() {
-    // The reject-the-whole-literal rule is unchanged: a member this port cannot
-    // render makes the type `error`, never a partial object type.
+    // **§949 narrowed the rule this test is named for.** The whole-literal
+    // rejection still holds for a member this port cannot SPELL — the union-key
+    // assertion below is unchanged — but a member whose VALUE TYPE merely fails
+    // to resolve now keeps its written annotation, because upstream's member
+    // carries `errorType` and the node builder reuses the written node. That is
+    // §929's rule, and declining took the good members down with the bad one:
+    // `{ a: string; [k: number]: Bad }` printed nothing at all.
     //
     // §32 (`checker-notes-callres.md`) widened the PRINT gate to any
     // computable non-union key — `symbol` now renders as written, while the
@@ -128,6 +133,8 @@ fn an_unrenderable_index_signature_gaps_the_whole_literal() {
     assert_eq!(type_of_annotation("var x: { [k: symbol]: number };"), "{ [k: symbol]: number; }");
     // A UNION key still declines whole — upstream splits it into two infos.
     assert_eq!(type_of_annotation("var x: { [k: string | number]: keyof T };"), "error");
-    // A value type that is itself a gap.
-    assert_eq!(type_of_annotation("var x: { [k: string]: keyof T };"), "error");
+    // A value type that is itself a gap KEEPS ITS WRITTEN SPELLING since §949
+    // (+1 `WRONG->RIGHT` on `returnTypeTypeArguments`, zero adverse). The
+    // distinction from the union key above is spellability, not resolvability.
+    assert_eq!(type_of_annotation("var x: { [k: string]: keyof T };"), "{ [k: string]: keyof T; }");
 }

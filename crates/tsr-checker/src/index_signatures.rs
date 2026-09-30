@@ -359,10 +359,21 @@ impl<'a> Checker<'a, '_> {
         {
             return None;
         }
-        let value = self.get_type_from_type_node(signature.r#type?);
-        if value == self.intrinsics.error {
-            return None;
-        }
+        let value_node = signature.r#type?;
+        let value = self.get_type_from_type_node(value_node);
+        // §949, leg 1: §929's rule at the INDEX member. A value type this port
+        // cannot resolve used to decline the member, and the caller turns a
+        // declined index member into a WHOLE-LITERAL `error` — so
+        // `{ a: string; [k: number]: Bad }` printed nothing at all, losing the
+        // perfectly good `a`. Upstream's member carries `errorType` and the node
+        // builder still reuses the written annotation node.
+        let written_value = if value == self.intrinsics.error {
+            let mut single_quoted = false;
+            let mut array_headed = false;
+            Some(Self::written_type_text(value_node, &mut single_quoted, &mut array_headed)?)
+        } else {
+            None
+        };
         let readonly = signature.modifiers.iter().any(|modifier| {
             matches!(modifier, tsr_ast::ModifierLike::Token(token)
                 if token.kind == tsr_ast::SyntaxKind::ReadonlyKeyword)
@@ -371,7 +382,10 @@ impl<'a> Checker<'a, '_> {
             readonly,
             name: name.text.to_string(),
             key: self.type_to_string(key),
-            value: self.type_to_string(value),
+            value: match written_value {
+                Some(text) => text,
+                None => self.type_to_string(value),
+            },
         })
     }
 

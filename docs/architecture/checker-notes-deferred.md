@@ -10804,3 +10804,70 @@ helper with zero adverse rows.
 *Declining work because a nearby thing regressed is not the same as measuring it*,
 and the case names had already been misleading twice in this file (§929, §933,
 §937.1, §945 — this is the fifth).
+
+## §949 — the last two §929-shaped amplifiers, measured together (+1, and the seam is exhausted)
+
+§929's finding — *one unreadable part destroying every readable one* — produced the
+session's largest entry (+469) and then §930 (+33), §930.1 (+41). §930.2 and
+§930.3 refused two more floors. This entry closes the search by measuring the two
+remaining ones **in a single run**, which is the batching this session kept
+recommending and not doing.
+
+Probed first, six composites with one unreadable part:
+
+```text
+interface with a bad member         name prints, members lazy       ✓
+{ a: string; (x: number): string }  prints                          ✓
+{ a: string; get g(): Bad }         prints (§930.1)                 ✓
+{ a: string; [k: number]: Bad }     error                           ✗  leg 1
+[string, ...Bad[]]                  error                           ✗  leg 2
+{ a: string } & { b: Bad }          prints                          ✓
+```
+
+### Leg 1 — the index member, kept
+
+`index_signature_member` declined on an unresolvable value type, and the caller
+turns a declined index member into a **whole-literal** `error`: so
+`{ a: string; [k: number]: Bad }` printed nothing and lost the good `a`. It now
+carries the written spelling, exactly as §929 and §930 do.
+
+**1 `WRONG->RIGHT` (`returnTypeTypeArguments`), zero adverse.**
+
+### The pinned test that had to flip, and the line it now draws
+
+`an_unrenderable_index_signature_gaps_the_whole_literal` pinned
+`{ [k: string]: keyof T }` as `error`. Leg 1 makes it print, so the assertion was
+flipped to `"{ [k: string]: keyof T; }"`.
+
+The test's *other* assertion — a union key — is deliberately **unchanged**, and the
+pair is what states the rule: the whole-literal rejection still holds for a member
+this port cannot **spell**, and no longer holds for one whose value type merely
+fails to **resolve**. Spellability, not resolvability, is where the literal gaps.
+A flip that had also relaxed the union-key row would have deleted that distinction
+rather than recording it.
+
+### Leg 2 — the print-only variadic tuple, refused
+
+The same move on `tuple_type_node_structural`'s rest branch. It **works**
+(`[string, ...Bad[]]` prints instead of gapping) and measured **3 `GAP->WRONG`,
+zero wins** — `inferTInParentheses`, `largeTupleTypes`,
+`mappedTypeTupleConstraintAssignability`.
+
+Worth distinguishing from §930.3, which refused the same idea on the **concrete**
+tuple road for a *shape* reason: there an element becomes a real `TypeId` consumed
+by access and the relater. Here nothing consumes it — the branch composes text —
+so the refusal is purely the number.
+
+### The batching, and what it bought
+
+Both legs were written and measured in **one** scoring run (+1 net, 3 G→W), then
+bisected in **one** more to attribute. Two runs for two independent hypotheses
+instead of four. *That is the process change this session's own retrospective
+called for, applied.*
+
+### The seam is exhausted, and now that is measured
+
+§929's family: **+469, +33, +41, +1, and three refusals.** The two amplifiers left
+after §930 are worth one line between them. Earlier entries asserted the seam was
+thinning; this one establishes it, which is the difference between a hunch and a
+finding — and it means the remaining gap is not hiding another §929.
