@@ -190,16 +190,13 @@ fn the_refused_legs_stay_gaps() {
     let rest = r#"var { a, ...rest } = { a: 1, b: "x" };"#;
     assert_eq!(type_of_binding(rest, "rest"), "{ b: string; }");
     assert_eq!(type_of_binding(rest, "a"), "number");
-    // The ARRAY rest's PLAIN-tuple slice landed at §321 (`sliceTupleType`,
-    // `checker.go:17797`) — probe-confirmed and corpus-zero at landing: no
-    // deficit line has this shape reachable today, so the arm is the
-    // session's one fidelity-only admission. Optional-masked and readonly
-    // tuples, and non-tuple parents (`T[]` from the iterated type), still
-    // refuse.
+    // sliceTupleType preserves the optional flags in the copied tuple.
+    // Pinned tsgo declaration output with strictNullChecks spells the
+    // optional rest as [(string | undefined)?].
     let array_rest = r#"var [x, ...tail]: [number, string, string] = [1, "a", "b"];"#;
     assert_eq!(type_of_binding(array_rest, "tail"), "[string, string]");
     let optional_rest = "var [y, ...opt]: [number, string?] = [1];";
-    assert_eq!(type_of_binding(optional_rest, "opt"), "error");
+    assert_eq!(type_of_binding(optional_rest, "opt"), "[(string | undefined)?]");
     // An array literal destructured by an array pattern **is now ported**
     // (`bd tsr-84iz`): upstream infers the *tuple* `[number, string]` through
     // the pattern's implied contextual type

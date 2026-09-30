@@ -4037,8 +4037,24 @@ impl<'a> Checker<'a, '_> {
     /// argument, tuples the union of their elements, strings `string`.
     /// `None` declines to the implicit-any road.
     pub(crate) fn for_of_element_type(&mut self, iterated: TypeId) -> Option<TypeId> {
+        // getPropertyOfType reads the apparent type of a type parameter when
+        // resolving its iterator; the array shortcut uses the same constraint.
+        let mut iterated = iterated;
+        let mut seen = Vec::new();
+        while self.store.get(iterated).flags.contains(crate::flags::TypeFlags::TYPE_PARAMETER) {
+            if seen.contains(&iterated) {
+                return None;
+            }
+            seen.push(iterated);
+            iterated = self.type_parameter_constraint(iterated)?;
+        }
         if iterated == self.intrinsics.error {
             return None;
+        }
+        // getIteratedTypeOrElementType reads the numeric tuple index signature,
+        // including each variadic operand's own deferred number access.
+        if let Some(element) = self.variadic_tuple_index_union(iterated) {
+            return Some(element);
         }
         if let Some((elements, _)) = self.tuple_element_lists.get(&iterated) {
             let elements = elements.clone();

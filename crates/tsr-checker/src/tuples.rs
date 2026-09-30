@@ -18,6 +18,59 @@ pub(crate) struct TupleElement {
 }
 
 impl Checker<'_, '_> {
+    /// `sliceTupleType` (internal/checker/relater.go). A destructured copy
+    /// retains element flags and labels, and always becomes mutable. Slices
+    /// beyond the fixed prefix use the remaining element union as an array.
+    pub(crate) fn slice_tuple_type(
+        &mut self,
+        source: TypeId,
+        index: usize,
+        end_skip_count: usize,
+    ) -> Option<TypeId> {
+        let mut elements = if let Some((elements, _)) = self.variadic_tuple_elements.get(&source) {
+            elements.clone()
+        } else {
+            let (types, _) = self.tuple_element_lists.get(&source)?;
+            let optional = self.tuple_optional_masks.get(&source);
+            let labels = self.tuple_labels.get(&source);
+            types
+                .iter()
+                .enumerate()
+                .map(|(i, &r#type)| TupleElement {
+                    r#type,
+                    spread: false,
+                    optional: optional.and_then(|mask| mask.get(i)).copied().unwrap_or(false),
+                    label: labels.and_then(|labels| labels.get(i)).cloned().flatten(),
+                })
+                .collect()
+        };
+        // Tuple type arguments include undefined for optional slots, except
+        // when exact optional properties use an implicit missing type instead.
+        if self.strict_null_checks && !self.exact_optional_property_types {
+            for element in &mut elements {
+                if element.optional {
+                    element.r#type =
+                        self.get_union_type(&[element.r#type, self.intrinsics.undefined]);
+                }
+            }
+        }
+        let fixed_length =
+            elements.iter().position(|element| element.spread).unwrap_or(elements.len());
+        let end_index = elements.len().saturating_sub(end_skip_count);
+        if index > fixed_length {
+            if fixed_length < elements.len() {
+                let element = self.variadic_tuple_element_type(source, fixed_length, false)?;
+                let array = self.global_type_symbol("Array")?;
+                return Some(self.create_type_reference(array, vec![element]));
+            }
+            return Some(self.create_tuple_type(Vec::new(), false));
+        }
+        if index >= end_index {
+            return Some(self.create_tuple_type(Vec::new(), false));
+        }
+        Some(self.normalize_variadic_tuple(elements[index..end_index].to_vec(), false))
+    }
+
     /// The generic tuple arm of computeBaseConstraint
     /// (internal/checker/checker.go). Only variadic type parameters whose
     /// resolved constraints are arrays or non-generic tuples are substituted.
@@ -153,24 +206,12 @@ impl Checker<'_, '_> {
         if object == self.intrinsics.any {
             return Some(object);
         }
-        if let Some(position) = position {
-            if let Some(t) = self.variadic_tuple_element_type(object, position, include_undefined) {
-                return Some(t);
-            }
-            if self.tuple_element_lists.contains_key(&object) {
-                return self.get_type_of_property_of_type(object, &position.to_string());
-            }
-        } else if let Some(t) = self.variadic_tuple_index_union(object) {
-            return Some(if include_undefined {
-                self.get_union_type(&[t, self.intrinsics.undefined])
-            } else {
-                t
-            });
-        }
-        let defer = if let Some((elements, _)) = self.variadic_tuple_elements.get(&object) {
+        // shouldDeferIndexedAccessType compares a literal index with the total
+        // fixed element count before attempting the numeric index signature.
+        let defer = if let Some((elements, _)) = self.variadic_tuple_elements.get(&object).cloned()
+        {
             let is_generic = elements.iter().any(|element| {
-                element.spread
-                    && self.store.get(element.r#type).flags.contains(TypeFlags::TYPE_PARAMETER)
+                element.spread && self.tuple_spread_array_element(element.r#type).is_none()
             });
             let fixed = elements.iter().filter(|element| !element.spread).count();
             is_generic && position.is_none_or(|position| position >= fixed)
@@ -189,6 +230,20 @@ impl Checker<'_, '_> {
             self.deferred_indexed_access_cache.insert(key, id);
             self.deferred_index_mints.insert(id);
             return Some(id);
+        }
+        if let Some(position) = position {
+            if let Some(t) = self.variadic_tuple_element_type(object, position, include_undefined) {
+                return Some(t);
+            }
+            if self.tuple_element_lists.contains_key(&object) {
+                return self.get_type_of_property_of_type(object, &position.to_string());
+            }
+        } else if let Some(t) = self.variadic_tuple_index_union(object) {
+            return Some(if include_undefined {
+                self.get_union_type(&[t, self.intrinsics.undefined])
+            } else {
+                t
+            });
         }
         self.array_or_tuple_element_access(object, index, include_undefined)
     }
@@ -375,7 +430,8 @@ impl Checker<'_, '_> {
     }
 
     /// Fixed-start properties and `getTupleElementTypeOutOfStartCount`
-    /// (`internal/checker/checker.go`) for non-generic rest elements.
+    /// (`internal/checker/checker.go`). Generic variadic operands contribute
+    /// their deferred numeric indexed access to the remaining element union.
     pub(crate) fn variadic_tuple_element_type(
         &mut self,
         id: TypeId,
@@ -395,7 +451,7 @@ impl Checker<'_, '_> {
         let mut types = Vec::new();
         for element in &elements[start..] {
             let t = if element.spread {
-                self.tuple_spread_array_element(element.r#type)?
+                self.tuple_rest_element_type(element.r#type)?
             } else {
                 element.r#type
             };
@@ -411,6 +467,16 @@ impl Checker<'_, '_> {
         Some(self.get_union_type(&types))
     }
 
+    fn tuple_rest_element_type(&mut self, operand: TypeId) -> Option<TypeId> {
+        if let Some(element) = self.tuple_spread_array_element(operand) {
+            return Some(element);
+        }
+        if self.store.get(operand).flags.contains(TypeFlags::TYPE_PARAMETER) {
+            return self.resolved_indexed_access_type(operand, self.intrinsics.number, false);
+        }
+        None
+    }
+
     /// The numeric index signature of a rest tuple, corresponding to
     /// `getElementTypeOfSliceOfTupleType` (`internal/checker/checker.go`).
     pub(crate) fn variadic_tuple_index_union(&mut self, id: TypeId) -> Option<TypeId> {
@@ -418,7 +484,7 @@ impl Checker<'_, '_> {
         let mut types = Vec::with_capacity(elements.len());
         for element in elements {
             types.push(if element.spread {
-                self.tuple_spread_array_element(element.r#type)?
+                self.tuple_rest_element_type(element.r#type)?
             } else {
                 element.r#type
             });

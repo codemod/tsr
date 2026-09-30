@@ -25,7 +25,9 @@
 //!
 //! # What refuses, each with its number (`checker-notes-destructure.md` §3)
 //!
-//! - **array rest elements**: `sliceTupleType` (`checker.go:17797`). The
+//! - **array rest elements** use `sliceTupleType` for fixed and variadic
+//!   tuples, retaining optional flags and labels in a mutable copy. Other
+//!   iterable parents use an array of the resolved element type. The
 //!   OBJECT half of the original rest refusal (172 lines) LANDED at §319 —
 //!   `getRestType`'s member subtraction over `spread_members_of`; what that
 //!   enumerator refuses (methods, nullables, instantiated references) still
@@ -202,45 +204,13 @@ impl Checker<'_, '_> {
                     return error;
                 };
                 if element.dot_dot_dot_token.is_some() {
-                    // §321: `sliceTupleType` (`checker.go:17797`), the PLAIN
-                    // slice — `var [x, ...tail]: [number, string, string]`
-                    // reads `[string, string]`. A tuple with an OPTIONAL or
-                    // readonly shape declines: the sliced mask and the
-                    // mutability of the destructured copy are their own
-                    // questions, and a wrong spelling is worse than the gap
-                    // this element always had. A non-tuple parent declines
-                    // too (upstream builds `T[]` from the iterated type).
-                    if let Some((elements, readonly)) =
-                        self.tuple_element_lists.get(&parent_type).cloned()
-                        && !readonly
-                        && index <= elements.len()
-                        && !self
-                            .tuple_optional_masks
-                            .get(&parent_type)
-                            .is_some_and(|mask| mask.iter().any(|&optional| optional))
-                    {
-                        return self.create_tuple_type(elements[index..].to_vec(), false);
+                    // getBindingElementTypeFromParentType slices a tuple with
+                    // sliceTupleType, preserving its flags and labels while
+                    // removing readonly from the copied rest binding.
+                    if let Some(slice) = self.slice_tuple_type(parent_type, index, 0) {
+                        return slice;
                     }
-                    // §547: the NON-TUPLE parent, which the comment above
-                    // named and left as a gap — *"upstream builds `T[]` from
-                    // the iterated type"*. `getTypeForBindingElement`
-                    // (`checker.go:17797`) reaches
-                    // `checkIteratedTypeOrElementType` for a parent that is not
-                    // a tuple and wraps the element in an array, so
-                    // `var [a, ...b] = new SymbolIterator` reads
-                    // `b : symbol[]` (`iterableArrayPattern2`) and
-                    // `var [d, ...e] = [1, 2, 3]` reads `e : number[]`.
-                    //
-                    // The element comes from [`Checker::for_of_element_type`],
-                    // the same §284/§285 seam the array-spread road uses, so a
-                    // custom iterator and a plain array take one path. A parent
-                    // whose iterated type this port cannot decide keeps the
-                    // gap — `None` here, never a guess.
-                    //
-                    // A `readonly` or OPTIONAL-masked TUPLE still declines
-                    // above and must keep declining: this arm is reached only
-                    // when the parent is not a tuple at all, so it cannot
-                    // silently answer the sliced-mask question §321 refused.
+                    // Other iterables build an array from their element type.
                     if !self.tuple_element_lists.contains_key(&parent_type)
                         && let Some(element_type) = self.for_of_element_type(parent_type)
                         && element_type != error
@@ -301,8 +271,17 @@ impl Checker<'_, '_> {
                     }
                     return self.intrinsics.any;
                 }
-                let positional =
-                    self.destructuring_property_lookup(parent_type, &index.to_string(), true);
+                let positional = if self.variadic_tuple_elements.contains_key(&parent_type) {
+                    let index_type = self.store.intern_literal(
+                        TypeFlags::NUMBER_LITERAL,
+                        TypeData::NumberLiteral(index.to_string()),
+                        false,
+                    );
+                    self.tuple_index_type(parent_type, index_type, self.no_unchecked_indexed_access)
+                        .unwrap_or(error)
+                } else {
+                    self.destructuring_property_lookup(parent_type, &index.to_string(), true)
+                };
                 if positional == error {
                     // Upstream's else-arm (`checker.go:17771`): a receiver
                     // that is not array-like takes
