@@ -346,3 +346,57 @@ fn two_signature_constituents_still_decline() {
          const o: F = (a) => 1;\n";
     assert_ne!(last_arrow_type(source), "(a: string) => number");
 }
+
+/// §952: a homomorphic IDENTITY mapped type — `{ [P in keyof T]: T[P] }` with
+/// any combination of `?` and `readonly` — reads the SOURCE's members and
+/// applies the modifiers. Before this, every member of every mapped type
+/// gapped.
+#[test]
+fn a_homomorphic_identity_mapped_type_reads_the_sources_members() {
+    // `?` adds optionality, which a READ sees as `| undefined`.
+    assert_eq!(
+        type_of_last_expression(
+            "type P<T> = { [K in keyof T]?: T[K] };\ndeclare let p: P<{ x: string }>;\np.x;"
+        ),
+        "string | undefined"
+    );
+    // No modifier is the identity: the source's own member type, unchanged.
+    assert_eq!(
+        type_of_last_expression(
+            "type I<T> = { [K in keyof T]: T[K] };\ndeclare let i: I<{ x: string }>;\ni.x;"
+        ),
+        "string"
+    );
+    // `-?` REMOVES optionality, so the source's `| undefined` is stripped.
+    assert_eq!(
+        type_of_last_expression(
+            "type R<T> = { [K in keyof T]-?: T[K] };\ndeclare let r: R<{ x?: string }>;\nr.x;"
+        ),
+        "string"
+    );
+}
+
+/// §952's falsifier legs — the two shapes that must keep declining, because
+/// answering from the source's members would be a confident WRONG answer rather
+/// than a missing one. The same line `record_index_info` draws for a
+/// literal-union `Record` key (§785).
+#[test]
+fn a_mapped_type_that_is_not_the_identity_still_declines() {
+    // A TRANSFORMING template needs the template instantiated per key, which
+    // this arm deliberately does not build. Answering `string` here where
+    // upstream answers `Box<string>` would be worse than gapping.
+    assert_eq!(
+        type_of_last_expression(
+            "type Box<V> = { v: V };\ntype B<T> = { [K in keyof T]: Box<T[K]> };\ndeclare let b: B<{ x: string }>;\nb.x;"
+        ),
+        "error"
+    );
+    // A key REMAPPING (`as`) changes the NAMES, which is exactly what reusing
+    // the source's member owner cannot express.
+    assert_eq!(
+        type_of_last_expression(
+            "type M<T> = { [K in keyof T as \"z\"]: T[K] };\ndeclare let m: M<{ x: string }>;\nm.x;"
+        ),
+        "error"
+    );
+}

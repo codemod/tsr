@@ -2345,6 +2345,31 @@ impl<'a> Checker<'a, '_> {
     /// parameters\' defaults (`fillMissingTypeArguments`), and a default may
     /// reference an earlier parameter — which is substitution, so that case is a
     /// gap rather than a guess.
+    /// §952: the identifier a type node names, when it is a bare reference and
+    /// nothing else. The mapped-type shape test compares three positions
+    /// (`keyof T`, `T[P]`'s object and index) against written names, and an
+    /// identity template is exactly the case where all three are bare.
+    fn type_node_names(node: Option<TypeNode<'a>>) -> Option<&'a str> {
+        let TypeNode::TypeReferenceNode(reference) = node? else { return None };
+        if !reference.type_arguments.is_empty() {
+            return None;
+        }
+        match reference.type_name? {
+            tsr_ast::EntityName::Identifier(name) => Some(name.text),
+            tsr_ast::EntityName::QualifiedName(_) => None,
+        }
+    }
+
+    /// §952: the symbol whose member table a type reads its properties from —
+    /// the same two shapes [`Checker::get_property_of_type`] dispatches on.
+    fn members_owner_of(&self, id: TypeId) -> Option<SymbolId> {
+        match &self.store.get(id).data {
+            crate::types::TypeData::Named { members: Some(owner), .. } => Some(*owner),
+            crate::types::TypeData::Anonymous { symbol, .. } => Some(*symbol),
+            _ => None,
+        }
+    }
+
     fn get_instantiated_type_reference(
         &mut self,
         node: &tsr_ast::TypeReferenceNode<'a>,
@@ -2623,6 +2648,83 @@ impl<'a> Checker<'a, '_> {
                 }
             }
             self.variadic_alias_in_progress.remove(&symbol);
+        }
+        // §952: a generic alias whose body is a HOMOMORPHIC IDENTITY mapped
+        // type — `{ [P in keyof T]: T[P] }`, with any combination of the `?` and
+        // `readonly` modifiers — answers the ARGUMENT's own members.
+        //
+        // `Partial`, `Readonly` and `Required` are all exactly this shape, and
+        // before this arm **every member of every mapped type gapped**:
+        // `Partial<O>`'s `p.x`, `Readonly<O>`'s `r.x`, `keyof Partial<O>` and
+        // `Partial<O>["x"]` all answered `errorType` (probed at §950's close).
+        // The printed form was already right — upstream prints `Partial<O>`
+        // because the mapped type carries an alias symbol — so this is a
+        // members-only change, which is why it can reuse the existing mint.
+        //
+        // **Why reuse the source's member owner instead of synthesising
+        // symbols.** Upstream's `resolveMappedTypeMembers` (`checker.go`) creates
+        // a fresh property symbol per key and sets optionality and readonly on
+        // it. This port's properties are binder symbols and the binder has no
+        // facility for synthetic ones, so a faithful transliteration is blocked
+        // on infrastructure that does not exist. For an IDENTITY template the
+        // names and the types are the source's already — the only thing upstream
+        // adds is the modifier — so the owner is reused and the modifier goes in
+        // `mapped_identity_optionality`, read at
+        // [`Checker::get_type_of_property_of_type`].
+        //
+        // **Restricted to the identity template on purpose.** A template that
+        // TRANSFORMS (`Boxify<T> = { [P in keyof T]: Box<T[P]> }`) needs the
+        // template instantiated per key, which needs the per-key binding this
+        // arm deliberately does not build: handing back the source's member type
+        // for `Boxify` would answer `string` where upstream answers
+        // `Box<string>` — a confident wrong answer in place of a missing one,
+        // which is the same line `record_index_info` draws for a literal-union
+        // `Record` key (§785).
+        if self.binder.symbols().get(symbol).flags.contains(tsr_binder::SymbolFlags::TYPE_ALIAS)
+            && let Some(declaration) =
+                self.binder.symbols().get(symbol).declarations.first().copied()
+            && let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration)
+            && let Some(TypeNode::MappedTypeNode(mapped)) = alias.r#type
+            && arguments.len() == 1
+            && let [parameter_declaration] = self.local_type_parameters_of(symbol)
+            && let Some(parameter_name) = parameter_declaration.name.map(|name| name.text)
+            && let Some(mapped_parameter) = mapped.type_parameter
+            && let Some(key_name) = mapped_parameter.name.map(|name| name.text)
+            // The constraint must be `keyof T` for the alias's own parameter —
+            // upstream's `isHomomorphicMappedType` test, syntactically.
+            && let Some(TypeNode::TypeOperatorNode(operator)) = mapped_parameter.constraint
+            && operator.operator.kind == SyntaxKind::KeyOfKeyword
+            && Self::type_node_names(operator.r#type) == Some(parameter_name)
+            // No `as` clause: a key remapping changes the NAMES, which is
+            // exactly what reusing the source's owner cannot express.
+            && mapped.name_type.is_none()
+            // The template must be `T[P]` — the identity.
+            && let Some(TypeNode::IndexedAccessTypeNode(access)) = mapped.r#type
+            && Self::type_node_names(access.object_type) == Some(parameter_name)
+            && Self::type_node_names(access.index_type) == Some(key_name)
+            && let Some(source_owner) = self.members_owner_of(arguments[0])
+        {
+            let printed_arguments: Vec<String> =
+                arguments.iter().map(|&a| self.type_to_string(a)).collect();
+            let name = self.binder.symbols().get(symbol).name.to_string();
+            let text = format!("{name}<{}>", printed_arguments.join(", "));
+            let key = (text.clone(), symbol);
+            if let Some(&existing) = self.qualified_reference_types.get(&key) {
+                return existing;
+            }
+            let minted = self.store.new_named(TypeFlags::OBJECT, text, Some(source_owner));
+            // `?` and `+?` add optionality, `-?` removes it, absent leaves it.
+            let optionality =
+                mapped.question_token.map(|token| !matches!(token.kind, SyntaxKind::MinusToken));
+            // `readonly` / `+readonly` add, `-readonly` removes. The parser puts
+            // the `+`/`-` in this slot, so a bare `readonly` is the keyword
+            // itself.
+            let readonly =
+                mapped.readonly_token.map(|token| !matches!(token.kind, SyntaxKind::MinusToken));
+            self.mapped_identity_optionality.insert(minted, (optionality, readonly));
+            self.qualified_reference_types.insert(key, minted);
+            self.type_reference_targets.insert(minted, (symbol, arguments));
+            return minted;
         }
         // §46 (`checker-notes-narrow.md`): a generic ALIAS reference whose
         // body is a type literal answers the §41 shape — name+args print,

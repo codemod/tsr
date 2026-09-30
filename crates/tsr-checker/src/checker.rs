@@ -771,6 +771,29 @@ pub struct Checker<'a, 'n> {
     /// `[` before letters — which put an unnamed tuple ahead of named types.
     /// The `type_reference_targets` precedent: record the data where it is
     /// already in hand rather than reshape the type.
+    /// §952: a homomorphic IDENTITY mapped type's optionality modifier, keyed
+    /// by the minted reference type.
+    ///
+    /// `Partial<O>` and `Readonly<O>` both answer O's own member symbols — the
+    /// mapping is `{ [P in keyof T]: T[P] }` and only the MODIFIERS differ — so
+    /// the mint reuses O's members owner rather than synthesising symbols this
+    /// binder has no way to make. What the owner cannot carry is the modifier,
+    /// which is what this table holds: `Some(true)` adds `?` (and therefore
+    /// `| undefined` at every read), `Some(false)` removes it, `None` leaves it
+    /// alone.
+    ///
+    /// Upstream builds fresh property symbols in `resolveMappedTypeMembers`
+    /// (`checker.go`) and sets `CheckFlagsReadonly`/optionality on each. The
+    /// observable difference between that and reusing the source's symbol is the
+    /// property TYPE, which this table supplies at the one seam that reads it —
+    /// [`Checker::get_type_of_property_of_type`].
+    /// `.0` is the optionality modifier, `.1` the `readonly` modifier — each
+    /// `Some(true)` to add, `Some(false)` to remove (`-?` / `-readonly`), `None`
+    /// to leave alone. The readonly half is read by
+    /// [`Checker::is_readonly_assignment_target`]: `Readonly<Bar>`'s `x4.a = 1`
+    /// is upstream's error and its target prints `any` (`mappedTypes6`), which a
+    /// reused member owner cannot know on its own.
+    pub(crate) mapped_identity_optionality: FxHashMap<TypeId, (Option<bool>, Option<bool>)>,
     pub(crate) tuple_element_lists: FxHashMap<TypeId, (Vec<TypeId>, bool)>,
     /// §79: interning for optional-element tuples, keyed on (member,
     /// optional) pairs so `[number, string?]` and `[number, string]` stay
@@ -1112,6 +1135,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             modifier_chain_reported: rustc_hash::FxHashSet::default(),
             decorator_error_reported: rustc_hash::FxHashSet::default(),
             tuple_types: FxHashMap::default(),
+            mapped_identity_optionality: FxHashMap::default(),
             tuple_element_lists: FxHashMap::default(),
             optional_tuple_types: FxHashMap::default(),
             tuple_optional_masks: FxHashMap::default(),

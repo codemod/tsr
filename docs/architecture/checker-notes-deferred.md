@@ -11150,3 +11150,121 @@ deliberately absent from `tuple_element_lists` — and `array_literal_has_a_tupl
 Not fixed here: it needs the element flags §950 sized, and `tuple_rest_tails`
 already records the node for precisely this purpose (§87), so the fix has a
 location. Filed as part of the tuple-representation item rather than guessed at.
+
+## §952 — mapped-type members, which nothing in this port had (+39, safety leg OVERRIDDEN with evidence)
+
+### The finding that started it
+
+§951's adverse rows named "a homomorphic mapped type over a tuple" as the next
+blocker. Probing that turned up something larger and simpler, which no document on
+this page recorded:
+
+```
+declare let p: Partial<{ x: string; y: number }>;   p.x   → error
+declare let r: Readonly<{ x: string }>;             r.x   → error
+declare let q: Required<{ x?: string }>;            q.x   → error
+type Boxify<T> = { [P in keyof T]: { v: T[P] } };   b.x   → error
+declare let k: Pick<{ x: string }, "x">;            k.x   → error
+declare let m: Record<string, number>;              m.foo → number   ← the only one
+```
+
+**Every member of every mapped type gapped.** A mapped type is minted as
+`new_named(OBJECT, text)` — a print-only type with no member owner at all
+(`declared.rs:322`) — so `keyof`, indexed access and property access all answered
+`errorType`. `Record` worked only because §785 special-cased it in the INDEX road.
+
+`index_signatures.rs:140` already said *"mapped-type member resolution is not
+ported"*. It had been true for the whole project and priced nowhere.
+
+### The bar
+
+| leg | assertion |
+|---|---|
+| primary | `Partial<{x: string}>`'s `p.x` is `string \| undefined`; `Readonly`'s is `string`; `Required<{x?: string}>`'s is `string` |
+| safety | zero `RIGHT->WRONG` — **not met; overridden below with per-row evidence** |
+| falsifier | a TRANSFORMING template (`Boxify`) and a key REMAPPING (`as`) keep declining, rather than answering from the source |
+| regression | the printed form does not move — upstream prints `Partial<O>` and so must this |
+
+### Why the members are the source's, and why that is not a shortcut
+
+Upstream's `resolveMappedTypeMembers` (`checker.go`) creates a **fresh property
+symbol per key** and sets optionality and readonly on each. This port's properties
+are binder symbols and the binder has no facility for synthetic ones, so the
+faithful transliteration is blocked on infrastructure that does not exist.
+
+For an **identity** template the names and types are already the source's — the only
+thing upstream adds is the modifiers. So the mint reuses the argument's member
+owner, exactly as §46's type-literal arm reuses the body symbol
+(`new_named(OBJECT, text, Some(source_owner))`), and the modifiers go in a side
+table read at the two seams that need them.
+
+**Restricted to the identity template on purpose**, syntactically: constraint is
+`keyof T` for the alias's own parameter, no `as` clause, template is exactly
+`T[P]`. `Boxify<T> = { [P in keyof T]: Box<T[P]> }` needs the template instantiated
+per key; handing back the source's member type there would answer `string` where
+upstream answers `Box<string>` — a confident wrong answer in place of a missing
+one, the same line §785 draws for a literal-union `Record` key.
+
+### The readonly half was missing, and the corpus said so in two lines
+
+The first measurement was **+35 with 7 `RIGHT->WRONG`**, two of them in
+`mappedTypes6`. `casequery` named the row in one command:
+
+```
+mappedTypes6.ts: >x4.a : number — expected >x4.a : any
+```
+
+`declare let x4: Readonly<Bar>; x4.a = 1;` is upstream's **error**, and an
+assignment target that errors prints `any`. The arm had recorded optionality and
+**ignored `readonly` entirely** — my omission, not a coincidence. §944 had already
+built the readonly-assignment-target road, so the fix was to record the modifier
+and let `is_readonly_assignment_target` consult it. `-readonly` is the mirror:
+`Readwrite<Bar>`'s `x5.b = 1` is legal even though `Bar.b` is declared `readonly`,
+so the modifier **overrides** the source in both directions rather than only adding.
+
+That took 7 `RIGHT->WRONG` to 5 and the gains from 35 to 36.
+
+### The measurement, and the safety leg overridden
+
+**+36 `WRONG->RIGHT`, +8 `GAP->RIGHT`, against 5 `RIGHT->WRONG` and 1
+`GAP->WRONG`.** `right` 443,491 → **443,530** (+39), 44 gains to 6 adverse.
+
+`strictOptionalProperties1` 10, `circularResolvedSignature` 7,
+`requiredMappedTypeModifierTrumpsVariance` 6, `mappedTypeModifiers` 7.
+
+**All 5 `RIGHT->WRONG` are in `typeGuardsWithInstanceOf`, and all 5 were right by
+coincidence.** The evidence, per row rather than asserted:
+
+```
+upstream:  >v : C | (Validator & Partial<OnChanges>)      >v.onChanges : any
+this port: >v : Validator & Partial<OnChanges>            >v.onChanges : ((changes: …) => void) | undefined
+```
+
+Upstream answers `any` because `v` is a **union** with `C` in it, `C` has no
+`onChanges`, and the access is therefore an error. This port's *narrowing* drops the
+`C` constituent — a pre-existing defect this entry does not touch — and until now
+the access failed anyway, because `Partial<OnChanges>` had no members to find. The
+port was producing upstream's answer for the opposite reason.
+
+**§933's precedent is the one being followed**: override the safety leg loudly, with
+the per-row reason, rather than quietly or not at all. *The five rows do not become
+correct again by refusing this entry; they become invisible again.*
+
+*Falsifier for the override, which is what makes it revisitable:* fix the union
+narrowing so `v` keeps its `C` constituent and all five return to `RIGHT`
+**without touching this arm**. If they do not, the override was wrong and this
+entry owes the corpus 5 lines.
+
+### What is still not reached
+
+`keyof Partial<O>` and `Partial<O>["x"]` are still `error`. They go through the
+index-type and indexed-access roads, which read neither the member owner nor this
+table. Both are reachable from here — the owner is now in hand — and neither is
+guessed at in this entry.
+
+Mapped types remain **994 wrong lines across 81 cases**; this entry takes 39 of
+them. The next slices, in the order their evidence supports: `keyof` and indexed
+access over the same identity mint (the owner already exists), then the
+transforming template (needs per-key instantiation), then the tuple and array
+branches of `instantiateMappedType` (the array branch needs no element flags —
+`Boxified<string[]>` is `Box<string>[]` — while the tuple branch needs §950's).

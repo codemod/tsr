@@ -995,6 +995,40 @@ impl Checker<'_, '_> {
                 own
             );
         }
+        // §952: a homomorphic IDENTITY mapped type reads the SOURCE's member
+        // and then applies the mapping's optionality modifier — the one thing
+        // the reused member owner cannot carry. `Partial<O>`'s `x` is
+        // `string | undefined`, `Required<{ x?: string }>`'s is `string`, and
+        // `Readonly<O>`'s is `string` unchanged.
+        //
+        // Upstream sets optionality on a freshly synthesised property symbol in
+        // `resolveMappedTypeMembers` (`checker.go`); see
+        // `Checker::mapped_identity_optionality` for why this port cannot and
+        // what it does instead. The read is here rather than at the mint because
+        // the source's member type is only known per name.
+        if let Some(&(optionality, _)) = self.mapped_identity_optionality.get(&id) {
+            let owner = match &self.store.get(id).data {
+                TypeData::Named { members: Some(owner), .. } => *owner,
+                _ => return None,
+            };
+            let mut visiting = Vec::new();
+            let property = self.get_property_of_declared_symbol(owner, name, &mut visiting)?;
+            let member = self.get_type_of_symbol(property);
+            return Some(match optionality {
+                // `?` / `+?`: the property becomes optional, which a READ sees
+                // as `| undefined`.
+                Some(true) => {
+                    let undefined = self.intrinsics.undefined;
+                    self.get_union_type(&[member, undefined])
+                }
+                // `-?`: optionality is removed, so an `| undefined` the source
+                // carried is stripped. `remove_undefined` is `getTypeWithFacts`'s
+                // job upstream; this port's existing non-nullable road is the
+                // same question, and a member with no `undefined` is unchanged.
+                Some(false) => self.get_non_nullable_type(member),
+                None => member,
+            });
+        }
         // §49 (`checker-notes-narrow.md`): a UNION projects across its
         // constituents — every one must carry the name, and the answer is
         // the union of the member types.

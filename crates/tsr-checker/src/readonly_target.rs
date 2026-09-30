@@ -285,6 +285,20 @@ impl Checker<'_, '_> {
         {
             return false;
         }
+        // §952: a homomorphic `readonly` mapping makes EVERY member read-only,
+        // and the reused member owner cannot say so — the modifier lives beside
+        // the mint. `Readonly<Bar>`'s `x4.a = 1` is upstream's error and the
+        // target prints `any` (`mappedTypes6`); without this the members arm
+        // answered `number` there and cost 2 `RIGHT->WRONG`.
+        //
+        // `-readonly` is the mirror: `Readwrite<Bar>`'s `x5.b = 1` is legal even
+        // though `Bar.b` is declared `readonly`, so the modifier OVERRIDES the
+        // source's own answer in both directions rather than only adding to it.
+        if let Some(&(_, readonly)) = self.mapped_identity_optionality.get(&receiver_type)
+            && let Some(readonly) = readonly
+        {
+            return readonly && self.get_property_of_type(receiver_type, &name).is_some();
+        }
         let Some(property) = self.get_property_of_type(receiver_type, &name) else { return false };
         if !self.is_readonly_symbol(property) && !self.property_signature_is_readonly(property) {
             return false;
