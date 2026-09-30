@@ -11795,3 +11795,87 @@ own reduction and needs the flags to express.
 should now read **~1,240**, and the pattern of the last two entries — *the print gate
 was misplaced, the behaviour was not* — is the thing to check next rather than a
 reason to expect more of it.
+
+## §958 — the all-rests array reduction: built, +13 net against 10 `RIGHT->WRONG`, refused
+
+§957 named `variadicTuples2`'s `[...string[], ...number[]]` as the next tuple item
+and said it needed element flags. **It does not** — it is a reduction — and the
+reduction is correct. It is refused for a different reason, which is the useful part.
+
+### The rule, and it is bigger than §957 estimated
+
+A tuple made only of rests over array-likes **is** an array of the union of their
+element types — upstream's `createNormalizedTupleType`, since two unbounded rests
+cannot be expressed positionally:
+
+```
+[...boolean[]]                    boolean[]             11 rows, genericRestParameters2
+[...string[], ...Array<number>]   (string | number)[]   variadicTuples2 V16-V18
+[...any]                          any[]                 variadicTuples1
+```
+
+Built, and it composes with §956's naming rule exactly as it should — the ALIAS road
+is untouched, so `type T03 = [...string[]]` still prints `T03` while
+`V16 = [...string[], ...Array<number>]` prints `(string | number)[]`, and those two
+differ only in §956's reference test.
+
+**One correction it forced on §956:** that entry's naming test read
+`!variadic_tuple_nodes.contains_key(&structural)` — *"the body did not stay a
+print-only spelling"* — which was a correct proxy while a rest-bearing body had only
+two outcomes, a spelling or a spliced tuple. The reduction adds a THIRD, and the old
+test sent `T03` and `V15` to the structure where upstream names both. The question
+was always *"did normalisation produce a positional TUPLE this name would hide"*, so
+asking `tuple_element_lists.contains_key(&structural)` directly is both correct and
+what §956 should have written.
+
+### Why it is refused
+
+**+9 `GAP->RIGHT`, +14 `WRONG->RIGHT`, against 10 `RIGHT->WRONG`.** `right` 443,743 →
+443,756, net +13. All 30 transitions are in `genericRestParameters2`.
+
+The 10 losses are **one row at ten reference sites**:
+
+```
+declare let f12: (a: number, b: string, ...x: [...boolean[]]) => void;
+oracle:  >f12 : (a: number, b: string, ...x: [...boolean[]]) => void
+with §958: >f12 : (a: number, b: string, ...x: boolean[]) => void
+```
+
+and they were right **for the right reason**, which is what disqualifies this. No
+right-by-coincidence override is available, so §620 stands.
+
+### The finding: this port has no seam between a tuple's TYPE and its SPELLING
+
+Upstream holds both answers at once — the type is `boolean[]`, and the node builder
+reuses the written node at an annotation, so `genericRestParameters2` prints
+`...x: [...boolean[]]` for f12 and `...x: boolean[]` for f11 (whose rest has a FIXED
+element and expands positionally).
+
+**In this port the print-only mint IS the carrier of both.** Its text is the written
+spelling and its identity is the type; reducing it to `Array<boolean>` necessarily
+takes the spelling with it.
+
+*Two fixes were attempted and neither moved the score by a single line, because both
+aimed at the wrong mechanism.* Registering the text in `qualified_written_text` at
+the reduction site did nothing — and then adding a direct all-rests arm to
+`written_annotation_text` did nothing either. The reason is that a parameter's
+`written_text` is `None` on this road: `parameter_of` never populates it from an
+annotation, and the spelling was reaching the printer through `render()` of the
+mint's own text all along. **I diagnosed "the written-text channel is not firing"
+twice when the truth was that the channel was never involved.**
+
+### Reopening condition, which is a real piece of work rather than a tweak
+
+Give a tuple type a spelling **separate from its identity** — either a
+`written_spelling: FxHashMap<TypeId, String>` consulted by the printer, or
+`parameter_of` populating `written_text` from the annotation for tuple nodes. Then
+the reduction can land: the type becomes the array, the annotation keeps its
+spelling, and the 20 wins in `genericRestParameters2` come with no losses.
+
+**That is the same shape as §947.2's lesson** — *resolve the type, but do not move
+what the reference prints* — and the third time this session it has decided an entry
+(§947.2, §953, here). The difference is that §953 had `written_annotation_text` to
+hang the spelling on and this road does not.
+
+*Kept in full here because the rule, the §956 correction, and the two failed fixes
+are each worth more than the 13 lines.*
