@@ -2761,6 +2761,52 @@ impl<'a> Checker<'a, '_> {
             // itself.
             let readonly =
                 mapped.readonly_token.map(|token| !matches!(token.kind, SyntaxKind::MinusToken));
+            // §955: an ARRAY source maps ELEMENTWISE — upstream's
+            // `instantiateMappedType` branches on `isArrayType(t)` before it ever
+            // resolves members, and `instantiateMappedArrayType` rebuilds an array
+            // over the mapped element. `Partial<string[]>` is
+            // `(string | undefined)[]` and `Readonly<number[]>` is
+            // `readonly number[]` (`mappedTypesArraysTuples.types:23,29`), never a
+            // named reference with the array's own members.
+            //
+            // **This arm also repairs a wrong answer §952 introduced.** §952 tested
+            // only for a members OWNER, and an array reference has one — `Array`'s
+            // — so `Partial<string[]>` took the identity road and answered
+            // `p.length : number | undefined`, where upstream's `length` on
+            // `(string | undefined)[]` is plainly `number`. That is a confident
+            // wrong answer in place of a missing one, and §952's own falsifier
+            // section is where the line was drawn; it went unnoticed because the
+            // entry measured +39 overall. Recorded rather than quietly fixed.
+            //
+            // The TUPLE branch is NOT here: it needs per-element flags, which
+            // `tuple_element_lists` does not carry (§4.-8 / §950).
+            if let Some((source_target, source_arguments)) =
+                    self.type_reference_targets.get(&arguments[0]).cloned()
+                && let [element] = source_arguments.as_slice()
+                && let source_readonly = ["Array", "ReadonlyArray"].iter().position(|global| {
+                    self.global_type_symbol(global).map(|s| self.binder.merged_symbol(s))
+                        == Some(self.binder.merged_symbol(source_target))
+                })
+                && let Some(source_readonly) = source_readonly
+            {
+                let mapped_element = match optionality {
+                    Some(true) => {
+                        let undefined = self.intrinsics.undefined;
+                        self.get_union_type(&[*element, undefined])
+                    }
+                    Some(false) => self.get_non_nullable_type(*element),
+                    None => *element,
+                };
+                // `readonly`/`+readonly` picks `ReadonlyArray`, `-readonly` picks
+                // `Array`, and an absent modifier keeps whichever the source was.
+                let target_name = match readonly {
+                    Some(true) => "ReadonlyArray",
+                    Some(false) => "Array",
+                    None => ["Array", "ReadonlyArray"][source_readonly],
+                };
+                let Some(target) = self.global_type_symbol(target_name) else { return error };
+                return self.create_type_reference(target, vec![mapped_element]);
+            }
             self.mapped_identity_optionality.insert(minted, (optionality, readonly));
             self.qualified_reference_types.insert(key, minted);
             self.type_reference_targets.insert(minted, (symbol, arguments));

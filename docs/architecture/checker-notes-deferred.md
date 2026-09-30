@@ -11513,3 +11513,97 @@ the best-evidenced next step in this family.
 *Three entries (§952, §953, §954) were justified by one ranking, and the ranking's
 own second item turned out to be worth two lines. The board is only as good as the
 last thing that tested it.*
+
+## §955 — the mapped ARRAY branch, and a wrong answer §952 introduced (+24, zero adverse)
+
+§954's re-ranking left `instantiateMappedType`'s array branch as the only
+member-side item in the mapped family with evidence behind it. It is also, it turns
+out, the repair for something §952 broke.
+
+### The latent defect, found by reading §952's own guard
+
+§952 admitted any argument with a **members owner**. An array reference has one —
+`Array`'s — so `Partial<string[]>` took the identity road:
+
+```
+                        this port (§952)              upstream
+Partial<string[]>       Partial<string[]>             (string | undefined)[]
+  .length               number | undefined            number
+Readonly<number[]>      Readonly<number[]>            readonly number[]
+```
+
+**`p.length : number | undefined` is a confident wrong answer in place of a missing
+one** — precisely the line §952's own falsifier section draws — and it went
+unnoticed because §952 measured +39 overall. Nothing in the corpus transitions
+pointed at it; it was found by asking what `members_owner_of` would accept.
+
+*§952 checked that the source HAD members. It never asked whether members were the
+right question for that source.*
+
+### The port
+
+Upstream branches on `isArrayType(t)` **before** resolving any members
+(`instantiateMappedType` → `instantiateMappedArrayType`) and rebuilds an array over
+the mapped element. So: read the source's single type argument, apply the
+optionality modifier to the ELEMENT, and pick the target by the readonly modifier —
+`readonly`/`+readonly` gives `ReadonlyArray`, `-readonly` gives `Array`, absent
+keeps whichever the source was.
+
+Oracle rows: `mappedTypesArraysTuples.types:23` and `:29`.
+
+**The TUPLE branch is deliberately not here.** It needs per-element flags, which
+`tuple_element_lists` does not carry (§950, §4.-8), and the decline is pinned so the
+absence is a recorded choice.
+
+### The measurement
+
+**+24 `WRONG->RIGHT`, ZERO adverse.** `right` 443,580 → **443,604**.
+`mappedTypesArraysTuples` 12, `localesObjectArgument` 10,
+`readonlyTupleAndArrayElaboration` 2.
+
+`localesObjectArgument` 10 was not predicted by the 55-line estimate §950 made for
+this branch and is the better half of the result: a lib-driven shape
+(`Partial<string[]>`-alikes through `toLocaleString`) rather than a mapped-types
+test case.
+
+### The tests are the corpus's, and that is stated rather than skipped
+
+**Every leg needs the global `Array`/`ReadonlyArray` and the lib
+`Partial`/`Readonly`/`Required`, and `tests/conditional_alias_members.rs` loads no
+libs** — `Partial<string[]>` is simply `error` there. The unit assertions were
+written, failed for that reason, and were replaced by a note in the test file naming
+the corpus numbers and the two oracle rows, with `probefile` as the hand check.
+**Third time this session a fixture could not express its own subject** (§951's
+array-rest leg, §953's numeric-index leg, this one); all three are lib-dependent,
+which is now a predictable enough pattern to check first.
+
+### Where this leaves the mapped family, and what the fresh board says
+
+Mapped types: **~944 → ~920** wrong lines, and §954's re-ranking stands — the
+remainder is inference and relations THROUGH a mapping, a different subsystem.
+
+A fresh `wrongflip`/`wrongdelta` pair at `c4704474` re-confirms the shape §950
+measured, which is worth stating because §954 showed a stale ranking is worse than
+none:
+
+```
+ROOT 3,548 (14.20% of 24,988 wrong)      — unchanged from §950's 14.15%
+we answered `any`, upstream did not      13,916 (55.69%)
+top ROOT row: ExpressionStatement > Identifier, 251 lines / 20 case-flips
+```
+
+And the per-case ranking names the next item unambiguously:
+
+| case | wrong lines |
+|---|---:|
+| `variadicTuples1` | 263 |
+| `strictBindCallApply1` | 204 |
+| `genericFunctionInference1` | 200 |
+| `temporal` | 152 |
+| `genericRestParameters1` | 139 |
+| `parsingDeepParenthensizedExpression` | 137 |
+| `genericDefaults` | 135 |
+
+**Five of the top twelve are the tuple/variadic family — 866 lines between them** —
+which is §950's 1,380-line item, still blocked on the same representation change and
+still the largest single thing on the board.

@@ -460,3 +460,18 @@ fn keyof_a_homomorphic_identity_mapped_type_is_the_sources_keys() {
         "\"x\" | \"y\""
     );
 }
+
+// §955 (the mapped ARRAY branch) is **not expressible in this harness and is
+// asserted by the corpus instead**: every leg needs the global `Array` /
+// `ReadonlyArray` and the lib `Partial` / `Readonly` / `Required`, and these
+// fixtures load no libs — `Partial<string[]>` is simply `error` here.
+//
+// The assertion is `scorepair`'s **+24 `WRONG->RIGHT`, zero adverse**
+// (`mappedTypesArraysTuples` 12, `localesObjectArgument` 10,
+// `readonlyTupleAndArrayElaboration` 2), with the oracle rows at
+// `mappedTypesArraysTuples.types:23` (`Partial<string[]>` is
+// `(string | undefined)[]`) and `:29` (`Readonly<number[]>` is
+// `readonly number[]`). Use `examples/probefile` to re-check by hand.
+//
+// Recorded here rather than left as a silently missing test, and it is the same
+// limit §951's regression leg ran into.
