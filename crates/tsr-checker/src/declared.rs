@@ -326,6 +326,21 @@ impl<'a> Checker<'a, '_> {
             // an unevaluable conditional ALIAS in an alias-declared position is
             // a decision about the alias, not about this node.
             TypeNode::MappedTypeNode(_) | TypeNode::ConditionalTypeNode(_) => {
+                // Immediately nested conditionals continue under the current
+                // mapper instead of minting their uninstantiated written form.
+                if let TypeNode::ConditionalTypeNode(conditional) = node
+                    && !self.alias_evaluation_bindings.is_empty()
+                {
+                    if self.instantiation_depth == 100 {
+                        return self.intrinsics.error;
+                    }
+                    self.instantiation_depth += 1;
+                    let evaluated = self.evaluate_conditional_node(conditional, None);
+                    self.instantiation_depth -= 1;
+                    if let Some(evaluated) = evaluated {
+                        return evaluated;
+                    }
+                }
                 // §909: a mapped or conditional type that is the body of a
                 // NON-GENERIC type alias prints the ALIAS NAME, not the body.
                 // `type T12 = { readonly [P in keyof Item]: Item[P] }` records
@@ -3100,7 +3115,11 @@ impl<'a> Checker<'a, '_> {
             // §92.1: §91's evaluator now answers the computable slice of
             // this decline (extends-never conditionals over concrete
             // arguments); everything it refuses keeps the honest gap.
-            if let Some(evaluated) = self.evaluate_conditional_alias(symbol, &arguments) {
+            if let Some(evaluated) = self.evaluate_conditional_alias(
+                symbol,
+                &arguments,
+                node.node_id.and_then(|id| self.alias_symbol_for_type_node(id)),
+            ) {
                 return evaluated;
             }
             // Upstream evaluates conditional aliases in alias-declared
@@ -3927,7 +3946,7 @@ impl<'a> Checker<'a, '_> {
         if !matches!(alias.r#type, Some(TypeNode::ConditionalTypeNode(_))) {
             return None;
         }
-        let evaluated = self.evaluate_conditional_alias(symbol, arguments)?;
+        let evaluated = self.evaluate_conditional_alias(symbol, arguments, None)?;
         match &self.store.get(evaluated).data {
             crate::types::TypeData::Named { members: Some(members), .. } => Some(*members),
             _ => None,
@@ -4785,13 +4804,14 @@ impl<'a> Checker<'a, '_> {
     /// the caller falls back to the named reference, so a refusal here costs
     /// a name print, never a wrong line.
     ///
-    /// Only the `extends never` form is admitted; the check must evaluate to
-    /// a literal-key union (empty → true branch, upstream's
-    /// `getConditionalTypeInstantiation` resolution for a concrete check).
+    /// Evaluate decidable checks, inferred parameters and distributed unions
+    /// under the alias mapper. Deferred checks retain the caller's fallback.
+    /// `result_alias` supplies mapTypeWithAlias's enclosing declaration name.
     pub(crate) fn evaluate_conditional_alias(
         &mut self,
         symbol: SymbolId,
         arguments: &[TypeId],
+        result_alias: Option<SymbolId>,
     ) -> Option<TypeId> {
         if !self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_ALIAS) {
             return None;
@@ -4801,14 +4821,6 @@ impl<'a> Checker<'a, '_> {
             return None;
         };
         let Some(TypeNode::ConditionalTypeNode(conditional)) = alias.r#type else { return None };
-        // §182 slice 1 (`checker-notes-narrow.md`): the `extends never`
-        // shape was the only one evaluated; `getConditionalType`'s
-        // non-deferred fast path evaluates ANY conditional whose CHECK type
-        // is decidable, choosing a branch by assignability. The general
-        // road is taken below; this shape keeps its own `literal_key_texts`
-        // reading because keyof-emptiness is not an assignability question.
-        let extends_is_never = matches!(conditional.extends_type,
-            Some(TypeNode::KeywordTypeNode(keyword)) if keyword.kind == SyntaxKind::NeverKeyword);
         let parameters = self.local_type_parameters_of(symbol);
         if parameters.len() != arguments.len() {
             return None;
@@ -4825,6 +4837,29 @@ impl<'a> Checker<'a, '_> {
         }
         self.instantiation_depth += 1;
         self.alias_evaluation_bindings.push(frame);
+        let result = self.evaluate_conditional_node(conditional, result_alias);
+        self.alias_evaluation_bindings.pop();
+        self.instantiation_depth -= 1;
+        if let Some(evaluated) = result {
+            self.alias_evaluated_types.insert(evaluated);
+        }
+        result
+    }
+
+    /// getConditionalType's branch walk under an active alias/infer mapper.
+    fn evaluate_conditional_node(
+        &mut self,
+        conditional: &tsr_ast::ConditionalTypeNode<'a>,
+        result_alias: Option<SymbolId>,
+    ) -> Option<TypeId> {
+        // §182 slice 1 (`checker-notes-narrow.md`): the `extends never`
+        // shape was the only one evaluated; `getConditionalType`'s
+        // non-deferred fast path evaluates ANY conditional whose CHECK type
+        // is decidable, choosing a branch by assignability. The general
+        // road is taken below; this shape keeps its own `literal_key_texts`
+        // reading because keyof-emptiness is not an assignability question.
+        let extends_is_never = matches!(conditional.extends_type,
+            Some(TypeNode::KeywordTypeNode(keyword)) if keyword.kind == SyntaxKind::NeverKeyword);
         let error = self.intrinsics.error;
         let mut result = None;
         let has_infer_parameters =
@@ -4835,6 +4870,43 @@ impl<'a> Checker<'a, '_> {
             });
         if let Some(check_node) = conditional.check_type {
             let check = self.get_type_from_type_node(check_node);
+            // getConditionalTypeInstantiation distributes a naked parameter's
+            // substituted union, retaining that constituent in the outer mapper
+            // for both the extends test and the chosen branch.
+            if let Some(parameter) = self.distributive_conditional_parameter(check_node) {
+                if check == self.intrinsics.never {
+                    return Some(check);
+                }
+                if let crate::types::TypeData::Union { types, .. } = &self.store.get(check).data {
+                    let types = types.clone();
+                    if self.instantiation_depth == 100 {
+                        return None;
+                    }
+                    let mut results = Vec::with_capacity(types.len());
+                    for constituent in types {
+                        let mut frame = rustc_hash::FxHashMap::default();
+                        frame.insert(parameter, constituent);
+                        self.alias_evaluation_bindings.push(frame);
+                        self.instantiation_depth += 1;
+                        let result = self.evaluate_conditional_node(conditional, None);
+                        self.instantiation_depth -= 1;
+                        self.alias_evaluation_bindings.pop();
+                        results.push(result?);
+                    }
+                    let result = self.get_union_type(&results);
+                    // mapTypeWithAlias/getUnionTypeEx attaches the enclosing
+                    // alias after reduction, and collapses a single constituent
+                    // before considering the alias.
+                    if let Some(alias) = result_alias
+                        && let crate::types::TypeData::Union { types, .. } =
+                            &self.store.get(result).data
+                    {
+                        let types = types.clone();
+                        return Some(self.get_named_union_type(&types, TypeFlags::empty(), alias));
+                    }
+                    return Some(result);
+                }
+            }
             if check != error {
                 result = self.evaluate_conditional_inference(conditional, check);
             }
@@ -4977,12 +5049,25 @@ impl<'a> Checker<'a, '_> {
                 }
             }
         }
-        self.alias_evaluation_bindings.pop();
-        self.instantiation_depth -= 1;
-        if let Some(evaluated) = result {
-            self.alias_evaluated_types.insert(evaluated);
-        }
         result
+    }
+
+    fn distributive_conditional_parameter(&self, mut node: TypeNode<'a>) -> Option<SymbolId> {
+        while let TypeNode::ParenthesizedTypeNode(parenthesized) = node {
+            node = parenthesized.r#type?;
+        }
+        let TypeNode::TypeReferenceNode(reference) = node else { return None };
+        if !reference.type_arguments.is_empty() {
+            return None;
+        }
+        let Some(tsr_ast::EntityName::Identifier(name)) = reference.type_name else { return None };
+        self.binder.resolve_name(
+            self.nodes,
+            self.node_map,
+            name.node_id?,
+            name.text,
+            SymbolFlags::TYPE_PARAMETER,
+        )
     }
 
     /// getConditionalType's inference context for a concrete check. Generic,
@@ -5016,9 +5101,27 @@ impl<'a> Checker<'a, '_> {
         }
         let parameters: Vec<_> =
             symbols.iter().map(|&symbol| self.get_declared_type_of_symbol(symbol)).collect();
-        // Constrained inference requires the conditional context's constraint
-        // mapper, including dependent infer constraints, before relation.
-        if parameters.iter().any(|&parameter| self.type_parameter_constraint(parameter).is_some()) {
+        let constraints: Vec<_> = parameters
+            .iter()
+            .map(|&parameter| {
+                self.type_parameter_constraint(parameter).map(|constraint| {
+                    // getConstraintFromTypeParameter treats an explicit any
+                    // constraint as unknown for an ordinary infer parameter.
+                    if self.store.get(constraint).flags.contains(TypeFlags::ANY) {
+                        self.intrinsics.unknown
+                    } else {
+                        constraint
+                    }
+                })
+            })
+            .collect();
+        // Dependent infer constraints still need the non-fixing mapper to
+        // resolve other inferred parameters; outer alias bindings are active.
+        if constraints
+            .iter()
+            .flatten()
+            .any(|&constraint| self.mentions_any_type_parameter(constraint, 2))
+        {
             return None;
         }
         let target = self.get_type_from_type_node(conditional.extends_type?);
@@ -5038,7 +5141,25 @@ impl<'a> Checker<'a, '_> {
         {
             return None;
         }
-        let map = self.infer_conditional_parameters(check, target, &parameters);
+        let inferences = self.infer_conditional_parameters(check, target, &parameters);
+        let map: Vec<_> = inferences
+            .into_iter()
+            .zip(constraints)
+            .map(|((parameter, inferred), constraint)| {
+                let inferred = match (inferred, constraint) {
+                    (Some(inferred), Some(constraint))
+                        if self.relate_ternary(inferred, constraint, Relation::Assignable)
+                            == Ternary::NotRelated =>
+                    {
+                        constraint
+                    }
+                    (Some(inferred), _) => inferred,
+                    (None, Some(constraint)) => constraint,
+                    (None, None) => self.intrinsics.unknown,
+                };
+                (parameter, inferred)
+            })
+            .collect();
         let names: Vec<_> =
             symbols.iter().map(|&symbol| self.binder.symbols().get(symbol).name).collect();
         let target = self.instantiate_type(target, &map, &parameters, &names);
@@ -5072,7 +5193,7 @@ impl<'a> Checker<'a, '_> {
         if let Some(&cached) = self.alias_body_evaluations.get(&key) {
             return (cached != self.intrinsics.error).then_some(cached);
         }
-        if let Some(evaluated) = self.evaluate_conditional_alias(symbol, arguments) {
+        if let Some(evaluated) = self.evaluate_conditional_alias(symbol, arguments, None) {
             self.alias_body_evaluations.insert(key, evaluated);
             self.alias_evaluated_types.insert(evaluated);
             return Some(evaluated);

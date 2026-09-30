@@ -875,11 +875,16 @@ impl Checker<'_, '_> {
             return None;
         }
         let symbol = *self.type_parameter_symbols.get(&id)?;
-        let declaration = self.binder.symbols().get(symbol).declarations.first().copied()?;
-        let Some(Node::TypeParameterDeclaration(parameter)) = self.node_map.get(declaration) else {
-            return None;
-        };
-        let constraint = self.get_type_from_type_node(parameter.constraint?);
+        // getConstraintDeclaration searches all merged declarations; an infer
+        // parameter can have its constraint on a later occurrence.
+        let constraint_node =
+            self.binder.symbols().get(symbol).declarations.iter().find_map(|&declaration| {
+                match self.node_map.get(declaration) {
+                    Some(Node::TypeParameterDeclaration(parameter)) => parameter.constraint,
+                    _ => None,
+                }
+            })?;
+        let constraint = self.get_type_from_type_node(constraint_node);
         // A constraint that itself gaps leaves the parameter as it was: a gap
         // beats reading members off `errorType`.
         (constraint != self.intrinsics.error).then_some(constraint)

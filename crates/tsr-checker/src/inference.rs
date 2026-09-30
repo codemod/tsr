@@ -90,7 +90,7 @@ impl Checker<'_, '_> {
         source: TypeId,
         target: TypeId,
         parameters: &[TypeId],
-    ) -> Vec<(TypeId, TypeId)> {
+    ) -> Vec<(TypeId, Option<TypeId>)> {
         let mut infos = Vec::new();
         self.infer_from_types_with_priority(
             source,
@@ -106,14 +106,14 @@ impl Checker<'_, '_> {
                 let inferred =
                     if let Some(info) = infos.iter().find(|i| i.type_parameter == parameter) {
                         if !info.candidates.is_empty() {
-                            self.get_union_type(&info.candidates)
+                            Some(self.get_union_type(&info.candidates))
                         } else if !info.contra_candidates.is_empty() {
-                            self.get_intersection_type(&info.contra_candidates, None)
+                            Some(self.get_intersection_type(&info.contra_candidates, None))
                         } else {
-                            self.intrinsics.unknown
+                            None
                         }
                     } else {
-                        self.intrinsics.unknown
+                        None
                     };
                 (parameter, inferred)
             })
@@ -3411,7 +3411,7 @@ impl Checker<'_, '_> {
             // resolved branch does not carry the alias
             // (`getConditionalTypeInstantiation`; chain1/chain3 pin the
             // plain/conditional split). Any refusal falls back to the name.
-            if let Some(evaluated) = self.evaluate_conditional_alias(symbol, &substituted) {
+            if let Some(evaluated) = self.evaluate_conditional_alias(symbol, &substituted, None) {
                 return evaluated;
             }
             // §463: the GLOBAL `Awaited<T>` alias at a CONCRETE argument IS

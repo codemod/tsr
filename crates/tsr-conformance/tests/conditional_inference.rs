@@ -88,3 +88,82 @@ export function result() { return { empty, populated }; }
         assert!(lines.iter().any(|line| line == wanted), "missing {wanted}: {lines:?}");
     }
 }
+
+#[test]
+fn infer_constraints_filter_candidates_and_nested_conditionals_continue_with_the_mapper() {
+    let source = r#"// @strict: true
+// @target: es2015
+type Classify<T> = T extends [infer U extends string] ? ["string", U] : T extends [infer U extends number] ? ["number", U] : never;
+type Merge<T> = T extends { a: infer U, b: infer U extends string } ? U : never;
+type Outer<T, C> = T extends [infer U extends C] ? U : never;
+type S = Classify<["a"]>;
+type N = Classify<[1]>;
+type F = Classify<[object]>;
+type M = Merge<{ a: "a", b: "b" }>;
+type MF = Merge<{ a: "a", b: 1 }>;
+type O = Outer<["a"], string>;
+type OF = Outer<[1], string>;
+declare const stringResult: S;
+declare const numberResult: N;
+declare const failed: F;
+declare const merged: M;
+declare const mergeFailed: MF;
+declare const outer: O;
+declare const outerFailed: OF;
+export function result() { return { stringResult, numberResult, failed, merged, mergeFailed, outer, outerFailed }; }
+"#;
+    let case = TestCase::parse("probe/infer-constraints", "infer-constraints.ts", source);
+    let expected: Vec<_> = case
+        .files
+        .iter()
+        .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
+        .collect();
+    let assertions = types_producer::assertions_for_case(&case, &expected, false);
+    let lines: Vec<_> = assertions.iter().flatten().map(types_producer::Assertion::line).collect();
+    for wanted in [
+        "S : [\"string\", \"a\"]",
+        "N : [\"number\", 1]",
+        "F : never",
+        "M : \"a\" | \"b\"",
+        "MF : never",
+        "O : \"a\"",
+        "OF : never",
+    ] {
+        assert!(lines.iter().any(|line| line == wanted), "missing {wanted}: {lines:?}");
+    }
+}
+
+#[test]
+fn conditional_distribution_maps_each_union_constituent_and_preserves_tuple_wrapping() {
+    let source = r#"// @strict: true
+// @target: es2015
+type Filter<T> = T extends string ? T : never;
+type NonDistributive<T> = [T] extends [string] ? T : never;
+type Element<T> = T extends readonly (infer U)[] ? U : never;
+type F = Filter<"a" | 1 | "b">;
+type N = NonDistributive<"a" | 1>;
+type E = Element<readonly "a"[] | readonly 1[]>;
+type Z = Filter<never>;
+type S = Filter<"a" | 1>;
+type SE = Filter<E>;
+declare const filtered: F;
+declare const boxed: N;
+declare const element: E;
+declare const absent: Z;
+declare const single: S;
+declare const stringElement: SE;
+export function result() { return { filtered, boxed, element, absent, single, stringElement }; }
+"#;
+    let case =
+        TestCase::parse("probe/conditional-distribution", "conditional-distribution.ts", source);
+    let expected: Vec<_> = case
+        .files
+        .iter()
+        .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
+        .collect();
+    let assertions = types_producer::assertions_for_case(&case, &expected, false);
+    let lines: Vec<_> = assertions.iter().flatten().map(types_producer::Assertion::line).collect();
+    for wanted in ["F : F", "N : never", "E : E", "Z : never", "S : \"a\"", "SE : \"a\""] {
+        assert!(lines.iter().any(|line| line == wanted), "missing {wanted}: {lines:?}");
+    }
+}
