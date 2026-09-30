@@ -682,11 +682,19 @@ impl Checker<'_, '_> {
         if receiver_type == self.intrinsics.any {
             return self.intrinsics.any;
         }
-        // §33: `globalThis.x` reads the merged globals table.
+        // resolveAnonymousTypeMembers exposes only runtime global properties;
+        // block-scoped bindings are lexical globals, not globalThis members.
+        // A missing global property recovers with any in checkPropertyAccess.
         if Some(receiver_type) == self.global_this_type {
             return match self.binder.global(name) {
-                Some(symbol) => self.get_type_of_symbol(symbol),
-                None => error,
+                Some(symbol)
+                    if !self.binder.symbols().get(symbol).flags.intersects(
+                        SymbolFlags::BLOCK_SCOPED_VARIABLE | SymbolFlags::CLASS | SymbolFlags::ENUM,
+                    ) && self.symbol_is_value(symbol) =>
+                {
+                    self.get_type_of_symbol(symbol)
+                }
+                _ => self.intrinsics.any,
             };
         }
         // §45 (`checker-notes-narrow.md`): the global `Record<K, V>` answers

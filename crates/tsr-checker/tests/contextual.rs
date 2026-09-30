@@ -803,18 +803,16 @@ fn an_object_literal_method_adopts_the_contextual_this_parameter() {
 /// the answer it had. Without this the test above would pass equally well if the
 /// new branch simply returned the containing literal's type for every method.
 ///
-/// **`error`, not `any`, and that is this harness and not the checker.** Run
-/// through the corpus pipeline (`probefile`) the same source answers `this : any`
-/// and `redwood : any`; this harness binds one lib-free file with no compiler
-/// options, and the `this` road reaches a different fallthrough there. Either
-/// way the assertion holds what the pair is for: **the §928 branch did not
-/// fire**. Asserting `any` here would be asserting the corpus's answer against a
-/// harness that does not produce it.
+/// Corrected during the class-this continuation: this lib-free harness reaches
+/// globalThis for the method's unbound this. checkPropertyAccess recovers with
+/// any for a missing global property, just as the corpus already did. The pair
+/// still contrasts the inherited structural parameter above with an unbound
+/// receiver here.
 #[test]
 fn a_method_with_no_contextual_this_parameter_is_unchanged() {
     let source = "interface J { hemlock: number; em(): number; }\n\
                   let impl: J = { hemlock: 12, em() { let redwood = this.hemlock; return redwood; } };";
-    assert_eq!(type_of(source, "redwood"), "error");
+    assert_eq!(type_of(source, "redwood"), "any");
 }
 
 // §928.1's printing half has **no seam this harness can reach**, and the two

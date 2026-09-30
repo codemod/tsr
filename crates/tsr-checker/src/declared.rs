@@ -413,23 +413,7 @@ impl<'a> Checker<'a, '_> {
             }
             // §28 (`checker-notes-callres.md`): `this` in type position is
             // the enclosing class/interface declaration's one `this` type.
-            TypeNode::ThisTypeNode(node) => {
-                let Some(id) = node.node_id else { return self.intrinsics.error };
-                let mut current = self.nodes.parent(id);
-                while let Some(parent) = current {
-                    if matches!(self.nodes.kind(parent), SyntaxKind::InterfaceDeclaration) {
-                        if let Some(&existing) = self.this_type_nodes.get(&parent) {
-                            return existing;
-                        }
-                        let minted =
-                            self.store.new_named(TypeFlags::OBJECT, "this".to_string(), None);
-                        self.this_type_nodes.insert(parent, minted);
-                        return minted;
-                    }
-                    current = self.nodes.parent(parent);
-                }
-                self.intrinsics.error
-            }
+            TypeNode::ThisTypeNode(node) => self.get_type_from_this_type_node(node),
             // §35 (`checker-notes-callres.md`): DEFERRED `keyof` over a type
             // parameter prints as written — the §34 mint, the §31
             // registration. Concrete operands resolve upstream and decline.
@@ -2557,6 +2541,114 @@ impl<'a> Checker<'a, '_> {
     ) -> Option<SymbolId> {
         let symbol = *self.binder.globals().get(name)?;
         (self.local_type_parameters_of(symbol).len() == arity).then_some(symbol)
+    }
+
+    /// getThisType and getThisContainer (checker.go:22908, ast/utilities.go:1790).
+    /// Arrows are transparent; other function and member containers stop the
+    /// walk. A class annotation shares the identity used by this expressions.
+    fn get_type_from_this_type_node(&mut self, node: &tsr_ast::ThisTypeNode<'a>) -> TypeId {
+        let error = self.intrinsics.error;
+        let Some(original) = node.node_id else { return error };
+        let mut current = self.nodes.parent(original);
+        while let Some(container) = current {
+            let kind = self.nodes.kind(container);
+            if kind == SyntaxKind::ComputedPropertyName {
+                current = self
+                    .nodes
+                    .parent(container)
+                    .and_then(|member| self.nodes.parent(member))
+                    .and_then(|owner| self.nodes.parent(owner));
+                continue;
+            }
+            if kind == SyntaxKind::Decorator {
+                let Some(parent) = self.nodes.parent(container) else { return error };
+                let member = if self.nodes.kind(parent) == SyntaxKind::Parameter {
+                    self.nodes.parent(parent).unwrap_or(parent)
+                } else {
+                    parent
+                };
+                if self.nodes.parent(member).is_some_and(|owner| {
+                    matches!(
+                        self.nodes.kind(owner),
+                        SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression
+                    )
+                }) {
+                    current = self.nodes.parent(member).and_then(|owner| self.nodes.parent(owner));
+                    continue;
+                }
+            }
+            if matches!(
+                kind,
+                SyntaxKind::FunctionDeclaration
+                    | SyntaxKind::FunctionExpression
+                    | SyntaxKind::ModuleDeclaration
+                    | SyntaxKind::ClassStaticBlockDeclaration
+                    | SyntaxKind::PropertyDeclaration
+                    | SyntaxKind::PropertySignature
+                    | SyntaxKind::MethodDeclaration
+                    | SyntaxKind::MethodSignature
+                    | SyntaxKind::Constructor
+                    | SyntaxKind::GetAccessor
+                    | SyntaxKind::SetAccessor
+                    | SyntaxKind::CallSignature
+                    | SyntaxKind::ConstructSignature
+                    | SyntaxKind::IndexSignature
+                    | SyntaxKind::EnumDeclaration
+                    | SyntaxKind::SourceFile
+            ) {
+                if kind == SyntaxKind::ClassStaticBlockDeclaration {
+                    return error;
+                }
+                let Some(owner) = self.nodes.parent(container) else { return error };
+                if !matches!(
+                    self.nodes.kind(owner),
+                    SyntaxKind::ClassDeclaration
+                        | SyntaxKind::ClassExpression
+                        | SyntaxKind::InterfaceDeclaration
+                ) {
+                    return error;
+                }
+                let modifiers = match self.node_map.get(container) {
+                    Some(Node::MethodDeclaration(member)) => member.modifiers,
+                    Some(Node::PropertyDeclaration(member)) => member.modifiers,
+                    Some(Node::GetAccessorDeclaration(member)) => member.modifiers,
+                    Some(Node::SetAccessorDeclaration(member)) => member.modifiers,
+                    _ => &[],
+                };
+                if tsr_ast::has_syntactic_modifier(modifiers, SyntaxKind::StaticKeyword) {
+                    return error;
+                }
+                if let Some(Node::ConstructorDeclaration(constructor)) =
+                    self.node_map.get(container)
+                    && !constructor.body.and_then(|body| body.node_id()).is_some_and(|body| {
+                        self.nodes.ancestors(original).any(|ancestor| ancestor == body)
+                    })
+                {
+                    return error;
+                }
+                if self.nodes.kind(owner) == SyntaxKind::InterfaceDeclaration {
+                    if let Some(&existing) = self.this_type_nodes.get(&owner) {
+                        return existing;
+                    }
+                    let minted = self.store.new_named(TypeFlags::OBJECT, "this".to_string(), None);
+                    self.this_type_nodes.insert(owner, minted);
+                    return minted;
+                }
+                let Some(symbol) = self.binder.symbol_of(owner) else { return error };
+                if let Some(&existing) = self.this_types.get(&symbol) {
+                    return existing;
+                }
+                let minted = self.store.new_named(
+                    TypeFlags::TYPE_PARAMETER,
+                    "this".to_string(),
+                    Some(symbol),
+                );
+                self.this_types.insert(symbol, minted);
+                return minted;
+            }
+            current = self.nodes.parent(container);
+        }
+        error
     }
 
     /// Ported from `Checker.getAliasSymbolForTypeNode` (`checker.go:23719`).

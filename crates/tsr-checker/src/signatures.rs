@@ -3996,6 +3996,7 @@ impl<'a> Checker<'a, '_> {
                 )?;
                 Some(format!("keyof {inner}"))
             }
+            TypeNode::ThisTypeNode(_) => Some("this".to_string()),
             TypeNode::KeywordTypeNode(keyword) => match keyword.kind {
                 SyntaxKind::StringKeyword => Some("string".to_string()),
                 SyntaxKind::NumberKeyword => Some("number".to_string()),
