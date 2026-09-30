@@ -11019,3 +11019,134 @@ already 83% right and costs 287 rows to touch.
 
 *Three of those four were things I believed at the start of this entry and would
 have acted on.*
+
+## §951 — the non-array rest parameter, which upstream has a name for (+31, zero `RIGHT->WRONG`)
+
+§950 said the leverage is in roots, not rows, and that an entry found by reading a
+printed wrong line has a 6-in-7 chance of being a symptom. **This entry was found
+the way §950 prescribed** — by probing the top-ranked case's mechanism rather than
+its printed line — and it is the first entry since §929 to land a double-digit gain.
+
+### The bar, registered before the code
+
+| leg | assertion |
+|---|---|
+| primary | `f<T extends unknown[]>(...args: T): T` called `f("a", 1)` answers `[string, number]` (was `error`) |
+| safety | zero `RIGHT->WRONG` |
+| falsifier | `h()` with no arguments answers `[]`, not `never[]` or `error` |
+| regression | §939's array-shaped rest road untouched — `r1<T>(...items: T[]): T` still infers from the ELEMENT type, and `["a"].concat(["b"])` still resolves |
+
+### The forcing constraint, and upstream's own name for it
+
+`inference.rs` declined **the whole signature** when any rest parameter's type was
+not `Array<X>`/`ReadonlyArray<X>`:
+
+```rust
+if rest_parameters.iter().any(|parameter| rest_element(self, parameter).is_none()) {
+    return decline;
+}
+```
+
+That predicate is `getNonArrayRestType` (`relater.go:1858`) — **upstream's name for
+"the rest is not an array" is the name of the function this port was using to give
+up.** And upstream does not give up; it has a second arm
+(`inferTypeArguments`, `checker.go:9489`):
+
+```go
+if restType != nil && c.couldContainTypeVariables(restType) {
+    spreadType := c.getSpreadArgumentType(args, argCount, len(args), restType, context, checkMode)
+    c.inferTypes(context.inferences, spreadType, restType, InferencePriorityNone, false)
+}
+```
+
+The arguments at the rest position become a **tuple**, and the tuple is inferred
+against the rest parameter's own type. `getSpreadArgumentType`
+(`checker.go:29500`) widens each element exactly as the port now does
+(`t = c.getWidenedLiteralType(argType)`, `info.flags = ElementFlagsRequired`) —
+which is why `f("a", 1)` is `[string, number]` and not `["a", 1]`. A literal
+element there would be a wrong answer that prints plausibly.
+
+**This is finding (a) again, in its purest form so far: the capability was present
+(`create_tuple_type`, `infer_from_types`, `get_widened_literal_type` — all three
+already existed) and the caller declined rather than consulting them.** §939 had
+already narrowed this same decline once, for the array-shaped half, and recorded
+*"a rest over anything else still declines the whole signature"* as a limitation.
+It was never measured.
+
+### What it measures
+
+**+31 `WRONG->RIGHT`, zero `RIGHT->WRONG`.** `right` 443,460 → **443,491**.
+`genericRestParameters1` 22, `promiseTry` 4, `genericRestParameters3` 2.
+
+**18 `GAP->WRONG`**, the §620-accepted direction: `mappedTypesArraysTuples` 8,
+`contextualTypeBasedOnIntersectionWithAnyInTheMix5` 4, `coAndContraVariantInferences8` 2,
+`namedTupleMembers` 2. **No case regresses, and that is structural rather than
+lucky** — every one of those lines answered `error` before, so every case
+containing one was already failing.
+
+The cause is worth naming because it is the next item: `mappedTypesArraysTuples`
+declares `all<T extends any[]>(...values: T): Promise<Awaitified<T>>` with
+`Awaitified<T> = { [P in keyof T]: __Awaited<T[P]> }`. The inference now succeeds,
+which exposes a **homomorphic mapped type over a tuple** that this port cannot
+evaluate. Previously the gap hid it. *Computing further and being wrong is the
+accepted trade; what it bought is a sharper name for the blocker.*
+
+### A gate tried, measured at nothing, and removed
+
+The adverse rows looked like tuple-typed rests, so the arm was gated on the rest
+type being a bare `TYPE_PARAMETER` — which upstream does test one branch above
+(`restType.flags&TypeFlagsTypeParameter != 0`, `checker.go:9467`), **though only to
+set `impliedArity`, not to gate anything.**
+
+**19 adverse became 18.** Composition barely moved (`cachedContextualTypes` out,
+`controlFlowInstanceofWithSymbolHasInstance` in). So the hypothesis was wrong — the
+adverse rows are not tuple-typed rests — and the gate was a restriction this port
+would have invented and upstream does not have. **Removed**, per §947.4's
+precedent, with the negative kept here instead of in the code.
+
+*The alternative was to keep a gate that measured nothing because it happened to
+resemble an upstream line. That is how finding (b) — "a restriction reasoned
+carefully and never measured" — gets built, and this session has now counted eleven
+of them.*
+
+### A second defect this entry's own test fixture exposed, sized
+
+The regression leg's first draft asserted `r<T>(...items: T[]): T` called
+`r(1, 2)` answers `number`. **That was my expectation, and it is wrong twice
+over** — which makes it the fourth fixture this session that asserted a belief
+instead of an observation, and the first one caught *before* being committed.
+
+1. It is **not expressible in the unit harness at all.** `tests/generic_calls.rs`
+   loads no libs, so `T[]` is not a resolvable `Array` reference, `rest_element`
+   reports non-array, and §951's arm fires for a shape that takes §939's road
+   under the corpus. The leg is asserted by `scorepair`'s zero `RIGHT->WRONG`
+   instead, and the fixture now says so and points at `probefile`.
+2. Under the corpus the line actually reads **`r(1, 2) : 1 | 2`**, and upstream's
+   baseline for the same shape is **`makeArrayG(1, "") : number[]`**
+   (`compiler/genericRestArgs.types:10`) — one widened candidate, not a union of
+   literals. `getInferredType` applies `getWidenedLiteralType` to candidates and
+   **this port does not.**
+
+Sized before filing, so the next session does not have to: **99 wrong lines across
+34 cases** where upstream answers a bare `number`/`string`/`boolean` and this port
+answers a literal — `parenthesizedContexualTyping1` 16,
+`literalWideningWithCompoundLikeAssignments` 11, `literalTypes2` 8,
+`fixingTypeParametersRepeatedly1` 7. Only 3 of them are a literal *union* like the
+one above, so **most of that 99 is some other widening road, not this one** — the
+inference-candidate half is a handful of lines and should not be filed as a
+hundred. Stated because the tempting move is to quote the row as the item's size,
+which §5's own rule forbids.
+
+### The one leg that still fails, and it is NOT this arm
+
+```
+const t: [string, ...number[]] = ["a", 1, 2];
+>["a", 1, 2] : (string | number)[]      upstream: the contextual tuple
+```
+
+The contextual type is a rest-bearing **print-only mint** (§40/§791), so it is
+deliberately absent from `tuple_element_lists` — and `array_literal_has_a_tuple_contextual_type`
+(§888) tests exactly that membership. The literal therefore sees no tuple context.
+Not fixed here: it needs the element flags §950 sized, and `tuple_rest_tails`
+already records the node for precisely this purpose (§87), so the fix has a
+location. Filed as part of the tuple-representation item rather than guessed at.

@@ -362,7 +362,57 @@ impl Checker<'_, '_> {
         };
         let rest_parameters: Vec<crate::signatures::Parameter> =
             signature.parameters.iter().filter(|parameter| parameter.rest).cloned().collect();
-        if rest_parameters.iter().any(|parameter| rest_element(self, parameter).is_none()) {
+        // §951: a rest parameter whose type is NOT array-shaped is upstream's
+        // `getNonArrayRestType` (`relater.go:1858`), and it has its own arm
+        // rather than being a decline — `inferTypeArguments`
+        // (`checker.go:9489`) builds a TUPLE from the arguments at the rest
+        // position and infers that against the rest type:
+        //
+        // ```go
+        // if restType != nil && c.couldContainTypeVariables(restType) {
+        //     spreadType := c.getSpreadArgumentType(args, argCount, len(args), restType, …)
+        //     c.inferTypes(context.inferences, spreadType, restType, …)
+        // }
+        // ```
+        //
+        // `rest_element` above is that predicate exactly, negated: upstream's
+        // name for "the rest is not an array" is the name of the function this
+        // port was using to decline. The blanket decline made
+        // `f<T extends unknown[]>(...args: T): T` answer `error` for
+        // `f("a", 1)` — the shape every variadic-tuple case in the corpus is
+        // written in, and the reason `genericRestParameters1`,
+        // `strictBindCallApply1` and `variadicTuples1/2` carry the largest
+        // tuple-print residue (§950 sized the family at 1,380 lines).
+        //
+        // A SPREAD argument at or after the rest position keeps the decline:
+        // upstream gives such an element `ElementFlagsVariadic` or
+        // `ElementFlagsRest`, and this port's tuple side table has no
+        // per-element flags at all (§950's forcing constraint), so the tuple
+        // built here would silently claim a required element where upstream
+        // records a variadic one.
+        let spread_rest_position = rest_parameters
+            .iter()
+            .filter(|parameter| rest_element(self, parameter).is_none())
+            .filter_map(|parameter| {
+                signature.parameters.iter().position(|other| other.name == parameter.name)
+            })
+            .min();
+        //
+        // **A `TYPE_PARAMETER`-only gate was tried here and removed.** Upstream
+        // tests `restType.flags&TypeFlagsTypeParameter != 0` one branch above
+        // (`checker.go:9467`) but only to set `impliedArity` — it gates nothing.
+        // Adding it as a gate measured **19 adverse to 18**, i.e. nothing, and
+        // it would have been a restriction this port invented. Recorded because
+        // the hypothesis it tested was wrong: the adverse rows are NOT
+        // tuple-typed rests.
+        let non_array_rest_is_inferrable = match spread_rest_position {
+            Some(position) => !arguments
+                .iter()
+                .skip(position)
+                .any(|argument| matches!(argument, tsr_ast::Expression::SpreadElement(_))),
+            None => true,
+        };
+        if !non_array_rest_is_inferrable {
             return decline;
         }
         // One candidate per type parameter, from the positions typed by that
@@ -426,7 +476,44 @@ impl Checker<'_, '_> {
             // an `Array`/`ReadonlyArray` reference with one argument. A rest
             // over a TUPLE is §86's positional expansion and keeps its own road.
             if parameter.rest {
-                let Some(element) = rest_element(self, parameter) else { continue };
+                let Some(element) = rest_element(self, parameter) else {
+                    // §951: the non-array rest — `getSpreadArgumentType`
+                    // (`checker.go:29500`) without the spread-argument and
+                    // iterated-element branches, which the guard above
+                    // excluded. Each remaining argument is one REQUIRED
+                    // element, widened exactly as upstream widens it:
+                    //
+                    // ```go
+                    // t = c.getWidenedLiteralType(argType)
+                    // info.flags = ElementFlagsRequired
+                    // ```
+                    //
+                    // The widening is what makes `f("a", 1)` infer
+                    // `[string, number]` rather than `["a", 1]`; a literal
+                    // element would be a wrong answer that happens to print
+                    // plausibly. The `inConstContext` /
+                    // `hasPrimitiveContextualType` branch that keeps the
+                    // literal is not ported — `isConstTypeVariable` needs the
+                    // `const` modifier on the type parameter, and this arm
+                    // declines nothing by widening: a const-modified rest is
+                    // measured in `typeParameterConstModifiers`.
+                    let mut spread_elements = Vec::with_capacity(arguments.len());
+                    for position in index..arguments.len() {
+                        let Some(&argument) = argument_types.get(position) else { continue };
+                        let widened = self.get_widened_literal_type(argument);
+                        spread_elements.push(widened);
+                    }
+                    let spread = self.create_tuple_type(spread_elements, false);
+                    let bucket = index.min(buckets.len() - 1);
+                    self.infer_from_types(
+                        spread,
+                        parameter.r#type,
+                        &parameters,
+                        &mut buckets[bucket],
+                        0,
+                    );
+                    continue;
+                };
                 for (position, &argument_expression) in arguments.iter().enumerate().skip(index) {
                     if is_context_sensitive_argument(&argument_expression) {
                         deferred.push(position);

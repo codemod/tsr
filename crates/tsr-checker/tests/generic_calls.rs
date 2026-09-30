@@ -164,3 +164,53 @@ fn type_arguments_that_do_not_check_are_a_gap() {
         "any"
     );
 }
+
+/// §951: the NON-ARRAY rest parameter — `getNonArrayRestType`
+/// (`relater.go:1858`) names the shape this port used to decline whole, and
+/// `inferTypeArguments` (`checker.go:9489`) infers a TUPLE of the arguments at
+/// the rest position against the rest parameter's own type.
+#[test]
+fn a_rest_parameter_typed_by_a_type_parameter_infers_a_tuple() {
+    // The primary leg. Widened, not literal: `getSpreadArgumentType` applies
+    // `getWidenedLiteralType` per element (`checker.go:29500`), so `["a", 1]`
+    // would be a wrong answer that prints plausibly.
+    assert_eq!(
+        type_of_last(
+            "declare function f<T extends unknown[]>(...args: T): T;\nconst a = f(\"a\", 1);"
+        ),
+        "[string, number]"
+    );
+    // The falsifier leg: no arguments is the EMPTY tuple, which is a distinct
+    // print from `never[]` and from a gap. This is also the corpus's
+    // `[]`-versus-`never[]` row.
+    assert_eq!(
+        type_of_last("declare function h<T extends unknown[]>(...args: T): T;\nconst a = h();"),
+        "[]"
+    );
+    // The regression leg — §939's ARRAY-shaped rest keeping its own road — is
+    // **not expressible in this harness and is asserted by the corpus instead**
+    // (`scorepair` reports zero `RIGHT->WRONG` for §951). This fixture loads no
+    // libs, so `T[]` is not a resolvable `Array` reference, `rest_element`
+    // reports non-array, and the arm above fires for a shape that takes the
+    // other road under the corpus. Use `examples/probefile` for that leg.
+    //
+    // Recorded because the first draft of this test asserted `number` here and
+    // that was **my expectation, not upstream's or this port's**: under the
+    // corpus the line reads `r(1, 2) : 1 | 2`, and upstream's own baseline for
+    // the same shape is `makeArrayG(1, "") : number[]` (`genericRestArgs`) —
+    // inference candidates are WIDENED (`getWidenedLiteralType` in
+    // `getInferredType`) and this port does not widen them. That is a real
+    // pre-existing defect, outside §951's road, and it now has a witness.
+    // A SPREAD argument at the rest position still declines. Upstream gives the
+    // element `ElementFlagsVariadic`/`ElementFlagsRest` and this port's tuple
+    // side table carries no per-element flags at all (§950), so a tuple built
+    // here would claim a required element where upstream records a variadic
+    // one. Pinned so the decline is a recorded choice rather than an omission
+    // the next reader silently lifts.
+    assert_eq!(
+        type_of_last(
+            "declare function f<T extends unknown[]>(...args: T): T;\nconst xs: string[] = [];\nconst a = f(...xs);"
+        ),
+        "error"
+    );
+}
