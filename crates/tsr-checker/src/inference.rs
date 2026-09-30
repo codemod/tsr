@@ -169,6 +169,42 @@ impl Checker<'_, '_> {
             .collect()
     }
 
+    /// getThisArgumentOfCall/getThisArgumentType (checker.go:9345). A bare
+    /// call uses void; a property or indexed call retains its receiver through
+    /// transparent wrappers and optional-chain marker removal.
+    fn this_argument_type_of_call(&mut self, call: Option<NodeId>) -> TypeId {
+        let Some(node) = call.and_then(|call| self.node_map.get(call)) else {
+            return self.intrinsics.void;
+        };
+        if let Node::BinaryExpression(binary) = node {
+            return binary.right.map_or(self.intrinsics.void, |right| self.check_expression(right));
+        }
+        let expression = match node {
+            Node::CallExpression(call) => call.expression,
+            Node::TaggedTemplateExpression(template) => template.tag,
+            Node::Decorator(decorator) if !self.legacy_decorators => {
+                decorator.expression.map(Expression::from)
+            }
+            _ => None,
+        };
+        let Some(callee) = expression.and_then(|expression| expression.node_id()) else {
+            return self.intrinsics.void;
+        };
+        let callee = self.skip_outer_expressions(callee);
+        let (receiver, optional) = match self.node_map.get(callee) {
+            Some(Node::PropertyAccessExpression(access)) => {
+                (access.expression, access.question_dot_token.is_some())
+            }
+            Some(Node::ElementAccessExpression(access)) => {
+                (access.expression, access.question_dot_token.is_some())
+            }
+            _ => return self.intrinsics.void,
+        };
+        let Some(receiver) = receiver else { return self.intrinsics.void };
+        let raw = self.check_expression(receiver);
+        self.get_optional_expression_type(raw, receiver.node_id(), optional)
+    }
+
     /// The type of a call whose resolved signature is generic.
     ///
     /// Ported from `Checker.inferTypeArguments` (`checker.go:9390`) followed by
@@ -592,6 +628,18 @@ impl Checker<'_, '_> {
                 InferencePriority::RETURN_TYPE,
             );
             self.infer_from_types(return_source, returned, &parameters, &mut return_mapper, 0);
+        }
+        // inferTypeArguments infers the receiver against the signature's
+        // this type after contextual returns and before ordinary arguments.
+        if let Some(this_parameter) = &signature.this_parameter
+            && self.target_could_contain_parameter(
+                this_parameter.r#type,
+                &parameters,
+                &mut Vec::new(),
+            )
+        {
+            let this_argument = self.this_argument_type_of_call(call);
+            self.infer_from_types(this_argument, this_parameter.r#type, &parameters, &mut infos, 0);
         }
         if let Some(call) = call
             && let Some(context) = self.active_inference_contexts.get_mut(&call)

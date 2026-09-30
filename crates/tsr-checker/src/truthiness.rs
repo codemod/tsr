@@ -291,7 +291,7 @@ impl Checker<'_, '_> {
     /// `ast.SkipOuterExpressions(node, ast.OEKAll)` — parentheses, the two
     /// assertion spellings, `satisfies`, and `!`-assertions all pass the
     /// question through to what they wrap.
-    fn skip_outer_expressions(&self, node: NodeId) -> NodeId {
+    pub(crate) fn skip_outer_expressions(&self, node: NodeId) -> NodeId {
         let mut current = node;
         for _ in 0..64 {
             let inner = match self.node_map.get(current) {

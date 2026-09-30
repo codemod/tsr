@@ -24,20 +24,19 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-09-30
 
-Measured on **`15643d99`**: **448,096/478,855 assertions (93.58%)**,
-**6,557/9,538 complete cases (68.75%)**. The active 95% target requires 454,913
-correct assertions; **6,817 remain**. The denominator and pinned oracle are
-unchanged. Aligned verdicts: **474,243 total;448,096 right;4,628 gap;21,519 wrong**.
+Measured on **`THIS_ARGUMENT_COMMIT`**: **448,122/478,855 assertions (93.58%)**,
+**6,558/9,538 complete cases (68.76%)**. The active 95% target requires 454,913
+correct assertions; **6,791 remain**. The denominator and pinned oracle are
+unchanged. Aligned verdicts: **474,243 total;448,122 right;4,628 gap;21,493 wrong**.
 Binder symbols retain the preceding measurement at **8,497/8,497 (100%)**;
 other suites below retain historical measurements.
 
-This unit adds **310 WRONG→RIGHT and 32 GAP→RIGHT**, with **zero RIGHT losses**
-relative to `1609ae84` (447,754). It also adds **11 GAP→WRONG**, retained in the
-deficit. The initial-tree attribution and preceding checkpoint transitions remain
-in their evidence documents. Release workspace tests, workspace clippy with
-warnings denied, all **3,380 upstream anchors**, and whitespace checks pass.
-The checker snapshot is refreshed.
-[Class this annotations and global recovery](docs/architecture/checker-95-class-this.md)
+This unit adds **26 WRONG→RIGHT**, with **zero RIGHT losses and no new wrong
+answers** relative to `15643d99` (448,096). The initial-tree attribution and
+preceding transitions remain in their evidence documents. Release workspace
+tests,workspace clippy with warnings denied,all **3,380 upstream anchors**,and
+whitespace checks pass. The checker snapshot is refreshed.
+[Generic this argument inference](docs/architecture/checker-95-this-argument.md)
 records the controls and manual review. The goal and `tsr-6` remain active.
 Verified changes commit and push to `main` per the user's instruction.
 
@@ -1141,7 +1140,7 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-### Current priorities at `15643d99` — 2026-09-30
+### Current priorities at `THIS_ARGUMENT_COMMIT` — 2026-09-30
 
 Inference priorities, independent contextual return mappers, captured structural
 substitution, call/construct signature kinds, measured reference variances,
@@ -1168,8 +1167,10 @@ globalThis excludes lexical bindings and recovers missing properties with any.
 The largest remaining combined gap/wrong cases are `correlatedUnions` (187),
 `privacyLocalInternalReferenceImportWithExport` (176),
 `typeParameterConstModifiersReturnsAndYields` (149), `temporal` (147) and
-`parsingDeepParenthensizedExpression` (137). `strictBindCallApply1` has 121 deficits
-after the class this port; generic this-argument inference is a concrete next leg.
+`parsingDeepParenthensizedExpression` (137). `strictBindCallApply1` has 105 deficits
+after generic this-argument inference. Call signatures now infer from the receiver
+before ordinary arguments; adjacent variadic tuple splits and deferred conditional
+alias evaluation remain concrete bind/apply work.
 `variadicTuples1` has 107 deficits after the conditional continuation port.
 Composite dependent constraints and general implicit constraint integration are next; bind signature
 inference remains a candidate; `tsr-6.1` tracks the generic signature prerequisite
@@ -3684,6 +3685,15 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+### Generic this argument inference at `THIS_ARGUMENT_COMMIT`
+
+Receiver inference now precedes ordinary arguments after contextual return
+inference,including property/indexed/wrapped/optional calls and void for bare
+calls. Zero RIGHT losses and no new wrong answers. Bind/apply remain incomplete
+in adjacent variadic tuple and conditional alias inference.
+[Evidence and limits](docs/architecture/checker-95-this-argument.md).
+
 
 ### Class this annotations at `15643d99`
 
@@ -9151,6 +9161,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
+| 2026-09-30 | `THIS_ARGUMENT_COMMIT` | **68.76%** | **6,558** | **448,122/478,855 assertions (93.58%).** +26 W→R since15643d99,zero RIGHT losses,no new wrong. Ports generic this-argument receiver inference with wrapper/optional-chain handling. Pinned controls and release workspace tests/clippy pass;3,380 anchors resolve;snapshot refreshed. [Evidence and remaining work](docs/architecture/checker-95-this-argument.md). 6,791 assertions remain;goal active. |
 | 2026-09-30 | `15643d99` | **68.75%** | **6,557** | **448,096/478,855 assertions (93.58%).** +342 correct since `1609ae84`:310 W→R,32 G→R,zero RIGHT losses;11 G→W remain in the deficit. Ports class this annotation/container identity,written error recovery and globalThis runtime-property recovery. Release workspace tests/clippy pass;3,380 anchors resolve;snapshot refreshed. [Evidence and remaining work](docs/architecture/checker-95-class-this.md). 6,817 assertions remain;goal active. |
 | 2026-09-30 | `1609ae84` | **68.61%** | **6,544** | **447,754/478,855 assertions (93.51%).** +12 correct since `90bccd3b`: 10 W→R and 2 G→R, zero RIGHT losses and no new wrong answers. Ports implicit syntax/reference infer constraints, direct dependent constraint resolution and any branch unions through the inference mapper. All nine controls and release workspace tests/clippy pass; 3,380 anchors resolve; snapshot refreshed. [Evidence and remaining work](docs/architecture/checker-95-implicit-infer.md). 7,159 assertions remain; goal active. |
 | 2026-09-30 | `90bccd3b` | **68.60%** | **6,543** | **447,742/478,855 assertions (93.50%).** +85 correct since `ac8d33ed`: 50 W→R and 35 G→R, zero RIGHT losses; 10 G→W remain in the deficit. Ports explicit closed infer constraints across merged declarations, nested conditional continuation and union/never distribution with enclosing alias names. Release workspace tests/clippy pass; 3,380 anchors resolve; snapshot refreshed. [Evidence and remaining work](docs/architecture/checker-95-infer-constraints.md). 7,171 assertions remain; goal active. |
