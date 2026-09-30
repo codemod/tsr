@@ -4907,6 +4907,40 @@ impl<'a> Checker<'a, '_> {
                     return Some(result);
                 }
             }
+            // getConditionalType's extraTypes includes the true branch for
+            // any and then continues into the false branch. Any/unknown extends
+            // types instead select the true branch alone. Infer targets need
+            // their context mapper first and retain their existing deferral.
+            if !has_infer_parameters
+                && check != error
+                && self.store.get(check).flags.contains(TypeFlags::ANY)
+            {
+                let extends = self.get_type_from_type_node(conditional.extends_type?);
+                if extends == error
+                    || self.unresolved_types.contains(&extends)
+                    || self.store.get(extends).flags.intersects(
+                        TypeFlags::CONDITIONAL
+                            | TypeFlags::INDEXED_ACCESS
+                            | TypeFlags::INDEX
+                            | TypeFlags::SUBSTITUTION,
+                    )
+                    || self.mentions_any_type_parameter(extends, 2)
+                {
+                    return None;
+                }
+                let true_type = self.get_type_from_type_node(conditional.true_type?);
+                if true_type == error {
+                    return None;
+                }
+                if self.store.get(extends).flags.intersects(TypeFlags::ANY_OR_UNKNOWN) {
+                    return Some(true_type);
+                }
+                let false_type = self.get_type_from_type_node(conditional.false_type?);
+                if false_type == error {
+                    return None;
+                }
+                return Some(self.get_union_type(&[true_type, false_type]));
+            }
             if check != error {
                 result = self.evaluate_conditional_inference(conditional, check);
             }
@@ -5070,19 +5104,15 @@ impl<'a> Checker<'a, '_> {
         )
     }
 
-    /// getConditionalType's inference context for a concrete check. Generic,
-    /// union and any checks still need deferred/distributive conditional types.
+    /// getConditionalType's inference context for a concrete or any check.
+    /// Generic checks defer; the outer worker handles union distribution.
     fn evaluate_conditional_inference(
         &mut self,
         conditional: &tsr_ast::ConditionalTypeNode<'a>,
         check: TypeId,
     ) -> Option<TypeId> {
         use crate::relater::{Relation, Ternary};
-        if self
-            .store
-            .get(check)
-            .flags
-            .intersects(TypeFlags::ANY | TypeFlags::UNION | TypeFlags::NEVER)
+        if self.store.get(check).flags.intersects(TypeFlags::UNION | TypeFlags::NEVER)
             || self.mentions_any_type_parameter(check, 2)
         {
             return None;
@@ -5104,24 +5134,25 @@ impl<'a> Checker<'a, '_> {
         let constraints: Vec<_> = parameters
             .iter()
             .map(|&parameter| {
-                self.type_parameter_constraint(parameter).map(|constraint| {
-                    // getConstraintFromTypeParameter treats an explicit any
-                    // constraint as unknown for an ordinary infer parameter.
-                    if self.store.get(constraint).flags.contains(TypeFlags::ANY) {
-                        self.intrinsics.unknown
-                    } else {
-                        constraint
-                    }
-                })
+                self.type_parameter_constraint(parameter)
+                    .or_else(|| self.inferred_type_parameter_constraint(parameter))
+                    .map(|constraint| {
+                        // getConstraintFromTypeParameter treats an explicit any
+                        // constraint as unknown for an ordinary infer parameter.
+                        if self.store.get(constraint).flags.contains(TypeFlags::ANY) {
+                            self.intrinsics.unknown
+                        } else {
+                            constraint
+                        }
+                    })
             })
             .collect();
-        // Dependent infer constraints still need the non-fixing mapper to
-        // resolve other inferred parameters; outer alias bindings are active.
-        if constraints
-            .iter()
-            .flatten()
-            .any(|&constraint| self.mentions_any_type_parameter(constraint, 2))
-        {
+        // Direct inferred-parameter dependencies are resolved lazily below.
+        // Composite dependent constraints still need a general non-fixing
+        // mapper; outer alias bindings are already active.
+        if constraints.iter().flatten().any(|&constraint| {
+            !parameters.contains(&constraint) && self.mentions_any_type_parameter(constraint, 2)
+        }) {
             return None;
         }
         let target = self.get_type_from_type_node(conditional.extends_type?);
@@ -5142,29 +5173,43 @@ impl<'a> Checker<'a, '_> {
             return None;
         }
         let inferences = self.infer_conditional_parameters(check, target, &parameters);
-        let map: Vec<_> = inferences
-            .into_iter()
-            .zip(constraints)
-            .map(|((parameter, inferred), constraint)| {
-                let inferred = match (inferred, constraint) {
-                    (Some(inferred), Some(constraint))
-                        if self.relate_ternary(inferred, constraint, Relation::Assignable)
-                            == Ternary::NotRelated =>
-                    {
-                        constraint
-                    }
-                    (Some(inferred), _) => inferred,
-                    (None, Some(constraint)) => constraint,
-                    (None, None) => self.intrinsics.unknown,
-                };
-                (parameter, inferred)
-            })
-            .collect();
+        let map = self.resolve_conditional_inferences(&inferences, &constraints);
         let names: Vec<_> =
             symbols.iter().map(|&symbol| self.binder.symbols().get(symbol).name).collect();
         let target = self.instantiate_type(target, &map, &parameters, &names);
         if target == self.intrinsics.error {
             return None;
+        }
+        if self.store.get(check).flags.contains(TypeFlags::ANY) {
+            if self.unresolved_types.contains(&target)
+                || self.store.get(target).flags.intersects(
+                    TypeFlags::CONDITIONAL
+                        | TypeFlags::INDEXED_ACCESS
+                        | TypeFlags::INDEX
+                        | TypeFlags::SUBSTITUTION,
+                )
+                || self.mentions_any_type_parameter(target, 2)
+            {
+                return None;
+            }
+            let frame =
+                symbols.into_iter().zip(map.into_iter().map(|(_, inferred)| inferred)).collect();
+            self.alias_evaluation_bindings.push(frame);
+            let true_type =
+                conditional.true_type.map(|branch| self.get_type_from_type_node(branch));
+            self.alias_evaluation_bindings.pop();
+            let true_type = true_type?;
+            if true_type == self.intrinsics.error {
+                return None;
+            }
+            if self.store.get(target).flags.intersects(TypeFlags::ANY_OR_UNKNOWN) {
+                return Some(true_type);
+            }
+            let false_type = self.get_type_from_type_node(conditional.false_type?);
+            if false_type == self.intrinsics.error {
+                return None;
+            }
+            return Some(self.get_union_type(&[true_type, false_type]));
         }
         let branch = match self.relate_ternary(check, target, Relation::Assignable) {
             Ternary::Related => conditional.true_type?,

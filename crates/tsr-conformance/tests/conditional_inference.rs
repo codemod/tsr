@@ -167,3 +167,134 @@ export function result() { return { filtered, boxed, element, absent, single, st
         assert!(lines.iter().any(|line| line == wanted), "missing {wanted}: {lines:?}");
     }
 }
+
+#[test]
+fn implicit_reference_constraints_filter_candidates_and_discard_self_constraints() {
+    let source = r#"// @strict: true
+// @target: es2015
+type Box<T extends string> = { value: T };
+type Pair<T extends string, U extends T> = { a: T, b: U };
+type FromBox<T> = T extends Box<infer U> ? U : never;
+type Same<T> = T extends Pair<infer U, infer U> ? U : never;
+type Good = FromBox<{ value: "a" }>;
+type Bad = FromBox<{ value: 1 }>;
+type Merged = Same<{ a: "a", b: "b" }>;
+declare const good: Good;
+declare const bad: Bad;
+declare const merged: Merged;
+export function result() { return { good, bad, merged }; }
+"#;
+    let case = TestCase::parse(
+        "probe/implicit-infer-constraints",
+        "implicit-infer-constraints.ts",
+        source,
+    );
+    let expected: Vec<_> = case
+        .files
+        .iter()
+        .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
+        .collect();
+    let assertions = types_producer::assertions_for_case(&case, &expected, false);
+    let lines: Vec<_> = assertions.iter().flatten().map(types_producer::Assertion::line).collect();
+    for wanted in ["Good : \"a\"", "Bad : never", "Merged : \"a\" | \"b\""] {
+        assert!(lines.iter().any(|line| line == wanted), "missing {wanted}: {lines:?}");
+    }
+}
+
+#[test]
+fn any_checks_include_both_branches_except_for_any_or_unknown_extends() {
+    let source = r"// @strict: true
+// @target: es2015
+type Select<T> = T extends string ? 1 : 2;
+type Unknown<T> = T extends unknown ? 1 : 2;
+type Any<T> = T extends any ? 1 : 2;
+type Never<T> = T extends never ? 1 : 2;
+type Nested<T> = T extends string ? 3 : T extends number ? 4 : 5;
+type S = Select<any>;
+type U = Unknown<any>;
+type A = Any<any>;
+type N = Never<any>;
+type D = Nested<any>;
+declare const selected: S;
+declare const unknown: U;
+declare const any: A;
+declare const never: N;
+declare const nested: D;
+export function result() { return { selected, unknown, any, never, nested }; }
+";
+    let case = TestCase::parse("probe/any-conditional", "any-conditional.ts", source);
+    let expected: Vec<_> = case
+        .files
+        .iter()
+        .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
+        .collect();
+    let assertions = types_producer::assertions_for_case(&case, &expected, false);
+    let lines: Vec<_> = assertions.iter().flatten().map(types_producer::Assertion::line).collect();
+    for wanted in ["S : 1 | 2", "U : 1", "A : 1", "N : 1 | 2", "D : 3 | 4 | 5"] {
+        assert!(lines.iter().any(|line| line == wanted), "missing {wanted}: {lines:?}");
+    }
+}
+
+#[test]
+fn dependent_constraints_use_the_other_parameters_inference_before_branch_selection() {
+    let source = r#"// @strict: true
+// @target: es2015
+type Pair<T, U extends T> = { a: T, b: U };
+type StringPair<T extends string, U extends T> = { a: T, b: U };
+type ExtractPair<T> = T extends Pair<infer A, infer B> ? [A, B] : never;
+type ExtractStringPair<T> = T extends StringPair<infer A, infer B> ? [A, B] : never;
+type Good = ExtractPair<{ a: string, b: "b" }>;
+type Bad = ExtractPair<{ a: "a", b: "b" }>;
+type Refined = ExtractStringPair<{ a: 1, b: 1 }>;
+declare const good: Good;
+declare const bad: Bad;
+declare const refined: Refined;
+export function result() { return { good, bad, refined }; }
+"#;
+    let case = TestCase::parse(
+        "probe/dependent-infer-constraints",
+        "dependent-infer-constraints.ts",
+        source,
+    );
+    let expected: Vec<_> = case
+        .files
+        .iter()
+        .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
+        .collect();
+    let assertions = types_producer::assertions_for_case(&case, &expected, false);
+    let lines: Vec<_> = assertions.iter().flatten().map(types_producer::Assertion::line).collect();
+    for wanted in ["Good : [string, \"b\"]", "Bad : never", "Refined : never"] {
+        assert!(lines.iter().any(|line| line == wanted), "missing {wanted}: {lines:?}");
+    }
+}
+
+#[test]
+fn any_infer_checks_union_branches_after_applying_the_inference_mapper() {
+    let source = r"// @strict: true
+// @target: es2015
+type Whole<T> = T extends infer U ? U : 0;
+type Element<T> = T extends (infer U)[] ? U : 0;
+type Input<T> = T extends (...args: infer U) => void ? U : 0;
+type Property<T> = T extends { value: infer U } ? U : 0;
+type W = Whole<any>;
+type E = Element<any>;
+type I = Input<any>;
+type P = Property<any>;
+declare const whole: W;
+declare const element: E;
+declare const input: I;
+declare const property: P;
+export function result() { return { whole, element, input, property }; }
+";
+    let case = TestCase::parse("probe/any-infer", "any-infer.ts", source);
+    let expected: Vec<_> = case
+        .files
+        .iter()
+        .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
+        .collect();
+    let assertions = types_producer::assertions_for_case(&case, &expected, false);
+    let lines: Vec<_> = assertions.iter().flatten().map(types_producer::Assertion::line).collect();
+    for wanted in ["W : any", "E : unknown", "I : 0 | unknown[]", "P : unknown"] {
+        assert!(lines.iter().any(|line| line == wanted), "missing {wanted}: {lines:?}");
+    }
+}

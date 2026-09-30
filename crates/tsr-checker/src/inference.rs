@@ -120,6 +120,55 @@ impl Checker<'_, '_> {
             .collect()
     }
 
+    /// getInferredType for signature-less contexts with direct parameter
+    /// dependencies. Install the provisional candidate before resolving a
+    /// constraint, as upstream does before consulting nonFixingMapper.
+    pub(crate) fn resolve_conditional_inferences(
+        &mut self,
+        inferences: &[(TypeId, Option<TypeId>)],
+        constraints: &[Option<TypeId>],
+    ) -> Vec<(TypeId, TypeId)> {
+        fn resolve(
+            checker: &mut Checker<'_, '_>,
+            index: usize,
+            inferences: &[(TypeId, Option<TypeId>)],
+            constraints: &[Option<TypeId>],
+            resolved: &mut [Option<TypeId>],
+        ) -> TypeId {
+            if let Some(inferred) = resolved[index] {
+                return inferred;
+            }
+            let candidate = inferences[index].1;
+            let mut inferred = candidate.unwrap_or(checker.intrinsics.unknown);
+            resolved[index] = Some(inferred);
+            if let Some(mut constraint) = constraints[index] {
+                if let Some(dependency) =
+                    inferences.iter().position(|&(parameter, _)| parameter == constraint)
+                {
+                    constraint = resolve(checker, dependency, inferences, constraints, resolved);
+                }
+                if candidate.is_none()
+                    || checker.relate_ternary(
+                        inferred,
+                        constraint,
+                        crate::relater::Relation::Assignable,
+                    ) == crate::relater::Ternary::NotRelated
+                {
+                    inferred = constraint;
+                }
+            }
+            resolved[index] = Some(inferred);
+            inferred
+        }
+        let mut resolved = vec![None; inferences.len()];
+        (0..inferences.len())
+            .map(|index| {
+                let inferred = resolve(self, index, inferences, constraints, &mut resolved);
+                (inferences[index].0, inferred)
+            })
+            .collect()
+    }
+
     /// The type of a call whose resolved signature is generic.
     ///
     /// Ported from `Checker.inferTypeArguments` (`checker.go:9390`) followed by

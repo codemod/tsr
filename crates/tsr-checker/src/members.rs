@@ -890,6 +890,112 @@ impl Checker<'_, '_> {
         (constraint != self.intrinsics.error).then_some(constraint)
     }
 
+    /// getInferredTypeParameterConstraint (checker.go:17114). Conditional
+    /// inference reads this before applying its non-fixing constraint mapper.
+    pub(crate) fn inferred_type_parameter_constraint(&mut self, id: TypeId) -> Option<TypeId> {
+        let symbol = *self.type_parameter_symbols.get(&id)?;
+        let declarations = self.binder.symbols().get(symbol).declarations.clone();
+        let mut constraints = Vec::new();
+        for declaration in declarations {
+            let Some(infer) = self.nodes.parent(declaration) else { continue };
+            if !matches!(self.node_map.get(infer), Some(Node::InferTypeNode(_))) {
+                continue;
+            }
+            let mut child = infer;
+            let mut parent = self.nodes.parent(child);
+            while let Some(node) = parent
+                && matches!(self.node_map.get(node), Some(Node::ParenthesizedTypeNode(_)))
+            {
+                child = node;
+                parent = self.nodes.parent(child);
+            }
+            let Some(parent) = parent else { continue };
+            let constraint = match self.node_map.get(parent) {
+                Some(Node::TypeReferenceNode(reference)) => {
+                    let Some(symbol) = reference
+                        .type_name
+                        .and_then(|name| self.resolve_entity_name(name, SymbolFlags::TYPE))
+                    else {
+                        continue;
+                    };
+                    let Some(index) = reference
+                        .type_arguments
+                        .iter()
+                        .position(|argument| argument.node_id() == Some(child))
+                    else {
+                        continue;
+                    };
+                    let Some(parameters) = self.local_type_parameter_types_of(symbol) else {
+                        continue;
+                    };
+                    if reference.type_arguments.len() != parameters.len() {
+                        continue;
+                    }
+                    let Some(&(parameter, _)) = parameters.get(index) else { continue };
+                    let Some(constraint) = self.type_parameter_constraint(parameter) else {
+                        continue;
+                    };
+                    let arguments: Vec<_> = reference
+                        .type_arguments
+                        .iter()
+                        .map(|&argument| self.get_type_from_type_node(argument))
+                        .collect();
+                    if arguments.contains(&self.intrinsics.error) {
+                        continue;
+                    }
+                    let types: Vec<_> = parameters.iter().map(|&(id, _)| id).collect();
+                    let names: Vec<_> = parameters.iter().map(|(_, name)| name.as_str()).collect();
+                    let map: Vec<_> = types.iter().copied().zip(arguments).collect();
+                    let instantiated = self.instantiate_type(constraint, &map, &types, &names);
+                    if instantiated == id || instantiated == self.intrinsics.error {
+                        continue;
+                    }
+                    instantiated
+                }
+                Some(Node::RestTypeNode(_)) => {
+                    let target = self.global_type_symbol("Array")?;
+                    self.create_type_reference(target, vec![self.intrinsics.unknown])
+                }
+                Some(Node::ParameterDeclaration(parameter))
+                    if parameter.dot_dot_dot_token.is_some() =>
+                {
+                    let target = self.global_type_symbol("Array")?;
+                    self.create_type_reference(target, vec![self.intrinsics.unknown])
+                }
+                Some(Node::NamedTupleMember(member))
+                    if member.dot_dot_dot_token.is_some()
+                        || self.nodes.parent(parent).is_some_and(|outer| {
+                            matches!(self.node_map.get(outer), Some(Node::RestTypeNode(_)))
+                        }) =>
+                {
+                    let target = self.global_type_symbol("Array")?;
+                    self.create_type_reference(target, vec![self.intrinsics.unknown])
+                }
+                Some(Node::TemplateLiteralTypeSpan(_)) => self.intrinsics.string,
+                Some(Node::TypeParameterDeclaration(_))
+                    if self.nodes.parent(parent).is_some_and(|outer| {
+                        matches!(self.node_map.get(outer), Some(Node::MappedTypeNode(_)))
+                    }) =>
+                {
+                    self.get_union_type(&[
+                        self.intrinsics.string,
+                        self.intrinsics.number,
+                        self.intrinsics.es_symbol,
+                    ])
+                }
+                _ => continue,
+            };
+            if constraint != self.intrinsics.error {
+                constraints.push(constraint);
+            }
+        }
+        if constraints.is_empty() {
+            None
+        } else {
+            Some(self.get_intersection_type(&constraints, None))
+        }
+    }
+
     pub(crate) fn apparent_type(&mut self, id: TypeId) -> TypeId {
         // Upstream's order, arm for arm (`checker.go:21745-21751`). `NUMBER_LIKE`
         // carrying `ENUM` is upstream's too, not a widening added here.

@@ -24,20 +24,20 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-09-30
 
-Measured on **`90bccd3b`**: **447,742/478,855 assertions (93.50%)**,
-**6,543/9,538 complete cases (68.60%)**. The active 95% target requires 454,913
-correct assertions; **7,171 remain**. The denominator and pinned oracle are
-unchanged. Aligned verdicts: **474,243 total; 447,742 right; 4,673 gap; 21,828
+Measured on **`IMPLICIT_INFER_COMMIT`**: **447,754/478,855 assertions (93.51%)**,
+**6,544/9,538 complete cases (68.61%)**. The active 95% target requires 454,913
+correct assertions; **7,159 remain**. The denominator and pinned oracle are
+unchanged. Aligned verdicts: **474,243 total; 447,754 right; 4,671 gap; 21,818
 wrong**. Binder symbols retain the preceding measurement at
 **8,497/8,497 (100%)**; other suites below retain historical measurements.
 
-This unit adds **50 WRONG→RIGHT and 35 GAP→RIGHT**, with **zero RIGHT losses**
-relative to `ac8d33ed` (447,657). It also adds **10 GAP→WRONG**, retained in the
-reported deficit. The initial-tree attribution and preceding checkpoint
-transitions remain in their evidence documents.
-Release workspace tests, workspace clippy with warnings denied, all **3,380
-upstream anchors**, and whitespace checks pass. The checker snapshot is refreshed.
-[Infer constraints and conditional continuation](docs/architecture/checker-95-infer-constraints.md)
+This unit adds **10 WRONG→RIGHT and 2 GAP→RIGHT**, with **zero RIGHT losses**
+and **no new wrong answers** relative to `90bccd3b` (447,742).
+The initial-tree attribution and preceding checkpoint transitions remain in their
+evidence documents. Release workspace tests, workspace clippy with warnings
+denied, all **3,380 upstream anchors**, and whitespace checks pass.
+The checker snapshot is refreshed.
+[Implicit infer constraints and any checks](docs/architecture/checker-95-implicit-infer.md)
 records the controls and manual review. The goal and `tsr-6` remain active.
 Verified changes commit and push to `main` per the user's instruction.
 
@@ -1141,7 +1141,7 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-### Current priorities at `90bccd3b` — 2026-09-30
+### Current priorities at `IMPLICIT_INFER_COMMIT` — 2026-09-30
 
 Inference priorities, independent contextual return mappers, captured structural
 substitution, call/construct signature kinds, measured reference variances,
@@ -1156,15 +1156,17 @@ Concrete conditional inference uses a signature-less mapper with strict variance
 and literal candidates; fixed and concrete rest tuple targets contribute their
 positions. Explicit closed constraints, nested branch evaluation and concrete
 union/never distribution now run under the mapper, preserving distributed alias
-names. Implicit and dependent infer constraints and any branch unions remain
-incomplete (`tsr-6.3`). Ten additional wrong constrained tuple answers from former
-gaps remain in the reported deficit.
+names. Implicit syntax/reference constraints, direct dependent constraints and
+any branch unions now participate in conditional inference. Composite dependent
+constraints and general implicit constraint integration remain incomplete
+(`tsr-6.3`). Ten wrong constrained tuple answers from the preceding unit remain
+in the reported deficit.
 
 The largest remaining combined gap/wrong cases are `correlatedUnions` (187),
 `strictBindCallApply1` (183), `privacyLocalInternalReferenceImportWithExport`
 (176), `typeParameterConstModifiersReturnsAndYields` (149), and `temporal` (147).
-`variadicTuples1` has 115 deficits after the conditional continuation port.
-Implicit/dependent infer constraints and any branch unions are next; bind signature
+`variadicTuples1` has 107 deficits after the conditional continuation port.
+Composite dependent constraints and general implicit constraint integration are next; bind signature
 inference remains a candidate; `tsr-6.1` tracks the generic signature prerequisite
 for union matching. These counts are deficits, not predicted gains.
 
@@ -3677,6 +3679,17 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+### Implicit constraints and any checks at `IMPLICIT_INFER_COMMIT`
+
+Conditional inference now reads syntax/reference inferred constraints and direct
+inferred-parameter dependencies. Any checks include both branches after mapping
+infer locals, except any/unknown extends targets. Unresolved/deferred targets
+still decline. Composite non-fixing constraint mapping, default/import reference
+constraints and general apparent/tuple constraint integration remain incomplete;
+no new wrong answers occur in this unit.
+[Evidence and limits](docs/architecture/checker-95-implicit-infer.md).
+
 
 ### Constrained inference and distribution at `90bccd3b`
 
@@ -9122,6 +9135,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
+| 2026-09-30 | `IMPLICIT_INFER_COMMIT` | **68.61%** | **6,544** | **447,754/478,855 assertions (93.51%).** +12 correct since `90bccd3b`: 10 W→R and 2 G→R, zero RIGHT losses and no new wrong answers. Ports implicit syntax/reference infer constraints, direct dependent constraint resolution and any branch unions through the inference mapper. All nine controls and release workspace tests/clippy pass; 3,380 anchors resolve; snapshot refreshed. [Evidence and remaining work](docs/architecture/checker-95-implicit-infer.md). 7,159 assertions remain; goal active. |
 | 2026-09-30 | `90bccd3b` | **68.60%** | **6,543** | **447,742/478,855 assertions (93.50%).** +85 correct since `ac8d33ed`: 50 W→R and 35 G→R, zero RIGHT losses; 10 G→W remain in the deficit. Ports explicit closed infer constraints across merged declarations, nested conditional continuation and union/never distribution with enclosing alias names. Release workspace tests/clippy pass; 3,380 anchors resolve; snapshot refreshed. [Evidence and remaining work](docs/architecture/checker-95-infer-constraints.md). 7,171 assertions remain; goal active. |
 | 2026-09-28 | the §876 landing | **91.83%** | **6,230** (+2) | **+37, ZERO adverse, and the FIRST bar in six whose named case closed completely** | **checker-1: §876 — a pattern-named default is refused for a reason that only applies to PARAMETERS.** `destructure.rs` refused every binding element whose name is a pattern and which carries an initializer, naming `padObjectLiteralType`/`padTupleType` as unported. **The mechanism is real; the condition guarding it upstream is not the one the refusal assumed.** `checkDeclarationInitializer` (`checker.go:16806`) runs that padding only under `ast.IsParameterDeclaration(ast.GetRootDeclaration(declaration))` — for a `const`/`let`/`for` destructuring it simply returns the initializer's type. Narrowed to parameter-rooted elements. `GAP→RIGHT 26` + `WRONG→RIGHT 11`, **not one line lost**, and the surfacing case's **18 gaps all closed**. **Why this one closed and the last five did not**: §844, §846, §858, §861 and §875 were gates whose CATEGORY was too narrow, so the surfacing case had a second defect behind the first; §876 was a refusal whose CONDITION was too broad — the named mechanism was real and simply guarded differently upstream — and removing the over-reach left nothing behind it. **Fourth instance this session of a gate narrower than the condition it stands for** (§863, §870, §875, §876). **Two more test expectations written from intuition, and the port was right both times** (seventh and eighth this session): an `any` source destructures to `any` through a nested pattern and never reaches the default, so both `string` guesses were wrong. Both pinned as they behave, with the note that **the witness for §876 is the corpus — 18 gaps closed — and not those two lines**. `docs/architecture/checker-notes-deferred.md` §876 |
 | 2026-09-28 | §872–§875 | **91.82%** | **6,228** | **+10 ZERO adverse; a STALE-NUMBER correction against myself; and the `_ => false` gate shape now three for three** | **checker-1: §872–§873** chased the async-generator IIFE residue with probes: §870's gate passes (`no_ctx=true`), the mint is reached and succeeds (`AsyncGenerator=true yields=1 returns=0`), and `get_type_of_function_expression` **returns exactly the wanted type**. Each probe refuted the previous diagnosis. **§874 corrects §872 and §873 against myself.** Both opened *"the case kept its 9 gaps through §868–§871"* — read from a run taken **before §870 and §871 were built**. The case is **22 RIGHT / 5 GAP**, not 18/9, so those landings took four of its own lines too. §873 additionally claimed *"essentially the whole of F5 gaps"* and built a container-bail hypothesis on the count; the per-file split is **5 RIGHT / 3 GAP**. The follow-up probe refuted it independently (`flow_disabled_containers` never fires), so nothing was built on it — but the reasoning was worthless and the note asserted it as fact. **`STATUS.md`'s rule that a number without a fresh run behind it is worse than no number applies to the notes, not just the dashboard.** **§875** — §561's parameter gate lists only expression- and statement-position function kinds, so a parameter of a function **TYPE** fell to its `_ => false`. Those parameters live inside an annotation: `getContextualType` dispatches on expressions and `getContextuallyTypedParameterType` wants a function expression with a contextual signature, so neither can reach a type node — they belong in `FunctionDeclaration`'s unconditional arm. `WRONG→RIGHT 8` + `GAP→RIGHT 2` against 1 `GAP→WRONG`, **zero right lines lost**. **Fifth time a named case stayed shut while the change paid elsewhere** (§844, §846, §858, §861, §875) — the surfacing case keeps 32 of its 34 gaps. **And the recurring shape is now three for three**: §863's `has_no_contextual_type` catch-all excluded every object-literal member (+187); §870's mint refused every async generator expression (+43); §875's gate excluded every function-type parameter (+10). Each a list written for the cases in front of its author, with a `false` default that reads as caution and behaves as a refusal. **Grepping for `_ => false` in gates is a demonstrated technique here, not a hunch.** `docs/architecture/checker-notes-deferred.md` §872–§875 |
