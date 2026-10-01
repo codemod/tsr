@@ -342,7 +342,9 @@ impl Checker<'_, '_> {
     /// needs exactly this walk — own members plus bases, cycle-guarded.
     pub(crate) fn property_names_of(&mut self, receiver: TypeId) -> Vec<String> {
         self.resolve_mapped_type_members(receiver);
-        if let Some((properties, true)) = self.anonymous_properties.get(&receiver) {
+        // getPropertiesOfType preserves the complete captured property order,
+        // including original literals as well as instantiated object images.
+        if let Some((properties, _)) = self.anonymous_properties.get(&receiver) {
             return properties.iter().map(|property| property.name.clone()).collect();
         }
         let Some(symbol) = self.owning_symbol_of(receiver) else { return Vec::new() };

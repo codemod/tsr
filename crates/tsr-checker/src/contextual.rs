@@ -323,6 +323,19 @@ impl<'a> Checker<'a, '_> {
         }
         let asking_for_rest = own_rest == Some(index);
 
+        // Contextually checked parameter types survive later inference reads
+        // (assignContextualParameterTypes, checker.go). Pattern parameters have
+        // no binder symbol here, so recover their stored type from the checked
+        // function signature instead of recomputing a consumed context.
+        if let Some(signature) =
+            self.node_types.get(&function).and_then(|ty| self.signature_types.get(ty)).and_then(
+                |signatures| signatures.iter().find(|signature| signature.declaration == function),
+            )
+            && let Some(parameter) = signature.parameters.get(index)
+            && parameter.r#type != self.intrinsics.error
+        {
+            return Some(parameter.r#type);
+        }
         let signature = self.contextual_signature(function)?;
         // getContextuallyTypedParameterType delegates both ordinary and rest
         // positions to the effective signature (internal/checker/checker.go).
@@ -1848,6 +1861,8 @@ impl<'a> Checker<'a, '_> {
             // with `unknown`. Only the freshness query asks for it, and it asks
             // through `contextual_prefers_uninstantiated`.
             if self.contextual_prefers_uninstantiated
+                || (call.type_arguments.is_empty()
+                    && self.mapped_types.contains_key(&parameter_type))
                 || self
                     .uninstantiated_context_node
                     .is_some_and(|node| call.arguments[index].node_id() == Some(node))

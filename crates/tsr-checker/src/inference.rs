@@ -1432,6 +1432,12 @@ impl Checker<'_, '_> {
                 }
                 let mut memo = signature.clone();
                 for parameter in &mut memo.parameters {
+                    // instantiateContextualType does not instantiate mapped
+                    // object contexts. Their key-specific templates are read
+                    // before the member mapper fixes the referenced variables.
+                    if self.mapped_types.contains_key(&parameter.r#type) {
+                        continue;
+                    }
                     let image =
                         self.instantiate_type(parameter.r#type, &partial, &parameters, &names);
 
@@ -3157,12 +3163,7 @@ impl Checker<'_, '_> {
             self.global_type_symbol(name)
                 .map(|array| self.create_type_reference(array, vec![element]))
         } else {
-            // resolveReverseMappedTypeMembers preserves the source's property
-            // order. Captured literal members precede binder table iteration.
-            let names = self.anonymous_properties.get(&source).map(|(properties, _)| {
-                properties.iter().map(|property| property.name.clone()).collect::<Vec<_>>()
-            });
-            let names = names.unwrap_or_else(|| self.property_names_of(source));
+            let names = self.property_names_of(source);
             let index = self.get_index_infos_of_type(source).and_then(|infos| {
                 infos.into_iter().find(|info| info.key == self.intrinsics.string)
             });
@@ -4664,6 +4665,9 @@ impl Checker<'_, '_> {
             }
             return rebuilt;
         }
+        if self.mapped_types.contains_key(&id) {
+            return self.instantiate_mapped_type(id, map, parameters, names);
+        }
         if let TypeData::Union { types, .. } = &self.store.get(id).data {
             let types = types.clone();
             let mut substituted = Vec::with_capacity(types.len());
@@ -5315,6 +5319,10 @@ impl Checker<'_, '_> {
             return arguments
                 .iter()
                 .any(|&ty| self.mentions_type_parameter_inner(ty, parameters, names, visited));
+        }
+        if let Some(info) = self.mapped_types.get(&id) {
+            return self.mentions_type_parameter_inner(info.constraint, parameters, names, visited)
+                || self.mentions_type_parameter_inner(info.template, parameters, names, visited);
         }
         if let Some(signatures) = self.signature_types.get(&id) {
             if signatures.iter().any(|signature| {

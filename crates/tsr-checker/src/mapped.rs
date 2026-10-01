@@ -5,6 +5,7 @@ use tsr_binder::{SymbolFlags, SymbolId};
 
 #[derive(Clone, Debug)]
 pub(crate) struct MappedTypeInfo {
+    pub(crate) declaration: tsr_ast::NodeId,
     pub(crate) parameter: TypeId,
     pub(crate) constraint: TypeId,
     pub(crate) constraint_intersection: Option<Vec<TypeId>>,
@@ -24,6 +25,16 @@ impl<'a> Checker<'a, '_> {
         node: &'a tsr_ast::MappedTypeNode<'a>,
     ) -> Option<TypeId> {
         let info = self.mapped_type_info(node)?;
+        let text = self.mapped_type_text(&info)?;
+        let ty = self.store.new_named(crate::flags::TypeFlags::OBJECT, text, None);
+        self.mapped_types.insert(ty, info);
+        Some(ty)
+    }
+
+    fn mapped_type_text(&self, info: &MappedTypeInfo) -> Option<String> {
+        let Some(Node::MappedTypeNode(node)) = self.node_map.get(info.declaration) else {
+            return None;
+        };
         let name = node.type_parameter?.name?.text;
         // The node builder preserves the top-level keyof operator even
         // when resolving its operand would produce a concrete key union.
@@ -55,10 +66,7 @@ impl<'a> Checker<'a, '_> {
             Some(SyntaxKind::MinusToken) => "-?",
             _ => return None,
         };
-        let text = format!("{{ {readonly}[{name} in {constraint}]{optional}: {template}; }}");
-        let ty = self.store.new_named(crate::flags::TypeFlags::OBJECT, text, None);
-        self.mapped_types.insert(ty, info);
-        Some(ty)
+        Some(format!("{{ {readonly}[{name} in {constraint}]{optional}: {template}; }}"))
     }
 
     /// getIndexedMappedTypeSubstitutedTypeOfContextualType
@@ -233,6 +241,7 @@ impl<'a> Checker<'a, '_> {
             return None;
         }
         Some(MappedTypeInfo {
+            declaration: node.node_id?,
             parameter: parameter_type,
             constraint,
             constraint_intersection,
@@ -430,6 +439,107 @@ impl<'a> Checker<'a, '_> {
         self.object_literal_index_infos.insert(id, indexes);
     }
 
+    /// getObjectTypeInstantiation/instantiateMappedType (checker.go). Map
+    /// captured constraint and template identities for an anonymous mapped type.
+    pub(crate) fn instantiate_mapped_type(
+        &mut self,
+        id: TypeId,
+        map: &[(TypeId, TypeId)],
+        parameters: &[TypeId],
+        names: &[&str],
+    ) -> TypeId {
+        let key = (id, map.to_vec());
+        if let Some(&cached) = self.instantiated_objects.get(&key) {
+            return cached;
+        }
+        self.instantiated_objects.insert(key.clone(), self.intrinsics.error);
+        let result = self.instantiate_mapped_type_worker(id, map, parameters, names);
+        self.instantiated_objects.insert(key, result);
+        result
+    }
+
+    fn instantiate_mapped_type_worker(
+        &mut self,
+        id: TypeId,
+        map: &[(TypeId, TypeId)],
+        parameters: &[TypeId],
+        names: &[&str],
+    ) -> TypeId {
+        use crate::{flags::TypeFlags, objects::Member};
+        let Some(mut info) = self.mapped_types.get(&id).cloned() else {
+            return self.intrinsics.error;
+        };
+        let variable = self
+            .deferred_keyof_operands
+            .get(&info.constraint)
+            .copied()
+            .filter(|&ty| self.store.get(ty).flags.contains(TypeFlags::TYPE_PARAMETER));
+        let mapped_variable = variable.map(|ty| self.instantiate_type(ty, map, parameters, names));
+        if let Some(mapped) = mapped_variable
+            && self.store.get(mapped).flags.intersects(TypeFlags::PRIMITIVE | TypeFlags::NEVER)
+        {
+            return mapped;
+        }
+        info.constraint = self.instantiate_type(info.constraint, map, parameters, names);
+        info.template = self.instantiate_type(info.template, map, parameters, names);
+        info.modifiers_source = info
+            .modifiers_source
+            .map(|source| self.instantiate_type(source, map, parameters, names));
+        info.constraint_intersection = info.constraint_intersection.map(|types| {
+            types.into_iter().map(|ty| self.instantiate_type(ty, map, parameters, names)).collect()
+        });
+        if let (Some(variable), Some(mapped)) = (variable, mapped_variable)
+            && variable != mapped
+        {
+            info.homomorphic_symbol = self.type_parameter_symbols.get(&variable).copied();
+            let replace_source = |checker: &mut Self, source: TypeId| {
+                let mut map = map.to_vec();
+                map.retain(|&(parameter, _)| parameter != variable);
+                map.insert(0, (variable, source));
+                let mut parameters = parameters.to_vec();
+                if !parameters.contains(&variable) {
+                    parameters.push(variable);
+                }
+                checker.instantiate_type(id, &map, &parameters, names)
+            };
+            if let Some(sequence) = self.instantiate_mapped_sequence(&info, None, replace_source) {
+                return sequence;
+            }
+        }
+        if info.constraint == self.intrinsics.error || info.template == self.intrinsics.error {
+            return self.intrinsics.error;
+        }
+        let Some(text) = self.mapped_type_text(&info) else { return self.intrinsics.error };
+        let mapped = self.store.new_named(TypeFlags::OBJECT, text, None);
+        self.mapped_types.insert(mapped, info.clone());
+        self.resolve_mapped_type_members(mapped);
+        let Some((properties, _)) = self.anonymous_properties.get(&mapped).cloned() else {
+            return mapped;
+        };
+        let indexes = self.object_literal_index_infos.get(&mapped).cloned().unwrap_or_default();
+        let mut members: Vec<_> = indexes
+            .iter()
+            .map(|index| Member::Index {
+                readonly: info.readonly == Some(true),
+                name: "x".to_string(),
+                key: self.type_to_string(index.key),
+                value: self.type_to_string(index.value),
+            })
+            .collect();
+        members.extend(properties.iter().map(|property| Member::Property {
+            name: property.printed_name.clone(),
+            optional: property.optional,
+            readonly: property.readonly,
+            printed: property.printed_type.clone(),
+        }));
+        let text = crate::objects::render_object_type(&members);
+        let result = self.store.new_named(TypeFlags::OBJECT, text, None);
+        self.mapped_types.insert(result, info);
+        self.anonymous_properties.insert(result, (properties, true));
+        self.object_literal_index_infos.insert(result, indexes);
+        result
+    }
+
     /// instantiateMappedArrayType/instantiateMappedTupleType
     /// (checker.go:22585). Homomorphic aliases transform sequence elements
     /// before resolving ordinary object members.
@@ -439,13 +549,8 @@ impl<'a> Checker<'a, '_> {
         symbol: SymbolId,
         arguments: &[TypeId],
     ) -> Option<TypeId> {
-        use crate::{flags::TypeFlags, tuples::TupleElement, types::TypeData};
         let info = self.mapped_types.get(&id)?.clone();
-        let source = info.modifiers_source?;
         let parameter = info.homomorphic_symbol?;
-        if self.store.get(source).flags.intersects(TypeFlags::PRIMITIVE | TypeFlags::NEVER) {
-            return Some(source);
-        }
         let declaration = self.binder.symbols().get(symbol).declarations.first().copied()?;
         let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration) else {
             return None;
@@ -459,6 +564,23 @@ impl<'a> Checker<'a, '_> {
             arguments[slot] = source;
             checker.create_type_reference(symbol, arguments)
         };
+        self.instantiate_mapped_sequence(&info, Some(id), replace_source)
+    }
+
+    fn instantiate_mapped_sequence(
+        &mut self,
+        info: &MappedTypeInfo,
+        alias: Option<TypeId>,
+        mut replace_source: impl FnMut(&mut Self, TypeId) -> TypeId,
+    ) -> Option<TypeId> {
+        use crate::{flags::TypeFlags, tuples::TupleElement, types::TypeData};
+        let source = info.modifiers_source?;
+        let parameter = info.homomorphic_symbol?;
+        if self.store.get(source).flags.intersects(TypeFlags::PRIMITIVE | TypeFlags::NEVER)
+            || self.is_error(source)
+        {
+            return Some(source);
+        }
         if let TypeData::Union { types, .. } = &self.store.get(source).data {
             let types = types.clone();
             let mapped: Vec<_> = types.into_iter().map(|ty| replace_source(self, ty)).collect();
@@ -468,8 +590,12 @@ impl<'a> Checker<'a, '_> {
             }
             // mapTypeWithAlias retains the mapped alias and its arguments
             // on a distributed union, while exposing its constituents.
-            let alias_text = self.type_to_string(id);
-            return Some(self.union_with_origin_text(union, alias_text));
+            return Some(if let Some(alias) = alias {
+                let alias_text = self.type_to_string(alias);
+                self.union_with_origin_text(union, alias_text)
+            } else {
+                union
+            });
         }
         if let TypeData::Intersection { types, .. } = &self.store.get(source).data {
             let types = types.clone();
@@ -506,7 +632,7 @@ impl<'a> Checker<'a, '_> {
                         TypeData::StringLiteral(index.to_string()),
                         false,
                     );
-                    element.r#type = self.instantiate_mapped_template(&info, key, element.optional);
+                    element.r#type = self.instantiate_mapped_template(info, key, element.optional);
                 } else if element.spread {
                     element.r#type = replace_source(self, element.r#type);
                 } else {
@@ -551,7 +677,7 @@ impl<'a> Checker<'a, '_> {
             || (!self.store.get(source).flags.contains(TypeFlags::ANY)
                 && self.tuple_spread_array_element(source).is_some())
         {
-            let element = self.instantiate_mapped_template(&info, self.intrinsics.number, true);
+            let element = self.instantiate_mapped_template(info, self.intrinsics.number, true);
             if element == self.intrinsics.error {
                 return Some(element);
             }

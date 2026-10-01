@@ -24,23 +24,23 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-10-01
 
-Measured on **`996bb885`**: **451,056/478,855 assertions (94.19%)**,
-**6,648/9,538 complete cases (69.70%)**. The95% target requires
-454,913 correct assertions; **3,857 remain**. Denominator and pinned oracle
-unchanged. Aligned verdicts: **474,243 total;451,056 right;3,768 gap;19,419 wrong**.
+Measured on **`CODE_CHECKPOINT`**: **451,117/478,855 assertions (94.21%)**,
+**6,652/9,538 complete cases (69.74%)**. The95% target requires
+454,913 correct assertions; **3,796 remain**. Denominator and pinned oracle
+unchanged. Aligned verdicts: **474,243 total;451,117 right;3,719 gap;19,407 wrong**.
 Binder retains the preceding verified **8,497/8,497 (100%)**;
 other suites below retain historical measurements.
 
-This unit adds **78 matching assertions**, with **zero RIGHT losses** relative
-to48e1e6d4:47 WRONG→RIGHT,31 GAP→RIGHT,9 GAP→WRONG and21 changed wrong answers.
+This unit adds **61 matching assertions**, with **zero RIGHT losses** relative
+to996bb885:31 WRONG→RIGHT,30 GAP→RIGHT,19 GAP→WRONG and37 changed wrong answers.
 Release workspace tests,clippy with warnings denied,all **3,366 upstream anchors**,
 format,snapshot and whitespace checks pass.
-[Inline mapped templates](docs/architecture/checker-95-inline-mapped-templates.md)
-records semantic construction,mutable-to-readonly array comparison and reverse
-mapped source ordering. Pinned controls pass. General mapped instantiation,
-callback fallback contexts,anonymous mapped display and key remapping remain.
-The95% goal remains unfinished; verified changes commit and push to main.
-An earlier progress update rounded this checkpoint to94.20%;94.19% is correct.
+[Anonymous mapped instantiation](docs/architecture/checker-95-anonymous-mapped-instantiation.md)
+records shared sequence transformations,semantic member reconstruction,mapped
+context preservation,checked callback parameter reuse and captured property order.
+Pinned controls pass. Callback fallback contexts,key remapping,readonly propagation
+and recursive mapped boundaries remain. The95% goal remains unfinished;
+verified changes commit and push to main.
 
 ### Previous whole-suite measurement — historical
 
@@ -1089,6 +1089,12 @@ Per-crate, by what the conformance suites actually assert — not by what exists
 
 ### Inside the checker — what has an arm
 
+Anonymous mapped instantiation now shares homomorphic sequence transformations,
+substitutes captured constraints/templates and materializes concrete member
+shapes. Mapped contexts remain generic during inference; completed callback
+signatures supply later parameter reads. See the
+[measured unit](docs/architecture/checker-95-anonymous-mapped-instantiation.md).
+
 Landed across the three sessions to date, newest first:
 
 | commit | what | net |
@@ -1142,7 +1148,7 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-### Current priorities at `996bb885` — 2026-10-01
+### Current priorities at `CODE_CHECKPOINT` — 2026-10-01
 
 Assignment property symbols now collect binary/descriptor values with readonly
 checks and CommonJS default precedence. Object-literal member docs reach the
@@ -1162,7 +1168,10 @@ intersection matching,readonly index metadata,instantiated heritage and recursiv
 callbacks remain (tsr-6.25,tsr-6.9,tsr-6.1). Inline mapped templates now fall back to
 semantic construction; reverse inference preserves captured source order, and
 mutable arrays compare with readonly arrays through their numeric elements.
-Anonymous mapped instantiation/display and key remapping remain (tsr-6.9).
+Anonymous mapped objects now instantiate captured templates and share sequence
+transformations with aliases. Mapped contexts stay generic during inference and
+checked callback parameter types survive later binding reads. Key remapping,
+fallback contexts,readonly propagation and recursive mapping remain (tsr-6.9).
 
 Const type-variable contexts now follow semantic parameter/union/indexed/mapped/
 variadic identities and deferred conditional constraints. Generic mapped property
@@ -3762,6 +3771,15 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+### Anonymous mapped instantiation at `CODE_CHECKPOINT`
+
+Initial substitution lost11 RIGHT assertions. Native mapped context preservation
+and checked-parameter reuse recover all11. Final:+61 matches,zero RIGHT losses,
+19 GAP→WRONG and37 changed wrong answers. Newly exposed wrong rows concern
+primitive mapped members,const readonly propagation,nested destructuring and
+conditional display. Unknown callback fallback and recursive mapping remain open.
+[Evidence and boundaries](docs/architecture/checker-95-anonymous-mapped-instantiation.md).
 
 ### Inline mapped templates at `996bb885`
 
@@ -9527,6 +9545,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
+| 2026-10-01 | `CODE_CHECKPOINT` | **69.74%** | **6,652** | **451,117/478,855 assertions (94.21%).** +61 since996bb885,zero RIGHT losses;19 G→W,37 changed wrong. Anonymous mapped instantiation,context preservation,checked parameter reuse and captured order. Pinned controls;release tests/clippy;3,366 anchors;checker snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-anonymous-mapped-instantiation.md).3,796 remain;95% unfinished. |
 | 2026-10-01 | `996bb885` | **69.70%** | **6,648** | **451,056/478,855 assertions (94.19%).** +78 since48e1e6d4,zero RIGHT losses;9 G→W,21 changed wrong. Inline mapped semantic construction,array-to-readonly relation and reverse mapped source order. Pinned controls;release tests/clippy;3,366 anchors;checker snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-inline-mapped-templates.md).3,857 remain;95% unfinished. |
 | 2026-10-01 | `48e1e6d4` | **69.66%** | **6,644** | **450,978/478,855 assertions (94.18%).** +159 since abff3df6,zero RIGHT losses;31 G→W,28 changed wrong,3 W→G. Structured intersection inference,partial object sources and intersection substitution. Pinned controls;release tests/clippy;3,366 anchors;checker snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-intersection-inference.md).3,935 remain;95% unfinished. |
 | 2026-10-01 | `abff3df6` | **69.61%** | **6,639** | **450,819/478,855 assertions (94.15%).** +62 since6837bbf9,zero RIGHT losses/no new G→W;one changed wrong. Distinct empty-array identities,assignment/JS initializer recovery,non-strict array widening. Pinned controls;release tests/clippy;3,366 anchors;checker snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-empty-array-inference.md).4,094 remain;95% unfinished. |
