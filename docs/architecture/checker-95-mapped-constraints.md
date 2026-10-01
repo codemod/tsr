@@ -21,7 +21,7 @@ in that filter without inferring their types from rendered spellings.
 
 ## Accepted measurement and limits
 
-Checkpoint CONSTRAINT_COMMIT: 448,493/478,855 correct assertions (93.66%),
+Checkpoint 2e3ef200: 448,493/478,855 correct assertions (93.66%),
 6,572/9,538 complete cases (68.90%). Another 6,420 assertions are needed for 95%.
 Aligned verdicts: 474,243 total; 448,493 right; 4,466 gap; 21,284 wrong.
 Against e4fde75a: 4 WRONG→RIGHT and 13 GAP→RIGHT, zero RIGHT losses;
