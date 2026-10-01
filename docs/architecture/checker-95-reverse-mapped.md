@@ -15,7 +15,7 @@ deferred conditional templates infer through their true/false branches.
 
 ## Accepted measurement and limits
 
-Checkpoint `MAPPED_CHECKPOINT`:448,323/478,855 correct assertions (93.62%),
+Checkpoint `502930b6`:448,323/478,855 correct assertions (93.62%),
 6,568/9,538 complete cases (68.86%). Another 6,590 assertions are needed for95%.
 Aligned verdicts:474,243 total;448,323 right;4,547 gap;21,373 wrong. Against659f9303:
 82 WRONG→RIGHT,48 GAP→RIGHT,zero RIGHT losses;31 GAP→WRONG and2 WRONG→GAP.
