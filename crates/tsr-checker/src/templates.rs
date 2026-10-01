@@ -180,7 +180,7 @@ impl Checker<'_, '_> {
         }
         true
     }
-    fn is_pattern_template(&self, id: TypeId) -> bool {
+    pub(crate) fn is_pattern_template(&self, id: TypeId) -> bool {
         if let Some((_, target)) = self.string_mapping_types.get(&id) {
             return self.is_pattern_template_placeholder(*target);
         }

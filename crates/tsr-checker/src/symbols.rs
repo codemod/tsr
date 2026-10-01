@@ -3024,7 +3024,14 @@ impl<'a> Checker<'a, '_> {
                     _ => Some(self.get_intersection_type(&hits, None)),
                 }
             }
-            _ => self.get_type_of_property_of_type(t, name),
+            _ => self.get_type_of_property_of_type(t, name).or_else(|| {
+                let key = self.store.intern_literal(
+                    crate::flags::TypeFlags::STRING_LITERAL,
+                    crate::types::TypeData::StringLiteral(name.to_owned()),
+                    false,
+                );
+                self.get_applicable_index_info(t, key).map(|info| info.value)
+            }),
         }
     }
 

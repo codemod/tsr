@@ -26,20 +26,6 @@
 //! - **`noUncheckedIndexedAccess`.** An index signature does not make a property
 //!   optional and does not add `| undefined`; that is a compiler option this port
 //!   does not read (`bd tsr-y5a`). The two are deliberately not blended.
-//! - **Applicability by assignability.** Upstream asks `isTypeAssignableTo`, and
-//!   there is no relation here. The key shapes this port can *produce* are
-//!   decided structurally instead — see [`Checker::is_applicable_index_type`] —
-//!   and any other key is a gap rather than a guess.
-//! - **Merging several applicable signatures** into a synthetic `IndexInfo` over
-//!   the intersection of their value types (`findApplicableIndexInfo`'s
-//!   `default` arm). Two applicable signatures is a gap. **The base-type walk
-//!   did not make this fall out for free**, and it is worth saying why rather
-//!   than letting the absence pass: inheritance layers by *key type* and
-//!   shadows on collision (`checker.go:19149`), so it can never hand
-//!   `findApplicableIndexInfo` two signatures with the same key. The two
-//!   applicable signatures that need merging come from one type declaring both
-//!   `[k: string]` and `[k: number]`, which was already reachable before the
-//!   walk existed. Untouched, still gapped.
 //! - Index signatures on a **class** and on a mapped type.
 //!
 //! **Inherited** index signatures *are* ported — see
@@ -60,8 +46,7 @@ use crate::{
 /// consulted by assignment checking, which does not exist here.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct IndexInfo {
-    /// `keyType` — `stringType` or `numberType`. Upstream permits `symbol` and
-    /// pattern literal keys too; both are gaps here.
+    /// `keyType` — a valid primitive, pattern or nongeneric intersection key.
     pub key: TypeId,
     /// `valueType`, what an applicable access yields.
     pub value: TypeId,
@@ -260,11 +245,13 @@ impl<'a> Checker<'a, '_> {
             // A class member is a `ClassElement`, not a `TypeElement`, so the
             // arm is separate rather than another line in the match. The
             // *element* is the only difference; the info is built by the same
-            // `index_info_of`, which the AST makes possible because both
+            // `index_infos_of_declaration`, which the AST makes possible because both
             // carriers wrap the identical `IndexSignatureDeclaration` node.
             let mut push_from = |checker: &mut Self, signature| {
-                if let Some(info) = checker.index_info_of(signature) {
-                    infos.push(info);
+                for info in checker.index_infos_of_declaration(signature) {
+                    if !infos.iter().any(|own: &IndexInfo| own.key == info.key) {
+                        infos.push(info);
+                    }
                 }
             };
             match self.node_map.get(declaration) {
@@ -308,21 +295,47 @@ impl<'a> Checker<'a, '_> {
         Some(infos)
     }
 
-    /// One `[k: K]: V` member, or `None` when either half is a gap.
-    fn index_info_of(
+    /// getIndexInfosOfIndexSymbol splits union keys and retains each valid
+    /// primitive, pattern or nongeneric intersection key (checker.go).
+    fn index_infos_of_declaration(
         &mut self,
         signature: &tsr_ast::IndexSignatureDeclaration<'a>,
-    ) -> Option<IndexInfo> {
-        let [parameter] = signature.parameters else { return None };
-        let key = self.get_type_from_type_node(parameter.r#type?);
-        let value = self.get_type_from_type_node(signature.r#type?);
-        // Upstream permits a `symbol` key and pattern literal keys; this port
-        // answers only the two the corpus is overwhelmingly made of, because
-        // applicability for the others needs the relation.
-        if key != self.intrinsics.string && key != self.intrinsics.number {
-            return None;
+    ) -> Vec<IndexInfo> {
+        let [parameter] = signature.parameters else { return Vec::new() };
+        let (Some(key), Some(value)) = (parameter.r#type, signature.r#type) else {
+            return Vec::new();
+        };
+        let key = self.get_type_from_type_node(key);
+        let value = self.get_type_from_type_node(value);
+        if value == self.intrinsics.error {
+            return Vec::new();
         }
-        (value != self.intrinsics.error).then_some(IndexInfo { key, value })
+        let keys = match &self.store.get(key).data {
+            TypeData::Union { types, .. } => types.clone(),
+            _ => vec![key],
+        };
+        keys.into_iter()
+            .filter(|&key| self.is_valid_index_key_type(key))
+            .map(|key| IndexInfo { key, value })
+            .collect()
+    }
+
+    /// isValidIndexKeyType (checker.go:19787), using existing pattern metadata.
+    fn is_valid_index_key_type(&mut self, key: TypeId) -> bool {
+        if self.store.get(key).flags.intersects(
+            crate::flags::TypeFlags::STRING
+                | crate::flags::TypeFlags::NUMBER
+                | crate::flags::TypeFlags::ES_SYMBOL,
+        ) || self.is_pattern_template(key)
+        {
+            return true;
+        }
+        if let TypeData::Intersection { types, .. } = &self.store.get(key).data {
+            let types = types.clone();
+            return !self.signature_parameter_type_is_generic(key)
+                && types.iter().any(|&key| self.is_valid_index_key_type(key));
+        }
+        false
     }
 
     /// One `[k: K]: V` member rendered for printing, or `None` when it is a gap.
@@ -354,7 +367,7 @@ impl<'a> Checker<'a, '_> {
         // §32 (`checker-notes-callres.md`): any computable NON-UNION key
         // prints as written; a union key is upstream TWO infos
         // (`getIndexInfosOfIndexSymbol` splits it), so it still declines.
-        // The LOOKUP gate (`index_info_of`) deliberately stays narrower —
+        // The LOOKUP gate (`index_infos_of_declaration`) deliberately stays narrower —
         // a print the lookup cannot serve gaps the access, never wrongs it.
         if key == self.intrinsics.error
             || self.store.get(key).flags.intersects(crate::flags::TypeFlags::UNION)
@@ -391,16 +404,6 @@ impl<'a> Checker<'a, '_> {
         })
     }
 
-    /// The index signature that applies to `key`, if exactly one does.
-    ///
-    /// Ported from `findApplicableIndexInfo` (`checker.go:19019`), including its
-    /// precedence rule: **a `string` index signature is considered only when no
-    /// other one applies**, so `{ [k: string]: A; [k: number]: B }` answers a
-    /// numeric access with `B`.
-    ///
-    /// Upstream's `default` arm merges several applicable signatures into a
-    /// synthetic `IndexInfo` over the intersection of their value types. That
-    /// needs intersections, so two applicable signatures is a gap here.
     /// The `Record<K, V>` index signature, for `K` exactly `string` or
     /// `number`. §785 — see the call site in
     /// [`Checker::get_index_infos_of_type`] for why this alias alone is
@@ -419,16 +422,24 @@ impl<'a> Checker<'a, '_> {
             .then_some(IndexInfo { key, value: arguments[1] })
     }
 
+    /// findApplicableIndexInfo: string is the fallback when no other key
+    /// applies; overlapping applicable signatures intersect their values.
     pub(crate) fn get_applicable_index_info(
         &mut self,
         id: TypeId,
         key: TypeId,
     ) -> Option<IndexInfo> {
+        // getPropertyTypeForIndexType excludes nullable keys before invoking
+        // this lookup, even when non-strict assignability admits them.
+        if self.store.get(key).flags.intersects(crate::flags::TypeFlags::NULLABLE) {
+            return None;
+        }
         let infos = self.get_index_infos_of_type(id)?;
-        let string_info = infos.iter().find(|info| info.key == self.intrinsics.string).copied();
+        let string = self.intrinsics.string;
+        let string_info = infos.iter().find(|info| info.key == string).copied();
         let applicable: Vec<IndexInfo> = infos
             .iter()
-            .filter(|info| info.key != self.intrinsics.string)
+            .filter(|info| info.key != string)
             .filter(|info| self.is_applicable_index_type(key, info.key))
             .copied()
             .collect();
@@ -437,56 +448,32 @@ impl<'a> Checker<'a, '_> {
                 string_info.filter(|_| self.is_applicable_index_type(key, self.intrinsics.string))
             }
             [info] => Some(*info),
-            _ => None,
+            _ => Some(IndexInfo {
+                key: self.intrinsics.unknown,
+                value: self.get_intersection_type(
+                    &applicable.iter().map(|info| info.value).collect::<Vec<_>>(),
+                    None,
+                ),
+            }),
         }
     }
 
-    /// Ported from `isApplicableIndexType` (`checker.go:19040`), decided
-    /// structurally because there is no assignability relation here.
-    ///
-    /// Upstream asks `isTypeAssignableTo(source, target)` and then adds two
-    /// special cases. For the key shapes this port can produce — the `string` and
-    /// `number` intrinsics and their literal types — assignability is decidable
-    /// by inspection, and **every other key is a gap**: `None` from the caller
-    /// rather than a guess, because a wrong index type yields a confident wrong
-    /// value type.
-    fn is_applicable_index_type(&self, source: TypeId, target: TypeId) -> bool {
-        let (string, number) = (self.intrinsics.string, self.intrinsics.number);
-        // §567: a NUMERIC ENUM MEMBER is number-like. Upstream's enum member
-        // type carries `NumberLiteral | EnumLiteral` together
-        // (`checker.go`'s `getFreshTypeOfLiteralType` chain), so
-        // `isTypeAssignableTo(E.A, numberType)` holds and `E[E.A]` reads the
-        // reverse-mapping signature §262 synthesised. This port mints an enum
-        // member as its own `TypeFlags::ENUM` type, so the literal test above
-        // could not see it and `E[E.A]` gapped while the identical `E[0]`
-        // answered `string`.
-        // §694: `isApplicableIndexType` opens with
-        // `isTypeAssignableTo(source, target)` (`checker.go:19057`), and `any`
-        // is assignable to everything — so an `any`-typed key reads whichever
-        // index signature the type has. `bar[id]++` on
-        // `{ [id: string]: number }` with `id` used before its declaration
-        // (`typeGuardNarrowsIndexedAccessOfKnownProperty10`) records `number`;
-        // the structural tests below could not see it because `any` is neither
-        // a literal nor `string`/`number`.
-        if self.store.get(source).flags.intersects(crate::TypeFlags::ANY) {
+    /// isApplicableIndexType (checker.go:19054). Unknown structural relations
+    /// cannot prove applicability; numeric names retain the upstream exception.
+    fn is_applicable_index_type(&mut self, source: TypeId, target: TypeId) -> bool {
+        use crate::relater::{Relation, Ternary};
+        if self.relate_ternary(source, target, Relation::Assignable) == Ternary::Related {
             return true;
         }
-        let source_is_number = source == number
-            || matches!(self.store.get(source).data, TypeData::NumberLiteral(_))
-            || self.store.get(source).flags.contains(crate::TypeFlags::ENUM);
-        let source_is_string =
-            source == string || matches!(self.store.get(source).data, TypeData::StringLiteral(_));
-        if target == string {
-            // *"A `string` index signature applies to types assignable to
-            // `string` **or `number`**"* — the half that is easy to drop, and
-            // dropping it loses every `a[0]` on a string-indexed type.
-            return source_is_string || source_is_number;
+        if target == self.intrinsics.string {
+            return self.relate_ternary(source, self.intrinsics.number, Relation::Assignable)
+                == Ternary::Related;
         }
-        if target == number {
-            // The reverse does **not** hold: a `number` index signature never
-            // applies to a `string` key. It does apply to a string *literal*
-            // that spells a number, which is upstream's `isNumericLiteralName`.
-            if source_is_number {
+        if target == self.intrinsics.number {
+            if self.template_literal_parts.get(&source).is_some_and(|parts| {
+                parts.types.as_slice() == [self.intrinsics.number]
+                    && parts.texts.iter().all(String::is_empty)
+            }) {
                 return true;
             }
             return match &self.store.get(source).data {

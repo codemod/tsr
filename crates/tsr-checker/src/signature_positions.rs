@@ -18,7 +18,7 @@ impl Checker<'_, '_> {
         self.signature_parameter_type_is_generic(t)
     }
 
-    fn signature_parameter_type_is_generic(&mut self, t: TypeId) -> bool {
+    pub(crate) fn signature_parameter_type_is_generic(&mut self, t: TypeId) -> bool {
         let flags = self.store.get(t).flags;
         if flags.intersects(
             TypeFlags::TYPE_PARAMETER
