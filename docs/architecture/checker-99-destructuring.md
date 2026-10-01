@@ -84,7 +84,7 @@ No assertion denominator or expected native baseline was changed.
 
 ## Verified checkpoint
 
-At UNIT_CODE_CHECKPOINT the full aligned comparison records 452,875 RIGHT,
+At ced80f1f the full aligned comparison records 452,875 RIGHT,
 3,297 GAP and 18,071 WRONG among 474,243 aligned assertions. This is +113
 versus 87402686: 100 WRONG-to-RIGHT, 13 GAP-to-RIGHT, zero RIGHT losses,
 six GAP-to-WRONG and 11 changed wrong answers. The six newly answered wrong
