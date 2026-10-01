@@ -854,6 +854,7 @@ pub struct Checker<'a, 'n> {
     pub(crate) mapped_conditional_branches: FxHashMap<TypeId, (TypeId, TypeId)>,
     pub(crate) mapped_alias_in_progress: rustc_hash::FxHashSet<SymbolId>,
     pub(crate) mapped_members_in_progress: rustc_hash::FxHashSet<TypeId>,
+    pub(crate) mapped_apparent_types: FxHashMap<TypeId, TypeId>,
     pub(crate) type_parameter_constraint_cache:
         FxHashMap<crate::members::TypeParameterConstraintKey, Option<TypeId>>,
     pub(crate) reverse_mapped_cache: FxHashMap<(TypeId, TypeId), Option<TypeId>>,
@@ -1235,6 +1236,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             mapped_conditional_branches: FxHashMap::default(),
             mapped_alias_in_progress: rustc_hash::FxHashSet::default(),
             mapped_members_in_progress: rustc_hash::FxHashSet::default(),
+            mapped_apparent_types: FxHashMap::default(),
             type_parameter_constraint_cache: FxHashMap::default(),
             reverse_mapped_cache: FxHashMap::default(),
             reverse_mapped_member_cache: FxHashMap::default(),

@@ -2828,7 +2828,7 @@ impl<'a> Checker<'a, '_> {
 
     /// A mapped alias reference whose normalization may remove the enclosing
     /// alias identity. Other alias bodies keep their existing resolution path.
-    fn identity_mapped_alias_reference_body(&mut self, symbol: SymbolId) -> Option<TypeNode<'a>> {
+    fn mapped_alias_reference_body(&mut self, symbol: SymbolId) -> Option<TypeNode<'a>> {
         if !self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_ALIAS) {
             return None;
         }
@@ -2840,7 +2840,20 @@ impl<'a> Checker<'a, '_> {
             return None;
         };
         let mapped = self.resolve_entity_name(reference.type_name?, SymbolFlags::TYPE)?;
-        self.identity_mapped_alias_node(mapped).map(|_| body)
+        let declaration = self.binder.symbols().get(mapped).declarations.first().copied()?;
+        let Some(Node::TypeAliasDeclaration(target)) = self.node_map.get(declaration) else {
+            return None;
+        };
+        let Some(TypeNode::MappedTypeNode(mapped)) = target.r#type else { return None };
+        if mapped.name_type.is_some() {
+            return None;
+        }
+        let Some(TypeNode::TypeOperatorNode(constraint)) =
+            mapped.type_parameter.and_then(|parameter| parameter.constraint)
+        else {
+            return None;
+        };
+        (constraint.operator.kind == SyntaxKind::KeyOfKeyword).then_some(body)
     }
 
     fn is_normalized_mapped_sequence(&mut self, resolved: TypeId) -> bool {
@@ -2859,7 +2872,7 @@ impl<'a> Checker<'a, '_> {
         symbol: SymbolId,
         arguments: &[TypeId],
     ) -> Option<TypeId> {
-        let body = self.identity_mapped_alias_reference_body(symbol)?;
+        let body = self.mapped_alias_reference_body(symbol)?;
         if !self.variadic_alias_in_progress.insert(symbol) {
             return None;
         }
@@ -2908,6 +2921,7 @@ impl<'a> Checker<'a, '_> {
                 mapped.readonly_token.map(|token| !matches!(token.kind, SyntaxKind::MinusToken));
             if self.store.get(arguments[0]).flags.contains(TypeFlags::TYPE_PARAMETER)
                 || self.mapped_identity_sources.contains_key(&arguments[0])
+                || self.is_generic_homomorphic_mapped_type(arguments[0])
             {
                 let key = (symbol, arguments.to_vec());
                 if let Some(&existing) = self.instantiations.get(&key) {
@@ -3409,7 +3423,21 @@ impl<'a> Checker<'a, '_> {
         // truncation belongs to the partially-written arm alone — it exists so
         // a written `Map<string>` does not grow an argument nobody typed, a
         // question a bare reference does not raise.
-        self.create_type_reference(symbol, arguments)
+        let result = self.create_type_reference(symbol, arguments);
+        // getTypeAliasInstantiation supplies the enclosing alias to
+        // mapTypeWithAlias. A distributed mapped union keeps that alias,
+        // unlike a normalized array/tuple which has its structural display.
+        if let crate::types::TypeData::Union { types, .. } = &self.store.get(result).data
+            && let Some(alias) = node.node_id.and_then(|id| self.alias_symbol_for_type_node(id))
+            && self.local_type_parameters_of(alias).is_empty()
+            && self.binder.symbols().get(symbol).declarations.first().copied()
+                .and_then(|id| self.node_map.get(id))
+                .is_some_and(|node| matches!(node, Node::TypeAliasDeclaration(alias) if matches!(alias.r#type,Some(TypeNode::MappedTypeNode(_)))))
+        {
+            let types = types.clone();
+            return self.get_named_union_type(&types,TypeFlags::empty(),alias);
+        }
+        result
     }
 
     /// A type reference whose name **does not resolve**, printed as the name
@@ -4144,6 +4172,10 @@ impl<'a> Checker<'a, '_> {
         // miss path only, so it is one insert per distinct reference.
         self.type_reference_targets.insert(id, (symbol, arguments.clone()));
         self.capture_mapped_alias(id, symbol, &arguments);
+        if let Some(mapped) = self.instantiate_mapped_alias_sequence(id, symbol, &arguments) {
+            self.instantiations.insert((symbol, arguments), mapped);
+            return mapped;
+        }
         id
     }
 
@@ -4735,7 +4767,7 @@ impl<'a> Checker<'a, '_> {
             // A homomorphic mapping that normalizes to an array or tuple
             // creates the normalized type without the enclosing alias identity
             // (instantiateMappedType -> createNormalizedTupleType, checker.go).
-            if let Some(body) = self.identity_mapped_alias_reference_body(symbol)
+            if let Some(body) = self.mapped_alias_reference_body(symbol)
                 && self.variadic_alias_in_progress.insert(symbol)
             {
                 let resolved = self.get_type_from_type_node(body);
@@ -5513,13 +5545,40 @@ impl<'a> Checker<'a, '_> {
         if target == self.intrinsics.error {
             return None;
         }
-        if self.store.get(target).flags.contains(TypeFlags::TYPE_PARAMETER) {
+        if self.store.get(target).flags.contains(TypeFlags::TYPE_PARAMETER)
+            || self.is_generic_homomorphic_mapped_type(target)
+        {
             let text = format!("keyof {}", self.type_to_string(target));
             let id = self.store.new_named(TypeFlags::INDEX, text, None);
             self.deferred_keyof_types.insert(id);
             self.deferred_keyof_operands.insert(id, target);
             self.deferred_index_mints.insert(id);
             return Some(id);
+        }
+        // getKnownKeysOfTupleType combines fixed positional string keys with
+        // the array target's property/index keys (checker.go).
+        let tuple = self
+            .tuple_element_lists
+            .get(&target)
+            .map(|(elements, readonly)| (elements.len(), *readonly))
+            .or_else(|| {
+                self.variadic_tuple_elements.get(&target).map(|(elements, readonly)| {
+                    (elements.iter().take_while(|element| !element.spread).count(), *readonly)
+                })
+            });
+        if let Some((fixed, readonly)) = tuple {
+            let array =
+                self.global_type_symbol(if readonly { "ReadonlyArray" } else { "Array" })?;
+            let array = self.create_type_reference(array, vec![self.intrinsics.never]);
+            let mut keys = vec![self.resolved_keyof_type(array)?];
+            keys.extend((0..fixed).map(|index| {
+                self.store.intern_literal(
+                    TypeFlags::STRING_LITERAL,
+                    crate::types::TypeData::StringLiteral(index.to_string()),
+                    false,
+                )
+            }));
+            return Some(self.get_union_type(&keys));
         }
         if self.store.get(target).flags.contains(TypeFlags::UNKNOWN) {
             return Some(self.intrinsics.never);

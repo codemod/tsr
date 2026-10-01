@@ -11,14 +11,29 @@ pub(crate) struct MappedTypeInfo {
     pub(crate) optionality: Option<bool>,
     pub(crate) readonly: Option<bool>,
     pub(crate) modifiers_source: Option<TypeId>,
+    pub(crate) homomorphic_symbol: Option<SymbolId>,
 }
 
 impl<'a> Checker<'a, '_> {
     /// isGenericMappedType plus getHomomorphicTypeVariable for tuple context.
     pub(crate) fn is_generic_homomorphic_mapped_type(&self, id: TypeId) -> bool {
+        self.is_generic_homomorphic_mapped_type_inner(id, &mut Vec::new())
+    }
+
+    fn is_generic_homomorphic_mapped_type_inner(
+        &self,
+        id: TypeId,
+        visited: &mut Vec<TypeId>,
+    ) -> bool {
+        if visited.contains(&id) {
+            return false;
+        }
+        visited.push(id);
         self.mapped_types.get(&id).is_some_and(|mapped| {
             self.deferred_keyof_operands.get(&mapped.constraint).is_some_and(|operand| {
                 self.store.get(*operand).flags.contains(crate::flags::TypeFlags::TYPE_PARAMETER)
+                    || (mapped.homomorphic_symbol.is_some()
+                        && self.is_generic_homomorphic_mapped_type_inner(*operand, visited))
             })
         })
     }
@@ -40,10 +55,22 @@ impl<'a> Checker<'a, '_> {
         let Some(constraint) = parameter.constraint else { return };
         let Some(template) = node.r#type else { return };
         let mut modifiers_source = None;
+        let mut homomorphic_symbol = None;
         let constraint = if let TypeNode::TypeOperatorNode(operator) = constraint
             && operator.operator.kind == SyntaxKind::KeyOfKeyword
             && let Some(operand) = operator.r#type
         {
+            if let TypeNode::TypeReferenceNode(reference) = operand {
+                homomorphic_symbol = reference.type_name.and_then(|name| {
+                    self.resolve_entity_name(name, SymbolFlags::TYPE).filter(|&symbol| {
+                        self.binder
+                            .symbols()
+                            .get(symbol)
+                            .flags
+                            .contains(SymbolFlags::TYPE_PARAMETER)
+                    })
+                });
+            }
             let operand = self.get_type_from_type_node(operand);
             modifiers_source = Some(operand);
             self.resolved_keyof_type(operand).unwrap_or(self.intrinsics.error)
@@ -66,6 +93,7 @@ impl<'a> Checker<'a, '_> {
                 optionality: node.question_token.map(|token| token.kind != SyntaxKind::MinusToken),
                 readonly: node.readonly_token.map(|token| token.kind != SyntaxKind::MinusToken),
                 modifiers_source,
+                homomorphic_symbol,
             },
         );
     }
@@ -226,5 +254,218 @@ impl<'a> Checker<'a, '_> {
         }
         self.anonymous_properties.insert(id, (properties, true));
         self.object_literal_index_infos.insert(id, indexes);
+    }
+
+    /// instantiateMappedArrayType/instantiateMappedTupleType
+    /// (checker.go:22585). Homomorphic aliases transform sequence elements
+    /// before resolving ordinary object members.
+    pub(crate) fn instantiate_mapped_alias_sequence(
+        &mut self,
+        id: TypeId,
+        symbol: SymbolId,
+        arguments: &[TypeId],
+    ) -> Option<TypeId> {
+        use crate::{flags::TypeFlags, tuples::TupleElement, types::TypeData};
+        let info = self.mapped_types.get(&id)?.clone();
+        let source = info.modifiers_source?;
+        let parameter = info.homomorphic_symbol?;
+        if self.store.get(source).flags.intersects(TypeFlags::PRIMITIVE | TypeFlags::NEVER) {
+            return Some(source);
+        }
+        let declaration = self.binder.symbols().get(symbol).declarations.first().copied()?;
+        let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration) else {
+            return None;
+        };
+        let slot = alias
+            .type_parameters
+            .iter()
+            .position(|p| p.node_id.and_then(|id| self.binder.symbol_of(id)) == Some(parameter))?;
+        let replace_source = |checker: &mut Self, source: TypeId| {
+            let mut arguments = arguments.to_vec();
+            arguments[slot] = source;
+            checker.create_type_reference(symbol, arguments)
+        };
+        if let TypeData::Union { types, .. } = &self.store.get(source).data {
+            let types = types.clone();
+            let mapped: Vec<_> = types.into_iter().map(|ty| replace_source(self, ty)).collect();
+            let union = self.get_union_type(&mapped);
+            if union == self.intrinsics.error {
+                return None;
+            }
+            // mapTypeWithAlias retains the mapped alias and its arguments
+            // on a distributed union, while exposing its constituents.
+            let alias_text = self.type_to_string(id);
+            return Some(self.union_with_origin_text(union, alias_text));
+        }
+        if let TypeData::Intersection { types, .. } = &self.store.get(source).data {
+            let types = types.clone();
+            if types.iter().all(|&ty| self.is_mapped_sequence_input(ty)) {
+                let mapped: Vec<_> = types.into_iter().map(|ty| replace_source(self, ty)).collect();
+                return Some(self.get_intersection_type(&mapped, None));
+            }
+        }
+        let tuple = self.variadic_tuple_elements.get(&source).cloned().or_else(|| {
+            self.tuple_element_lists.get(&source).map(|(types, readonly)| {
+                let mask = self.tuple_optional_masks.get(&source);
+                let labels = self.tuple_labels.get(&source);
+                (
+                    types
+                        .iter()
+                        .enumerate()
+                        .map(|(i, &ty)| TupleElement {
+                            r#type: ty,
+                            spread: false,
+                            optional: mask.and_then(|m| m.get(i)).copied().unwrap_or(false),
+                            label: labels.and_then(|l| l.get(i)).cloned().flatten(),
+                        })
+                        .collect::<Vec<_>>(),
+                    *readonly,
+                )
+            })
+        });
+        if let Some((mut elements, readonly)) = tuple {
+            let fixed = elements.iter().take_while(|e| !e.spread).count();
+            for (index, element) in elements.iter_mut().enumerate() {
+                if index < fixed {
+                    let key = self.store.intern_literal(
+                        TypeFlags::STRING_LITERAL,
+                        TypeData::StringLiteral(index.to_string()),
+                        false,
+                    );
+                    element.r#type = self.instantiate_mapped_template(&info, key, element.optional);
+                } else if element.spread {
+                    element.r#type = replace_source(self, element.r#type);
+                } else {
+                    let array = self.global_type_symbol("Array")?;
+                    let array = self.create_type_reference(array, vec![element.r#type]);
+                    let mapped = replace_source(self, array);
+                    element.r#type =
+                        self.tuple_spread_array_element(mapped).unwrap_or(self.intrinsics.unknown);
+                }
+                if !element.spread {
+                    element.optional = info.optionality.unwrap_or(element.optional);
+                    // TupleNormalizer.add applies optionality to the new
+                    // element type as well as retaining its element flag.
+                    if element.optional && self.strict_null_checks {
+                        element.r#type = self.get_optional_type(element.r#type, true);
+                    }
+                }
+                if element.r#type == self.intrinsics.error {
+                    return Some(element.r#type);
+                }
+            }
+            return Some(
+                self.normalize_variadic_tuple(elements, info.readonly.unwrap_or(readonly)),
+            );
+        }
+        let any_array = if self.store.get(source).flags.contains(TypeFlags::ANY) {
+            let variable = self.get_declared_type_of_symbol(parameter);
+            self.type_parameter_constraint(variable).is_some_and(|constraint| {
+                let types = match &self.store.get(constraint).data {
+                    TypeData::Union { types, .. } => types.clone(),
+                    _ => vec![constraint],
+                };
+                types.into_iter().all(|ty| {
+                    !matches!(self.store.get(ty).data, TypeData::Intersection { .. })
+                        && self.is_mapped_sequence_input(ty)
+                })
+            })
+        } else {
+            false
+        };
+        if any_array
+            || (!self.store.get(source).flags.contains(TypeFlags::ANY)
+                && self.tuple_spread_array_element(source).is_some())
+        {
+            let element = self.instantiate_mapped_template(&info, self.intrinsics.number, true);
+            if element == self.intrinsics.error {
+                return Some(element);
+            }
+            let readonly = self.type_reference_targets.get(&source).is_some_and(|(symbol, _)| {
+                self.global_type_symbol("ReadonlyArray") == Some(*symbol)
+            });
+            let array = self.global_type_symbol(if info.readonly.unwrap_or(readonly) {
+                "ReadonlyArray"
+            } else {
+                "Array"
+            })?;
+            return Some(self.create_type_reference(array, vec![element]));
+        }
+        None
+    }
+
+    /// isArrayOrTupleOrIntersection (checker.go): only concrete sequence
+    /// constituents enter the intersection transformation branch.
+    fn is_mapped_sequence_input(&mut self, id: TypeId) -> bool {
+        if self.tuple_element_lists.contains_key(&id)
+            || self.variadic_tuple_elements.contains_key(&id)
+        {
+            return true;
+        }
+        if let crate::types::TypeData::Intersection { types, .. } = &self.store.get(id).data {
+            let types = types.clone();
+            return types.into_iter().all(|ty| self.is_mapped_sequence_input(ty));
+        }
+        !self.store.get(id).flags.contains(crate::flags::TypeFlags::ANY)
+            && self.tuple_spread_array_element(id).is_some()
+    }
+
+    /// instantiateMappedTypeTemplate (checker.go:22646). Include optionality
+    /// before tuple construction; exclude only undefined from optional inputs.
+    fn instantiate_mapped_template(
+        &mut self,
+        info: &MappedTypeInfo,
+        key: TypeId,
+        optional: bool,
+    ) -> TypeId {
+        let value =
+            self.instantiate_type(info.template, &[(info.parameter, key)], &[info.parameter], &[]);
+        if self.strict_null_checks && info.optionality == Some(true) {
+            self.get_optional_type(value, true)
+        } else if self.strict_null_checks && info.optionality == Some(false) && optional {
+            self.get_type_with_facts(value, crate::flow::TypeFacts::NE_UNDEFINED)
+        } else {
+            value
+        }
+    }
+
+    /// getResolvedApparentTypeOfMappedType (checker.go:21772). A generic
+    /// homomorphic alias with an array/tuple base constraint exposes the mapped
+    /// sequence's methods, rather than transforming the array's method names.
+    pub(crate) fn apparent_mapped_type(&mut self, id: TypeId) -> TypeId {
+        let Some(info) = self.mapped_types.get(&id).cloned() else { return id };
+        if let Some(&cached) = self.mapped_apparent_types.get(&id) {
+            return cached;
+        }
+        self.mapped_apparent_types.insert(id, id);
+        let resolved = (|| {
+            let source = info.modifiers_source?;
+            let parameter = info.homomorphic_symbol?;
+            let base = if self.is_generic_homomorphic_mapped_type(source) {
+                self.apparent_mapped_type(source)
+            } else {
+                self.type_parameter_constraint(source)?
+            };
+            let types = match &self.store.get(base).data {
+                crate::types::TypeData::Union { types, .. } => types.clone(),
+                _ => vec![base],
+            };
+            if !types.into_iter().all(|ty| self.is_mapped_sequence_input(ty)) {
+                return None;
+            }
+            let (symbol, mut arguments) = self.type_reference_targets.get(&id)?.clone();
+            let declaration = self.binder.symbols().get(symbol).declarations.first().copied()?;
+            let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration) else {
+                return None;
+            };
+            let index = alias.type_parameters.iter().position(|p| {
+                p.node_id.and_then(|id| self.binder.symbol_of(id)) == Some(parameter)
+            })?;
+            arguments[index] = base;
+            Some(self.create_type_reference(symbol, arguments))
+        })()
+        .unwrap_or(id);
+        self.mapped_apparent_types.insert(id, resolved);
+        resolved
     }
 }

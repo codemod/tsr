@@ -1029,6 +1029,7 @@ impl Checker<'_, '_> {
     }
 
     pub(crate) fn apparent_type(&mut self, id: TypeId) -> TypeId {
+        let id = self.apparent_mapped_type(id);
         // Upstream's order, arm for arm (`checker.go:21745-21751`). `NUMBER_LIKE`
         // carrying `ENUM` is upstream's too, not a widening added here.
         //

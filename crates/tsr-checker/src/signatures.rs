@@ -3724,6 +3724,26 @@ impl<'a> Checker<'a, '_> {
     /// lost. The admission-flag walk below (§77/§77.1/§108.1/§137) is the
     /// gate's home; `bd tsr-5o2`'s 9-line family stays recorded.
     pub(crate) fn written_annotation_text(&mut self, annotation: TypeNode<'a>) -> Option<String> {
+        // serializeTypeForDeclaration reuses a written mapped alias when
+        // normalization produced a sequence type. Keep this in the signature
+        // annotation channel; the parameter's semantic type is the sequence.
+        if let TypeNode::TypeReferenceNode(reference) = annotation
+            && let Some(symbol) = reference.type_name
+                .and_then(|name| self.resolve_entity_name(name, tsr_binder::SymbolFlags::TYPE))
+            && self.binder.symbols().get(symbol).declarations.first().copied()
+                .and_then(|id| self.node_map.get(id))
+                .is_some_and(|node| matches!(node, Node::TypeAliasDeclaration(alias) if matches!(alias.r#type,Some(TypeNode::MappedTypeNode(mapped)) if mapped.name_type.is_none())))
+        {
+            let resolved = self.get_type_from_type_node(annotation);
+            if self.tuple_element_lists.contains_key(&resolved)
+                || self.variadic_tuple_elements.contains_key(&resolved)
+                || (resolved != self.intrinsics.error
+                    && !self.store.get(resolved).flags.contains(TypeFlags::ANY)
+                    && self.tuple_spread_array_element(resolved).is_some())
+            {
+                return Self::written_type_text(annotation, &mut false, &mut false);
+            }
+        }
         // The node builder reuses an infer annotation in a written signature,
         // while its semantic type remains the parameter's declaration identity.
         if matches!(annotation, TypeNode::InferTypeNode(_)) {
