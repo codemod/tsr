@@ -594,6 +594,33 @@ impl<'a> Checker<'a, '_> {
         Some(result)
     }
 
+    /// getSingleSignature / getSingleCallOrConstructSignature (checker.go:19345).
+    /// One signature of either kind, no opposite signatures, and optionally no
+    /// properties or indexes. An incomplete member set cannot establish purity.
+    pub(crate) fn single_call_or_construct_signature(
+        &mut self,
+        ty: TypeId,
+        allow_members: bool,
+    ) -> Option<Signature> {
+        if !self.store.get(ty).flags.contains(TypeFlags::OBJECT) {
+            return None;
+        }
+        let mut calls = self.signatures_of_type_kind(ty, SignatureKind::Call)?;
+        let mut constructs = self.signatures_of_type_kind(ty, SignatureKind::Construct)?;
+        let signature = match (calls.len(), constructs.len()) {
+            (1, 0) => calls.pop()?,
+            (0, 1) => constructs.pop()?,
+            _ => return None,
+        };
+        if !allow_members
+            && (!self.get_property_names_of_type(ty)?.is_empty()
+                || !self.get_index_infos_of_type(ty)?.is_empty())
+        {
+            return None;
+        }
+        Some(signature)
+    }
+
     /// resolveAnonymousTypeMembers (checker.go:20650) resolves a class's own
     /// constructors before synthesizing getDefaultConstructSignatures.
     pub(crate) fn get_class_construct_signatures(

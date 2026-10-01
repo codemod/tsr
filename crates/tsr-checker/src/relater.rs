@@ -760,21 +760,8 @@ impl Relater<'_, '_, '_> {
         }
     }
 
-    /// resolveAnonymousTypeMembers (checker.go): class values own a static side.
-    fn class_static_symbol(&self, id: TypeId) -> Option<tsr_binder::SymbolId> {
-        let TypeData::Anonymous { symbol, .. } = self.checker.type_of(id).data else { return None };
-        let symbol = self.checker.binder.merged_symbol(symbol);
-        self.checker
-            .binder
-            .symbols()
-            .get(symbol)
-            .flags
-            .contains(tsr_binder::SymbolFlags::CLASS)
-            .then_some(symbol)
-    }
-
     fn has_members(&self, id: TypeId) -> bool {
-        self.class_static_symbol(id).is_some()
+        self.checker.class_static_symbol(id).is_some()
             || matches!(
                 &self.checker.type_of(id).data,
                 TypeData::Named { members: Some(_), .. }
@@ -977,7 +964,9 @@ impl Relater<'_, '_, '_> {
         {
             return true;
         }
-        self.property_names_of(target).is_some_and(|properties| properties.is_empty())
+        self.checker
+            .get_property_names_of_type(target)
+            .is_some_and(|properties| properties.is_empty())
             && !self.signature_bearing(target)
             && self.checker.get_index_infos_of_type(target).is_some_and(|infos| infos.is_empty())
     }
@@ -1178,7 +1167,7 @@ impl Relater<'_, '_, '_> {
     /// [`Relater::signature_bearing`] that §935's arm is about, split out so
     /// §936's index arm cannot run on a type §935 should be judging.
     fn declares_call_or_construct(&self, id: TypeId) -> bool {
-        if self.class_static_symbol(id).is_some() {
+        if self.checker.class_static_symbol(id).is_some() {
             return true;
         }
         if self.checker.signatures_of_type(id).is_some_and(|signatures| !signatures.is_empty()) {
@@ -1250,7 +1239,7 @@ impl Relater<'_, '_, '_> {
                 parts.push(self.is_related_to(from_value, to_value));
                 continue;
             }
-            let names = self.property_names_of(source)?;
+            let names = self.checker.get_property_names_of_type(source)?;
             for name in &names {
                 let member = self.checker.get_type_of_property_of_type(source, name)?;
                 parts.push(self.is_related_to(member, info.value));
@@ -1260,7 +1249,7 @@ impl Relater<'_, '_, '_> {
     }
 
     fn signature_bearing(&self, id: TypeId) -> bool {
-        if self.class_static_symbol(id).is_some() {
+        if self.checker.class_static_symbol(id).is_some() {
             return true;
         }
         if self.checker.any_function_type == Some(id) {
@@ -2083,7 +2072,7 @@ impl Relater<'_, '_, '_> {
     ///   whose inherited requirements cannot be enumerated must not be satisfied
     ///   by checking only the ones that can.
     fn properties_related_to(&mut self, source: TypeId, target: TypeId) -> Ternary {
-        let Some(names) = self.property_names_of(target) else {
+        let Some(names) = self.checker.get_property_names_of_type(target) else {
             // Row 1 of `checker-notes-assign.md` §2: the target's inherited
             // requirements could not be *enumerated*, so no verdict about them
             // is available in either direction.
@@ -2142,7 +2131,7 @@ impl Relater<'_, '_, '_> {
                 // (`symbolProperty13`). An unfollowable source keeps the
                 // Unknown.
                 if self.checker.get_type_of_property_of_type(source, &name).is_none()
-                    && self.property_names_of(source).is_some()
+                    && self.checker.get_property_names_of_type(source).is_some()
                 {
                     parts.push(Ternary::NotRelated);
                     continue;
@@ -2233,134 +2222,6 @@ impl Relater<'_, '_, '_> {
             parts.push(self.is_related_to(source_type, target_type));
         }
         Ternary::all(parts)
-    }
-
-    /// The names of every property of `id`, own and inherited, or `None` if any
-    /// base type could not be followed.
-    ///
-    /// Ported from `Checker.getPropertiesOfType` → `getPropertiesOfObjectType`
-    /// (`internal/checker/checker.go`). Upstream reads a resolved members table
-    /// that already has the base types layered in; there is none here, so this
-    /// walks the same base-symbol graph [`Checker::get_property_of_declared_symbol`]
-    /// walks and collects names instead of resolving one. Names only: the
-    /// *symbol* for a name is then taken from
-    /// [`Checker::get_property_of_type`], so shadowing is decided in exactly one
-    /// place rather than twice.
-    ///
-    /// The `None`-on-an-unfollowable-base rule is [`Checker::base_symbols_of`]'s
-    /// and is why the walk cannot silently under-report a requirement.
-    fn property_names_of(&mut self, id: TypeId) -> Option<Vec<String>> {
-        if let Some(symbol) = self.class_static_symbol(id) {
-            let mut names = vec!["prototype".to_owned()];
-            return self
-                .collect_static_property_names(symbol, &mut names, &mut Vec::new())
-                .then_some(names);
-        }
-        if let TypeData::Anonymous { symbol, signature: true, .. } = self.checker.type_of(id).data {
-            let mut names: Vec<_> = self
-                .checker
-                .binder
-                .symbols()
-                .get(symbol)
-                .exports
-                .iter()
-                .filter(|(_, member)| self.checker.symbol_is_value(**member))
-                .map(|(&name, _)| name.to_owned())
-                .collect();
-            if let Some((properties, _)) = self.checker.anonymous_properties.get(&id) {
-                for property in properties {
-                    if !names.contains(&property.name) {
-                        names.push(property.name.clone());
-                    }
-                }
-            }
-            return Some(names);
-        }
-        let TypeData::Named { members: Some(owner), .. } = self.checker.type_of(id).data else {
-            return None;
-        };
-        let mut names = Vec::new();
-        let mut visiting = Vec::new();
-        self.collect_property_names(owner, &mut names, &mut visiting).then_some(names)
-    }
-
-    /// resolveAnonymousTypeMembers (checker.go): the class's static properties
-    /// include base exports. The synthetic prototype is added by the caller.
-    fn collect_static_property_names(
-        &mut self,
-        owner: tsr_binder::SymbolId,
-        names: &mut Vec<String>,
-        visiting: &mut Vec<tsr_binder::SymbolId>,
-    ) -> bool {
-        if visiting.contains(&owner) {
-            return true;
-        }
-        let inherited = !visiting.is_empty();
-        visiting.push(owner);
-        for (&name, &symbol) in &self.checker.binder.symbols().get(owner).exports {
-            if self.checker.symbol_is_value(symbol)
-                && !(inherited && name.starts_with('#'))
-                && !names.iter().any(|existing| existing == name)
-            {
-                names.push(name.to_owned());
-            }
-        }
-        for (name, _) in self.checker.late_bound_static_members_of(owner) {
-            if !names.contains(&name) {
-                names.push(name);
-            }
-        }
-        let Some(bases) = self.checker.base_symbols_of_ex(owner, false) else { return false };
-        bases.into_iter().all(|base| self.collect_static_property_names(base, names, visiting))
-    }
-
-    /// One step of [`Relater::property_names_of`]'s walk.
-    ///
-    /// The `visiting` guard is [`Checker::get_property_of_declared_symbol`]'s,
-    /// for the same reason: `class A extends B` with `class B extends A` is a
-    /// real cycle in the base-type graph. Re-entry contributes nothing rather
-    /// than failing — every name reachable through the cycle has already been
-    /// collected by the outer visit.
-    fn collect_property_names(
-        &mut self,
-        owner: tsr_binder::SymbolId,
-        names: &mut Vec<String>,
-        visiting: &mut Vec<tsr_binder::SymbolId>,
-    ) -> bool {
-        if visiting.contains(&owner) {
-            return true;
-        }
-        visiting.push(owner);
-        // A members table also holds type parameters, so the value gate is the
-        // same one `getPropertyOfType` applies; without it `interface I<T>`
-        // would demand a property named `T`.
-        let own: Vec<String> = self
-            .checker
-            .binder
-            .symbols()
-            .get(owner)
-            .members
-            .iter()
-            .filter(|&(_, &symbol)| self.checker.symbol_is_value(symbol))
-            .map(|(&name, _)| name.to_owned())
-            .collect();
-        for name in own {
-            if !names.contains(&name) {
-                names.push(name);
-            }
-        }
-        // §381: late-bound members are in NO table; their bracketed
-        // spellings join the walk so a target's `[Symbol.iterator]` is
-        // REQUIRED of the source (`symbolProperty13`'s `C -> I`).
-        for (name, _) in self.checker.late_bound_members_of(owner) {
-            if !names.contains(&name) {
-                names.push(name);
-            }
-        }
-        let Some(bases) = self.checker.base_symbols_of(owner) else {
-            return false;
-        };
-        bases.into_iter().all(|base| self.collect_property_names(base, names, visiting))
     }
 
     /// The constituents of `id`, if it is a union.

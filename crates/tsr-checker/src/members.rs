@@ -2320,6 +2320,144 @@ impl Checker<'_, '_> {
         out
     }
 
+    /// resolveAnonymousTypeMembers (checker.go): class values own a static side.
+    pub(crate) fn class_static_symbol(&self, id: TypeId) -> Option<tsr_binder::SymbolId> {
+        let TypeData::Anonymous { symbol, .. } = self.type_of(id).data else { return None };
+        let symbol = self.binder.merged_symbol(symbol);
+        self.binder
+            .symbols()
+            .get(symbol)
+            .flags
+            .contains(tsr_binder::SymbolFlags::CLASS)
+            .then_some(symbol)
+    }
+
+    /// The names of every property of `id`, own and inherited, or `None` if any
+    /// base type could not be followed.
+    ///
+    /// Ported from `Checker.getPropertiesOfType` → `getPropertiesOfObjectType`
+    /// (`internal/checker/checker.go`). Upstream reads a resolved members table
+    /// that already has the base types layered in; there is none here, so this
+    /// walks the same base-symbol graph [`Checker::get_property_of_declared_symbol`]
+    /// walks and collects names instead of resolving one. Names only: the
+    /// *symbol* for a name is then taken from
+    /// [`Checker::get_property_of_type`], so shadowing is decided in exactly one
+    /// place rather than twice.
+    ///
+    /// The `None`-on-an-unfollowable-base rule is [`Checker::base_symbols_of`]'s
+    /// and is why the walk cannot silently under-report a requirement.
+    pub(crate) fn get_property_names_of_type(&mut self, id: TypeId) -> Option<Vec<String>> {
+        if let Some(symbol) = self.class_static_symbol(id) {
+            let mut names = vec!["prototype".to_owned()];
+            return self
+                .collect_static_property_names(symbol, &mut names, &mut Vec::new())
+                .then_some(names);
+        }
+        if let TypeData::Anonymous { symbol, signature: true, .. } = self.type_of(id).data {
+            let mut names: Vec<_> = self
+                .binder
+                .symbols()
+                .get(symbol)
+                .exports
+                .iter()
+                .filter(|(_, member)| self.symbol_is_value(**member))
+                .map(|(&name, _)| name.to_owned())
+                .collect();
+            if let Some((properties, _)) = self.anonymous_properties.get(&id) {
+                for property in properties {
+                    if !names.contains(&property.name) {
+                        names.push(property.name.clone());
+                    }
+                }
+            }
+            return Some(names);
+        }
+        let TypeData::Named { members: Some(owner), .. } = self.type_of(id).data else {
+            return None;
+        };
+        let mut names = Vec::new();
+        let mut visiting = Vec::new();
+        self.collect_structured_property_names(owner, &mut names, &mut visiting).then_some(names)
+    }
+
+    /// resolveAnonymousTypeMembers (checker.go): the class's static properties
+    /// include base exports. The synthetic prototype is added by the caller.
+    fn collect_static_property_names(
+        &mut self,
+        owner: tsr_binder::SymbolId,
+        names: &mut Vec<String>,
+        visiting: &mut Vec<tsr_binder::SymbolId>,
+    ) -> bool {
+        if visiting.contains(&owner) {
+            return true;
+        }
+        let inherited = !visiting.is_empty();
+        visiting.push(owner);
+        for (&name, &symbol) in &self.binder.symbols().get(owner).exports {
+            if self.symbol_is_value(symbol)
+                && !(inherited && name.starts_with('#'))
+                && !names.iter().any(|existing| existing == name)
+            {
+                names.push(name.to_owned());
+            }
+        }
+        for (name, _) in self.late_bound_static_members_of(owner) {
+            if !names.contains(&name) {
+                names.push(name);
+            }
+        }
+        let Some(bases) = self.base_symbols_of_ex(owner, false) else { return false };
+        bases.into_iter().all(|base| self.collect_static_property_names(base, names, visiting))
+    }
+
+    /// One step of [`Checker::get_property_names_of_type`]'s walk.
+    ///
+    /// The `visiting` guard is [`Checker::get_property_of_declared_symbol`]'s,
+    /// for the same reason: `class A extends B` with `class B extends A` is a
+    /// real cycle in the base-type graph. Re-entry contributes nothing rather
+    /// than failing — every name reachable through the cycle has already been
+    /// collected by the outer visit.
+    fn collect_structured_property_names(
+        &mut self,
+        owner: tsr_binder::SymbolId,
+        names: &mut Vec<String>,
+        visiting: &mut Vec<tsr_binder::SymbolId>,
+    ) -> bool {
+        if visiting.contains(&owner) {
+            return true;
+        }
+        visiting.push(owner);
+        // A members table also holds type parameters, so the value gate is the
+        // same one `getPropertyOfType` applies; without it `interface I<T>`
+        // would demand a property named `T`.
+        let own: Vec<String> = self
+            .binder
+            .symbols()
+            .get(owner)
+            .members
+            .iter()
+            .filter(|&(_, &symbol)| self.symbol_is_value(symbol))
+            .map(|(&name, _)| name.to_owned())
+            .collect();
+        for name in own {
+            if !names.contains(&name) {
+                names.push(name);
+            }
+        }
+        // §381: late-bound members are in NO table; their bracketed
+        // spellings join the walk so a target's `[Symbol.iterator]` is
+        // REQUIRED of the source (`symbolProperty13`'s `C -> I`).
+        for (name, _) in self.late_bound_members_of(owner) {
+            if !names.contains(&name) {
+                names.push(name);
+            }
+        }
+        let Some(bases) = self.base_symbols_of(owner) else {
+            return false;
+        };
+        bases.into_iter().all(|base| self.collect_structured_property_names(base, names, visiting))
+    }
+
     pub(crate) fn late_bound_static_members_of(
         &mut self,
         owner: SymbolId,

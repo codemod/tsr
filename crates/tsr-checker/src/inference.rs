@@ -2142,8 +2142,10 @@ impl Checker<'_, '_> {
         propagated: &mut Vec<crate::signatures::TypeParameter>,
     ) -> bool {
         let (_, parameters, existing) = context;
-        let Some(return_signatures) = self.signature_types.get(&returned) else { return false };
-        let [return_signature] = return_signatures.as_slice() else { return false };
+        let Some(return_signature) = self.single_call_or_construct_signature(returned, false)
+        else {
+            return false;
+        };
         if !return_signature.type_parameters.is_empty()
             || parameters.iter().all(|parameter| {
                 existing
@@ -2153,14 +2155,11 @@ impl Checker<'_, '_> {
         {
             return false;
         }
-        let (Some(source_signatures), Some(target_signatures)) =
-            (self.signature_types.get(&source), self.signature_types.get(&target))
-        else {
-            return false;
-        };
-        let ([source_signature], [target_signature]) =
-            (source_signatures.as_slice(), target_signatures.as_slice())
-        else {
+        let target = self.get_non_nullable_type(target);
+        let (Some(source_signature), Some(target_signature)) = (
+            self.single_call_or_construct_signature(source, true),
+            self.single_call_or_construct_signature(target, false),
+        ) else {
             return false;
         };
         if source_signature.type_parameters.is_empty()
@@ -2173,8 +2172,6 @@ impl Checker<'_, '_> {
         {
             return false;
         }
-        let (source_signature, target_signature) =
-            (source_signature.clone(), target_signature.clone());
         let Some(own) = self.type_parameter_types(&source_signature) else { return false };
         if own.len() != source_signature.type_parameters.len() {
             return false;
@@ -2260,21 +2257,11 @@ impl Checker<'_, '_> {
         out: &mut Vec<InferenceInfo>,
     ) -> bool {
         let (outer_signature, parameters, existing) = context;
-        let (Some(source_signatures), Some(target_signatures)) = (
-            self.signature_types
-                .get(&source)
-                .cloned()
-                .or_else(|| self.call_signatures_of_type(source)),
-            self.signature_types
-                .get(&target)
-                .cloned()
-                .or_else(|| self.call_signatures_of_type(target)),
+        let target = self.get_non_nullable_type(target);
+        let (Some(source_signature), Some(target_signature)) = (
+            self.single_call_or_construct_signature(source, true),
+            self.single_call_or_construct_signature(target, false),
         ) else {
-            return false;
-        };
-        let ([source_signature], [target_signature]) =
-            (source_signatures.as_slice(), target_signatures.as_slice())
-        else {
             return false;
         };
         if source_signature.type_parameters.is_empty()
@@ -2284,8 +2271,7 @@ impl Checker<'_, '_> {
         {
             return false;
         }
-        let (mut source_signature, target_signature) =
-            (source_signature.clone(), target_signature.clone());
+        let mut source_signature = source_signature;
         let source_required =
             source_signature.parameters.iter().filter(|p| !p.optional && !p.rest).count();
         if !target_signature.parameters.iter().any(|p| p.rest)
@@ -2575,7 +2561,11 @@ impl Checker<'_, '_> {
             return returned;
         };
         let [signature] = signatures.as_slice() else { return returned };
-        let TypeData::Anonymous { symbol, .. } = self.store.get(returned).data else {
+        // getOrCreateTypeFromSignature (checker.go:19370) creates a fresh
+        // isolated signature type, including when the return had an alias name.
+        let (TypeData::Anonymous { symbol, .. } | TypeData::Named { members: Some(symbol), .. }) =
+            self.store.get(returned).data
+        else {
             return returned;
         };
         let mut signature = signature.clone();
