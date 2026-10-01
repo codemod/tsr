@@ -9,6 +9,8 @@ declare function wrap<T,U>(callback:Mapper<T,U>):Mapper<T,U>;
 declare function arrayize<T,U>(callback:Mapper<T,U>):Mapper<T,U[]>;
 export const mapper:Mapper<string,number>=wrap(value=>value.length);
 export const nested:Mapper<string,number[]>=arrayize(wrap(nestedValue=>nestedValue.length));
+declare function combine<A,B,C>(first:(value:A)=>B,second:(value:B)=>C):(value:A)=>C;
+export const combined:Mapper<string,boolean>=combine(wrap(first=>first.length),wrap(second=>second>10));
 export const twice:Mapper<string,number[][]>=arrayize(arrayize(wrap(deep=>deep.length)));
 ";
     let case = TestCase::parse(
@@ -30,6 +32,18 @@ export const twice:Mapper<string,number[][]>=arrayize(arrayize(wrap(deep=>deep.l
     assert!(lines.iter().any(|line| line=="nestedValue=>nestedValue.length : (nestedValue: string) => number"), "{lines:?}");
     assert!(
         lines.iter().any(|line| line == "deep=>deep.length : (deep: string) => number"),
+        "{lines:?}"
+    );
+    assert!(
+        lines.iter().any(|line| line == "second=>second>10 : (second: number) => boolean"),
+        "{lines:?}"
+    );
+    assert!(
+        lines.iter().any(|line| line == "first=>first.length : (first: string) => number"),
+        "{lines:?}"
+    );
+    assert!(
+        lines.iter().any(|line| line == "wrap(second=>second>10) : Mapper<number, boolean>"),
         "{lines:?}"
     );
 }

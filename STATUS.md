@@ -24,21 +24,23 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-10-01
 
-Measured on **`936efea7`**: **449,688/478,855 assertions (93.91%)**,
+Measured on **`CURRENT_PRECEDING_ARGUMENTS_SHA`**: **449,865/478,855 assertions (93.95%)**,
 **6,598/9,538 complete cases (69.18%)**. The95% target requires
-454,913 correct assertions; **5,225 remain**. The denominator and pinned oracle
-are unchanged. Aligned verdicts: **474,243 total;449,688 right;4,158 gap;20,397 wrong**.
+454,913 correct assertions; **5,048 remain**. The denominator and pinned oracle
+are unchanged. Aligned verdicts: **474,243 total;449,865 right;4,151 gap;20,227 wrong**.
 Binder symbols retain the preceding measurement at **8,497/8,497 (100%)**;
 other suites below retain historical measurements.
 
-This unit adds **23 matching assertions**, with **zero RIGHT losses** and no
-GAP transitions relative to0b84e435.8 already-wrong types change. Release workspace
-tests,clippy with warnings denied,all **3,374 upstream anchors**,and whitespace
-checks pass. The checker snapshot is refreshed. [Contextual return order](docs/architecture/checker-95-contextual-return-order.md)
-records the active return-inference snapshot before argument expressions check.
-Nested annotated Mapper controls pass at zero,one and two wrapping levels.
-Preceding-argument inference and general generic signature relations remain in
-tsr-6.1/6.22. The95% goal remains unfinished;verified changes commit and push to main.
+This unit adds **177 matching assertions**,with **zero RIGHT losses** relative
+to936efea7:169 WRONG→RIGHT,8 GAP→RIGHT,2 WRONG→GAP,1 GAP→WRONG and22 changed
+wrong answers. Release workspace tests,clippy with warnings denied,all **3,374
+upstream anchors**,and whitespace checks pass. Checker snapshot is refreshed.
+[Preceding arguments](docs/architecture/checker-95-preceding-arguments.md) records
+the positional prefix snapshot and callable alias signature substitution. The
+combined callback control now infers string→number followed by number→boolean.
+General rest/spread ordering,non-inferrable propagation and recursive generic
+signature relations remain in tsr-6.1/6.22. The95% goal remains unfinished;
+verified changes commit and push to main.
 
 ### Previous whole-suite measurement — historical
 
@@ -1140,7 +1142,7 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-### Current priorities at `936efea7` — 2026-10-01
+### Current priorities at `CURRENT_PRECEDING_ARGUMENTS_SHA` — 2026-10-01
 
 Const type-variable contexts now follow semantic parameter/union/indexed/mapped/
 variadic identities and deferred conditional constraints. Generic mapped property
@@ -1163,9 +1165,10 @@ initializers and namespace exports with order/cycle guards. Import/enum values
 and deferred-use ordering remain (`tsr-6.18`).
 
 
-Contextual return candidates are now published before argument checks,so nested
-generic calls receive the outer annotation. Preceding-argument inference remains
-incomplete (`tsr-6.22`).
+Contextual return candidates publish before argument checks,and ordinary positional
+arguments publish prefix inferences for later nested calls. Callable alias references
+retain signatures when their type arguments substitute. Rest/spread prefix contexts,
+non-inferrable propagation and recursive generic signatures remain (`tsr-6.22`).
 
 Inference priorities, independent contextual return mappers, captured structural
 substitution, call/construct signature kinds, measured reference variances,
@@ -3732,6 +3735,16 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+### Preceding arguments at `CURRENT_PRECEDING_ARGUMENTS_SHA`
+
+The prefix-only draft gained79 RIGHT with zero RIGHT losses,but combine/wrap
+still lost its known string input because the rebuilt Mapper<string,unknown>
+reference lacked a callable table. Preserving existing callable signatures raises
+the gain to177 with zero RIGHT losses.1 GAP→WRONG JS callback remains(any vs never),
+2 WRONG→GAP and22 changed wrong answers expose non-inferrable/body return contexts.
+[Evidence](docs/architecture/checker-95-preceding-arguments.md).
+
 
 ### Contextual return order at `936efea7`
 
@@ -9386,6 +9399,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
+| 2026-10-01 | `CURRENT_PRECEDING_ARGUMENTS_SHA` | **69.18%** | **6,598** | **449,865/478,855 assertions (93.95%).** +177 since936efea7,zero RIGHT losses;169 W→R,8 G→R,2 W→G,1 G→W,22 W→W. Positional prefix inference and callable alias substitution. Combined callback controls;release tests/clippy;3,374 anchors;snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-preceding-arguments.md).5,048 assertions remain;95% unfinished. |
 | 2026-10-01 | `936efea7` | **69.18%** | **6,598** | **449,688/478,855 assertions (93.91%).** +23 since0b84e435,zero RIGHT losses/GAP changes;8 W→W. Contextual return snapshot before argument checking.3 nested Mapper controls;release tests/clippy;3,374 anchors;snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-contextual-return-order.md).5,225 assertions remain;95% unfinished. |
 | 2026-10-01 | `0b84e435` | **69.18%** | **6,598** | **449,665/478,855 assertions (93.90%).** +172 since3f8bade8,zero RIGHT losses;136 W→R,36 G→R,6 G→W,35 W→W. Named generic constructor selection/inference,written arguments,callback/const contexts and await operands.4 pinned controls;release tests/clippy;3,374 anchors;snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-generic-constructors.md).5,248 assertions remain;95% unfinished. |
 | 2026-10-01 | `3f8bade8` | **69.09%** | **6,590** | **449,493/478,855 assertions (93.87%).** +7 since25215cc8,zero adverse transitions. Semantic const initializer evaluation and nested template const context.16 pinned declarations;release tests/clippy;3,374 anchors;snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-constant-variables.md).5,420 assertions remain;95% unfinished. |

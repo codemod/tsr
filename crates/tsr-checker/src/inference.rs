@@ -367,7 +367,10 @@ impl Checker<'_, '_> {
         // so the gap does not swallow their own lines.
         let mut argument_types: Vec<TypeId> = Vec::with_capacity(arguments.len());
         let mut spread = false;
-        for &argument in arguments {
+        let mut preceding_inferences = infos.clone();
+        let infer_preceding = self.written_type_arguments(call).is_none()
+            && !arguments.iter().any(|argument| matches!(argument, Expression::SpreadElement(_)));
+        for (index, &argument) in arguments.iter().enumerate() {
             if matches!(argument, Expression::SpreadElement(_)) {
                 spread = true;
             }
@@ -380,7 +383,40 @@ impl Checker<'_, '_> {
                     self.intrinsics.error
                 });
             } else {
-                argument_types.push(self.check_expression(argument));
+                let source = self.check_expression(argument);
+                argument_types.push(source);
+                // Ordinary positional arguments contribute before the next
+                // expression is checked (inferTypeArguments, checker.go:9485).
+                // Keep the final per-argument buckets separate: this snapshot
+                // only serves nested calls while their arguments are checked.
+                if infer_preceding
+                    && let Some(parameters) = parameter_types.as_deref()
+                    && let Some(parameter) = signature.parameters.get(index)
+                    && !parameter.rest
+                {
+                    let source = if signature.type_parameters.iter().any(|p| p.is_const) {
+                        self.const_literal_inference_source(
+                            argument,
+                            source,
+                            parameter.r#type,
+                            false,
+                        )
+                    } else {
+                        source
+                    };
+                    self.infer_from_types(
+                        source,
+                        parameter.r#type,
+                        parameters,
+                        &mut preceding_inferences,
+                        0,
+                    );
+                    if let Some(call) = call
+                        && let Some(context) = self.active_inference_contexts.get_mut(&call)
+                    {
+                        context.inferences.clone_from(&preceding_inferences);
+                    }
+                }
             }
         }
         if spread {
@@ -4525,7 +4561,25 @@ impl Checker<'_, '_> {
             // §136: a rebuild keeps the source reference's written display
             // arity — the spelling survives instantiation.
             let display = self.reference_display_arity.get(&id).copied();
-            return self.create_type_reference_with_display(symbol, substituted, display);
+            let rebuilt = self.create_type_reference_with_display(symbol, substituted, display);
+            // instantiateTypeWorker retains an instantiated callable object's
+            // signatures (checker.go). Alias references preserve their name,
+            // but a newly rebuilt argument list must also retain that callable
+            // body; otherwise Mapper<string, unknown> loses its context.
+            if self.alias_named_signature_types.contains(&id)
+                && !self.signature_types.contains_key(&rebuilt)
+                && let Some(signatures) = self.signature_types.get(&id).cloned()
+            {
+                let instantiated: Option<Vec<_>> = signatures
+                    .into_iter()
+                    .map(|signature| self.instantiate_signature(signature, map, parameters, names))
+                    .collect();
+                if let Some(signatures) = instantiated {
+                    self.signature_types.insert(rebuilt, signatures);
+                    self.alias_named_signature_types.insert(rebuilt);
+                }
+            }
+            return rebuilt;
         }
         if let TypeData::Union { types, .. } = &self.store.get(id).data {
             let types = types.clone();
