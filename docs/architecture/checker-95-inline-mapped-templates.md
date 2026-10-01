@@ -44,7 +44,7 @@ change to the control's expected result.
 
 ## Verification and limits
 
-Checkpoint CODE_CHECKPOINT:451,056/478,855 correct assertions (94.19%).
+Checkpoint 996bb885:451,056/478,855 correct assertions (94.19%).
 The95% target needs3,857 more matches. Aligned verdicts:
 474,243 total;451,056 RIGHT;3,768 GAP;19,419 WRONG.
 Against48e1e6d4:47 WRONG→RIGHT,31 GAP→RIGHT,zero RIGHT losses,
