@@ -2781,25 +2781,10 @@ fn an_indexed_access_by_keyof_over_one_property_is_that_property() {
     );
 }
 
-/// The regression leg: a `keyof` over a **different** type is not §933's road,
-/// because that arm's whole licence is that the index is the `keyof` of the
-/// object it indexes.
-///
-/// **FLIPPED at §953, and the intent is unchanged.** The single-property case
-/// below used to assert `error` — §933's arm declining, and the port having
-/// nowhere else to go. §730 evaluates a concrete `keyof` to its key set, so
-/// `keyof R` over a one-property `R` *is* the literal `"a"`, and §952.2's
-/// literal-index road now answers `P["a"]` — which is upstream's answer too:
-/// `getIndexedAccessType` distributes over the index. The old expectation was
-/// pinning a PORT LIMITATION, not upstream behaviour.
-///
-/// What the pair still pins is that §933's arm has not widened: the multi-key
-/// case gaps, because `keyof Q` is a UNION there and neither road takes it —
-/// §952.2 wants a single literal and §933 wants the object's own `keyof`.
-/// Distributing an indexed access over a union index is the unported piece, and
-/// `string | number` is the answer that will appear when it lands.
+/// A concrete key set can originate from a different object. Indexed access
+/// distributes over its keys, regardless of which declaration supplied them.
 #[test]
-fn an_indexed_access_by_a_foreign_keyof_is_not_the_933_road() {
+fn an_indexed_access_distributes_over_a_foreign_concrete_keyof() {
     assert_eq!(
         type_of_declaration(
             "interface P { a: string; b: number; }\ninterface R { a: string; }\n\
@@ -2814,7 +2799,7 @@ fn an_indexed_access_by_a_foreign_keyof_is_not_the_933_road() {
              declare const z: P[keyof Q];",
             "z"
         ),
-        "error"
+        "string | number"
     );
 }
 

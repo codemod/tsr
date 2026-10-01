@@ -13,6 +13,13 @@ use tsr_binder::{SymbolFlags, SymbolId};
 
 use crate::{checker::Checker, flags::TypeFlags, resolution::PropertyName, types::TypeId};
 
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct TypeLiteralKey {
+    node: tsr_ast::NodeId,
+    bindings: Vec<(SymbolId, TypeId)>,
+    mapped_template: bool,
+}
+
 impl<'a> Checker<'a, '_> {
     /// The instantiated base type an `extends` heritage entry names — the
     /// checker half of the `React.Component<Prop, {}>` row. §226.
@@ -579,11 +586,17 @@ impl<'a> Checker<'a, '_> {
                 if let (Some(object), Some(index)) = (node.object_type, node.index_type) {
                     let object = self.get_type_from_type_node(object);
                     let index = self.get_type_from_type_node(index);
-                    if (self.mapped_template_depth > 0
-                        || self.store.get(object).flags.contains(TypeFlags::TYPE_PARAMETER)
-                        || self.indexed_access_index_is_generic(index))
-                        && let Some(t) = self.resolved_indexed_access_type(object, index, false)
-                    {
+                    if let Some(t) = self.resolved_indexed_access_type(object, index, false) {
+                        if self.store.get(index).flags.contains(TypeFlags::UNION)
+                            && let crate::types::TypeData::Union { types, .. } =
+                                self.store.get(t).data.clone()
+                            && let Some(alias) =
+                                node.node_id.and_then(|id| self.alias_symbol_for_type_node(id))
+                            && self.alias_evaluation_bindings.is_empty()
+                            && self.local_type_parameters_of(alias).is_empty()
+                        {
+                            return self.get_named_union_type(&types, TypeFlags::empty(), alias);
+                        }
                         return t;
                     }
                     if self.variadic_tuple_elements.contains_key(&object)
@@ -1330,7 +1343,57 @@ impl<'a> Checker<'a, '_> {
     /// property symbol — so it groups with the properties, not with the call
     /// signatures. That is why the grouping happens here, where the member kind
     /// is known, and not in the shared renderer.
+    fn type_literal_key(&self, node: tsr_ast::NodeId) -> TypeLiteralKey {
+        let bindings: rustc_hash::FxHashMap<_, _> = self
+            .alias_evaluation_bindings
+            .iter()
+            .flat_map(|frame| frame.iter().map(|(&symbol, &ty)| (symbol, ty)))
+            .collect();
+        let mut bindings: Vec<_> = bindings.into_iter().collect();
+        bindings.sort_unstable_by_key(|&(symbol, _)| symbol);
+        TypeLiteralKey { node, bindings, mapped_template: self.mapped_template_depth > 0 }
+    }
+
+    pub(crate) fn cached_type_literal(&self, node: tsr_ast::NodeId) -> Option<TypeId> {
+        self.type_literal_types.get(&self.type_literal_key(node)).copied()
+    }
+
     fn get_type_from_type_literal(&mut self, node: &tsr_ast::TypeLiteralNode<'a>) -> TypeId {
+        let Some(node_id) = node.node_id else { return self.build_type_literal(node) };
+        let key = self.type_literal_key(node_id);
+        if let Some(&ty) = self.type_literal_types.get(&key) {
+            return ty;
+        }
+        // getTypeFromTypeLiteralOrFunctionOrConstructorTypeNode installs the
+        // object identity before member resolution. The current printer is
+        // eager, so the reserved object carries the written recursive spelling.
+        let mut single_quoted = false;
+        let mut array_headed = false;
+        let text = crate::signatures::written_type_literal_text(
+            node,
+            &mut single_quoted,
+            &mut array_headed,
+        )
+        .unwrap_or_else(|| "{}".to_string());
+        let reserved =
+            self.store.new_named(TypeFlags::OBJECT, text, self.binder.symbol_of(node_id));
+        self.type_literal_types.insert(key.clone(), reserved);
+        let resolved = self.build_type_literal(node);
+        if resolved == self.intrinsics.error {
+            self.type_literal_types.insert(key, resolved);
+            return resolved;
+        }
+        self.store.complete_object(reserved, resolved);
+        if let Some(properties) = self.anonymous_properties.remove(&resolved) {
+            self.anonymous_properties.insert(reserved, properties);
+        }
+        if let Some(signatures) = self.signature_types.remove(&resolved) {
+            self.signature_types.insert(reserved, signatures);
+        }
+        reserved
+    }
+
+    fn build_type_literal(&mut self, node: &tsr_ast::TypeLiteralNode<'a>) -> TypeId {
         let error = self.intrinsics.error;
         // **The single-signature collapse** (`checker-notes-modobj.md` §10.15,
         // `bd tsr-d4li`): upstream renders an anonymous type whose only member
@@ -4181,6 +4244,50 @@ impl<'a> Checker<'a, '_> {
             self.instantiations.insert((symbol, arguments), evaluated);
             return evaluated;
         }
+        if self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_ALIAS)
+            && let Some(declaration) =
+                self.binder.symbols().get(symbol).declarations.first().copied()
+            && let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration)
+            && matches!(alias.r#type, Some(TypeNode::IndexedAccessTypeNode(_)))
+            && let Some(evaluated) = self.evaluate_alias_body(symbol, &arguments)
+        {
+            let text = self.type_reference_text(symbol, &arguments);
+            let evaluated = if let Some(&operands) =
+                self.deferred_indexed_access_types.get(&evaluated)
+            {
+                let named = self.store.new_named(TypeFlags::INDEXED_ACCESS, text, None);
+                self.deferred_indexed_access_types.insert(named, operands);
+                self.deferred_index_mints.insert(named);
+                self.type_reference_targets.insert(named, (symbol, arguments.clone()));
+                named
+            } else if let crate::types::TypeData::Union { types, .. } =
+                self.store.get(evaluated).data.clone()
+            {
+                let named = crate::unions::create_union(
+                    &mut self.store,
+                    TypeFlags::empty(),
+                    types,
+                    Some((symbol, text)),
+                );
+                self.type_reference_targets.insert(named, (symbol, arguments.clone()));
+                named
+            } else if let crate::types::TypeData::Anonymous {
+                symbol: owner, signature: true, ..
+            } = self.store.get(evaluated).data
+            {
+                let named = self.store.new_anonymous(TypeFlags::OBJECT, text, owner, true);
+                if let Some(signatures) = self.signature_types.get(&evaluated).cloned() {
+                    self.signature_types.insert(named, signatures);
+                }
+                self.alias_named_signature_types.insert(named);
+                self.type_reference_targets.insert(named, (symbol, arguments.clone()));
+                named
+            } else {
+                evaluated
+            };
+            self.instantiations.insert((symbol, arguments), evaluated);
+            return evaluated;
+        }
         if let Some(template) = self.instantiate_template_alias(symbol, &arguments) {
             self.instantiations.insert((symbol, arguments), template);
             return template;
@@ -5940,6 +6047,15 @@ impl<'a> Checker<'a, '_> {
     /// global symbol (keys of `T` minus `K`'s literals — the §45 Record
     /// precedent for special-casing one lib alias).
     fn keys_of(&mut self, id: TypeId) -> Option<Vec<String>> {
+        if !self.key_names_in_progress.insert(id) {
+            return None;
+        }
+        let result = self.keys_of_worker(id);
+        self.key_names_in_progress.remove(&id);
+        result
+    }
+
+    fn keys_of_worker(&mut self, id: TypeId) -> Option<Vec<String>> {
         if id == self.intrinsics.error {
             return None;
         }
@@ -6013,7 +6129,16 @@ impl<'a> Checker<'a, '_> {
             })
             .collect();
         named.sort();
-        Some(named.into_iter().map(|(_, name)| name).collect())
+        let mut keys: Vec<_> = named.into_iter().map(|(_, name)| name).collect();
+        for base in self.base_symbols_of_ex(owner, false)? {
+            let base = self.get_declared_type_of_symbol(base);
+            for key in self.keys_of(base)? {
+                if !keys.contains(&key) {
+                    keys.push(key);
+                }
+            }
+        }
+        Some(keys)
     }
 
     pub(crate) fn local_type_parameters_of(

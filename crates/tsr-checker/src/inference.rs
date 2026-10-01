@@ -4609,6 +4609,7 @@ impl Checker<'_, '_> {
         }
         if let Some((object, index, include_undefined)) =
             self.deferred_indexed_access_types.get(&id).copied()
+            && !self.type_reference_targets.contains_key(&id)
         {
             let object = self.instantiate_type(object, map, parameters, names);
             let index = self.instantiate_type(index, map, parameters, names);

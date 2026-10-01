@@ -95,6 +95,46 @@ export function noInfer<T>(value: NoInfer<T>) { return value; }
     );
 }
 
+#[test]
+fn concrete_indexes_preserve_recursive_objects_and_alias_substitution() {
+    let source = r#"// @strict: true
+// @target: es2020
+interface Obj<T> { ref: T }
+interface Rec { item: { value: string; ref?: Obj<Rec["item"]> } }
+export function recursive(value: Rec["item"]) { return value.ref?.ref.value; }
+type Length<T extends any[]> = T["length"];
+export function length(value: Length<[string, number]>) { return value; }
+type Tree<T, I extends any[] = []> = { 1: T; 0: { child: Tree<T, [any, ...I]> } }[Length<I> extends 2 ? 1 : 0];
+export function terminal(value: Tree<string>) { return value.child.child; }
+type Values = { a: string; b?: number };
+type AB = Values["a" | "b"];
+export function union(value: AB) { return value; }
+export function empty(value: Values[never]) { return value; }
+type Entry<T, K extends keyof T> = T[K];
+export function symbolic<T, K extends keyof T>(value: Entry<T, K>) { return value; }
+type Lookup<T> = { value: T }["value"];
+export function text(value: Lookup<string>) { return value; }
+export function number(value: Lookup<number>) { return value; }
+interface Parent { inherited: number }
+interface Child extends Parent { own: string }
+export function inherited(value: Child[keyof Child]) { return value; }
+"#;
+    assert_types(
+        source,
+        &[
+            "recursive : (value: Rec[\"item\"]) => string | undefined",
+            "length : (value: 2) => 2",
+            "terminal : (value: Tree<string>) => string",
+            "union : (value: AB) => AB",
+            "empty : (value: Values[never]) => never",
+            "symbolic : <T, K extends keyof T>(value: Entry<T, K>) => Entry<T, K>",
+            "text : (value: string) => string",
+            "number : (value: number) => number",
+            "inherited : (value: Child[keyof Child]) => string | number",
+        ],
+    );
+}
+
 fn assert_types(source: &str, wanted: &[&str]) {
     let case = TestCase::parse("probe/indexed-base-constraints", "constraints.ts", source);
     let expected: Vec<_> = case

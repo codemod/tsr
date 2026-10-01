@@ -3396,6 +3396,13 @@ impl<'a> Checker<'a, '_> {
         if let Some(&cached) = self.symbol_types.get(&symbol) {
             return cached;
         }
+        if self.resolutions.on_stack(symbol, PropertyName::Type)
+            && let Some(declaration) = self.binder.symbols().get(symbol).value_declaration
+            && let Some(TypeNode::TypeLiteralNode(node)) = self.type_annotation_of(declaration)
+            && let Some(ty) = node.node_id.and_then(|id| self.cached_type_literal(id))
+        {
+            return self.add_optionality_for_declaration(ty, declaration);
+        }
         let computed = self.get_type_of_variable_or_parameter_or_property_worker(symbol);
         self.symbol_types.insert(symbol, computed);
         computed

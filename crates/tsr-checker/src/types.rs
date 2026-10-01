@@ -253,6 +253,11 @@ impl TypeStore {
         &self.types[id.index()]
     }
 
+    /// Complete a reserved, non-interned object identity after its members resolve.
+    pub(crate) fn complete_object(&mut self, reserved: TypeId, resolved: TypeId) {
+        self.types[reserved.index()] = self.types[resolved.index()].clone();
+    }
+
     /// Create a type without interning, always a fresh identity.
     ///
     /// Ported from `Checker.newIntrinsicType` (`checker.go:25017`).

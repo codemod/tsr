@@ -131,7 +131,7 @@ struct Includes {
 /// needs it before a `Checker` exists — see [`create_boolean_type`].
 ///
 /// `types` must already be sorted, deduplicated and non-empty.
-fn create_union(
+pub(crate) fn create_union(
     store: &mut TypeStore,
     extra_flags: TypeFlags,
     types: Vec<TypeId>,

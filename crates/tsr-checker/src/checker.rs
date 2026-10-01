@@ -711,6 +711,8 @@ pub struct Checker<'a, 'n> {
     /// §92: alias-body evaluations, keyed (alias symbol, arguments); error
     /// marks a remembered refusal.
     pub(crate) alias_body_evaluations: FxHashMap<(tsr_binder::SymbolId, Vec<TypeId>), TypeId>,
+    pub(crate) type_literal_types: FxHashMap<crate::declared::TypeLiteralKey, TypeId>,
+    pub(crate) key_names_in_progress: rustc_hash::FxHashSet<TypeId>,
     /// §92: types PRODUCED by alias evaluation — the only intersections the
     /// shape property road may search (a WRITTEN intersection answering
     /// confidently was 134 G→W in the discriminated-union family).
@@ -1232,6 +1234,8 @@ impl<'a, 'n> Checker<'a, 'n> {
             identity_unmapped_type_parameters: false,
             render_type_parameter_scope: Vec::new(),
             alias_body_evaluations: FxHashMap::default(),
+            type_literal_types: FxHashMap::default(),
+            key_names_in_progress: rustc_hash::FxHashSet::default(),
             alias_evaluated_types: rustc_hash::FxHashSet::default(),
             alias_evaluation_bindings: Vec::new(),
             alias_named_signature_types: rustc_hash::FxHashSet::default(),
