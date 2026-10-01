@@ -80,7 +80,7 @@ static requirements, native controls and full-corpus transitions.
 
 ## Checkpoint and remaining work
 
-CODE_CHECKPOINT: 452,265/478,855 correct assertions (94.45%).
+42e7881a: 452,265/478,855 correct assertions (94.45%).
 6,694/9,538 complete cases (70.18%).
 Aligned verdicts: 474,243 total; 452,265 RIGHT; 3,402 GAP; 18,576 WRONG.
 Relative to aab165d8: 171 WRONG->RIGHT, 40 GAP->RIGHT, zero RIGHT losses,
@@ -119,3 +119,6 @@ rendering. Broader CheckMode, full relation normalization, mixed index/signature
 requirements, implicit generic heritage instance members and JavaScript generic
 constructor defaults remain separate work. Corpus expectations and the pinned
 oracle are unchanged. The 95% goal remains active.
+
+Review receipt: /tmp/compound-engineering-501/ce-code-review/construct-relations/review.json
+(status complete; sequential main-thread review, no independent coverage).
