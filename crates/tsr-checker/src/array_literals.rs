@@ -239,6 +239,7 @@ impl Checker<'_, '_> {
         // avoid entering a non-const call's property contexts needlessly.
         let mut child = id;
         let mut enclosing_call = None;
+        let mut crossed_function = false;
         for ancestor in self.nodes.ancestors(id) {
             match self.node_map.get(ancestor) {
                 Some(tsr_ast::Node::CallExpression(call)) => {
@@ -248,15 +249,14 @@ impl Checker<'_, '_> {
                     enclosing_call = Some(call);
                     break;
                 }
-                Some(
-                    tsr_ast::Node::ArrowFunction(_)
-                    | tsr_ast::Node::FunctionExpression(_)
-                    | tsr_ast::Node::FunctionDeclaration(_),
-                ) => return false,
+                Some(tsr_ast::Node::FunctionDeclaration(_)) => return false,
+                Some(tsr_ast::Node::ArrowFunction(_) | tsr_ast::Node::FunctionExpression(_)) => {
+                    crossed_function = true;
+                    child = ancestor;
+                }
                 _ => child = ancestor,
             }
         }
-        // Callback return contexts still need the inference-context mapper.
         let Some(call) = enclosing_call else { return false };
         // An IIFE's parameters derive from its arguments. Computing that
         // callee while checking a spread argument would cache its in-flight
@@ -280,15 +280,35 @@ impl Checker<'_, '_> {
         }
         {
             let Some(call_id) = call.node_id else { return false };
-            if !self.resolving_signature_calls.insert(call_id) {
-                return false;
-            }
-            let has_const_parameter = call
-                .expression
-                .map(|callee| self.check_expression(callee))
-                .and_then(|callee| self.resolve_call_signature(callee, Some(call.arguments)))
-                .is_some_and(|signature| signature.type_parameters.iter().any(|p| p.is_const));
-            self.resolving_signature_calls.remove(&call_id);
+            let has_const_parameter = if let Some(context) =
+                self.active_inference_contexts.get(&call_id)
+            {
+                context.signature.type_parameters.iter().any(|p| p.is_const)
+            } else if crossed_function {
+                // Overload selection can check a callback before parking an
+                // inference context. A freshness query must not select that
+                // overload again and check the same callback recursively.
+                callee
+                    .and_then(|callee| callee.node_id())
+                    .and_then(|callee| self.node_types.get(&callee))
+                    .and_then(|callee| self.signature_types.get(callee))
+                    .is_some_and(|signatures| {
+                        signatures
+                            .iter()
+                            .any(|signature| signature.type_parameters.iter().any(|p| p.is_const))
+                    })
+            } else {
+                if !self.resolving_signature_calls.insert(call_id) {
+                    return false;
+                }
+                let has_const_parameter = call
+                    .expression
+                    .map(|callee| self.check_expression(callee))
+                    .and_then(|callee| self.resolve_call_signature(callee, Some(call.arguments)))
+                    .is_some_and(|signature| signature.type_parameters.iter().any(|p| p.is_const));
+                self.resolving_signature_calls.remove(&call_id);
+                has_const_parameter
+            };
             if !has_const_parameter {
                 return false;
             }

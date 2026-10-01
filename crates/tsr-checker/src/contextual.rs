@@ -878,15 +878,64 @@ impl<'a> Checker<'a, '_> {
                     _ => None,
                 };
                 if let Some(annotation) = annotation {
-                    return Some(self.get_type_from_type_node(annotation));
+                    let contextual = self.get_type_from_type_node(annotation);
+                    return self.contextual_return_expression_slot(function, contextual);
                 }
                 // getContextualReturnType also uses the non-generic contextual
                 // signature of function expressions and object literal methods.
                 let signature = self.contextual_signature(function)?;
-                (signature.r#type != self.intrinsics.error).then_some(signature.r#type)
+                self.contextual_return_expression_slot(function, signature.r#type)
             }
             _ => None,
         }
+    }
+
+    /// getContextualTypeForReturnExpression's generator return slot
+    /// (checker.go:29627). Other iterable shapes need iteration protocol lookup.
+    fn contextual_return_expression_slot(
+        &mut self,
+        function: NodeId,
+        contextual: TypeId,
+    ) -> Option<TypeId> {
+        if contextual == self.intrinsics.error {
+            return None;
+        }
+        let generator = match self.node_map.get(function) {
+            Some(Node::FunctionDeclaration(f)) => f.asterisk_token.is_some(),
+            Some(Node::FunctionExpression(f)) => f.asterisk_token.is_some(),
+            Some(Node::MethodDeclaration(f)) => f.asterisk_token.is_some(),
+            _ => false,
+        };
+        if generator {
+            self.contextual_generator_iteration_type(contextual, 1)
+        } else {
+            Some(contextual)
+        }
+    }
+
+    pub(crate) fn contextual_generator_iteration_type(
+        &mut self,
+        contextual: TypeId,
+        slot: usize,
+    ) -> Option<TypeId> {
+        let (target, arguments) = self.type_reference_targets.get(&contextual)?.clone();
+        let supported = [
+            "Iterator",
+            "Iterable",
+            "IterableIterator",
+            "Generator",
+            "AsyncIterator",
+            "AsyncIterable",
+            "AsyncIterableIterator",
+            "AsyncGenerator",
+        ]
+        .into_iter()
+        .any(|name| {
+            self.global_type_symbol_with_arity(name, 3).is_some_and(|symbol| {
+                self.binder.merged_symbol(symbol) == self.binder.merged_symbol(target)
+            })
+        });
+        supported.then(|| arguments.get(slot).copied()).flatten()
     }
 
     /// Ported from Checker.getContextualTypeForBinaryOperand
@@ -1485,6 +1534,15 @@ impl<'a> Checker<'a, '_> {
         // The const/freshness query needs parameter identities before the
         // fixing mapper, including after a completed call memo is available.
         if self.contextual_prefers_uninstantiated {
+            if let Some(call_id) = call.node_id
+                && let Some(context) = self.active_inference_contexts.get(&call_id).cloned()
+            {
+                return self.contextual_argument_type(
+                    &context.signature,
+                    index,
+                    call.arguments.len(),
+                );
+            }
             let callee = call.expression?;
             let Some(call_id) = call.node_id else {
                 return self.contextual_type_for_argument_resolving(call, callee, index);

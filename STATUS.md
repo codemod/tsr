@@ -24,21 +24,24 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-09-30
 
-Measured on **`a973e8e8`**: **448,945/478,855 assertions (93.75%)**,
+Measured on **`CONST_CALLBACK_CHECKPOINT`**: **449,141/478,855 assertions (93.79%)**,
 **6,578/9,538 complete cases (68.97%)**. The95% target requires
-454,913 correct assertions; **5,968 remain**. The denominator and pinned oracle
-are unchanged. Aligned verdicts: **474,243 total;448,945 right;4,405 gap;20,893 wrong**.
+454,913 correct assertions; **5,772 remain**. The denominator and pinned oracle
+are unchanged. Aligned verdicts: **474,243 total;449,141 right;4,338 gap;20,764 wrong**.
 Binder symbols retain the preceding measurement at **8,497/8,497 (100%)**;
 other suites below retain historical measurements.
 
-This unit adds **23 WRONG→RIGHT**, with **zero RIGHT losses** relative to79500ed4
-(448,922),and no other verdict transitions. Release workspace tests,workspace
-clippy with warnings denied,all **3,378 upstream anchors**,and whitespace checks
-pass. The checker snapshot is refreshed.
-[Const literal source views](docs/architecture/checker-95-const-sources.md) records
-AST candidate origins,deep readonly literals,mutable constraints and variables,
-fixed spreads,last-write origins and24 pinned controls. Callback/context-sensitive
-and indirect source contexts remain tracked in tsr-6.15. The95% goal is unfinished;
+This unit adds **196 matching assertions**, with **zero RIGHT losses** relative
+to a973e8e8 (448,945):132 WRONG→RIGHT and64 GAP→RIGHT. Three template gaps now
+produce wrong patterns because constant-variable evaluation remains unported;
+40 already-wrong types change. Release workspace tests,workspace clippy with
+warnings denied,all **3,378 upstream anchors**,and whitespace checks pass.
+The checker snapshot is refreshed.
+[Const callback contexts](docs/architecture/checker-95-const-callbacks.md) records
+active uninstantiated parameter identities,return/yield regularization,literal
+source views,const templates,generator iteration slots and15 pinned controls.
+Async,mapped and overloaded callback contexts remain in tsr-6.15;
+constant-variable evaluation is tsr-6.18. The95% goal is unfinished;
 verified changes commit and push to main.
 
 ### Previous whole-suite measurement — historical
@@ -1141,7 +1144,7 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-### Current priorities at `a973e8e8` — 2026-09-30
+### Current priorities at `CONST_CALLBACK_CHECKPOINT` — 2026-09-30
 
 Const type-variable contexts now follow semantic parameter/union/indexed/mapped/
 variadic identities and deferred conditional constraints. Generic mapped property
@@ -1149,8 +1152,11 @@ contexts substitute templates at validated keys; generic rest contexts retain
 indexed parameter identity. Direct and rest inference now materialize literal
 source views before collecting candidates. Deep literal readonly,mutable array
 constraints,existing mutable variables,fixed tuple spreads and last-write object
-origins are ported. Callback/context-sensitive and other indirect sources retain
-the legacy fallback and remain next (`tsr-6.15`).
+origins are ported. Direct const callback return contexts now preserve body
+literal sources before widening; known generator slots and const template
+patterns are ported. Async,mapped and overloaded callback contexts and other
+indirect sources remain next (`tsr-6.15`). Constant-variable template evaluation
+remains unported (`tsr-6.18`).
 
 
 Inference priorities, independent contextual return mappers, captured structural
@@ -3716,6 +3722,18 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+### Const callback contexts at `CONST_CALLBACK_CHECKPOINT`
+
+Adds196 matching assertions with zero RIGHT losses. Active/cached const
+preflight repairs callback overload re-entry losses; delegated arrays' unknown
+next contribution repairs the single generator regression. Fifteen pinned
+controls and release workspace gates pass. Three previous template gaps now
+produce wrong patterns from missing constant-variable evaluation (`tsr-6.18`);
+40 already-wrong types change. [Evidence and limits](docs/architecture/checker-95-const-callbacks.md).
+Async,mapped and overloaded callback contexts remain incomplete;5,772 assertions
+remain for95%.
+
 
 ### Const literal source views at `a973e8e8`
 
@@ -9304,6 +9322,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
+| 2026-09-30 | `CONST_CALLBACK_CHECKPOINT` | **68.97%** | **6,578** | **449,141/478,855 assertions (93.79%).** +196 since a973e8e8,zero RIGHT losses;132 W→R,64 G→R,3 G→W and40 W→W. Const callback body source views before widening,active parameter identities,const templates and generator iteration slots.15 pinned controls;release workspace tests/clippy;3,378 anchors;snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-const-callbacks.md).5,772 assertions remain;95% unfinished. |
 | 2026-09-30 | `a973e8e8` | **68.97%** | **6,578** | **448,945/478,855 assertions (93.75%).** +23 W→R since79500ed4,zero RIGHT losses and no other transitions. AST const candidates before inference,deep literal readonly,mutable constraints/variables,fixed spreads and last-write origins;rest primitive retention/mutability.24 pinned controls;release workspace tests/clippy;3,378 anchors;snapshot refreshed. [Evidence and remaining work](docs/architecture/checker-95-const-sources.md).5,968 assertions remain;95% unfinished. |
 | 2026-09-30 | `79500ed4` | **68.97%** | **6,578** | **448,922/478,855 assertions (93.75%).** +54 W→R,+12 G→R since a8933f8a,zero RIGHT losses and no other transitions. Semantic const identities,conditional constraints,indexed rest and mapped property contexts;re-entry repairs. Ten pinned control assertions;release workspace tests/clippy;3,379 anchors;snapshot refreshed. [Evidence and remaining work](docs/architecture/checker-95-const-contexts.md).5,991 assertions remain;95% unfinished. |
 | 2026-09-30 | `a8933f8a` | **68.96%** | **6,577** | **448,856/478,855 assertions (93.74%).** +174 W→R,+23 G→R since55510106,zero RIGHT losses;eleven G→W. Ports semantic string mappings,Unicode15.1 casing and enum value origins.26 pinned controls;release workspace tests/clippy;3,379 anchors;snapshot refreshed. [Evidence and remaining work](docs/architecture/checker-95-string-mappings.md).6,057 assertions remain;95% unfinished. |

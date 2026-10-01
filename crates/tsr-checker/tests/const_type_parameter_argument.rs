@@ -10,7 +10,7 @@
 //!
 //! **The arm**: `is_const_context` walks the parent chain syntactically and
 //! cannot answer this, because const-ness here depends on the callee's
-//! RESOLVED signature. `array_literal_argument_of_const_type_parameter` asks it
+//! RESOLVED signature. `literal_in_const_type_variable_context` asks it
 //! at the same seam §793 used for the tuple-context arm, behind the
 //! `resolving_signature_calls` re-entry guard.
 //!
@@ -24,16 +24,10 @@
 //! test1(() => ['a']);   // readonly ["a"]
 //! ```
 //!
-//! There const-ness must cross a FUNCTION BOUNDARY into the arrow's return
-//! before the literal is reached, and nothing in this port carries a const
-//! context across one. So the decline now asks for exactly that shape — a
-//! parameter whose type is a function mentioning a const type parameter — and
-//! every other const-marked call goes through inference with its arguments
-//! correctly in const context.
-//!
-//! **A refusal narrowed to its actual cause is worth more than a refusal
-//! lifted or kept whole.** Lifting it measured 42 GAP→WRONG against 8; keeping
-//! it whole left those 8 unreachable; narrowing it is +8 with zero adverse.
+//! This records the historical callback refusal. Const callback contexts now
+//! read the active uninstantiated signature and regularize literal source views
+//! before return widening. The callback control below asserts the pinned answer;
+//! docs/architecture/checker-95-const-callbacks.md records the reopening evidence.
 //!
 //! # The residue this recorded is now CLOSED (§798)
 //!
@@ -116,16 +110,14 @@ fn a_plain_type_parameter_still_widens() {
     assert_eq!(type_of_initialiser(&source, "a"), "string[]");
 }
 
-/// The decline that survives: a CALLBACK parameter keeps §33's refusal,
-/// because const-ness would have to cross the function boundary. Answering
-/// here would put 42 GAP→WRONG back on the board.
+/// Const return context crosses a callback boundary before literal widening.
 #[test]
-fn a_callback_shaped_const_signature_still_declines() {
+fn a_callback_shaped_const_signature_preserves_its_return_literal() {
     let source = format!(
         "{LIB}declare function test1<const T>(create: () => T): T;\n\
          const a = test1(() => [\"a\"]);"
     );
-    assert_eq!(type_of_initialiser(&source, "a"), "error");
+    assert_eq!(type_of_initialiser(&source, "a"), "readonly [\"a\"]");
 }
 
 /// A non-array argument through a const parameter is unaffected either way —

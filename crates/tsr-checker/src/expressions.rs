@@ -147,6 +147,39 @@ impl Checker<'_, '_> {
                 true,
             );
         }
+        // checkTemplateExpression's const arm (checker.go:7997) constructs a
+        // pattern from semantic span types after the constant-value fast path.
+        if node.node_id.is_some_and(|id| {
+            self.is_const_context(id) || self.literal_in_const_type_variable_context(id)
+        }) {
+            let mut texts = vec![node.head.map_or_else(String::new, |head| head.text.to_owned())];
+            for span in node.template_spans {
+                let Some(literal) = span.literal else { return error };
+                texts.push(match literal {
+                    tsr_ast::TemplateMiddleOrTail::TemplateMiddle(part) => part.text.to_owned(),
+                    tsr_ast::TemplateMiddleOrTail::TemplateTail(part) => part.text.to_owned(),
+                });
+            }
+            let constraint = self.get_union_type(&[
+                self.intrinsics.string,
+                self.intrinsics.number,
+                self.intrinsics.boolean,
+                self.intrinsics.bigint,
+                self.intrinsics.null,
+                self.intrinsics.undefined,
+            ]);
+            let types: Vec<_> = span_types
+                .into_iter()
+                .map(|ty| {
+                    if self.is_type_assignable_to(ty, constraint) {
+                        ty
+                    } else {
+                        self.intrinsics.string
+                    }
+                })
+                .collect();
+            return self.get_template_literal_type(&texts, &types);
+        }
         // The three §24 declines: a const context, the element-access
         // argument position (a template-literal context), and any span whose
         // literal kind the fold cannot evaluate is NOT declined — only the
@@ -3363,6 +3396,11 @@ impl Checker<'_, '_> {
             return error;
         }
         if contextualised {
+            if let Some(signature) = self.contextual_signature(container)
+                && let Some(next) = self.contextual_generator_iteration_type(signature.r#type, 2)
+            {
+                return next;
+            }
             return error;
         }
         any

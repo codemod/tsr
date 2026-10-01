@@ -1527,6 +1527,7 @@ impl<'a> Checker<'a, '_> {
             for expression in self.return_expressions_of(block, declaration) {
                 let Some(expression) = expression else { continue };
                 let t = self.check_expression(expression);
+                let t = self.const_function_body_expression_type(expression, t);
                 if t == self.intrinsics.error {
                     return None;
                 }
@@ -1594,6 +1595,14 @@ impl<'a> Checker<'a, '_> {
                         let element = arguments[0];
                         if !operand_types.contains(&element) {
                             operand_types.push(element);
+                        }
+                        // ArrayIterator's next slot is unknown. A yield* site
+                        // contributes that slot to the aggregate even when the
+                        // generator's contextual next slot is any
+                        // (checker.go:20334 and :6384).
+                        let next = self.intrinsics.unknown;
+                        if !next_types.contains(&next) {
+                            next_types.push(next);
                         }
                         continue;
                     }
@@ -1937,6 +1946,7 @@ impl<'a> Checker<'a, '_> {
                     continue;
                 };
                 let operand_type = self.check_expression(operand);
+                let operand_type = self.const_function_body_expression_type(operand, operand_type);
                 if operand_type == self.intrinsics.error {
                     return None;
                 }
@@ -2028,7 +2038,12 @@ impl<'a> Checker<'a, '_> {
                 }
             };
             let next_slot = match next_types.as_slice() {
-                [] => self.intrinsics.unknown,
+                [] => self
+                    .contextual_signature(declaration)
+                    .and_then(|signature| {
+                        self.contextual_generator_iteration_type(signature.r#type, 2)
+                    })
+                    .unwrap_or(self.intrinsics.unknown),
                 [single] => *single,
                 many => self.get_intersection_type(many, None),
             };
@@ -2244,6 +2259,7 @@ impl<'a> Checker<'a, '_> {
                 continue;
             }
             let id = self.check_expression(expression);
+            let id = self.const_function_body_expression_type(expression, id);
             // §272 FLIPPED at §437, its reopening condition partially come
             // due (§401 landed promiseType's inference population). Upstream
             // keeps an errorType return aggregate and builds the signature
@@ -2401,7 +2417,29 @@ impl<'a> Checker<'a, '_> {
         expression: tsr_ast::Expression<'a>,
     ) -> Option<TypeId> {
         let id = self.check_expression(expression);
+        let id = self.const_function_body_expression_type(expression, id);
         self.inferred_return_type(declaration, id)
+    }
+
+    /// getReturnTypeFromBody and return/yield aggregation regularize const
+    /// body expressions before the ordinary contextual widening tail
+    /// (checker.go:20141, :20292 and :20329). Literal source views preserve the cached
+    /// expression type while giving this signature its readonly return shape.
+    fn const_function_body_expression_type(
+        &mut self,
+        expression: tsr_ast::Expression<'a>,
+        source: TypeId,
+    ) -> TypeId {
+        let Some(node) = expression.node_id() else { return source };
+        if !self.is_const_context(node) && !self.literal_in_const_type_variable_context(node) {
+            return source;
+        }
+        let previous = self.contextual_prefers_uninstantiated;
+        self.contextual_prefers_uninstantiated = true;
+        let contextual = self.get_contextual_type(node).unwrap_or(self.intrinsics.unknown);
+        self.contextual_prefers_uninstantiated = previous;
+        let source = self.const_literal_inference_source(expression, source, contextual, true);
+        self.get_regular_type_of_literal_type(source)
     }
 
     /// `getReturnTypeFromBody`'s tail (`checker.go:20193`–`:20232`) applied to an

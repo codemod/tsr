@@ -610,39 +610,8 @@ impl Checker<'_, '_> {
         // Upstream would now report on the arguments; see the module docs for
         // why this does not, and why the return type is the same either way.
         if !signature.type_parameters.is_empty() {
-            // getCovariantInference preserves const candidates. Contexts that
-            // consume an already-inferred const parameter are supported here;
-            // return-only contexts still need const propagation into the body.
-            if signature.type_parameters.iter().any(|parameter| parameter.is_const) {
-                let Some(parameters) = self.type_parameter_types(&signature) else { return error };
-                for parameter in &signature.parameters {
-                    let Some(callbacks) = self.signatures_of_type(parameter.r#type) else {
-                        continue;
-                    };
-                    if callbacks.is_empty() {
-                        continue;
-                    }
-                    // A context that consumes an already-inferred const
-                    // parameter needs no const propagation through the body.
-                    // Return-only const contexts still need that propagation.
-                    let supported = signature.type_parameters.iter().zip(&parameters).all(
-                        |(declaration, &type_parameter)| {
-                            !declaration.is_const
-                                || (callbacks.iter().all(|callback| {
-                                    callback.parameters.iter().any(|p| p.r#type == type_parameter)
-                                }) && signature.parameters.iter().zip(node.arguments).any(
-                                    |(parameter, argument)| {
-                                        parameter.r#type == type_parameter
-                                            && !self.is_context_sensitive_argument(argument)
-                                    },
-                                ))
-                        },
-                    );
-                    if !supported {
-                        return error;
-                    }
-                }
-            }
+            // Const callback return contexts now preserve their literal source
+            // before inference (getReturnTypeFromBody, checker.go:20141).
             // §288: WRITTEN type arguments need no inference at all — the
             // SS161 recipe at the CALL road. `fn2<string>(4)` instantiates
             // the return with the written list when the arity matches

@@ -819,6 +819,22 @@ impl Checker<'_, '_> {
                 continue;
             }
             let Some(&argument_expression) = arguments.get(index) else { continue };
+            let mut callback_expression = argument_expression;
+            while let Expression::ParenthesizedExpression(node) = callback_expression {
+                let Some(inner) = node.expression else { break };
+                callback_expression = inner;
+            }
+            if signature.type_parameters.iter().any(|p| p.is_const)
+                && matches!(
+                    callback_expression,
+                    Expression::ArrowFunction(_) | Expression::FunctionExpression(_)
+                )
+                && let Some(callbacks) = self.call_signatures_of_type(parameter.r#type)
+                && let [callback] = callbacks.as_slice()
+                && self.is_const_type_variable(callback.r#type, 0)
+            {
+                const_source_parameters.push(callback.r#type);
+            }
             if self.is_context_sensitive_argument(&argument_expression) {
                 deferred.push(index);
                 continue;
@@ -1455,9 +1471,9 @@ impl Checker<'_, '_> {
             {
                 return decline;
             }
-            // Direct and rest const variables consume source views collected
-            // before inference, including mutability and literal AST origins.
-            // Context-sensitive and other indirect candidates still use the
+            // Direct/rest const variables and direct callback returns consume
+            // source views collected before inference, including mutability and
+            // literal AST origins. Other indirect candidates still use the
             // legacy readonly fallback until their source mapper is ported.
             let candidate = match candidate {
                 Some(inferred)
