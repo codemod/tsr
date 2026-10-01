@@ -76,7 +76,7 @@ the user's tool mapping. No independent or cross-model review is claimed.
 
 ## Checkpoint and remaining work
 
-CODE_CHECKPOINT: 452,420/478,855 correct assertions (94.48%).
+6c7fe447: 452,420/478,855 correct assertions (94.48%).
 Aligned population: 474,243; 452,420 RIGHT, 3,387 GAP, 18,436 WRONG.
 Against 5f7bb6e4: 115 WRONG->RIGHT, 12 GAP->RIGHT, zero RIGHT losses,
 4 GAP->WRONG, 1 WRONG->GAP and 19 changed wrong answers. The four new wrong

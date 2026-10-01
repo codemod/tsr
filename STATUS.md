@@ -24,7 +24,7 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-10-01
 
-Measured on **`CODE_CHECKPOINT`**: **452,420/478,855 assertions (94.48%)**,
+Measured on **`6c7fe447`**: **452,420/478,855 assertions (94.48%)**,
 **6,699/9,538 complete cases (70.23%)**. The updated 99% target requires
 474,067 correct assertions; **21,647 remain**. Denominator and pinned oracle
 unchanged. Aligned verdicts: **474,243 total; 452,420 right; 3,387 gap; 18,436 wrong**.
@@ -1209,7 +1209,7 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-### Current priorities at `CODE_CHECKPOINT` — 2026-10-01
+### Current priorities at `6c7fe447` — 2026-10-01
 
 Receiver/rest applicability and recursive asserted returns add 127 matches with
 zero RIGHT losses. Full non-array-rest spread construction, incomplete generic
@@ -3888,7 +3888,7 @@ version of bare `any`.
 
 ## 5. Refused, with the number that refused it
 
-### Receiver and rest applicability at `CODE_CHECKPOINT`
+### Receiver and rest applicability at `6c7fe447`
 
 The first full candidate gained 124 but lost 48. Erasing own type parameters
 before signature substitution recovered 22; resolving asserted returns before
@@ -9776,7 +9776,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
-| 2026-10-01 | `CODE_CHECKPOINT` | **70.23%** | **6,699** | **452,420/478,855 assertions (94.48%).** +127 since 5f7bb6e4, zero RIGHT losses; 4G→W, 1W→G, 19 changed wrong. Receiver/rest applicability, constructor binding and recursive asserted returns. Twenty-two pinned outcomes; release tests/clippy; anchors; snapshot refreshed. [Evidence](docs/architecture/checker-95-rest-applicability.md). User raised the goal to 99%; 21,647 remain. |
+| 2026-10-01 | `6c7fe447` | **70.23%** | **6,699** | **452,420/478,855 assertions (94.48%).** +127 since 5f7bb6e4, zero RIGHT losses; 4G→W, 1W→G, 19 changed wrong. Receiver/rest applicability, constructor binding and recursive asserted returns. Twenty-two pinned outcomes; release tests/clippy; anchors; snapshot refreshed. [Evidence](docs/architecture/checker-95-rest-applicability.md). User raised the goal to 99%; 21,647 remain. |
 | 2026-10-01 | `5f7bb6e4` | **70.20%** | **6,696** | **452,293/478,855 assertions (94.45%).** +28 since 42e7881a, all WRONG→RIGHT with no adverse transitions. Contextual construct selection and generic alias return propagation. Thirteen pinned outcomes; release tests/clippy; 3,362 anchors; snapshot refreshed. [Evidence](docs/architecture/checker-95-contextual-construct-inference.md). 2,620 remain; 95% unfinished. |
 | 2026-10-01 | `42e7881a` | **70.18%** | **6,694** | **452,265/478,855 assertions (94.45%).** +211 since aab165d8, zero RIGHT losses; 11G→W, 19 changed wrong. Construct-signature relations, class constructors and computed statics. Pinned controls; release tests/clippy; 3,362 anchors; snapshot refreshed. [Evidence](docs/architecture/checker-95-construct-relations.md). 2,648 remain; 95% unfinished. |
 | 2026-10-01 | `aab165d8` | **70.11%** | **6,687** | **452,054/478,855 assertions (94.40%).** +170 since a529367a, zero RIGHT losses; 2G→W, 70 changed wrong. Structured overloads, effective constraints, object freshness/widening, spread properties and merged namespace exports. Pinned controls; release tests/clippy; 3,363 anchors; binder 100%; snapshot refreshed. [Evidence](docs/architecture/checker-95-structured-overloads.md). 2,859 remain; 95% unfinished. |
