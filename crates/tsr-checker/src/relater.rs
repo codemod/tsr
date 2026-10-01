@@ -631,6 +631,7 @@ impl Relater<'_, '_, '_> {
             || (self.has_members(source) && self.has_members(target))
             || (source_tuple && target_tuple)
             || tuple_array_pair
+            || t.contains(TypeFlags::STRING_MAPPING)
             || (t.contains(TypeFlags::TEMPLATE_LITERAL)
                 && s.intersects(
                     TypeFlags::STRING_LITERAL | TypeFlags::TEMPLATE_LITERAL | TypeFlags::STRING,
@@ -676,7 +677,7 @@ impl Relater<'_, '_, '_> {
         }
         // A template always inhabits the string domain. Generic holes do not
         // make it overlap a decidable non-string primitive.
-        if s.contains(TypeFlags::TEMPLATE_LITERAL)
+        if s.intersects(TypeFlags::TEMPLATE_LITERAL | TypeFlags::STRING_MAPPING)
             && self.flag_decidable(target)
             && !t.intersects(TypeFlags::STRING_LIKE)
         {
@@ -1279,6 +1280,9 @@ impl Relater<'_, '_, '_> {
             if flags.intersects(TypeFlags::BOOLEAN_LITERAL | TypeFlags::NULLABLE) {
                 return value == self.checker.type_to_string(target);
             }
+            if flags.contains(TypeFlags::STRING_MAPPING) {
+                return self.checker.is_member_of_string_mapping(source, target);
+            }
             if let Some(parts) = self.checker.template_literal_parts.get(&target).cloned() {
                 return self.checker.template_literal_inferences(source, &parts).is_some_and(
                     |matches| {
@@ -1410,6 +1414,24 @@ impl Relater<'_, '_, '_> {
                 .zip(parts.types)
                 .all(|(source, target)| self.valid_template_placeholder(source, target))
             {
+                Ternary::Related
+            } else {
+                Ternary::NotRelated
+            };
+        }
+        if let Some((target_symbol, target_inner)) =
+            self.checker.string_mapping_types.get(&target).copied()
+        {
+            if let Some((source_symbol, source_inner)) =
+                self.checker.string_mapping_types.get(&source).copied()
+            {
+                return if source_symbol == target_symbol {
+                    self.is_related_to(source_inner, target_inner)
+                } else {
+                    Ternary::NotRelated
+                };
+            }
+            return if self.checker.is_member_of_string_mapping(source, target) {
                 Ternary::Related
             } else {
                 Ternary::NotRelated

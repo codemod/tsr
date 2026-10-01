@@ -856,6 +856,8 @@ pub struct Checker<'a, 'n> {
     pub(crate) mapped_members_in_progress: rustc_hash::FxHashSet<TypeId>,
     pub(crate) template_alias_in_progress: rustc_hash::FxHashSet<SymbolId>,
     pub(crate) template_literal_parts: FxHashMap<TypeId, crate::templates::TemplateLiteralParts>,
+    pub(crate) string_mapping_types: FxHashMap<TypeId, (SymbolId, TypeId)>,
+    pub(crate) string_mapping_cache: FxHashMap<(SymbolId, TypeId), TypeId>,
     pub(crate) template_literal_cache: FxHashMap<crate::templates::TemplateLiteralParts, TypeId>,
     pub(crate) mapped_apparent_types: FxHashMap<TypeId, TypeId>,
     pub(crate) type_parameter_constraint_cache:
@@ -1241,6 +1243,8 @@ impl<'a, 'n> Checker<'a, 'n> {
             mapped_members_in_progress: rustc_hash::FxHashSet::default(),
             template_alias_in_progress: rustc_hash::FxHashSet::default(),
             template_literal_parts: FxHashMap::default(),
+            string_mapping_types: FxHashMap::default(),
+            string_mapping_cache: FxHashMap::default(),
             template_literal_cache: FxHashMap::default(),
             mapped_apparent_types: FxHashMap::default(),
             type_parameter_constraint_cache: FxHashMap::default(),

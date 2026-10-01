@@ -4407,10 +4407,10 @@ impl Checker<'_, '_> {
     /// plain literal, so the two compare directly. Linear in the map — enums
     /// are small and the relater's simple arms are the only caller.
     pub(crate) fn enum_member_value(&self, member: TypeId) -> Option<(SymbolId, String)> {
-        if !self.store.get(member).flags.intersects(TypeFlags::ENUM) {
+        let regular = self.enum_member_regular.get(&member).copied().unwrap_or(member);
+        if !self.store.get(regular).flags.intersects(TypeFlags::ENUM) {
             return None;
         }
-        let regular = self.enum_member_regular.get(&member).copied().unwrap_or(member);
         let owner = *self.enum_member_owners.get(&regular)?;
         self.enum_value_types
             .iter()

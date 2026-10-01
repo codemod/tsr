@@ -3724,6 +3724,44 @@ impl<'a> Checker<'a, '_> {
     /// lost. The admission-flag walk below (§77/§77.1/§108.1/§137) is the
     /// gate's home; `bd tsr-5o2`'s 9-line family stays recorded.
     pub(crate) fn written_annotation_text(&mut self, annotation: TypeNode<'a>) -> Option<String> {
+        // A mapping alias that distributes to a union reuses its written name
+        // in declaration signatures, like a distributed template alias.
+        if self.alias_evaluation_bindings.is_empty()
+            && let TypeNode::TypeReferenceNode(reference) = annotation
+            && let Some(symbol) = reference
+                .type_name
+                .and_then(|name| self.resolve_entity_name(name, tsr_binder::SymbolFlags::TYPE))
+            && let Some(TypeNode::TypeReferenceNode(body)) = self
+                .binder
+                .symbols()
+                .get(symbol)
+                .declarations
+                .first()
+                .copied()
+                .and_then(|id| self.node_map.get(id))
+                .and_then(|node| match node {
+                    Node::TypeAliasDeclaration(alias) => alias.r#type,
+                    _ => None,
+                })
+            && let Some(mapping) = body
+                .type_name
+                .and_then(|name| self.resolve_entity_name(name, tsr_binder::SymbolFlags::TYPE))
+            && self.is_string_mapping_alias(mapping)
+        {
+            let resolved = self.get_type_from_type_node(annotation);
+            if self.store.get(resolved).flags.contains(TypeFlags::UNION) {
+                return Self::written_type_text(annotation, &mut false, &mut false);
+            }
+        }
+        if self.alias_evaluation_bindings.is_empty()
+            && let TypeNode::TypeReferenceNode(reference) = annotation
+            && let Some(symbol) = reference
+                .type_name
+                .and_then(|name| self.resolve_entity_name(name, tsr_binder::SymbolFlags::TYPE))
+            && self.is_string_mapping_alias(symbol)
+        {
+            return Self::written_type_text(annotation, &mut false, &mut false);
+        }
         // serializeTypeForDeclaration retains a written conditional alias in
         // signatures even when the semantic reference resolves to its branch.
         if self.alias_evaluation_bindings.is_empty()
@@ -4114,6 +4152,26 @@ impl<'a> Checker<'a, '_> {
                     )?);
                 }
                 Some(format!("{}<{}>", identifier.text, parts.join(", ")))
+            }
+            TypeNode::TemplateLiteralTypeNode(template) => {
+                let mut text = format!("`{}", Self::escape_template_text(template.head?.text));
+                for span in template.template_spans {
+                    text.push_str("${");
+                    text.push_str(&Self::written_type_text_flags(
+                        span.r#type?,
+                        single_quoted,
+                        array_headed,
+                        void_union,
+                    )?);
+                    text.push('}');
+                    let literal = match span.literal? {
+                        tsr_ast::TemplateMiddleOrTail::TemplateMiddle(node) => node.text,
+                        tsr_ast::TemplateMiddleOrTail::TemplateTail(node) => node.text,
+                    };
+                    text.push_str(&Self::escape_template_text(literal));
+                }
+                text.push('`');
+                Some(text)
             }
             // §825: an INDEXED ACCESS spells `T[K]` as written. A
             // union/intersection/function object half would need parentheses the

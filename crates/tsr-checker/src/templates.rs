@@ -125,7 +125,7 @@ impl Checker<'_, '_> {
         self.template_literal_parts.insert(id, spans);
         id
     }
-    fn escape_template_text(text: &str) -> String {
+    pub(crate) fn escape_template_text(text: &str) -> String {
         text.replace('\\', "\\\\").replace('`', "\\`").replace("${", "\\${")
     }
     fn add_template_spans(
@@ -136,6 +136,13 @@ impl Checker<'_, '_> {
         out: &mut TemplateLiteralParts,
     ) -> bool {
         for (i, &ty) in types.iter().enumerate() {
+            if let Some((_, value)) = self.enum_member_value(ty)
+                && let Some(value) = value.strip_prefix("s:").or_else(|| value.strip_prefix("n:"))
+            {
+                text.push_str(value);
+                text.push_str(&texts[i + 1]);
+                continue;
+            }
             match &self.store.get(ty).data {
                 TypeData::StringLiteral(value) | TypeData::NumberLiteral(value) => {
                     text.push_str(value);
@@ -157,7 +164,8 @@ impl Checker<'_, '_> {
                         TypeFlags::TYPE_PARAMETER
                             | TypeFlags::INDEX
                             | TypeFlags::INDEXED_ACCESS
-                            | TypeFlags::SUBSTITUTION,
+                            | TypeFlags::SUBSTITUTION
+                            | TypeFlags::STRING_MAPPING,
                     ) || self.deferred_keyof_operands.contains_key(&ty)
                         || self.is_pattern_template_placeholder(ty)
                     {
@@ -173,12 +181,18 @@ impl Checker<'_, '_> {
         true
     }
     fn is_pattern_template(&self, id: TypeId) -> bool {
+        if let Some((_, target)) = self.string_mapping_types.get(&id) {
+            return self.is_pattern_template_placeholder(*target);
+        }
         self.template_literal_parts.get(&id).is_some_and(|parts| {
             parts.types.iter().all(|&ty| self.is_pattern_template_placeholder(ty))
         })
     }
-    fn is_pattern_template_placeholder(&self, id: TypeId) -> bool {
+    pub(crate) fn is_pattern_template_placeholder(&self, id: TypeId) -> bool {
         let ty = self.store.get(id);
+        if let Some((_, target)) = self.string_mapping_types.get(&id) {
+            return self.is_pattern_template_placeholder(*target);
+        }
         if let TypeData::Intersection { types, .. } = &ty.data {
             let mut seen = false;
             for &id in types {

@@ -3231,9 +3231,7 @@ impl<'a> Checker<'a, '_> {
             && let Some(declaration) =
                 self.binder.symbols().get(symbol).declarations.first().copied()
             && let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration)
-            && (matches!(alias.r#type, Some(TypeNode::ConditionalTypeNode(_)))
-                || matches!(alias.r#type, Some(TypeNode::KeywordTypeNode(keyword))
-                    if keyword.kind == SyntaxKind::IntrinsicKeyword))
+            && matches!(alias.r#type, Some(TypeNode::ConditionalTypeNode(_)))
             && self.in_alias_declared_position(node.node_id)
         {
             // §92.1: §91's evaluator now answers the computable slice of
@@ -3788,6 +3786,11 @@ impl<'a> Checker<'a, '_> {
                 return existing;
             }
             let minted = self.store.new_named(TypeFlags::OBJECT, text, Some(resolved));
+            if self.binder.symbols().get(resolved).flags.contains(SymbolFlags::ENUM_MEMBER) {
+                let declared = self.get_declared_type_of_symbol(resolved);
+                let regular = self.get_regular_type_of_literal_type(declared);
+                self.enum_member_regular.insert(minted, regular);
+            }
             self.qualified_reference_types.insert(key, minted);
             return minted;
         }
@@ -4099,6 +4102,10 @@ impl<'a> Checker<'a, '_> {
         arguments: Vec<TypeId>,
         display: Option<usize>,
     ) -> TypeId {
+        if let Some(mapped) = self.instantiate_string_mapping_alias(symbol, &arguments) {
+            self.instantiations.insert((symbol, arguments), mapped);
+            return mapped;
+        }
         if let Some(mapped) = self.instantiate_identity_mapped_alias(symbol, &arguments) {
             if self.mapped_identity_sources.contains_key(&mapped) {
                 self.capture_mapped_alias(mapped, symbol, &arguments);

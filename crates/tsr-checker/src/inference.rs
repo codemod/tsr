@@ -3489,50 +3489,57 @@ impl Checker<'_, '_> {
         let mut preferred = None;
         for constraint in constraints {
             let flags = self.store.get(constraint).flags;
-            let candidate = if flags.contains(TypeFlags::TEMPLATE_LITERAL)
-                && self.is_type_assignable_to(source, constraint)
-            {
-                Some((0, source))
-            } else if let TypeData::StringLiteral(literal) = &self.store.get(constraint).data {
-                (literal == &value).then_some((2, constraint))
-            } else if flags.contains(TypeFlags::NUMBER) {
-                number.as_ref().map(|number| {
-                    (
-                        3,
-                        self.store.intern_literal(
-                            TypeFlags::NUMBER_LITERAL,
-                            TypeData::NumberLiteral(number.clone()),
-                            false,
-                        ),
+            let candidate =
+                if flags.contains(TypeFlags::TEMPLATE_LITERAL)
+                    && self.is_type_assignable_to(source, constraint)
+                {
+                    Some((0, source))
+                } else if flags.contains(TypeFlags::STRING_MAPPING)
+                    && self.string_mapping_types.get(&constraint).copied().is_some_and(
+                        |(symbol, _)| self.apply_string_mapping(symbol, &value) == value,
                     )
-                })
-            } else if let TypeData::NumberLiteral(literal) = &self.store.get(constraint).data {
-                number.as_ref().filter(|number| *number == literal).map(|_| (5, constraint))
-            } else if flags.contains(TypeFlags::BIG_INT) {
-                bigint.as_ref().map(|bigint| {
-                    (
-                        6,
-                        self.store.intern_literal(
-                            TypeFlags::BIG_INT_LITERAL,
-                            TypeData::BigIntLiteral(bigint.clone()),
-                            false,
-                        ),
-                    )
-                })
-            } else if let TypeData::BigIntLiteral(literal) = &self.store.get(constraint).data {
-                bigint
-                    .as_ref()
-                    .filter(|bigint| bigint.as_str() == literal.trim_end_matches('n'))
-                    .map(|_| (7, constraint))
-            } else if let TypeData::BooleanLiteral(literal) = self.store.get(constraint).data {
-                (value == if literal { "true" } else { "false" }).then_some((9, constraint))
-            } else if flags.contains(TypeFlags::UNDEFINED) && value == "undefined" {
-                Some((10, constraint))
-            } else if flags.contains(TypeFlags::NULL) && value == "null" {
-                Some((11, constraint))
-            } else {
-                None
-            };
+                {
+                    Some((1, source))
+                } else if let TypeData::StringLiteral(literal) = &self.store.get(constraint).data {
+                    (literal == &value).then_some((2, constraint))
+                } else if flags.contains(TypeFlags::NUMBER) {
+                    number.as_ref().map(|number| {
+                        (
+                            3,
+                            self.store.intern_literal(
+                                TypeFlags::NUMBER_LITERAL,
+                                TypeData::NumberLiteral(number.clone()),
+                                false,
+                            ),
+                        )
+                    })
+                } else if let TypeData::NumberLiteral(literal) = &self.store.get(constraint).data {
+                    number.as_ref().filter(|number| *number == literal).map(|_| (5, constraint))
+                } else if flags.contains(TypeFlags::BIG_INT) {
+                    bigint.as_ref().map(|bigint| {
+                        (
+                            6,
+                            self.store.intern_literal(
+                                TypeFlags::BIG_INT_LITERAL,
+                                TypeData::BigIntLiteral(bigint.clone()),
+                                false,
+                            ),
+                        )
+                    })
+                } else if let TypeData::BigIntLiteral(literal) = &self.store.get(constraint).data {
+                    bigint
+                        .as_ref()
+                        .filter(|bigint| bigint.as_str() == literal.trim_end_matches('n'))
+                        .map(|_| (7, constraint))
+                } else if let TypeData::BooleanLiteral(literal) = self.store.get(constraint).data {
+                    (value == if literal { "true" } else { "false" }).then_some((9, constraint))
+                } else if flags.contains(TypeFlags::UNDEFINED) && value == "undefined" {
+                    Some((10, constraint))
+                } else if flags.contains(TypeFlags::NULL) && value == "null" {
+                    Some((11, constraint))
+                } else {
+                    None
+                };
             if let Some((rank, ty)) = candidate
                 && preferred.is_none_or(|(old_rank, _)| rank < old_rank)
             {
@@ -3587,6 +3594,22 @@ impl Checker<'_, '_> {
                 && let Some(info) = out.iter_mut().find(|i| i.type_parameter == target)
             {
                 info.top_level = false;
+            }
+            return;
+        }
+        if let (Some((source_symbol, source_inner)), Some((target_symbol, target_inner))) = (
+            self.string_mapping_types.get(&source).copied(),
+            self.string_mapping_types.get(&target).copied(),
+        ) {
+            if source_symbol == target_symbol {
+                self.infer_from_types_within(
+                    source_inner,
+                    target_inner,
+                    original,
+                    parameters,
+                    out,
+                    depth + 1,
+                );
             }
             return;
         }
@@ -4282,6 +4305,10 @@ impl Checker<'_, '_> {
         names: &[&str],
     ) -> TypeId {
         let error = self.intrinsics.error;
+        if let Some((symbol, target)) = self.string_mapping_types.get(&id).copied() {
+            let target = self.instantiate_type(target, map, parameters, names);
+            return self.get_string_mapping_type(symbol, target);
+        }
         if let Some(parts) = self.template_literal_parts.get(&id).cloned() {
             let types: Vec<_> = parts
                 .types
@@ -4940,6 +4967,9 @@ impl Checker<'_, '_> {
             return false;
         }
         visited.push(id);
+        if let Some((_, target)) = self.string_mapping_types.get(&id) {
+            return self.mentions_type_parameter_inner(*target, parameters, names, visited);
+        }
         if let Some(parts) = self.template_literal_parts.get(&id) {
             return parts
                 .types
