@@ -24,7 +24,7 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-09-30
 
-Measured on **`TEMPLATE_COMMIT`**: **448,549/478,855 assertions (93.67%)**,
+Measured on **`b4e2483c`**: **448,549/478,855 assertions (93.67%)**,
 **6,574/9,538 complete cases (68.92%)**. The active 95% target requires 454,913
 correct assertions; **6,364 remain**. The denominator and pinned oracle are
 unchanged. Aligned verdicts: **474,243 total;448,549 right;4,456 gap;21,238 wrong**.
@@ -1139,7 +1139,7 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-### Current priorities at `TEMPLATE_COMMIT` — 2026-09-30
+### Current priorities at `b4e2483c` — 2026-09-30
 
 Inference priorities, independent contextual return mappers, captured structural
 substitution, call/construct signature kinds, measured reference variances,
@@ -3699,7 +3699,7 @@ version of bare `any`.
 
 ## 5. Refused, with the number that refused it
 
-### Semantic template construction at `TEMPLATE_COMMIT`
+### Semantic template construction at `b4e2483c`
 
 Adds56 matching assertions with zero RIGHT losses. Eight written alias-signature
 losses from the first draft were repaired before acceptance. Three former gaps
@@ -9242,7 +9242,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
-| 2026-09-30 | `TEMPLATE_COMMIT` | **68.92%** | **6,574** | **448,549/478,855 assertions (93.67%).** +49 W→R,+7 G→R since2e3ef200,zero RIGHT losses;three G→W enum/template intersections. Ports semantic template expansion,flattening,interning and substitution. Ten pinned controls and release workspace tests/clippy pass;3,379 anchors;snapshot refreshed. [Evidence and remaining work](docs/architecture/checker-95-template-factory.md). 6,364 assertions remain;goal active. |
+| 2026-09-30 | `b4e2483c` | **68.92%** | **6,574** | **448,549/478,855 assertions (93.67%).** +49 W→R,+7 G→R since2e3ef200,zero RIGHT losses;three G→W enum/template intersections. Ports semantic template expansion,flattening,interning and substitution. Ten pinned controls and release workspace tests/clippy pass;3,379 anchors;snapshot refreshed. [Evidence and remaining work](docs/architecture/checker-95-template-factory.md). 6,364 assertions remain;goal active. |
 | 2026-09-30 | `2e3ef200` | **68.90%** | **6,572** | **448,493/478,855 assertions (93.66%).** +4 W→R,+13 G→R since e4fde75a,zero RIGHT losses;three G→W remain in enum widening/nested reverse tuples. Ports mapped key constraints,reverse cache identity and original intersection filtering. Five pinned controls and release workspace tests/clippy pass;3,379 anchors;snapshot refreshed. [Evidence and remaining work](docs/architecture/checker-95-mapped-constraints.md). 6,420 assertions remain;goal active. |
 | 2026-09-30 | `e4fde75a` | **68.89%** | **6,571** | **448,476/478,855 assertions (93.66%).** +57 W→R,+4 G→R since c52451f1,zero RIGHT losses;one G→W enum-union reduction. Ports transformed mapped sequences,union distribution,alias preservation and generic sequence apparent constraints. Twelve pinned controls and release workspace tests/clippy pass;3,379 anchors resolve;snapshot refreshed. [Evidence and remaining work](docs/architecture/checker-95-mapped-sequences.md). 6,437 assertions remain;goal active. |
 | 2026-09-30 | `c52451f1` | **68.88%** | **6,570** | **448,415/478,855 assertions (93.64%).** +57 W→R,+35 G→R since502930b6,zero RIGHT losses;27 G→W and2 W→G. Ports forward mapped property/index templates,identity traversal and cached recursive constraints. Pinned controls and release workspace tests/clippy pass;3,379 anchors resolve;snapshot refreshed. [Evidence and remaining work](docs/architecture/checker-95-mapped-members.md). 6,498 assertions remain;goal active. |

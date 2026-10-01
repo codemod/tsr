@@ -23,7 +23,7 @@ from the first draft before acceptance; variable types retain their computed val
 
 ## Verification and limits
 
-Checkpoint TEMPLATE_COMMIT:448,549/478,855 correct assertions (93.67%),
+Checkpoint b4e2483c:448,549/478,855 correct assertions (93.67%),
 6,574/9,538 complete cases (68.92%). Another6,364 assertions are needed for95%.
 Aligned verdicts:474,243 total;448,549 right;4,456 gap;21,238 wrong.
 Against2e3ef200:49 WRONG→RIGHT,7 GAP→RIGHT,zero RIGHT losses;
