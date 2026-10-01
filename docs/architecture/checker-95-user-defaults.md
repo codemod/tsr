@@ -48,7 +48,7 @@ is ported; general error-to-any member recovery remains unported.
 
 ## Verification and limits
 
-Checkpoint CURRENT_USER_DEFAULTS_SHA: 450,038/478,855 matching assertions (93.98%).
+Checkpoint 5bc7cd73: 450,038/478,855 matching assertions (93.98%).
 Complete cases: 6,605/9,538 (69.25%). Another4,875 assertions are needed for95%.
 Aligned verdicts:474,243 total;450,038 RIGHT;4,120 GAP;20,085 WRONG.
 Against bde0210e:143 WRONG→RIGHT,30 GAP→RIGHT,zero RIGHT losses,2 GAP→WRONG,
