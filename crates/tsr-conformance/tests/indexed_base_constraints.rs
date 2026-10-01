@@ -177,6 +177,53 @@ export const value = choose((value: number) => value.toFixed());
     assert_types(source, &["choose((value: number) => value.toFixed()) : string"]);
 }
 
+#[test]
+fn generic_indexed_objects_defer_until_their_arguments_are_known() {
+    let source = r#"// @strict: true
+// @target: es2020
+type Mapped<T> = { [K in keyof T]: { item: T[K] } };
+export function mapped<T extends { a: string }>(value: Mapped<T>["a"]) { return value; }
+export function mappedItem<T extends { a: string }>(value: Mapped<T>["a"]) { return value.item; }
+type Choice<T> = T extends string ? { a: 1 } : { a: 2 };
+export function conditional<T>(value: Choice<T>["a"]) { return value; }
+export function conditionalMember<T>(value: Choice<T>) { return value.a; }
+export function union<T extends { a: string }>(value: (T | { a: number })["a"]) { return value; }
+export function intersection<T extends { a: string }>(value: (T & { b: number })["a"]) { return value; }
+export function fixed<T extends unknown[]>(value: [string, ...T][0]) { return value; }
+export function rest<T extends unknown[]>(value: [string, ...T][1]) { return value; }
+export function pattern(value: { [key: `a${string}`]: number }[`a${string}`]) { return value; }
+export function stringIndex<T extends string>(value: { [key: string]: number }[T]) { return value; }
+interface Box<T> { item: T }
+export function box<T>(value: Box<T>["item"]) { return value; }
+export const concrete = mapped<{ a: "literal" }>({ item: "literal" });
+export const conditionalConcrete = conditional<string>(1);
+type AsyncChoice<T> = T extends { select: string } ? Promise<1> : Promise<2>;
+declare function chooseAsync<T extends { select?: string }>(value: T): AsyncChoice<T>;
+export async function deferredAsync<T extends { select?: string }>(value: T) { return await chooseAsync(value); }
+export const asyncConcrete = deferredAsync({ select: "yes" });
+"#;
+    assert_types(
+        source,
+        &[
+            "mapped : <T extends { a: string; }>(value: Mapped<T>[\"a\"]) => Mapped<T>[\"a\"]",
+            "mappedItem : <T extends { a: string; }>(value: Mapped<T>[\"a\"]) => T[\"a\"]",
+            "conditional : <T>(value: Choice<T>[\"a\"]) => Choice<T>[\"a\"]",
+            "conditionalMember : <T>(value: Choice<T>) => 1 | 2",
+            "union : <T extends { a: string; }>(value: (T | { a: number; })[\"a\"]) => (T | { a: number; })[\"a\"]",
+            "intersection : <T extends { a: string; }>(value: (T & { b: number; })[\"a\"]) => (T & { b: number; })[\"a\"]",
+            "fixed : <T extends unknown[]>(value: [string, ...T][0]) => string",
+            "rest : <T extends unknown[]>(value: [string, ...T][1]) => [string, ...T][1]",
+            "pattern : (value: number) => number",
+            "stringIndex : <T extends string>(value: number) => number",
+            "box : <T>(value: Box<T>[\"item\"]) => T",
+            "concrete : { item: \"literal\"; }",
+            "conditionalConcrete : 1",
+            "deferredAsync : <T extends { select?: string; }>(value: T) => Promise<AsyncChoice<T>>",
+            "asyncConcrete : Promise<Promise<1>>",
+        ],
+    );
+}
+
 fn assert_types(source: &str, wanted: &[&str]) {
     let case = TestCase::parse("probe/indexed-base-constraints", "constraints.ts", source);
     let expected: Vec<_> = case

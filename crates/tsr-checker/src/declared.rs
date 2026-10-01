@@ -3025,7 +3025,7 @@ impl<'a> Checker<'a, '_> {
             // itself.
             let readonly =
                 mapped.readonly_token.map(|token| !matches!(token.kind, SyntaxKind::MinusToken));
-            if self.store.get(arguments[0]).flags.contains(TypeFlags::TYPE_PARAMETER)
+            if self.store.get(arguments[0]).flags.intersects(TypeFlags::INSTANTIABLE_NON_PRIMITIVE)
                 || self.mapped_identity_sources.contains_key(&arguments[0])
                 || self.is_generic_homomorphic_mapped_type(arguments[0])
             {
@@ -4316,12 +4316,20 @@ impl<'a> Checker<'a, '_> {
             member_symbol = self.conditional_alias_branch_literal_symbol(symbol, &arguments);
         }
         let member_symbol = member_symbol.unwrap_or(symbol);
-        // `OBJECT` even when the target is a type alias, where upstream\'s
-        // instantiated type carries the flags of the alias\'s *body*. The flags
-        // are consulted by the arithmetic and `+` arms, and claiming
-        // `Alias<number>` is string- or number-like would be worse than claiming
-        // it is an object: `object` is the one answer those arms treat as
-        // neither.
+        // A deferred conditional keeps the flags of its body. In particular,
+        // indexed access must defer member selection until its arguments have
+        // chosen a branch, rather than treating the alias as an empty object.
+        let conditional = self
+            .binder
+            .symbols()
+            .get(symbol)
+            .declarations
+            .first()
+            .and_then(|&declaration| self.node_map.get(declaration))
+            .is_some_and(|node| {
+                matches!(node, Node::TypeAliasDeclaration(alias)
+                    if matches!(alias.r#type, Some(TypeNode::ConditionalTypeNode(_))))
+            });
         // `Some(symbol)`: the reference's properties are looked up in the
         // target's members table. **This is only safe because every consumer
         // that turns a found property into a type goes through
@@ -4334,7 +4342,8 @@ impl<'a> Checker<'a, '_> {
         // three consumers (property access, element access, the relater) landed
         // first and separately (`8fa6a3e`) so that this flip and the seam's
         // instantiation could be one commit.
-        let id = self.store.new_named(TypeFlags::OBJECT, printed, Some(member_symbol));
+        let flags = if conditional { TypeFlags::CONDITIONAL } else { TypeFlags::OBJECT };
+        let id = self.store.new_named(flags, printed, Some(member_symbol));
         self.instantiations.insert((symbol, arguments.clone()), id);
         if shown < arguments.len() {
             self.reference_display_arity.insert(id, shown);
@@ -5141,7 +5150,7 @@ impl<'a> Checker<'a, '_> {
         if let Some(check) =
             conditional.check_type.and_then(|node| self.distributive_conditional_parameter(node))
             && let Some(&argument) = frame.get(&check)
-            && let Some(constraint) = self.type_parameter_constraint(argument)
+            && let Some(constraint) = self.base_constraint_of_type(argument)
             && constraint != argument
             && let Some(position) = parameters.iter().position(|parameter| {
                 parameter.node_id.and_then(|node| self.binder.symbol_of(node)) == Some(check)
@@ -5824,7 +5833,7 @@ impl<'a> Checker<'a, '_> {
         if let Some(keys) = self.mapped_index_type(target) {
             return Some(keys);
         }
-        if self.store.get(target).flags.contains(TypeFlags::TYPE_PARAMETER)
+        if self.store.get(target).flags.intersects(TypeFlags::INSTANTIABLE_NON_PRIMITIVE)
             || self.is_generic_homomorphic_mapped_type(target)
             || self.mapped_types.get(&target).cloned().is_some_and(|info| {
                 info.name_type.is_some()

@@ -509,18 +509,32 @@ impl Checker<'_, '_> {
     pub(crate) fn resolved_indexed_access_type(
         &mut self,
         object: TypeId,
-        index: TypeId,
+        mut index: TypeId,
         include_undefined: bool,
     ) -> Option<TypeId> {
         use crate::flags::TypeFlags;
         if object == self.intrinsics.error || index == self.intrinsics.error {
             return None;
         }
+        // getIndexedAccessTypeOrUndefined normalizes generic string/number
+        // keys when every object constituent has only a string index signature.
+        if !self.store.get(index).flags.intersects(TypeFlags::NULLABLE)
+            && self.is_string_index_signature_only_type(object)
+        {
+            // The source-variable relation explores its base constraint. Keep
+            // the two kind checks separate, as isTypeAssignableToKind does.
+            let key = self.base_constraint_or_type(index);
+            if self.is_type_assignable_to(key, self.intrinsics.number)
+                || self.is_type_assignable_to(key, self.intrinsics.string)
+            {
+                index = self.intrinsics.string;
+            }
+        }
         if let Some(t) = self.tuple_index_type(object, index, include_undefined) {
             return Some(t);
         }
         let index_generic = self.indexed_access_index_is_generic(index);
-        if self.store.get(object).flags.contains(TypeFlags::TYPE_PARAMETER) || index_generic {
+        if self.indexed_access_object_is_generic(object) || index_generic {
             if self.store.get(object).flags.intersects(TypeFlags::ANY | TypeFlags::UNKNOWN) {
                 return Some(object);
             }
@@ -528,7 +542,8 @@ impl Checker<'_, '_> {
             if let Some(&cached) = self.deferred_indexed_access_cache.get(&key) {
                 return Some(cached);
             }
-            let text = format!("{}[{}]", self.type_to_string(object), self.type_to_string(index));
+            let object_text = self.wrap_array_element_text(object, &self.type_to_string(object));
+            let text = format!("{object_text}[{}]", self.type_to_string(index));
             let id = self.store.new_named(TypeFlags::INDEXED_ACCESS, text, None);
             self.deferred_indexed_access_types.insert(id, key);
             self.deferred_indexed_access_cache.insert(key, id);
@@ -571,15 +586,36 @@ impl Checker<'_, '_> {
         (index == self.intrinsics.never).then_some(self.intrinsics.never)
     }
 
+    /// isStringIndexSignatureOnlyTypeWorker (checker.go:27363).
+    fn is_string_index_signature_only_type(&mut self, object: TypeId) -> bool {
+        if let TypeData::Union { types, .. } | TypeData::Intersection { types, .. } =
+            self.store.get(object).data.clone()
+        {
+            return types.into_iter().all(|ty| self.is_string_index_signature_only_type(ty));
+        }
+        self.store.get(object).flags.contains(crate::flags::TypeFlags::OBJECT)
+            && !self.indexed_access_object_is_generic(object)
+            && self.property_names_of(object).is_empty()
+            && self
+                .get_index_infos_of_type(object)
+                .is_some_and(|infos| infos.len() == 1 && infos[0].key == self.intrinsics.string)
+    }
+
     pub(crate) fn indexed_access_index_is_generic(&self, index: TypeId) -> bool {
         use crate::flags::TypeFlags;
         if self
             .store
             .get(index)
             .flags
-            .intersects(TypeFlags::TYPE_PARAMETER | TypeFlags::INDEX | TypeFlags::INDEXED_ACCESS)
+            .intersects(TypeFlags::INSTANTIABLE_NON_PRIMITIVE | TypeFlags::INDEX)
             || self.deferred_keyof_types.contains(&index)
             || self.deferred_indexed_access_types.contains_key(&index)
+            || (self
+                .store
+                .get(index)
+                .flags
+                .intersects(TypeFlags::TEMPLATE_LITERAL | TypeFlags::STRING_MAPPING)
+                && !self.is_pattern_template(index))
         {
             return true;
         }
@@ -592,20 +628,51 @@ impl Checker<'_, '_> {
         }
     }
 
+    /// getGenericObjectFlags/isGenericMappedType (checker.go:24880).
+    /// Generic object references such as Box<T> are still concrete objects;
+    /// only instantiable types, generic mapped types, and generic tuples defer
+    /// member selection. Numeric tuple accesses are handled before this query.
+    fn indexed_access_object_is_generic(&mut self, object: TypeId) -> bool {
+        use crate::flags::TypeFlags;
+        if self.store.get(object).flags.intersects(TypeFlags::INSTANTIABLE_NON_PRIMITIVE) {
+            return true;
+        }
+        match self.store.get(object).data.clone() {
+            TypeData::Union { types, .. } | TypeData::Intersection { types, .. } => {
+                return types.into_iter().any(|ty| self.indexed_access_object_is_generic(ty));
+            }
+            _ => {}
+        }
+        if let Some(info) = self.mapped_types.get(&object).cloned() {
+            if self.indexed_access_index_is_generic(info.constraint) {
+                return true;
+            }
+            if let Some(name) = info.name_type {
+                let name = self.instantiate_type(
+                    name,
+                    &[(info.parameter, info.constraint)],
+                    &[info.parameter],
+                    &[],
+                );
+                if self.indexed_access_index_is_generic(name) {
+                    return true;
+                }
+            }
+        }
+        self.variadic_tuple_elements.get(&object).cloned().is_some_and(|(elements, _)| {
+            elements.iter().any(|element| {
+                element.spread && self.tuple_spread_array_element(element.r#type).is_none()
+            })
+        })
+    }
+
     /// Mint the deferred `Object[Index]` of a generic indexed access, or
     /// `None` when the access is concrete. §786.
     ///
-    /// Genericity is narrower here than upstream's `isGenericObjectType` /
-    /// `isGenericIndexType`, deliberately. Upstream also treats a mapped type
-    /// over a generic as a generic object; this port does not resolve mapped
-    /// members at all (§785), so admitting that shape would mint a deferred
-    /// print over a road that has no answer to defer TO. What is admitted is
-    /// what this port can actually name:
-    ///
-    /// - a **type parameter** on either side (`x: T`, `k: K`);
-    /// - a deferred **`keyof`** mint as the index (`k: keyof T`), tracked in
-    ///   [`Checker::deferred_keyof_types`] because §35 mints it as a plain
-    ///   unresolved named type and nothing in its flags says it is generic.
+    /// This expression-side path first checks whether a generic key belongs
+    /// to the receiver. Annotation-side resolution can defer generic objects
+    /// even with concrete keys; expressions preserve native eager constraint
+    /// lookup for that case.
     ///
     /// An `errorType` on either side refuses: a deferred print built over a
     /// type this port failed to compute would be a confident answer wearing

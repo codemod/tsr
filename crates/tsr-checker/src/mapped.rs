@@ -218,7 +218,10 @@ impl<'a> Checker<'a, '_> {
         visited.push(id);
         self.mapped_types.get(&id).is_some_and(|mapped| {
             self.deferred_keyof_operands.get(&mapped.constraint).is_some_and(|operand| {
-                self.store.get(*operand).flags.contains(crate::flags::TypeFlags::TYPE_PARAMETER)
+                self.store
+                    .get(*operand)
+                    .flags
+                    .intersects(crate::flags::TypeFlags::INSTANTIABLE_NON_PRIMITIVE)
                     || (mapped.homomorphic_symbol.is_some()
                         && self.is_generic_homomorphic_mapped_type_inner(*operand, visited))
             })

@@ -3274,11 +3274,17 @@ impl Checker<'_, '_> {
         if flags.intersects(TypeFlags::PRIMITIVE | TypeFlags::NEVER) {
             return Some(id);
         }
+        // getAwaitedTypeNoAlias preserves unresolved conditional types. Their
+        // eventual branch is chosen during instantiation; introducing the
+        // Awaited wrapper is the separate getAwaitedType/createAwaitedTypeIfNeeded
+        // step. This also preserves an existing Awaited<T> instantiation.
+        if flags.contains(TypeFlags::CONDITIONAL) {
+            return Some(id);
+        }
         // `isAwaitedTypeNeeded`'s domain plus the deferred kinds whose
         // members this port cannot probe: all decline rather than guess.
         if flags.intersects(
             TypeFlags::TYPE_PARAMETER
-                .union(TypeFlags::CONDITIONAL)
                 .union(TypeFlags::INDEX)
                 .union(TypeFlags::INDEXED_ACCESS)
                 .union(TypeFlags::SUBSTITUTION)

@@ -122,7 +122,17 @@ impl Checker<'_, '_> {
                 _ => self.intrinsics.string,
             });
         }
-        if let Some(&(yes, no)) = self.mapped_conditional_branches.get(&ty) {
+        if self.store.get(ty).flags.contains(TypeFlags::CONDITIONAL)
+            && !self.conditional_constraint_branches.contains_key(&ty)
+            && let Some((symbol, arguments)) = self.type_reference_targets.get(&ty).cloned()
+        {
+            self.capture_conditional_alias_branches(ty, symbol, &arguments);
+        }
+        if let Some(&(yes, no)) = self
+            .conditional_constraint_branches
+            .get(&ty)
+            .or_else(|| self.mapped_conditional_branches.get(&ty))
+        {
             let constraint = if self.store.get(yes).flags.contains(TypeFlags::ANY) {
                 no
             } else if self.store.get(no).flags.contains(TypeFlags::ANY) {

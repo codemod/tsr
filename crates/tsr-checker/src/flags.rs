@@ -84,6 +84,11 @@ bitflags::bitflags! {
 impl TypeFlags {
     /// `TypeFlagsAnyOrUnknown`.
     pub const ANY_OR_UNKNOWN: Self = Self::ANY.union(Self::UNKNOWN);
+    /// `TypeFlagsInstantiableNonPrimitive` (types.go:484).
+    pub const INSTANTIABLE_NON_PRIMITIVE: Self = Self::TYPE_PARAMETER
+        .union(Self::INDEXED_ACCESS)
+        .union(Self::CONDITIONAL)
+        .union(Self::SUBSTITUTION);
     /// `TypeFlagsNullable`.
     pub const NULLABLE: Self = Self::UNDEFINED.union(Self::NULL);
     /// `TypeFlagsLiteral`.
