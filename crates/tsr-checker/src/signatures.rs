@@ -3794,6 +3794,28 @@ impl<'a> Checker<'a, '_> {
     /// lost. The admission-flag walk below (§77/§77.1/§108.1/§137) is the
     /// gate's home; `bd tsr-5o2`'s 9-line family stays recorded.
     pub(crate) fn written_annotation_text(&mut self, annotation: TypeNode<'a>) -> Option<String> {
+        // serializeTypeForDeclaration can reuse an outer alias whose resolved
+        // body retains another generic alias. Keep that written name on the
+        // signature, rather than printing the inner reference's arguments.
+        if let TypeNode::TypeReferenceNode(reference) = annotation
+            && let Some(symbol) = reference
+                .type_name
+                .and_then(|name| self.resolve_entity_name(name, tsr_binder::SymbolFlags::TYPE))
+            && self.binder.symbols().get(symbol).flags.contains(tsr_binder::SymbolFlags::TYPE_ALIAS)
+        {
+            let resolved = self.get_type_from_type_node(annotation);
+            if self.type_reference_targets.get(&resolved).is_some_and(|(target, _)| {
+                *target != symbol
+                    && self
+                        .binder
+                        .symbols()
+                        .get(*target)
+                        .flags
+                        .contains(tsr_binder::SymbolFlags::TYPE_ALIAS)
+            }) {
+                return Self::written_type_text(annotation, &mut false, &mut false);
+            }
+        }
         // A mapping alias that distributes to a union reuses its written name
         // in declaration signatures, like a distributed template alias.
         if self.alias_evaluation_bindings.is_empty()
@@ -4068,8 +4090,7 @@ impl<'a> Checker<'a, '_> {
         // braces form never needs them in postfix position).
         if let TypeNode::ArrayTypeNode(array) = annotation {
             let element = array.element_type?;
-            if matches!(element, TypeNode::TypeLiteralNode(_)) {
-                let inner = self.written_annotation_text(element)?;
+            if let Some(inner) = self.written_annotation_text(element) {
                 return Some(format!("{inner}[]"));
             }
             return None;

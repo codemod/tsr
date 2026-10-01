@@ -2254,6 +2254,13 @@ impl<'a> Checker<'a, '_> {
                     } else if let Some((inner_elements, _)) =
                         self.tuple_element_lists.get(&resolved).cloned()
                     {
+                        // createNormalizedTupleType (checker.go) rejects a
+                        // concrete spread before expanding to 10,000 elements.
+                        // The syntax path must share the semantic normalizer's
+                        // bound, including when a default enables recursion.
+                        if flat.len() + inner_elements.len() >= 10_000 {
+                            return error;
+                        }
                         let mask = self.tuple_optional_masks.get(&resolved);
                         let labels = self.tuple_labels.get(&resolved);
                         flat.extend(inner_elements.into_iter().enumerate().map(|(index, t)| {
@@ -3130,19 +3137,6 @@ impl<'a> Checker<'a, '_> {
                 .all(|declaration| declaration.default_type.is_some());
         let partially_written = !node.type_arguments.is_empty()
             && node.type_arguments.len() < parameters
-            // LIB-declared targets only (printseam §7's gate): every measured
-            // win is lib-driven (typedArrays, complexRecursiveCollections,
-            // asyncGenerators) while the builder-position adverse is
-            // user-file defaulted generics (tsxLibraryManagedAttributes,
-            // genericDefaults) — those keep their gaps until per-site
-            // printing exists.
-            && self
-                .binder
-                .symbols()
-                .get(symbol)
-                .declarations
-                .first()
-                .is_some_and(|&declaration| self.in_default_library(declaration))
             && self.local_type_parameters_of(symbol).len() == parameters
             && self.local_type_parameters_of(symbol)[node.type_arguments.len()..]
                 .iter()
@@ -3192,7 +3186,7 @@ impl<'a> Checker<'a, '_> {
                     None => spelled.push(self.type_to_string(resolved)),
                 }
             }
-            if any_written {
+            if any_written || partially_written {
                 let composed = format!("{base}<{}>", spelled.join(", "));
                 self.qualified_written_text.insert(id, composed);
             }
@@ -3401,7 +3395,15 @@ impl<'a> Checker<'a, '_> {
         // identities. Printed arguments can coincide across distinct scopes
         // (two mapped aliases can both use `Tuple[Key]`), so use the shared
         // reference factory rather than a spelling-keyed literal-alias mint.
-        if partially_written {
+        if partially_written
+            && self
+                .binder
+                .symbols()
+                .get(symbol)
+                .declarations
+                .first()
+                .is_some_and(|&declaration| self.in_default_library(declaration))
+        {
             let written = node.type_arguments.len();
             return self.create_type_reference_with_display(symbol, arguments, Some(written));
         }

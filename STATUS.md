@@ -24,22 +24,22 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-10-01
 
-Measured on **`bde0210e`**: **449,865/478,855 assertions (93.95%)**,
-**6,598/9,538 complete cases (69.18%)**. The95% target requires
-454,913 correct assertions; **5,048 remain**. The denominator and pinned oracle
-are unchanged. Aligned verdicts: **474,243 total;449,865 right;4,151 gap;20,227 wrong**.
+Measured on **`CURRENT_USER_DEFAULTS_SHA`**: **450,038/478,855 assertions (93.98%)**,
+**6,605/9,538 complete cases (69.25%)**. The95% target requires
+454,913 correct assertions; **4,875 remain**. The denominator and pinned oracle
+are unchanged. Aligned verdicts: **474,243 total;450,038 right;4,120 gap;20,085 wrong**.
 Binder symbols retain the preceding measurement at **8,497/8,497 (100%)**;
 other suites below retain historical measurements.
 
-This unit adds **177 matching assertions**,with **zero RIGHT losses** relative
-to936efea7:169 WRONG→RIGHT,8 GAP→RIGHT,2 WRONG→GAP,1 GAP→WRONG and22 changed
+This unit adds **173 matching assertions**, with **zero RIGHT losses** relative
+to bde0210e:143 WRONG→RIGHT,30 GAP→RIGHT,2 GAP→WRONG,1 WRONG→GAP and30 changed
 wrong answers. Release workspace tests,clippy with warnings denied,all **3,374
 upstream anchors**,and whitespace checks pass. Checker snapshot is refreshed.
-[Preceding arguments](docs/architecture/checker-95-preceding-arguments.md) records
-the positional prefix snapshot and callable alias signature substitution. The
-combined callback control now infers string→number followed by number→boolean.
-General rest/spread ordering,non-inferrable propagation and recursive generic
-signature relations remain in tsr-6.1/6.22. The95% goal remains unfinished;
+[User defaults](docs/architecture/checker-95-user-defaults.md) records valid partial
+user references, written alias annotations and the tuple expansion prerequisite.
+An unbounded draft exposed the missing syntax spread limit; the final run applies
+tsgo's10,000-element rejection. Cyclic defaults, broader class constructor
+selection and general alias/error recovery remain. The95% goal remains unfinished;
 verified changes commit and push to main.
 
 ### Previous whole-suite measurement — historical
@@ -1142,7 +1142,7 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-### Current priorities at `bde0210e` — 2026-10-01
+### Current priorities at `CURRENT_USER_DEFAULTS_SHA` — 2026-10-01
 
 Const type-variable contexts now follow semantic parameter/union/indexed/mapped/
 variadic identities and deferred conditional constraints. Generic mapped property
@@ -1169,6 +1169,13 @@ Contextual return candidates publish before argument checks,and ordinary positio
 arguments publish prefix inferences for later nested calls. Callable alias references
 retain signatures when their type arguments substitute. Rest/spread prefix contexts,
 non-inferrable propagation and recursive generic signatures remain (`tsr-6.22`).
+
+Valid partial user type arguments now fill defaults under preceding substitutions.
+Written signature annotations retain their partial and outer alias spellings;
+computed references retain full arguments. Syntax tuple spreads now enforce the
+semantic normalizer's10,000-element limit before flattening. Cyclic/forward defaults,
+class constructor selection and imported alias reductions remain next (`tsr-6.23`,
+`tsr-6.21`).
 
 Inference priorities, independent contextual return mappers, captured structural
 substitution, call/construct signature kinds, measured reference variances,
@@ -3735,6 +3742,17 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+### User defaults at `CURRENT_USER_DEFAULTS_SHA`
+
+The unbounded draft stalled in excessivelyLargeTupleSpread; syntax spread
+normalization lacked tsgo's10,000-element limit. Applying it restores termination
+and gives119/119 RIGHT in that case. The first completed draft gained144 but lost2
+outer alias signature prints. Written alias/array reuse restores both and adds29
+further RIGHT. Final +173 with zero RIGHT losses;2 G→W imported alias reads,
+1 W→G promised return and30 changed wrong types remain.
+[Evidence](docs/architecture/checker-95-user-defaults.md).
+
 
 ### Preceding arguments at `bde0210e`
 
@@ -9399,6 +9417,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
+| 2026-10-01 | `CURRENT_USER_DEFAULTS_SHA` | **69.25%** | **6,605** | **450,038/478,855 assertions (93.98%).** +173 since bde0210e,zero RIGHT losses;143 W→R,30 G→R,2 G→W,1 W→G,30 W→W. User partial defaults, written alias reuse and syntax tuple limit. Pinned controls;release tests/clippy;3,374 anchors;snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-user-defaults.md).4,875 assertions remain;95% unfinished. |
 | 2026-10-01 | `bde0210e` | **69.18%** | **6,598** | **449,865/478,855 assertions (93.95%).** +177 since936efea7,zero RIGHT losses;169 W→R,8 G→R,2 W→G,1 G→W,22 W→W. Positional prefix inference and callable alias substitution. Combined callback controls;release tests/clippy;3,374 anchors;snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-preceding-arguments.md).5,048 assertions remain;95% unfinished. |
 | 2026-10-01 | `936efea7` | **69.18%** | **6,598** | **449,688/478,855 assertions (93.91%).** +23 since0b84e435,zero RIGHT losses/GAP changes;8 W→W. Contextual return snapshot before argument checking.3 nested Mapper controls;release tests/clippy;3,374 anchors;snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-contextual-return-order.md).5,225 assertions remain;95% unfinished. |
 | 2026-10-01 | `0b84e435` | **69.18%** | **6,598** | **449,665/478,855 assertions (93.90%).** +172 since3f8bade8,zero RIGHT losses;136 W→R,36 G→R,6 G→W,35 W→W. Named generic constructor selection/inference,written arguments,callback/const contexts and await operands.4 pinned controls;release tests/clippy;3,374 anchors;snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-generic-constructors.md).5,248 assertions remain;95% unfinished. |
