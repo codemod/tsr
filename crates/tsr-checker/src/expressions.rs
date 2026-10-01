@@ -2952,6 +2952,77 @@ impl Checker<'_, '_> {
             }
         };
         if !type_parameters.is_empty() {
+            // resolveNewExpression infers a class constructor's type arguments
+            // before applying defaults (checker.go). Single own constructors
+            // use the shared call worker, including written arguments and the
+            // active new-expression context. Other class shapes retain the
+            // existing fallback roads below.
+            let constructors: Vec<NodeId> = match self.node_map.get(declaration) {
+                Some(Node::ClassDeclaration(class)) => class
+                    .members
+                    .iter()
+                    .filter_map(|member| match member {
+                        tsr_ast::ClassElement::ConstructorDeclaration(ctor) => ctor.node_id,
+                        _ => None,
+                    })
+                    .collect(),
+                Some(Node::ClassExpression(class)) => class
+                    .members
+                    .iter()
+                    .filter_map(|member| match member {
+                        tsr_ast::ClassElement::ConstructorDeclaration(ctor) => ctor.node_id,
+                        _ => None,
+                    })
+                    .collect(),
+                _ => Vec::new(),
+            };
+            if let [constructor] = constructors.as_slice()
+                && let Some(mut signature) = self.get_signature_from_declaration(*constructor)
+            {
+                // The return is the class's declared type AS A
+                // REFERENCE over its own parameters — upstream's
+                // `getDeclaredTypeOfClassOrInterface` hands back the
+                // generic type whose type arguments ARE its type
+                // parameters, and only that shape is substitutable
+                // (`instantiate_type` arm 3 reads
+                // `type_reference_targets`). The raw declared type
+                // prints `Box<T>` and substitutes nothing — the
+                // iteration-1 reading.
+                let own: Option<Vec<crate::types::TypeId>> = type_parameters
+                    .iter()
+                    .map(|parameter| {
+                        parameter
+                            .node_id
+                            .and_then(|id| self.binder.symbol_of(id))
+                            .map(|s| self.get_declared_type_of_symbol(s))
+                    })
+                    .collect();
+                let declared = match own {
+                    Some(arguments) if arguments.iter().all(|&a| a != error) => {
+                        self.create_type_reference(symbol, arguments)
+                    }
+                    _ => error,
+                };
+                if declared != error {
+                    signature.r#type = declared;
+                    let mut instantiated = None;
+                    let answer = self.check_generic_call_with(
+                        &signature,
+                        node.node_id,
+                        node.arguments,
+                        Some(&mut instantiated),
+                    );
+                    if answer != error {
+                        if let Some(call) = node.node_id
+                            && let Some(signature) = instantiated
+                        {
+                            self.resolved_call_signatures.insert(call, signature);
+                        }
+                        bump(&COUNTERS.new_instantiated);
+                        return answer;
+                    }
+                }
+            }
             // `new C<string>()` — the caller wrote the type arguments, so the
             // instance type is `createTypeReference(C, [string])` and there is
             // nothing to infer. This is the *same* rule the call side already
@@ -3080,63 +3151,6 @@ impl Checker<'_, '_> {
                 let arguments = vec![fallback; type_parameters.len()];
                 bump(&COUNTERS.new_instantiated);
                 return self.create_type_reference(symbol, arguments);
-            }
-            if written.is_empty() && !node.arguments.is_empty() {
-                let constructors: Vec<NodeId> = match self.node_map.get(declaration) {
-                    Some(Node::ClassDeclaration(class)) => class
-                        .members
-                        .iter()
-                        .filter_map(|member| match member {
-                            tsr_ast::ClassElement::ConstructorDeclaration(ctor) => ctor.node_id,
-                            _ => None,
-                        })
-                        .collect(),
-                    Some(Node::ClassExpression(class)) => class
-                        .members
-                        .iter()
-                        .filter_map(|member| match member {
-                            tsr_ast::ClassElement::ConstructorDeclaration(ctor) => ctor.node_id,
-                            _ => None,
-                        })
-                        .collect(),
-                    _ => Vec::new(),
-                };
-                if let [constructor] = constructors.as_slice()
-                    && let Some(mut signature) = self.get_signature_from_declaration(*constructor)
-                {
-                    // The return is the class's declared type AS A
-                    // REFERENCE over its own parameters — upstream's
-                    // `getDeclaredTypeOfClassOrInterface` hands back the
-                    // generic type whose type arguments ARE its type
-                    // parameters, and only that shape is substitutable
-                    // (`instantiate_type` arm 3 reads
-                    // `type_reference_targets`). The raw declared type
-                    // prints `Box<T>` and substitutes nothing — the
-                    // iteration-1 reading.
-                    let own: Option<Vec<crate::types::TypeId>> = type_parameters
-                        .iter()
-                        .map(|parameter| {
-                            parameter
-                                .node_id
-                                .and_then(|id| self.binder.symbol_of(id))
-                                .map(|s| self.get_declared_type_of_symbol(s))
-                        })
-                        .collect();
-                    let declared = match own {
-                        Some(arguments) if arguments.iter().all(|&a| a != error) => {
-                            self.create_type_reference(symbol, arguments)
-                        }
-                        _ => error,
-                    };
-                    if declared != error {
-                        signature.r#type = declared;
-                        let answer = self.check_generic_call(&signature, None, node.arguments);
-                        if answer != error {
-                            bump(&COUNTERS.new_instantiated);
-                            return answer;
-                        }
-                    }
-                }
             }
             bump(&COUNTERS.new_type_parameters);
             return error;

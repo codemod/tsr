@@ -1,5 +1,48 @@
 //! Generic construct signature inference compared with pinned tsgo declarations.
 use tsr_conformance::{TestCase, types_baseline::FileTypes, types_producer};
+
+#[test]
+fn own_class_constructors_infer_before_defaults_and_preserve_contexts() {
+    let source = r#"// @strict: true
+// @target: es2020
+export class Box<T=string>{constructor(public value:T){}}
+export const numeric=new Box(1);
+export const written=new Box<number>(1);
+export const writtenMember=written.value;
+export class Pair<T=string,U=T>{constructor(public first:T,public second?:U){}}
+export const pair=new Pair(1);
+export const partial=new Pair<number>(1);
+export const explicit=new Pair<number,boolean>(1,true);
+export class Callback<T=string,U=number>{constructor(public value:T,public map:(value:T)=>U){}}
+export const callback=new Callback(1,value=>value>0);
+export const writtenCallback=new Callback<number,boolean>(1,value=>value>0);
+export class ConstBox<const T>{constructor(public value:T){}}
+export const literal=new ConstBox({name:"a",tuple:[1,2]});
+"#;
+    let case = TestCase::parse("probe/class-constructor-contexts", "classes.ts", source);
+    let expected: Vec<_> = case
+        .files
+        .iter()
+        .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
+        .collect();
+    let assertions = types_producer::assertions_for_case(&case, &expected, false);
+    let lines: Vec<_> = assertions.iter().flatten().map(types_producer::Assertion::line).collect();
+    for wanted in [
+        "numeric : Box<number>",
+        "written : Box<number>",
+        "writtenMember : number",
+        "pair : Pair<number, number>",
+        "partial : Pair<number, number>",
+        "explicit : Pair<number, boolean>",
+        "callback : Callback<number, boolean>",
+        "writtenCallback : Callback<number, boolean>",
+        "value=>value>0 : (value: number) => boolean",
+        "literal : ConstBox<{ readonly name: \"a\"; readonly tuple: readonly [1, 2]; }>",
+    ] {
+        assert!(lines.iter().any(|line| line == wanted), "missing {wanted}: {lines:?}");
+    }
+}
+
 #[test]
 fn single_construct_signatures_infer_before_using_defaults() {
     let source = r#"// @strict: true
