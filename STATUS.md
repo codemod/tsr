@@ -24,7 +24,7 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-09-30
 
-Measured on **`FORWARD_CHECKPOINT`**: **448,415/478,855 assertions (93.64%)**,
+Measured on **`c52451f1`**: **448,415/478,855 assertions (93.64%)**,
 **6,570/9,538 complete cases (68.88%)**. The active95% target requires454,913
 correct assertions; **6,498 remain**. The denominator and pinned oracle are
 unchanged. Aligned verdicts: **474,243 total;448,415 right;4,487 gap;21,341 wrong**.
@@ -1140,7 +1140,7 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-### Current priorities at `FORWARD_CHECKPOINT` — 2026-09-30
+### Current priorities at `c52451f1` — 2026-09-30
 
 Inference priorities, independent contextual return mappers, captured structural
 substitution, call/construct signature kinds, measured reference variances,
@@ -3694,7 +3694,7 @@ version of bare `any`.
 
 ## 5. Refused, with the number that refused it
 
-### Forward mapped members at `FORWARD_CHECKPOINT`
+### Forward mapped members at `c52451f1`
 
 Zero RIGHT losses. Twenty-seven former gaps now expose downstream mapped/generic
 projection and contextual inference deficits;two wrong answers become gaps.
@@ -9207,7 +9207,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
-| 2026-09-30 | `FORWARD_CHECKPOINT` | **68.88%** | **6,570** | **448,415/478,855 assertions (93.64%).** +57 W→R,+35 G→R since502930b6,zero RIGHT losses;27 G→W and2 W→G. Ports forward mapped property/index templates,identity traversal and cached recursive constraints. Pinned controls and release workspace tests/clippy pass;3,379 anchors resolve;snapshot refreshed. [Evidence and remaining work](docs/architecture/checker-95-mapped-members.md). 6,498 assertions remain;goal active. |
+| 2026-09-30 | `c52451f1` | **68.88%** | **6,570** | **448,415/478,855 assertions (93.64%).** +57 W→R,+35 G→R since502930b6,zero RIGHT losses;27 G→W and2 W→G. Ports forward mapped property/index templates,identity traversal and cached recursive constraints. Pinned controls and release workspace tests/clippy pass;3,379 anchors resolve;snapshot refreshed. [Evidence and remaining work](docs/architecture/checker-95-mapped-members.md). 6,498 assertions remain;goal active. |
 | 2026-09-30 | `502930b6` | **68.86%** | **6,568** | **448,323/478,855 assertions (93.62%).** +82 W→R,+48 G→R since659f9303,zero RIGHT losses;31 G→W and2 W→G. Ports semantic mapped templates and homomorphic reverse inference,tuple context,deferred conditional branches and identity cache repairs. Pinned controls and release workspace tests/clippy pass;3,379 anchors resolve;snapshot refreshed. [Evidence and remaining work](docs/architecture/checker-95-reverse-mapped.md). 6,590 assertions remain;goal active. |
 | 2026-09-30 | `659f9303` | **68.77%** | **6,559** | **448,193/478,855 assertions (93.60%).** +56 W→R,+3 G→R since c438a8aa,zero RIGHT losses;one G→W remains in Map context inference. Ports variable source/rest tuple matching,constrained splits,effective signature rests and optional speculation. Pinned controls and release workspace tests/clippy pass;3,379 anchors resolve;snapshot refreshed. [Evidence and remaining work](docs/architecture/checker-95-variable-tuples.md). 6,720 assertions remain;goal active. |
 | 2026-09-30 | `c438a8aa` | **68.76%** | **6,558** | **448,134/478,855 assertions (93.58%).** +12 W→R since a88f8a1e,zero RIGHT losses,no new wrong. Ports rest implied arity and fixed-source adjacent variadic splits. Pinned controls and release workspace tests/clippy pass;3,380 anchors resolve;snapshot refreshed. [Evidence and remaining work](docs/architecture/checker-95-implied-arity.md). 6,779 assertions remain;goal active. |

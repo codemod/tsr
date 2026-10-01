@@ -22,7 +22,7 @@ Temporary case and resolver tracing was removed.
 
 ## Accepted measurement and limits
 
-CheckpointFORWARD_CHECKPOINT:448,415/478,855 correct assertions (93.64%),
+Checkpointc52451f1:448,415/478,855 correct assertions (93.64%),
 6,570/9,538 complete cases (68.88%). Another6,498 assertions are needed for95%.
 Aligned verdicts:474,243 total;448,415 right;4,487 gap;21,341 wrong.
 Against502930b6:57 WRONG→RIGHT,35 GAP→RIGHT,zero RIGHT losses;
