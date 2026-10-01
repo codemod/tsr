@@ -1814,7 +1814,7 @@ impl Checker<'_, '_> {
                         // candidate so the caller can infer its instantiation.
                         if candidates.iter().any(|candidate| !candidate.type_parameters.is_empty())
                         {
-                            let best = Self::longest_candidate_index(candidates, arguments.len());
+                            let best = self.longest_candidate_index(candidates, arguments.len());
                             return Some(candidates[best].clone());
                         }
                         let returns: Vec<TypeId> =
@@ -2542,8 +2542,9 @@ impl Checker<'_, '_> {
     /// Context-sensitive arguments are checked under each candidate with fresh
     /// expression caches. An unsupported walk restores their previous caches
     /// so the existing recovery path cannot observe a rejected candidate.
-    /// Spreads, written type arguments, `this`/rest-bearing candidates,
-    /// undecidable inference and unknown relations remain unsupported.
+    /// Receiver types and effective array/tuple rest positions participate in
+    /// applicability. Spreads, written type arguments, unresolved non-array
+    /// rests, undecidable inference and unknown relations remain unsupported.
     fn transcribed_generic_set_walk(
         &mut self,
         candidates: &[Signature],
@@ -2605,10 +2606,7 @@ impl Checker<'_, '_> {
         if contextual && call.is_none() {
             return None;
         }
-        if candidates
-            .iter()
-            .any(|c| c.this_parameter.is_some() || c.parameters.iter().any(|p| p.rest))
-        {
+        if call.is_none() && candidates.iter().any(|c| c.this_parameter.is_some()) {
             return None;
         }
         let argument_types: Vec<TypeId> = arguments
@@ -2636,9 +2634,8 @@ impl Checker<'_, '_> {
         // `getCandidateForOverloadFailure` (`checker.go:9498`) with a generic
         // in the set → `pickLongestCandidateSignature` (`:9510`):
         // `getLongestCandidateIndex` (`:9545`) is the first candidate whose
-        // parameter count covers the arguments (no rest here by the
-        // precondition), else the longest.
-        let best_index = Self::longest_candidate_index(candidates, arguments.len());
+        // parameter count covers the arguments or has a rest, else the longest.
+        let best_index = self.longest_candidate_index(candidates, arguments.len());
         let best = &candidates[best_index];
         if best.type_parameters.is_empty() {
             return Some(best.clone());
@@ -2648,16 +2645,19 @@ impl Checker<'_, '_> {
         instantiated
     }
 
-    fn longest_candidate_index(candidates: &[Signature], argument_count: usize) -> usize {
+    fn longest_candidate_index(&self, candidates: &[Signature], argument_count: usize) -> usize {
         candidates
             .iter()
             .position(|c| {
-                c.parameters.iter().any(|p| p.rest) || c.parameters.len() >= argument_count
+                self.signature_has_effective_rest(c)
+                    || self.signature_parameter_count(c) >= argument_count
             })
             .unwrap_or_else(|| {
                 let mut best = 0;
                 for (index, candidate) in candidates.iter().enumerate() {
-                    if candidate.parameters.len() > candidates[best].parameters.len() {
+                    if self.signature_parameter_count(candidate)
+                        > self.signature_parameter_count(&candidates[best])
+                    {
                         best = index;
                     }
                 }
@@ -2677,6 +2677,14 @@ impl Checker<'_, '_> {
         .then_some(parent)
     }
 
+    /// hasCorrectArity (checker.go:9110) for complete calls without spreads.
+    /// Tuple rests contribute their effective fixed positions and minimum.
+    fn overload_has_correct_arity(&mut self, signature: &Signature, count: usize) -> bool {
+        (self.signature_has_effective_rest(signature)
+            || count <= self.signature_parameter_count(signature))
+            && count >= self.signature_min_argument_count(signature)
+    }
+
     /// One candidate walk under one relation — `chooseOverload`'s loop body
     /// with `isSignatureApplicable` (`checker.go:9256`) reduced to the
     /// argument relation this port can ask, Kleene-honest.
@@ -2688,7 +2696,7 @@ impl Checker<'_, '_> {
         relation: Relation,
     ) -> OverloadPass {
         for candidate in candidates {
-            if !has_correct_arity(candidate, argument_types.len()) {
+            if !self.overload_has_correct_arity(candidate, argument_types.len()) {
                 continue;
             }
             let call = self.call_for_overload_arguments(arguments);
@@ -2720,6 +2728,38 @@ impl Checker<'_, '_> {
                     None => return OverloadPass::Undecidable,
                 }
             };
+            // chooseOverload rechecks arity after instantiating a non-array
+            // rest parameter (checker.go:9067).
+            if !self.overload_has_correct_arity(&concrete, arguments.len()) {
+                continue;
+            }
+            // A still-generic non-array rest requires getSpreadArgumentType.
+            // Do not silently compare only its fixed prefix.
+            if self.signature_non_array_rest_type(&concrete).is_some() {
+                return OverloadPass::Undecidable;
+            }
+            // isSignatureApplicable checks the call receiver before arguments.
+            if let Some(parameter) = &concrete.this_parameter
+                && parameter.r#type != self.intrinsics.void
+            {
+                let Some(call) = call else { return OverloadPass::Undecidable };
+                let receiver = self.this_argument_type_of_call(Some(call));
+                match self.relate_ternary(receiver, parameter.r#type, relation) {
+                    Ternary::NotRelated => continue,
+                    Ternary::Unknown => return OverloadPass::Undecidable,
+                    Ternary::Related => {}
+                }
+            }
+            let mut parameter_types = Vec::with_capacity(arguments.len());
+            for index in 0..arguments.len() {
+                let Some(parameter) = self.signature_type_at_position(&concrete, index) else {
+                    return OverloadPass::Undecidable;
+                };
+                if self.is_error(parameter) {
+                    return OverloadPass::Undecidable;
+                }
+                parameter_types.push(parameter);
+            }
             // isSignatureApplicable checks each argument with the instantiated
             // parameter's context. Even an array with no context-sensitive
             // elements can acquire a tuple type at this point.
@@ -2729,10 +2769,10 @@ impl Checker<'_, '_> {
                 .map(|(index, argument)| {
                     self.is_context_sensitive_argument(argument)
                         || (matches!(argument, Expression::ArrayLiteralExpression(_))
-                            && concrete.parameters.get(index).is_some_and(|parameter| {
-                                self.tuple_element_lists.contains_key(&parameter.r#type)
-                                    || self.variadic_tuple_elements.contains_key(&parameter.r#type)
-                            }))
+                            && (self.tuple_element_lists.contains_key(&parameter_types[index])
+                                || self
+                                    .variadic_tuple_elements
+                                    .contains_key(&parameter_types[index])))
                 })
                 .collect();
             let contextual = contextual_arguments.iter().any(|&needed| needed);
@@ -2757,7 +2797,7 @@ impl Checker<'_, '_> {
                 }
             }
             let mut verdict = Ternary::Related;
-            for (&argument, parameter) in checked_arguments.iter().zip(&concrete.parameters) {
+            for (&argument, &parameter) in checked_arguments.iter().zip(&parameter_types) {
                 // Non-strict `undefined`/`null` inhabit every domain — the
                 // same skip the ladder's loops carry.
                 if !self.strict_null_checks
@@ -2772,7 +2812,7 @@ impl Checker<'_, '_> {
                 {
                     continue;
                 }
-                match self.relate_ternary(argument, parameter.r#type, relation) {
+                match self.relate_ternary(argument, parameter, relation) {
                     Ternary::NotRelated => {
                         verdict = Ternary::NotRelated;
                         break;

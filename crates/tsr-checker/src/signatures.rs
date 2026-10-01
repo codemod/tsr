@@ -2719,7 +2719,28 @@ impl<'a> Checker<'a, '_> {
         declaration: NodeId,
         expression: tsr_ast::Expression<'a>,
     ) -> Option<TypeId> {
-        let id = self.check_expression(expression);
+        // A non-const assertion's type is independent of its operand
+        // (checkAssertion, checker.go:12287). Resolve that return before
+        // walking the operand: native signatures defer their return type,
+        // while this port constructs the function and its return together.
+        // The ordinary expression walk still checks the operand's own nodes.
+        let mut returned = expression;
+        while let tsr_ast::Expression::ParenthesizedExpression(node) = returned {
+            let Some(inner) = node.expression else { break };
+            returned = inner;
+        }
+        let annotation = match returned {
+            tsr_ast::Expression::AsExpression(node) => node.r#type,
+            tsr_ast::Expression::TypeAssertion(node) => node.r#type,
+            _ => None,
+        };
+        let id = if let Some(annotation) = annotation
+            && !crate::assertions::is_const_type_reference(annotation)
+        {
+            self.get_type_from_type_node(annotation)
+        } else {
+            self.check_expression(expression)
+        };
         let id = self.const_function_body_expression_type(expression, id);
         self.inferred_return_type(declaration, id)
     }

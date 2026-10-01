@@ -1827,9 +1827,6 @@ impl Checker<'_, '_> {
                     .contains(SymbolFlags::CLASS),
                 Owner::Declared(_) => false,
             };
-            if class_static {
-                fallbacks.push("Function");
-            }
             let has_call = self
                 .signatures_of_type_kind(id, crate::signatures::SignatureKind::Call)
                 .is_some_and(|signatures| !signatures.is_empty());
@@ -1866,6 +1863,12 @@ impl Checker<'_, '_> {
                         "CallableFunction"
                     });
                 }
+                fallbacks.push("Function");
+            }
+            // Resolved class constructors use NewableFunction before Function,
+            // just as getPropertyOfTypeEx selects by signature kind. Retain the
+            // previous fallback only when constructor resolution is unsupported.
+            if class_static && !has_call && !has_construct {
                 fallbacks.push("Function");
             }
             fallbacks.push("Object");

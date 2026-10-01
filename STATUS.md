@@ -24,25 +24,21 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-10-01
 
-Measured on **`5f7bb6e4`**: **452,293/478,855 assertions (94.45%)**,
-**6,696/9,538 complete cases (70.20%)**. The 95% target requires
-454,913 correct assertions; **2,620 remain**. Denominator and pinned oracle
-unchanged. Aligned verdicts: **474,243 total; 452,293 right; 3,402 gap; 18,548 wrong**.
+Measured on **`CODE_CHECKPOINT`**: **452,420/478,855 assertions (94.48%)**,
+**6,699/9,538 complete cases (70.23%)**. The updated 99% target requires
+474,067 correct assertions; **21,647 remain**. Denominator and pinned oracle
+unchanged. Aligned verdicts: **474,243 total; 452,420 right; 3,387 gap; 18,436 wrong**.
 Binder retains its verified **8,497/8,497 (100%)** result at aab165d8;
 other suites below retain historical measurements.
 
-This unit adds **28 matching assertions**, all WRONG→RIGHT, with **zero RIGHT
-losses and no other transitions** relative to 42e7881a. Release workspace tests,
-clippy with warnings denied, all **3,362 upstream anchors**, format, snapshot
-and whitespace checks pass.
-[Contextual constructor inference](docs/architecture/checker-95-contextual-construct-inference.md)
-records resolved single-signature selection, source/target member rules,
-non-nullable contexts and generic return propagation through constructor aliases.
-Thirteen pinned declaration outcomes pass. Broader generic mapped/conditional
-inference and method-preserving serialization remain in tsr-6.30; implicit
-heritage instance members, JS generic constructor defaults and broader relations
-remain in tsr-6.28. The 95% goal is unfinished; verified changes commit and push
-to main.
+This unit adds **127 matching assertions**, with **zero RIGHT losses** relative
+to 5f7bb6e4. Four GAP→WRONG, one WRONG→GAP and 19 changed wrong answers remain.
+[Receiver and rest applicability](docs/architecture/checker-95-rest-applicability.md)
+records effective tuple arity, per-position rest checks, instantiated receivers,
+class Function fallback and recursive asserted returns. Twenty-two pinned
+outcomes pass. Release workspace tests, clippy, anchors, snapshot, format and
+whitespace validation are recorded in that checkpoint. The 99% goal is
+unfinished; verified changes commit and push to main.
 
 ### Previous whole-suite measurement — historical
 
@@ -1091,6 +1087,12 @@ Per-crate, by what the conformance suites actually assert — not by what exists
 
 ### Inside the checker — what has an arm
 
+Generic overload applicability checks instantiated receivers and every effective
+rest position, including fixed tuple arity and failure recovery. Class binding
+uses NewableFunction before Function. Asserted concise returns avoid recursive
+operand resolution while the function signature is being constructed. See
+[receiver and rest applicability](docs/architecture/checker-95-rest-applicability.md).
+
 Contextual generic inference resolves call and construct signatures with native
 single-signature selection: source members are allowed; target members, indexes
 and opposite-kind signatures prevent the path. Non-nullable contexts and generic
@@ -1207,7 +1209,16 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-### Current priorities at `5f7bb6e4` — 2026-10-01
+### Current priorities at `CODE_CHECKPOINT` — 2026-10-01
+
+Receiver/rest applicability and recursive asserted returns add 127 matches with
+zero RIGHT losses. Full non-array-rest spread construction, incomplete generic
+tuple inference and empty/synthetic receiver recovery remain in tsr-6.28.
+CheckMode propagation, mapped/conditional inference and method-preserving
+serialization remain in tsr-6.30. depend control repair remains tsr-6.29;
+use the full aligned comparison for the coverage claim.
+
+### Previous priorities at `5f7bb6e4` — 2026-10-01
 
 Contextual constructor instantiation and generic constructor alias return
 propagation add 28 matches with zero adverse transitions. Generic mapped and
@@ -3876,6 +3887,17 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+### Receiver and rest applicability at `CODE_CHECKPOINT`
+
+The first full candidate gained 124 but lost 48. Erasing own type parameters
+before signature substitution recovered 22; resolving asserted returns before
+recursive operands recovered 26 and added three matches. Moving all argument
+checks after candidate instantiation retained 26 losses and added four more;
+that experiment was reverted. Review fixed longest-candidate recovery to use
+effective tuple counts. Final: +127, zero RIGHT losses, four new wrong answers,
+one WRONG→GAP and 19 changed wrong answers. Incomplete generic tuple inference
+still declines. [Evidence and limits](docs/architecture/checker-95-rest-applicability.md).
 
 ### Contextual constructor inference at `5f7bb6e4`
 
@@ -9754,6 +9776,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
+| 2026-10-01 | `CODE_CHECKPOINT` | **70.23%** | **6,699** | **452,420/478,855 assertions (94.48%).** +127 since 5f7bb6e4, zero RIGHT losses; 4G→W, 1W→G, 19 changed wrong. Receiver/rest applicability, constructor binding and recursive asserted returns. Twenty-two pinned outcomes; release tests/clippy; anchors; snapshot refreshed. [Evidence](docs/architecture/checker-95-rest-applicability.md). User raised the goal to 99%; 21,647 remain. |
 | 2026-10-01 | `5f7bb6e4` | **70.20%** | **6,696** | **452,293/478,855 assertions (94.45%).** +28 since 42e7881a, all WRONG→RIGHT with no adverse transitions. Contextual construct selection and generic alias return propagation. Thirteen pinned outcomes; release tests/clippy; 3,362 anchors; snapshot refreshed. [Evidence](docs/architecture/checker-95-contextual-construct-inference.md). 2,620 remain; 95% unfinished. |
 | 2026-10-01 | `42e7881a` | **70.18%** | **6,694** | **452,265/478,855 assertions (94.45%).** +211 since aab165d8, zero RIGHT losses; 11G→W, 19 changed wrong. Construct-signature relations, class constructors and computed statics. Pinned controls; release tests/clippy; 3,362 anchors; snapshot refreshed. [Evidence](docs/architecture/checker-95-construct-relations.md). 2,648 remain; 95% unfinished. |
 | 2026-10-01 | `aab165d8` | **70.11%** | **6,687** | **452,054/478,855 assertions (94.40%).** +170 since a529367a, zero RIGHT losses; 2G→W, 70 changed wrong. Structured overloads, effective constraints, object freshness/widening, spread properties and merged namespace exports. Pinned controls; release tests/clippy; 3,363 anchors; binder 100%; snapshot refreshed. [Evidence](docs/architecture/checker-95-structured-overloads.md). 2,859 remain; 95% unfinished. |

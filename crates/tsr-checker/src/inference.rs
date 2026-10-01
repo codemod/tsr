@@ -172,7 +172,7 @@ impl Checker<'_, '_> {
     /// getThisArgumentOfCall/getThisArgumentType (checker.go:9345). A bare
     /// call uses void; a property or indexed call retains its receiver through
     /// transparent wrappers and optional-chain marker removal.
-    fn this_argument_type_of_call(&mut self, call: Option<NodeId>) -> TypeId {
+    pub(crate) fn this_argument_type_of_call(&mut self, call: Option<NodeId>) -> TypeId {
         let Some(node) = call.and_then(|call| self.node_map.get(call)) else {
             return self.intrinsics.void;
         };
@@ -1738,19 +1738,19 @@ impl Checker<'_, '_> {
             if returned_image == error {
                 return decline;
             }
+            // getSignatureInstantiation erases the signature's own type
+            // parameters before substituting its carried types. Reinstantiating
+            // their constraints here can re-enter recursive alias resolution.
             let mut instance = signature.clone();
-            for parameter in &mut instance.parameters {
-                let image = self.instantiate_type(parameter.r#type, &map, &parameters, &names);
-                if image == error {
-                    // A caller may request the resolved signature for later
-                    // contextual reads. Unsupported parameter substitution
-                    // does not invalidate an independently resolved return.
-                    return returned_image;
-                }
-                parameter.r#type = image;
-            }
+            instance.type_parameters.clear();
+            let Some(mut instance) =
+                self.instantiate_signature(instance, &map, &parameters, &names)
+            else {
+                // Unsupported parameter substitution does not invalidate an
+                // independently resolved return, but cannot supply a candidate.
+                return returned_image;
+            };
             instance.r#type = returned_image;
-            instance.type_parameters = Vec::new();
             *slot = Some(instance);
             return returned_image;
         }
