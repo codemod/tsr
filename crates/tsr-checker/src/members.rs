@@ -779,9 +779,10 @@ impl Checker<'_, '_> {
             if property_type != this_argument && this_minted.contains(&property_type) {
                 this_argument
             } else if property_type != this_argument
-                && let Some(minted) = this_minted.iter().copied().find(|&minted| {
-                    self.mentions_type_parameter(property_type, &[minted], &["this"])
-                })
+                && let Some(minted) = this_minted
+                    .iter()
+                    .copied()
+                    .find(|&minted| self.mentions_type_parameter(property_type, &[minted], &[]))
             {
                 // §165 (`checker-notes-narrow.md`), §164's embedded half: where
                 // the this-type sits INSIDE the member's type — `fn(): this`

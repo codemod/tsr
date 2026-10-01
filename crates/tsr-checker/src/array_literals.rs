@@ -528,20 +528,40 @@ impl Checker<'_, '_> {
     /// union **constituent by constituent** (`someType` short-circuits on the
     /// first that matches), so `[number, string] | undefined` is a tuple context
     /// — which is exactly the shape §885 mints for an optional member.
-    /// `isGenericMappedType` remains unported.
+    /// Homomorphic generic mapped contexts also preserve tuple positions.
     fn array_literal_has_a_tuple_contextual_type(&mut self, id: tsr_ast::NodeId) -> bool {
         let Some(contextual) = self.get_contextual_type(id) else { return false };
-        if self.tuple_element_lists.contains_key(&contextual)
-            || self.variadic_tuple_elements.contains_key(&contextual)
-        {
+        let mut contexts = match &self.store.get(contextual).data {
+            crate::types::TypeData::Union { types, .. } => types.clone(),
+            _ => vec![contextual],
+        };
+        if contexts.iter().any(|t| {
+            self.tuple_element_lists.contains_key(t)
+                || self.variadic_tuple_elements.contains_key(t)
+                || self.is_generic_homomorphic_mapped_type(*t)
+        }) {
             return true;
         }
-        let crate::types::TypeData::Union { types, .. } = &self.store.get(contextual).data else {
-            return false;
-        };
-        types.iter().any(|t| {
-            self.tuple_element_lists.contains_key(t) || self.variadic_tuple_elements.contains_key(t)
-        })
+        // A pre-inference contextual read must inspect the written mapped
+        // parameter, before this port's fallback mapper fixes its variable to
+        // unknown. Written type arguments still use their instantiated context.
+        if contexts.iter().any(|t| self.mapped_types.contains_key(t))
+            && self.nodes.parent(id).and_then(|parent| self.node_map.get(parent))
+                .is_some_and(|node| matches!(node, tsr_ast::Node::CallExpression(call) if call.type_arguments.is_empty()))
+        {
+            let saved = self.contextual_prefers_uninstantiated;
+            self.contextual_prefers_uninstantiated = true;
+            let original = self.get_contextual_type(id);
+            self.contextual_prefers_uninstantiated = saved;
+            if let Some(original) = original {
+                contexts = match &self.store.get(original).data {
+                    crate::types::TypeData::Union { types, .. } => types.clone(),
+                    _ => vec![original],
+                };
+                return contexts.iter().any(|t| self.is_generic_homomorphic_mapped_type(*t));
+            }
+        }
+        false
     }
 
     pub(crate) fn check_array_literal(&mut self, node: &ArrayLiteralExpression<'_>) -> TypeId {

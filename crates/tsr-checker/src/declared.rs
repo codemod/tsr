@@ -326,6 +326,9 @@ impl<'a> Checker<'a, '_> {
             // an unevaluable conditional ALIAS in an alias-declared position is
             // a decision about the alias, not about this node.
             TypeNode::MappedTypeNode(_) | TypeNode::ConditionalTypeNode(_) => {
+                // The historical print-only mint below now retains mapped
+                // constraint/template metadata for reverse inference. General
+                // forward mapped members remain a separate port.
                 // Immediately nested conditionals continue under the current
                 // mapper instead of minting their uninstantiated written form.
                 if let TypeNode::ConditionalTypeNode(conditional) = node
@@ -356,7 +359,11 @@ impl<'a> Checker<'a, '_> {
                     && let Some(id) = tsr_ast::Node::from(node).node_id()
                     && let Some(name) = self.non_generic_alias_body_name(id)
                 {
-                    return self.store.new_named(TypeFlags::OBJECT, name, None);
+                    let id = self.store.new_named(TypeFlags::OBJECT, name, None);
+                    if let TypeNode::MappedTypeNode(mapped) = node {
+                        self.capture_mapped_type(id, mapped);
+                    }
+                    return id;
                 }
                 let mut single_quoted = false;
                 let mut array_headed = false;
@@ -372,7 +379,26 @@ impl<'a> Checker<'a, '_> {
                     // MUTUAL recursion (`Recurse1` through `Recurse2`), which no
                     // same-name test can see. Taking the three is the better
                     // trade at 208:1, and the guard is recorded rather than kept.
-                    Some(text) => self.store.new_named(TypeFlags::OBJECT, text, None),
+                    Some(text) => {
+                        let id = self.store.new_named(TypeFlags::OBJECT, text, None);
+                        if let TypeNode::MappedTypeNode(mapped) = node {
+                            self.capture_mapped_type(id, mapped);
+                        } else if let TypeNode::ConditionalTypeNode(conditional) = node
+                            && self.mapped_template_depth > 0
+                            && let (Some(true_type), Some(false_type)) =
+                                (conditional.true_type, conditional.false_type)
+                        {
+                            let true_type = self.get_type_from_type_node(true_type);
+                            let false_type = self.get_type_from_type_node(false_type);
+                            if true_type != self.intrinsics.error
+                                && false_type != self.intrinsics.error
+                            {
+                                self.mapped_conditional_branches
+                                    .insert(id, (true_type, false_type));
+                            }
+                        }
+                        id
+                    }
                     None => self.intrinsics.error,
                 }
             }
@@ -527,7 +553,8 @@ impl<'a> Checker<'a, '_> {
                 if let (Some(object), Some(index)) = (node.object_type, node.index_type) {
                     let object = self.get_type_from_type_node(object);
                     let index = self.get_type_from_type_node(index);
-                    if self.store.get(object).flags.contains(TypeFlags::TYPE_PARAMETER)
+                    if (self.mapped_template_depth > 0
+                        || self.store.get(object).flags.contains(TypeFlags::TYPE_PARAMETER))
                         && let Some(t) = self.resolved_indexed_access_type(object, index, false)
                     {
                         return t;
@@ -1782,7 +1809,8 @@ impl<'a> Checker<'a, '_> {
         let structural = printed.starts_with('{');
         let minted = self.store.new_named(TypeFlags::OBJECT, printed, owner);
         if structural && typed_properties.len() == node.members.len() {
-            self.anonymous_properties.insert(minted, (typed_properties, false));
+            self.anonymous_properties
+                .insert(minted, (typed_properties, self.mapped_template_depth > 0));
         }
         minted
     }
@@ -3362,32 +3390,15 @@ impl<'a> Checker<'a, '_> {
         // which is the same line `record_index_info` draws for a literal-union
         // `Record` key (§785).
         if let Some(mapped) = self.instantiate_identity_mapped_alias(symbol, &arguments) {
+            if self.mapped_identity_sources.contains_key(&mapped) {
+                self.capture_mapped_alias(mapped, symbol, &arguments);
+            }
             return mapped;
         }
-        // §46 (`checker-notes-narrow.md`): a generic ALIAS reference whose
-        // body is a type literal answers the §41 shape — name+args print,
-        // the body's member symbol, the seam registration.
-        if self.binder.symbols().get(symbol).flags.contains(tsr_binder::SymbolFlags::TYPE_ALIAS)
-            && let Some(declaration) =
-                self.binder.symbols().get(symbol).declarations.first().copied()
-            && let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration)
-            && let Some(TypeNode::TypeLiteralNode(literal)) = alias.r#type
-            && let Some(literal_id) = literal.node_id
-            && let Some(body_symbol) = self.binder.symbol_of(literal_id)
-        {
-            let printed_arguments: Vec<String> =
-                arguments.iter().map(|&a| self.type_to_string(a)).collect();
-            let name = self.binder.symbols().get(symbol).name.to_string();
-            let text = format!("{name}<{}>", printed_arguments.join(", "));
-            let key = (text.clone(), symbol);
-            if let Some(&existing) = self.qualified_reference_types.get(&key) {
-                return existing;
-            }
-            let minted = self.store.new_named(TypeFlags::OBJECT, text, Some(body_symbol));
-            self.qualified_reference_types.insert(key, minted);
-            self.type_reference_targets.insert(minted, (symbol, arguments));
-            return minted;
-        }
+        // getTypeAliasInstantiation caches by target and type argument
+        // identities. Printed arguments can coincide across distinct scopes
+        // (two mapped aliases can both use `Tuple[Key]`), so use the shared
+        // reference factory rather than a spelling-keyed literal-alias mint.
         if partially_written {
             let written = node.type_arguments.len();
             return self.create_type_reference_with_display(symbol, arguments, Some(written));
@@ -4071,6 +4082,9 @@ impl<'a> Checker<'a, '_> {
         display: Option<usize>,
     ) -> TypeId {
         if let Some(mapped) = self.instantiate_identity_mapped_alias(symbol, &arguments) {
+            if self.mapped_identity_sources.contains_key(&mapped) {
+                self.capture_mapped_alias(mapped, symbol, &arguments);
+            }
             self.instantiations.insert((symbol, arguments), mapped);
             return mapped;
         }
@@ -4128,7 +4142,8 @@ impl<'a> Checker<'a, '_> {
         // `TypeId` and needs the pair, which only exists here as a key — see
         // [`crate::checker::Checker::type_reference_targets`]. Written on the
         // miss path only, so it is one insert per distinct reference.
-        self.type_reference_targets.insert(id, (symbol, arguments));
+        self.type_reference_targets.insert(id, (symbol, arguments.clone()));
+        self.capture_mapped_alias(id, symbol, &arguments);
         id
     }
 

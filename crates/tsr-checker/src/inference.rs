@@ -2877,6 +2877,197 @@ impl Checker<'_, '_> {
         true
     }
 
+    /// inferReverseMappedTypeWorker (internal/checker/inference.go). Treat
+    /// the indexed access shared by the constraint/template as the variable.
+    fn reverse_mapped_member_type(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+        info: &crate::mapped::MappedTypeInfo,
+        operand: TypeId,
+    ) -> TypeId {
+        if let Some(&cached) = self.reverse_mapped_member_cache.get(&(source, target)) {
+            return cached;
+        }
+        self.reverse_mapped_member_cache.insert((source, target), self.intrinsics.unknown);
+        let Some(parameter) = self.resolved_indexed_access_type(operand, info.parameter, false)
+        else {
+            return self.intrinsics.unknown;
+        };
+        let mut inferences = Vec::new();
+        self.infer_from_types(source, info.template, &[parameter], &mut inferences, 0);
+        let inferred =
+            if let Some(info) = inferences.iter().find(|info| info.type_parameter == parameter) {
+                if !info.candidates.is_empty() {
+                    self.get_union_type(&info.candidates)
+                } else if !info.contra_candidates.is_empty() {
+                    self.get_intersection_type(&info.contra_candidates, None)
+                } else {
+                    self.intrinsics.unknown
+                }
+            } else {
+                self.intrinsics.unknown
+            };
+        self.reverse_mapped_member_cache.insert((source, target), inferred);
+        inferred
+    }
+
+    /// createReverseMappedType/resolveReverseMappedTypeMembers (inference.go).
+    /// Source member identities remain available while captured reverse types
+    /// supply the semantic property reads, as for instantiated type literals.
+    fn reverse_homomorphic_mapped_type(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+        info: &crate::mapped::MappedTypeInfo,
+        operand: TypeId,
+    ) -> Option<TypeId> {
+        if let Some(&cached) = self.reverse_mapped_cache.get(&(source, target)) {
+            return cached;
+        }
+        self.reverse_mapped_cache.insert((source, target), Some(self.intrinsics.unknown));
+        let result = if let Some((elements, readonly)) =
+            self.tuple_element_lists.get(&source).cloned()
+        {
+            let mask = self
+                .tuple_optional_masks
+                .get(&source)
+                .cloned()
+                .unwrap_or_else(|| vec![false; elements.len()]);
+            let labels = self
+                .tuple_labels
+                .get(&source)
+                .cloned()
+                .unwrap_or_else(|| vec![None; elements.len()]);
+            let elements: Vec<_> = elements
+                .into_iter()
+                .enumerate()
+                .map(|(i, ty)| {
+                    (
+                        self.reverse_mapped_member_type(ty, target, info, operand),
+                        mask[i] && info.optionality != Some(true),
+                    )
+                })
+                .collect();
+            Some(self.create_optional_tuple_type(&elements, &labels, readonly))
+        } else if !self.store.get(source).flags.contains(crate::flags::TypeFlags::ANY)
+            && let Some(element) = self.tuple_spread_array_element(source)
+        {
+            let element = self.reverse_mapped_member_type(element, target, info, operand);
+            let readonly = self.type_reference_targets.get(&source).is_some_and(|(symbol, _)| {
+                self.binder.symbols().get(*symbol).name == "ReadonlyArray"
+            });
+            let name = if readonly { "ReadonlyArray" } else { "Array" };
+            self.global_type_symbol(name)
+                .map(|array| self.create_type_reference(array, vec![element]))
+        } else {
+            let names = self.property_names_of(source);
+            let index = self.get_index_infos_of_type(source).and_then(|infos| {
+                infos.into_iter().find(|info| info.key == self.intrinsics.string)
+            });
+            if names.is_empty() && index.is_none() {
+                None
+            } else {
+                let mut properties = Vec::new();
+                let mut rendered = Vec::new();
+                for name in names {
+                    let Some(ty) = self.get_type_of_property_of_type(source, &name) else {
+                        continue;
+                    };
+                    let property = self.get_property_of_type(source, &name);
+                    let captured =
+                        self.anonymous_properties.get(&source).and_then(|(properties, _)| {
+                            properties.iter().find(|property| property.name == name)
+                        });
+                    let optional = info.optionality != Some(true)
+                        && captured.map_or_else(
+                            || property.is_some_and(|symbol| self.property_is_optional(symbol)),
+                            |property| property.optional,
+                        );
+                    let readonly = info.readonly != Some(true)
+                        && captured.map_or_else(
+                            || property.is_some_and(|symbol| self.is_readonly_property(symbol)),
+                            |property| property.readonly,
+                        );
+                    let printed_name = captured
+                        .map_or_else(|| name.clone(), |property| property.printed_name.clone());
+                    let ty = self.reverse_mapped_member_type(ty, target, info, operand);
+                    let printed_type = self.type_to_string(ty);
+                    rendered.push(crate::objects::Member::Property {
+                        name: printed_name.clone(),
+                        optional,
+                        readonly,
+                        printed: printed_type.clone(),
+                    });
+                    properties.push(crate::objects::AnonymousProperty {
+                        name,
+                        printed_name,
+                        printed_type,
+                        optional,
+                        readonly,
+                        r#type: ty,
+                    });
+                }
+                let reversed_index = index.map(|index| crate::index_signatures::IndexInfo {
+                    key: index.key,
+                    value: self.reverse_mapped_member_type(index.value, target, info, operand),
+                });
+                if let Some(index) = &reversed_index {
+                    rendered.push(crate::objects::Member::Index {
+                        readonly: false,
+                        name: "x".to_string(),
+                        key: "string".to_string(),
+                        value: self.type_to_string(index.value),
+                    });
+                }
+                let owner = match self.store.get(source).data {
+                    TypeData::Named { members, .. } => members,
+                    _ => None,
+                };
+                let reversed = self.store.new_named(
+                    crate::flags::TypeFlags::OBJECT,
+                    crate::objects::render_object_type(&rendered),
+                    owner,
+                );
+                self.anonymous_properties.insert(reversed, (properties, true));
+                if let Some(index) = reversed_index {
+                    self.object_literal_index_infos.insert(reversed, vec![index]);
+                }
+                Some(reversed)
+            }
+        };
+        self.reverse_mapped_cache.insert((source, target), result);
+        result
+    }
+
+    /// The homomorphic keyof target arm of inferToMappedType (inference.go).
+    fn infer_to_homomorphic_mapped_type(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+        parameters: &[TypeId],
+        out: &mut Vec<InferenceInfo>,
+    ) -> bool {
+        let Some(info) = self.mapped_types.get(&target).cloned() else { return false };
+        let Some(&operand) = self.deferred_keyof_operands.get(&info.constraint) else {
+            return false;
+        };
+        if parameters.contains(&operand)
+            && !out.iter().any(|info| info.type_parameter == operand && info.is_fixed)
+            && let Some(inferred) =
+                self.reverse_homomorphic_mapped_type(source, target, &info, operand)
+        {
+            add_directional_candidate(
+                out,
+                operand,
+                inferred,
+                self.inference_contravariant && !self.inference_bivariant,
+                self.inference_priority | InferencePriority::HOMOMORPHIC_MAPPED_TYPE,
+            );
+        }
+        true
+    }
+
     /// §937's `couldContainTypeVariables` (`checker.go:22184`) — whether a
     /// target can contribute anything to inference at all.
     ///
@@ -3154,6 +3345,25 @@ impl Checker<'_, '_> {
             }
             return;
         }
+        // inferToConditionalType infers to the true/false types of a deferred
+        // template, using conditional priority in contravariant positions.
+        if let Some(&(true_type, false_type)) = self.mapped_conditional_branches.get(&target) {
+            let target_types = self.get_union_type(&[true_type, false_type]);
+            let saved = self.inference_priority;
+            if self.inference_contravariant {
+                self.inference_priority |= InferencePriority::CONTRAVARIANT_CONDITIONAL;
+            }
+            self.infer_from_types_within(
+                source,
+                target_types,
+                original,
+                parameters,
+                out,
+                depth + 1,
+            );
+            self.inference_priority = saved;
+            return;
+        }
         if let Some((remaining, variable)) =
             self.intersection_inference_source(source, target, parameters)
         {
@@ -3372,6 +3582,22 @@ impl Checker<'_, '_> {
                     | crate::flags::TypeFlags::INTERSECTION,
             )
         {
+            return;
+        }
+        if let TypeData::Union { types, .. } = &self.store.get(source).data {
+            for constituent in types.clone() {
+                self.infer_from_types_within(
+                    constituent,
+                    target,
+                    original,
+                    parameters,
+                    out,
+                    depth + 1,
+                );
+            }
+            return;
+        }
+        if self.infer_to_homomorphic_mapped_type(source, target, parameters, out) {
             return;
         }
         let target_names =
