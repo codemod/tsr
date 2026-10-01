@@ -38,7 +38,7 @@ expected number and is corrected to string | number.
 
 ## Verification and limits
 
-Checkpoint UNION_CODE_SHA:449,486/478,855 matching assertions (93.87%).
+Checkpoint 25215cc8:449,486/478,855 matching assertions (93.87%).
 Complete cases:6,589/9,538 (69.08%). Another5,427 assertions are needed for95%.
 Aligned verdicts:474,243 total;449,486 right;4,200 gap;20,557 wrong.
 Against83c358c0:187 WRONG→RIGHT,40 GAP→RIGHT,zero RIGHT losses,

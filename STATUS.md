@@ -24,7 +24,7 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-10-01
 
-Measured on **`UNION_CODE_SHA`**: **449,486/478,855 assertions (93.87%)**,
+Measured on **`25215cc8`**: **449,486/478,855 assertions (93.87%)**,
 **6,589/9,538 complete cases (69.08%)**. The95% target requires
 454,913 correct assertions; **5,427 remain**. The denominator and pinned oracle
 are unchanged. Aligned verdicts: **474,243 total;449,486 right;4,200 gap;20,557 wrong**.
@@ -1143,7 +1143,7 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-### Current priorities at `UNION_CODE_SHA` — 2026-10-01
+### Current priorities at `25215cc8` — 2026-10-01
 
 Const type-variable contexts now follow semantic parameter/union/indexed/mapped/
 variadic identities and deferred conditional constraints. Generic mapped property
@@ -3729,7 +3729,7 @@ version of bare `any`.
 
 ## 5. Refused, with the number that refused it
 
-### Union continuation at `UNION_CODE_SHA`
+### Union continuation at `25215cc8`
 
 The final matching/priority/subtype unit adds227 RIGHT assertions without RIGHT
 losses. Broader assignability drafts are refused:the final broad draft lost14
@@ -9353,7 +9353,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
-| 2026-10-01 | `UNION_CODE_SHA` | **69.08%** | **6,589** | **449,486/478,855 assertions (93.87%).** +227 since83c358c0,zero RIGHT losses;187 W→R,40 G→R,44 G→W,49 W→W. Ordered union matching,observed priorities,naked remainders,subtype constraints and predicate recovery.8 pinned declarations,2 subtype controls;release tests/clippy;3,375 anchors;snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-union-continuation.md).5,427 assertions remain;95% unfinished. |
+| 2026-10-01 | `25215cc8` | **69.08%** | **6,589** | **449,486/478,855 assertions (93.87%).** +227 since83c358c0,zero RIGHT losses;187 W→R,40 G→R,44 G→W,49 W→W. Ordered union matching,observed priorities,naked remainders,subtype constraints and predicate recovery.8 pinned declarations,2 subtype controls;release tests/clippy;3,375 anchors;snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-union-continuation.md).5,427 assertions remain;95% unfinished. |
 | 2026-10-01 | `83c358c0` | **69.03%** | **6,584** | **449,259/478,855 assertions (93.82%).** +118 since5fffc9af,zero RIGHT losses;67 W→R,51 G→R,3 G→W and3 W→W. Async contextual return slots,const source bookkeeping,generator contexts,array yield* awaiting and exact nullable union matching.20 pinned declarations plus expression control;release workspace tests/clippy;3,377 anchors;snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-async-contexts.md).5,654 assertions remain;95% unfinished. |
 | 2026-09-30 | `5fffc9af` | **68.97%** | **6,578** | **449,141/478,855 assertions (93.79%).** +196 since a973e8e8,zero RIGHT losses;132 W→R,64 G→R,3 G→W and40 W→W. Const callback body source views before widening,active parameter identities,const templates and generator iteration slots.15 pinned controls;release workspace tests/clippy;3,378 anchors;snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-const-callbacks.md).5,772 assertions remain;95% unfinished. |
 | 2026-09-30 | `a973e8e8` | **68.97%** | **6,578** | **448,945/478,855 assertions (93.75%).** +23 W→R since79500ed4,zero RIGHT losses and no other transitions. AST const candidates before inference,deep literal readonly,mutable constraints/variables,fixed spreads and last-write origins;rest primitive retention/mutability.24 pinned controls;release workspace tests/clippy;3,378 anchors;snapshot refreshed. [Evidence and remaining work](docs/architecture/checker-95-const-sources.md).5,968 assertions remain;95% unfinished. |
