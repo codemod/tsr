@@ -1037,12 +1037,13 @@ impl Checker<'_, '_> {
             // been per-case real since `set_strict_null_checks` and the corpus
             // records `undefined[]` on 384 lines — the 212-line `undefined[] ->
             // never[]` W2 row (`checker-notes-arrays.md`, ninth session).
-            // Upstream's `implicitNeverType`/`undefinedWideningType` are
-            // distinct types printing the same strings as `neverType`/
-            // `undefinedType`; this port has only the latter pair — one more of
-            // the "distinct types that print the same string", recorded rather
-            // than merged silently.
-            if self.strict_null_checks { self.intrinsics.never } else { self.intrinsics.undefined }
+            // Distinct identities let isEmptyArrayLiteralType distinguish an
+            // inferred empty array from a written never[] or undefined[].
+            if self.strict_null_checks {
+                self.intrinsics.implicit_never
+            } else {
+                self.intrinsics.undefined_widening
+            }
         } else {
             let reduced = self.get_union_type(&elements);
             if self.object_constituent_count(reduced) > 1 {

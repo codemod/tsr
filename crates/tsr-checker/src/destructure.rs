@@ -578,7 +578,7 @@ impl Checker<'_, '_> {
                     if initializer_type == error {
                         return error;
                     }
-                    return self.get_widened_literal_type_for_initializer(holder, initializer_type);
+                    return self.widen_type_inferred_from_initializer(holder, initializer_type);
                 }
                 error
             }

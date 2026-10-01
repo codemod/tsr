@@ -3733,9 +3733,20 @@ impl<'a> Checker<'a, '_> {
             // read from the case's options; the paired control fixture
             // asserts `null` stays `null` under `@strict: true`.
             if !self.strict_null_checks
-                && (id == self.intrinsics.null || id == self.intrinsics.undefined)
+                && (id == self.intrinsics.null
+                    || id == self.intrinsics.undefined
+                    || id == self.intrinsics.undefined_widening)
             {
                 return self.intrinsics.any;
+            }
+            // getWidenedTypeWithContext descends array type arguments. The
+            // inferred non-strict empty element is a widening undefined;
+            // written undefined[] retains the ordinary undefined identity.
+            if !self.strict_null_checks
+                && self.is_empty_array_literal_type(id)
+                && let Some(array) = self.global_type_symbol("Array")
+            {
+                return self.create_type_reference(array, vec![self.intrinsics.any]);
             }
             // §461: `getWidenedType` DESCENDS a tuple (`checker.go:16090`'s
             // reference walk), so an inferred `[undefined, null]` widens
@@ -4593,7 +4604,7 @@ impl<'a> Checker<'a, '_> {
         }
 
         let initializer_type = self.check_expression(initializer);
-        let widened = self.get_widened_literal_type_for_initializer(declaration, initializer_type);
+        let widened = self.widen_type_inferred_from_initializer(declaration, initializer_type);
         // §96 (`checker-notes-narrow.md`): upstream wraps the initializer
         // branch too (`checker.go:16750`) — `(b? = 0)` is `number | undefined`.
         // A written `?` is required (`is_optional_declaration`), so plain
@@ -4653,6 +4664,28 @@ impl<'a> Checker<'a, '_> {
             }
             _ => false,
         }
+    }
+
+    /// `widenTypeInferredFromInitializer` (checker.go): JavaScript empty
+    /// literal/array inference recovers to any/any[] after literal widening.
+    pub(crate) fn widen_type_inferred_from_initializer(
+        &mut self,
+        declaration: NodeId,
+        id: TypeId,
+    ) -> TypeId {
+        let widened = self.get_widened_literal_type_for_initializer(declaration, id);
+        if self.in_js_file(declaration) {
+            if self.is_empty_literal_type(widened) {
+                return self.intrinsics.any;
+            }
+            if self.is_empty_array_literal_type(widened) {
+                let Some(array) = self.global_type_symbol("Array") else {
+                    return self.intrinsics.error;
+                };
+                return self.create_type_reference(array, vec![self.intrinsics.any]);
+            }
+        }
+        widened
     }
 
     pub(crate) fn get_widened_literal_type_for_initializer(

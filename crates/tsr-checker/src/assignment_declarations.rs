@@ -114,7 +114,16 @@ impl<'a> Checker<'a, '_> {
                     {
                         continue;
                     }
-                    assigned
+                    if self.is_empty_array_literal_type(assigned)
+                        && !self.has_parent_with_type_annotation(symbol)
+                    {
+                        let Some(array) = self.global_type_symbol("Array") else {
+                            return self.intrinsics.error;
+                        };
+                        self.create_type_reference(array, vec![self.intrinsics.any])
+                    } else {
+                        assigned
+                    }
                 }
                 Node::CallExpression(call) => {
                     let Some(&descriptor) = call.arguments.get(2) else {
@@ -153,6 +162,43 @@ impl<'a> Checker<'a, '_> {
             return self.intrinsics.any;
         }
         t
+    }
+
+    /// `isEmptyArrayLiteralType` / `isEmptyLiteralType` (checker.go).
+    pub(crate) fn is_empty_array_literal_type(&mut self, id: TypeId) -> bool {
+        let Some((target, arguments)) = self.type_reference_targets.get(&id).cloned() else {
+            return false;
+        };
+        let Some(array) = self.global_type_symbol("Array") else { return false };
+        self.binder.merged_symbol(target) == self.binder.merged_symbol(array)
+            && arguments.len() == 1
+            && self.is_empty_literal_type(arguments[0])
+    }
+
+    pub(crate) fn is_empty_literal_type(&self, id: TypeId) -> bool {
+        id == if self.strict_null_checks {
+            self.intrinsics.implicit_never
+        } else {
+            self.intrinsics.undefined_widening
+        }
+    }
+
+    /// `hasParentWithTypeAnnotation` (checker.go): the function initializer's
+    /// containing declaration supplies the annotation, not the expando itself.
+    fn has_parent_with_type_annotation(&self, symbol: SymbolId) -> bool {
+        let Some(parent) = self.binder.symbols().get(symbol).parent else { return false };
+        let Some(declaration) = self.binder.symbols().get(parent).value_declaration else {
+            return false;
+        };
+        if !matches!(
+            self.node_map.get(declaration),
+            Some(Node::FunctionExpression(_) | Node::ArrowFunction(_))
+        ) {
+            return false;
+        }
+        self.nodes
+            .parent(declaration)
+            .is_some_and(|parent| self.type_annotation_of(parent).is_some())
     }
 
     fn get_type_from_property_descriptor(&mut self, descriptor: Expression<'a>) -> TypeId {

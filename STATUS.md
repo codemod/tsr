@@ -24,21 +24,21 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-10-01
 
-Measured on **`6837bbf9`**: **450,757/478,855 assertions (94.13%)**,
-**6,634/9,538 complete cases (69.55%)**. The 95% target requires
-454,913 correct assertions; **4,156 remain**. Denominator and pinned oracle
-unchanged. Aligned verdicts: **474,243 total;450,757 right;3,885 gap;19,601 wrong**.
+Measured on **`EMPTY_CHECKPOINT`**: **450,819/478,855 assertions (94.15%)**,
+**6,639/9,538 complete cases (69.61%)**. The 95% target requires
+454,913 correct assertions; **4,094 remain**. Denominator and pinned oracle
+unchanged. Aligned verdicts: **474,243 total;450,819 right;3,885 gap;19,539 wrong**.
 Binder retains the preceding verified **8,497/8,497 (100%)**;
 other suites below retain historical measurements.
 
-This unit adds **129 matching assertions**, with **zero RIGHT losses** relative
-to87f2dc92:115 WRONG→RIGHT,14 GAP→RIGHT,15 GAP→WRONG and14 changed wrong types.
+This unit adds **62 matching assertions**, with **zero RIGHT losses** relative
+to6837bbf9:62 WRONG→RIGHT,no new GAP→WRONG and one changed wrong type.
 Release workspace tests,clippy with warnings denied,all **3,366 upstream anchors**,
 snapshot and whitespace checks pass.
-[Composite index signatures](docs/architecture/checker-95-composite-indexes.md)
-records union/intersection collectors,class static/instance separation and
-intersection contextual precedence. Pinned controls pass. Reverse mapped
-intersection inference,readonly metadata and instantiated heritage remain incomplete.
+[Empty-array inference](docs/architecture/checker-95-empty-array-inference.md)
+records distinct inferred element identities,assignment/JS initializer recovery
+and non-strict array widening. Pinned controls pass. General recursive widening,
+rest-binding recovery and constructor this-property flow remain incomplete.
 The95% goal remains unfinished; verified changes commit and push to main.
 
 ### Previous whole-suite measurement — historical
@@ -1141,12 +1141,13 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-### Current priorities at `6837bbf9` — 2026-10-01
+### Current priorities at `EMPTY_CHECKPOINT` — 2026-10-01
 
 Assignment property symbols now collect binary/descriptor values with readonly
 checks and CommonJS default precedence. Object-literal member docs reach the
-existing checker parameter reader. Constructor/method this-flow,empty-array
-assignments remain (tsr-6.26). Callable export rendering and generic property
+existing checker parameter reader. Empty-array assignment/JS initializer recovery
+and non-strict inferred array widening are ported. Constructor/method this-flow,
+rest bindings and general recursive nullable widening remain (tsr-6.26). Callable export rendering and generic property
 substitution are ported; late-bound exports,constructor instance members and
 recursive callable boundaries remain (tsr-6.27).
 
@@ -3754,6 +3755,19 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+### Empty-array inference at `EMPTY_CHECKPOINT`
+
+Distinct inferred element identities initially lost179 correct assertions because
+non-strict variable widening recognized only ordinary undefined. The corresponding
+widening identity now follows the same native rule and recovers all179. Assignment
+recovery alone gained0 corpus matches; pinned controls verify its functionality.
+JS initializer recovery adds8 and declaration-side array widening54. Final62-match
+gain has zero RIGHT losses and no new GAP→WRONG; one rest-binding result remains
+wrong (undefined[] instead of any[],previously any). General recursive widening
+and binding propagation remain tsr-6.26 work. See the
+[measurement and rationale](docs/architecture/checker-95-empty-array-inference.md).
+
 
 ### Composite index signatures at `6837bbf9`
 
@@ -9483,6 +9497,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
+| 2026-10-01 | `EMPTY_CHECKPOINT` | **69.61%** | **6,639** | **450,819/478,855 assertions (94.15%).** +62 since6837bbf9,zero RIGHT losses/no new G→W;one changed wrong. Distinct empty-array identities,assignment/JS initializer recovery,non-strict array widening. Pinned controls;release tests/clippy;3,366 anchors;checker snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-empty-array-inference.md).4,094 remain;95% unfinished. |
 | 2026-10-01 | `6837bbf9` | **69.55%** | **6,634** | **450,757/478,855 assertions (94.13%).** +129 since87f2dc92,zero RIGHT losses;115 W→R,14 G→R,15 G→W,14 changed wrong. Composite and static indexes,intersection context precedence and no-reduction unions. Pinned controls;release tests/clippy;3,366 anchors;checker snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-composite-indexes.md).4,156 remain;95% unfinished. |
 | 2026-10-01 | `87f2dc92` | **69.48%** | **6,627** | **450,628/478,855 assertions (94.11%).** +211 since5d47e663,zero RIGHT losses;105 W→R,106 G→R,24 G→W,12 changed wrong. Callable exports,property substitution,assignment context,numeric/Unicode names. Pinned controls;release tests/clippy;3,366 anchors;checker snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-callable-expandos.md).4,285 remain;95% unfinished. |
 | 2026-10-01 | `5d47e663` | **69.36%** | **6,616** | **450,417/478,855 assertions (94.06%).** +113 since2b92b583,zero adverse transitions;111 W→R,2 G→R. Assignment/descriptor values and readonly writes,CommonJS defaults,expando scope,object JSDoc. Pinned controls;release tests/clippy;3,367 anchors;checker/binder snapshots refreshed. [Evidence and limits](docs/architecture/checker-95-assignment-declarations.md).4,496 assertions remain;95% unfinished. |

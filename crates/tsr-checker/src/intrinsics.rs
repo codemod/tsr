@@ -45,6 +45,8 @@ pub struct Intrinsics {
     pub unknown: TypeId,
     /// `undefinedType` — `checker.go:984`.
     pub undefined: TypeId,
+    /// `undefinedWideningType` — the empty-array element in non-strict mode.
+    pub undefined_widening: TypeId,
     /// `missingType` — `checker.go:986`; see `exactOptionalPropertyTypes`.
     pub missing: TypeId,
     /// `nullType` — `checker.go:989`.
@@ -72,6 +74,8 @@ pub struct Intrinsics {
     pub void: TypeId,
     /// `neverType` — `checker.go:1005`.
     pub never: TypeId,
+    /// `implicitNeverType` — the empty-array element in strict mode.
+    pub implicit_never: TypeId,
     /// `unreachableNeverType` — `checker.go`, the flow walk's SENTINEL for a
     /// path a `never`-returning call (or an unreachable assignment) cuts
     /// off. Flagged `NEVER` so every junction drops it like `never`, and
@@ -114,6 +118,7 @@ impl Intrinsics {
         let error = store.new_intrinsic(TypeFlags::ANY, "error");
         let unknown = store.new_intrinsic(TypeFlags::UNKNOWN, "unknown");
         let undefined = store.new_intrinsic(TypeFlags::UNDEFINED, "undefined");
+        let undefined_widening = store.new_intrinsic(TypeFlags::UNDEFINED, "undefined");
         // `missingType` (`checker.go:986`): a DISTINCT undefined used for the
         // optionality a `?` adds under `exactOptionalPropertyTypes`; prints
         // `undefined`, removed at write positions.
@@ -133,6 +138,7 @@ impl Intrinsics {
             error,
             unknown,
             undefined,
+            undefined_widening,
             missing,
             null,
             string,
@@ -142,6 +148,7 @@ impl Intrinsics {
             es_symbol: store.new_intrinsic(TypeFlags::ES_SYMBOL, "symbol"),
             void: store.new_intrinsic(TypeFlags::VOID, "void"),
             never: store.new_intrinsic(TypeFlags::NEVER, "never"),
+            implicit_never: store.new_intrinsic(TypeFlags::NEVER, "never"),
             unreachable_never: store.new_intrinsic(TypeFlags::NEVER, "never"),
             non_primitive: store.new_intrinsic(TypeFlags::NON_PRIMITIVE, "object"),
             regular_true,
