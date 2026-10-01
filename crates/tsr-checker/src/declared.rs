@@ -4937,6 +4937,69 @@ impl<'a> Checker<'a, '_> {
         self.store.new_named(flags, printed, members)
     }
 
+    /// Retain deferred conditional branches under the reference's mapper.
+    /// `getDefaultConstraintOfConditionalType` consumes these semantic branches,
+    /// rather than the alias declaration's uninstantiated parameter identities.
+    pub(crate) fn capture_conditional_alias_branches(
+        &mut self,
+        id: TypeId,
+        symbol: SymbolId,
+        arguments: &[TypeId],
+    ) {
+        let Some(declaration) = self.binder.symbols().get(symbol).declarations.first().copied()
+        else {
+            return;
+        };
+        let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration) else {
+            return;
+        };
+        let Some(TypeNode::ConditionalTypeNode(conditional)) = alias.r#type else { return };
+        let (Some(yes), Some(no)) = (conditional.true_type, conditional.false_type) else { return };
+        let parameters = self.local_type_parameters_of(symbol);
+        if parameters.len() != arguments.len() || self.instantiation_depth == 100 {
+            return;
+        }
+        let mut frame = rustc_hash::FxHashMap::default();
+        for (parameter, &argument) in parameters.iter().zip(arguments) {
+            let Some(symbol) = parameter.node_id.and_then(|node| self.binder.symbol_of(node))
+            else {
+                return;
+            };
+            frame.insert(symbol, argument);
+        }
+        // getConstraintOfDistributiveConditionalType (checker.go:17286).
+        // A constrained naked check is re-instantiated at its constraint before
+        // considering the default branch union. Never falls back to that union.
+        if let Some(check) =
+            conditional.check_type.and_then(|node| self.distributive_conditional_parameter(node))
+            && let Some(&argument) = frame.get(&check)
+            && let Some(constraint) = self.type_parameter_constraint(argument)
+            && constraint != argument
+            && let Some(position) = parameters.iter().position(|parameter| {
+                parameter.node_id.and_then(|node| self.binder.symbol_of(node)) == Some(check)
+            })
+        {
+            let mut constrained_arguments = arguments.to_vec();
+            constrained_arguments[position] = constraint;
+            if let Some(constrained) =
+                self.evaluate_conditional_alias(symbol, &constrained_arguments, None)
+                && constrained != self.intrinsics.never
+            {
+                self.conditional_constraint_branches.insert(id, (constrained, constrained));
+                return;
+            }
+        }
+        self.instantiation_depth += 1;
+        self.alias_evaluation_bindings.push(frame);
+        let yes = self.get_type_from_type_node(yes);
+        let no = self.get_type_from_type_node(no);
+        self.alias_evaluation_bindings.pop();
+        self.instantiation_depth -= 1;
+        if yes != self.intrinsics.error && no != self.intrinsics.error {
+            self.conditional_constraint_branches.insert(id, (yes, no));
+        }
+    }
+
     /// The type parameters declared *on* a symbol\'s own declaration.
     ///
     /// Ported from `getLocalTypeParametersOfClassOrInterfaceOrTypeAlias`

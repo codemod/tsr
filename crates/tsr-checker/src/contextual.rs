@@ -1196,6 +1196,22 @@ impl<'a> Checker<'a, '_> {
         if let Some(rest) = rest
             && index >= rest
         {
+            if self
+                .store
+                .get(signature.parameters[rest].r#type)
+                .flags
+                .contains(crate::flags::TypeFlags::TYPE_PARAMETER)
+            {
+                let index_type = self.store.intern(
+                    crate::flags::TypeFlags::NUMBER_LITERAL,
+                    crate::types::TypeData::NumberLiteral((index - rest).to_string()),
+                );
+                return self.resolved_indexed_access_type(
+                    signature.parameters[rest].r#type,
+                    index_type,
+                    false,
+                );
+            }
             return self.contextual_type_for_element_expression(
                 signature.parameters[rest].r#type,
                 index - rest,
@@ -1310,11 +1326,17 @@ impl<'a> Checker<'a, '_> {
         // `error` for every member while the identical literal under a single
         // constituent typed correctly.
         //
-        // `get_property_of_type` stays FIRST so the single-constituent road is
-        // bit-for-bit what it was; the union walk is only consulted on a miss.
-        let property_type = match self.get_property_of_type(contextual, &name) {
-            Some(property) => self.get_type_of_symbol(property),
-            None => self.union_contextual_property_type(contextual, &name, object_literal)?,
+        // Generic mapped targets substitute the property key before concrete
+        // lookup; other contexts retain the concrete/union lookup order.
+        let property_type = if let Some(mapped) =
+            self.generic_mapped_contextual_property_type(contextual, &name)
+        {
+            mapped
+        } else {
+            match self.get_property_of_type(contextual, &name) {
+                Some(property) => self.get_type_of_symbol(property),
+                None => self.union_contextual_property_type(contextual, &name, object_literal)?,
+            }
         };
         // SS141: a reference context's member instantiates through the
         // reference (Computed<T>'s read serves () => T_call, not the
@@ -1459,6 +1481,21 @@ impl<'a> Checker<'a, '_> {
         // its arguments, which is the immediately invoked function expression
         // upstream handles at `checker.go:29463` from the argument expressions.
         let index = call.arguments.iter().position(|a| a.node_id() == Some(argument))?;
+
+        // The const/freshness query needs parameter identities before the
+        // fixing mapper, including after a completed call memo is available.
+        if self.contextual_prefers_uninstantiated {
+            let callee = call.expression?;
+            let Some(call_id) = call.node_id else {
+                return self.contextual_type_for_argument_resolving(call, callee, index);
+            };
+            if !self.resolving_signature_calls.insert(call_id) {
+                return Some(self.intrinsics.any);
+            }
+            let contextual = self.contextual_type_for_argument_resolving(call, callee, index);
+            self.resolving_signature_calls.remove(&call_id);
+            return contextual;
+        }
 
         // Reunion memo consult (checker-notes-callres2.md): a pass-1
         // instantiated candidate for THIS call outranks every stateless

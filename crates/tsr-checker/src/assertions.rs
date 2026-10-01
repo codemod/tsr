@@ -171,6 +171,68 @@ impl<'a> Checker<'a, '_> {
 }
 
 impl Checker<'_, '_> {
+    /// isConstTypeVariable (internal/checker/checker.go:13645).
+    pub(crate) fn is_const_type_variable(
+        &mut self,
+        id: crate::types::TypeId,
+        depth: usize,
+    ) -> bool {
+        self.const_type_variable_inner(id, depth, &mut Vec::new())
+    }
+
+    fn const_type_variable_inner(
+        &mut self,
+        id: crate::types::TypeId,
+        depth: usize,
+        stack: &mut Vec<crate::types::TypeId>,
+    ) -> bool {
+        use crate::{flags::TypeFlags, types::TypeData};
+        if depth >= 5 || stack.contains(&id) {
+            return false;
+        }
+        stack.push(id);
+        if !self.conditional_constraint_branches.contains_key(&id)
+            && let Some((symbol, arguments)) = self.type_reference_targets.get(&id).cloned()
+        {
+            self.capture_conditional_alias_branches(id, symbol, &arguments);
+        }
+        let result = if let Some(symbol) = self.type_parameter_symbols.get(&id) {
+            self.binder.symbols().get(*symbol).declarations.iter().any(|&declaration|
+                matches!(self.node_map.get(declaration),Some(Node::TypeParameterDeclaration(parameter))
+                    if parameter.modifiers.iter().any(|modifier| matches!(modifier,
+                        tsr_ast::ModifierLike::Token(token) if token.kind==tsr_ast::SyntaxKind::ConstKeyword))))
+        } else if let TypeData::Union { types, .. } | TypeData::Intersection { types, .. } =
+            self.store.get(id).data.clone()
+        {
+            types.into_iter().any(|ty| self.const_type_variable_inner(ty, depth, stack))
+        } else if let Some((object, _, _)) = self.deferred_indexed_access_types.get(&id).copied() {
+            self.const_type_variable_inner(object, depth + 1, stack)
+        } else if let Some((yes, no)) = self
+            .conditional_constraint_branches
+            .get(&id)
+            .or_else(|| self.mapped_conditional_branches.get(&id))
+            .copied()
+        {
+            // getDefaultConstraintOfConditionalType elides an any branch.
+            (!self.store.get(yes).flags.contains(TypeFlags::ANY)
+                && self.const_type_variable_inner(yes, depth + 1, stack))
+                || (!self.store.get(no).flags.contains(TypeFlags::ANY)
+                    && self.const_type_variable_inner(no, depth + 1, stack))
+        } else if let Some(mapped) = self.mapped_types.get(&id) {
+            self.deferred_keyof_operands.get(&mapped.constraint).copied().is_some_and(|source| {
+                self.store.get(source).flags.contains(TypeFlags::TYPE_PARAMETER)
+                    && self.const_type_variable_inner(source, depth, stack)
+            })
+        } else if let Some((elements, _)) = self.variadic_tuple_elements.get(&id).cloned() {
+            elements.iter().any(|element| {
+                element.spread && self.const_type_variable_inner(element.r#type, depth, stack)
+            })
+        } else {
+            false
+        };
+        stack.pop();
+        result
+    }
     /// `isConstContext` (`checker.go:13615`), minus the const-type-variable
     /// arm (that is §103's inference subsystem): a node is in a const context
     /// when its parent chain reaches a const assertion through parens, array

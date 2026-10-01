@@ -708,7 +708,7 @@ impl Checker<'_, '_> {
         // conflating them measured 4 RIGHT→WRONG. The readonly is applied at
         // the inference site by `Checker::readonly_tuple_image`'s object arm.
         let const_parameter_context =
-            node.node_id.is_some_and(|id| self.array_literal_argument_of_const_type_parameter(id));
+            node.node_id.is_some_and(|id| self.literal_in_const_type_variable_context(id));
         let const_context = node.node_id.is_some_and(|id| self.is_const_context(id));
         let regular_members = const_context || const_parameter_context;
         // §365: whether this literal IS a destructuring-assignment target —
@@ -1956,6 +1956,14 @@ impl Checker<'_, '_> {
             .union(TF::BIG_INT_LITERAL)
             .union(TF::BOOLEAN_LITERAL)
             .union(TF::UNIQUE_ES_SYMBOL);
+        // isConstContext also applies to primitive literal initializers; an
+        // indexed const parameter can supply this context without making the
+        // enclosing object itself a homomorphic const target.
+        if self.maybe_type_of_kind(id, literalish)
+            && node_id.is_some_and(|node| self.literal_in_const_type_variable_context(node))
+        {
+            return self.get_regular_type_of_literal_type(id);
+        }
         // §890's call-argument exclusion, kept. §892 predicted the cache would
         // retire it and **measured that it does not**: the recompute was never
         // the only entry. The probe for member `x` runs *while* `x`'s type is

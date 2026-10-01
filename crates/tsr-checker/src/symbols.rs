@@ -2969,6 +2969,9 @@ impl<'a> Checker<'a, '_> {
     }
 
     pub(crate) fn contextual_property_type(&mut self, t: TypeId, name: &str) -> Option<TypeId> {
+        if let Some(mapped) = self.generic_mapped_contextual_property_type(t, name) {
+            return Some(mapped);
+        }
         match &self.store.get(t).data {
             crate::types::TypeData::Union { types, .. } => {
                 let constituents = types.clone();

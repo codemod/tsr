@@ -231,60 +231,94 @@ impl Checker<'_, '_> {
     /// destructured literal is itself destructured); an annotation-driven
     /// tuple context does not — its element types, not the pattern, decide
     /// the inner shapes (`arrayLiterals2ES5`'s `[number[], string[]]`).
-    /// Whether `id` reaches a call argument whose callee signature carries a
-    /// `const` type parameter. §797, shared with the object road at §799.
-    ///
-    /// Direct only. An argument nested inside a CALLBACK
-    /// (`test1(() => ['a'])`) needs const-ness to propagate across a function
-    /// boundary into the arrow's return, which this port cannot do — see
-    /// STATUS §5's §796 entry, where lifting the decline for that shape
-    /// measured 42 GAP→WRONG.
-    ///
-    /// Guarded against re-entry: resolving the callee's signature checks the
-    /// arguments, and an array-literal argument asks this question again.
-    pub(crate) fn array_literal_argument_of_const_type_parameter(
-        &mut self,
-        id: tsr_ast::NodeId,
-    ) -> bool {
-        // Climb the same carriers `is_const_context` climbs for `as const` —
-        // nested array literals, parens, and object-literal property
-        // assignments — because a const context reaches ALL the way down:
-        // `f1(['a', ['b', 'c']])` records
-        // `readonly ["a", readonly ["b", "c"]]`, so the INNER literal is const
-        // too. Stopping at the direct argument left it `string[]`.
+    /// isConstContext's contextual-type-variable arm (checker.go:13618).
+    /// Read the uninstantiated contextual target before following const carriers.
+    pub(crate) fn literal_in_const_type_variable_context(&mut self, id: tsr_ast::NodeId) -> bool {
+        // Context queries re-enter argument checking in this port. Resolve the
+        // enclosing call first, as the previous argument-context road did, and
+        // avoid entering a non-const call's property contexts needlessly.
+        let mut child = id;
+        let mut enclosing_call = None;
+        for ancestor in self.nodes.ancestors(id) {
+            match self.node_map.get(ancestor) {
+                Some(tsr_ast::Node::CallExpression(call)) => {
+                    if call.expression.and_then(|expression| expression.node_id()) == Some(child) {
+                        return false;
+                    }
+                    enclosing_call = Some(call);
+                    break;
+                }
+                Some(
+                    tsr_ast::Node::ArrowFunction(_)
+                    | tsr_ast::Node::FunctionExpression(_)
+                    | tsr_ast::Node::FunctionDeclaration(_),
+                ) => return false,
+                _ => child = ancestor,
+            }
+        }
+        // Callback return contexts still need the inference-context mapper.
+        let Some(call) = enclosing_call else { return false };
+        // An IIFE's parameters derive from its arguments. Computing that
+        // callee while checking a spread argument would cache its in-flight
+        // parameter as any. A function expression's own parameter declarations
+        // already establish whether a const context is possible.
+        let mut callee = call.expression;
+        while let Some(tsr_ast::Expression::ParenthesizedExpression(parenthesized)) = callee {
+            callee = parenthesized.expression;
+        }
+        let parameters = match callee {
+            Some(tsr_ast::Expression::ArrowFunction(function)) => Some(function.type_parameters),
+            Some(tsr_ast::Expression::FunctionExpression(function)) => {
+                Some(function.type_parameters)
+            }
+            _ => None,
+        };
+        if parameters.is_some_and(|parameters| !parameters.iter().any(|parameter|
+            parameter.modifiers.iter().any(|modifier| matches!(modifier,
+                tsr_ast::ModifierLike::Token(token) if token.kind == tsr_ast::SyntaxKind::ConstKeyword)))) {
+            return false;
+        }
+        {
+            let Some(call_id) = call.node_id else { return false };
+            if !self.resolving_signature_calls.insert(call_id) {
+                return false;
+            }
+            let has_const_parameter = call
+                .expression
+                .map(|callee| self.check_expression(callee))
+                .and_then(|callee| self.resolve_call_signature(callee, Some(call.arguments)))
+                .is_some_and(|signature| signature.type_parameters.iter().any(|p| p.is_const));
+            self.resolving_signature_calls.remove(&call_id);
+            if !has_const_parameter {
+                return false;
+            }
+        }
         let mut current = id;
         loop {
-            let Some(parent) = self.nodes.parent(current) else { return false };
+            let previous = self.contextual_prefers_uninstantiated;
+            self.contextual_prefers_uninstantiated = true;
+            let contextual = self.get_contextual_type(current);
+            self.contextual_prefers_uninstantiated = previous;
+            if contextual.is_some_and(|ty| self.is_const_type_variable(ty, 0)) {
+                return true;
+            }
+            let Some(parent) = self.nodes.parent(current) else {
+                return false;
+            };
             match self.node_map.get(parent) {
                 Some(
                     tsr_ast::Node::ArrayLiteralExpression(_)
                     | tsr_ast::Node::ParenthesizedExpression(_)
+                    | tsr_ast::Node::ObjectLiteralExpression(_)
                     | tsr_ast::Node::PropertyAssignment(_)
-                    | tsr_ast::Node::ObjectLiteralExpression(_),
+                    | tsr_ast::Node::ShorthandPropertyAssignment(_)
+                    | tsr_ast::Node::SpreadElement(_)
+                    | tsr_ast::Node::SpreadAssignment(_)
+                    | tsr_ast::Node::TemplateSpan(_),
                 ) => current = parent,
-                _ => break,
+                _ => return false,
             }
         }
-        let Some(parent) = self.nodes.parent(current) else { return false };
-        let Some(tsr_ast::Node::CallExpression(call)) = self.node_map.get(parent) else {
-            return false;
-        };
-        if !call.arguments.iter().any(|argument| argument.node_id() == Some(current)) {
-            return false;
-        }
-        let Some(call_id) = call.node_id else { return false };
-        if !self.resolving_signature_calls.insert(call_id) {
-            return false;
-        }
-        let answer = call
-            .expression
-            .map(|callee| self.check_expression(callee))
-            .and_then(|callee_type| self.resolve_call_signature(callee_type, Some(call.arguments)))
-            .is_some_and(|signature| {
-                signature.type_parameters.iter().any(|parameter| parameter.is_const)
-            });
-        self.resolving_signature_calls.remove(&call_id);
-        answer
     }
 
     fn array_literal_in_tuple_context(&mut self, node: &ArrayLiteralExpression<'_>) -> bool {
@@ -656,9 +690,8 @@ impl Checker<'_, '_> {
                 });
             }
             if supported {
-                let const_argument = node
-                    .node_id
-                    .is_some_and(|id| self.array_literal_argument_of_const_type_parameter(id));
+                let const_argument =
+                    node.node_id.is_some_and(|id| self.literal_in_const_type_variable_context(id));
                 let const_context = node.node_id.is_some_and(|id| self.is_const_context(id));
                 if const_context || const_argument || self.array_literal_in_tuple_context(node) {
                     return self
@@ -708,7 +741,7 @@ impl Checker<'_, '_> {
         // SYNTACTICALLY and const-ness here depends on the callee's resolved
         // signature. Same seam §793 used for the tuple-context arm.
         let const_argument =
-            node.node_id.is_some_and(|id| self.array_literal_argument_of_const_type_parameter(id));
+            node.node_id.is_some_and(|id| self.literal_in_const_type_variable_context(id));
         if (const_argument || node.node_id.is_some_and(|id| self.is_const_context(id)))
             && !has_tuple_spread
         {

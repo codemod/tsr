@@ -16,6 +16,86 @@ pub(crate) struct MappedTypeInfo {
 }
 
 impl<'a> Checker<'a, '_> {
+    /// getIndexedMappedTypeSubstitutedTypeOfContextualType
+    /// (checker.go:30607). Generic key domains use their base constraints,
+    /// while substitution retains the mapped template's indexed identities.
+    pub(crate) fn generic_mapped_contextual_property_type(
+        &mut self,
+        id: TypeId,
+        name: &str,
+    ) -> Option<TypeId> {
+        use crate::{flags::TypeFlags, types::TypeData};
+        let info = self.mapped_types.get(&id)?.clone();
+        let parameters: Vec<_> = self.type_parameter_symbols.keys().copied().collect();
+        let constraints =
+            info.constraint_intersection.clone().unwrap_or_else(|| vec![info.constraint]);
+        if !constraints
+            .iter()
+            .any(|&constraint| self.mentions_type_parameter(constraint, &parameters, &[]))
+        {
+            return None;
+        }
+        let bases: Vec<_> = constraints
+            .into_iter()
+            .map(|constraint| {
+                self.contextual_mapped_key_base_constraint(constraint, &mut Vec::new())
+            })
+            .collect();
+        let constraint = self.get_intersection_type(&bases, None);
+        let key = self.store.intern_literal(
+            TypeFlags::STRING_LITERAL,
+            TypeData::StringLiteral(name.to_owned()),
+            false,
+        );
+        if !self.is_type_assignable_to(key, constraint) {
+            return None;
+        }
+        Some(self.instantiate_mapped_template(&info, key, false))
+    }
+
+    /// The parameter, union/intersection and index arms of
+    /// computeBaseConstraint (checker.go:27486–27533).
+    fn contextual_mapped_key_base_constraint(
+        &mut self,
+        id: TypeId,
+        stack: &mut Vec<TypeId>,
+    ) -> TypeId {
+        use crate::{flags::TypeFlags, types::TypeData};
+        if stack.contains(&id) {
+            return id;
+        }
+        stack.push(id);
+        let result = if self.store.get(id).flags.contains(TypeFlags::INDEX) {
+            self.get_union_type(&[
+                self.intrinsics.string,
+                self.intrinsics.number,
+                self.intrinsics.es_symbol,
+            ])
+        } else if let Some(constraint) = self.type_parameter_constraint(id) {
+            self.contextual_mapped_key_base_constraint(constraint, stack)
+        } else {
+            match self.store.get(id).data.clone() {
+                TypeData::Union { types, .. } => {
+                    let types: Vec<_> = types
+                        .into_iter()
+                        .map(|ty| self.contextual_mapped_key_base_constraint(ty, stack))
+                        .collect();
+                    self.get_union_type(&types)
+                }
+                TypeData::Intersection { types, .. } => {
+                    let types: Vec<_> = types
+                        .into_iter()
+                        .map(|ty| self.contextual_mapped_key_base_constraint(ty, stack))
+                        .collect();
+                    self.get_intersection_type(&types, None)
+                }
+                _ => id,
+            }
+        };
+        stack.pop();
+        result
+    }
+
     /// isGenericMappedType plus getHomomorphicTypeVariable for tuple context.
     pub(crate) fn is_generic_homomorphic_mapped_type(&self, id: TypeId) -> bool {
         self.is_generic_homomorphic_mapped_type_inner(id, &mut Vec::new())
