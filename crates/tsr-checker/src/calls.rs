@@ -1809,6 +1809,14 @@ impl Checker<'_, '_> {
                         }
                     }
                     if verdict == Ternary::NotRelated {
+                        // getCandidateForOverloadFailure does not combine a
+                        // set containing generics. Return the longest original
+                        // candidate so the caller can infer its instantiation.
+                        if candidates.iter().any(|candidate| !candidate.type_parameters.is_empty())
+                        {
+                            let best = Self::longest_candidate_index(candidates, arguments.len());
+                            return Some(candidates[best].clone());
+                        }
                         let returns: Vec<TypeId> =
                             candidates.iter().map(|candidate| candidate.r#type).collect();
                         let mut failure = candidates[0].clone();
@@ -2668,9 +2676,22 @@ impl Checker<'_, '_> {
         // `getLongestCandidateIndex` (`:9545`) is the first candidate whose
         // parameter count covers the arguments (no rest here by the
         // precondition), else the longest.
-        let best_index = candidates
+        let best_index = Self::longest_candidate_index(candidates, arguments.len());
+        let best = &candidates[best_index];
+        if best.type_parameters.is_empty() {
+            return Some(best.clone());
+        }
+        let mut instantiated = None;
+        let _ = self.check_generic_call_with(best, call, arguments, Some(&mut instantiated));
+        instantiated
+    }
+
+    fn longest_candidate_index(candidates: &[Signature], argument_count: usize) -> usize {
+        candidates
             .iter()
-            .position(|c| c.parameters.len() >= arguments.len())
+            .position(|c| {
+                c.parameters.iter().any(|p| p.rest) || c.parameters.len() >= argument_count
+            })
             .unwrap_or_else(|| {
                 let mut best = 0;
                 for (index, candidate) in candidates.iter().enumerate() {
@@ -2679,14 +2700,7 @@ impl Checker<'_, '_> {
                     }
                 }
                 best
-            });
-        let best = &candidates[best_index];
-        if best.type_parameters.is_empty() {
-            return Some(best.clone());
-        }
-        let mut instantiated = None;
-        let _ = self.check_generic_call_with(best, call, arguments, Some(&mut instantiated));
-        instantiated
+            })
     }
 
     /// The containing call for an actual argument list. Synthesized argument

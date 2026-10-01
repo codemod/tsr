@@ -687,35 +687,15 @@ fn typeof_object_keeps_null_and_drops_the_primitives() {
 /// understates as readily as it hides.
 #[test]
 fn typeof_function_narrows_a_union_to_its_callable_member() {
-    // **The intersection is the residue, and it is pinned rather than wished
-    // away.** Upstream answers `() => void`; this port answers
-    // `() => void & Function`, and the reason is one rung up the ladder rather
-    // than in this arm. `narrow_type_by_type_facts` is a faithful
-    // transcription of `narrowTypeByTypeFacts` (`flow.go:685`), whose first
-    // rung is `isTypeRelatedTo(t, impliedType, strictSubtypeRelation)`.
-    // Upstream answers **true** for a function type against `Function`,
-    // because an object type carrying call signatures resolves its members
-    // with the global `Function` as an implicit base; this port has no such
-    // step, the first rung fails, and the third rung intersects instead.
-    //
-    // So the residue is a MEMBERS gap, independent of §231 and present before
-    // it. Fixing that rung turns this assertion into upstream's answer and
-    // turns §231's one adverse line into zero — see the commit for the 18:1
-    // split.
+    // Anonymous callables now satisfy Function structurally, so the strict
+    // subtype branch preserves the callable without an extra intersection.
     assert_eq!(
         type_of_last_expression(
             "interface Function {}\n\
              declare var x: string | (() => void);\n\
              if (typeof x === \"function\") { x; }"
         ),
-        // §594 CORRECTED the PARENTHESES here, not the residue. A function type
-        // is below `Intersection` on the precedence ladder, so upstream prints
-        // `(() => void) & Function`; this port omitted the parentheses on the
-        // intersection road and the assertion pinned that. The MEMBERS gap this
-        // test is really about — the first rung of `narrowTypeByTypeFacts`
-        // failing, so the third rung intersects instead of narrowing — is
-        // unchanged and still the reason an intersection is printed at all.
-        "(() => void) & Function"
+        "() => void"
     );
 }
 

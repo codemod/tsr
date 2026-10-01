@@ -135,6 +135,48 @@ export function inherited(value: Child[keyof Child]) { return value; }
     );
 }
 
+#[test]
+fn callable_structural_relations_resolve_mapped_method_filters() {
+    let source = r"// @strict: true
+// @target: es2020
+type Fields<T> = { [K in keyof T]: T[K] extends Function ? never : K }[keyof T];
+type Data<T> = { readonly [K in Fields<T>]: T[K] };
+declare const data: Data<{ name: string; count: number; method(): void }>;
+export const name = data.name;
+export const count = data.count;
+type IsFunction<T> = T extends Function ? true : false;
+export function arrow(value: IsFunction<() => void>) { return value; }
+export function constructor(value: IsFunction<new () => object>) { return value; }
+export function primitive(value: IsFunction<string>) { return value; }
+export function plainObject(value: IsFunction<{ value: number }>) { return value; }
+type HasValue<T> = T extends { value: number } ? true : false;
+export function requiredField(value: HasValue<() => void>) { return value; }
+";
+    assert_types(
+        source,
+        &[
+            "data.name : string",
+            "data.count : number",
+            "arrow : (value: true) => true",
+            "constructor : (value: true) => true",
+            "primitive : (value: IsFunction<string>) => false",
+            "plainObject : (value: IsFunction<{ value: number; }>) => false",
+            "requiredField : (value: false) => false",
+        ],
+    );
+}
+
+#[test]
+fn rejected_generic_overload_keeps_inference_for_its_failure_type() {
+    let source = r"// @strict: false
+// @target: es2020
+declare function choose(): number;
+declare function choose<T>(callback: (value: string) => T, other?: number): T;
+export const value = choose((value: number) => value.toFixed());
+";
+    assert_types(source, &["choose((value: number) => value.toFixed()) : string"]);
+}
+
 fn assert_types(source: &str, wanted: &[&str]) {
     let case = TestCase::parse("probe/indexed-base-constraints", "constraints.ts", source);
     let expected: Vec<_> = case

@@ -24,22 +24,22 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-10-01
 
-Measured on **`5fc064d4`**: **451,723/478,855 assertions (94.33%)**,
-**6,668/9,538 complete cases (69.91%)**. The 95% target requires
-454,913 correct assertions; **3,190 remain**. Denominator and pinned oracle
-unchanged. Aligned verdicts: **474,243 total;451,723 right;3,513 gap;19,007 wrong**.
+Measured on **`CODE_CHECKPOINT`**: **451,768/478,855 assertions (94.34%)**,
+**6,672/9,538 complete cases (69.95%)**. The 95% target requires
+454,913 correct assertions; **3,145 remain**. Denominator and pinned oracle
+unchanged. Aligned verdicts: **474,243 total;451,768 right;3,495 gap;18,980 wrong**.
 Binder retains the preceding verified **8,497/8,497 (100%)**;
 other suites below retain historical measurements.
 
-This unit adds **154 matching assertions**, with **zero RIGHT losses** relative
-to afdc0a5b:118 WRONG→RIGHT,36 GAP→RIGHT,40 GAP→WRONG,59 changed wrong answers,
-and2 WRONG→GAP. Release workspace tests,clippy with warnings denied,all
-**3,364 upstream anchors**,format,snapshot and whitespace checks pass.
-[Concrete indexed access](docs/architecture/checker-95-concrete-indexed-access.md)
-records shared annotation resolution,reserved recursive object identities,indexed
-alias substitution and inherited key enumeration. Pinned controls pass. Fully
-lazy recursive rendering,generic mapped-value extraction and mapped callback
-inference remain. The 95% goal is unfinished;verified changes commit and push to main.
+This unit adds **45 matching assertions**, with **zero RIGHT losses** relative
+to 5fc064d4: 29 WRONG→RIGHT, 16 GAP→RIGHT, 2 GAP→WRONG and 7 changed wrong answers.
+Release workspace tests, clippy with warnings denied, all **3,364 upstream
+anchors**, format, snapshot and whitespace checks pass.
+[Callable structure](docs/architecture/checker-95-callable-structure.md) records
+anonymous callable structural relations, concrete mapped method filtering and
+generic overload failure inference. Pinned controls pass. Fully lazy recursive
+rendering, generic mapped-value extraction and mapped callback inference remain.
+The 95% goal is unfinished; verified changes commit and push to main.
 
 ### Previous whole-suite measurement — historical
 
@@ -1088,6 +1088,10 @@ Per-crate, by what the conformance suites actually assert — not by what exists
 
 ### Inside the checker — what has an arm
 
+Anonymous callables participate in structural property/signature relations,
+allowing concrete mapped method filters to resolve. Rejected generic overload
+sets preserve inference through the native longest-candidate recovery branch.
+
 Concrete indexed annotations use the semantic resolver. Type literals reserve
 recursive identities before members; indexed alias bodies instantiate under
 argument bindings and preserve deferred/union/function alias metadata. Concrete
@@ -1168,20 +1172,20 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-### Current priorities at `5fc064d4` — 2026-10-01
+### Current priorities at `CODE_CHECKPOINT` — 2026-10-01
 
-Concrete indexed access adds154 matches with zero RIGHT losses. Recursive
-object identities,indexed alias evaluation and union/deferred alias retention
-are now ported. Remaining tsr-6.30 work is generic mapped-value extraction,
-full generic object deferral,fully lazy recursive instantiation/rendering and
-callback inference through mapped indexes. All101 non-RIGHT changes are retained
-in the evidence;the next unit must preserve the full-corpus regression control.
+Callable structural relations and generic overload failure inference add 45
+matches with zero RIGHT losses. Concrete mapped method filters now resolve.
+Remaining tsr-6.30 work is generic mapped-value extraction, full generic object
+deferral, fully lazy recursive instantiation/rendering and callback inference
+through mapped indexes. All nine non-RIGHT changes are retained in the evidence;
+the next unit must preserve the full-corpus regression control.
 
 
 Indexed-access base constraints and contextual narrowing add373 measured matches.
 Their remaining work is distributed conditional constraints,full CheckMode
 propagation,recursive generic indexes and complete indexed relations (tsr-6.28).
-A fresh depend run walks4,519 gap lines but fails its C1 construction control:
+A fresh depend run walks4,501 gap lines but fails its C1 construction control:
 575 roots no longer gap;287 cycles,zero depth-cap hits,C3 balances. Its C4 still
 quotes a historical population. These counts cannot score reachable assertions;
 the full aligned pair above is authoritative. Instrument repair is tracked
@@ -3813,6 +3817,17 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+### Callable structure at `CODE_CHECKPOINT`
+
+The first full comparison gained 45 assertions but lost 14, all erroneous calls
+in promisePermutations2. Stronger structural relations exposed a generic overload
+failure branch intersecting uninstantiated returns. Native longest-candidate
+recovery plus inference restores all 14; the final pair has zero RIGHT losses.
+Two GAP→WRONG and seven changed wrong answers remain, explicitly recorded in
+[the evidence](docs/architecture/checker-95-callable-structure.md). The old
+function-narrowing test pinned an unnecessary Function intersection; its expected
+result now matches the pinned native control. No corpus expectations changed.
 
 ### Recursive indexed access at `5fc064d4`
 
@@ -9631,6 +9646,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
+| 2026-10-01 | `CODE_CHECKPOINT` | **69.95%** | **6,672** | **451,768/478,855 assertions (94.34%).** +45 since 5fc064d4, zero RIGHT losses; 2G→W, 7 changed wrong. Anonymous callable structural relations, mapped method filters and generic overload failure inference. Pinned controls; release tests/clippy; 3,364 anchors; snapshot refreshed. [Evidence](docs/architecture/checker-95-callable-structure.md). 3,145 remain; 95% unfinished. |
 | 2026-10-01 | `5fc064d4` | **69.91%** | **6,668** | **451,723/478,855 assertions (94.33%).** +154 sinceafdc0a5b,zero RIGHT losses;40G→W,59 changed wrong,2W→G. Concrete indexed annotations,recursive object identities,indexed alias instantiation,inherited key enumeration. Pinned controls;release tests/clippy;3,364 anchors;snapshot refreshed. [Evidence](docs/architecture/checker-95-concrete-indexed-access.md).3,190 remain;95% unfinished. |
 | 2026-10-01 | `afdc0a5b` | **69.90%** | **6,667** | **451,569/478,855 assertions (94.30%).** +13 since43d36d92,zero adverse changes. Keyword alias instantiation,optional tuple numeric reads,never-index fallback. Pinned controls;release tests/clippy;3,364 anchors;snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-indexed-prerequisites.md).3,344 remain;95% unfinished. |
 | 2026-10-01 | `43d36d92` | **69.90%** | **6,667** | **451,556/478,855 assertions (94.30%).** +373 since00c67552,zero RIGHT losses;20G→W,52 changed wrong,5W→G. Recursive indexed constraints,mapped optionality,contextual flow narrowing and polymorphic-this member substitution. Pinned controls;release tests/clippy;3,364 anchors;checker snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-indexed-base-constraints.md).3,357 remain;95% unfinished. |

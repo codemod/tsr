@@ -741,7 +741,10 @@ impl Relater<'_, '_, '_> {
 
     /// Whether `id` is an object type with a members table to compare.
     fn has_members(&self, id: TypeId) -> bool {
-        matches!(&self.checker.type_of(id).data, TypeData::Named { members: Some(_), .. })
+        matches!(
+            &self.checker.type_of(id).data,
+            TypeData::Named { members: Some(_), .. } | TypeData::Anonymous { signature: true, .. }
+        )
     }
 
     fn is_plain_function_expression_type(&self, id: TypeId) -> bool {
@@ -2055,6 +2058,26 @@ impl Relater<'_, '_, '_> {
     /// The `None`-on-an-unfollowable-base rule is [`Checker::base_symbols_of`]'s
     /// and is why the walk cannot silently under-report a requirement.
     fn property_names_of(&mut self, id: TypeId) -> Option<Vec<String>> {
+        if let TypeData::Anonymous { symbol, signature: true, .. } = self.checker.type_of(id).data {
+            let mut names: Vec<_> = self
+                .checker
+                .binder
+                .symbols()
+                .get(symbol)
+                .exports
+                .iter()
+                .filter(|(_, member)| self.checker.symbol_is_value(**member))
+                .map(|(&name, _)| name.to_owned())
+                .collect();
+            if let Some((properties, _)) = self.checker.anonymous_properties.get(&id) {
+                for property in properties {
+                    if !names.contains(&property.name) {
+                        names.push(property.name.clone());
+                    }
+                }
+            }
+            return Some(names);
+        }
         let TypeData::Named { members: Some(owner), .. } = self.checker.type_of(id).data else {
             return None;
         };
