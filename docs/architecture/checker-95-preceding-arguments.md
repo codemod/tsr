@@ -36,7 +36,7 @@ source. No callback-name or fixture-specific inference rule is added.
 
 ## Verification and limits
 
-Checkpoint CURRENT_PRECEDING_ARGUMENTS_SHA:449,865/478,855 matching assertions
+Checkpoint bde0210e:449,865/478,855 matching assertions
 (93.95%);6,598/9,538 complete cases (69.18%). Another5,048 assertions are needed
 for95%. Aligned verdicts:474,243 total;449,865 RIGHT;4,151 GAP;20,227 WRONG.
 Against936efea7:169 WRONG→RIGHT,8 GAP→RIGHT,zero RIGHT losses,2 WRONG→GAP,
