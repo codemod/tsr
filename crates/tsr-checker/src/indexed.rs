@@ -368,6 +368,11 @@ impl Checker<'_, '_> {
                     index_type,
                 );
             }
+            // getPropertyTypeForIndexType keeps applicable index signatures
+            // ahead of the never-index fallback (checker.go:27126).
+            if index_type == self.intrinsics.never {
+                return self.intrinsics.never;
+            }
             // §786: the DEFERRED indexed access. `getIndexedAccessType`
             // (`checker.go`) does not resolve when
             // `isGenericObjectType(objectType) || isGenericIndexType(indexType)`
@@ -555,8 +560,15 @@ impl Checker<'_, '_> {
             }
         }
         let apparent = self.apparent_type(object);
-        let info = self.get_applicable_index_info(apparent, index)?;
-        Some(self.include_unchecked_undefined(info.value, include_undefined, object, index))
+        if let Some(info) = self.get_applicable_index_info(apparent, index) {
+            return Some(self.include_unchecked_undefined(
+                info.value,
+                include_undefined,
+                object,
+                index,
+            ));
+        }
+        (index == self.intrinsics.never).then_some(self.intrinsics.never)
     }
 
     pub(crate) fn indexed_access_index_is_generic(&self, index: TypeId) -> bool {
@@ -753,7 +765,13 @@ impl Checker<'_, '_> {
             return None;
         }
         let element = if let Some((elements, _)) = self.tuple_element_lists.get(&object_type) {
-            let elements = elements.clone();
+            let mut elements = elements.clone();
+            // Optional tuple elements contribute undefined to the numeric
+            // index signature even without noUncheckedIndexedAccess.
+            if self.tuple_optional_masks.get(&object_type).is_some_and(|mask| mask.contains(&true))
+            {
+                elements.push(self.intrinsics.undefined);
+            }
             self.get_union_type(&elements)
         } else if let Some(element) = self.variadic_tuple_index_union(object_type) {
             element

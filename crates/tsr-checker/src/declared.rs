@@ -4164,6 +4164,19 @@ impl<'a> Checker<'a, '_> {
         if let Some(&cached) = self.instantiations.get(&(symbol, arguments.clone())) {
             return cached;
         }
+        // A type alias instantiation has the flags and identity of its body.
+        // Keyword bodies do not depend on the mapper or carry an alias name.
+        if self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_ALIAS)
+            && let Some(declaration) =
+                self.binder.symbols().get(symbol).declarations.first().copied()
+            && let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration)
+            && let Some(body @ TypeNode::KeywordTypeNode(keyword)) = alias.r#type
+            && keyword.kind != SyntaxKind::IntrinsicKeyword
+        {
+            let evaluated = self.get_type_from_type_node(body);
+            self.instantiations.insert((symbol, arguments), evaluated);
+            return evaluated;
+        }
         if let Some(evaluated) = self.evaluate_conditional_alias(symbol, &arguments, None) {
             self.instantiations.insert((symbol, arguments), evaluated);
             return evaluated;

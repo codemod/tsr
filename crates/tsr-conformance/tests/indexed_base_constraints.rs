@@ -64,6 +64,37 @@ function tupleArray() { const value: [number, string] = [42, 'hello']; return va
     );
 }
 
+#[test]
+fn intrinsic_aliases_optional_tuple_indexes_and_never_keys() {
+    let source = r"// @strict: true
+// @target: es2020
+type Erased<T> = any;
+type Text<T> = string;
+type Empty<T> = never;
+export function erased(value: Erased<number>) { return value; }
+export function text(value: Text<number>) { return value; }
+export function empty(value: Empty<number>) { return value; }
+export function optional(value: [string, number?], index: number) { return value[index]; }
+export function required(value: [string, number], index: number) { return value[index]; }
+export function concreteNever(value: { a: string }, key: never) { return value[key]; }
+export function concreteStringIndex(value: { [key: string]: number }, key: never) { return value[key]; }
+export function noInfer<T>(value: NoInfer<T>) { return value; }
+";
+    assert_types(
+        source,
+        &[
+            "erased : (value: any) => any",
+            "text : (value: string) => string",
+            "empty : (value: never) => never",
+            "optional : (value: [string, number?], index: number) => string | number | undefined",
+            "required : (value: [string, number], index: number) => string | number",
+            "concreteNever : (value: { a: string; }, key: never) => never",
+            "concreteStringIndex : (value: { [key: string]: number; }, key: never) => number",
+            "value : NoInfer<T>",
+        ],
+    );
+}
+
 fn assert_types(source: &str, wanted: &[&str]) {
     let case = TestCase::parse("probe/indexed-base-constraints", "constraints.ts", source);
     let expected: Vec<_> = case
