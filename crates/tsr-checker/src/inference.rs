@@ -275,6 +275,62 @@ impl Checker<'_, '_> {
         result
     }
 
+    /// inferTypeArguments collects contextual return candidates before any
+    /// argument expression is checked (checker.go:9390). Nested generic calls
+    /// must see this snapshot when they instantiate their outer context.
+    fn contextual_return_inferences(
+        &mut self,
+        returned: TypeId,
+        parameters: &[TypeId],
+        call: Option<NodeId>,
+    ) -> (Vec<InferenceInfo>, Vec<InferenceInfo>) {
+        let mut infos = Vec::new();
+        // inferTypeArguments (checker.go) makes a weak ReturnType inference
+        // into the final context and an independent ordinary-priority pass
+        // for returnMapper. Our contextual-type road supplies written types;
+        // unannotated binding-pattern contexts are not computed here.
+        let mut return_mapper = Vec::new();
+        let previous_uninstantiated = self.uninstantiated_context_node;
+        self.uninstantiated_context_node = call;
+        let contextual_return = call.and_then(|call| self.get_contextual_type_of_call(call));
+        self.uninstantiated_context_node = previous_uninstantiated;
+        if let Some(call_id) = call
+            && let Some(outer) = contextual_return
+        {
+            // An outer context's uninferred parameters map to silentNever
+            // under NoDefault. Keeping their identities would make an inner
+            // default infer an unresolved outer variable instead of its default.
+            // `inferTypeArguments` instantiates a single generic contextual
+            // signature with its own parameters so they remain actual types,
+            // rather than being erased by signature inference (checker.go).
+            let outer = if let Some(signatures) = self.signature_types.get(&outer).cloned()
+                && let [signature] = signatures.as_slice()
+                && !signature.type_parameters.is_empty()
+            {
+                let mut signature = signature.clone();
+                signature.type_parameters.clear();
+                let text = self.type_to_string(outer);
+                let source = self.store.new_named(crate::flags::TypeFlags::OBJECT, text, None);
+                self.signature_types.insert(source, vec![signature]);
+                source
+            } else {
+                outer
+            };
+            let return_source = self.instantiate_outer_inference_context(outer, call_id, false);
+            let outer = self.instantiate_outer_inference_context(outer, call_id, true);
+            self.infer_from_types_with_priority(
+                outer,
+                returned,
+                parameters,
+                &mut infos,
+                0,
+                InferencePriority::RETURN_TYPE,
+            );
+            self.infer_from_types(return_source, returned, parameters, &mut return_mapper, 0);
+        }
+        (infos, return_mapper)
+    }
+
     fn check_generic_call_worker(
         &mut self,
         signature: &Signature,
@@ -284,6 +340,21 @@ impl Checker<'_, '_> {
         overload_failure: bool,
     ) -> TypeId {
         let error = self.intrinsics.error;
+        let parameter_types = self.type_parameter_types(signature);
+        let (mut infos, return_mapper) = if self.written_type_arguments(call).is_none()
+            && let Some(parameters) = parameter_types.as_deref()
+        {
+            self.contextual_return_inferences(signature.r#type, parameters, call)
+        } else {
+            (Vec::new(), Vec::new())
+        };
+        if let Some(call) = call
+            && let Some(context) = self.active_inference_contexts.get_mut(&call)
+        {
+            context.inferences.clone_from(&infos);
+            context.return_inferences.clone_from(&return_mapper);
+        }
+
         // inferSignatureInstantiationForOverloadFailure (checker.go) skips
         // context-sensitive arguments. A function requiring more parameters
         // than its callback context makes applicability fail by arity alone.
@@ -391,7 +462,7 @@ impl Checker<'_, '_> {
         }) {
             return error;
         }
-        let Some(parameters) = self.type_parameter_types(signature) else {
+        let Some(parameters) = parameter_types else {
             return error;
         };
         let names = signature.type_parameters.iter().map(|p| p.name.as_str()).collect::<Vec<_>>();
@@ -588,50 +659,6 @@ impl Checker<'_, '_> {
         // context-sensitive ones check (their contexts served instantiated
         // through the consumption rule below) and infer; the resolver then
         // answers per parameter over the collector.
-        let mut infos: Vec<InferenceInfo> = Vec::new();
-        // inferTypeArguments (checker.go) makes a weak ReturnType inference
-        // into the final context and an independent ordinary-priority pass
-        // for returnMapper. Our contextual-type road supplies written types;
-        // unannotated binding-pattern contexts are not computed here.
-        let mut return_mapper: Vec<InferenceInfo> = Vec::new();
-        let previous_uninstantiated = self.uninstantiated_context_node;
-        self.uninstantiated_context_node = call;
-        let contextual_return = call.and_then(|call| self.get_contextual_type_of_call(call));
-        self.uninstantiated_context_node = previous_uninstantiated;
-        if let Some(call_id) = call
-            && let Some(outer) = contextual_return
-        {
-            // An outer context's uninferred parameters map to silentNever
-            // under NoDefault. Keeping their identities would make an inner
-            // default infer an unresolved outer variable instead of its default.
-            // `inferTypeArguments` instantiates a single generic contextual
-            // signature with its own parameters so they remain actual types,
-            // rather than being erased by signature inference (checker.go).
-            let outer = if let Some(signatures) = self.signature_types.get(&outer).cloned()
-                && let [signature] = signatures.as_slice()
-                && !signature.type_parameters.is_empty()
-            {
-                let mut signature = signature.clone();
-                signature.type_parameters.clear();
-                let text = self.type_to_string(outer);
-                let source = self.store.new_named(crate::flags::TypeFlags::OBJECT, text, None);
-                self.signature_types.insert(source, vec![signature]);
-                source
-            } else {
-                outer
-            };
-            let return_source = self.instantiate_outer_inference_context(outer, call_id, false);
-            let outer = self.instantiate_outer_inference_context(outer, call_id, true);
-            self.infer_from_types_with_priority(
-                outer,
-                returned,
-                &parameters,
-                &mut infos,
-                0,
-                InferencePriority::RETURN_TYPE,
-            );
-            self.infer_from_types(return_source, returned, &parameters, &mut return_mapper, 0);
-        }
         // inferTypeArguments (checker.go:9467) sets the non-array rest's
         // implied arity before this and ordinary argument inference.
         let implied_rest = spread_rest_position.and_then(|position| {

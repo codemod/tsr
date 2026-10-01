@@ -24,23 +24,21 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-10-01
 
-Measured on **`0b84e435`**: **449,665/478,855 assertions (93.90%)**,
+Measured on **`RETURN_ORDER_CODE_SHA`**: **449,688/478,855 assertions (93.91%)**,
 **6,598/9,538 complete cases (69.18%)**. The95% target requires
-454,913 correct assertions; **5,248 remain**. The denominator and pinned oracle
-are unchanged. Aligned verdicts: **474,243 total;449,665 right;4,158 gap;20,420 wrong**.
+454,913 correct assertions; **5,225 remain**. The denominator and pinned oracle
+are unchanged. Aligned verdicts: **474,243 total;449,688 right;4,158 gap;20,397 wrong**.
 Binder symbols retain the preceding measurement at **8,497/8,497 (100%)**;
 other suites below retain historical measurements.
 
-This unit adds **172 matching assertions**, with **zero RIGHT losses** relative
-to3f8bade8:136 WRONG→RIGHT and36 GAP→RIGHT.6 former gaps expose incomplete enum
-widening,async void/JS defaults and callback return inference;35 already-wrong
-types change. Release workspace tests,clippy with warnings denied,all **3,374
-upstream anchors**,and whitespace checks pass. The checker snapshot is refreshed.
-[Generic constructor contexts](docs/architecture/checker-95-generic-constructors.md)
-records selection before defaults,written new arguments,callback/const context
-memos and await operand contexts. Four pinned controls pass. General constructor
-selection and downstream inference remain in tsr-6.15/6.21. The95% goal remains
-unfinished;verified changes commit and push to main.
+This unit adds **23 matching assertions**, with **zero RIGHT losses** and no
+GAP transitions relative to0b84e435.8 already-wrong types change. Release workspace
+tests,clippy with warnings denied,all **3,374 upstream anchors**,and whitespace
+checks pass. The checker snapshot is refreshed. [Contextual return order](docs/architecture/checker-95-contextual-return-order.md)
+records the active return-inference snapshot before argument expressions check.
+Nested annotated Mapper controls pass at zero,one and two wrapping levels.
+Preceding-argument inference and general generic signature relations remain in
+tsr-6.1/6.22. The95% goal remains unfinished;verified changes commit and push to main.
 
 ### Previous whole-suite measurement — historical
 
@@ -1142,7 +1140,7 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-### Current priorities at `0b84e435` — 2026-10-01
+### Current priorities at `RETURN_ORDER_CODE_SHA` — 2026-10-01
 
 Const type-variable contexts now follow semantic parameter/union/indexed/mapped/
 variadic identities and deferred conditional constraints. Generic mapped property
@@ -1164,6 +1162,10 @@ selection and other indirect sources remain next (`tsr-6.15`, `tsr-6.21`). Const
 initializers and namespace exports with order/cycle guards. Import/enum values
 and deferred-use ordering remain (`tsr-6.18`).
 
+
+Contextual return candidates are now published before argument checks,so nested
+generic calls receive the outer annotation. Preceding-argument inference remains
+incomplete (`tsr-6.22`).
 
 Inference priorities, independent contextual return mappers, captured structural
 substitution, call/construct signature kinds, measured reference variances,
@@ -3730,6 +3732,15 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+### Contextual return order at `RETURN_ORDER_CODE_SHA`
+
+The old order entered nested generic arguments before collecting their outer
+return context,substituting silentNever for its type variables. Publishing both
+return inference passes first adds23 RIGHT with zero RIGHT losses or GAP changes.
+8 already-wrong types change;preceding-argument inference and body return paths
+remain incomplete. [Evidence](docs/architecture/checker-95-contextual-return-order.md).
+
 
 ### Generic constructor contexts at `0b84e435`
 
@@ -9375,6 +9386,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
+| 2026-10-01 | `RETURN_ORDER_CODE_SHA` | **69.18%** | **6,598** | **449,688/478,855 assertions (93.91%).** +23 since0b84e435,zero RIGHT losses/GAP changes;8 W→W. Contextual return snapshot before argument checking.3 nested Mapper controls;release tests/clippy;3,374 anchors;snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-contextual-return-order.md).5,225 assertions remain;95% unfinished. |
 | 2026-10-01 | `0b84e435` | **69.18%** | **6,598** | **449,665/478,855 assertions (93.90%).** +172 since3f8bade8,zero RIGHT losses;136 W→R,36 G→R,6 G→W,35 W→W. Named generic constructor selection/inference,written arguments,callback/const contexts and await operands.4 pinned controls;release tests/clippy;3,374 anchors;snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-generic-constructors.md).5,248 assertions remain;95% unfinished. |
 | 2026-10-01 | `3f8bade8` | **69.09%** | **6,590** | **449,493/478,855 assertions (93.87%).** +7 since25215cc8,zero adverse transitions. Semantic const initializer evaluation and nested template const context.16 pinned declarations;release tests/clippy;3,374 anchors;snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-constant-variables.md).5,420 assertions remain;95% unfinished. |
 | 2026-10-01 | `25215cc8` | **69.08%** | **6,589** | **449,486/478,855 assertions (93.87%).** +227 since83c358c0,zero RIGHT losses;187 W→R,40 G→R,44 G→W,49 W→W. Ordered union matching,observed priorities,naked remainders,subtype constraints and predicate recovery.8 pinned declarations,2 subtype controls;release tests/clippy;3,375 anchors;snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-union-continuation.md).5,427 assertions remain;95% unfinished. |
