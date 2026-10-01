@@ -31,7 +31,7 @@ work; name remapping is declined by the existing metadata capture.
 
 ## Verification and limits
 
-Checkpoint CONST_CONTEXT_CHECKPOINT:448,922/478,855 correct assertions (93.75%).
+Checkpoint 79500ed4:448,922/478,855 correct assertions (93.75%).
 Complete cases:6,578/9,538 (68.97%).
 Another5,991 correct assertions are needed for95%.
 Aligned verdicts:474,243 total;448,922 right;4,405 gap;20,916 wrong.
