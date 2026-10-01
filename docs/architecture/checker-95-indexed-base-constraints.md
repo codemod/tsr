@@ -51,7 +51,7 @@ implementation follows the native position/context decision instead.
 
 ## Verification and remaining work
 
-Checkpoint CODE_CHECKPOINT:451,556/478,855 correct assertions (94.30%),
+Checkpoint 43d36d92:451,556/478,855 correct assertions (94.30%),
 6,667/9,538 complete cases (69.90%). The95% goal needs3,357 more matches.
 Aligned verdicts:474,243 total;451,556 RIGHT;3,595 GAP;19,092 WRONG.
 Relative to00c67552:282 WRONG→RIGHT,91 GAP→RIGHT,zero RIGHT losses,
