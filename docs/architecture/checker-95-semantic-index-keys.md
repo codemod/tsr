@@ -26,7 +26,7 @@ index lookup would split the same upstream operation across two implementations.
 
 ## Verification and limits
 
-Checkpoint CHECKPOINT_SHA: 450,304/478,855 assertions (94.04%).
+Checkpoint 2b92b583: 450,304/478,855 assertions (94.04%).
 Complete cases: 6,615/9,538 (69.35%);4,609 assertions remain for95%.
 Aligned verdicts:474,243 total;450,304 RIGHT;4,046 GAP;19,893 WRONG.
 Against594ac488:151 WRONG→RIGHT,43 GAP→RIGHT,zero RIGHT losses,
