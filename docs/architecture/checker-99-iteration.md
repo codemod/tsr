@@ -85,7 +85,7 @@ before ordinary parameters and complete spread applicability also remain open.
 
 ## Verified checkpoint
 
-At ITERATION_CODE_CHECKPOINT the final full aligned comparison records
+At 87402686 the final full aligned comparison records
 452,762 RIGHT, 3,316 GAP and 18,165 WRONG among 474,243 aligned assertions.
 This is +137 RIGHT versus 3ef6d975: 92 WRONG-to-RIGHT, 45 GAP-to-RIGHT, zero
 RIGHT losses, 23 GAP-to-WRONG, six WRONG-to-GAP and 23 changed wrong answers.

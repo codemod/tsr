@@ -24,7 +24,7 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-10-01
 
-Measured on **`ITERATION_CODE_CHECKPOINT`**: **452,762/478,855 assertions (94.55%)**,
+Measured on **`87402686`**: **452,762/478,855 assertions (94.55%)**,
 **6,714/9,538 complete cases (70.39%)**. The 99% target requires
 474,067 correct assertions; **21,305 remain**. Denominator and pinned oracle
 unchanged. Aligned verdicts: **474,243 total; 452,762 right; 3,316 gap; 18,165 wrong**.
@@ -1079,7 +1079,7 @@ Per-crate, by what the conformance suites actually assert — not by what exists
 | module resolution | **done** | 95/95, `file_loader` 96/96, [ADR-0041](docs/adr/0041-the-checker-asks-its-program-for-a-module.md) |
 | printer | **done** | 100% round-trip at `8dcdc71` |
 | declaration emit | **partial** | `dts_shape` 85.32%, `dts_emit` 89.04% at `8dcdc71` |
-| **checker** | **94.55% of assertions** | 452,762/478,855 at `ITERATION_CODE_CHECKPOINT`; §4 and §5 |
+| **checker** | **94.55% of assertions** | 452,762/478,855 at `87402686`; §4 and §5 |
 | transformers | **not started** | |
 | **compiler driver / CLI** | **seam only** | three pieces, no binary. `tsr_vfs::OsFileSystem` (the real disk, `internal/vfs/osvfs`), `Checker::apply_compiler_options` ([ADR-0042](docs/adr/0042-checker-options-come-from-compiler-options.md)), and `tsr_diagnostics::format` (the plain `a.ts(1,1): error TS2304:` line and the `Found N errors` summary, byte-exact). **No command-line parser, no `tsc` binary, no emit, no pretty output** — see §4 |
 | diagnostics | **started — 6.89%** | the check traversal (ADR-0040 (1) and (2)) plus three rules; §1 and `docs/architecture/checker-notes-diag2.md` |
@@ -1220,7 +1220,7 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-### Current priorities at `ITERATION_CODE_CHECKPOINT` — 2026-10-01
+### Current priorities at `87402686` — 2026-10-01
 
 Continue toward 99% coverage: 21,305 matching assertions remain. Synchronous
 yield lookup now supports derived array interfaces and inherited iterator
@@ -3918,7 +3918,7 @@ version of bare `any`.
 
 ## 5. Refused, with the number that refused it
 
-### Synchronous iteration at `ITERATION_CODE_CHECKPOINT`
+### Synchronous iteration at `87402686`
 
 The initial semantic walk gained 12 but lost 11; missing BuiltinIteratorReturn,
 indirect mapper composition and eager callable re-entry accounted for those
@@ -9831,7 +9831,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
-| 2026-10-01 | `ITERATION_CODE_CHECKPOINT` | **70.39%** | **6,714** | **452,762/478,855 assertions (94.55%).** +137 since 3ef6d975, zero RIGHT losses; 23G→W, 6W→G, 23 changed wrong. Synchronous iterator yields, indirect generic members, BuiltinIteratorReturn and nullish widening boundaries. Native controls; release tests/clippy; 3,361 anchors; snapshot refreshed. [Evidence](docs/architecture/checker-99-iteration.md). 21,305 remain to 99%. |
+| 2026-10-01 | `87402686` | **70.39%** | **6,714** | **452,762/478,855 assertions (94.55%).** +137 since 3ef6d975, zero RIGHT losses; 23G→W, 6W→G, 23 changed wrong. Synchronous iterator yields, indirect generic members, BuiltinIteratorReturn and nullish widening boundaries. Native controls; release tests/clippy; 3,361 anchors; snapshot refreshed. [Evidence](docs/architecture/checker-99-iteration.md). 21,305 remain to 99%. |
 | 2026-10-01 | `3ef6d975` | **70.29%** | **6,704** | **452,625/478,855 assertions (94.52%).** +205 since 6c7fe447, zero RIGHT losses; 1G→W, 4 changed wrong. Generic rest spreads, contextual literal base constraints and instantiated discriminated members. Native controls; release tests/clippy; anchors; snapshot refreshed. [Evidence](docs/architecture/checker-99-spread-inference.md). 21,442 remain to 99%. |
 | 2026-10-01 | `6c7fe447` | **70.23%** | **6,699** | **452,420/478,855 assertions (94.48%).** +127 since 5f7bb6e4, zero RIGHT losses; 4G→W, 1W→G, 19 changed wrong. Receiver/rest applicability, constructor binding and recursive asserted returns. Twenty-two pinned outcomes; release tests/clippy; anchors; snapshot refreshed. [Evidence](docs/architecture/checker-95-rest-applicability.md). User raised the goal to 99%; 21,647 remain. |
 | 2026-10-01 | `5f7bb6e4` | **70.20%** | **6,696** | **452,293/478,855 assertions (94.45%).** +28 since 42e7881a, all WRONG→RIGHT with no adverse transitions. Contextual construct selection and generic alias return propagation. Thirteen pinned outcomes; release tests/clippy; 3,362 anchors; snapshot refreshed. [Evidence](docs/architecture/checker-95-contextual-construct-inference.md). 2,620 remain; 95% unfinished. |
