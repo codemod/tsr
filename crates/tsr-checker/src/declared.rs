@@ -399,7 +399,12 @@ impl<'a> Checker<'a, '_> {
                         }
                         id
                     }
-                    None => self.intrinsics.error,
+                    None => match node {
+                        TypeNode::MappedTypeNode(mapped) => self
+                            .create_semantic_mapped_type(mapped)
+                            .unwrap_or(self.intrinsics.error),
+                        _ => self.intrinsics.error,
+                    },
                 }
             }
             // §110 slice 2c: the census's one line — EVERY `@param`/`@returns`

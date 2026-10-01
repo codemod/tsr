@@ -1514,6 +1514,30 @@ impl Relater<'_, '_, '_> {
         if let Some(answer) = self.tuple_array_related_to(source, target) {
             return answer;
         }
+        // structuredTypeRelatedTo (relater.go:3841): a mutable array relates
+        // to a readonly array by its numeric index, without comparing every
+        // library method. Same-target arrays still use the variance path.
+        if let (Some((source_symbol, _)), Some((target_symbol, _))) = (
+            self.checker.type_reference_targets.get(&source).cloned(),
+            self.checker.type_reference_targets.get(&target).cloned(),
+        ) {
+            let source_symbol = self.checker.binder.merged_symbol(source_symbol);
+            let target_symbol = self.checker.binder.merged_symbol(target_symbol);
+            if self
+                .checker
+                .global_type_symbol("Array")
+                .is_some_and(|symbol| self.checker.binder.merged_symbol(symbol) == source_symbol)
+                && self.checker.global_type_symbol("ReadonlyArray").is_some_and(|symbol| {
+                    self.checker.binder.merged_symbol(symbol) == target_symbol
+                })
+                && let (Some(source_element), Some(target_element)) = (
+                    self.checker.tuple_spread_array_element(source),
+                    self.checker.tuple_spread_array_element(target),
+                )
+            {
+                return self.is_related_to(source_element, target_element);
+            }
+        }
         if self.is_plain_function_expression_type(source)
             && self.is_plain_function_expression_type(target)
         {

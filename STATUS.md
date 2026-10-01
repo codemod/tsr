@@ -24,22 +24,23 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-10-01
 
-Measured on **`48e1e6d4`**: **450,978/478,855 assertions (94.18%)**,
-**6,644/9,538 complete cases (69.66%)**. The95% target requires
-454,913 correct assertions; **3,935 remain**. Denominator and pinned oracle
-unchanged. Aligned verdicts: **474,243 total;450,978 right;3,808 gap;19,457 wrong**.
+Measured on **`CODE_CHECKPOINT`**: **451,056/478,855 assertions (94.19%)**,
+**6,648/9,538 complete cases (69.70%)**. The95% target requires
+454,913 correct assertions; **3,857 remain**. Denominator and pinned oracle
+unchanged. Aligned verdicts: **474,243 total;451,056 right;3,768 gap;19,419 wrong**.
 Binder retains the preceding verified **8,497/8,497 (100%)**;
 other suites below retain historical measurements.
 
-This unit adds **159 matching assertions**, with **zero RIGHT losses** relative
-to abff3df6:110 WRONG→RIGHT,49 GAP→RIGHT,31 GAP→WRONG,
-28 changed wrong answers and3 WRONG→GAP. Release workspace tests,clippy with
-warnings denied,all **3,366 upstream anchors**,snapshot and whitespace checks pass.
-[Intersection inference](docs/architecture/checker-95-intersection-inference.md)
-records structured intersection inference,early object data harvesting and
-intersection substitution. Pinned controls pass. The focused reverse-mapped
-callback case now matches38/42 assertions; contextual boolean retention remains.
+This unit adds **78 matching assertions**, with **zero RIGHT losses** relative
+to48e1e6d4:47 WRONG→RIGHT,31 GAP→RIGHT,9 GAP→WRONG and21 changed wrong answers.
+Release workspace tests,clippy with warnings denied,all **3,366 upstream anchors**,
+format,snapshot and whitespace checks pass.
+[Inline mapped templates](docs/architecture/checker-95-inline-mapped-templates.md)
+records semantic construction,mutable-to-readonly array comparison and reverse
+mapped source ordering. Pinned controls pass. General mapped instantiation,
+callback fallback contexts,anonymous mapped display and key remapping remain.
 The95% goal remains unfinished; verified changes commit and push to main.
+An earlier progress update rounded this checkpoint to94.20%;94.19% is correct.
 
 ### Previous whole-suite measurement — historical
 
@@ -1141,7 +1142,7 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-### Current priorities at `48e1e6d4` — 2026-10-01
+### Current priorities at `CODE_CHECKPOINT` — 2026-10-01
 
 Assignment property symbols now collect binary/descriptor values with readonly
 checks and CommonJS default precedence. Object-literal member docs reach the
@@ -1158,7 +1159,10 @@ priority are now ported. Structured intersection inference and substitution now 
 callback parameter contexts. Early source images cover plain object data and
 function wildcards. Other member forms,contextual boolean retention,general
 intersection matching,readonly index metadata,instantiated heritage and recursive
-callbacks remain (tsr-6.25,tsr-6.9,tsr-6.1).
+callbacks remain (tsr-6.25,tsr-6.9,tsr-6.1). Inline mapped templates now fall back to
+semantic construction; reverse inference preserves captured source order, and
+mutable arrays compare with readonly arrays through their numeric elements.
+Anonymous mapped instantiation/display and key remapping remain (tsr-6.9).
 
 Const type-variable contexts now follow semantic parameter/union/indexed/mapped/
 variadic identities and deferred conditional constraints. Generic mapped property
@@ -3758,6 +3762,16 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+### Inline mapped templates at `CODE_CHECKPOINT`
+
+The first semantic-construction draft lost9 RIGHT assertions in readonly-array
+narrowing. The missing native mutable-array→readonly-array numeric-index
+comparison recovered all9. Final:+78 matches,zero RIGHT losses,9 GAP→WRONG
+and21 changed wrong answers. The new wrong rows are5 const-return/yield forms,
+2 single-quote annotation displays and2 concrete anonymous mapped displays.
+Fallback callback contexts and general mapped instantiation remain incomplete.
+[Evidence and boundaries](docs/architecture/checker-95-inline-mapped-templates.md).
 
 ### Intersection inference at `48e1e6d4`
 
@@ -9513,6 +9527,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
+| 2026-10-01 | `CODE_CHECKPOINT` | **69.70%** | **6,648** | **451,056/478,855 assertions (94.19%).** +78 since48e1e6d4,zero RIGHT losses;9 G→W,21 changed wrong. Inline mapped semantic construction,array-to-readonly relation and reverse mapped source order. Pinned controls;release tests/clippy;3,366 anchors;checker snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-inline-mapped-templates.md).3,857 remain;95% unfinished. |
 | 2026-10-01 | `48e1e6d4` | **69.66%** | **6,644** | **450,978/478,855 assertions (94.18%).** +159 since abff3df6,zero RIGHT losses;31 G→W,28 changed wrong,3 W→G. Structured intersection inference,partial object sources and intersection substitution. Pinned controls;release tests/clippy;3,366 anchors;checker snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-intersection-inference.md).3,935 remain;95% unfinished. |
 | 2026-10-01 | `abff3df6` | **69.61%** | **6,639** | **450,819/478,855 assertions (94.15%).** +62 since6837bbf9,zero RIGHT losses/no new G→W;one changed wrong. Distinct empty-array identities,assignment/JS initializer recovery,non-strict array widening. Pinned controls;release tests/clippy;3,366 anchors;checker snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-empty-array-inference.md).4,094 remain;95% unfinished. |
 | 2026-10-01 | `6837bbf9` | **69.55%** | **6,634** | **450,757/478,855 assertions (94.13%).** +129 since87f2dc92,zero RIGHT losses;115 W→R,14 G→R,15 G→W,14 changed wrong. Composite and static indexes,intersection context precedence and no-reduction unions. Pinned controls;release tests/clippy;3,366 anchors;checker snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-composite-indexes.md).4,156 remain;95% unfinished. |

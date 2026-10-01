@@ -3157,7 +3157,12 @@ impl Checker<'_, '_> {
             self.global_type_symbol(name)
                 .map(|array| self.create_type_reference(array, vec![element]))
         } else {
-            let names = self.property_names_of(source);
+            // resolveReverseMappedTypeMembers preserves the source's property
+            // order. Captured literal members precede binder table iteration.
+            let names = self.anonymous_properties.get(&source).map(|(properties, _)| {
+                properties.iter().map(|property| property.name.clone()).collect::<Vec<_>>()
+            });
+            let names = names.unwrap_or_else(|| self.property_names_of(source));
             let index = self.get_index_infos_of_type(source).and_then(|infos| {
                 infos.into_iter().find(|info| info.key == self.intrinsics.string)
             });

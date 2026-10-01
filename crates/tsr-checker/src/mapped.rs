@@ -16,6 +16,51 @@ pub(crate) struct MappedTypeInfo {
 }
 
 impl<'a> Checker<'a, '_> {
+    /// getTypeFromMappedTypeNode and createMappedTypeNodeFromType (checker.go,
+    /// nodebuilderimpl.go). Build a deferred mapped type from semantic parts
+    /// when its template is outside the bounded written-node renderer.
+    pub(crate) fn create_semantic_mapped_type(
+        &mut self,
+        node: &'a tsr_ast::MappedTypeNode<'a>,
+    ) -> Option<TypeId> {
+        let info = self.mapped_type_info(node)?;
+        let name = node.type_parameter?.name?.text;
+        // The node builder preserves the top-level keyof operator even
+        // when resolving its operand would produce a concrete key union.
+        let constraint =
+            if let Some(source) = info.modifiers_source {
+                let text = self.type_to_string(source);
+                if self.store.get(source).flags.intersects(
+                    crate::flags::TypeFlags::UNION | crate::flags::TypeFlags::INTERSECTION,
+                ) {
+                    format!("keyof ({text})")
+                } else {
+                    format!("keyof {text}")
+                }
+            } else {
+                self.type_to_string(info.constraint)
+            };
+        let template = self.type_to_string(info.template);
+        let readonly = match node.readonly_token.map(|token| token.kind) {
+            None => "",
+            Some(SyntaxKind::ReadonlyKeyword) => "readonly ",
+            Some(SyntaxKind::PlusToken) => "+readonly ",
+            Some(SyntaxKind::MinusToken) => "-readonly ",
+            _ => return None,
+        };
+        let optional = match node.question_token.map(|token| token.kind) {
+            None => "",
+            Some(SyntaxKind::QuestionToken) => "?",
+            Some(SyntaxKind::PlusToken) => "+?",
+            Some(SyntaxKind::MinusToken) => "-?",
+            _ => return None,
+        };
+        let text = format!("{{ {readonly}[{name} in {constraint}]{optional}: {template}; }}");
+        let ty = self.store.new_named(crate::flags::TypeFlags::OBJECT, text, None);
+        self.mapped_types.insert(ty, info);
+        Some(ty)
+    }
+
     /// getIndexedMappedTypeSubstitutedTypeOfContextualType
     /// (checker.go:30607). Generic key domains use their base constraints,
     /// while substitution retains the mapped template's indexed identities.
@@ -125,16 +170,23 @@ impl<'a> Checker<'a, '_> {
         id: TypeId,
         node: &'a tsr_ast::MappedTypeNode<'a>,
     ) {
-        if node.name_type.is_some() {
-            return;
+        if let Some(info) = self.mapped_type_info(node) {
+            self.mapped_types.insert(id, info);
         }
-        let Some(parameter) = node.type_parameter else { return };
-        let Some(symbol) = parameter.node_id.and_then(|id| self.binder.symbol_of(id)) else {
-            return;
-        };
+    }
+
+    fn mapped_type_info(
+        &mut self,
+        node: &'a tsr_ast::MappedTypeNode<'a>,
+    ) -> Option<MappedTypeInfo> {
+        if node.name_type.is_some() {
+            return None;
+        }
+        let parameter = node.type_parameter?;
+        let symbol = parameter.node_id.and_then(|id| self.binder.symbol_of(id))?;
         let parameter_type = self.get_declared_type_of_symbol(symbol);
-        let Some(constraint) = parameter.constraint else { return };
-        let Some(template) = node.r#type else { return };
+        let constraint = parameter.constraint?;
+        let template = node.r#type?;
         let mut constraint_node = constraint;
         while let TypeNode::ParenthesizedTypeNode(node) = constraint_node {
             let Some(inner) = node.r#type else { break };
@@ -178,21 +230,18 @@ impl<'a> Checker<'a, '_> {
         self.mapped_template_depth -= 1;
 
         if constraint == self.intrinsics.error || template == self.intrinsics.error {
-            return;
+            return None;
         }
-        self.mapped_types.insert(
-            id,
-            MappedTypeInfo {
-                parameter: parameter_type,
-                constraint,
-                constraint_intersection,
-                template,
-                optionality: node.question_token.map(|token| token.kind != SyntaxKind::MinusToken),
-                readonly: node.readonly_token.map(|token| token.kind != SyntaxKind::MinusToken),
-                modifiers_source,
-                homomorphic_symbol,
-            },
-        );
+        Some(MappedTypeInfo {
+            parameter: parameter_type,
+            constraint,
+            constraint_intersection,
+            template,
+            optionality: node.question_token.map(|token| token.kind != SyntaxKind::MinusToken),
+            readonly: node.readonly_token.map(|token| token.kind != SyntaxKind::MinusToken),
+            modifiers_source,
+            homomorphic_symbol,
+        })
     }
 
     /// Resolve key operators semantically under a mapped type's mapper.
