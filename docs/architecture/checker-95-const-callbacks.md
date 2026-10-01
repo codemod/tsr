@@ -29,7 +29,7 @@ an any contextual next slot.
 
 ## Verification and limits
 
-Checkpoint CONST_CALLBACK_CHECKPOINT:449,141/478,855 correct assertions (93.79%).
+Checkpoint 5fffc9af:449,141/478,855 correct assertions (93.79%).
 Complete cases:6,578/9,538 (68.97%). Another5,772 assertions are needed for95%.
 Aligned verdicts:474,243 total;449,141 right;4,338 gap;20,764 wrong.
 Against a973e8e8:132 WRONG→RIGHT,64 GAP→RIGHT,zero RIGHT losses,

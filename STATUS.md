@@ -24,7 +24,7 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-09-30
 
-Measured on **`CONST_CALLBACK_CHECKPOINT`**: **449,141/478,855 assertions (93.79%)**,
+Measured on **`5fffc9af`**: **449,141/478,855 assertions (93.79%)**,
 **6,578/9,538 complete cases (68.97%)**. The95% target requires
 454,913 correct assertions; **5,772 remain**. The denominator and pinned oracle
 are unchanged. Aligned verdicts: **474,243 total;449,141 right;4,338 gap;20,764 wrong**.
@@ -1144,7 +1144,7 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-### Current priorities at `CONST_CALLBACK_CHECKPOINT` — 2026-09-30
+### Current priorities at `5fffc9af` — 2026-09-30
 
 Const type-variable contexts now follow semantic parameter/union/indexed/mapped/
 variadic identities and deferred conditional constraints. Generic mapped property
@@ -3723,7 +3723,7 @@ version of bare `any`.
 
 ## 5. Refused, with the number that refused it
 
-### Const callback contexts at `CONST_CALLBACK_CHECKPOINT`
+### Const callback contexts at `5fffc9af`
 
 Adds196 matching assertions with zero RIGHT losses. Active/cached const
 preflight repairs callback overload re-entry losses; delegated arrays' unknown
@@ -9322,7 +9322,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
-| 2026-09-30 | `CONST_CALLBACK_CHECKPOINT` | **68.97%** | **6,578** | **449,141/478,855 assertions (93.79%).** +196 since a973e8e8,zero RIGHT losses;132 W→R,64 G→R,3 G→W and40 W→W. Const callback body source views before widening,active parameter identities,const templates and generator iteration slots.15 pinned controls;release workspace tests/clippy;3,378 anchors;snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-const-callbacks.md).5,772 assertions remain;95% unfinished. |
+| 2026-09-30 | `5fffc9af` | **68.97%** | **6,578** | **449,141/478,855 assertions (93.79%).** +196 since a973e8e8,zero RIGHT losses;132 W→R,64 G→R,3 G→W and40 W→W. Const callback body source views before widening,active parameter identities,const templates and generator iteration slots.15 pinned controls;release workspace tests/clippy;3,378 anchors;snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-const-callbacks.md).5,772 assertions remain;95% unfinished. |
 | 2026-09-30 | `a973e8e8` | **68.97%** | **6,578** | **448,945/478,855 assertions (93.75%).** +23 W→R since79500ed4,zero RIGHT losses and no other transitions. AST const candidates before inference,deep literal readonly,mutable constraints/variables,fixed spreads and last-write origins;rest primitive retention/mutability.24 pinned controls;release workspace tests/clippy;3,378 anchors;snapshot refreshed. [Evidence and remaining work](docs/architecture/checker-95-const-sources.md).5,968 assertions remain;95% unfinished. |
 | 2026-09-30 | `79500ed4` | **68.97%** | **6,578** | **448,922/478,855 assertions (93.75%).** +54 W→R,+12 G→R since a8933f8a,zero RIGHT losses and no other transitions. Semantic const identities,conditional constraints,indexed rest and mapped property contexts;re-entry repairs. Ten pinned control assertions;release workspace tests/clippy;3,379 anchors;snapshot refreshed. [Evidence and remaining work](docs/architecture/checker-95-const-contexts.md).5,991 assertions remain;95% unfinished. |
 | 2026-09-30 | `a8933f8a` | **68.96%** | **6,577** | **448,856/478,855 assertions (93.74%).** +174 W→R,+23 G→R since55510106,zero RIGHT losses;eleven G→W. Ports semantic string mappings,Unicode15.1 casing and enum value origins.26 pinned controls;release workspace tests/clippy;3,379 anchors;snapshot refreshed. [Evidence and remaining work](docs/architecture/checker-95-string-mappings.md).6,057 assertions remain;95% unfinished. |
