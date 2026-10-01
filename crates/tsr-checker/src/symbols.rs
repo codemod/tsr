@@ -1114,6 +1114,19 @@ impl<'a> Checker<'a, '_> {
         };
         let specifier = specifier?.node_id()?;
         let module = self.resolve_external_module_name(declaration, specifier)?;
+        // getTargetOfModuleDefault gives a synthetic CommonJS default priority
+        // over a real exports.default when no __esModule marker is present.
+        if self.can_have_synthetic_default(module)
+            && self
+                .binder
+                .symbols()
+                .get(module)
+                .declarations
+                .iter()
+                .any(|&id| self.nodes.kind(id) == SyntaxKind::SourceFile && self.in_js_file(id))
+        {
+            return Some(self.resolve_external_module_symbol(module));
+        }
         let default = self.binder.symbols().get(module).exports.get("default").copied();
         let Some(default) = default else {
             // §132: no explicit `default` but an `export =` — the SYNTHETIC
@@ -3394,6 +3407,9 @@ impl<'a> Checker<'a, '_> {
 
         let kind = self.nodes.kind(declaration);
         let result = match kind {
+            SyntaxKind::BinaryExpression | SyntaxKind::CallExpression => {
+                self.get_widened_type_for_assignment_declaration(symbol)
+            }
             SyntaxKind::VariableDeclaration
             | SyntaxKind::Parameter
             | SyntaxKind::PropertyDeclaration

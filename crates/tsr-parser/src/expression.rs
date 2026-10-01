@@ -1217,6 +1217,15 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_object_literal_element(&mut self) -> ObjectLiteralElementLike<'a> {
+        // parseObjectLiteralElement saves JSDoc before parsing and attaches it
+        // to every resulting property/method/accessor/spread declaration.
+        let docs = self.parse_leading_jsdoc();
+        let member = self.parse_object_literal_element_worker();
+        self.attach_jsdoc(member.into(), docs);
+        member
+    }
+
+    fn parse_object_literal_element_worker(&mut self) -> ObjectLiteralElementLike<'a> {
         let start = self.pos();
 
         if self.at(SyntaxKind::DotDotDotToken) {

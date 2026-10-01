@@ -1144,9 +1144,9 @@ impl Checker<'_, '_> {
     /// declaration list carries `const`.
     /// `isReadonlySymbol` (`checker.go:13849`), the four decidable arms:
     /// const variable, enum member, readonly-modifier property, get-only
-    /// accessor. The `CheckFlagsReadonly` and `Object.defineProperty` arms
-    /// are unported (`checker-notes-narrow.md` §27).
-    pub(crate) fn is_readonly_symbol(&self, symbol: SymbolId) -> bool {
+    /// accessor and Object.defineProperty descriptor. `CheckFlagsReadonly`
+    /// remains represented separately by mapped/synthetic property contexts.
+    pub(crate) fn is_readonly_symbol(&mut self, symbol: SymbolId) -> bool {
         let record = self.binder.symbols().get(symbol);
         let flags = record.flags;
         if flags.intersects(SymbolFlags::ENUM_MEMBER) {
@@ -1163,14 +1163,15 @@ impl Checker<'_, '_> {
         if flags.intersects(SymbolFlags::PROPERTY)
             && let Some(declaration) = record.value_declaration
             && let Some(Node::PropertyDeclaration(property)) = self.node_map.get(declaration)
-        {
-            return property.modifiers.iter().any(|modifier| {
+            && property.modifiers.iter().any(|modifier| {
                 tsr_ast::Node::from(*modifier)
                     .node_id()
                     .is_some_and(|id| self.nodes.kind(id) == tsr_ast::SyntaxKind::ReadonlyKeyword)
-            });
+            })
+        {
+            return true;
         }
-        false
+        self.assignment_declaration_is_readonly(symbol)
     }
 
     /// `isConstantReference` (`checker.go`): the reference an ALIASED

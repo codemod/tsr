@@ -158,6 +158,10 @@ pub(crate) struct Binder<'a, 'n> {
     // ---- lexical scope ----
     /// Nearest node with a `locals` table.
     container: NodeId,
+    /// Nearest `IsContainer`, including object literals without locals.
+    /// Deferred expando lookup uses this upstream cursor rather than the
+    /// lexical `HasLocals` cursor above.
+    expando_container: NodeId,
     /// Nearest block, for `let`/`const` and class declarations.
     block: NodeId,
     /// Symbol of the nearest container that owns members or exports.
@@ -404,6 +408,7 @@ impl<'a, 'n> Binder<'a, 'n> {
             locals,
             diagnostics,
             container: NodeId::ZERO,
+            expando_container: NodeId::ZERO,
             block: NodeId::ZERO,
             owner: None,
             source: "",
@@ -978,11 +983,13 @@ impl<'a, 'n> Binder<'a, 'n> {
         declared: Option<SymbolId>,
     ) {
         let saved_container = self.container;
+        let saved_expando_container = self.expando_container;
         let saved_block = self.block;
         let saved_owner = self.owner;
         let saved_this_container = self.this_container;
 
         if flags.contains(ContainerFlags::IS_CONTAINER) {
+            self.expando_container = id;
             self.block = id;
             if flags.contains(ContainerFlags::HAS_LOCALS) {
                 self.container = id;
@@ -1054,6 +1061,7 @@ impl<'a, 'n> Binder<'a, 'n> {
         }
 
         self.container = saved_container;
+        self.expando_container = saved_expando_container;
         self.block = saved_block;
         self.owner = saved_owner;
         self.this_container = saved_this_container;
@@ -3265,7 +3273,7 @@ impl<'a, 'n> Binder<'a, 'n> {
                 self.expando_assignments.push(ExpandoAssignment {
                     node,
                     id,
-                    container: self.container,
+                    container: self.expando_container,
                     block: self.block,
                 });
                 None

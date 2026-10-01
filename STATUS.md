@@ -24,22 +24,23 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-10-01
 
-Measured on **`2b92b583`**: **450,304/478,855 assertions (94.04%)**,
-**6,615/9,538 complete cases (69.35%)**. The95% target requires
-454,913 correct assertions; **4,609 remain**. Denominator and pinned oracle
-unchanged. Aligned verdicts: **474,243 total;450,304 right;4,046 gap;19,893 wrong**.
-Binder symbols retain the preceding measurement at **8,497/8,497 (100%)**;
+Measured on **`CHECKPOINT_SHA`**: **450,417/478,855 assertions (94.06%)**,
+**6,616/9,538 complete cases (69.36%)**. The95% target requires
+454,913 correct assertions; **4,496 remain**. Denominator and pinned oracle
+unchanged. Aligned verdicts: **474,243 total;450,417 right;4,044 gap;19,782 wrong**.
+Binder symbols freshly verified at **8,497/8,497 (100%)**;
 other suites below retain historical measurements.
 
-This unit adds **194 matching assertions**, with **zero RIGHT losses** relative
-to594ac488:151 WRONG→RIGHT,43 GAP→RIGHT,11 GAP→WRONG and16 changed wrong types.
+This unit adds **113 matching assertions**, with **zero RIGHT losses** relative
+to2b92b583:111 WRONG→RIGHT,2 GAP→RIGHT,no new GAP→WRONG or changed wrong types.
 Release workspace tests,clippy with warnings denied,all **3,367 upstream anchors**,
 snapshot and whitespace checks pass.
-[Semantic index keys](docs/architecture/checker-95-semantic-index-keys.md) records
-semantic pattern/symbol/union-key lookup,overlapping value intersections and
-object-literal callback contexts. Non-strict nullable keys retain the upstream
-exclusion. Recursive callback and deferred-index reductions remain incomplete.
-The95% goal remains unfinished;verified changes commit and push to main.
+[Assignment declarations](docs/architecture/checker-95-assignment-declarations.md)
+records property assignment/descriptor values,readonly writes,CommonJS synthetic
+default precedence,deferred expando scope and object-member JSDoc attachment.
+Pinned multi-file controls pass. Constructor this-property flow and callable
+expando rendering remain incomplete. The95% goal remains unfinished;
+verified changes commit and push to main.
 
 ### Previous whole-suite measurement — historical
 
@@ -1141,7 +1142,12 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-### Current priorities at `2b92b583` — 2026-10-01
+### Current priorities at `CHECKPOINT_SHA` — 2026-10-01
+
+Assignment property symbols now collect binary/descriptor values with readonly
+checks and CommonJS default precedence. Object-literal member docs reach the
+existing checker parameter reader. Constructor/method this-flow,empty-array
+assignments and callable expando rendering remain (tsr-6.26).
 
 Semantic index keys now use the relation, union-key splitting and overlapping
 value intersections. Object-literal callback contexts use applicable indexes.
@@ -3746,6 +3752,16 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+### Assignment declarations at `CHECKPOINT_SHA`
+
+The value-only draft lost13 RIGHT:8 readonly descriptor writes,3 CommonJS synthetic
+default reads,2 class property accesses through an overbroad deferred binder scope.
+Native descriptor/default/container prerequisites recover all13; object member
+JSDoc attachment adds42 more. Final +113 with zero adverse transitions. Constructor
+this-property flow and broader callable expando rendering remain declined.
+[Evidence](docs/architecture/checker-95-assignment-declarations.md).
+
 
 ### Semantic index keys at `2b92b583`
 
@@ -9441,6 +9457,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
+| 2026-10-01 | `CHECKPOINT_SHA` | **69.36%** | **6,616** | **450,417/478,855 assertions (94.06%).** +113 since2b92b583,zero adverse transitions;111 W→R,2 G→R. Assignment/descriptor values and readonly writes,CommonJS defaults,expando scope,object JSDoc. Pinned controls;release tests/clippy;3,367 anchors;checker/binder snapshots refreshed. [Evidence and limits](docs/architecture/checker-95-assignment-declarations.md).4,496 assertions remain;95% unfinished. |
 | 2026-10-01 | `2b92b583` | **69.35%** | **6,615** | **450,304/478,855 assertions (94.04%).** +194 since594ac488,zero RIGHT losses;151 W→R,43 G→R,11 G→W,16 W→W. Semantic index keys and contextual object callbacks. Pinned controls;release tests/clippy;3,367 anchors;snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-semantic-index-keys.md).4,609 assertions remain;95% unfinished. |
 | 2026-10-01 | `594ac488` | **69.28%** | **6,608** | **450,110/478,855 assertions (94.00%).** +72 since5bc7cd73,zero RIGHT losses/new G→W;52 W→R,20 G→R,3 W→W. Single own class constructors infer before defaults and retain new contexts. Pinned controls;release tests/clippy;3,374 anchors;snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-class-contexts.md).4,803 assertions remain;95% unfinished. |
 | 2026-10-01 | `5bc7cd73` | **69.25%** | **6,605** | **450,038/478,855 assertions (93.98%).** +173 since bde0210e,zero RIGHT losses;143 W→R,30 G→R,2 G→W,1 W→G,30 W→W. User partial defaults, written alias reuse and syntax tuple limit. Pinned controls;release tests/clippy;3,374 anchors;snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-user-defaults.md).4,875 assertions remain;95% unfinished. |

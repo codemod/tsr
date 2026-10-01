@@ -2671,6 +2671,12 @@ impl Checker<'_, '_> {
         if declaration_file {
             return !exports.contains_key("default") && !exports.contains_key("__esModule");
         }
+        if let Some(file) = file
+            && self.in_js_file(file)
+            && let Some(Node::SourceFile(source)) = self.node_map.get(file)
+        {
+            return !tsr_binder::is_external_module(source) && !exports.contains_key("__esModule");
+        }
         // `hasExportAssignmentSymbol(moduleSymbol)`.
         exports.contains_key("export=")
     }
