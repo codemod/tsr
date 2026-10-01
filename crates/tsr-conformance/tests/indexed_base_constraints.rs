@@ -224,6 +224,65 @@ export const asyncConcrete = deferredAsync({ select: "yes" });
     );
 }
 
+#[test]
+fn constrained_sources_select_overloads_and_preserve_generic_indexes() {
+    let source = r#"// @strict: true
+// @target: es2020
+// @noUncheckedIndexedAccess: true
+declare function pick(value: string): "string";
+declare function pick(value: number): "number";
+declare function pick(value: string | number): "both";
+declare function pick(value: unknown): "unknown";
+export function text<T extends string>(value: T) { return pick(value); }
+export function numeric<T extends number>(value: T) { return pick(value); }
+export function both<T extends string | number>(value: T) { return pick(value); }
+export function unconstrained<T>(value: T) { return pick(value); }
+export function chained<T extends string, U extends T>(value: U) { return pick(value); }
+export function nullable<T extends string | undefined>(value: T) { return pick(value); }
+export function arrayElement<T extends string[]>(value: T[number]) { return pick(value); }
+export function tupleIndex<N extends number>(value: ["a"][], key: N) { return value[key]; }
+export function objectIndex<K extends string>(value: { [key: string]: string; a: string }, key: K) { return value[key]; }
+interface Callable<T> { (value: T): T }
+declare function preserve<T extends (value: string) => string>(value: T): T;
+declare const callable: Callable<string>;
+export const preserved = preserve(callable);
+type Unwrap<T> = T extends null | undefined ? T : T extends PromiseLike<infer U> ? Unwrap<U> : T;
+type CustomPromise<T> = { then<U>(f: ((value: T) => U | PromiseLike<U>) | null | undefined): CustomPromise<U> };
+export type Unwrapped = Unwrap<Promise<string | Promise<CustomPromise<number> | null> | undefined>>;
+interface Iterator<Input, Output> { (value: Input, index: any, list: any): Output }
+declare function all<T>(list: T[], iterator?: Iterator<T, boolean>): T;
+declare function identity<T>(value: T): T;
+export const empty = all([], identity);
+export const dynamic = all([true as any], identity);
+type Wrapped<T> = { secret: T };
+type Unbox<T> = T extends Wrapped<infer U> ? U : T;
+declare function set<T, K extends keyof T>(object: T, key: K, value: Unbox<T[K]>): Unbox<T[K]>;
+export class Box {
+    prop!: Wrapped<string>;
+    method() { return set(this, "prop", "hi"); }
+}
+"#;
+    assert_types(
+        source,
+        &[
+            "text : <T extends string>(value: T) => \"string\"",
+            "numeric : <T extends number>(value: T) => \"number\"",
+            "both : <T extends string | number>(value: T) => \"both\"",
+            "unconstrained : <T>(value: T) => \"unknown\"",
+            "chained : <T extends string, U extends T>(value: U) => \"string\"",
+            "nullable : <T extends string | undefined>(value: T) => \"unknown\"",
+            "arrayElement : <T extends string[]>(value: T[number]) => \"string\"",
+            "tupleIndex : <N extends number>(value: [\"a\"][], key: N) => [\"a\"][][N]",
+            "objectIndex : <K extends string>(value: { [key: string]: string; a: string; }, key: K) => { [key: string]: string; a: string; }[K]",
+            "preserved : Callable<string>",
+            "Unwrapped : string | number | null | undefined",
+            "empty : never",
+            "dynamic : any",
+            "set(this, \"prop\", \"hi\") : Unbox<this[\"prop\"]>",
+        ],
+    );
+}
+
 fn assert_types(source: &str, wanted: &[&str]) {
     let case = TestCase::parse("probe/indexed-base-constraints", "constraints.ts", source);
     let expected: Vec<_> = case

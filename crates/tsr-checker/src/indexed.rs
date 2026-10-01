@@ -358,6 +358,15 @@ impl Checker<'_, '_> {
             }
         }
         let Some(name) = self.property_name_from_index(index_type) else {
+            // Higher-order accesses defer before applicable index signatures
+            // are considered (getIndexedAccessTypeOrUndefined). A constraint
+            // can make a generic key assignable to an index signature without
+            // making that key concrete.
+            if let Some(deferred) =
+                self.deferred_indexed_access(object_type, index_type, include_undefined)
+            {
+                return deferred;
+            }
             // Not a literal, so it names no property. `getIndexedAccessType`
             // falls to the index signatures (`checker.go:21902`).
             if let Some(info) = self.get_applicable_index_info(object_type, index_type) {
@@ -372,24 +381,6 @@ impl Checker<'_, '_> {
             // ahead of the never-index fallback (checker.go:27126).
             if index_type == self.intrinsics.never {
                 return self.intrinsics.never;
-            }
-            // §786: the DEFERRED indexed access. `getIndexedAccessType`
-            // (`checker.go`) does not resolve when
-            // `isGenericObjectType(objectType) || isGenericIndexType(indexType)`
-            // — it builds an `IndexedAccessType` that prints as written and is
-            // resolved only at instantiation.
-            //
-            // It belongs HERE, in the non-literal-index branch, and not at the
-            // tail of this function: a generic index names no property, so this
-            // `return error` is the one the whole family reaches. An arm at the
-            // tail measured ZERO movement for exactly that reason.
-            //
-            // The annotation road already does this — `declared.rs`'s
-            // `IndexedAccessTypeNode` arm (§619-§626) mints `T[K]` through the
-            // §31 mint. This is its EXPRESSION twin, minting the same way so
-            // the two spellings cannot print differently.
-            if let Some(deferred) = self.deferred_indexed_access(object_type, index_type) {
-                return deferred;
             }
             // §921: the `Array<T>`/tuple numeric road, reached from the branch
             // that actually needs it.
@@ -681,6 +672,7 @@ impl Checker<'_, '_> {
         &mut self,
         object_type: TypeId,
         index_type: TypeId,
+        include_undefined: bool,
     ) -> Option<TypeId> {
         use crate::flags::TypeFlags;
         let error = self.intrinsics.error;
@@ -712,7 +704,7 @@ impl Checker<'_, '_> {
         if !index_is_generic {
             return None;
         }
-        self.resolved_indexed_access_type(object_type, index_type, false)
+        self.resolved_indexed_access_type(object_type, index_type, include_undefined)
     }
 
     /// `isForInVariableForNumericPropertyNames` (`checker.go:8179`): the

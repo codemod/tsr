@@ -2485,7 +2485,12 @@ impl Checker<'_, '_> {
                 // `foo(new C)` picks the `I` overload). Unknown still
                 // declines the pass.
                 let class_instance_pair = self.class_instance_symbol(argument).is_some();
+                let type_variable_pair = self
+                    .type_of(argument)
+                    .flags
+                    .intersects(TypeFlags::TYPE_PARAMETER | TypeFlags::INDEXED_ACCESS);
                 if !class_instance_pair
+                    && !type_variable_pair
                     && (!simple(self, argument) || !simple(self, parameter.r#type))
                 {
                     verdict = Ternary::Unknown;

@@ -24,22 +24,23 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-10-01
 
-Measured on **`e5ee6cc5`**: **451,812/478,855 assertions (94.35%)**,
-**6,674/9,538 complete cases (69.97%)**. The 95% target requires
-454,913 correct assertions; **3,101 remain**. Denominator and pinned oracle
-unchanged. Aligned verdicts: **474,243 total;451,812 right;3,485 gap;18,946 wrong**.
+Measured on **`CODE_CHECKPOINT`**: **451,884/478,855 assertions (94.37%)**,
+**6,679/9,538 complete cases (70.03%)**. The 95% target requires
+454,913 correct assertions; **3,029 remain**. Denominator and pinned oracle
+unchanged. Aligned verdicts: **474,243 total;451,884 right;3,481 gap;18,878 wrong**.
 Binder retains the preceding verified **8,497/8,497 (100%)**;
 other suites below retain historical measurements.
 
-This unit adds **44 matching assertions**, with **zero RIGHT losses** relative
-to 6786ef93: 35 WRONG→RIGHT, 9 GAP→RIGHT, 1 GAP→WRONG and 20 changed wrong answers.
-Release workspace tests, clippy with warnings denied, all **3,364 upstream
+This unit adds **72 matching assertions**, with **zero RIGHT losses** relative
+to e5ee6cc5: 69 WRONG→RIGHT, 3 GAP→RIGHT, 1 GAP→WRONG and 4 changed wrong answers.
+Release workspace tests, clippy with warnings denied, all **3,363 upstream
 anchors**, format, snapshot and whitespace checks pass.
-[Generic indexed objects](docs/architecture/checker-95-generic-indexed-objects.md)
-records generic object/index deferral, conditional identities and constraints,
-homomorphic mapped deferral and no-alias awaiting. Pinned controls pass. Generic
-reducible unions, full Awaited wrapping, lazy recursive rendering, mapped-value
-alias display and mapped callback inference remain.
+[Source constraints](docs/architecture/checker-95-source-constraints.md) records
+assignability through type-variable constraints, target-union comparison order,
+indexed deferral, callable reference substitution and contextual generic callbacks.
+Pinned controls pass. Combined constraints, full this/mapped-index relation
+fallbacks and broader CheckMode propagation remain in tsr-6.28; generic
+mapped/conditional representation remains in tsr-6.30.
 The 95% goal is unfinished; verified changes commit and push to main.
 
 ### Previous whole-suite measurement — historical
@@ -1089,6 +1090,14 @@ Per-crate, by what the conformance suites actually assert — not by what exists
 
 ### Inside the checker — what has an arm
 
+Source type variables now follow constraints under assignability as well as
+subtyping. Exact constraints fast-path before target union decomposition; union
+identity is checked before source expansion. Named callable references substitute
+their receiver arguments, and generic callback inference reads those resolved
+signatures. Generic expression indexes defer before applicable index signatures;
+conditional checks preserve instantiable operands including polymorphic this.
+See [source constraints](docs/architecture/checker-95-source-constraints.md).
+
 Generic indexed annotations retain mapped, conditional and composite operands
 until instantiation. Conditional aliases carry native flags and branch constraints;
 keyof and homomorphic maps preserve them. Compatible keys into string-index-only
@@ -1178,7 +1187,17 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-### Current priorities at `e5ee6cc5` — 2026-10-01
+### Current priorities at `CODE_CHECKPOINT` — 2026-10-01
+
+Source constraints and callable reference substitution add 72 matches with zero
+RIGHT losses. Next relation work includes effective combined intersection
+constraints, source parameters against wider target unions, this-argument
+constraint instantiation and mapped indexed relation fallback (tsr-6.28).
+The fresh depend run walks 4,485 gap lines but has 577 C1 roots that no longer gap;
+287 cycles, zero depth-cap hits and balanced C3. Its C4 population is stale.
+Instrument repair remains tsr-6.29; use the full aligned pair for coverage.
+
+### Previous generic indexed checkpoint at `e5ee6cc5`
 
 Generic indexed deferral and conditional identities add 44 matches with zero
 RIGHT losses. Mapped contexts preserve conditional operands; distributed check
@@ -3824,6 +3843,15 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+### Source constraints at `CODE_CHECKPOINT`
+
+Removing the assignability constraint gate alone gained 41 and lost seven.
+Deferral order, callable reference substitution and union identity restored them.
+The next combined pair gained 70 and lost five in generic callback inference and
+polymorphic-this conditionals. Contextual instantiation and native deferred-check
+recognition restored all five. Final: +72, zero RIGHT losses, one GAP→WRONG and
+four changed wrong answers. [Evidence and remaining limits](docs/architecture/checker-95-source-constraints.md).
 
 ### Generic indexed objects at `e5ee6cc5`
 
@@ -9662,6 +9690,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
+| 2026-10-01 | `CODE_CHECKPOINT` | **70.03%** | **6,679** | **451,884/478,855 assertions (94.37%).** +72 since e5ee6cc5, zero RIGHT losses; 1G→W, 4 changed wrong. Source constraints, union identity order, indexed deferral, callable reference substitution and contextual generic callbacks. Pinned controls; release tests/clippy; 3,363 anchors; snapshot refreshed. [Evidence](docs/architecture/checker-95-source-constraints.md). 3,029 remain; 95% unfinished. |
 | 2026-10-01 | `e5ee6cc5` | **69.97%** | **6,674** | **451,812/478,855 assertions (94.35%).** +44 since 6786ef93, zero RIGHT losses; 1G→W, 20 changed wrong. Generic indexed deferral, conditional identities/constraints, homomorphic mapped contexts and no-alias awaiting. Pinned controls; release tests/clippy; 3,364 anchors; snapshot refreshed. [Evidence](docs/architecture/checker-95-generic-indexed-objects.md). 3,101 remain; 95% unfinished. |
 | 2026-10-01 | `6786ef93` | **69.95%** | **6,672** | **451,768/478,855 assertions (94.34%).** +45 since 5fc064d4, zero RIGHT losses; 2G→W, 7 changed wrong. Anonymous callable structural relations, mapped method filters and generic overload failure inference. Pinned controls; release tests/clippy; 3,364 anchors; snapshot refreshed. [Evidence](docs/architecture/checker-95-callable-structure.md). 3,145 remain; 95% unfinished. |
 | 2026-10-01 | `5fc064d4` | **69.91%** | **6,668** | **451,723/478,855 assertions (94.33%).** +154 sinceafdc0a5b,zero RIGHT losses;40G→W,59 changed wrong,2W→G. Concrete indexed annotations,recursive object identities,indexed alias instantiation,inherited key enumeration. Pinned controls;release tests/clippy;3,364 anchors;snapshot refreshed. [Evidence](docs/architecture/checker-95-concrete-indexed-access.md).3,190 remain;95% unfinished. |

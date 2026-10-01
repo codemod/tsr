@@ -2594,7 +2594,13 @@ impl Checker<'_, '_> {
                         .collect(),
                 )
             }
-            TypeData::Named { .. } => self.signature_candidates_of_named_type(t, kind),
+            TypeData::Named { .. } => {
+                let signatures = self.signature_candidates_of_named_type(t, kind)?;
+                signatures
+                    .into_iter()
+                    .map(|signature| self.instantiate_signature_for_reference(t, signature))
+                    .collect()
+            }
             _ => None,
         }
     }

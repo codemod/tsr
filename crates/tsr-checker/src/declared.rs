@@ -5290,7 +5290,8 @@ impl<'a> Checker<'a, '_> {
             // semantic operands, including keyof and deeply nested references.
             let parameters: Vec<_> = self.type_parameter_symbols.keys().copied().collect();
             if !self.signature_types.contains_key(&check)
-                && self.mentions_type_parameter(check, &parameters, &[])
+                && (self.store.get(check).flags.intersects(TypeFlags::INSTANTIABLE_NON_PRIMITIVE)
+                    || self.mentions_type_parameter(check, &parameters, &[]))
             {
                 return None;
             }

@@ -56,6 +56,70 @@ fn circular_parameter_constraints_do_not_prove_an_object_subtype() {
     );
 }
 
+#[test]
+fn assignability_follows_constraints_without_accepting_the_reverse() {
+    use tsr_checker::relater::{Relation, Ternary};
+    for (parameters, source, target) in [
+        ("T extends string", "T", "string"),
+        ("T extends string, U extends T", "U", "string"),
+        ("T extends string | number", "T", "string | number"),
+        ("T, U extends T", "U", "T"),
+        ("T", "T", "unknown"),
+    ] {
+        with_checker(
+            &format!("function f<{parameters}>(x: {source}, y: {target}) {{}}"),
+            |checker, statements| {
+                let Statement::FunctionDeclaration(function) = statements[0] else {
+                    panic!("function")
+                };
+                let source =
+                    checker.get_type_from_type_node(function.parameters[0].r#type.unwrap());
+                let target =
+                    checker.get_type_from_type_node(function.parameters[1].r#type.unwrap());
+                assert_eq!(
+                    checker.relate_ternary(source, target, Relation::Assignable),
+                    Ternary::Related
+                );
+                assert_ne!(
+                    checker.relate_ternary(target, source, Relation::Assignable),
+                    Ternary::Related
+                );
+            },
+        );
+    }
+}
+
+#[test]
+fn type_variable_union_members_are_compared_before_their_constraints() {
+    use tsr_checker::relater::{Relation, Ternary};
+    with_checker("function f<T, U>(x: T, y: T | U) {}", |checker, statements| {
+        let Statement::FunctionDeclaration(function) = statements[0] else { panic!("function") };
+        let source = checker.get_type_from_type_node(function.parameters[0].r#type.unwrap());
+        let target = checker.get_type_from_type_node(function.parameters[1].r#type.unwrap());
+        for relation in [Relation::Assignable, Relation::Subtype] {
+            assert_eq!(checker.relate_ternary(source, target, relation), Ternary::Related);
+        }
+    });
+}
+
+#[test]
+fn exact_never_constraints_and_circular_constraints_remain_distinct() {
+    use tsr_checker::relater::{Relation, Ternary};
+    for (source, expected) in [
+        ("function f<T extends never>(x:T,y:never) {}", Ternary::Related),
+        ("function f<T extends U,U extends T>(x:T,y:{value:number}) {}", Ternary::Unknown),
+    ] {
+        with_checker(source, |checker, statements| {
+            let Statement::FunctionDeclaration(function) = statements[0] else {
+                panic!("function")
+            };
+            let source = checker.get_type_from_type_node(function.parameters[0].r#type.unwrap());
+            let target = checker.get_type_from_type_node(function.parameters[1].r#type.unwrap());
+            assert_eq!(checker.relate_ternary(source, target, Relation::Assignable), expected);
+        });
+    }
+}
+
 /// Parse, bind and check one source, then answer a question about it.
 ///
 /// Same shape as the harness in `tests/unions.rs`, and for the same reason: the

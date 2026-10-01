@@ -561,6 +561,14 @@ impl Relater<'_, '_, '_> {
         if source == target {
             return Ternary::Related;
         }
+        // isRelatedToWorker fast-paths a parameter's exact constraint before
+        // decomposing a target union or considering simple negative verdicts
+        // (relater.go:2640). This includes a written `never` constraint.
+        if self.checker.type_of(source).flags.contains(TypeFlags::TYPE_PARAMETER)
+            && self.checker.type_parameter_constraint(source) == Some(target)
+        {
+            return Ternary::Related;
+        }
         // `relater.go:181`/`:2661`: under the comparable relation the simple
         // arms are also tried REVERSED (target against source) first, unless
         // the target is `never`. §750.
@@ -646,8 +654,7 @@ impl Relater<'_, '_, '_> {
             || (self.has_members(source) && self.has_members(target))
             || (source_tuple && target_tuple)
             || tuple_array_pair
-            || s.contains(TypeFlags::TYPE_PARAMETER)
-            || (s.contains(TypeFlags::INDEXED_ACCESS) && t.contains(TypeFlags::INDEXED_ACCESS))
+            || s.intersects(TypeFlags::TYPE_PARAMETER | TypeFlags::INDEXED_ACCESS)
             || t.contains(TypeFlags::STRING_MAPPING)
             || (t.contains(TypeFlags::TEMPLATE_LITERAL)
                 && s.intersects(
@@ -1395,44 +1402,6 @@ impl Relater<'_, '_, '_> {
                 }
             }
         }
-        // Source type variables explore their constraint under the same cycle
-        // guard (relater.go:3664). Synthetic this types keep the existing
-        // structural member path; an unreadable written constraint is unknown.
-        if self.checker.type_of(source).flags.contains(TypeFlags::TYPE_PARAMETER)
-            && matches!(self.relation, Relation::Subtype | Relation::StrictSubtype)
-            && let Some(&symbol) = self.checker.type_parameter_symbols.get(&source)
-            && let Some(declaration) =
-                self.checker.binder.symbols().get(symbol).declarations.iter().find_map(|&id| {
-                    match self.checker.node_map.get(id) {
-                        Some(tsr_ast::Node::TypeParameterDeclaration(parameter)) => Some(parameter),
-                        _ => None,
-                    }
-                })
-        {
-            let mut constraint = if declaration.constraint.is_some() {
-                let Some(constraint) = self.checker.type_parameter_constraint(source) else {
-                    return Ternary::Unknown;
-                };
-                constraint
-            } else {
-                self.checker.intrinsics.unknown
-            };
-            // Constraint cycles do not justify a coinductive object relation.
-            // Stop type-parameter-only cycles before entering the pair cache;
-            // a constraint equal to the target keeps its direct identity proof.
-            let mut seen = vec![source];
-            while constraint != target
-                && self.checker.type_of(constraint).flags.contains(TypeFlags::TYPE_PARAMETER)
-            {
-                if seen.contains(&constraint) {
-                    return Ternary::Unknown;
-                }
-                seen.push(constraint);
-                let Some(next) = self.checker.type_parameter_constraint(constraint) else { break };
-                constraint = next;
-            }
-            return self.is_related_to(constraint, target);
-        }
         if let Some(constituents) = self.union_constituents(source) {
             // Every constituent of a source union must be related.
             // Upstream's `eachTypeRelatedToType` — except under the
@@ -1472,6 +1441,54 @@ impl Relater<'_, '_, '_> {
             let parts: Vec<_> =
                 constituents.iter().map(|&c| self.is_related_to(c, target)).collect();
             return Ternary::any(parts);
+        }
+        // The source-variable branch also explores an indexed access's
+        // constraint, except when both operands are indexed accesses and the
+        // object/index comparison above owns the relation (relater.go:3665).
+        if self.checker.type_of(source).flags.contains(TypeFlags::INDEXED_ACCESS)
+            && !self.checker.type_of(target).flags.contains(TypeFlags::INDEXED_ACCESS)
+        {
+            return match self.checker.base_constraint_of_type(source) {
+                Some(constraint) if constraint != source => self.is_related_to(constraint, target),
+                _ => Ternary::Unknown,
+            };
+        }
+        // Source type variables explore their constraint under the same cycle
+        // guard (relater.go:3664). Synthetic this types keep the existing
+        // structural member path; an unreadable written constraint is unknown.
+        if self.checker.type_of(source).flags.contains(TypeFlags::TYPE_PARAMETER)
+            && let Some(&symbol) = self.checker.type_parameter_symbols.get(&source)
+            && let Some(declaration) =
+                self.checker.binder.symbols().get(symbol).declarations.iter().find_map(|&id| {
+                    match self.checker.node_map.get(id) {
+                        Some(tsr_ast::Node::TypeParameterDeclaration(parameter)) => Some(parameter),
+                        _ => None,
+                    }
+                })
+        {
+            let mut constraint = if declaration.constraint.is_some() {
+                let Some(constraint) = self.checker.type_parameter_constraint(source) else {
+                    return Ternary::Unknown;
+                };
+                constraint
+            } else {
+                self.checker.intrinsics.unknown
+            };
+            // Constraint cycles do not justify a coinductive object relation.
+            // Stop type-parameter-only cycles before entering the pair cache;
+            // a constraint equal to the target keeps its direct identity proof.
+            let mut seen = vec![source];
+            while constraint != target
+                && self.checker.type_of(constraint).flags.contains(TypeFlags::TYPE_PARAMETER)
+            {
+                if seen.contains(&constraint) {
+                    return Ternary::Unknown;
+                }
+                seen.push(constraint);
+                let Some(next) = self.checker.type_parameter_constraint(constraint) else { break };
+                constraint = next;
+            }
+            return self.is_related_to(constraint, target);
         }
         if let Some(parts) = self.checker.template_literal_parts.get(&target).cloned()
             && self.checker.type_of(source).flags.intersects(

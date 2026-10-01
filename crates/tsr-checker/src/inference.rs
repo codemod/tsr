@@ -2257,9 +2257,16 @@ impl Checker<'_, '_> {
         out: &mut Vec<InferenceInfo>,
     ) -> bool {
         let (outer_signature, parameters, existing) = context;
-        let (Some(source_signatures), Some(target_signatures)) =
-            (self.signature_types.get(&source), self.signature_types.get(&target))
-        else {
+        let (Some(source_signatures), Some(target_signatures)) = (
+            self.signature_types
+                .get(&source)
+                .cloned()
+                .or_else(|| self.call_signatures_of_type(source)),
+            self.signature_types
+                .get(&target)
+                .cloned()
+                .or_else(|| self.call_signatures_of_type(target)),
+        ) else {
             return false;
         };
         let ([source_signature], [target_signature]) =
