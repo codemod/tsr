@@ -15,7 +15,7 @@ zero previously RIGHT losses and release workspace gates. Goal remains active.
 
 ## Accepted measurement and limits
 
-Checkpoint `VARIABLE_TUPLES_COMMIT`:448,193/478,855 correct assertions (93.60%),
+Checkpoint `659f9303`:448,193/478,855 correct assertions (93.60%),
 6,559/9,538 complete cases (68.77%). Another 6,720 assertions are needed for
 95%. Aligned verdicts:474,243 total;448,193 right;4,624 gap;21,426 wrong.
 Against c438a8aa:56 WRONG→RIGHT,3 GAP→RIGHT,zero RIGHT losses;one former gap

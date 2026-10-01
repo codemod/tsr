@@ -24,7 +24,7 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-09-30
 
-Measured on **`VARIABLE_TUPLES_COMMIT`**: **448,193/478,855 assertions (93.60%)**,
+Measured on **`659f9303`**: **448,193/478,855 assertions (93.60%)**,
 **6,559/9,538 complete cases (68.77%)**. The active 95% target requires 454,913
 correct assertions; **6,720 remain**. The denominator and pinned oracle are
 unchanged. Aligned verdicts: **474,243 total;448,193 right;4,624 gap;21,426 wrong**.
@@ -1141,7 +1141,7 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-### Current priorities at `VARIABLE_TUPLES_COMMIT` — 2026-09-30
+### Current priorities at `659f9303` — 2026-09-30
 
 Inference priorities, independent contextual return mappers, captured structural
 substitution, call/construct signature kinds, measured reference variances,
@@ -3690,7 +3690,7 @@ version of bare `any`.
 
 ## 5. Refused, with the number that refused it
 
-### Variable tuple inference at `VARIABLE_TUPLES_COMMIT`
+### Variable tuple inference at `659f9303`
 
 Tuple matching now handles variable source rests,constrained adjacent splits,
 optional suffix speculation and tuple/array numeric index inference. The draft's
@@ -9184,7 +9184,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
-| 2026-09-30 | `VARIABLE_TUPLES_COMMIT` | **68.77%** | **6,559** | **448,193/478,855 assertions (93.60%).** +56 W→R,+3 G→R since c438a8aa,zero RIGHT losses;one G→W remains in Map context inference. Ports variable source/rest tuple matching,constrained splits,effective signature rests and optional speculation. Pinned controls and release workspace tests/clippy pass;3,379 anchors resolve;snapshot refreshed. [Evidence and remaining work](docs/architecture/checker-95-variable-tuples.md). 6,720 assertions remain;goal active. |
+| 2026-09-30 | `659f9303` | **68.77%** | **6,559** | **448,193/478,855 assertions (93.60%).** +56 W→R,+3 G→R since c438a8aa,zero RIGHT losses;one G→W remains in Map context inference. Ports variable source/rest tuple matching,constrained splits,effective signature rests and optional speculation. Pinned controls and release workspace tests/clippy pass;3,379 anchors resolve;snapshot refreshed. [Evidence and remaining work](docs/architecture/checker-95-variable-tuples.md). 6,720 assertions remain;goal active. |
 | 2026-09-30 | `c438a8aa` | **68.76%** | **6,558** | **448,134/478,855 assertions (93.58%).** +12 W→R since a88f8a1e,zero RIGHT losses,no new wrong. Ports rest implied arity and fixed-source adjacent variadic splits. Pinned controls and release workspace tests/clippy pass;3,380 anchors resolve;snapshot refreshed. [Evidence and remaining work](docs/architecture/checker-95-implied-arity.md). 6,779 assertions remain;goal active. |
 | 2026-09-30 | `a88f8a1e` | **68.76%** | **6,558** | **448,122/478,855 assertions (93.58%).** +26 W→R since15643d99,zero RIGHT losses,no new wrong. Ports generic this-argument receiver inference with wrapper/optional-chain handling. Pinned controls and release workspace tests/clippy pass;3,380 anchors resolve;snapshot refreshed. [Evidence and remaining work](docs/architecture/checker-95-this-argument.md). 6,791 assertions remain;goal active. |
 | 2026-09-30 | `15643d99` | **68.75%** | **6,557** | **448,096/478,855 assertions (93.58%).** +342 correct since `1609ae84`:310 W→R,32 G→R,zero RIGHT losses;11 G→W remain in the deficit. Ports class this annotation/container identity,written error recovery and globalThis runtime-property recovery. Release workspace tests/clippy pass;3,380 anchors resolve;snapshot refreshed. [Evidence and remaining work](docs/architecture/checker-95-class-this.md). 6,817 assertions remain;goal active. |
