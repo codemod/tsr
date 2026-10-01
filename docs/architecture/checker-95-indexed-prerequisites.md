@@ -44,7 +44,7 @@ this existing limitation. No claim of complete indexed-access parity is made.
 
 ## Verification and judgment
 
-Checkpoint CODE_CHECKPOINT: 451,569/478,855 correct assertions (94.30%),
+Checkpoint afdc0a5b: 451,569/478,855 correct assertions (94.30%),
 6,667/9,538 complete cases (69.90%).
 Aligned verdicts:474,243 total;451,569 RIGHT;3,587 GAP;19,087 WRONG.
 The95% threshold requires454,913 matches;3,344 remain.

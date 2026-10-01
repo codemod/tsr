@@ -24,7 +24,7 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-10-01
 
-Measured on **`CODE_CHECKPOINT`**: **451,569/478,855 assertions (94.30%)**,
+Measured on **`afdc0a5b`**: **451,569/478,855 assertions (94.30%)**,
 **6,667/9,538 complete cases (69.90%)**. The95% target requires
 454,913 correct assertions; **3,344 remain**. Denominator and pinned oracle
 unchanged. Aligned verdicts: **474,243 total;451,569 right;3,587 gap;19,087 wrong**.
@@ -1163,7 +1163,7 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-### Current priorities at `CODE_CHECKPOINT` — 2026-10-01
+### Current priorities at `afdc0a5b` — 2026-10-01
 
 Indexed prerequisites add13 matches without adverse changes. Concrete annotation
 routing remains tsr-6.30:lazy recursive object identity,indexed alias evaluation,
@@ -3808,7 +3808,7 @@ version of bare `any`.
 
 ## 5. Refused, with the number that refused it
 
-### Concrete indexed routing at `CODE_CHECKPOINT`
+### Concrete indexed routing at `afdc0a5b`
 
 The broad route gained72 but lost31:23 recursive object rows,3 recursive indexed
 alias rows,5 primitive-alias rows. It is withheld pending shared semantic fixes.
@@ -9614,7 +9614,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
-| 2026-10-01 | `CODE_CHECKPOINT` | **69.90%** | **6,667** | **451,569/478,855 assertions (94.30%).** +13 since43d36d92,zero adverse changes. Keyword alias instantiation,optional tuple numeric reads,never-index fallback. Pinned controls;release tests/clippy;3,364 anchors;snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-indexed-prerequisites.md).3,344 remain;95% unfinished. |
+| 2026-10-01 | `afdc0a5b` | **69.90%** | **6,667** | **451,569/478,855 assertions (94.30%).** +13 since43d36d92,zero adverse changes. Keyword alias instantiation,optional tuple numeric reads,never-index fallback. Pinned controls;release tests/clippy;3,364 anchors;snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-indexed-prerequisites.md).3,344 remain;95% unfinished. |
 | 2026-10-01 | `43d36d92` | **69.90%** | **6,667** | **451,556/478,855 assertions (94.30%).** +373 since00c67552,zero RIGHT losses;20G→W,52 changed wrong,5W→G. Recursive indexed constraints,mapped optionality,contextual flow narrowing and polymorphic-this member substitution. Pinned controls;release tests/clippy;3,364 anchors;checker snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-indexed-base-constraints.md).3,357 remain;95% unfinished. |
 | 2026-10-01 | `00c67552` | **69.78%** | **6,656** | **451,183/478,855 assertions (94.22%).** +66 since95f55180,zero RIGHT losses;11 G→W,34 changed wrong. Key remapping,collisions,mapped keyof,deferred conditional templates and callback filtering. Pinned controls;release tests/clippy;3,366 anchors;checker snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-mapped-key-remapping.md).3,730 remain;95% unfinished. |
 | 2026-10-01 | `95f55180` | **69.74%** | **6,652** | **451,117/478,855 assertions (94.21%).** +61 since996bb885,zero RIGHT losses;19 G→W,37 changed wrong. Anonymous mapped instantiation,context preservation,checked parameter reuse and captured order. Pinned controls;release tests/clippy;3,366 anchors;checker snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-anonymous-mapped-instantiation.md).3,796 remain;95% unfinished. |
