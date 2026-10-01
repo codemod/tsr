@@ -38,7 +38,7 @@ incomplete; the earlier Promise-slot shortcut experiment is not restored.
 
 ## Verification and limits
 
-Checkpoint ASYNC_CODE_SHA:449,259/478,855 correct assertions (93.82%).
+Checkpoint 83c358c0:449,259/478,855 correct assertions (93.82%).
 Complete cases:6,584/9,538 (69.03%). Another5,654 assertions are needed for95%.
 Aligned verdicts:474,243 total;449,259 right;4,284 gap;20,700 wrong.
 Against 5fffc9af:67 WRONG→RIGHT,51 GAP→RIGHT,zero RIGHT losses,
