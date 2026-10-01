@@ -24,7 +24,7 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-10-01
 
-Measured on **`CURRENT_CLASS_CONTEXTS_SHA`**: **450,110/478,855 assertions (94.00%)**,
+Measured on **`594ac488`**: **450,110/478,855 assertions (94.00%)**,
 **6,608/9,538 complete cases (69.28%)**. The95% target requires
 454,913 correct assertions; **4,803 remain**. The denominator and pinned oracle
 are unchanged. Aligned verdicts: **474,243 total;450,110 right;4,100 gap;20,033 wrong**.
@@ -1141,7 +1141,7 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-### Current priorities at `CURRENT_CLASS_CONTEXTS_SHA` — 2026-10-01
+### Current priorities at `594ac488` — 2026-10-01
 
 Const type-variable contexts now follow semantic parameter/union/indexed/mapped/
 variadic identities and deferred conditional constraints. Generic mapped property
@@ -3742,7 +3742,7 @@ version of bare `any`.
 
 ## 5. Refused, with the number that refused it
 
-### Single class contexts at `CURRENT_CLASS_CONTEXTS_SHA`
+### Single class contexts at `594ac488`
 
 The class default arm previously returned Box<string> from new Box(1),and skipped
 callback/const inference. Entering the shared worker with the real NewExpression
@@ -9426,7 +9426,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
-| 2026-10-01 | `CURRENT_CLASS_CONTEXTS_SHA` | **69.28%** | **6,608** | **450,110/478,855 assertions (94.00%).** +72 since5bc7cd73,zero RIGHT losses/new G→W;52 W→R,20 G→R,3 W→W. Single own class constructors infer before defaults and retain new contexts. Pinned controls;release tests/clippy;3,374 anchors;snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-class-contexts.md).4,803 assertions remain;95% unfinished. |
+| 2026-10-01 | `594ac488` | **69.28%** | **6,608** | **450,110/478,855 assertions (94.00%).** +72 since5bc7cd73,zero RIGHT losses/new G→W;52 W→R,20 G→R,3 W→W. Single own class constructors infer before defaults and retain new contexts. Pinned controls;release tests/clippy;3,374 anchors;snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-class-contexts.md).4,803 assertions remain;95% unfinished. |
 | 2026-10-01 | `5bc7cd73` | **69.25%** | **6,605** | **450,038/478,855 assertions (93.98%).** +173 since bde0210e,zero RIGHT losses;143 W→R,30 G→R,2 G→W,1 W→G,30 W→W. User partial defaults, written alias reuse and syntax tuple limit. Pinned controls;release tests/clippy;3,374 anchors;snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-user-defaults.md).4,875 assertions remain;95% unfinished. |
 | 2026-10-01 | `bde0210e` | **69.18%** | **6,598** | **449,865/478,855 assertions (93.95%).** +177 since936efea7,zero RIGHT losses;169 W→R,8 G→R,2 W→G,1 G→W,22 W→W. Positional prefix inference and callable alias substitution. Combined callback controls;release tests/clippy;3,374 anchors;snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-preceding-arguments.md).5,048 assertions remain;95% unfinished. |
 | 2026-10-01 | `936efea7` | **69.18%** | **6,598** | **449,688/478,855 assertions (93.91%).** +23 since0b84e435,zero RIGHT losses/GAP changes;8 W→W. Contextual return snapshot before argument checking.3 nested Mapper controls;release tests/clippy;3,374 anchors;snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-contextual-return-order.md).5,225 assertions remain;95% unfinished. |

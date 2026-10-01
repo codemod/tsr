@@ -25,7 +25,7 @@ and synthesis paths in tsr-6.21.
 
 ## Verification and limits
 
-Checkpoint CURRENT_CLASS_CONTEXTS_SHA:450,110/478,855 matching assertions (94.00%).
+Checkpoint 594ac488:450,110/478,855 matching assertions (94.00%).
 Complete cases:6,608/9,538 (69.28%);4,803 assertions remain for95%.
 Aligned verdicts:474,243 total;450,110 RIGHT;4,100 GAP;20,033 WRONG.
 Against5bc7cd73:52 WRONG→RIGHT,20 GAP→RIGHT,zero RIGHT losses,no new GAP→WRONG,
