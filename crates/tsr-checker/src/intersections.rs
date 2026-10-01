@@ -538,7 +538,7 @@ impl Checker<'_, '_> {
 
     /// `IsEmptyAnonymousObjectType` (checker.go). Only a complete structural
     /// property table establishes emptiness; missing member data does not.
-    fn is_empty_anonymous_object_type(&self, id: TypeId) -> bool {
+    pub(crate) fn is_empty_anonymous_object_type(&self, id: TypeId) -> bool {
         self.anonymous_properties.get(&id).is_some_and(|(properties, _)| properties.is_empty())
     }
 }

@@ -631,6 +631,10 @@ impl Relater<'_, '_, '_> {
             || (self.has_members(source) && self.has_members(target))
             || (source_tuple && target_tuple)
             || tuple_array_pair
+            || (t.contains(TypeFlags::TEMPLATE_LITERAL)
+                && s.intersects(
+                    TypeFlags::STRING_LITERAL | TypeFlags::TEMPLATE_LITERAL | TypeFlags::STRING,
+                ))
         {
             return self.recursive_type_related_to(source, target);
         }
@@ -668,6 +672,14 @@ impl Relater<'_, '_, '_> {
         // is what lets a class-instance union carry its nullable constituent
         // through subtype reduction (`generatorTypeCheck22`).
         if s.intersects(TypeFlags::OBJECT) && self.flag_decidable(target) {
+            return Ternary::NotRelated;
+        }
+        // A template always inhabits the string domain. Generic holes do not
+        // make it overlap a decidable non-string primitive.
+        if s.contains(TypeFlags::TEMPLATE_LITERAL)
+            && self.flag_decidable(target)
+            && !t.intersects(TypeFlags::STRING_LIKE)
+        {
             return Ternary::NotRelated;
         }
         if self.flag_decidable(source) && self.flag_decidable(target) {
@@ -1241,11 +1253,54 @@ impl Relater<'_, '_, '_> {
         None
     }
 
+    /// isValidTypeForTemplateLiteralPlaceholder (relater.go:2476).
+    fn valid_template_placeholder(&mut self, source: TypeId, target: TypeId) -> bool {
+        if let TypeData::Intersection { types, .. } = &self.checker.type_of(target).data {
+            let types = types.clone();
+            return types.into_iter().all(|target| {
+                self.checker.is_empty_anonymous_object_type(target)
+                    || self.valid_template_placeholder(source, target)
+            });
+        }
+        let flags = self.checker.type_of(target).flags;
+        if flags.contains(TypeFlags::STRING)
+            || self.is_related_to(source, target) != Ternary::NotRelated
+        {
+            return true;
+        }
+        if let TypeData::StringLiteral(value) = &self.checker.type_of(source).data {
+            let value = value.clone();
+            if flags.contains(TypeFlags::NUMBER) {
+                return crate::template_match::template_number(&value, false).is_some();
+            }
+            if flags.contains(TypeFlags::BIG_INT) {
+                return crate::template_match::template_bigint(&value, false).is_some();
+            }
+            if flags.intersects(TypeFlags::BOOLEAN_LITERAL | TypeFlags::NULLABLE) {
+                return value == self.checker.type_to_string(target);
+            }
+            if let Some(parts) = self.checker.template_literal_parts.get(&target).cloned() {
+                return self.checker.template_literal_inferences(source, &parts).is_some_and(
+                    |matches| {
+                        matches
+                            .into_iter()
+                            .zip(parts.types)
+                            .all(|(source, target)| self.valid_template_placeholder(source, target))
+                    },
+                );
+            }
+        }
+        if let Some(parts) = self.checker.template_literal_parts.get(&source).cloned()
+            && parts.types.len() == 1
+            && parts.texts.iter().all(String::is_empty)
+        {
+            return self.is_related_to(parts.types[0], target) != Ternary::NotRelated;
+        }
+        false
+    }
+
     /// The composite arms, guarded by the depth cap and the cycle cache.
-    ///
-    /// Ported from `Checker.recursiveTypeRelatedTo` (`internal/checker/relater.go`),
-    /// reduced to the union and intersection dispatch that
-    /// `structuredTypeRelatedTo` performs before it reaches object types.
+    /// Ported from Checker.recursiveTypeRelatedTo (relater.go).
     fn recursive_type_related_to(&mut self, source: TypeId, target: TypeId) -> Ternary {
         if let Some(&cached) = self.results.get(&(source, target)) {
             return cached;
@@ -1322,6 +1377,43 @@ impl Relater<'_, '_, '_> {
             let parts: Vec<_> =
                 constituents.iter().map(|&c| self.is_related_to(c, target)).collect();
             return Ternary::any(parts);
+        }
+        if let Some(parts) = self.checker.template_literal_parts.get(&target).cloned()
+            && self.checker.type_of(source).flags.intersects(
+                TypeFlags::STRING_LITERAL | TypeFlags::TEMPLATE_LITERAL | TypeFlags::STRING,
+            )
+        {
+            // templateLiteralTypesDefinitelyUnrelated: comparable patterns may
+            // overlap even when neither is assignable to the other.
+            if matches!(self.relation, Relation::Comparable)
+                && let Some(source_parts) = self.checker.template_literal_parts.get(&source)
+            {
+                let source_start = source_parts.texts[0].as_bytes();
+                let target_start = parts.texts[0].as_bytes();
+                let source_end = source_parts.texts.last().unwrap().as_bytes();
+                let target_end = parts.texts.last().unwrap().as_bytes();
+                let start = source_start.len().min(target_start.len());
+                let end = source_end.len().min(target_end.len());
+                return if source_start[..start] != target_start[..start]
+                    || source_end[source_end.len() - end..] != target_end[target_end.len() - end..]
+                {
+                    Ternary::NotRelated
+                } else {
+                    Ternary::Related
+                };
+            }
+            let Some(matches) = self.checker.template_literal_inferences(source, &parts) else {
+                return Ternary::NotRelated;
+            };
+            return if matches
+                .into_iter()
+                .zip(parts.types)
+                .all(|(source, target)| self.valid_template_placeholder(source, target))
+            {
+                Ternary::Related
+            } else {
+                Ternary::NotRelated
+            };
         }
         if let Some(answer) = self.tuples_related_to(source, target) {
             return answer;

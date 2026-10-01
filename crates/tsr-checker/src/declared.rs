@@ -1794,8 +1794,13 @@ impl<'a> Checker<'a, '_> {
         let structural = printed.starts_with('{');
         let minted = self.store.new_named(TypeFlags::OBJECT, printed, owner);
         if structural && typed_properties.len() == node.members.len() {
-            self.anonymous_properties
-                .insert(minted, (typed_properties, self.mapped_template_depth > 0));
+            self.anonymous_properties.insert(
+                minted,
+                (
+                    typed_properties,
+                    self.mapped_template_depth > 0 || !self.alias_evaluation_bindings.is_empty(),
+                ),
+            );
         }
         minted
     }
@@ -4104,6 +4109,10 @@ impl<'a> Checker<'a, '_> {
         if let Some(&cached) = self.instantiations.get(&(symbol, arguments.clone())) {
             return cached;
         }
+        if let Some(evaluated) = self.evaluate_conditional_alias(symbol, &arguments, None) {
+            self.instantiations.insert((symbol, arguments), evaluated);
+            return evaluated;
+        }
         if let Some(template) = self.instantiate_template_alias(symbol, &arguments) {
             self.instantiations.insert((symbol, arguments), template);
             return template;
@@ -4998,6 +5007,14 @@ impl<'a> Checker<'a, '_> {
             });
         if let Some(check_node) = conditional.check_type {
             let check = self.get_type_from_type_node(check_node);
+            // A deferred check must stay under its conditional mapper. Walk
+            // semantic operands, including keyof and deeply nested references.
+            let parameters: Vec<_> = self.type_parameter_symbols.keys().copied().collect();
+            if !self.signature_types.contains_key(&check)
+                && self.mentions_type_parameter(check, &parameters, &[])
+            {
+                return None;
+            }
             // getConditionalTypeInstantiation distributes a naked parameter's
             // substituted union, retaining that constituent in the outer mapper
             // for both the extends test and the chosen branch.

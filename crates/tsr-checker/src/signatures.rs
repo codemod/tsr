@@ -3724,6 +3724,28 @@ impl<'a> Checker<'a, '_> {
     /// lost. The admission-flag walk below (§77/§77.1/§108.1/§137) is the
     /// gate's home; `bd tsr-5o2`'s 9-line family stays recorded.
     pub(crate) fn written_annotation_text(&mut self, annotation: TypeNode<'a>) -> Option<String> {
+        // serializeTypeForDeclaration retains a written conditional alias in
+        // signatures even when the semantic reference resolves to its branch.
+        if self.alias_evaluation_bindings.is_empty()
+            && let TypeNode::TypeReferenceNode(reference) = annotation
+            && let Some(symbol) = reference
+                .type_name
+                .and_then(|name| self.resolve_entity_name(name, tsr_binder::SymbolFlags::TYPE))
+            && self
+                .binder
+                .symbols()
+                .get(symbol)
+                .declarations
+                .first()
+                .copied()
+                .and_then(|id| self.node_map.get(id))
+                .is_some_and(|node| {
+                    matches!(node, Node::TypeAliasDeclaration(alias)
+                    if matches!(alias.r#type, Some(TypeNode::ConditionalTypeNode(_))))
+                })
+        {
+            return Self::written_type_text(annotation, &mut false, &mut false);
+        }
         // serializeTypeForDeclaration reuses a written mapped alias when
         // normalization produced a sequence type. Keep this in the signature
         // annotation channel; the parameter's semantic type is the sequence.

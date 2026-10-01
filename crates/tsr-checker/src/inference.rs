@@ -3466,6 +3466,82 @@ impl Checker<'_, '_> {
         Some((source, *variable))
     }
 
+    /// inferToTemplateLiteralType's constrained literal choice (inference.go:566).
+    fn preferred_template_inference(&mut self, source: TypeId, target: TypeId) -> TypeId {
+        use crate::flags::TypeFlags;
+        let TypeData::StringLiteral(value) = &self.store.get(source).data else {
+            return source;
+        };
+        let value = value.clone();
+        let constraint = self.template_base_constraint(target);
+        if constraint == target || self.store.get(constraint).flags.contains(TypeFlags::ANY) {
+            return source;
+        }
+        let constraints = match &self.store.get(constraint).data {
+            TypeData::Union { types, .. } => types.clone(),
+            _ => vec![constraint],
+        };
+        if constraints.iter().any(|&ty| self.store.get(ty).flags.contains(TypeFlags::STRING)) {
+            return source;
+        }
+        let number = crate::template_match::template_number(&value, true);
+        let bigint = crate::template_match::template_bigint(&value, true);
+        let mut preferred = None;
+        for constraint in constraints {
+            let flags = self.store.get(constraint).flags;
+            let candidate = if flags.contains(TypeFlags::TEMPLATE_LITERAL)
+                && self.is_type_assignable_to(source, constraint)
+            {
+                Some((0, source))
+            } else if let TypeData::StringLiteral(literal) = &self.store.get(constraint).data {
+                (literal == &value).then_some((2, constraint))
+            } else if flags.contains(TypeFlags::NUMBER) {
+                number.as_ref().map(|number| {
+                    (
+                        3,
+                        self.store.intern_literal(
+                            TypeFlags::NUMBER_LITERAL,
+                            TypeData::NumberLiteral(number.clone()),
+                            false,
+                        ),
+                    )
+                })
+            } else if let TypeData::NumberLiteral(literal) = &self.store.get(constraint).data {
+                number.as_ref().filter(|number| *number == literal).map(|_| (5, constraint))
+            } else if flags.contains(TypeFlags::BIG_INT) {
+                bigint.as_ref().map(|bigint| {
+                    (
+                        6,
+                        self.store.intern_literal(
+                            TypeFlags::BIG_INT_LITERAL,
+                            TypeData::BigIntLiteral(bigint.clone()),
+                            false,
+                        ),
+                    )
+                })
+            } else if let TypeData::BigIntLiteral(literal) = &self.store.get(constraint).data {
+                bigint
+                    .as_ref()
+                    .filter(|bigint| bigint.as_str() == literal.trim_end_matches('n'))
+                    .map(|_| (7, constraint))
+            } else if let TypeData::BooleanLiteral(literal) = self.store.get(constraint).data {
+                (value == if literal { "true" } else { "false" }).then_some((9, constraint))
+            } else if flags.contains(TypeFlags::UNDEFINED) && value == "undefined" {
+                Some((10, constraint))
+            } else if flags.contains(TypeFlags::NULL) && value == "null" {
+                Some((11, constraint))
+            } else {
+                None
+            };
+            if let Some((rank, ty)) = candidate
+                && preferred.is_none_or(|(old_rank, _)| rank < old_rank)
+            {
+                preferred = Some((rank, ty));
+            }
+        }
+        preferred.map_or(source, |(_, ty)| ty)
+    }
+
     fn infer_from_types_within(
         &mut self,
         source: TypeId,
@@ -3511,6 +3587,31 @@ impl Checker<'_, '_> {
                 && let Some(info) = out.iter_mut().find(|i| i.type_parameter == target)
             {
                 info.top_level = false;
+            }
+            return;
+        }
+        if let Some(parts) = self.template_literal_parts.get(&target).cloned()
+            && !matches!(self.store.get(source).data, TypeData::Union { .. })
+        {
+            let matches = self.template_literal_inferences(source, &parts);
+            if matches.is_some() || parts.texts.iter().all(String::is_empty) {
+                for (index, hole) in parts.types.into_iter().enumerate() {
+                    let source =
+                        matches.as_ref().map_or(self.intrinsics.never, |matches| matches[index]);
+                    let source = if parameters.contains(&hole) {
+                        self.preferred_template_inference(source, hole)
+                    } else {
+                        source
+                    };
+                    self.infer_from_types_within(
+                        source,
+                        hole,
+                        original,
+                        parameters,
+                        out,
+                        depth + 1,
+                    );
+                }
             }
             return;
         }

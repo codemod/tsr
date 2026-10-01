@@ -190,23 +190,15 @@ fn an_enum_argument_fails_in_this_harness_only() {
     assert_eq!(type_of_last_expression(&source), "error");
 }
 
-/// **Blocker 2, pinned: the alias-declared road answers the UNINSTANTIATED
-/// branch.**
-///
-/// Reached through an intermediate alias, the same reference answers a bare `P`
-/// rather than `number` — so `in_alias_declared_position`'s road
-/// (`declared.rs:2143`) evaluates the conditional and hands back a branch whose
-/// parameters were never substituted. This is the road that gives the corpus its
-/// bare `P`/`T`. Unlike the enum fixture above, this one is corroborated by the
-/// corpus: `recursiveArrayNotCircular`'s five wrong lines answer exactly this
-/// bare `P`/`T`, so the road really does hand back an uninstantiated branch.
+/// A chosen object branch retains member types captured under its alias mapper,
+/// including when another alias refers to the conditional instantiation.
 #[test]
-fn blocker_the_alias_declared_road_does_not_substitute() {
+fn the_alias_declared_road_retains_substituted_members() {
     let source = "type Action<T, P> = P extends void ? { type: T } : { type: T, payload: P };\n\
          type Bar = Action<string, number>;\n\
          declare const a: Bar;\n\
          a.payload;\n";
-    assert_eq!(type_of_last_expression(source), "P");
+    assert_eq!(type_of_last_expression(source), "number");
 }
 
 /// §830: a GENERIC METHOD reached through an instantiated reference keeps its own
