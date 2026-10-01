@@ -73,7 +73,7 @@ cross-model coverage is claimed.
 
 ## Verified checkpoint
 
-CODE_CHECKPOINT: 452,625/478,855 assertions (94.52%). Aligned verdicts:
+3ef6d975: 452,625/478,855 assertions (94.52%). Aligned verdicts:
 474,243 total, 452,625 RIGHT, 3,378 GAP, 18,240 WRONG. Against 6c7fe447:
 197 WRONG->RIGHT and 8 GAP->RIGHT, zero RIGHT losses, one GAP->WRONG and
 four changed wrong answers. The new wrong answer preserves an unresolved
