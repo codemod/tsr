@@ -27,7 +27,7 @@ metadata, which is required for Readonly<Boxified<T>> indexed reads.
 
 ## Verification and limits
 
-Checkpoint SEQUENCE_COMMIT: 448,476/478,855 correct assertions (93.66%),
+Checkpoint e4fde75a: 448,476/478,855 correct assertions (93.66%),
 6,571/9,538 complete cases (68.89%). Another 6,437 assertions are needed for 95%.
 Aligned verdicts: 474,243 total; 448,476 right; 4,482 gap; 21,285 wrong.
 Against c52451f1: 57 WRONG→RIGHT, 4 GAP→RIGHT, zero RIGHT losses;
