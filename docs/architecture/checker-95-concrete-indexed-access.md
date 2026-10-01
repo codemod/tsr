@@ -58,7 +58,7 @@ unchanged.
 
 ## Measurement and limits
 
-Checkpoint CODE_CHECKPOINT: 451,723/478,855 correct assertions (94.33%).
+Checkpoint 5fc064d4: 451,723/478,855 correct assertions (94.33%).
 6,668/9,538 complete cases (69.91%).
 Aligned verdicts: 474,243 total; 451,723 RIGHT; 3,513 GAP; 19,007 WRONG.
 Relative to afdc0a5b: 118 WRONG→RIGHT, 36 GAP→RIGHT, zero RIGHT losses,
