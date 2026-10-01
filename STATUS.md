@@ -24,21 +24,21 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-10-01
 
-Measured on **`abff3df6`**: **450,819/478,855 assertions (94.15%)**,
-**6,639/9,538 complete cases (69.61%)**. The 95% target requires
-454,913 correct assertions; **4,094 remain**. Denominator and pinned oracle
-unchanged. Aligned verdicts: **474,243 total;450,819 right;3,885 gap;19,539 wrong**.
+Measured on **`CODE_CHECKPOINT`**: **450,978/478,855 assertions (94.18%)**,
+**6,644/9,538 complete cases (69.66%)**. The95% target requires
+454,913 correct assertions; **3,935 remain**. Denominator and pinned oracle
+unchanged. Aligned verdicts: **474,243 total;450,978 right;3,808 gap;19,457 wrong**.
 Binder retains the preceding verified **8,497/8,497 (100%)**;
 other suites below retain historical measurements.
 
-This unit adds **62 matching assertions**, with **zero RIGHT losses** relative
-to6837bbf9:62 WRONG→RIGHT,no new GAP→WRONG and one changed wrong type.
-Release workspace tests,clippy with warnings denied,all **3,366 upstream anchors**,
-snapshot and whitespace checks pass.
-[Empty-array inference](docs/architecture/checker-95-empty-array-inference.md)
-records distinct inferred element identities,assignment/JS initializer recovery
-and non-strict array widening. Pinned controls pass. General recursive widening,
-rest-binding recovery and constructor this-property flow remain incomplete.
+This unit adds **159 matching assertions**, with **zero RIGHT losses** relative
+to abff3df6:110 WRONG→RIGHT,49 GAP→RIGHT,31 GAP→WRONG,
+28 changed wrong answers and3 WRONG→GAP. Release workspace tests,clippy with
+warnings denied,all **3,366 upstream anchors**,snapshot and whitespace checks pass.
+[Intersection inference](docs/architecture/checker-95-intersection-inference.md)
+records structured intersection inference,early object data harvesting and
+intersection substitution. Pinned controls pass. The focused reverse-mapped
+callback case now matches38/42 assertions; contextual boolean retention remains.
 The95% goal remains unfinished; verified changes commit and push to main.
 
 ### Previous whole-suite measurement — historical
@@ -1141,7 +1141,7 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-### Current priorities at `abff3df6` — 2026-10-01
+### Current priorities at `CODE_CHECKPOINT` — 2026-10-01
 
 Assignment property symbols now collect binary/descriptor values with readonly
 checks and CommonJS default precedence. Object-literal member docs reach the
@@ -1154,8 +1154,11 @@ recursive callable boundaries remain (tsr-6.27).
 Semantic index keys now use the relation, union-key splitting and overlapping
 value intersections. Object-literal callback contexts use applicable indexes.
 Composite index collection,class/static separation and intersection contextual
-priority are now ported. Reverse mapped intersections,readonly metadata,
-instantiated heritage and recursive callbacks remain (tsr-6.25,tsr-6.9).
+priority are now ported. Structured intersection inference and substitution now support reverse-mapped
+callback parameter contexts. Early source images cover plain object data and
+function wildcards. Other member forms,contextual boolean retention,general
+intersection matching,readonly index metadata,instantiated heritage and recursive
+callbacks remain (tsr-6.25,tsr-6.9,tsr-6.1).
 
 Const type-variable contexts now follow semantic parameter/union/indexed/mapped/
 variadic identities and deferred conditional constraints. Generic mapped property
@@ -3755,6 +3758,19 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+### Intersection inference at `CODE_CHECKPOINT`
+
+The new native paths gain159 matches with zero RIGHT losses, but expose31
+GAP→WRONG answers and change28 existing wrong answers;3 wrong constraint rows
+now decline. Six conditional-generic, five silent-never, five constraint,
+four object-assign, three fresh-literal and eight other rows need downstream
+prerequisites. General exact intersection matching and contextual boolean
+retention are still incomplete. The latter accounts for four remaining rows in
+reverseMappedIntersectionInference1; its callback parameters and call result now
+match. Inline mapped-parameter and implicit-any naked-object controls still gap.
+No case-name filters or corpus expectations were changed.
+[Evidence and boundaries](docs/architecture/checker-95-intersection-inference.md).
 
 ### Empty-array inference at `abff3df6`
 
@@ -9497,6 +9513,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
+| 2026-10-01 | `CODE_CHECKPOINT` | **69.66%** | **6,644** | **450,978/478,855 assertions (94.18%).** +159 since abff3df6,zero RIGHT losses;31 G→W,28 changed wrong,3 W→G. Structured intersection inference,partial object sources and intersection substitution. Pinned controls;release tests/clippy;3,366 anchors;checker snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-intersection-inference.md).3,935 remain;95% unfinished. |
 | 2026-10-01 | `abff3df6` | **69.61%** | **6,639** | **450,819/478,855 assertions (94.15%).** +62 since6837bbf9,zero RIGHT losses/no new G→W;one changed wrong. Distinct empty-array identities,assignment/JS initializer recovery,non-strict array widening. Pinned controls;release tests/clippy;3,366 anchors;checker snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-empty-array-inference.md).4,094 remain;95% unfinished. |
 | 2026-10-01 | `6837bbf9` | **69.55%** | **6,634** | **450,757/478,855 assertions (94.13%).** +129 since87f2dc92,zero RIGHT losses;115 W→R,14 G→R,15 G→W,14 changed wrong. Composite and static indexes,intersection context precedence and no-reduction unions. Pinned controls;release tests/clippy;3,366 anchors;checker snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-composite-indexes.md).4,156 remain;95% unfinished. |
 | 2026-10-01 | `87f2dc92` | **69.48%** | **6,627** | **450,628/478,855 assertions (94.11%).** +211 since5d47e663,zero RIGHT losses;105 W→R,106 G→R,24 G→W,12 changed wrong. Callable exports,property substitution,assignment context,numeric/Unicode names. Pinned controls;release tests/clippy;3,366 anchors;checker snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-callable-expandos.md).4,285 remain;95% unfinished. |

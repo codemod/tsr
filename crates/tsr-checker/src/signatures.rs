@@ -357,6 +357,7 @@ impl<'a> Checker<'a, '_> {
         self.signature_types.insert(id, Vec::new());
         self.anonymous_properties.insert(id, (Vec::new(), true));
         self.any_function_type = Some(id);
+        self.non_inferrable_types.insert(id);
         id
     }
 
@@ -408,6 +409,76 @@ impl<'a> Checker<'a, '_> {
         self.signature_types.insert(id, vec![signature]);
         self.anonymous_properties.insert(id, (Vec::new(), true));
         Some(id)
+    }
+
+    /// checkObjectLiteral under `SkipContextSensitive` (checker.go). This
+    /// inference-only image retains data properties without caching a checked
+    /// callback body. Unsupported member forms leave the ordinary pass in charge.
+    pub(crate) fn context_free_object_inference_type(
+        &mut self,
+        expression: tsr_ast::Expression<'_>,
+    ) -> Option<TypeId> {
+        use tsr_ast::{Expression, ObjectLiteralElementLike, PropertyName};
+        match expression {
+            Expression::ParenthesizedExpression(node) => {
+                self.context_free_object_inference_type(node.expression?)
+            }
+            Expression::ArrowFunction(_) | Expression::FunctionExpression(_)
+                if self.is_context_sensitive_argument(&expression) =>
+            {
+                Some(self.get_any_function_type())
+            }
+            Expression::ObjectLiteralExpression(node) => {
+                let readonly = node.node_id.is_some_and(|id| self.is_const_context(id));
+                let mut non_inferrable = false;
+                let mut properties: Vec<crate::objects::AnonymousProperty> = Vec::new();
+                let mut members = Vec::new();
+                for property in node.properties {
+                    let ObjectLiteralElementLike::PropertyAssignment(assignment) = property else {
+                        return None;
+                    };
+                    let PropertyName::Identifier(name) = assignment.name else { return None };
+                    let ty = self.context_free_object_inference_type(assignment.initializer?)?;
+                    non_inferrable |= self.non_inferrable_types.contains(&ty);
+                    let printed = self.type_to_string(ty);
+                    let property = crate::objects::AnonymousProperty {
+                        name: name.text.to_string(),
+                        printed_name: name.text.to_string(),
+                        printed_type: printed.clone(),
+                        optional: false,
+                        readonly,
+                        r#type: ty,
+                    };
+                    let member = crate::objects::Member::Property {
+                        name: name.text.to_string(),
+                        optional: false,
+                        readonly,
+                        printed,
+                    };
+                    if let Some(index) = properties.iter().position(|p| p.name == name.text) {
+                        properties[index] = property;
+                        members[index] = member;
+                    } else {
+                        properties.push(property);
+                        members.push(member);
+                    }
+                }
+                let printed = crate::objects::render_object_type(&members);
+                let symbol = node.node_id.and_then(|id| self.binder.symbol_of(id));
+                let ty = self.store.new_named(crate::flags::TypeFlags::OBJECT, printed, symbol);
+                self.anonymous_properties.insert(ty, (properties, true));
+                self.object_literal_members.insert(ty, members);
+                if non_inferrable {
+                    self.non_inferrable_types.insert(ty);
+                }
+                Some(ty)
+            }
+            _ if !self.is_context_sensitive_argument(&expression) => {
+                let ty = self.check_expression_for_mutable_location(expression);
+                (ty != self.intrinsics.error).then_some(ty)
+            }
+            _ => None,
+        }
     }
 
     fn context_free_return_expression_type(

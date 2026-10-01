@@ -665,6 +665,8 @@ pub struct Checker<'a, 'n> {
         rustc_hash::FxHashMap<TypeId, (Vec<crate::objects::AnonymousProperty>, bool)>,
     pub(crate) instantiated_objects: rustc_hash::FxHashMap<(TypeId, Vec<(TypeId, TypeId)>), TypeId>,
     pub(crate) any_function_type: Option<TypeId>,
+    /// `ObjectFlagsNonInferrableType` on `SkipContextSensitive` object images.
+    pub(crate) non_inferrable_types: rustc_hash::FxHashSet<TypeId>,
     pub(crate) object_literal_index_infos:
         rustc_hash::FxHashMap<crate::types::TypeId, Vec<crate::index_signatures::IndexInfo>>,
     /// The identifier the JSX namespace hangs off, `getJsxNamespace`'s
@@ -1211,6 +1213,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             anonymous_properties: rustc_hash::FxHashMap::default(),
             instantiated_objects: rustc_hash::FxHashMap::default(),
             any_function_type: None,
+            non_inferrable_types: rustc_hash::FxHashSet::default(),
             object_literal_index_infos: rustc_hash::FxHashMap::default(),
             pattern_implied_members: rustc_hash::FxHashMap::default(),
             jsx_namespace: "React".to_string(),

@@ -967,6 +967,24 @@ impl Checker<'_, '_> {
             if owns_memo {
                 self.call_inference_signatures.insert(call_id, signature.clone());
             }
+            // inferTypeArguments first checks the argument with
+            // SkipContextSensitive: retain object data while callbacks are
+            // anyFunctionType, before a contextual read fixes the candidates.
+            for &index in &deferred {
+                let Some(&argument) = arguments.get(index) else { continue };
+                let Some(parameter) = signature.parameters.get(index) else { continue };
+                if matches!(argument, Expression::ObjectLiteralExpression(_))
+                    && let Some(source) = self.context_free_object_inference_type(argument)
+                {
+                    self.infer_from_types(
+                        source,
+                        parameter.r#type,
+                        &parameters,
+                        &mut buckets[index],
+                        0,
+                    );
+                }
+            }
             // SkipContextSensitive retains a return-only signature when the
             // function has no contextual parameters. Nested contextual
             // functions become anyFunctionType until the fixing pass.
@@ -3066,6 +3084,24 @@ impl Checker<'_, '_> {
         inferred
     }
 
+    /// isPartiallyInferableType (inference.go). Non-inferable object images
+    /// still expose their ordinary data properties to reverse mapped inference.
+    fn is_partially_inferable_type(&self, ty: TypeId) -> bool {
+        if !self.non_inferrable_types.contains(&ty) {
+            return true;
+        }
+        if self.object_literal_members.contains_key(&ty)
+            && let Some((properties, _)) = self.anonymous_properties.get(&ty)
+        {
+            return properties
+                .iter()
+                .any(|property| self.is_partially_inferable_type(property.r#type));
+        }
+        self.tuple_element_lists.get(&ty).is_some_and(|(elements, _)| {
+            elements.iter().any(|&element| self.is_partially_inferable_type(element))
+        })
+    }
+
     /// createReverseMappedType/resolveReverseMappedTypeMembers (inference.go).
     /// Source member identities remain available while captured reverse types
     /// supply the semantic property reads, as for instantiated type literals.
@@ -3077,6 +3113,9 @@ impl Checker<'_, '_> {
         operand: TypeId,
         constraint: TypeId,
     ) -> Option<TypeId> {
+        if !self.is_partially_inferable_type(source) {
+            return None;
+        }
         if let Some(&cached) = self.reverse_mapped_cache.get(&(source, target, constraint)) {
             return cached;
         }
@@ -3335,15 +3374,20 @@ impl Checker<'_, '_> {
                 && let Some(inferred) =
                     self.reverse_homomorphic_mapped_type(source, target, info, operand, constraint)
             {
-                self.inference_observed_priority = self.inference_observed_priority.min(i32::from(
-                    (self.inference_priority | InferencePriority::HOMOMORPHIC_MAPPED_TYPE).bits(),
-                ));
+                let priority = self.inference_priority
+                    | if self.non_inferrable_types.contains(&source) {
+                        InferencePriority::PARTIAL_HOMOMORPHIC_MAPPED_TYPE
+                    } else {
+                        InferencePriority::HOMOMORPHIC_MAPPED_TYPE
+                    };
+                self.inference_observed_priority =
+                    self.inference_observed_priority.min(i32::from(priority.bits()));
                 add_directional_candidate(
                     out,
                     operand,
                     inferred,
                     self.inference_contravariant && !self.inference_bivariant,
-                    self.inference_priority | InferencePriority::HOMOMORPHIC_MAPPED_TYPE,
+                    priority,
                 );
             }
             return true;
@@ -3728,7 +3772,7 @@ impl Checker<'_, '_> {
             return;
         }
         if parameters.contains(&target) {
-            if self.any_function_type == Some(source)
+            if self.non_inferrable_types.contains(&source)
                 || self.contains_silent_never(source, &mut Vec::new())
             {
                 return;
@@ -3873,6 +3917,40 @@ impl Checker<'_, '_> {
         }
         if let TypeData::Union { types, .. } = self.store.get(target).data.clone() {
             self.infer_to_union(source, &types, original, parameters, out, depth);
+            return;
+        }
+        // inferToMultipleTypes (inference.go): infer into the structured
+        // intersection constituents before its one naked variable. More than
+        // one naked variable supplies no direct inference candidates.
+        if let TypeData::Intersection { types, .. } = self.store.get(target).data.clone() {
+            let mut variables = Vec::new();
+            for target in types {
+                if parameters.contains(&target) {
+                    variables.push(target);
+                } else {
+                    self.infer_from_types_within(
+                        source,
+                        target,
+                        original,
+                        parameters,
+                        out,
+                        depth + 1,
+                    );
+                }
+            }
+            if let [variable] = variables.as_slice() {
+                let saved = self.inference_priority;
+                self.inference_priority |= InferencePriority::NAKED_TYPE_VARIABLE;
+                self.infer_from_types_within(
+                    source,
+                    *variable,
+                    original,
+                    parameters,
+                    out,
+                    depth + 1,
+                );
+                self.inference_priority = saved;
+            }
             return;
         }
         // §937: `inferFromProperties` (`inference.go`), the arm every other
@@ -4592,6 +4670,19 @@ impl Checker<'_, '_> {
                 substituted.push(image);
             }
             return self.get_union_type(&substituted);
+        }
+        // instantiateTypeWorker maps intersection constituents just as it
+        // maps union constituents; contextual mapped templates depend on it.
+        if let TypeData::Intersection { types, symbol, .. } = self.store.get(id).data.clone() {
+            let mut substituted = Vec::with_capacity(types.len());
+            for constituent in types {
+                let image = self.instantiate_type(constituent, map, parameters, names);
+                if image == error {
+                    return error;
+                }
+                substituted.push(image);
+            }
+            return self.get_intersection_type(&substituted, symbol);
         }
         if self.signature_types.contains_key(&id) {
             return self.instantiate_signature_type(id, map, parameters, names);
