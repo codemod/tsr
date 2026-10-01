@@ -878,16 +878,23 @@ impl Checker<'_, '_> {
     /// original primitive is the more honest receiver to fail on.
     /// The `extends` constraint of a type-parameter type, resolved.
     ///
-    /// `getBaseConstraintOfType` (`checker.go`) reduced to the one shape this
-    /// port mints: a `Named` type flagged `TYPE_PARAMETER` whose symbol's
-    /// declaration is a `TypeParameterDeclaration`. `None` means "not a
-    /// constrained type parameter", which covers three cases the caller treats
-    /// alike — not a type parameter at all, an unconstrained one, and the
-    /// `this` type, whose symbol is a **class** and whose constraint
-    /// `checker-notes-apparent.md` measures as worth zero lines.
+    /// getConstraintOfTypeParameter (checker.go), retaining the effective
+    /// outer mapper for written constraints. A polymorphic this parameter
+    /// instead has the declaring class or interface as its constraint.
     pub(crate) fn type_parameter_constraint(&mut self, id: TypeId) -> Option<TypeId> {
         if !self.store.get(id).flags.contains(TypeFlags::TYPE_PARAMETER) {
             return None;
+        }
+        if let Some(symbol) =
+            self.this_types.iter().find_map(|(&symbol, &ty)| (ty == id).then_some(symbol)).or_else(
+                || {
+                    self.this_type_nodes.iter().find_map(|(&node, &ty)| {
+                        (ty == id).then(|| self.binder.symbol_of(node)).flatten()
+                    })
+                },
+            )
+        {
+            return Some(self.get_declared_type_of_symbol(symbol));
         }
         let symbol = *self.type_parameter_symbols.get(&id)?;
         // getConstraintOfTypeParameter keeps a resolved constraint identity.
@@ -1049,15 +1056,9 @@ impl Checker<'_, '_> {
         // nothing — the same gap as today, by a different route, which is why
         // this cannot lose a line on its own.
         //
-        // The `this` type carries the same flag and is deliberately left to
-        // fall through to its own identity: its constraint is the class
-        // instance type, and `checker-notes-apparent.md` measures that half at
-        // **zero** convertible lines — 522 of them find the member and gap on
-        // the member's own type. Porting it would be motion without a number.
-        let id = match self.type_parameter_constraint(id) {
-            Some(constraint) => constraint,
-            None => id,
-        };
+        // Recursive base constraints also expose indexed and template types;
+        // polymorphic this reads through its declaring class/interface.
+        let id = self.base_constraint_of_type(id).unwrap_or(id);
         let flags = self.store.get(id).flags;
         let global = if flags.intersects(TypeFlags::STRING_LIKE) {
             "String"
@@ -1388,9 +1389,14 @@ impl Checker<'_, '_> {
                 };
                 let array = self.create_type_reference(target, vec![element]);
                 if array != self.intrinsics.error
-                    && let Some(member) = self.get_type_of_property_of_type(array, name)
+                    && let Some(property) = self.get_property_of_type(array, name)
                 {
-                    return Some(member);
+                    let declared = self.get_type_of_symbol(property);
+                    let shadowed = self.member_own_type_parameter_names(property);
+                    let names: Vec<_> = shadowed.iter().map(String::as_str).collect();
+                    return Some(
+                        self.instantiate_for_reference_with_this(array, declared, &names, id),
+                    );
                 }
             }
         }
@@ -1623,6 +1629,16 @@ impl Checker<'_, '_> {
         declared: TypeId,
         shadowed: &[&str],
     ) -> TypeId {
+        self.instantiate_for_reference_with_this(receiver, declared, shadowed, receiver)
+    }
+
+    fn instantiate_for_reference_with_this(
+        &mut self,
+        receiver: TypeId,
+        declared: TypeId,
+        shadowed: &[&str],
+        this_argument: TypeId,
+    ) -> TypeId {
         let Some((symbol, arguments)) = self.type_reference_targets.get(&receiver).cloned() else {
             return declared;
         };
@@ -1645,6 +1661,20 @@ impl Checker<'_, '_> {
             names.push(name.as_str());
             types.push(*parameter);
             map.push((*parameter, arguments[index]));
+        }
+        // resolveTypeReferenceMembers pads the type arguments with the
+        // reference itself for the target's polymorphic this parameter.
+        let this_type = self.this_types.get(&symbol).copied().or_else(|| {
+            self.binder
+                .symbols()
+                .get(symbol)
+                .declarations
+                .iter()
+                .find_map(|node| self.this_type_nodes.get(node).copied())
+        });
+        if let Some(this_type) = this_type {
+            types.push(this_type);
+            map.push((this_type, this_argument));
         }
         // Every class parameter shadowed: nothing of the reference reaches this
         // member, and `declared` is already the answer.

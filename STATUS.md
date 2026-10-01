@@ -24,22 +24,23 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-10-01
 
-Measured on **`00c67552`**: **451,183/478,855 assertions (94.22%)**,
-**6,656/9,538 complete cases (69.78%)**. The95% target requires
-454,913 correct assertions; **3,730 remain**. Denominator and pinned oracle
-unchanged. Aligned verdicts: **474,243 total;451,183 right;3,701 gap;19,359 wrong**.
+Measured on **`CODE_CHECKPOINT`**: **451,556/478,855 assertions (94.30%)**,
+**6,667/9,538 complete cases (69.90%)**. The95% target requires
+454,913 correct assertions; **3,357 remain**. Denominator and pinned oracle
+unchanged. Aligned verdicts: **474,243 total;451,556 right;3,595 gap;19,092 wrong**.
 Binder retains the preceding verified **8,497/8,497 (100%)**;
 other suites below retain historical measurements.
 
-This unit adds **66 matching assertions**, with **zero RIGHT losses** relative
-to95f55180:59 WRONG→RIGHT,7 GAP→RIGHT,11 GAP→WRONG and34 changed wrong answers.
-Release workspace tests,clippy with warnings denied,all **3,366 upstream anchors**,
-format,snapshot and whitespace checks pass.
-[Mapped key remapping](docs/architecture/checker-95-mapped-key-remapping.md)
-records name substitution,property/index collisions,mapped keyof,deferred
-conditional templates and callback filtering. Pinned controls pass. Late-bound
-members,generic key reduction,recursive mappings and readonly index metadata
-remain. The95% goal remains unfinished; verified changes commit and push to main.
+This unit adds **373 matching assertions**, with **zero RIGHT losses** relative
+to00c67552:282 WRONG→RIGHT,91 GAP→RIGHT,20 GAP→WRONG,52 changed wrong answers
+and5 WRONG→GAP. Release workspace tests,clippy with warnings denied,all
+**3,364 upstream anchors**,format,snapshot and whitespace checks pass.
+[Indexed base constraints](docs/architecture/checker-95-indexed-base-constraints.md)
+records recursive constraint reads,mapped optionality,contextual flow narrowing,
+semantic indexed identities and polymorphic-this member substitution. Pinned
+controls pass. Conditional distribution,generic key reduction,recursive mapped
+types and complete indexed relations remain. The95% goal remains unfinished;
+verified changes commit and push to main.
 
 ### Previous whole-suite measurement — historical
 
@@ -1088,6 +1089,12 @@ Per-crate, by what the conformance suites actually assert — not by what exists
 
 ### Inside the checker — what has an arm
 
+Recursive base constraints now support apparent and contextual flow reads of
+indexed types,including inherited mapped optionality. Written generic indexes
+retain semantic operands; interface this parameters and instantiated member
+mappers preserve receiver identity,including tuple members reached via Array.
+See the [measured unit](docs/architecture/checker-95-indexed-base-constraints.md).
+
 Mapped key remapping now transforms name types,merges property and index
 collisions with their distinct rules,and evaluates conditional key/value templates
 under captured outer bindings. Mapped keyof and callback filtering use the same
@@ -1152,7 +1159,18 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-### Current priorities at `00c67552` — 2026-10-01
+### Current priorities at `CODE_CHECKPOINT` — 2026-10-01
+
+Indexed-access base constraints and contextual narrowing add373 measured matches.
+Their remaining work is distributed conditional constraints,full CheckMode
+propagation,recursive generic indexes and complete indexed relations (tsr-6.28).
+A fresh depend run walks4,615 gap lines but fails its C1 construction control:
+584 roots no longer gap;297 cycles,zero depth-cap hits,C3 balances. Its C4 still
+quotes a historical population. These counts cannot score reachable assertions;
+the full aligned pair above is authoritative. Instrument repair is tracked
+separately. The next units should follow the remaining mapped/conditional
+semantic gaps,with a fresh full comparison and zero RIGHT losses required.
+
 
 Assignment property symbols now collect binary/descriptor values with readonly
 checks and CommonJS default precedence. Object-literal member docs reach the
@@ -3778,6 +3796,20 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+### Indexed constraints at `CODE_CHECKPOINT`
+
+The initial flow build lost22 RIGHT assertions while gaining347. Twenty-one
+losses were generic contexts misclassified by legacy named representations;
+one was missing interface-this instantiation exposed by semantic this[K].
+All recover through semantic context checks,receiver mapping and indexed
+relations. Mapping every written keyof parameter to a new INDEX mint exposed
+additional template/recursive-context regressions; ordinary written parameters
+retain their established semantic metadata. Tuple-to-array member reads now
+supply the tuple's this argument. Final pair:+373,zero RIGHT losses;20G→W,
+52 changed wrong answers,5W→G. These residues remain visible. The tuple control
+uses a single inherited method; overload-selection behavior remains separate.
+See [evidence and limits](docs/architecture/checker-95-indexed-base-constraints.md).
 
 ### Key remapping at `00c67552`
 
@@ -9562,6 +9594,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
+| 2026-10-01 | `CODE_CHECKPOINT` | **69.90%** | **6,667** | **451,556/478,855 assertions (94.30%).** +373 since00c67552,zero RIGHT losses;20G→W,52 changed wrong,5W→G. Recursive indexed constraints,mapped optionality,contextual flow narrowing and polymorphic-this member substitution. Pinned controls;release tests/clippy;3,364 anchors;checker snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-indexed-base-constraints.md).3,357 remain;95% unfinished. |
 | 2026-10-01 | `00c67552` | **69.78%** | **6,656** | **451,183/478,855 assertions (94.22%).** +66 since95f55180,zero RIGHT losses;11 G→W,34 changed wrong. Key remapping,collisions,mapped keyof,deferred conditional templates and callback filtering. Pinned controls;release tests/clippy;3,366 anchors;checker snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-mapped-key-remapping.md).3,730 remain;95% unfinished. |
 | 2026-10-01 | `95f55180` | **69.74%** | **6,652** | **451,117/478,855 assertions (94.21%).** +61 since996bb885,zero RIGHT losses;19 G→W,37 changed wrong. Anonymous mapped instantiation,context preservation,checked parameter reuse and captured order. Pinned controls;release tests/clippy;3,366 anchors;checker snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-anonymous-mapped-instantiation.md).3,796 remain;95% unfinished. |
 | 2026-10-01 | `996bb885` | **69.70%** | **6,648** | **451,056/478,855 assertions (94.19%).** +78 since48e1e6d4,zero RIGHT losses;9 G→W,21 changed wrong. Inline mapped semantic construction,array-to-readonly relation and reverse mapped source order. Pinned controls;release tests/clippy;3,366 anchors;checker snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-inline-mapped-templates.md).3,857 remain;95% unfinished. |

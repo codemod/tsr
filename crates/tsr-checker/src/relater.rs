@@ -647,6 +647,7 @@ impl Relater<'_, '_, '_> {
             || (source_tuple && target_tuple)
             || tuple_array_pair
             || s.contains(TypeFlags::TYPE_PARAMETER)
+            || (s.contains(TypeFlags::INDEXED_ACCESS) && t.contains(TypeFlags::INDEXED_ACCESS))
             || t.contains(TypeFlags::STRING_MAPPING)
             || (t.contains(TypeFlags::TEMPLATE_LITERAL)
                 && s.intersects(
@@ -1375,6 +1376,22 @@ impl Relater<'_, '_, '_> {
     /// target's constituents — which it is not, since union interning makes
     /// `"a" | "b"` a type the target's list does not contain.
     fn structured_type_related_to(&mut self, source: TypeId, target: TypeId) -> Ternary {
+        // structuredTypeRelatedToWorker (relater.go:3443): S[K] relates to
+        // T[J] when both its object and index relate. Keep this inside the
+        // recursive pair cache for indexed members of recursive interfaces.
+        if let (Some(&(source_object, source_index, _)), Some(&(target_object, target_index, _))) = (
+            self.checker.deferred_indexed_access_types.get(&source),
+            self.checker.deferred_indexed_access_types.get(&target),
+        ) {
+            let objects = self.is_related_to(source_object, target_object);
+            if objects != Ternary::NotRelated {
+                let indexes = self.is_related_to(source_index, target_index);
+                let result = Ternary::all([objects, indexes]);
+                if result != Ternary::NotRelated {
+                    return result;
+                }
+            }
+        }
         // Source type variables explore their constraint under the same cycle
         // guard (relater.go:3664). Synthetic this types keep the existing
         // structural member path; an unreadable written constraint is unknown.

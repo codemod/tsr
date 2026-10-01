@@ -113,6 +113,7 @@ mod circular_alias;
 pub mod comparison_overlap;
 pub mod computed_name;
 mod const_inference;
+mod constraints;
 mod context_sensitive;
 pub mod contextual;
 pub mod declared;

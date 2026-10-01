@@ -258,9 +258,9 @@ impl<'a> Checker<'a, '_> {
                 self.unique_symbol_nodes.insert(id, minted);
                 minted
             }
-            // §91: `keyof T` EVALUATES — but only inside a conditional-alias
-            // evaluation (the env gate); everywhere else the §35 deferred
-            // print and the error fall-through keep their old answers.
+            // Resolve mapped/concrete operands and operands under alias
+            // bindings. Polymorphic this needs the same semantic index mint;
+            // ordinary written keyof parameters retain their legacy metadata.
             TypeNode::TypeOperatorNode(node)
                 if node.operator.kind == SyntaxKind::KeyOfKeyword
                     && (!self.alias_evaluation_bindings.is_empty()
@@ -272,12 +272,15 @@ impl<'a> Checker<'a, '_> {
                         || node.r#type.is_some_and(|inner| {
                             let target = self.get_type_from_type_node(inner);
                             target != self.intrinsics.error
-                                && !self.mentions_any_type_parameter(target, 4)
+                                && (matches!(inner, TypeNode::ThisTypeNode(_))
+                                    || !self.mentions_any_type_parameter(target, 4))
                         })) =>
             {
                 let Some(inner) = node.r#type else { return self.intrinsics.error };
                 let target = self.get_type_from_type_node(inner);
-                if self.mapped_types.contains_key(&target) {
+                if self.mapped_types.contains_key(&target)
+                    || self.store.get(target).flags.contains(TypeFlags::TYPE_PARAMETER)
+                {
                     return self.resolved_keyof_type(target).unwrap_or(self.intrinsics.error);
                 }
                 match self.keys_of(target) {
@@ -577,7 +580,8 @@ impl<'a> Checker<'a, '_> {
                     let object = self.get_type_from_type_node(object);
                     let index = self.get_type_from_type_node(index);
                     if (self.mapped_template_depth > 0
-                        || self.store.get(object).flags.contains(TypeFlags::TYPE_PARAMETER))
+                        || self.store.get(object).flags.contains(TypeFlags::TYPE_PARAMETER)
+                        || self.indexed_access_index_is_generic(index))
                         && let Some(t) = self.resolved_indexed_access_type(object, index, false)
                     {
                         return t;
@@ -2693,7 +2697,11 @@ impl<'a> Checker<'a, '_> {
                     if let Some(&existing) = self.this_type_nodes.get(&owner) {
                         return existing;
                     }
-                    let minted = self.store.new_named(TypeFlags::OBJECT, "this".to_string(), None);
+                    let minted = self.store.new_named(
+                        TypeFlags::TYPE_PARAMETER,
+                        "this".to_string(),
+                        self.binder.symbol_of(owner),
+                    );
                     self.this_type_nodes.insert(owner, minted);
                     return minted;
                 }

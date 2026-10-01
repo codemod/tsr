@@ -574,6 +574,10 @@ impl<'a> Checker<'a, '_> {
                 || source_property.is_some_and(|property| self.is_readonly_property(property)),
                 |property| property.readonly,
             );
+            let inherited =
+                modifiers.and_then(|source| self.mapped_identity_optionality.get(&source));
+            let was_optional = inherited.and_then(|modifiers| modifiers.0).unwrap_or(was_optional);
+            let was_readonly = inherited.and_then(|modifiers| modifiers.1).unwrap_or(was_readonly);
             let optional = info.optionality.unwrap_or(was_optional);
             let readonly = info.readonly.unwrap_or(was_readonly);
             let printed_name = if info.name_type.is_some() {
@@ -888,6 +892,124 @@ impl<'a> Checker<'a, '_> {
         }
         !self.store.get(id).flags.contains(crate::flags::TypeFlags::ANY)
             && self.tuple_spread_array_element(id).is_some()
+    }
+
+    /// The mapped arms of getSimplifiedIndexedAccessTypeWorker and
+    /// computeBaseConstraint (checker.go). Remapped names cannot substitute
+    /// the queried key directly for the iteration parameter.
+    pub(crate) fn mapped_indexed_access_constraint(
+        &mut self,
+        object: TypeId,
+        index: TypeId,
+    ) -> Option<TypeId> {
+        let info = self.mapped_types.get(&object)?.clone();
+        let generic = self.signature_parameter_type_is_generic(info.constraint);
+        if let Some(name) = info.name_type
+            && !self.is_type_assignable_to(name, info.parameter)
+        {
+            return None;
+        }
+        if !generic
+            && (info.name_type.is_some()
+                || info.optionality == Some(false)
+                || !self.signature_parameter_type_is_generic(index))
+        {
+            return None;
+        }
+        let value = self.instantiate_type(
+            info.template,
+            &[(info.parameter, index)],
+            &[info.parameter],
+            &[],
+        );
+        if value == self.intrinsics.error {
+            return None;
+        }
+        let optional = info.optionality == Some(true)
+            || if generic {
+                info.modifiers_source.is_some_and(|source| {
+                    self.combined_mapped_optionality(source, &mut Vec::new()) > 0
+                })
+            } else {
+                self.could_access_optional_mapped_property(object, index)
+            };
+        Some(if self.strict_null_checks && optional {
+            self.get_optional_type(value, true)
+        } else {
+            value
+        })
+    }
+
+    /// getCombinedMappedTypeOptionality (checker.go:29040).
+    fn combined_mapped_optionality(&self, ty: TypeId, visiting: &mut Vec<TypeId>) -> i8 {
+        if visiting.contains(&ty) {
+            return 0;
+        }
+        visiting.push(ty);
+        let result = if let Some(info) = self.mapped_types.get(&ty) {
+            match info.optionality {
+                Some(true) => 1,
+                Some(false) => -1,
+                None => info
+                    .modifiers_source
+                    .map_or(0, |ty| self.combined_mapped_optionality(ty, visiting)),
+            }
+        } else if let Some((Some(optional), _)) = self.mapped_identity_optionality.get(&ty) {
+            if *optional { 1 } else { -1 }
+        } else if let crate::types::TypeData::Intersection { types, .. } = &self.store.get(ty).data
+        {
+            let first =
+                types.first().map_or(0, |&ty| self.combined_mapped_optionality(ty, visiting));
+            if types
+                .iter()
+                .skip(1)
+                .all(|&ty| self.combined_mapped_optionality(ty, visiting) == first)
+            {
+                first
+            } else {
+                0
+            }
+        } else {
+            0
+        };
+        visiting.pop();
+        result
+    }
+
+    /// couldAccessOptionalProperty (checker.go:29309), using captured mapped
+    /// members and the index's base constraint to select accessible properties.
+    fn could_access_optional_mapped_property(&mut self, object: TypeId, index: TypeId) -> bool {
+        let Some(constraint) = self.base_constraint_of_type(index) else { return false };
+        self.resolve_mapped_type_members(object);
+        let Some((properties, _)) = self.anonymous_properties.get(&object).cloned() else {
+            return false;
+        };
+        let mapped_constraint = self.mapped_types.get(&object).map(|info| info.constraint);
+        let keys = mapped_constraint
+            .map(|keys| match self.store.get(keys).data.clone() {
+                crate::types::TypeData::Union { types, .. } => types,
+                _ => vec![keys],
+            })
+            .unwrap_or_default();
+        properties.into_iter().any(|property| {
+            if !property.optional {
+                return false;
+            }
+            // This path only accepts unremapped types, so a literal key in
+            // the mapped constraint is also the property's original key type.
+            // Preserve number versus quoted-number identity before checking
+            // the access constraint (getLiteralTypeFromProperty).
+            let key = keys.iter().copied().find(|&key| matches!(
+                &self.store.get(key).data,
+                crate::types::TypeData::StringLiteral(name) | crate::types::TypeData::NumberLiteral(name)
+                    if name == &property.name
+            )).unwrap_or_else(|| self.store.intern_literal(
+                crate::flags::TypeFlags::STRING_LITERAL,
+                crate::types::TypeData::StringLiteral(property.name),
+                false,
+            ));
+            self.is_type_assignable_to(key, constraint)
+        })
     }
 
     /// instantiateMappedTypeTemplate (checker.go:22646). Include optionality

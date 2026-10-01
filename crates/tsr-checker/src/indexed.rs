@@ -559,7 +559,7 @@ impl Checker<'_, '_> {
         Some(self.include_unchecked_undefined(info.value, include_undefined, object, index))
     }
 
-    fn indexed_access_index_is_generic(&self, index: TypeId) -> bool {
+    pub(crate) fn indexed_access_index_is_generic(&self, index: TypeId) -> bool {
         use crate::flags::TypeFlags;
         if self
             .store
@@ -608,38 +608,25 @@ impl Checker<'_, '_> {
         if object_type == error || index_type == error {
             return None;
         }
-        // The index must be generic AND its keys must be THIS object's.
-        //
-        // Upstream reports and answers `errorType` — printed `any` — when the
-        // index is not assignable to `keyof objectType`, and the corpus states
-        // the rule sharply. In
-        //
-        //     function f6<T, U extends T, K extends keyof U>(x: T, y: U, k: K)
-        //
-        // `y[k]` records `U[K]` and `x[k]` records **`any`**
-        // (`mappedTypeRelationships.types:107-123`): `K` indexes `U`, and
-        // `U extends T` makes `keyof T` a SUBSET of `keyof U`, not the reverse.
-        // Deferring both measured **6 RIGHT→WRONG** in that one case.
-        //
-        // The relation is decided by NAME rather than by the relater, because
-        // the thing being compared is a deferred `keyof X` mint — a named type
-        // this port cannot structurally relate to anything. That is narrower
-        // than upstream (it will decline a `keyof` reached through an alias),
-        // and narrower is the right direction: declining leaves the `any` this
-        // road already printed, while a wrong defer prints a confident type.
-        let object_text = crate::printing::type_to_string(self.store.get(object_type));
-        let keys_this_object = |checker: &mut Self, candidate: TypeId| -> bool {
-            checker.deferred_keyof_types.contains(&candidate)
-                && crate::printing::type_to_string(checker.store.get(candidate))
-                    == format!("keyof {object_text}")
+        // Generic indexing is valid when the key constraint belongs to this
+        // object. Preserve the deferred keyof operand identity; concrete key
+        // constraints can instead be checked against the object's semantic keys.
+        let keys_this_object = |checker: &Self, candidate: TypeId| {
+            checker.deferred_keyof_operands.get(&candidate) == Some(&object_type)
         };
         let index_is_generic = if keys_this_object(self, index_type) {
-            // `x[k]` where `k: keyof T` — the index IS the `keyof` mint.
             true
         } else if self.store.get(index_type).flags.contains(TypeFlags::TYPE_PARAMETER) {
-            // `x[k]` where `k: K` — the constraint must be this object's keys.
-            self.type_parameter_constraint(index_type)
-                .is_some_and(|constraint| keys_this_object(self, constraint))
+            self.type_parameter_constraint(index_type).is_some_and(|constraint| {
+                if keys_this_object(self, constraint) {
+                    return true;
+                }
+                if self.indexed_access_index_is_generic(constraint) {
+                    return false;
+                }
+                self.resolved_keyof_type(object_type)
+                    .is_some_and(|keys| self.is_type_assignable_to(constraint, keys))
+            })
         } else {
             false
         };

@@ -288,6 +288,7 @@ impl Checker<'_, '_> {
         symbol: Option<SymbolId>,
         declared_type: TypeId,
     ) -> TypeId {
+        let declared_type = self.narrowable_type_for_reference(declared_type, reference);
         self.get_flow_type_of_reference_ex(reference, symbol, declared_type, None)
     }
 
@@ -3466,11 +3467,9 @@ impl Checker<'_, '_> {
         })
     }
 
-    /// `getBaseConstraintOrType` (`checker.go`) reduced to what this port can
-    /// answer: a constrained type parameter reads its constraint, everything
-    /// else reads itself. §743.
+    /// getBaseConstraintOrType (checker.go), using recursive semantic constraints.
     pub(crate) fn base_constraint_or_type(&mut self, t: TypeId) -> TypeId {
-        self.type_parameter_constraint(t).unwrap_or(t)
+        self.base_constraint_of_type(t).unwrap_or(t)
     }
 
     /// The enum member type behind a string-enum qualified-reference mint,

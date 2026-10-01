@@ -854,6 +854,9 @@ pub struct Checker<'a, 'n> {
     pub(crate) mapped_identity_sources: FxHashMap<TypeId, TypeId>,
     /// getConstraintTypeFromMappedType/getTemplateTypeFromMappedType metadata.
     pub(crate) mapped_types: FxHashMap<TypeId, crate::mapped::MappedTypeInfo>,
+    pub(crate) base_constraint_cache:
+        FxHashMap<crate::constraints::BaseConstraintKey, Option<TypeId>>,
+    pub(crate) base_constraint_depth: usize,
     pub(crate) mapped_template_depth: usize,
     /// True/false types of deferred mapped templates (inferToConditionalType).
     pub(crate) mapped_conditional_branches: FxHashMap<TypeId, (TypeId, TypeId)>,
@@ -1251,6 +1254,8 @@ impl<'a, 'n> Checker<'a, 'n> {
             mapped_identity_optionality: FxHashMap::default(),
             mapped_identity_sources: FxHashMap::default(),
             mapped_types: FxHashMap::default(),
+            base_constraint_cache: FxHashMap::default(),
+            base_constraint_depth: 0,
             mapped_template_depth: 0,
             mapped_conditional_branches: FxHashMap::default(),
             mapped_conditionals: FxHashMap::default(),
