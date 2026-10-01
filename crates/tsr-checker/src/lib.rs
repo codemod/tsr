@@ -105,6 +105,7 @@ mod assignment_declarations;
 pub mod assignreport;
 pub mod binary;
 pub mod call_arity;
+mod callable_expandos;
 pub mod calls;
 pub mod check;
 pub mod checker;

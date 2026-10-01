@@ -1403,20 +1403,14 @@ fn an_overload_set_prints_as_a_type_literal_of_call_signatures() {
 }
 
 #[test]
-fn an_overload_set_carrying_expando_properties_is_still_a_gap() {
-    // The properties-and-index-signatures test at `nodebuilderimpl.go:2698`
-    // guards the type-literal arm as much as the bare-function one: upstream
-    // prints the expando members *interleaved* with the signatures, and member
-    // ordering is not ported (`bd tsr-4sc.8`). Printing only the signatures
-    // would be a wrong answer where a gap belongs, so the guard has to sit
-    // ahead of the signature-count match rather than inside its one-signature
-    // arm.
+fn an_overload_set_preserves_its_expando_properties() {
+    // `createTypeNodeFromObjectType` emits signatures before properties.
     assert_eq!(
         type_of_declaration(
             "function f(x: number);\nfunction f(x: string);\nfunction f(x: any) {}\nf.a = \"s\";",
             "f"
         ),
-        "error"
+        "{ (x: number): any; (x: string): any; a: string; }"
     );
     // §48 rendered the plain pattern, so the second overload answers now
     // and the set prints whole — the gapping-member property this pinned
@@ -2007,18 +2001,15 @@ fn a_signature_prints_a_parameters_annotation_as_written_not_the_symbols_type() 
 }
 
 #[test]
-fn a_function_carrying_expando_properties_is_a_gap_not_its_bare_signature() {
+fn a_function_carrying_expando_properties_prints_the_complete_object() {
     // `createTypeNodeFromObjectType` (`nodebuilderimpl.go:2698`) emits a bare
     // `FunctionTypeNode` only when the resolved type has no properties and no
     // index signatures. `function f() {} f.a = "s";` has one, and upstream
     // prints `{ (): void; a: string; }`.
-    //
-    // Printing `() => void` there is a *wrong* answer, not a partial one — it
-    // looks like a result. Found by a bounded differential over 302 corpus
-    // baselines: it was the largest identified pattern left inside
-    // `getTypeOfFuncClassEnumModule`, and gapping it took that sample's wrong
-    // lines from 281 to 253.
-    assert_eq!(type_of_declaration("function f(): void {}\nf.a = \"s\";", "f"), "error");
+    assert_eq!(
+        type_of_declaration("function f(): void {}\nf.a = \"s\";", "f"),
+        "{ (): void; a: string; }"
+    );
 
     // **The other direction, or the guard would swallow every function.** A
     // plain function has no such properties and still prints its signature.
@@ -2027,7 +2018,7 @@ fn a_function_carrying_expando_properties_is_a_gap_not_its_bare_signature() {
     // And a function merged with a namespace is unaffected, because the type
     // *query* arm answers first: `shouldEmitTypeOfSymbol` returns true for a
     // value module before the function case is reached, so the exports that
-    // would gap a signature are exactly what `typeof f` is meant to carry.
+    // belong to the callable are exactly what `typeof f` is meant to carry.
     assert_eq!(
         type_of_declaration("function f(): void {}\nnamespace f { export const a = 1; }", "f"),
         "typeof f"

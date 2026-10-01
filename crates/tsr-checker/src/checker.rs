@@ -1667,6 +1667,16 @@ impl<'a, 'n> Checker<'a, 'n> {
             _ => None,
         };
         let Some(module) = module else {
+            if self.signature_types.contains_key(&id)
+                && self.anonymous_properties.contains_key(&id)
+                && !self.rendering_composites.contains(&id)
+                && !self.alias_named_signature_types.contains(&id)
+            {
+                self.rendering_composites.insert(id);
+                let out = self.callable_object_to_string_at(id, reference);
+                self.rendering_composites.remove(&id);
+                return out;
+            }
             // The composite-print twin (`checker-notes-modobj.md` §10.13): a
             // single-signature type re-renders from its structure at the site,
             // so embedded named types take their qualifiers and renames. The

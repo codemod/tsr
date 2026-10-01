@@ -1114,6 +1114,66 @@ impl<'a> Checker<'a, '_> {
                 if !right || self.in_js_file(operand) {
                     return None;
                 }
+                // getContextualTypeForAssignmentExpression avoids resolving
+                // the containing callable while checking an expando's own
+                // initializer. Only an annotated variable supplies context.
+                if self.binder.symbol_of(binary_id).is_some() {
+                    let (receiver, name) = match binary.left? {
+                        tsr_ast::Expression::PropertyAccessExpression(access) => {
+                            let Some(tsr_ast::MemberName::Identifier(name)) = access.name else {
+                                return None;
+                            };
+                            (access.expression?, Some(name.text.to_owned()))
+                        }
+                        tsr_ast::Expression::ElementAccessExpression(access) => {
+                            let name = match access.argument_expression {
+                                Some(tsr_ast::Expression::StringLiteral(name)) => {
+                                    Some(name.text.to_owned())
+                                }
+                                Some(tsr_ast::Expression::NumericLiteral(name)) => {
+                                    Some(crate::printing::normalise_number(name.text))
+                                }
+                                _ => None,
+                            };
+                            (access.expression?, name)
+                        }
+                        _ => return None,
+                    };
+                    if let tsr_ast::Expression::Identifier(receiver) = receiver {
+                        let symbol = self.binder.resolve_name(
+                            self.nodes,
+                            self.node_map,
+                            receiver.node_id?,
+                            receiver.text,
+                            tsr_binder::SymbolFlags::VALUE,
+                        )?;
+                        let symbol =
+                            self.binder.symbols().get(symbol).export_symbol.unwrap_or(symbol);
+                        let merged = self.binder.merged_symbol(symbol);
+                        // TypeScript classes are not expando initializers.
+                        // Their synthetic prototype retains its ordinary
+                        // contextual type, even if the binder attached an
+                        // assignment to a merged function declaration.
+                        if !self
+                            .binder
+                            .symbols()
+                            .get(merged)
+                            .flags
+                            .contains(tsr_binder::SymbolFlags::CLASS)
+                        {
+                            let declaration = self.binder.symbols().get(symbol).value_declaration?;
+                            if self.nodes.kind(declaration) != SyntaxKind::VariableDeclaration {
+                                return None;
+                            }
+                            let annotation = self.type_annotation_of(declaration)?;
+                            let annotated = self.get_type_from_type_node(annotation);
+                            return name
+                                .and_then(|name| self.contextual_property_type(annotated, &name));
+                        }
+                    } else {
+                        return None;
+                    }
+                }
             }
             _ => return None,
         }

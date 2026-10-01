@@ -491,7 +491,7 @@ impl<'a> Checker<'a, '_> {
 /// That round-trip is the definition rather than a shortcut — it is what makes
 /// `"0"` numeric and `"00"`, `"1.0"` and `" 1"` not, all of which are distinct
 /// property names.
-fn is_numeric_literal_name(name: &str) -> bool {
+pub(crate) fn is_numeric_literal_name(name: &str) -> bool {
     let Ok(value) = name.parse::<f64>() else { return false };
     crate::printing::normalise_number(name) == name && value.is_finite()
 }

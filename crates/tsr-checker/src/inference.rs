@@ -4738,17 +4738,30 @@ impl Checker<'_, '_> {
         // Re-rendered exactly as the bake sites render: one signature is a
         // `FunctionTypeNode`, several are the type-literal form. An empty list
         // is unreachable (neither site records one) and refuses.
+        let mut properties = self
+            .anonymous_properties
+            .get(&id)
+            .map(|(properties, _)| properties.clone())
+            .unwrap_or_default();
+        for property in &mut properties {
+            property.r#type = self.instantiate_type(property.r#type, map, parameters, names);
+            if property.r#type == error {
+                return error;
+            }
+            property.printed_type = self.type_to_string(property.r#type);
+        }
         let (text, signature_node) = match printed.as_slice() {
             [] => return error,
-            [signature] => (self.signature_to_string(signature), true),
-            many => {
-                let mut out = String::from("{ ");
-                for signature in many {
-                    out.push_str(&crate::objects::signature_member_text(self, signature));
-                    out.push_str("; ");
-                }
-                out.push('}');
-                (out, false)
+            [signature] if properties.is_empty() => (self.signature_to_string(signature), true),
+            signatures => {
+                let mut members: Vec<_> = signatures
+                    .iter()
+                    .map(|signature| crate::objects::Member::Signature {
+                        printed: crate::objects::signature_member_text(self, signature),
+                    })
+                    .collect();
+                members.extend(crate::callable_expandos::property_members(&properties));
+                (crate::objects::render_object_type(&members), false)
             }
         };
         let TypeData::Anonymous { symbol, .. } = self.store.get(id).data else {
@@ -4767,6 +4780,9 @@ impl Checker<'_, '_> {
         });
         let minted =
             self.store.new_anonymous(crate::flags::TypeFlags::OBJECT, text, symbol, signature_node);
+        if !properties.is_empty() {
+            self.anonymous_properties.insert(minted, (properties, true));
+        }
         if renamed_print {
             self.alias_named_signature_types.insert(minted);
         }
@@ -5205,7 +5221,7 @@ impl Checker<'_, '_> {
                 .any(|&ty| self.mentions_type_parameter_inner(ty, parameters, names, visited));
         }
         if let Some(signatures) = self.signature_types.get(&id) {
-            return signatures.iter().any(|signature| {
+            if signatures.iter().any(|signature| {
                 signature
                     .parameters
                     .iter()
@@ -5220,6 +5236,13 @@ impl Checker<'_, '_> {
                             .flat_map(|p| [p.constraint, p.default].into_iter().flatten()),
                     )
                     .any(|ty| self.mentions_type_parameter_inner(ty, parameters, names, visited))
+            }) {
+                return true;
+            }
+            return self.anonymous_properties.get(&id).is_some_and(|(properties, _)| {
+                properties.iter().any(|property| {
+                    self.mentions_type_parameter_inner(property.r#type, parameters, names, visited)
+                })
             });
         }
         if let Some((properties, _)) = self.anonymous_properties.get(&id) {

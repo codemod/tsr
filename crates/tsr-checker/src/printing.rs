@@ -136,6 +136,23 @@ pub(crate) fn quote(value: &str) -> String {
     out
 }
 
+/// `escapeNonAsciiString` (internal/printer/utilities.go) for synthesized
+/// property names. Supplementary characters use UTF-16 surrogate escapes.
+pub(crate) fn quote_ascii(value: &str) -> String {
+    use std::fmt::Write as _;
+    let mut out = String::new();
+    for character in quote(value).chars() {
+        if character.is_ascii() {
+            out.push(character);
+        } else {
+            for unit in character.encode_utf16(&mut [0; 2]) {
+                let _ = write!(out, "\\u{unit:04X}");
+            }
+        }
+    }
+    out
+}
+
 /// Normalise a numeric literal's source text to the form TypeScript prints.
 ///
 /// TypeScript prints a numeric literal *type* as the ECMAScript `Number::toString`

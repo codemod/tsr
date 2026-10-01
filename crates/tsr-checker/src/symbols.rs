@@ -2445,40 +2445,21 @@ impl<'a> Checker<'a, '_> {
             };
             signatures
         };
-        // `createTypeNodeFromObjectType` emits a bare `FunctionTypeNode` only
-        // when the resolved type has **no properties and no index signatures**
-        // (`nodebuilderimpl.go:2698`), and takes the same test before rendering
-        // the type-literal form. A function with expando properties —
-        // `function f() {} f.a = "s";` — has them, and upstream prints
-        // `{ (): void; a: string; }`. Printing only the signatures there is a
-        // *wrong* answer rather than a partial one, which is worse: it looks
-        // like a result. Rendering the members needs member ordering this port
-        // does not have, so it is a gap, and `bd tsr-4sc.8` owns it.
-        // SS241. Upstream's test is on the RESOLVED TYPE — "no properties and no
-        // index signatures" — and `exports.is_empty()` is a proxy for it. The
-        // proxy is wrong for a **type-only** export, which contributes no
-        // property to the anonymous object type at all:
-        //
-        //     function y5c() { }
-        //     namespace y5c { export interface I { foo(): void } }
-        //     >y5c : () => void        <- upstream, NOT `{ (): void; ... }`
-        //
-        // Witnesses `augmentedTypesFunction` and `augmentedTypesModules`, opened
-        // independently before this was called a family (conventions corollary
-        // 21) and agreeing on the construct AND the branch.
-        //
-        // The expando gap above is untouched: a VALUE export or member still
-        // bails, because that one really does add a property this port cannot
-        // order. Only the type-only population moves.
+        // `resolveAnonymousTypeMembers` supplies callable exports, excluding
+        // type-only namespace members. `createTypeNodeFromObjectType` prints
+        // those properties after call signatures. Instance members still need
+        // the JavaScript constructor/prototype resolution path (tsr-6.27).
         let symbol_data = self.binder.symbols().get(symbol);
         let symbols = self.binder.symbols();
         let contributes_a_property =
             |&member: &SymbolId| symbols.get(member).flags.intersects(SymbolFlags::VALUE);
-        if symbol_data.exports.values().any(contributes_a_property)
-            || symbol_data.members.values().any(contributes_a_property)
-        {
+        if symbol_data.members.values().any(contributes_a_property) {
             return self.intrinsics.error;
         }
+        let Some(export_properties) = self.callable_export_properties(symbol) else {
+            return self.intrinsics.error;
+        };
+        let export_members = crate::callable_expandos::property_members(&export_properties);
         // `createTypeNodeFromObjectType` (`nodebuilderimpl.go:2690`) emits a bare
         // `FunctionTypeNode` only for a resolved type with exactly one call
         // signature and no construct signatures (`nodebuilderimpl.go:2706`).
@@ -2498,7 +2479,7 @@ impl<'a> Checker<'a, '_> {
         let mut signature_node = false;
         let printed = match signatures.as_slice() {
             [] => return self.intrinsics.error,
-            [signature] => {
+            [signature] if export_members.is_empty() => {
                 signature_node = true;
                 self.signature_to_string(signature)
             }
@@ -2529,13 +2510,14 @@ impl<'a> Checker<'a, '_> {
                 if any_const && collision {
                     return self.intrinsics.error;
                 }
-                let mut out = String::from("{ ");
-                for signature in many {
-                    out.push_str(&crate::objects::signature_member_text(self, signature));
-                    out.push_str("; ");
-                }
-                out.push('}');
-                out
+                let mut members: Vec<_> = many
+                    .iter()
+                    .map(|signature| crate::objects::Member::Signature {
+                        printed: crate::objects::signature_member_text(self, signature),
+                    })
+                    .collect();
+                members.extend(export_members);
+                crate::objects::render_object_type(&members)
             }
         };
         let built = self.store.new_anonymous(TypeFlags::OBJECT, printed, symbol, signature_node);
@@ -2543,6 +2525,9 @@ impl<'a> Checker<'a, '_> {
         // for `instantiate_type` — see `Checker::signature_types`
         // (`bd tsr-0hc`). Both arms are recorded; the single/many distinction
         // is recovered from the length when the instantiated form re-renders.
+        if !export_properties.is_empty() {
+            self.anonymous_properties.insert(built, (export_properties, false));
+        }
         self.signature_types.insert(built, signatures);
         // `checker.go:16930`: an OPTIONAL method carries `| undefined`.
         //

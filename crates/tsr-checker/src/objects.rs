@@ -2123,7 +2123,7 @@ fn upsert_member(members: &mut Vec<Member>, member: Member) {
 /// before emitting a bare name (`nodebuilderimpl.go:3269`). This covers the
 /// ASCII identifier subset only; a name outside it is a gap rather than a guess,
 /// because printing `{ "a-b": string; }` as `{ a-b: string; }` fails the line.
-fn is_identifier_text(text: &str) -> bool {
+pub(crate) fn is_identifier_text(text: &str) -> bool {
     let mut chars = text.chars();
     let Some(first) = chars.next() else { return false };
     (first.is_ascii_alphabetic() || first == '_' || first == '$')
