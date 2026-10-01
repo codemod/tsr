@@ -24,7 +24,7 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-10-01
 
-Measured on **`CODE_CHECKPOINT`**: **451,812/478,855 assertions (94.35%)**,
+Measured on **`e5ee6cc5`**: **451,812/478,855 assertions (94.35%)**,
 **6,674/9,538 complete cases (69.97%)**. The 95% target requires
 454,913 correct assertions; **3,101 remain**. Denominator and pinned oracle
 unchanged. Aligned verdicts: **474,243 total;451,812 right;3,485 gap;18,946 wrong**.
@@ -1178,7 +1178,7 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-### Current priorities at `CODE_CHECKPOINT` — 2026-10-01
+### Current priorities at `e5ee6cc5` — 2026-10-01
 
 Generic indexed deferral and conditional identities add 44 matches with zero
 RIGHT losses. Mapped contexts preserve conditional operands; distributed check
@@ -3825,7 +3825,7 @@ version of bare `any`.
 
 ## 5. Refused, with the number that refused it
 
-### Generic indexed objects at `CODE_CHECKPOINT`
+### Generic indexed objects at `e5ee6cc5`
 
 The initial native genericity/conditional-flag change gained 22 assertions but
 lost 17 in awaitedType. Preserving deferred conditionals on the no-alias await
@@ -9662,7 +9662,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
-| 2026-10-01 | `CODE_CHECKPOINT` | **69.97%** | **6,674** | **451,812/478,855 assertions (94.35%).** +44 since 6786ef93, zero RIGHT losses; 1G→W, 20 changed wrong. Generic indexed deferral, conditional identities/constraints, homomorphic mapped contexts and no-alias awaiting. Pinned controls; release tests/clippy; 3,364 anchors; snapshot refreshed. [Evidence](docs/architecture/checker-95-generic-indexed-objects.md). 3,101 remain; 95% unfinished. |
+| 2026-10-01 | `e5ee6cc5` | **69.97%** | **6,674** | **451,812/478,855 assertions (94.35%).** +44 since 6786ef93, zero RIGHT losses; 1G→W, 20 changed wrong. Generic indexed deferral, conditional identities/constraints, homomorphic mapped contexts and no-alias awaiting. Pinned controls; release tests/clippy; 3,364 anchors; snapshot refreshed. [Evidence](docs/architecture/checker-95-generic-indexed-objects.md). 3,101 remain; 95% unfinished. |
 | 2026-10-01 | `6786ef93` | **69.95%** | **6,672** | **451,768/478,855 assertions (94.34%).** +45 since 5fc064d4, zero RIGHT losses; 2G→W, 7 changed wrong. Anonymous callable structural relations, mapped method filters and generic overload failure inference. Pinned controls; release tests/clippy; 3,364 anchors; snapshot refreshed. [Evidence](docs/architecture/checker-95-callable-structure.md). 3,145 remain; 95% unfinished. |
 | 2026-10-01 | `5fc064d4` | **69.91%** | **6,668** | **451,723/478,855 assertions (94.33%).** +154 sinceafdc0a5b,zero RIGHT losses;40G→W,59 changed wrong,2W→G. Concrete indexed annotations,recursive object identities,indexed alias instantiation,inherited key enumeration. Pinned controls;release tests/clippy;3,364 anchors;snapshot refreshed. [Evidence](docs/architecture/checker-95-concrete-indexed-access.md).3,190 remain;95% unfinished. |
 | 2026-10-01 | `afdc0a5b` | **69.90%** | **6,667** | **451,569/478,855 assertions (94.30%).** +13 since43d36d92,zero adverse changes. Keyword alias instantiation,optional tuple numeric reads,never-index fallback. Pinned controls;release tests/clippy;3,364 anchors;snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-indexed-prerequisites.md).3,344 remain;95% unfinished. |

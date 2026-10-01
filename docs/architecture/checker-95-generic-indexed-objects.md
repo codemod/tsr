@@ -65,7 +65,7 @@ increment; its receipt is /tmp/compound-engineering-501/ce-code-review/generic-i
 
 ## Measured checkpoint and remaining work
 
-CODE_CHECKPOINT: 451,812/478,855 correct assertions (94.35%).
+e5ee6cc5: 451,812/478,855 correct assertions (94.35%).
 6,674/9,538 complete cases (69.97%).
 Aligned verdicts: 474,243 total; 451,812 RIGHT; 3,485 GAP; 18,946 WRONG.
 Relative to 6786ef93: 35 WRONG→RIGHT, 9 GAP→RIGHT, zero RIGHT losses,
