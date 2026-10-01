@@ -331,6 +331,152 @@ impl Checker<'_, '_> {
         (infos, return_mapper)
     }
 
+    /// getMutableArrayOrTupleType (checker.go:29571). Preserve mutable generic
+    /// array identities; readonly inputs become mutable variadic tuple images.
+    fn mutable_spread_argument_type(&mut self, source: TypeId) -> TypeId {
+        if let TypeData::Union { types, .. } = self.store.get(source).data.clone() {
+            let parts: Vec<_> =
+                types.into_iter().map(|part| self.mutable_spread_argument_type(part)).collect();
+            return self.get_union_type(&parts);
+        }
+        if source == self.intrinsics.any || self.const_context_is_mutable_array_like(source) {
+            return source;
+        }
+        self.normalize_variadic_tuple(
+            vec![crate::tuples::TupleElement {
+                r#type: source,
+                spread: true,
+                optional: false,
+                label: None,
+            }],
+            false,
+        )
+    }
+
+    /// getEffectiveCallArguments and getSpreadArgumentType (checker.go:30042,
+    /// :29500), for the inference tail after ordinary positional parameters.
+    fn inference_spread_argument_type(
+        &mut self,
+        arguments: &[Expression<'_>],
+        checked: &[TypeId],
+        start: usize,
+        rest: TypeId,
+    ) -> Option<TypeId> {
+        use crate::{flags::TypeFlags, tuples::TupleElement};
+        // Tuple spreads become synthetic arguments before contextual widening.
+        let mut effective = Vec::new();
+        for (position, &argument) in arguments.iter().enumerate().skip(start) {
+            if let Expression::SpreadElement(node) = argument {
+                let source = self.check_expression(node.expression?);
+                if self.is_error(source) {
+                    return None;
+                }
+                if let Some((types, _)) = self.tuple_element_lists.get(&source).cloned() {
+                    let optional = self.tuple_optional_masks.get(&source).cloned();
+                    let labels = self.tuple_labels.get(&source).cloned();
+                    for (index, mut ty) in types.into_iter().enumerate() {
+                        if self.strict_null_checks
+                            && optional
+                                .as_ref()
+                                .and_then(|m| m.get(index))
+                                .copied()
+                                .unwrap_or(false)
+                        {
+                            ty = self.get_union_type(&[ty, self.intrinsics.undefined]);
+                        }
+                        let label = labels.as_ref().and_then(|l| l.get(index)).cloned().flatten();
+                        effective.push((ty, false, label, None));
+                    }
+                } else if let Some((elements, _)) =
+                    self.variadic_tuple_elements.get(&source).cloned()
+                {
+                    for element in elements {
+                        let mut ty = element.r#type;
+                        if element.optional && self.strict_null_checks {
+                            ty = self.get_union_type(&[ty, self.intrinsics.undefined]);
+                        }
+                        effective.push((ty, element.spread, element.label, None));
+                    }
+                } else {
+                    effective.push((source, true, None, None));
+                }
+            } else {
+                effective.push((*checked.get(position)?, false, None, Some(argument)));
+            }
+        }
+        let in_const_context = self.is_const_type_variable(rest, 0);
+        if let [(source, true, _, _)] = effective.as_slice() {
+            let source = *source;
+            if self.tuple_array_like(source) || source == self.intrinsics.any {
+                return Some(self.mutable_spread_argument_type(source));
+            }
+            let element = self.array_spread_element_type(source)?;
+            let array =
+                self.global_type_symbol(if in_const_context { "ReadonlyArray" } else { "Array" })?;
+            return Some(self.create_type_reference(array, vec![element]));
+        }
+        let count = effective.len();
+        let mut elements = Vec::with_capacity(count);
+        for (index, (source, spread, label, expression)) in effective.into_iter().enumerate() {
+            let ty = if spread {
+                if self.tuple_array_like(source) || source == self.intrinsics.any {
+                    source
+                } else {
+                    let element = self.array_spread_element_type(source)?;
+                    let array = self.global_type_symbol("Array")?;
+                    self.create_type_reference(array, vec![element])
+                }
+            } else {
+                let key = self
+                    .store
+                    .intern(TypeFlags::NUMBER_LITERAL, TypeData::NumberLiteral(index.to_string()));
+                let contextual = if self.tuple_element_lists.contains_key(&rest)
+                    || self.variadic_tuple_elements.contains_key(&rest)
+                {
+                    self.contextual_type_for_element_expression(rest, index, count, None, None)
+                } else {
+                    self.resolved_indexed_access_type(rest, key, false)
+                }
+                .unwrap_or(self.intrinsics.unknown);
+                let source = if let Some(expression) = expression {
+                    self.const_literal_inference_source(
+                        expression,
+                        source,
+                        contextual,
+                        in_const_context,
+                    )
+                } else {
+                    source
+                };
+                // checkExpressionWithContextualType regularizes literals that
+                // match a primitive-constrained contextual variable before the
+                // spread builder applies ordinary literal widening.
+                let source = if self.is_literal_of_contextual_type(source, contextual) == Some(true)
+                {
+                    self.get_regular_type_of_literal_type(source)
+                } else {
+                    source
+                };
+                if in_const_context
+                    || self.maybe_type_of_kind(
+                        contextual,
+                        TypeFlags::PRIMITIVE
+                            | TypeFlags::INDEX
+                            | TypeFlags::TEMPLATE_LITERAL
+                            | TypeFlags::STRING_MAPPING,
+                    )
+                {
+                    self.get_regular_type_of_literal_type(source)
+                } else {
+                    self.get_widened_literal_type(source)
+                }
+            };
+            elements.push(TupleElement { r#type: ty, spread, optional: false, label });
+        }
+        let readonly = in_const_context && !self.const_context_is_mutable_array_like(rest);
+        Some(self.normalize_variadic_tuple(elements, readonly))
+    }
+
     fn check_generic_call_worker(
         &mut self,
         signature: &Signature,
@@ -362,9 +508,9 @@ impl Checker<'_, '_> {
             overload_failure || self.generic_callback_arity_failure(signature, arguments);
         // Upstream checks every argument (`checkExpression` through
         // `getEffectiveCallArguments`) whatever it then does with them, and the
-        // arguments are needed here anyway. A spread has no single position to
-        // land on, so it is a gap — but only after the arguments are checked,
-        // so the gap does not swallow their own lines.
+        // arguments are needed here anyway. Spreads in a non-array rest tail
+        // are expanded by inference_spread_argument_type below; unsupported
+        // positional spread calls still check their argument nodes first.
         let mut argument_types: Vec<TypeId> = Vec::with_capacity(arguments.len());
         let mut spread = false;
         let mut preceding_inferences = infos.clone();
@@ -419,7 +565,22 @@ impl Checker<'_, '_> {
                 }
             }
         }
-        if spread {
+        // getSpreadArgumentType can consume spreads in a non-array rest tail.
+        // Spreads before the rest still require effective positional arguments.
+        let spread_in_rest_tail = signature.parameters.last().is_some_and(|parameter| {
+            parameter.rest
+                && !self.type_reference_targets.get(&parameter.r#type).is_some_and(|(target, _)| {
+                    ["Array", "ReadonlyArray"].iter().any(|name| {
+                        self.global_type_symbol(name).is_some_and(|array| {
+                            self.binder.merged_symbol(array) == self.binder.merged_symbol(*target)
+                        })
+                    })
+                })
+                && arguments[..signature.parameters.len().saturating_sub(1).min(arguments.len())]
+                    .iter()
+                    .all(|argument| !matches!(argument, Expression::SpreadElement(_)))
+        });
+        if spread && !spread_in_rest_tail {
             for &argument in arguments {
                 if self.is_context_sensitive_argument(&argument) {
                     let _ = self.check_expression(argument);
@@ -637,12 +798,6 @@ impl Checker<'_, '_> {
         // `strictBindCallApply1` and `variadicTuples1/2` carry the largest
         // tuple-print residue (§950 sized the family at 1,380 lines).
         //
-        // A SPREAD argument at or after the rest position keeps the decline:
-        // upstream gives such an element `ElementFlagsVariadic` or
-        // `ElementFlagsRest`, and this port's tuple side table has no
-        // per-element flags at all (§950's forcing constraint), so the tuple
-        // built here would silently claim a required element where upstream
-        // records a variadic one.
         let spread_rest_position = rest_parameters
             .iter()
             .filter(|parameter| rest_element(self, parameter).is_none())
@@ -650,24 +805,6 @@ impl Checker<'_, '_> {
                 signature.parameters.iter().position(|other| other.name == parameter.name)
             })
             .min();
-        //
-        // **A `TYPE_PARAMETER`-only gate was tried here and removed.** Upstream
-        // tests `restType.flags&TypeFlagsTypeParameter != 0` one branch above
-        // (`checker.go:9467`) but only to set `impliedArity` — it gates nothing.
-        // Adding it as a gate measured **19 adverse to 18**, i.e. nothing, and
-        // it would have been a restriction this port invented. Recorded because
-        // the hypothesis it tested was wrong: the adverse rows are NOT
-        // tuple-typed rests.
-        let non_array_rest_is_inferrable = match spread_rest_position {
-            Some(position) => !arguments
-                .iter()
-                .skip(position)
-                .any(|argument| matches!(argument, tsr_ast::Expression::SpreadElement(_))),
-            None => true,
-        };
-        if !non_array_rest_is_inferrable {
-            return decline;
-        }
         // One candidate per type parameter, from the positions typed by that
         // parameter *bare*. Inference from `x: T[]` against `number[]` is
         // `inferFromTypes` (`checker.go:21287`) and is not ported, so such a
@@ -702,6 +839,11 @@ impl Checker<'_, '_> {
             parameters
                 .contains(&parameter)
                 .then_some((parameter, arguments.len().saturating_sub(position)))
+                .filter(|_| {
+                    !arguments[position.min(arguments.len())..]
+                        .iter()
+                        .any(|argument| matches!(argument, Expression::SpreadElement(_)))
+                })
         });
         if let Some((parameter, arity)) = implied_rest {
             if let Some(info) = infos.iter_mut().find(|info| info.type_parameter == parameter) {
@@ -784,7 +926,6 @@ impl Checker<'_, '_> {
                     // rests use element contexts, other rests indexed contexts.
                     // Const/primitive contexts retain regular literals; other
                     // contexts widen them. Construct mutability before inference.
-                    let mut spread_elements = Vec::with_capacity(arguments.len());
                     let in_const_context = self.is_const_type_variable(parameter.r#type, 0);
                     if in_const_context {
                         if self
@@ -805,51 +946,14 @@ impl Checker<'_, '_> {
                             );
                         }
                     }
-                    for position in index..arguments.len() {
-                        let Some(&argument) = argument_types.get(position) else { continue };
-                        let key = self.store.intern(
-                            TypeFlags::NUMBER_LITERAL,
-                            TypeData::NumberLiteral((position - index).to_string()),
-                        );
-                        let contextual =
-                            if self.tuple_element_lists.contains_key(&parameter.r#type)
-                                || self.variadic_tuple_elements.contains_key(&parameter.r#type)
-                            {
-                                self.contextual_type_for_element_expression(
-                                    parameter.r#type,
-                                    position - index,
-                                    arguments.len() - index,
-                                    None,
-                                    None,
-                                )
-                            } else {
-                                self.resolved_indexed_access_type(parameter.r#type, key, false)
-                            }
-                            .unwrap_or(self.intrinsics.unknown);
-                        let argument = self.const_literal_inference_source(
-                            arguments[position],
-                            argument,
-                            contextual,
-                            in_const_context,
-                        );
-                        let primitive_context = in_const_context
-                            || self.maybe_type_of_kind(
-                                contextual,
-                                TypeFlags::PRIMITIVE
-                                    | TypeFlags::INDEX
-                                    | TypeFlags::TEMPLATE_LITERAL
-                                    | TypeFlags::STRING_MAPPING,
-                            );
-                        let argument = if primitive_context {
-                            self.get_regular_type_of_literal_type(argument)
-                        } else {
-                            self.get_widened_literal_type(argument)
-                        };
-                        spread_elements.push(argument);
-                    }
-                    let readonly = in_const_context
-                        && !self.const_context_is_mutable_array_like(parameter.r#type);
-                    let spread = self.create_tuple_type(spread_elements, readonly);
+                    let Some(spread) = self.inference_spread_argument_type(
+                        arguments,
+                        &argument_types,
+                        index,
+                        parameter.r#type,
+                    ) else {
+                        return decline;
+                    };
                     let bucket = index.min(buckets.len() - 1);
                     self.infer_from_types(
                         spread,

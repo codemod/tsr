@@ -24,20 +24,21 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-10-01
 
-Measured on **`6c7fe447`**: **452,420/478,855 assertions (94.48%)**,
-**6,699/9,538 complete cases (70.23%)**. The updated 99% target requires
-474,067 correct assertions; **21,647 remain**. Denominator and pinned oracle
-unchanged. Aligned verdicts: **474,243 total; 452,420 right; 3,387 gap; 18,436 wrong**.
+Measured on **`CODE_CHECKPOINT`**: **452,625/478,855 assertions (94.52%)**,
+**6,704/9,538 complete cases (70.29%)**. The 99% target requires
+474,067 correct assertions; **21,442 remain**. Denominator and pinned oracle
+unchanged. Aligned verdicts: **474,243 total; 452,625 right; 3,378 gap; 18,240 wrong**.
 Binder retains its verified **8,497/8,497 (100%)** result at aab165d8;
 other suites below retain historical measurements.
 
-This unit adds **127 matching assertions**, with **zero RIGHT losses** relative
-to 5f7bb6e4. Four GAP→WRONG, one WRONG→GAP and 19 changed wrong answers remain.
-[Receiver and rest applicability](docs/architecture/checker-95-rest-applicability.md)
-records effective tuple arity, per-position rest checks, instantiated receivers,
-class Function fallback and recursive asserted returns. Twenty-two pinned
-outcomes pass. Release workspace tests, clippy, anchors, snapshot, format and
-whitespace validation are recorded in that checkpoint. The 99% goal is
+This unit adds **205 matching assertions**, with **zero RIGHT losses** relative
+to 6c7fe447. One GAP→WRONG and four changed wrong answers remain.
+[Generic rest spread inference](docs/architecture/checker-99-spread-inference.md)
+records effective tuple expansion, generic array identities, resolved contextual
+literal constraints and instantiated property reads after union discrimination.
+Twenty-seven native declaration outcomes and three pinned baseline property
+controls pass. Release workspace tests, clippy, anchors, snapshot, format and
+whitespace validation are recorded with the checkpoint. The 99% goal remains
 unfinished; verified changes commit and push to main.
 
 ### Previous whole-suite measurement — historical
@@ -1087,6 +1088,11 @@ Per-crate, by what the conformance suites actually assert — not by what exists
 
 ### Inside the checker — what has an arm
 
+Non-array generic rest inference expands tuple spreads, preserves variadic
+positions and generic array identities, and uses resolved base constraints for
+contextual literal retention. Discriminated mapped members read their
+instantiated types. See [spread inference](docs/architecture/checker-99-spread-inference.md).
+
 Generic overload applicability checks instantiated receivers and every effective
 rest position, including fixed tuple arity and failure recovery. Class binding
 uses NewableFunction before Function. Asserted concise returns avoid recursive
@@ -1209,7 +1215,15 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-### Current priorities at `6c7fe447` — 2026-10-01
+### Current priorities at `CODE_CHECKPOINT` — 2026-10-01
+
+Continue toward 99% coverage. Spreads before ordinary parameters, derived array
+interfaces, full spread applicability, expanded implied arity and incomplete
+generic tuple inference remain in tsr-6.28. CheckMode propagation, generic
+mapped/conditional inference, private alias expansion and unique-symbol
+rendering remain in tsr-6.30. Instrument control repair remains tsr-6.29.
+
+### Previous priorities at `6c7fe447` — 2026-10-01
 
 Receiver/rest applicability and recursive asserted returns add 127 matches with
 zero RIGHT losses. Full non-array-rest spread construction, incomplete generic
@@ -3887,6 +3901,19 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+### Generic rest spreads at `CODE_CHECKPOINT`
+
+Rejecting context-sensitive argument placeholders lost ten variadicTuples2
+assertions; preserving the existing deferred inference path recovered them.
+The first full spread run gained 75 with zero RIGHT losses. Resolved base
+constraints raised the gross gain to 144 but lost four correlatedUnions property
+assertions. Alias-body re-evaluation did not recover them and was reverted.
+Reading instantiated members after union discrimination recovered all four;
+the subsequent full run gained 205 with zero RIGHT losses. Native review also
+caught optional tuple spreads omitting undefined under exact optional property
+mode; the corrected path has an explicit control. Derived array interfaces and
+unique-symbol declaration rendering remain gaps. [Evidence](docs/architecture/checker-99-spread-inference.md).
 
 ### Receiver and rest applicability at `6c7fe447`
 
@@ -9776,6 +9803,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
+| 2026-10-01 | `CODE_CHECKPOINT` | **70.29%** | **6,704** | **452,625/478,855 assertions (94.52%).** +205 since 6c7fe447, zero RIGHT losses; 1G→W, 4 changed wrong. Generic rest spreads, contextual literal base constraints and instantiated discriminated members. Native controls; release tests/clippy; anchors; snapshot refreshed. [Evidence](docs/architecture/checker-99-spread-inference.md). 21,442 remain to 99%. |
 | 2026-10-01 | `6c7fe447` | **70.23%** | **6,699** | **452,420/478,855 assertions (94.48%).** +127 since 5f7bb6e4, zero RIGHT losses; 4G→W, 1W→G, 19 changed wrong. Receiver/rest applicability, constructor binding and recursive asserted returns. Twenty-two pinned outcomes; release tests/clippy; anchors; snapshot refreshed. [Evidence](docs/architecture/checker-95-rest-applicability.md). User raised the goal to 99%; 21,647 remain. |
 | 2026-10-01 | `5f7bb6e4` | **70.20%** | **6,696** | **452,293/478,855 assertions (94.45%).** +28 since 42e7881a, all WRONG→RIGHT with no adverse transitions. Contextual construct selection and generic alias return propagation. Thirteen pinned outcomes; release tests/clippy; 3,362 anchors; snapshot refreshed. [Evidence](docs/architecture/checker-95-contextual-construct-inference.md). 2,620 remain; 95% unfinished. |
 | 2026-10-01 | `42e7881a` | **70.18%** | **6,694** | **452,265/478,855 assertions (94.45%).** +211 since aab165d8, zero RIGHT losses; 11G→W, 19 changed wrong. Construct-signature relations, class constructors and computed statics. Pinned controls; release tests/clippy; 3,362 anchors; snapshot refreshed. [Evidence](docs/architecture/checker-95-construct-relations.md). 2,648 remain; 95% unfinished. |

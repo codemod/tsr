@@ -2954,9 +2954,8 @@ impl<'a> Checker<'a, '_> {
     /// - a union or intersection contextual type asks per constituent, any
     ///   `true` wins;
     /// - an instantiable non-primitive (type parameter, indexed access,
-    ///   conditional, substitution) consults its base constraint — unported,
-    ///   so those answer `None` and the caller keeps its gap rather than
-    ///   widening a literal upstream might keep;
+    ///   conditional, substitution) consults its resolved base constraint and
+    ///   recursively recognizes literal or primitive-constrained contexts;
     /// - a literal-flavored contextual type keeps candidates of the same
     ///   flavor, with `keyof`/template-literal/string-mapping counting as
     ///   string-literal contexts.
@@ -3012,7 +3011,7 @@ impl<'a> Checker<'a, '_> {
             // `getBaseConstraintOfType`; a parameter with no constraint is
             // `unknown` upstream, which matches no primitive, so a missing
             // constraint is `Some(false)` rather than a decline.
-            let Some(constraint) = self.type_parameter_constraint(contextual) else {
+            let Some(constraint) = self.base_constraint_of_type(contextual) else {
                 return Some(false);
             };
             return Some(
@@ -3022,8 +3021,9 @@ impl<'a> Checker<'a, '_> {
                         && self.maybe_type_of_kind(candidate, TF::NUMBER_LITERAL)
                     || self.maybe_type_of_kind(constraint, TF::BIG_INT)
                         && self.maybe_type_of_kind(candidate, TF::BIG_INT_LITERAL)
-                    || self.maybe_type_of_kind(constraint, TF::BOOLEAN)
-                        && self.maybe_type_of_kind(candidate, TF::BOOLEAN_LITERAL),
+                    || self.maybe_type_of_kind(constraint, TF::ES_SYMBOL)
+                        && self.maybe_type_of_kind(candidate, TF::UNIQUE_ES_SYMBOL)
+                    || self.is_literal_of_contextual_type(candidate, constraint) == Some(true),
             );
         }
         Some(

@@ -1705,9 +1705,10 @@ impl<'a> Checker<'a, '_> {
         if discriminated != contextual
             && !matches!(self.store.get(discriminated).data, TypeData::Union { .. })
         {
-            return self
-                .get_property_of_type(discriminated, name)
-                .map(|property| self.get_type_of_symbol(property));
+            // Read the instantiated property, not its template declaration.
+            // A mapped union constituent may share a symbol whose written type
+            // still mentions the mapped key even after discrimination.
+            return self.get_type_of_property_of_type(discriminated, name);
         }
         // §927's FIRST guard is **removed by §938**, which is exactly the
         // prediction §927 recorded: *"removing both guards is how you would know
