@@ -64,7 +64,7 @@ Review receipt: /tmp/compound-engineering-501/ce-code-review/source-constraints-
 
 ## Checkpoint and remaining work
 
-CODE_CHECKPOINT: 451,884/478,855 correct assertions (94.37%).
+a529367a: 451,884/478,855 correct assertions (94.37%).
 6,679/9,538 complete cases (70.03%).
 Aligned verdicts: 474,243 total; 451,884 RIGHT; 3,481 GAP; 18,878 WRONG.
 Relative to e5ee6cc5: 69 WRONG→RIGHT, 3 GAP→RIGHT, zero RIGHT losses,

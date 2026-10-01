@@ -24,7 +24,7 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-10-01
 
-Measured on **`CODE_CHECKPOINT`**: **451,884/478,855 assertions (94.37%)**,
+Measured on **`a529367a`**: **451,884/478,855 assertions (94.37%)**,
 **6,679/9,538 complete cases (70.03%)**. The 95% target requires
 454,913 correct assertions; **3,029 remain**. Denominator and pinned oracle
 unchanged. Aligned verdicts: **474,243 total;451,884 right;3,481 gap;18,878 wrong**.
@@ -1187,7 +1187,7 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-### Current priorities at `CODE_CHECKPOINT` — 2026-10-01
+### Current priorities at `a529367a` — 2026-10-01
 
 Source constraints and callable reference substitution add 72 matches with zero
 RIGHT losses. Next relation work includes effective combined intersection
@@ -3844,7 +3844,7 @@ version of bare `any`.
 
 ## 5. Refused, with the number that refused it
 
-### Source constraints at `CODE_CHECKPOINT`
+### Source constraints at `a529367a`
 
 Removing the assignability constraint gate alone gained 41 and lost seven.
 Deferral order, callable reference substitution and union identity restored them.
@@ -9690,7 +9690,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
-| 2026-10-01 | `CODE_CHECKPOINT` | **70.03%** | **6,679** | **451,884/478,855 assertions (94.37%).** +72 since e5ee6cc5, zero RIGHT losses; 1G→W, 4 changed wrong. Source constraints, union identity order, indexed deferral, callable reference substitution and contextual generic callbacks. Pinned controls; release tests/clippy; 3,363 anchors; snapshot refreshed. [Evidence](docs/architecture/checker-95-source-constraints.md). 3,029 remain; 95% unfinished. |
+| 2026-10-01 | `a529367a` | **70.03%** | **6,679** | **451,884/478,855 assertions (94.37%).** +72 since e5ee6cc5, zero RIGHT losses; 1G→W, 4 changed wrong. Source constraints, union identity order, indexed deferral, callable reference substitution and contextual generic callbacks. Pinned controls; release tests/clippy; 3,363 anchors; snapshot refreshed. [Evidence](docs/architecture/checker-95-source-constraints.md). 3,029 remain; 95% unfinished. |
 | 2026-10-01 | `e5ee6cc5` | **69.97%** | **6,674** | **451,812/478,855 assertions (94.35%).** +44 since 6786ef93, zero RIGHT losses; 1G→W, 20 changed wrong. Generic indexed deferral, conditional identities/constraints, homomorphic mapped contexts and no-alias awaiting. Pinned controls; release tests/clippy; 3,364 anchors; snapshot refreshed. [Evidence](docs/architecture/checker-95-generic-indexed-objects.md). 3,101 remain; 95% unfinished. |
 | 2026-10-01 | `6786ef93` | **69.95%** | **6,672** | **451,768/478,855 assertions (94.34%).** +45 since 5fc064d4, zero RIGHT losses; 2G→W, 7 changed wrong. Anonymous callable structural relations, mapped method filters and generic overload failure inference. Pinned controls; release tests/clippy; 3,364 anchors; snapshot refreshed. [Evidence](docs/architecture/checker-95-callable-structure.md). 3,145 remain; 95% unfinished. |
 | 2026-10-01 | `5fc064d4` | **69.91%** | **6,668** | **451,723/478,855 assertions (94.33%).** +154 sinceafdc0a5b,zero RIGHT losses;40G→W,59 changed wrong,2W→G. Concrete indexed annotations,recursive object identities,indexed alias instantiation,inherited key enumeration. Pinned controls;release tests/clippy;3,364 anchors;snapshot refreshed. [Evidence](docs/architecture/checker-95-concrete-indexed-access.md).3,190 remain;95% unfinished. |
