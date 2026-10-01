@@ -1410,6 +1410,15 @@ impl Checker<'_, '_> {
         name: &str,
         visiting: &mut Vec<SymbolId>,
     ) -> Option<TypeId> {
+        self.generic_heritage_member_with_shadowed(id, name, visiting).map(|(ty, _)| ty)
+    }
+
+    fn generic_heritage_member_with_shadowed(
+        &mut self,
+        id: TypeId,
+        name: &str,
+        visiting: &mut Vec<SymbolId>,
+    ) -> Option<(TypeId, Vec<String>)> {
         let TypeData::Named { members: Some(owner), .. } = self.store.get(id).data else {
             return None;
         };
@@ -1489,13 +1498,21 @@ impl Checker<'_, '_> {
                                 &shadowed_refs,
                             );
                             if composed != self.intrinsics.error {
-                                return Some(composed);
+                                return Some((composed, shadowed));
                             }
-                            return Some(instantiated);
+                            return Some((instantiated, shadowed));
                         }
                     }
-                    if let Some(member) = self.generic_heritage_member(base_type, name, visiting) {
-                        return Some(member);
+                    if let Some((member, shadowed)) =
+                        self.generic_heritage_member_with_shadowed(base_type, name, visiting)
+                    {
+                        // Resolve inherited members under every enclosing
+                        // reference mapper, including indirect generic bases.
+                        let names: Vec<_> = shadowed.iter().map(String::as_str).collect();
+                        let member = self.instantiate_for_reference_shadowed(id, member, &names);
+                        if member != self.intrinsics.error {
+                            return Some((member, shadowed));
+                        }
                     }
                 }
             }

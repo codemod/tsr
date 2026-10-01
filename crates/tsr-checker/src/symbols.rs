@@ -3739,7 +3739,10 @@ impl<'a> Checker<'a, '_> {
             // DECISION, not a decline, so it is gated on the flag actually
             // read from the case's options; the paired control fixture
             // asserts `null` stays `null` under `@strict: true`.
+            // Explicit annotations retain their non-widening null/undefined
+            // types, including the BuiltinIteratorReturn intrinsic alias.
             if !self.strict_null_checks
+                && self.type_annotation_of(declaration).is_none()
                 && (id == self.intrinsics.null
                     || id == self.intrinsics.undefined
                     || id == self.intrinsics.undefined_widening)
@@ -4102,6 +4105,15 @@ impl<'a> Checker<'a, '_> {
     /// argument, tuples the union of their elements, strings `string`.
     /// `None` declines to the implicit-any road.
     pub(crate) fn for_of_element_type(&mut self, iterated: TypeId) -> Option<TypeId> {
+        let yields = self.for_of_yield_types(iterated)?;
+        // Only the consumer replaces an absent yield with any. Combining a
+        // union of iterables must first omit constituents that only return.
+        Some(if yields.is_empty() { self.intrinsics.any } else { self.get_union_type(&yields) })
+    }
+
+    /// None is unresolved; an empty vector is a resolved but absent yield.
+    /// A real never yield remains a one-element vector containing never.
+    fn for_of_yield_types(&mut self, iterated: TypeId) -> Option<Vec<TypeId>> {
         // getPropertyOfType reads the apparent type of a type parameter when
         // resolving its iterator; the array shortcut uses the same constraint.
         let mut iterated = iterated;
@@ -4119,14 +4131,14 @@ impl<'a> Checker<'a, '_> {
         // getIteratedTypeOrElementType reads the numeric tuple index signature,
         // including each variadic operand's own deferred number access.
         if let Some(element) = self.variadic_tuple_index_union(iterated) {
-            return Some(element);
+            return Some(vec![element]);
         }
         if let Some((elements, _)) = self.tuple_element_lists.get(&iterated) {
             let elements = elements.clone();
             if elements.is_empty() {
                 return None;
             }
-            return Some(self.get_union_type(&elements));
+            return Some(vec![self.get_union_type(&elements)]);
         }
         if let Some((target, arguments)) = self.type_reference_targets.get(&iterated).cloned()
             && arguments.len() == 1
@@ -4147,7 +4159,7 @@ impl<'a> Checker<'a, '_> {
             // answering `undefined` through this road, so it keeps the gap
             // until one is.
             if is_array && arguments[0] != self.intrinsics.undefined {
-                return Some(arguments[0]);
+                return Some(vec![arguments[0]]);
             }
         }
         // §251. The SAME shortcut the `Array` arm above already takes, applied
@@ -4163,13 +4175,6 @@ impl<'a> Checker<'a, '_> {
         // already declines to walk it and reads the argument instead. These
         // four types are the population that decision was implicitly about;
         // naming only `Array` was the accident.
-        //
-        // The protocol itself stays blocked for USER-DEFINED iterables, and
-        // for the reason recorded below — a computed `[Symbol.iterator]`
-        // member is filed under `__computed`, in no symbol table, because late
-        // binding is unported. That blocker is real and this does not pretend
-        // otherwise; it sidesteps it only where the lib's own declaration
-        // makes the answer readable without the walk.
         //
         // Witness `conformance/for-of57`: `var iter: Iterable<number>;
         // for (let num of iter) { }` wants `>num : number`.
@@ -4210,44 +4215,22 @@ impl<'a> Checker<'a, '_> {
                     .filter_map(|name| self.binder.globals().get(name).copied())
                     .any(|symbol| self.binder.merged_symbol(symbol) == target);
             if is_lib_iterable {
-                return Some(first);
+                return Some(vec![first]);
             }
         }
         let flags = self.store.get(iterated).flags;
         if flags.intersects(crate::flags::TypeFlags::STRING_LITERAL)
             || iterated == self.intrinsics.string
         {
-            return Some(self.intrinsics.string);
+            return Some(vec![self.intrinsics.string]);
         }
-        // **The custom-iterable road is blocked, and the blocker is named so
-        // the next reader does not re-derive it.** `for (var v of new
-        // FooIterator)` wants the ITERATION PROTOCOL: read `[Symbol.iterator]`
-        // off the type, take its call signature's return, read `next` off
-        // that, take ITS return's `value` property. Every one of those four
-        // steps has ported machinery — and the first is unreachable, because
-        // the binder files a computed-name member under `__computed`, which is
-        // *deliberately in no symbol table at all* (`binder.rs`'s
-        // `INTERNAL_COMPUTED`): late binding is unported
-        // (`member_completeness.rs:38`). There is no name to look
-        // `[Symbol.iterator]` up by.
-        //
-        // ~~Measured population, `nearmiss --max 2`: about ten cases … They
-        // will convert when late binding lands and not before; nothing
-        // narrower reaches them, because the protocol's first hop is the one
-        // that is missing. §212.~~ **§284 CORRECTS THE REFUSAL'S SCOPE**: the
-        // first hop needs late binding only to LOOK UP the member; verifying
-        // its PRESENCE is a syntax question on the class declaration, which
-        // is exactly how §145 already recognises `[Symbol.hasInstance]`
-        // computed names. With presence verified, the remaining three hops —
-        // `next` (a regular member), its call return, its `value` — were
-        // ported all along, by §212's own admission.
-        // The `next` read is SYNTACTIC too — through the method declaration
-        // rather than `get_type_of_property_of_type`, because the first draft
-        // routed through the member seam mid-check and the memo it left
-        // changed `next`'s own declaration line in `for-of34` from
-        // `() => any` to `any` (1 R→W): a resolution-order side effect, the
-        // §244 shape. `get_signature_from_declaration` computes the same
-        // signature without touching the member symbol's memo.
+        if let Some(yield_type) = self.semantic_iterable_yield_types(iterated) {
+            return Some(yield_type);
+        }
+        // Preserve the declaration-based fallback while callable return types
+        // remain eager. A recursive iterator method can reach this path during
+        // its own return inference (for-of33/34); reading its symbol type again
+        // would invalidate the enclosing callable's resolution frame.
         if self.declares_symbol_iterator(iterated)
             && let Some(next_id) = self.class_method_declaration(iterated, "next")
             && let Some(signature) = self.get_signature_from_declaration(next_id)
@@ -4255,9 +4238,163 @@ impl<'a> Checker<'a, '_> {
             && let Some(value) = self.get_type_of_property_of_type(signature.r#type, "value")
             && value != self.intrinsics.error
         {
-            return Some(value);
+            return Some(vec![value]);
         }
         None
+    }
+
+    /// The synchronous getIterationTypesOfIterableSlow/getIterationTypesOfMethod
+    /// path (checker.go:6460, :6541). Member reads carry inherited substitutions.
+    fn semantic_iterable_yield_types(&mut self, source: TypeId) -> Option<Vec<TypeId>> {
+        if !self.resolving_iteration_types.insert(source) {
+            return None;
+        }
+        let result = self.semantic_iterable_yield_types_worker(source);
+        self.resolving_iteration_types.remove(&source);
+        result
+    }
+
+    fn iteration_property_type(&mut self, source: TypeId, name: &str) -> Option<TypeId> {
+        // Native function objects exist before their lazy return types resolve.
+        // Our eager function type cannot be requested again while its own
+        // return type is resolving: doing so marks the whole callable as a
+        // failed cycle. Leave that unresolved iteration edge to its caller.
+        if let Some(symbol) = self.get_property_of_type(source, name)
+            && self.resolutions.on_stack(symbol, PropertyName::Type)
+        {
+            return None;
+        }
+        self.get_type_of_property_of_type(source, name)
+    }
+
+    fn semantic_iterable_yield_types_worker(&mut self, source: TypeId) -> Option<Vec<TypeId>> {
+        if let crate::types::TypeData::Union { types, .. } = self.store.get(source).data.clone() {
+            let types = types
+                .into_iter()
+                .map(|part| self.for_of_yield_types(part))
+                .collect::<Option<Vec<_>>>()?;
+            return Some(types.into_iter().flatten().collect());
+        }
+        let iterator = self.iteration_property_type(source, "[Symbol.iterator]")?;
+        if self.is_error(iterator) {
+            return None;
+        }
+        if iterator == self.intrinsics.any {
+            return Some(vec![iterator]);
+        }
+        if self
+            .get_property_of_type(source, "[Symbol.iterator]")
+            .is_some_and(|symbol| self.property_is_optional(symbol))
+        {
+            return None;
+        }
+        let signatures = self.call_signatures_of_type(iterator)?;
+        let mut returns = Vec::new();
+        for signature in signatures {
+            if self.signature_min_argument_count(&signature) == 0 {
+                if self.is_error(signature.r#type) {
+                    return None;
+                }
+                returns.push(signature.r#type);
+            }
+        }
+        if returns.is_empty() {
+            return None;
+        }
+        let iterator = self.get_intersection_type(&returns, None);
+        if iterator == self.intrinsics.any {
+            return Some(vec![iterator]);
+        }
+        let mut yields = Vec::new();
+        for name in ["next", "return", "throw"] {
+            let Some(mut method) = self.iteration_property_type(iterator, name) else {
+                if name == "next" {
+                    return None;
+                }
+                continue;
+            };
+            if self.is_error(method) {
+                return None;
+            }
+            if name == "next"
+                && self
+                    .get_property_of_type(iterator, name)
+                    .is_some_and(|symbol| self.property_is_optional(symbol))
+            {
+                return None;
+            }
+            if name != "next" {
+                method = self.get_non_nullable_type(method);
+            }
+            if method == self.intrinsics.any {
+                return Some(vec![method]);
+            }
+            let signatures = if self.store.get(method).flags.intersects(TypeFlags::PRIMITIVE) {
+                Vec::new()
+            } else {
+                self.call_signatures_of_type(method)?
+            };
+            if signatures.is_empty() {
+                // A non-callable optional return/throw contributes no iteration
+                // types, even though native also reports a diagnostic for it.
+                if name != "next" {
+                    continue;
+                }
+                return None;
+            }
+            let returns: Vec<_> = signatures.iter().map(|signature| signature.r#type).collect();
+            if returns.iter().any(|&ty| self.is_error(ty)) {
+                return None;
+            }
+            let mut result = self.get_intersection_type(&returns, None);
+            // Native aliases already carry their body's union identity. Resolve
+            // this port's named alias before separating yield and return arms.
+            let mut visited = Vec::new();
+            while let Some((symbol, arguments)) = self.type_reference_targets.get(&result).cloned()
+            {
+                if visited.contains(&result) {
+                    break;
+                }
+                visited.push(result);
+                let Some(body) = self.evaluate_alias_body(symbol, &arguments) else { break };
+                if body == result {
+                    break;
+                }
+                result = body;
+            }
+            let parts = match self.store.get(result).data.clone() {
+                crate::types::TypeData::Union { types, .. } => types,
+                _ => vec![result],
+            };
+            for part in parts {
+                if part == self.intrinsics.any {
+                    return Some(vec![part]);
+                }
+                let done = self
+                    .get_type_of_property_of_type(part, "done")
+                    .unwrap_or(self.intrinsics.false_type);
+                if self.is_error(done) {
+                    return None;
+                }
+                match self.relate_ternary(
+                    self.intrinsics.false_type,
+                    done,
+                    crate::relater::Relation::Assignable,
+                ) {
+                    crate::relater::Ternary::NotRelated => continue,
+                    crate::relater::Ternary::Unknown => return None,
+                    crate::relater::Ternary::Related => {}
+                }
+                let value = self.get_type_of_property_of_type(part, "value")?;
+                if self.is_error(value) {
+                    return None;
+                }
+                yields.push(value);
+            }
+        }
+        // combineIterationTypes preserves absence until all iterable union
+        // constituents have contributed their yield types.
+        Some(yields)
     }
 
     /// §284: the class method declaration of the given name, found on the

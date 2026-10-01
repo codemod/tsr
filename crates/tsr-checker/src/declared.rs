@@ -1068,6 +1068,26 @@ impl<'a> Checker<'a, '_> {
             }
             tsr_ast::EntityName::QualifiedName(qualified) => self.check_qualified_name(qualified),
         };
+        // getTypeFromTypeQueryNode widens before regularizing. Native seeds
+        // the global undefined symbol with undefinedWideningType; this port
+        // shares its ordinary undefined identity, so retain that provenance
+        // through symbol resolution here. Written undefined annotations and
+        // shadowing declarations remain non-widening.
+        if !self.strict_null_checks
+            && id == self.intrinsics.undefined
+            && let tsr_ast::EntityName::Identifier(identifier) = name
+            && let Some(location) = identifier.node_id
+            && let Some(symbol) = self.binder.resolve_name(
+                self.nodes,
+                self.node_map,
+                location,
+                identifier.text,
+                SymbolFlags::VALUE,
+            )
+            && Some(symbol) == self.binder.undefined_symbol()
+        {
+            return self.intrinsics.any;
+        }
         self.get_regular_type_of_literal_type(id)
     }
 
@@ -4978,6 +4998,19 @@ impl<'a> Checker<'a, '_> {
         else {
             return error;
         };
+        // getDeclaredTypeOfTypeAlias / getBuiltinIteratorReturnType
+        // (checker.go:23857,6400): this intrinsic follows the strict-family
+        // option, independently of strictNullChecks.
+        if matches!(type_node, TypeNode::KeywordTypeNode(keyword)
+            if keyword.kind == SyntaxKind::IntrinsicKeyword)
+            && self.binder.symbols().get(symbol).name == "BuiltinIteratorReturn"
+        {
+            return if self.strict_builtin_iterator_return {
+                self.intrinsics.undefined
+            } else {
+                self.intrinsics.any
+            };
+        }
         // §29: a mention of the alias inside its own resolution answers the
         // memoized NAME placeholder — upstream's laziness, at the one seam
         // print-at-creation permits. No failure marking, so the outer

@@ -451,6 +451,10 @@ pub fn apply_test_directives(
         strict_null_checks: tristate("strictnullchecks", base.strict_null_checks),
         strict_function_types: tristate("strictfunctiontypes", base.strict_function_types),
         strict_bind_call_apply: tristate("strictbindcallapply", base.strict_bind_call_apply),
+        strict_builtin_iterator_return: tristate(
+            "strictbuiltiniteratorreturn",
+            base.strict_builtin_iterator_return,
+        ),
         strict_property_initialization: tristate(
             "strictpropertyinitialization",
             base.strict_property_initialization,

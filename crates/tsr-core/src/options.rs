@@ -630,7 +630,8 @@ pub struct CompilerOptions {
     pub strict_function_types: Tristate,
     /// `strictBindCallApply`. Parsed; not yet read.
     pub strict_bind_call_apply: Tristate,
-    /// `strictBuiltinIteratorReturn`. Parsed; not yet read.
+    /// `strictBuiltinIteratorReturn`. Selects `undefined` rather than `any` for
+    /// the built-in iterator return intrinsic.
     pub strict_builtin_iterator_return: Tristate,
     /// `noImplicitThis`. Parsed; not yet read.
     pub no_implicit_this: Tristate,

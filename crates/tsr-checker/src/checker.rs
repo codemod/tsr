@@ -361,6 +361,8 @@ pub struct Checker<'a, 'n> {
     /// stack when return inference joined that road. A call node present here
     /// answers `any` on re-entry rather than resolving again.
     pub(crate) resolving_signature_calls: rustc_hash::FxHashSet<tsr_ast::NodeId>,
+    /// Active synchronous iterable resolution, guarding recursive protocols.
+    pub(crate) resolving_iteration_types: rustc_hash::FxHashSet<TypeId>,
     /// §469's other half of the signature-links table: DECLARATIONS whose
     /// inferred return type is currently consulting the contextual road.
     /// Upstream's `signatureLinks` is keyed per NODE and serves both the
@@ -447,6 +449,8 @@ pub struct Checker<'a, 'n> {
     /// `strictFunctionTypes`, used by `compareSignaturesRelated`
     /// (`internal/checker/relater.go`) for parameter variance.
     pub(crate) strict_function_types: bool,
+    /// Strict-family selection for the `BuiltinIteratorReturn` intrinsic.
+    pub(crate) strict_builtin_iterator_return: bool,
     /// Current structural inference direction (`InferenceState`,
     /// internal/checker/inference.go), restored around each entry walk.
     pub(crate) inference_contravariant: bool,
@@ -1169,6 +1173,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             resolved_call_signatures: rustc_hash::FxHashMap::default(),
             higher_order_context_calls: rustc_hash::FxHashSet::default(),
             resolving_signature_calls: rustc_hash::FxHashSet::default(),
+            resolving_iteration_types: rustc_hash::FxHashSet::default(),
             contextual_return_in_flight: rustc_hash::FxHashSet::default(),
             contextual_return_depth: 0,
             intra_expression_member_maps: rustc_hash::FxHashMap::default(),
@@ -1182,6 +1187,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             instantiation_count: 0,
             strict_null_checks: true,
             strict_function_types: true,
+            strict_builtin_iterator_return: true,
             inference_contravariant: false,
             inference_bivariant: false,
             inference_priority: crate::inference::InferencePriority::NONE,
@@ -1356,6 +1362,8 @@ impl<'a, 'n> Checker<'a, 'n> {
         let previous_strict_function_types = self.strict_function_types;
         // The strict family (`checker.go:919-926`).
         self.strict_null_checks = options.strict_option_value(options.strict_null_checks);
+        self.strict_builtin_iterator_return =
+            options.strict_option_value(options.strict_builtin_iterator_return);
         self.strict_function_types = options.strict_option_value(options.strict_function_types);
         if self.strict_function_types != previous_strict_function_types {
             self.variance_cache.clear();
