@@ -80,7 +80,7 @@ nested transformations, namespace visibility and the full aligned comparison.
 
 ## Checkpoint and remaining work
 
-CODE_CHECKPOINT: 452,054/478,855 correct assertions (94.40%).
+aab165d8: 452,054/478,855 correct assertions (94.40%).
 6,687/9,538 complete cases (70.11%).
 Aligned verdicts: 474,243 total; 452,054 RIGHT; 3,453 GAP; 18,736 WRONG.
 Relative to a529367a: 144 WRONG→RIGHT, 26 GAP→RIGHT, zero RIGHT losses,

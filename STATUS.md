@@ -24,7 +24,7 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-10-01
 
-Measured on **`CODE_CHECKPOINT`**: **452,054/478,855 assertions (94.40%)**,
+Measured on **`aab165d8`**: **452,054/478,855 assertions (94.40%)**,
 **6,687/9,538 complete cases (70.11%)**. The 95% target requires
 454,913 correct assertions; **2,859 remain**. Denominator and pinned oracle
 unchanged. Aligned verdicts: **474,243 total; 452,054 right; 3,453 gap; 18,736 wrong**.
@@ -1194,7 +1194,7 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-### Current priorities at `CODE_CHECKPOINT` — 2026-10-01
+### Current priorities at `aab165d8` — 2026-10-01
 
 Structured overloads, object freshness and namespace lookup add 170 matches with
 zero RIGHT losses. Next relation work includes full normalization,
@@ -3852,7 +3852,7 @@ version of bare `any`.
 
 ## 5. Refused, with the number that refused it
 
-### Structured overloads at `CODE_CHECKPOINT`
+### Structured overloads at `aab165d8`
 
 Removing the subtype gate gained 81 and lost 25 until generic erasure, merged
 namespace lookup and fresh-object excess checks supplied the missing prerequisites.
@@ -9707,7 +9707,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
-| 2026-10-01 | `CODE_CHECKPOINT` | **70.11%** | **6,687** | **452,054/478,855 assertions (94.40%).** +170 since a529367a, zero RIGHT losses; 2G→W, 70 changed wrong. Structured overloads, effective constraints, object freshness/widening, spread properties and merged namespace exports. Pinned controls; release tests/clippy; 3,363 anchors; binder 100%; snapshot refreshed. [Evidence](docs/architecture/checker-95-structured-overloads.md). 2,859 remain; 95% unfinished. |
+| 2026-10-01 | `aab165d8` | **70.11%** | **6,687** | **452,054/478,855 assertions (94.40%).** +170 since a529367a, zero RIGHT losses; 2G→W, 70 changed wrong. Structured overloads, effective constraints, object freshness/widening, spread properties and merged namespace exports. Pinned controls; release tests/clippy; 3,363 anchors; binder 100%; snapshot refreshed. [Evidence](docs/architecture/checker-95-structured-overloads.md). 2,859 remain; 95% unfinished. |
 | 2026-10-01 | `a529367a` | **70.03%** | **6,679** | **451,884/478,855 assertions (94.37%).** +72 since e5ee6cc5, zero RIGHT losses; 1G→W, 4 changed wrong. Source constraints, union identity order, indexed deferral, callable reference substitution and contextual generic callbacks. Pinned controls; release tests/clippy; 3,363 anchors; snapshot refreshed. [Evidence](docs/architecture/checker-95-source-constraints.md). 3,029 remain; 95% unfinished. |
 | 2026-10-01 | `e5ee6cc5` | **69.97%** | **6,674** | **451,812/478,855 assertions (94.35%).** +44 since 6786ef93, zero RIGHT losses; 1G→W, 20 changed wrong. Generic indexed deferral, conditional identities/constraints, homomorphic mapped contexts and no-alias awaiting. Pinned controls; release tests/clippy; 3,364 anchors; snapshot refreshed. [Evidence](docs/architecture/checker-95-generic-indexed-objects.md). 3,101 remain; 95% unfinished. |
 | 2026-10-01 | `6786ef93` | **69.95%** | **6,672** | **451,768/478,855 assertions (94.34%).** +45 since 5fc064d4, zero RIGHT losses; 2G→W, 7 changed wrong. Anonymous callable structural relations, mapped method filters and generic overload failure inference. Pinned controls; release tests/clippy; 3,364 anchors; snapshot refreshed. [Evidence](docs/architecture/checker-95-callable-structure.md). 3,145 remain; 95% unfinished. |
