@@ -24,7 +24,7 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-09-30
 
-Measured on **`CONST_SOURCES_CHECKPOINT`**: **448,945/478,855 assertions (93.75%)**,
+Measured on **`a973e8e8`**: **448,945/478,855 assertions (93.75%)**,
 **6,578/9,538 complete cases (68.97%)**. The95% target requires
 454,913 correct assertions; **5,968 remain**. The denominator and pinned oracle
 are unchanged. Aligned verdicts: **474,243 total;448,945 right;4,405 gap;20,893 wrong**.
@@ -1141,7 +1141,7 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-### Current priorities at `CONST_SOURCES_CHECKPOINT` — 2026-09-30
+### Current priorities at `a973e8e8` — 2026-09-30
 
 Const type-variable contexts now follow semantic parameter/union/indexed/mapped/
 variadic identities and deferred conditional constraints. Generic mapped property
@@ -3717,7 +3717,7 @@ version of bare `any`.
 
 ## 5. Refused, with the number that refused it
 
-### Const literal source views at `CONST_SOURCES_CHECKPOINT`
+### Const literal source views at `a973e8e8`
 
 Adds23 matching assertions with zero RIGHT losses and no other transitions. Tuple
 rest element contexts repair the first draft's single variadic loss; fixed-spread
@@ -9304,7 +9304,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
-| 2026-09-30 | `CONST_SOURCES_CHECKPOINT` | **68.97%** | **6,578** | **448,945/478,855 assertions (93.75%).** +23 W→R since79500ed4,zero RIGHT losses and no other transitions. AST const candidates before inference,deep literal readonly,mutable constraints/variables,fixed spreads and last-write origins;rest primitive retention/mutability.24 pinned controls;release workspace tests/clippy;3,378 anchors;snapshot refreshed. [Evidence and remaining work](docs/architecture/checker-95-const-sources.md).5,968 assertions remain;95% unfinished. |
+| 2026-09-30 | `a973e8e8` | **68.97%** | **6,578** | **448,945/478,855 assertions (93.75%).** +23 W→R since79500ed4,zero RIGHT losses and no other transitions. AST const candidates before inference,deep literal readonly,mutable constraints/variables,fixed spreads and last-write origins;rest primitive retention/mutability.24 pinned controls;release workspace tests/clippy;3,378 anchors;snapshot refreshed. [Evidence and remaining work](docs/architecture/checker-95-const-sources.md).5,968 assertions remain;95% unfinished. |
 | 2026-09-30 | `79500ed4` | **68.97%** | **6,578** | **448,922/478,855 assertions (93.75%).** +54 W→R,+12 G→R since a8933f8a,zero RIGHT losses and no other transitions. Semantic const identities,conditional constraints,indexed rest and mapped property contexts;re-entry repairs. Ten pinned control assertions;release workspace tests/clippy;3,379 anchors;snapshot refreshed. [Evidence and remaining work](docs/architecture/checker-95-const-contexts.md).5,991 assertions remain;95% unfinished. |
 | 2026-09-30 | `a8933f8a` | **68.96%** | **6,577** | **448,856/478,855 assertions (93.74%).** +174 W→R,+23 G→R since55510106,zero RIGHT losses;eleven G→W. Ports semantic string mappings,Unicode15.1 casing and enum value origins.26 pinned controls;release workspace tests/clippy;3,379 anchors;snapshot refreshed. [Evidence and remaining work](docs/architecture/checker-95-string-mappings.md).6,057 assertions remain;95% unfinished. |
 | 2026-09-30 | `55510106` | **68.92%** | **6,574** | **448,659/478,855 assertions (93.69%).** +105 W→R,+5 G→R since b4e2483c,zero RIGHT losses;one W→G and one G→W. Ports template matching/constrained inference and repairs conditional alias/member mappers.26 pinned controls;release workspace tests/clippy;3,377 anchors;snapshot refreshed. [Evidence and remaining work](docs/architecture/checker-95-template-matching.md).6,254 assertions remain;95% unfinished. |

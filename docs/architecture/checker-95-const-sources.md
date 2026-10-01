@@ -30,7 +30,7 @@ uninstantiated const identity walk is shared with the preceding checkpoint.
 
 ## Verification and limits
 
-Checkpoint CONST_SOURCES_CHECKPOINT:448,945/478,855 correct assertions (93.75%).
+Checkpoint a973e8e8:448,945/478,855 correct assertions (93.75%).
 Complete cases:6,578/9,538 (68.97%). Another5,968 assertions are needed for95%.
 Aligned verdicts:474,243 total;448,945 right;4,405 gap;20,893 wrong.
 Against79500ed4:23 WRONG→RIGHT,zero RIGHT losses and no other transitions.
