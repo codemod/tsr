@@ -43,7 +43,7 @@ remain outside this slice.
 
 ## Measured result and remaining limits
 
-Checkpoint CALLABLE_CHECKPOINT: **450,628/478,855 (94.11%)**, with
+Checkpoint 87f2dc92: **450,628/478,855 (94.11%)**, with
 **6,627/9,538 complete cases (69.48%)**. The 95% target needs 4,285 more matches.
 Aligned verdicts: 474,243 total; 450,628 RIGHT; 3,914 GAP; 19,701 WRONG.
 Against the rebuilt 5d47e663 baseline: 105 WRONG→RIGHT, 106 GAP→RIGHT,
