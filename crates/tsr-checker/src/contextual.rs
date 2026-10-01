@@ -1067,7 +1067,7 @@ impl<'a> Checker<'a, '_> {
     /// `getContextualTypeForElementExpression` (internal/checker/checker.go).
     /// A known suffix aligns from the end of a rest tuple; positions around
     /// spreads instead receive the union of the remaining possible elements.
-    fn contextual_type_for_element_expression(
+    pub(crate) fn contextual_type_for_element_expression(
         &mut self,
         contextual: TypeId,
         index: usize,

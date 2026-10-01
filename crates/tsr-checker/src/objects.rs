@@ -741,6 +741,7 @@ impl Checker<'_, '_> {
                 property,
                 tsr_ast::ObjectLiteralElementLike::PropertyAssignment(_)
                     | tsr_ast::ObjectLiteralElementLike::ShorthandPropertyAssignment(_)
+                    | tsr_ast::ObjectLiteralElementLike::SpreadAssignment(_)
             )
         });
 
@@ -852,6 +853,40 @@ impl Checker<'_, '_> {
                         return error;
                     };
                     for member in spread_members {
+                        if property_only
+                            && let Member::Property { name, optional, readonly, printed } = &member
+                        {
+                            let semantic_name = self
+                                .anonymous_properties
+                                .get(&source)
+                                .and_then(|(properties, _)| {
+                                    properties
+                                        .iter()
+                                        .find(|property| property.printed_name == *name)
+                                })
+                                .map_or_else(|| name.clone(), |property| property.name.clone());
+                            if let Some(value) =
+                                self.get_type_of_property_of_type(source, &semantic_name)
+                                && value != error
+                            {
+                                let property = AnonymousProperty {
+                                    name: semantic_name,
+                                    printed_name: name.clone(),
+                                    printed_type: printed.clone(),
+                                    optional: *optional,
+                                    readonly: const_context || *readonly,
+                                    r#type: value,
+                                };
+                                if let Some(index) = typed_properties
+                                    .iter()
+                                    .position(|held| held.name == property.name)
+                                {
+                                    typed_properties[index] = property;
+                                } else {
+                                    typed_properties.push(property);
+                                }
+                            }
+                        }
                         // §105 slice 2a fired leg (B): `{ ...o } as const`
                         // marks the SPREAD-contributed members readonly too
                         // (constAssertions o5, 0:147-153); their types stay

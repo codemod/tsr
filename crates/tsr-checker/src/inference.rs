@@ -696,6 +696,7 @@ impl Checker<'_, '_> {
             }
         }
         let mut inferred_type_parameters = Vec::new();
+        let mut const_source_parameters = Vec::new();
         for (index, parameter) in signature.parameters.iter().enumerate() {
             // §939: a REST parameter takes EVERY argument from its position on,
             // each inferred against the rest's ELEMENT type.
@@ -712,33 +713,77 @@ impl Checker<'_, '_> {
             // over a TUPLE is §86's positional expansion and keeps its own road.
             if parameter.rest {
                 let Some(element) = rest_element(self, parameter) else {
-                    // §951: the non-array rest — `getSpreadArgumentType`
-                    // (`checker.go:29500`) without the spread-argument and
-                    // iterated-element branches, which the guard above
-                    // excluded. Each remaining argument is one REQUIRED
-                    // element, widened exactly as upstream widens it:
-                    //
-                    // ```go
-                    // t = c.getWidenedLiteralType(argType)
-                    // info.flags = ElementFlagsRequired
-                    // ```
-                    //
-                    // The widening is what makes `f("a", 1)` infer
-                    // `[string, number]` rather than `["a", 1]`; a literal
-                    // element would be a wrong answer that happens to print
-                    // plausibly. The `inConstContext` /
-                    // `hasPrimitiveContextualType` branch that keeps the
-                    // literal is not ported — `isConstTypeVariable` needs the
-                    // `const` modifier on the type parameter, and this arm
-                    // declines nothing by widening: a const-modified rest is
-                    // measured in `typeParameterConstModifiers`.
+                    use crate::flags::TypeFlags;
+                    // getSpreadArgumentType (checker.go:29500–29568): tuple
+                    // rests use element contexts, other rests indexed contexts.
+                    // Const/primitive contexts retain regular literals; other
+                    // contexts widen them. Construct mutability before inference.
                     let mut spread_elements = Vec::with_capacity(arguments.len());
+                    let in_const_context = self.is_const_type_variable(parameter.r#type, 0);
+                    if in_const_context {
+                        if self
+                            .store
+                            .get(parameter.r#type)
+                            .flags
+                            .contains(TypeFlags::TYPE_PARAMETER)
+                        {
+                            const_source_parameters.push(parameter.r#type);
+                        } else if let Some((elements, _)) =
+                            self.variadic_tuple_elements.get(&parameter.r#type)
+                        {
+                            const_source_parameters.extend(
+                                elements
+                                    .iter()
+                                    .filter(|element| element.spread)
+                                    .map(|element| element.r#type),
+                            );
+                        }
+                    }
                     for position in index..arguments.len() {
                         let Some(&argument) = argument_types.get(position) else { continue };
-                        let widened = self.get_widened_literal_type(argument);
-                        spread_elements.push(widened);
+                        let key = self.store.intern(
+                            TypeFlags::NUMBER_LITERAL,
+                            TypeData::NumberLiteral((position - index).to_string()),
+                        );
+                        let contextual =
+                            if self.tuple_element_lists.contains_key(&parameter.r#type)
+                                || self.variadic_tuple_elements.contains_key(&parameter.r#type)
+                            {
+                                self.contextual_type_for_element_expression(
+                                    parameter.r#type,
+                                    position - index,
+                                    arguments.len() - index,
+                                    None,
+                                    None,
+                                )
+                            } else {
+                                self.resolved_indexed_access_type(parameter.r#type, key, false)
+                            }
+                            .unwrap_or(self.intrinsics.unknown);
+                        let argument = self.const_literal_inference_source(
+                            arguments[position],
+                            argument,
+                            contextual,
+                            in_const_context,
+                        );
+                        let primitive_context = in_const_context
+                            || self.maybe_type_of_kind(
+                                contextual,
+                                TypeFlags::PRIMITIVE
+                                    | TypeFlags::INDEX
+                                    | TypeFlags::TEMPLATE_LITERAL
+                                    | TypeFlags::STRING_MAPPING,
+                            );
+                        let argument = if primitive_context {
+                            self.get_regular_type_of_literal_type(argument)
+                        } else {
+                            self.get_widened_literal_type(argument)
+                        };
+                        spread_elements.push(argument);
                     }
-                    let spread = self.create_tuple_type(spread_elements, false);
+                    let readonly = in_const_context
+                        && !self.const_context_is_mutable_array_like(parameter.r#type);
+                    let spread = self.create_tuple_type(spread_elements, readonly);
                     let bucket = index.min(buckets.len() - 1);
                     self.infer_from_types(
                         spread,
@@ -779,6 +824,25 @@ impl Checker<'_, '_> {
                 continue;
             }
             let Some(&argument) = argument_types.get(index) else { continue };
+            let argument = if signature.type_parameters.iter().any(|parameter| parameter.is_const) {
+                if self
+                    .store
+                    .get(parameter.r#type)
+                    .flags
+                    .contains(crate::flags::TypeFlags::TYPE_PARAMETER)
+                    && self.is_const_type_variable(parameter.r#type, 0)
+                {
+                    const_source_parameters.push(parameter.r#type);
+                }
+                self.const_literal_inference_source(
+                    argument_expression,
+                    argument,
+                    parameter.r#type,
+                    false,
+                )
+            } else {
+                argument
+            };
             let mut existing: Vec<_> = buckets.iter().flatten().cloned().collect();
             for info in &return_mapper {
                 if !existing.iter().any(|current| current.type_parameter == info.type_parameter) {
@@ -1391,19 +1455,17 @@ impl Checker<'_, '_> {
             {
                 return decline;
             }
-            // §798: a `const` type parameter's inferred tuple is READONLY.
-            // `f(['a', ['b', 'c']])` on `<const T>(x: T)` records
-            // `readonly ["a", readonly ["b", "c"]]` for the call while the
-            // literal itself stays `["a", ["b", "c"]]` — upstream applies the
-            // readonly here, over the const type variable, not at
-            // `checkArrayLiteral`. §797 had it at the literal, which made the
-            // call lines right and the literal lines wrong; this moves it.
+            // Direct and rest const variables consume source views collected
+            // before inference, including mutability and literal AST origins.
+            // Context-sensitive and other indirect candidates still use the
+            // legacy readonly fallback until their source mapper is ported.
             let candidate = match candidate {
                 Some(inferred)
-                    if signature
-                        .type_parameters
-                        .get(position)
-                        .is_some_and(|parameter| parameter.is_const) =>
+                    if !const_source_parameters.contains(&type_parameter)
+                        && signature
+                            .type_parameters
+                            .get(position)
+                            .is_some_and(|parameter| parameter.is_const) =>
                 {
                     Some(self.readonly_tuple_image(inferred))
                 }
