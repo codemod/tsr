@@ -2016,7 +2016,7 @@ impl Checker<'_, '_> {
 
     /// getCovariantInference (internal/checker/inference.go), shared by final
     /// type-argument resolution and a contextual fixing mapper. Object/array
-    /// literal candidate normalization and getWidenedType remain separate ports.
+    /// literal candidate normalization and full widening remain separate ports.
     fn inferred_covariant_type(
         &mut self,
         info: &InferenceInfo,
@@ -2048,13 +2048,16 @@ impl Checker<'_, '_> {
                 base.push(candidate);
             }
         }
-        if let [single] = base.as_slice() {
+        let inferred = if let [single] = base.as_slice() {
             Some(*single)
         } else if info.priority.intersects(InferencePriority::IMPLIES_COMBINATION) {
             self.union_with_subtype_reduction(&base)
         } else {
             self.covariant_combination(&base)
-        }
+        }?;
+        // getCovariantInference ends with getWidenedType, even when literal
+        // primitive candidates intentionally retain their precise types.
+        Some(self.widen_object_literal_freshness(inferred))
     }
 
     /// The primitive argument and callback-return cases of
@@ -3099,6 +3102,8 @@ impl Checker<'_, '_> {
             } else {
                 self.intrinsics.unknown
             };
+        // inferReverseMappedTypeWorker ends with getWidenedType (inference.go:1096).
+        let inferred = self.widen_object_literal_freshness(inferred);
         self.reverse_mapped_member_cache.insert((source, target, constraint), inferred);
         inferred
     }
@@ -4460,7 +4465,7 @@ impl Checker<'_, '_> {
     /// `getBaseSignature` for a source and `getErasedSignature` for a target
     /// (`internal/checker/checker.go`). Source parameters map to constraints
     /// or unknown, with interdependent constraints expanded before erasure.
-    fn signature_for_inference(
+    pub(crate) fn signature_for_inference(
         &mut self,
         mut signature: Signature,
         erase: bool,

@@ -1464,7 +1464,7 @@ impl crate::checker::Checker<'_, '_> {
     /// §453's excess test: any member NAME of the fresh literal `source` that
     /// `target` does not carry. Names come from the literal's own `__object`
     /// members table; a source minted without one has nothing to test.
-    fn fresh_literal_has_excess_property(
+    pub(crate) fn fresh_literal_has_excess_property(
         &mut self,
         source: crate::types::TypeId,
         target: crate::types::TypeId,
@@ -1483,7 +1483,48 @@ impl crate::checker::Checker<'_, '_> {
             .keys()
             .map(|name| (*name).to_string())
             .collect();
-        names.iter().any(|name| self.get_type_of_property_of_type(target, name).is_none())
+        if !self.is_excess_property_check_target(target) {
+            return false;
+        }
+        names.iter().any(|name| !self.is_known_excess_property(target, name))
+    }
+
+    /// isExcessPropertyCheckTarget (relater.go:749).
+    fn is_excess_property_check_target(&self, target: crate::types::TypeId) -> bool {
+        use crate::{flags::TypeFlags, types::TypeData};
+        let ty = self.store.get(target);
+        match &ty.data {
+            TypeData::Union { types, .. } => {
+                types.iter().any(|&ty| self.is_excess_property_check_target(ty))
+            }
+            TypeData::Intersection { types, .. } => {
+                types.iter().all(|&ty| self.is_excess_property_check_target(ty))
+            }
+            _ => ty.flags.intersects(TypeFlags::OBJECT | TypeFlags::NON_PRIMITIVE),
+        }
+    }
+
+    /// isKnownProperty (relater.go:719), including union constituents and
+    /// applicable index signatures. Spread-only names are absent from the
+    /// source literal's own binder members and are not excess properties.
+    fn is_known_excess_property(&mut self, target: crate::types::TypeId, name: &str) -> bool {
+        use crate::{flags::TypeFlags, types::TypeData};
+        match self.store.get(target).data.clone() {
+            TypeData::Union { types, .. } | TypeData::Intersection { types, .. } => {
+                types.into_iter().any(|ty| self.is_known_excess_property(ty, name))
+            }
+            _ => {
+                if self.get_type_of_property_of_type(target, name).is_some() {
+                    return true;
+                }
+                let key = self.store.intern_literal(
+                    TypeFlags::STRING_LITERAL,
+                    TypeData::StringLiteral(name.to_owned()),
+                    false,
+                );
+                self.get_applicable_index_info(target, key).is_some()
+            }
+        }
     }
 
     /// The §17 nominal verdict (`checker-notes-assign.md`): `Some(false)`

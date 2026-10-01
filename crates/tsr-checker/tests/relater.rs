@@ -120,6 +120,41 @@ fn exact_never_constraints_and_circular_constraints_remain_distinct() {
     }
 }
 
+#[test]
+fn combined_constraints_preserve_identities_and_reduce_disjoint_domains() {
+    use tsr_checker::relater::{Relation, Ternary};
+    for (parameters, source, target) in [
+        ("T extends string | number", "T", "string | number | boolean"),
+        ("T extends string | number, U extends number | boolean", "T & U", "number | bigint"),
+        ("T extends 1 | 2, U extends 2 | 3", "T & U", "T & U & (1 | 2 | 3)"),
+        ("T extends string | undefined", "T & {}", "string"),
+        (
+            "T extends { a: string | number }, U extends number | boolean",
+            "T['a'] & U",
+            "number | bigint",
+        ),
+        ("T extends string | number, U extends boolean | bigint", "T & U", "bigint | null"),
+    ] {
+        with_checker(
+            &format!("function f<{parameters}>(x: {source}, y: {target}) {{}}"),
+            |checker, statements| {
+                let Statement::FunctionDeclaration(function) = statements[0] else {
+                    panic!("function")
+                };
+                let from = checker.get_type_from_type_node(function.parameters[0].r#type.unwrap());
+                let to = checker.get_type_from_type_node(function.parameters[1].r#type.unwrap());
+                for relation in [Relation::Assignable, Relation::Subtype] {
+                    assert_eq!(
+                        checker.relate_ternary(from, to, relation),
+                        Ternary::Related,
+                        "{source} -> {target}"
+                    );
+                }
+            },
+        );
+    }
+}
+
 /// Parse, bind and check one source, then answer a question about it.
 ///
 /// Same shape as the harness in `tests/unions.rs`, and for the same reason: the

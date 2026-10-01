@@ -607,11 +607,11 @@ pub struct Checker<'a, 'n> {
     /// `relater.go:2667`): a fresh literal with a property its removal target
     /// lacks fails every relation, which is what keeps
     /// `[{id:1}, {id:2, name:"foo"}]` a two-constituent union. This port
-    /// never clears freshness (upstream's `getRegularTypeOfObjectLiteral` at
-    /// widening sites), so a variable's type can wrongly read as fresh where
-    /// upstream's has been cloned regular — measured, and the corpus holds no
-    /// case where that direction shows.
+    /// clones regular object types at variable widening sites, preserving the
+    /// fresh expression identity for excess-property checks.
     pub(crate) fresh_object_literal_types: rustc_hash::FxHashSet<crate::types::TypeId>,
+    /// getRegularTypeOfObjectLiteral (checker.go:28159), memoized per fresh type.
+    pub(crate) regular_object_literal_types: FxHashMap<TypeId, TypeId>,
     /// The index signature an **object literal** minted, keyed by the type id.
     ///
     /// §539. `check_object_literal` builds a computed-name literal's index
@@ -1215,6 +1215,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             no_implicit_any: false,
             js_literal_types: rustc_hash::FxHashSet::default(),
             fresh_object_literal_types: rustc_hash::FxHashSet::default(),
+            regular_object_literal_types: FxHashMap::default(),
             object_literal_members: rustc_hash::FxHashMap::default(),
             anonymous_properties: rustc_hash::FxHashMap::default(),
             instantiated_objects: rustc_hash::FxHashMap::default(),

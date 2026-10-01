@@ -89,6 +89,11 @@ impl TypeFlags {
         .union(Self::INDEXED_ACCESS)
         .union(Self::CONDITIONAL)
         .union(Self::SUBSTITUTION);
+    /// `TypeFlagsInstantiable` (types.go:486).
+    pub const INSTANTIABLE: Self = Self::INSTANTIABLE_NON_PRIMITIVE
+        .union(Self::INDEX)
+        .union(Self::TEMPLATE_LITERAL)
+        .union(Self::STRING_MAPPING);
     /// `TypeFlagsNullable`.
     pub const NULLABLE: Self = Self::UNDEFINED.union(Self::NULL);
     /// `TypeFlagsLiteral`.
@@ -135,6 +140,15 @@ impl TypeFlags {
         .union(Self::BIG_INT_LIKE)
         .union(Self::BOOLEAN_LIKE)
         .union(Self::ENUM_LIKE)
+        .union(Self::ES_SYMBOL_LIKE)
+        .union(Self::VOID_LIKE)
+        .union(Self::NULL);
+    /// `TypeFlagsDisjointDomains` (types.go:480).
+    pub const DISJOINT_DOMAINS: Self = Self::NON_PRIMITIVE
+        .union(Self::STRING_LIKE)
+        .union(Self::NUMBER_LIKE)
+        .union(Self::BIG_INT_LIKE)
+        .union(Self::BOOLEAN_LIKE)
         .union(Self::ES_SYMBOL_LIKE)
         .union(Self::VOID_LIKE)
         .union(Self::NULL);

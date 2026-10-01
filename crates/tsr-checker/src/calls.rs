@@ -2446,24 +2446,6 @@ impl Checker<'_, '_> {
             }
             argument_types.push(self.check_expression(argument));
         }
-        let simple = |checker: &Self, id: TypeId| {
-            checker.type_of(id).flags.intersects(
-                TypeFlags::ANY
-                    | TypeFlags::UNKNOWN
-                    | TypeFlags::NEVER
-                    | TypeFlags::VOID
-                    | TypeFlags::UNDEFINED
-                    | TypeFlags::NULL
-                    | TypeFlags::STRING_LIKE
-                    | TypeFlags::NUMBER_LIKE
-                    | TypeFlags::BIG_INT_LIKE
-                    | TypeFlags::BOOLEAN_LIKE
-                    | TypeFlags::ES_SYMBOL_LIKE,
-            ) && !checker
-                .type_of(id)
-                .flags
-                .intersects(TypeFlags::OBJECT | TypeFlags::UNION | TypeFlags::TYPE_PARAMETER)
-        };
         let all_decidable = clean_len == candidates.len();
         for candidate in prefix {
             if !has_correct_arity(candidate, argument_types.len()) {
@@ -2471,31 +2453,6 @@ impl Checker<'_, '_> {
             }
             let mut verdict = Ternary::Related;
             for (&argument, parameter) in argument_types.iter().zip(&candidate.parameters) {
-                // §337, MEASURED AND REVERTED: widening this domain to OBJECT
-                // pairs (relation-decided, Unknown still declining) picked
-                // wrongly where the relation is too permissive for object
-                // identity — 6 R→W in `orderMattersForSignatureGroupIdentity`
-                // against 3 G→R. The simple domain stands until the relation
-                // reads the modifiers its own doc lists as uncompared.
-                // §385 measures the half §337's revert note licensed: a
-                // CLASS-INSTANCE argument is a narrower domain than the
-                // object pairs that lost `orderMattersForSignatureGroupIdentity`
-                // — class instances carry declared members, not literal
-                // identity, and the relation decides them (`symbolProperty13`'s
-                // `foo(new C)` picks the `I` overload). Unknown still
-                // declines the pass.
-                let class_instance_pair = self.class_instance_symbol(argument).is_some();
-                let type_variable_pair = self
-                    .type_of(argument)
-                    .flags
-                    .intersects(TypeFlags::TYPE_PARAMETER | TypeFlags::INDEXED_ACCESS);
-                if !class_instance_pair
-                    && !type_variable_pair
-                    && (!simple(self, argument) || !simple(self, parameter.r#type))
-                {
-                    verdict = Ternary::Unknown;
-                    continue;
-                }
                 match self.relate_ternary(argument, parameter.r#type, Relation::Subtype) {
                     Ternary::NotRelated => {
                         verdict = Ternary::NotRelated;

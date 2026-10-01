@@ -543,6 +543,15 @@ impl Relater<'_, '_, '_> {
     ///
     /// Ported from `Checker.isTypeRelatedTo` (`internal/checker/relater.go`).
     fn is_related_to(&mut self, source: TypeId, target: TypeId) -> Ternary {
+        self.is_related_to_with_excess(source, target, true)
+    }
+
+    fn is_related_to_with_excess(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+        check_excess: bool,
+    ) -> Ternary {
         // Upstream reduces a fresh literal to its regular form on both sides
         // before comparing identity, so that `"a"` fresh and `"a"` regular are
         // one type here even though they are two interned types.
@@ -582,6 +591,17 @@ impl Relater<'_, '_, '_> {
             Some(true) => return Ternary::Related,
             Some(false) => return Ternary::NotRelated,
             None => {}
+        }
+        // isRelatedToWorker / hasExcessProperties (relater.go:2667,2714).
+        // A fresh source must first satisfy the target's accepted property set.
+        if check_excess
+            && self.checker.fresh_object_literal_types.contains(&source)
+            && (self.checker.no_implicit_any || !self.checker.js_literal_types.contains(&target))
+            && !(matches!(self.relation, Relation::Assignable | Relation::Comparable)
+                && self.target_exempts_excess_properties(target))
+            && self.checker.fresh_literal_has_excess_property(source, target)
+        {
+            return Ternary::NotRelated;
         }
         // anyFunctionType has no properties, and function expressions have
         // no own property requirements. Their call-signature relation is the
@@ -808,36 +828,94 @@ impl Relater<'_, '_, '_> {
         if source_signatures.is_empty() || target_signatures.is_empty() {
             return None;
         }
+        // signaturesRelatedTo (relater.go:4441) erases generic signatures
+        // for the overload matrix and comparable single signatures. Keep an
+        // uncomputed erasure local to its signature: another source overload
+        // can still prove a target signature compatible.
+        let erase = source_signatures.len() != 1
+            || target_signatures.len() != 1
+            || self.relation == Relation::Comparable;
+        let source_signatures: Vec<_> = source_signatures
+            .into_iter()
+            .map(|signature| {
+                if erase {
+                    self.checker.signature_for_inference(signature, true)
+                } else {
+                    Some(signature)
+                }
+            })
+            .collect();
+        let target_signatures: Vec<_> = target_signatures
+            .into_iter()
+            .map(|signature| {
+                if erase {
+                    self.checker.signature_for_inference(signature, true)
+                } else {
+                    Some(signature)
+                }
+            })
+            .collect();
         // §936.1: §935 required exactly ONE signature per side and named the
         // generalisation as its residue — upstream's *"some source signature
         // relates to each target signature"* (`signaturesRelatedTo`,
         // `relater.go:4441`, whose loop iterates the TARGET's list and searches
         // the source's). That is this walk.
         //
-        // An unjudgeable PAIR is skipped rather than failing the set, so a target
-        // signature with no judgeable partner leaves the set UNDECIDED (`None`)
-        // rather than rejected — a missing verdict, never a wrong one.
+        // An uncomputed erasure or pair remains Unknown unless a different
+        // source signature proves this target compatible. Do not turn a
+        // missing comparison into a rejection merely because another failed.
         let mut parts = Vec::new();
         for target_signature in &target_signatures {
-            let mut best: Option<Ternary> = None;
+            let Some(target_signature) = target_signature else {
+                parts.push(Ternary::Unknown);
+                continue;
+            };
+            let mut best = Ternary::NotRelated;
             for source_signature in &source_signatures {
-                let Some(verdict) =
-                    self.one_signature_related_to(source_signature, target_signature, false, false)
-                else {
-                    continue;
-                };
-                if verdict == Ternary::Related {
-                    best = Some(Ternary::Related);
+                let verdict = source_signature
+                    .as_ref()
+                    .and_then(|source_signature| {
+                        self.one_signature_related_to(
+                            source_signature,
+                            target_signature,
+                            false,
+                            false,
+                        )
+                    })
+                    .unwrap_or(Ternary::Unknown);
+                best = Ternary::any([best, verdict]);
+                if best == Ternary::Related {
                     break;
                 }
-                best = Some(match best {
-                    None | Some(Ternary::Unknown) => verdict,
-                    Some(held) => held,
-                });
             }
-            parts.push(best?);
+            parts.push(best);
         }
         Some(Ternary::all(parts))
+    }
+
+    /// hasExcessProperties' Object/empty-object exemption for assignability
+    /// and comparability (relater.go:2720). Unknown member sets do not exempt.
+    fn target_exempts_excess_properties(&mut self, target: TypeId) -> bool {
+        if let Some(types) = self.union_constituents(target) {
+            return types.into_iter().any(|ty| self.target_exempts_excess_properties(ty));
+        }
+        if let Some(types) = self.intersection_constituents(target) {
+            return types.into_iter().all(|ty| self.target_exempts_excess_properties(ty));
+        }
+        if self.checker.type_of(target).flags.contains(TypeFlags::NON_PRIMITIVE) {
+            return true;
+        }
+        if !self.checker.type_of(target).flags.contains(TypeFlags::OBJECT) {
+            return false;
+        }
+        if let TypeData::Named { members: Some(owner), .. } = self.checker.type_of(target).data
+            && self.checker.global_type_symbol_with_arity("Object", 0) == Some(owner)
+        {
+            return true;
+        }
+        self.property_names_of(target).is_some_and(|properties| properties.is_empty())
+            && !self.signature_bearing(target)
+            && self.checker.get_index_infos_of_type(target).is_some_and(|infos| infos.is_empty())
     }
 
     /// One source signature against one target signature — the comparison §935
@@ -1386,6 +1464,30 @@ impl Relater<'_, '_, '_> {
     /// target's constituents — which it is not, since union interning makes
     /// `"a" | "b"` a type the target's list does not contain.
     fn structured_type_related_to(&mut self, source: TypeId, target: TypeId) -> Ternary {
+        let result = self.structured_type_related_to_worker(source, target);
+        let target_is_union = self.checker.type_of(target).flags.contains(TypeFlags::UNION);
+        if result != Ternary::Related
+            && (self.checker.type_of(source).flags.contains(TypeFlags::INTERSECTION)
+                || (self.checker.type_of(source).flags.contains(TypeFlags::TYPE_PARAMETER)
+                    && target_is_union))
+        {
+            let types = self.intersection_constituents(source).unwrap_or_else(|| vec![source]);
+            if let Some(constraint) =
+                self.checker.effective_constraint_of_intersection(&types, target_is_union)
+                && constraint != source
+                && self.union_constituents(constraint).is_none_or(|types| !types.contains(&source))
+            {
+                // structuredTypeRelatedTo (relater.go:3216) retries the combined
+                // constraint after the individual constituents fail. An unknown
+                // original relation is retained unless this supplies a proof.
+                return Ternary::any([result, self.is_related_to(constraint, target)]);
+            }
+        }
+        result
+    }
+
+    /// structuredTypeRelatedToWorker (internal/checker/relater.go).
+    fn structured_type_related_to_worker(&mut self, source: TypeId, target: TypeId) -> Ternary {
         // structuredTypeRelatedToWorker (relater.go:3443): S[K] relates to
         // T[J] when both its object and index relate. Keep this inside the
         // recursive pair cache for indexed members of recursive interfaces.
@@ -1417,14 +1519,19 @@ impl Relater<'_, '_, '_> {
         }
         if let Some(constituents) = self.intersection_constituents(target) {
             // Related to every constituent of a target intersection.
-            // Upstream's `typeRelatedToEachType`.
-            let parts: Vec<_> =
-                constituents.iter().map(|&c| self.is_related_to(source, c)).collect();
+            // Upstream's `typeRelatedToEachType`, with IntersectionStateTarget.
+            // The whole intersection's accepted names were checked already;
+            // nested property comparisons still check their own fresh sources.
+            let parts: Vec<_> = constituents
+                .iter()
+                .map(|&c| self.is_related_to_with_excess(source, c, false))
+                .collect();
             return Ternary::all(parts);
         }
         if let Some(constituents) = self.union_constituents(target) {
             // Related to *some* constituent of a target union.
             // Upstream's `typeRelatedToSomeType`.
+            let source = self.checker.get_regular_type_of_object_literal(source);
             let parts: Vec<_> =
                 constituents.iter().map(|&c| self.is_related_to(source, c)).collect();
             return Ternary::any(parts);

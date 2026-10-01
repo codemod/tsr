@@ -729,8 +729,8 @@ impl<'a> BindResult<'a> {
             };
             if let Some(mask) = exported
                 && let Some(symbol) = self.symbol_of(node)
-                && let Some(&found) = self.symbols.get(symbol).exports.get(name)
-                && self.symbols.get(found).flags.intersects(meaning & mask)
+                && let Some(&found) = self.symbols.get(self.merged_symbol(symbol)).exports.get(name)
+                && self.symbols.get(self.merged_symbol(found)).flags.intersects(meaning & mask)
                 // An `export { X }` specifier's own symbol lives in the file's
                 // **exports**, not its `locals`, so the exclusion belongs on
                 // this arm too — §836's first measurement found the specifier

@@ -2615,6 +2615,8 @@ impl<'a> Checker<'a, '_> {
     /// Everything between — a call argument, an object-literal property, a
     /// `return` expression — widens, which is what upstream does there.
     fn inferred_return_type(&mut self, declaration: NodeId, id: TypeId) -> Option<TypeId> {
+        // getReturnTypeFromBody applies getWidenedType after aggregation.
+        let id = self.widen_object_literal_freshness(id);
         // §437: an errored single return IS upstream's errorType aggregate,
         // printed `any` — see the flip note at the aggregate site.
         if id == self.intrinsics.error {

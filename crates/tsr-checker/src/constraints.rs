@@ -13,6 +13,58 @@ pub(crate) struct BaseConstraintKey {
 }
 
 impl Checker<'_, '_> {
+    /// getEffectiveConstraintOfIntersection (internal/checker/relater.go:2282).
+    /// Preserve the source variable for union targets so identity proofs remain
+    /// available while the constraint's disjoint domains distribute.
+    pub(crate) fn effective_constraint_of_intersection(
+        &mut self,
+        types: &[TypeId],
+        target_is_union: bool,
+    ) -> Option<TypeId> {
+        let mut constraints = Vec::new();
+        let mut domains = Vec::new();
+        for &ty in types {
+            if self.store.get(ty).flags.intersects(TypeFlags::INSTANTIABLE) {
+                let mut seen = vec![ty];
+                let mut current = ty;
+                loop {
+                    let constraint =
+                        if self.store.get(current).flags.contains(TypeFlags::TYPE_PARAMETER) {
+                            self.type_parameter_constraint(current)
+                        } else {
+                            self.base_constraint_of_type(current)
+                        };
+                    let Some(constraint) = constraint else { break };
+                    if self.is_error(constraint) || seen.contains(&constraint) {
+                        break;
+                    }
+                    if self.store.get(constraint).flags.intersects(
+                        TypeFlags::TYPE_PARAMETER | TypeFlags::INDEX | TypeFlags::CONDITIONAL,
+                    ) {
+                        seen.push(constraint);
+                        current = constraint;
+                        continue;
+                    }
+                    constraints.push(constraint);
+                    if target_is_union {
+                        constraints.push(ty);
+                    }
+                    break;
+                }
+            } else if self.store.get(ty).flags.intersects(TypeFlags::DISJOINT_DOMAINS)
+                || self.is_empty_anonymous_object_type(ty)
+            {
+                domains.push(ty);
+            }
+        }
+        if constraints.is_empty() || (!target_is_union && domains.is_empty()) {
+            return None;
+        }
+        constraints.extend(domains);
+        let constraint = self.get_intersection_without_constraint_reduction(&constraints);
+        (!self.is_error(constraint)).then_some(constraint)
+    }
+
     fn has_base_constraint_shape(&self, ty: TypeId) -> bool {
         self.store.get(ty).flags.intersects(
             TypeFlags::TYPE_PARAMETER

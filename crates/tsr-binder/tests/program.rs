@@ -93,6 +93,57 @@ fn a_name_declared_in_one_script_file_resolves_from_another() {
 }
 
 #[test]
+fn reopened_namespaces_resolve_the_merged_exports_with_local_precedence() {
+    let arena = Arena::new();
+    let mut nodes = NodeTable::new();
+    let mut node_map = NodeMap::new();
+    let (result, files) = bind_program(
+        &arena,
+        &[
+            (
+                "first.ts",
+                "namespace N { export interface Shared { first: string } interface Hidden {} }",
+            ),
+            (
+                "second.ts",
+                "namespace N { export interface Use { item: Shared } let hidden: Hidden; function f() { interface Shared { local: number } let value: Shared; } }",
+            ),
+        ],
+        &mut nodes,
+        &mut node_map,
+    );
+    let references: Vec<_> = files[1].nodes.clone().map(tsr_ast::NodeId::new).filter(|&id| {
+        matches!(node_map.get(id), Some(tsr_ast::Node::Identifier(name)) if name.text == "Shared")
+    }).collect();
+    let mut references = references;
+    references.sort_by_key(|&id| nodes.span(id).start);
+    let shared = result
+        .resolve_name(&nodes, &node_map, references[0], "Shared", SymbolFlags::TYPE)
+        .expect("merged export");
+    assert!(
+        result
+            .symbols()
+            .get(shared)
+            .declarations
+            .iter()
+            .all(|id| files[0].nodes.contains(&id.as_u32()))
+    );
+    let local = result
+        .resolve_name(&nodes, &node_map, *references.last().unwrap(), "Shared", SymbolFlags::TYPE)
+        .expect("local shadows export");
+    assert_ne!(shared, local);
+    let hidden = files[1].nodes.clone().map(tsr_ast::NodeId::new).find(|&id| {
+        matches!(node_map.get(id), Some(tsr_ast::Node::Identifier(name)) if name.text == "Hidden")
+    }).unwrap();
+    assert!(result.resolve_name(&nodes, &node_map, hidden, "Hidden", SymbolFlags::TYPE).is_none());
+    assert!(
+        result
+            .resolve_name(&nodes, &node_map, references[0], "Shared", SymbolFlags::VALUE)
+            .is_none()
+    );
+}
+
+#[test]
 fn a_foreign_symbols_declaration_indexes_the_right_file() {
     // **The soundness property ADR-0034 exists for.** A symbol resolved from
     // another file is only usable if its `value_declaration` names a node in the

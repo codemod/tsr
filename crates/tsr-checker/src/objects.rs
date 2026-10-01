@@ -287,6 +287,81 @@ pub(crate) enum ComputedNameKey {
 }
 
 impl Checker<'_, '_> {
+    /// getRegularTypeOfObjectLiteral (checker.go:28159). Preserve the source
+    /// expression's identity and member metadata; the clone alone is regular.
+    pub(crate) fn get_regular_type_of_object_literal(&mut self, id: TypeId) -> TypeId {
+        if !self.fresh_object_literal_types.contains(&id) {
+            return id;
+        }
+        if let Some(&regular) = self.regular_object_literal_types.get(&id) {
+            return regular;
+        }
+        let TypeData::Named { text, members } = self.store.get(id).data.clone() else {
+            return id;
+        };
+        let regular = self.store.new_named(self.store.get(id).flags, text, members);
+        self.regular_object_literal_types.insert(id, regular);
+        if let Some(members) = self.object_literal_members.get(&id).cloned() {
+            self.object_literal_members.insert(regular, members);
+        }
+        let mut properties =
+            self.anonymous_properties.get(&id).map(|(properties, _)| properties.clone());
+        if properties.is_none() {
+            // Literals with methods/accessors do not have a captured property
+            // list. transformTypeOfMembers reads their resolved symbol types.
+            properties = self
+                .property_names_of(id)
+                .into_iter()
+                .map(|name| {
+                    let ty = self.get_type_of_property_of_type(id, &name)?;
+                    let symbol = self.get_property_of_type(id, &name);
+                    Some(AnonymousProperty {
+                        printed_name: name.clone(),
+                        printed_type: self.type_to_string(ty),
+                        name,
+                        r#type: ty,
+                        optional: symbol.is_some_and(|symbol| self.property_is_optional(symbol)),
+                        readonly: symbol.is_some_and(|symbol| self.is_readonly_property(symbol)),
+                    })
+                })
+                .collect();
+        }
+        if let Some(mut properties) = properties {
+            for property in &mut properties {
+                property.r#type = self.get_regular_type_of_object_literal(property.r#type);
+            }
+            self.anonymous_properties.insert(regular, (properties, true));
+        }
+        if let Some(infos) = self.object_literal_index_infos.get(&id).cloned() {
+            self.object_literal_index_infos.insert(regular, infos);
+        }
+        if let Some(signatures) = self.signature_types.get(&id).cloned() {
+            self.signature_types.insert(regular, signatures);
+        }
+        if self.js_literal_types.contains(&id) {
+            self.js_literal_types.insert(regular);
+        }
+        regular
+    }
+
+    /// The object-freshness part of getWidenedTypeWithContext
+    /// (checker.go:18359), including its union/intersection descent.
+    pub(crate) fn widen_object_literal_freshness(&mut self, id: TypeId) -> TypeId {
+        match self.store.get(id).data.clone() {
+            TypeData::Union { types, .. } => {
+                let widened: Vec<_> =
+                    types.iter().map(|&ty| self.widen_object_literal_freshness(ty)).collect();
+                if widened == types { id } else { self.get_union_type(&widened) }
+            }
+            TypeData::Intersection { types, .. } => {
+                let widened: Vec<_> =
+                    types.iter().map(|&ty| self.widen_object_literal_freshness(ty)).collect();
+                if widened == types { id } else { self.get_intersection_type(&widened, None) }
+            }
+            _ => self.get_regular_type_of_object_literal(id),
+        }
+    }
+
     /// Ported from `Checker.checkObjectLiteral` (`checker.go:13144`).
     ///
     /// # What this slice covers
@@ -1798,7 +1873,12 @@ impl Checker<'_, '_> {
         let symbol = node.node_id.and_then(|id| self.binder.symbol_of(id));
         let minted = self.store.new_named(TypeFlags::OBJECT, printed, symbol);
         if property_only && typed_properties.len() == members.len() {
-            self.anonymous_properties.insert(minted, (typed_properties, false));
+            // Spread properties have no binder symbol on this literal. Use
+            // their resolved semantic types for member lookup (getSpreadType).
+            let synthetic = node.properties.iter().any(|property| {
+                matches!(property, tsr_ast::ObjectLiteralElementLike::SpreadAssignment(_))
+            });
+            self.anonymous_properties.insert(minted, (typed_properties, synthetic));
         }
         // SS185: upstream's `ObjectFlagsJSLiteral` — an object literal
         // created in a JS FILE is a "JS literal" type, which

@@ -3786,7 +3786,7 @@ impl<'a> Checker<'a, '_> {
                     .collect();
                 return self.create_tuple_type(widened, readonly);
             }
-            id
+            self.widen_object_literal_freshness(id)
         } else {
             // Upstream returns `anyType` for a declaration with neither an
             // annotation nor an initialiser (`checker.go:18264`) — a genuine

@@ -138,6 +138,25 @@ impl Checker<'_, '_> {
         types: &[TypeId],
         symbol: Option<SymbolId>,
     ) -> TypeId {
+        self.get_intersection_type_with_reduction(types, symbol, true)
+    }
+
+    /// getIntersectionTypeEx with `IntersectionFlagsNoConstraintReduction`.
+    /// Effective constraints must retain the original variable alongside its
+    /// constraint, including each distributed intersection in a union.
+    pub(crate) fn get_intersection_without_constraint_reduction(
+        &mut self,
+        types: &[TypeId],
+    ) -> TypeId {
+        self.get_intersection_type_with_reduction(types, None, false)
+    }
+
+    fn get_intersection_type_with_reduction(
+        &mut self,
+        types: &[TypeId],
+        symbol: Option<SymbolId>,
+        reduce_constraints: bool,
+    ) -> TypeId {
         let (mut set, includes) = self.add_types_to_intersection(types);
 
         // "An intersection type is considered empty if it contains the type
@@ -185,7 +204,8 @@ impl Checker<'_, '_> {
         }
         // getIntersectionTypeEx reduces a primitive-constrained type variable
         // against a primitive or {}. Unknown constraints keep the intersection.
-        if set.len() == 2
+        if reduce_constraints
+            && set.len() == 2
             && set.iter().any(|&id| self.store.get(id).flags.contains(TypeFlags::TYPE_PARAMETER))
             && set.iter().any(|&id| {
                 self.store.get(id).flags.intersects(TypeFlags::PRIMITIVE | TypeFlags::NON_PRIMITIVE)
@@ -205,7 +225,12 @@ impl Checker<'_, '_> {
 
         let named = symbol.map(|id| (id, self.binder.symbols().get(id).name.to_string()));
         if includes.flags.contains(TypeFlags::UNION) {
-            return self.intersect_union_constituents(&set, symbol, types.len());
+            return self.intersect_union_constituents(
+                &set,
+                symbol,
+                types.len(),
+                reduce_constraints,
+            );
         }
         create_intersection(&mut self.store, set, named)
     }
@@ -294,9 +319,10 @@ impl Checker<'_, '_> {
         types: &[TypeId],
         symbol: Option<SymbolId>,
         input_count: usize,
+        reduce_constraints: bool,
     ) -> TypeId {
         if let Some(reduced) = self.intersect_primitive_unions(types) {
-            return self.get_intersection_type(&reduced, symbol);
+            return self.get_intersection_type_with_reduction(&reduced, symbol, reduce_constraints);
         }
         // Upstream factors a shared nullable constituent out before expanding.
         for nullable in [self.intrinsics.undefined, self.intrinsics.null] {
@@ -309,16 +335,28 @@ impl Checker<'_, '_> {
                     let remaining: Vec<_> = types.iter().copied().filter(|&id| id != nullable).collect();
                     non_nullable.push(self.get_union_type(&remaining));
                 }
-                let intersected = self.get_intersection_type(&non_nullable, None);
+                let intersected = self.get_intersection_type_with_reduction(&non_nullable, None, reduce_constraints);
                 return self.intersection_result_union(&[intersected, nullable], symbol);
             }
         }
         // Divide before expanding a large input, as getIntersectionTypeEx does.
         if types.len() >= 3 && input_count > 2 {
             let middle = types.len() / 2;
-            let left = self.get_intersection_type(&types[..middle], None);
-            let right = self.get_intersection_type(&types[middle..], None);
-            return self.get_intersection_type(&[left, right], symbol);
+            let left = self.get_intersection_type_with_reduction(
+                &types[..middle],
+                None,
+                reduce_constraints,
+            );
+            let right = self.get_intersection_type_with_reduction(
+                &types[middle..],
+                None,
+                reduce_constraints,
+            );
+            return self.get_intersection_type_with_reduction(
+                &[left, right],
+                symbol,
+                reduce_constraints,
+            );
         }
         let mut count = 1usize;
         for &id in types {
@@ -339,7 +377,8 @@ impl Checker<'_, '_> {
                     selection /= types.len();
                 }
             }
-            let intersected = self.get_intersection_type(&constituents, None);
+            let intersected =
+                self.get_intersection_type_with_reduction(&constituents, None, reduce_constraints);
             if !self.store.get(intersected).flags.contains(TypeFlags::NEVER) {
                 intersections.push(intersected);
             }
