@@ -152,6 +152,7 @@ pub mod signatures;
 mod spread_overrides;
 pub mod strict_mode;
 pub mod symbols;
+mod templates;
 pub mod truthiness;
 mod tuples;
 pub mod type_argument_arity;

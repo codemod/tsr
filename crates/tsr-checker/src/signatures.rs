@@ -3744,6 +3744,18 @@ impl<'a> Checker<'a, '_> {
                 return Self::written_type_text(annotation, &mut false, &mut false);
             }
         }
+        // A template alias normalized to a union retains the written
+        // signature annotation in serializeTypeForDeclaration.
+        if let TypeNode::TypeReferenceNode(reference)=annotation
+            && let Some(symbol)=reference.type_name.and_then(|name|self.resolve_entity_name(name,tsr_binder::SymbolFlags::TYPE))
+            && self.binder.symbols().get(symbol).declarations.first().copied().and_then(|id|self.node_map.get(id))
+                .is_some_and(|node|matches!(node,Node::TypeAliasDeclaration(alias) if matches!(alias.r#type,Some(TypeNode::TemplateLiteralTypeNode(_)))))
+        {
+            let resolved=self.get_type_from_type_node(annotation);
+            if self.store.get(resolved).flags.contains(TypeFlags::UNION) {
+                return Self::written_type_text(annotation,&mut false,&mut false);
+            }
+        }
         // The node builder reuses an infer annotation in a written signature,
         // while its semantic type remains the parameter's declaration identity.
         if matches!(annotation, TypeNode::InferTypeNode(_)) {

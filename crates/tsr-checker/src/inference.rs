@@ -4181,6 +4181,14 @@ impl Checker<'_, '_> {
         names: &[&str],
     ) -> TypeId {
         let error = self.intrinsics.error;
+        if let Some(parts) = self.template_literal_parts.get(&id).cloned() {
+            let types: Vec<_> = parts
+                .types
+                .into_iter()
+                .map(|ty| self.instantiate_type(ty, map, parameters, names))
+                .collect();
+            return self.get_template_literal_type(&parts.texts, &types);
+        }
         if let Some(&operand) = self.deferred_keyof_operands.get(&id) {
             let operand = self.instantiate_type(operand, map, parameters, names);
             return self.resolved_keyof_type(operand).unwrap_or(error);
@@ -4831,6 +4839,12 @@ impl Checker<'_, '_> {
             return false;
         }
         visited.push(id);
+        if let Some(parts) = self.template_literal_parts.get(&id) {
+            return parts
+                .types
+                .iter()
+                .any(|&ty| self.mentions_type_parameter_inner(ty, parameters, names, visited));
+        }
         let ty = self.store.get(id);
         if ty.flags.intersects(
             crate::flags::TypeFlags::TYPE_PARAMETER

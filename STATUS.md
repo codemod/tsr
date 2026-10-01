@@ -24,22 +24,20 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-09-30
 
-Measured on **`2e3ef200`**: **448,493/478,855 assertions (93.66%)**,
-**6,572/9,538 complete cases (68.90%)**. The active 95% target requires 454,913
-correct assertions; **6,420 remain**. The denominator and pinned oracle are
-unchanged. Aligned verdicts: **474,243 total; 448,493 right; 4,466 gap; 21,284 wrong**.
+Measured on **`TEMPLATE_COMMIT`**: **448,549/478,855 assertions (93.67%)**,
+**6,574/9,538 complete cases (68.92%)**. The active 95% target requires 454,913
+correct assertions; **6,364 remain**. The denominator and pinned oracle are
+unchanged. Aligned verdicts: **474,243 total;448,549 right;4,456 gap;21,238 wrong**.
 Binder symbols retain the preceding measurement at **8,497/8,497 (100%)**;
 other suites below retain historical measurements.
 
-This unit adds **4 WRONG→RIGHT and 13 GAP→RIGHT**, with **zero RIGHT losses**
-relative to e4fde75a (448,476). Three former gaps expose unresolved enum widening
-and nested reverse tuple context. Release workspace tests, workspace clippy with
-warnings denied, all **3,379 upstream anchors**, and whitespace checks pass.
-The checker snapshot is refreshed.
-[Constrained mapped inference](docs/architecture/checker-95-mapped-constraints.md)
-records five pinned controls, constraint identity and intersection origins, plus
-remaining limits. The goal and tsr-6 remain active; verified changes commit and
-push to main.
+This unit adds **49 WRONG→RIGHT and7 GAP→RIGHT**, with **zero RIGHT losses**
+relative to2e3ef200 (448,493). Three former gaps expose unresolved enum/template
+intersection behavior. Release workspace tests,workspace clippy with warnings
+denied,all **3,379 upstream anchors**,and whitespace checks pass. The checker
+snapshot is refreshed. [Semantic template construction](docs/architecture/checker-95-template-factory.md)
+records ten pinned controls,semantic placeholder substitution and remaining limits.
+The goal and tsr-6 remain active;verified changes commit and push to main.
 
 ### Previous whole-suite measurement — historical
 
@@ -1141,7 +1139,7 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-### Current priorities at `2e3ef200` — 2026-09-30
+### Current priorities at `TEMPLATE_COMMIT` — 2026-09-30
 
 Inference priorities, independent contextual return mappers, captured structural
 substitution, call/construct signature kinds, measured reference variances,
@@ -1182,7 +1180,10 @@ arrays/tuples, union distribution and sequence apparent constraints now resolve.
 Key parameter and union/intersection mapped inference now follow constraints.
 Anonymous mapped sequences, contextual nested reverse tuples, partially inferable
 source flags and expanding reverse recursion remain next (`tsr-6.9`). Numeric
-key/name-type provenance is tracked in `tsr-6.10`. Generic literal aliases now cache
+key/name-type provenance is tracked in `tsr-6.10`. Template literals now expand
+literal/union holes,flatten nested templates and retain semantic generic holes for
+substitution. Template matching/inference,string mappings and enum/literal
+intersection reductions remain next (`tsr-6.11`). Generic literal aliases now cache
 by argument identities;interface this substitution also uses identities.
 Composite dependent constraints and general implicit constraint integration are next; bind signature
 inference remains a candidate; `tsr-6.1` tracks the generic signature prerequisite
@@ -3697,6 +3698,16 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+### Semantic template construction at `TEMPLATE_COMMIT`
+
+Adds56 matching assertions with zero RIGHT losses. Eight written alias-signature
+losses from the first draft were repaired before acceptance. Three former gaps
+expose enum/template intersection reduction limits. Ten pinned controls pass,
+including never eliminating a100,000-member product. Template inference,string
+mapping,enum value concatenation and complete escaping/origin parity remain.
+[Evidence and limits](docs/architecture/checker-95-template-factory.md).
+The goal remains active;6,364 correct assertions remain for95%.
 
 ### Constrained mapped inference at `2e3ef200`
 
@@ -9231,6 +9242,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
+| 2026-09-30 | `TEMPLATE_COMMIT` | **68.92%** | **6,574** | **448,549/478,855 assertions (93.67%).** +49 W→R,+7 G→R since2e3ef200,zero RIGHT losses;three G→W enum/template intersections. Ports semantic template expansion,flattening,interning and substitution. Ten pinned controls and release workspace tests/clippy pass;3,379 anchors;snapshot refreshed. [Evidence and remaining work](docs/architecture/checker-95-template-factory.md). 6,364 assertions remain;goal active. |
 | 2026-09-30 | `2e3ef200` | **68.90%** | **6,572** | **448,493/478,855 assertions (93.66%).** +4 W→R,+13 G→R since e4fde75a,zero RIGHT losses;three G→W remain in enum widening/nested reverse tuples. Ports mapped key constraints,reverse cache identity and original intersection filtering. Five pinned controls and release workspace tests/clippy pass;3,379 anchors;snapshot refreshed. [Evidence and remaining work](docs/architecture/checker-95-mapped-constraints.md). 6,420 assertions remain;goal active. |
 | 2026-09-30 | `e4fde75a` | **68.89%** | **6,571** | **448,476/478,855 assertions (93.66%).** +57 W→R,+4 G→R since c52451f1,zero RIGHT losses;one G→W enum-union reduction. Ports transformed mapped sequences,union distribution,alias preservation and generic sequence apparent constraints. Twelve pinned controls and release workspace tests/clippy pass;3,379 anchors resolve;snapshot refreshed. [Evidence and remaining work](docs/architecture/checker-95-mapped-sequences.md). 6,437 assertions remain;goal active. |
 | 2026-09-30 | `c52451f1` | **68.88%** | **6,570** | **448,415/478,855 assertions (93.64%).** +57 W→R,+35 G→R since502930b6,zero RIGHT losses;27 G→W and2 W→G. Ports forward mapped property/index templates,identity traversal and cached recursive constraints. Pinned controls and release workspace tests/clippy pass;3,379 anchors resolve;snapshot refreshed. [Evidence and remaining work](docs/architecture/checker-95-mapped-members.md). 6,498 assertions remain;goal active. |

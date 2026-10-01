@@ -511,37 +511,22 @@ impl<'a> Checker<'a, '_> {
             // literals).
             TypeNode::TemplateLiteralTypeNode(node) => {
                 let Some(head) = node.head else { return self.intrinsics.error };
-                let mut printed = format!("`{}", head.text);
+                let mut texts = vec![head.text.to_owned()];
+                let mut types = Vec::new();
                 for span in node.template_spans {
                     let Some(hole) = span.r#type else { return self.intrinsics.error };
-                    let hole_type = self.get_type_from_type_node(hole);
-                    if hole_type == self.intrinsics.error
-                        || self
-                            .store
-                            .get(hole_type)
-                            .flags
-                            .intersects(TypeFlags::UNIT | TypeFlags::UNION)
-                    {
-                        return self.intrinsics.error;
-                    }
-                    let rendered = self.type_to_string(hole_type);
-                    let literal_text = match span.literal {
-                        Some(tsr_ast::TemplateMiddleOrTail::TemplateMiddle(middle)) => middle.text,
-                        Some(tsr_ast::TemplateMiddleOrTail::TemplateTail(tail)) => tail.text,
+                    types.push(self.get_type_from_type_node(hole));
+                    texts.push(match span.literal {
+                        Some(tsr_ast::TemplateMiddleOrTail::TemplateMiddle(middle)) => {
+                            middle.text.to_owned()
+                        }
+                        Some(tsr_ast::TemplateMiddleOrTail::TemplateTail(tail)) => {
+                            tail.text.to_owned()
+                        }
                         None => return self.intrinsics.error,
-                    };
-                    printed.push_str("${");
-                    printed.push_str(&rendered);
-                    printed.push('}');
-                    printed.push_str(literal_text);
+                    });
                 }
-                printed.push('`');
-                // OBJECT rather than the §31 mints' ANY: a template mint in
-                // a UNION must not trip any-absorption or string-literal
-                // reduction (`"bar" | \`foo-${string}\`` keeps both).
-                let id = self.store.new_named(TypeFlags::OBJECT, printed, None);
-                self.unresolved_types.insert(id);
-                id
+                self.get_template_literal_type(&texts, &types)
             }
             // §34 (`checker-notes-callres.md`): a DEFERRED indexed access —
             // the index is a type parameter, upstream cannot resolve it until
@@ -4118,6 +4103,10 @@ impl<'a> Checker<'a, '_> {
         }
         if let Some(&cached) = self.instantiations.get(&(symbol, arguments.clone())) {
             return cached;
+        }
+        if let Some(template) = self.instantiate_template_alias(symbol, &arguments) {
+            self.instantiations.insert((symbol, arguments), template);
+            return template;
         }
         if let Some(mapped) = self.instantiate_normalized_mapped_alias(symbol, &arguments) {
             self.instantiations.insert((symbol, arguments), mapped);
