@@ -7,6 +7,7 @@ use tsr_binder::{SymbolFlags, SymbolId};
 pub(crate) struct MappedTypeInfo {
     pub(crate) parameter: TypeId,
     pub(crate) constraint: TypeId,
+    pub(crate) constraint_intersection: Option<Vec<TypeId>>,
     pub(crate) template: TypeId,
     pub(crate) optionality: Option<bool>,
     pub(crate) readonly: Option<bool>,
@@ -54,9 +55,24 @@ impl<'a> Checker<'a, '_> {
         let parameter_type = self.get_declared_type_of_symbol(symbol);
         let Some(constraint) = parameter.constraint else { return };
         let Some(template) = node.r#type else { return };
+        let mut constraint_node = constraint;
+        while let TypeNode::ParenthesizedTypeNode(node) = constraint_node {
+            let Some(inner) = node.r#type else { break };
+            constraint_node = inner;
+        }
+        // getLimitedConstraint reads the unreduced intersection origin even
+        // when intersection normalization distributes it into a union.
+        let constraint_intersection = if let TypeNode::IntersectionTypeNode(node) = constraint_node
+        {
+            Some(node.types.iter().map(|&ty| self.mapped_constraint_type(ty)).collect::<Vec<_>>())
+        } else {
+            None
+        };
         let mut modifiers_source = None;
         let mut homomorphic_symbol = None;
-        let constraint = if let TypeNode::TypeOperatorNode(operator) = constraint
+        let constraint = if let Some(parts) = &constraint_intersection {
+            self.get_intersection_type(parts, None)
+        } else if let TypeNode::TypeOperatorNode(operator) = constraint
             && operator.operator.kind == SyntaxKind::KeyOfKeyword
             && let Some(operand) = operator.r#type
         {
@@ -75,7 +91,7 @@ impl<'a> Checker<'a, '_> {
             modifiers_source = Some(operand);
             self.resolved_keyof_type(operand).unwrap_or(self.intrinsics.error)
         } else {
-            self.get_type_from_type_node(constraint)
+            self.mapped_constraint_type(constraint)
         };
         self.mapped_template_depth += 1;
         let template = self.get_type_from_type_node(template);
@@ -89,6 +105,7 @@ impl<'a> Checker<'a, '_> {
             MappedTypeInfo {
                 parameter: parameter_type,
                 constraint,
+                constraint_intersection,
                 template,
                 optionality: node.question_token.map(|token| token.kind != SyntaxKind::MinusToken),
                 readonly: node.readonly_token.map(|token| token.kind != SyntaxKind::MinusToken),
@@ -96,6 +113,34 @@ impl<'a> Checker<'a, '_> {
                 homomorphic_symbol,
             },
         );
+    }
+
+    /// Resolve key operators semantically under a mapped type's mapper.
+    /// Union/intersection constraints retain each keyof operand for inference.
+    pub(crate) fn mapped_constraint_type(&mut self, node: TypeNode<'a>) -> TypeId {
+        match node {
+            TypeNode::TypeOperatorNode(operator)
+                if operator.operator.kind == SyntaxKind::KeyOfKeyword =>
+            {
+                let Some(operand) = operator.r#type else { return self.intrinsics.error };
+                let operand = self.get_type_from_type_node(operand);
+                self.resolved_keyof_type(operand).unwrap_or(self.intrinsics.error)
+            }
+            TypeNode::ParenthesizedTypeNode(node) => {
+                node.r#type.map_or(self.intrinsics.error, |ty| self.mapped_constraint_type(ty))
+            }
+            TypeNode::UnionTypeNode(node) => {
+                let types: Vec<_> =
+                    node.types.iter().map(|&ty| self.mapped_constraint_type(ty)).collect();
+                self.get_union_type(&types)
+            }
+            TypeNode::IntersectionTypeNode(node) => {
+                let types: Vec<_> =
+                    node.types.iter().map(|&ty| self.mapped_constraint_type(ty)).collect();
+                self.get_intersection_type(&types, None)
+            }
+            _ => self.get_type_from_type_node(node),
+        }
     }
 
     /// A mapped alias keeps its printed identity while its mapper supplies

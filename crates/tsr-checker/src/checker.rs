@@ -857,8 +857,8 @@ pub struct Checker<'a, 'n> {
     pub(crate) mapped_apparent_types: FxHashMap<TypeId, TypeId>,
     pub(crate) type_parameter_constraint_cache:
         FxHashMap<crate::members::TypeParameterConstraintKey, Option<TypeId>>,
-    pub(crate) reverse_mapped_cache: FxHashMap<(TypeId, TypeId), Option<TypeId>>,
-    pub(crate) reverse_mapped_member_cache: FxHashMap<(TypeId, TypeId), TypeId>,
+    pub(crate) reverse_mapped_cache: FxHashMap<(TypeId, TypeId, TypeId), Option<TypeId>>,
+    pub(crate) reverse_mapped_member_cache: FxHashMap<(TypeId, TypeId, TypeId), TypeId>,
     pub(crate) tuple_element_lists: FxHashMap<TypeId, (Vec<TypeId>, bool)>,
     /// §79: interning for optional-element tuples, keyed on (member,
     /// optional) pairs so `[number, string?]` and `[number, string]` stay

@@ -914,7 +914,7 @@ impl Checker<'_, '_> {
                 }
             })?;
         self.type_parameter_constraint_cache.insert(key.clone(), None);
-        let constraint = self.get_type_from_type_node(constraint_node);
+        let constraint = self.mapped_constraint_type(constraint_node);
         // A constraint that itself gaps leaves the parameter as it was: a gap
         // beats reading members off `errorType`.
         let constraint = (constraint != self.intrinsics.error).then_some(constraint);
