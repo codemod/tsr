@@ -47,7 +47,7 @@ it now expects the callable alone, as the pinned native control confirms.
 
 ## Measured checkpoint
 
-CODE_CHECKPOINT: 451,768/478,855 correct assertions (94.34%).
+6786ef93: 451,768/478,855 correct assertions (94.34%).
 6,672/9,538 complete cases (69.95%).
 Aligned verdicts: 474,243 total; 451,768 RIGHT; 3,495 GAP; 18,980 WRONG.
 Relative to 5fc064d4: 29 WRONG→RIGHT, 16 GAP→RIGHT, zero RIGHT losses,
