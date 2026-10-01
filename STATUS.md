@@ -24,7 +24,7 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-10-01
 
-Measured on **`RETURN_ORDER_CODE_SHA`**: **449,688/478,855 assertions (93.91%)**,
+Measured on **`936efea7`**: **449,688/478,855 assertions (93.91%)**,
 **6,598/9,538 complete cases (69.18%)**. The95% target requires
 454,913 correct assertions; **5,225 remain**. The denominator and pinned oracle
 are unchanged. Aligned verdicts: **474,243 total;449,688 right;4,158 gap;20,397 wrong**.
@@ -1140,7 +1140,7 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-### Current priorities at `RETURN_ORDER_CODE_SHA` — 2026-10-01
+### Current priorities at `936efea7` — 2026-10-01
 
 Const type-variable contexts now follow semantic parameter/union/indexed/mapped/
 variadic identities and deferred conditional constraints. Generic mapped property
@@ -3733,7 +3733,7 @@ version of bare `any`.
 
 ## 5. Refused, with the number that refused it
 
-### Contextual return order at `RETURN_ORDER_CODE_SHA`
+### Contextual return order at `936efea7`
 
 The old order entered nested generic arguments before collecting their outer
 return context,substituting silentNever for its type variables. Publishing both
@@ -9386,7 +9386,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
-| 2026-10-01 | `RETURN_ORDER_CODE_SHA` | **69.18%** | **6,598** | **449,688/478,855 assertions (93.91%).** +23 since0b84e435,zero RIGHT losses/GAP changes;8 W→W. Contextual return snapshot before argument checking.3 nested Mapper controls;release tests/clippy;3,374 anchors;snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-contextual-return-order.md).5,225 assertions remain;95% unfinished. |
+| 2026-10-01 | `936efea7` | **69.18%** | **6,598** | **449,688/478,855 assertions (93.91%).** +23 since0b84e435,zero RIGHT losses/GAP changes;8 W→W. Contextual return snapshot before argument checking.3 nested Mapper controls;release tests/clippy;3,374 anchors;snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-contextual-return-order.md).5,225 assertions remain;95% unfinished. |
 | 2026-10-01 | `0b84e435` | **69.18%** | **6,598** | **449,665/478,855 assertions (93.90%).** +172 since3f8bade8,zero RIGHT losses;136 W→R,36 G→R,6 G→W,35 W→W. Named generic constructor selection/inference,written arguments,callback/const contexts and await operands.4 pinned controls;release tests/clippy;3,374 anchors;snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-generic-constructors.md).5,248 assertions remain;95% unfinished. |
 | 2026-10-01 | `3f8bade8` | **69.09%** | **6,590** | **449,493/478,855 assertions (93.87%).** +7 since25215cc8,zero adverse transitions. Semantic const initializer evaluation and nested template const context.16 pinned declarations;release tests/clippy;3,374 anchors;snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-constant-variables.md).5,420 assertions remain;95% unfinished. |
 | 2026-10-01 | `25215cc8` | **69.08%** | **6,589** | **449,486/478,855 assertions (93.87%).** +227 since83c358c0,zero RIGHT losses;187 W→R,40 G→R,44 G→W,49 W→W. Ordered union matching,observed priorities,naked remainders,subtype constraints and predicate recovery.8 pinned declarations,2 subtype controls;release tests/clippy;3,375 anchors;snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-union-continuation.md).5,427 assertions remain;95% unfinished. |

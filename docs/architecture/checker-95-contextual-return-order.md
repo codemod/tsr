@@ -19,7 +19,7 @@ and reused by the existing worker.
 
 ## Verification and limits
 
-Checkpoint RETURN_ORDER_CODE_SHA:449,688/478,855 matching assertions (93.91%).
+Checkpoint 936efea7:449,688/478,855 matching assertions (93.91%).
 Complete cases:6,598/9,538 (69.18%).
 Another5,225 assertions are needed for95%.
 Aligned verdicts:474,243 total;449,688 right;4,158 gap;20,397 wrong.
