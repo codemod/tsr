@@ -766,13 +766,36 @@ impl<'a> Checker<'a, '_> {
             // guards is never entered: `sole_constructor_parameters` reads
             // declarations, not signatures.
             Node::NewExpression(new_expression) => {
-                if !new_expression.type_arguments.is_empty() {
-                    return None;
-                }
                 let index = new_expression
                     .arguments
                     .iter()
                     .position(|argument| argument.node_id() == Some(node))?;
+                if let Some(call) = new_expression.node_id {
+                    if self.contextual_prefers_uninstantiated
+                        && let Some(context) = self.active_inference_contexts.get(&call).cloned()
+                    {
+                        return self.contextual_argument_type(
+                            &context.signature,
+                            index,
+                            new_expression.arguments.len(),
+                        );
+                    }
+                    if let Some(signature) = self
+                        .call_inference_signatures
+                        .get(&call)
+                        .cloned()
+                        .or_else(|| self.resolved_call_signatures.get(&call).cloned())
+                    {
+                        return self.contextual_argument_type(
+                            &signature,
+                            index,
+                            new_expression.arguments.len(),
+                        );
+                    }
+                }
+                if !new_expression.type_arguments.is_empty() {
+                    return None;
+                }
                 let callee = new_expression.expression.and_then(|e| e.node_id())?;
                 let arity = self.sole_constructor_parameters(callee)?;
                 if !arity.check_argument_types {
@@ -799,6 +822,15 @@ impl<'a> Checker<'a, '_> {
                     return None;
                 }
                 self.get_contextual_type(parent)
+            }
+            // getContextualTypeForAwaitOperand (checker.go:29750) supplies
+            // the awaited context and its PromiseLike form to the operand.
+            Node::AwaitExpression(_) => {
+                let contextual = self.get_contextual_type(parent)?;
+                let awaited = self.contextual_awaited_type_no_alias(contextual)?;
+                let promise = self.global_type_symbol("PromiseLike")?;
+                let promise = self.create_type_reference(promise, vec![awaited]);
+                Some(self.get_union_type(&[awaited, promise]))
             }
             Node::YieldExpression(yield_expression) => self.contextual_type_for_yield_operand(
                 parent,

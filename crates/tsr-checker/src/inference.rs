@@ -423,9 +423,6 @@ impl Checker<'_, '_> {
                 }
                 return error;
             }
-            if !self.mentions_type_parameter(returned, &parameters, &names) {
-                return returned;
-            }
             let mut map = Vec::with_capacity(parameters.len());
             for (position, &type_parameter) in parameters.iter().enumerate() {
                 if let Some(&argument) = written.get(position) {
@@ -448,7 +445,13 @@ impl Checker<'_, '_> {
                 };
                 map.push((type_parameter, image));
             }
-            return self.instantiate_type(returned, &map, &parameters, &names);
+            let answer = self.instantiate_type(returned, &map, &parameters, &names);
+            if answer != error
+                && let Some(slot) = instantiated
+            {
+                *slot = self.instantiate_signature(signature.clone(), &map, &parameters, &names);
+            }
+            return answer;
         }
 
         // A return type that mentions no type parameter of this signature does
@@ -5207,6 +5210,7 @@ impl Checker<'_, '_> {
     fn written_type_arguments(&mut self, call: Option<NodeId>) -> Option<Vec<TypeId>> {
         let nodes = match call.and_then(|id| self.node_map.get(id)) {
             Some(Node::CallExpression(node)) => node.type_arguments,
+            Some(Node::NewExpression(node)) => node.type_arguments,
             _ => return None,
         };
         if nodes.is_empty() {

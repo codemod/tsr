@@ -24,22 +24,23 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-10-01
 
-Measured on **`3f8bade8`**: **449,493/478,855 assertions (93.87%)**,
-**6,590/9,538 complete cases (69.09%)**. The95% target requires
-454,913 correct assertions; **5,420 remain**. The denominator and pinned oracle
-are unchanged. Aligned verdicts: **474,243 total;449,493 right;4,200 gap;20,550 wrong**.
+Measured on **`CONSTRUCTOR_CODE_SHA`**: **449,665/478,855 assertions (93.90%)**,
+**6,598/9,538 complete cases (69.18%)**. The95% target requires
+454,913 correct assertions; **5,248 remain**. The denominator and pinned oracle
+are unchanged. Aligned verdicts: **474,243 total;449,665 right;4,158 gap;20,420 wrong**.
 Binder symbols retain the preceding measurement at **8,497/8,497 (100%)**;
 other suites below retain historical measurements.
 
-This unit adds **7 matching assertions**, with **zero RIGHT losses** and no
-other type changes relative to25215cc8. Release workspace tests,clippy with
-warnings denied,all **3,374 upstream anchors**,and whitespace checks pass.
-The checker snapshot is refreshed. [Constant-variable template evaluation](docs/architecture/checker-95-constant-variables.md)
-records semantic const initializer evaluation,order/cycle guards and the nested
-template const-context parent rule.16 pinned declaration outputs pass,including
-6 diagnostic recovery controls. Import/enum values and deferred-use ordering
-remain in tsr-6.18. General inference continues in tsr-6.1/6.3/6.15. The95% goal
-is unfinished;verified changes commit and push to main.
+This unit adds **172 matching assertions**, with **zero RIGHT losses** relative
+to3f8bade8:136 WRONG→RIGHT and36 GAP→RIGHT.6 former gaps expose incomplete enum
+widening,async void/JS defaults and callback return inference;35 already-wrong
+types change. Release workspace tests,clippy with warnings denied,all **3,374
+upstream anchors**,and whitespace checks pass. The checker snapshot is refreshed.
+[Generic constructor contexts](docs/architecture/checker-95-generic-constructors.md)
+records selection before defaults,written new arguments,callback/const context
+memos and await operand contexts. Four pinned controls pass. General constructor
+selection and downstream inference remain in tsr-6.15/6.21. The95% goal remains
+unfinished;verified changes commit and push to main.
 
 ### Previous whole-suite measurement — historical
 
@@ -1141,7 +1142,7 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-### Current priorities at `3f8bade8` — 2026-10-01
+### Current priorities at `CONSTRUCTOR_CODE_SHA` — 2026-10-01
 
 Const type-variable contexts now follow semantic parameter/union/indexed/mapped/
 variadic identities and deferred conditional constraints. Generic mapped property
@@ -1156,8 +1157,10 @@ unwrap promised slots,preserve const sources and await delegated array elements.
 Union constituents now match exact literals and nesting-ordered same-origin references
 before priority-aware naked-variable inference. Subtype constraints now supply
 common-supertype prerequisites;general assignability declines remain.
-Structural thenables,general iteration protocols,mapped/overloaded callback
-contexts and other indirect sources remain next (`tsr-6.15`). Constant-variable template evaluation now follows unannotated const
+Named generic constructors now select before defaults and supply callback/const
+contexts;await operands now forward awaited return contexts. Structural thenables,
+general iteration protocols,mapped/overloaded callback contexts,class constructor
+selection and other indirect sources remain next (`tsr-6.15`, `tsr-6.21`). Constant-variable template evaluation now follows unannotated const
 initializers and namespace exports with order/cycle guards. Import/enum values
 and deferred-use ordering remain (`tsr-6.18`).
 
@@ -3727,6 +3730,17 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+### Generic constructor contexts at `CONSTRUCTOR_CODE_SHA`
+
+The first generic constructor draft lost6 RIGHT assertions by ignoring written
+new arguments. The written query now recognizes NewExpression and restores all6.
+The initial overload draft panicked on empty candidates;the guarded run completes.
+Callback/const and written-signature memos plus await contexts yield the final
++172 RIGHT with zero RIGHT losses.6 GAP→WRONG outputs remain in enum widening,
+async void/JS defaults and body returns;35 already-wrong types change.
+[Evidence and limits](docs/architecture/checker-95-generic-constructors.md).
+
 
 ### Constant-variable templates at `3f8bade8`
 
@@ -9361,6 +9375,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
+| 2026-10-01 | `CONSTRUCTOR_CODE_SHA` | **69.18%** | **6,598** | **449,665/478,855 assertions (93.90%).** +172 since3f8bade8,zero RIGHT losses;136 W→R,36 G→R,6 G→W,35 W→W. Named generic constructor selection/inference,written arguments,callback/const contexts and await operands.4 pinned controls;release tests/clippy;3,374 anchors;snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-generic-constructors.md).5,248 assertions remain;95% unfinished. |
 | 2026-10-01 | `3f8bade8` | **69.09%** | **6,590** | **449,493/478,855 assertions (93.87%).** +7 since25215cc8,zero adverse transitions. Semantic const initializer evaluation and nested template const context.16 pinned declarations;release tests/clippy;3,374 anchors;snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-constant-variables.md).5,420 assertions remain;95% unfinished. |
 | 2026-10-01 | `25215cc8` | **69.08%** | **6,589** | **449,486/478,855 assertions (93.87%).** +227 since83c358c0,zero RIGHT losses;187 W→R,40 G→R,44 G→W,49 W→W. Ordered union matching,observed priorities,naked remainders,subtype constraints and predicate recovery.8 pinned declarations,2 subtype controls;release tests/clippy;3,375 anchors;snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-union-continuation.md).5,427 assertions remain;95% unfinished. |
 | 2026-10-01 | `83c358c0` | **69.03%** | **6,584** | **449,259/478,855 assertions (93.82%).** +118 since5fffc9af,zero RIGHT losses;67 W→R,51 G→R,3 G→W and3 W→W. Async contextual return slots,const source bookkeeping,generator contexts,array yield* awaiting and exact nullable union matching.20 pinned declarations plus expression control;release workspace tests/clippy;3,377 anchors;snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-async-contexts.md).5,654 assertions remain;95% unfinished. |

@@ -2621,6 +2621,48 @@ impl Checker<'_, '_> {
                 }
             }
         }
+        // resolveNewExpression selects a declared construct signature before
+        // filling its defaults. The existing overload walk decides supported
+        // sets; generic inference still sees the new expression's arguments,
+        // written type arguments and contextual return type.
+        if let Some(candidates) = self.signature_candidates_of_named_type(
+            callee_type,
+            crate::signatures::SignatureKind::Construct,
+        ) {
+            let selected = match candidates.as_slice() {
+                [] => None,
+                [single] => Some(single.clone()),
+                _ => self.choose_overload(
+                    &candidates,
+                    node.arguments,
+                    !node.type_arguments.is_empty(),
+                ),
+            };
+            if let Some(signature) = selected
+                && !signature.type_parameters.is_empty()
+            {
+                let mut instantiated = None;
+                let contextual = node
+                    .arguments
+                    .iter()
+                    .any(|argument| self.is_context_sensitive_argument(argument));
+                let answer = self.check_generic_call_with(
+                    &signature,
+                    node.node_id,
+                    node.arguments,
+                    contextual.then_some(&mut instantiated),
+                );
+                if answer != error {
+                    if let Some(call) = node.node_id
+                        && let Some(signature) = instantiated
+                    {
+                        self.resolved_call_signatures.insert(call, signature);
+                    }
+                    bump(&COUNTERS.new_resolved);
+                    return answer;
+                }
+            }
+        }
         let TypeData::Anonymous { symbol, .. } = self.store.get(callee_type).data else {
             // A constructor **interface** — `DateConstructor`, `ErrorConstructor`
             // — whose construct signatures live in its members rather than in

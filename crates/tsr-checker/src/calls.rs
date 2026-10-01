@@ -1740,7 +1740,7 @@ impl Checker<'_, '_> {
     ///   types.** Upstream's subtype pass would pick among them by specificity;
     ///   without it, taking the first is a guess. Where every match returns the
     ///   *same* type the pass could not have changed the answer, so it is taken.
-    fn choose_overload(
+    pub(crate) fn choose_overload(
         &mut self,
         candidates: &[Signature],
         arguments: &[Expression<'_>],

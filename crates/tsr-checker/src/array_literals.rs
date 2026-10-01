@@ -239,6 +239,7 @@ impl Checker<'_, '_> {
         // avoid entering a non-const call's property contexts needlessly.
         let mut child = id;
         let mut enclosing_call = None;
+        let mut enclosing_new = None;
         let mut crossed_function = false;
         for ancestor in self.nodes.ancestors(id) {
             match self.node_map.get(ancestor) {
@@ -249,6 +250,13 @@ impl Checker<'_, '_> {
                     enclosing_call = Some(call);
                     break;
                 }
+                Some(tsr_ast::Node::NewExpression(new)) => {
+                    if new.expression.and_then(|expression| expression.node_id()) == Some(child) {
+                        return false;
+                    }
+                    enclosing_new = Some(new);
+                    break;
+                }
                 Some(tsr_ast::Node::FunctionDeclaration(_)) => return false,
                 Some(tsr_ast::Node::ArrowFunction(_) | tsr_ast::Node::FunctionExpression(_)) => {
                     crossed_function = true;
@@ -256,6 +264,13 @@ impl Checker<'_, '_> {
                 }
                 _ => child = ancestor,
             }
+        }
+        if let Some(new) = enclosing_new {
+            let has_const_parameter =
+                new.node_id.and_then(|id| self.active_inference_contexts.get(&id)).is_some_and(
+                    |context| context.signature.type_parameters.iter().any(|p| p.is_const),
+                );
+            return has_const_parameter && self.literal_has_const_contextual_target(id);
         }
         let Some(call) = enclosing_call else { return false };
         // An IIFE's parameters derive from its arguments. Computing that
@@ -313,6 +328,10 @@ impl Checker<'_, '_> {
                 return false;
             }
         }
+        self.literal_has_const_contextual_target(id)
+    }
+
+    fn literal_has_const_contextual_target(&mut self, id: tsr_ast::NodeId) -> bool {
         let mut current = id;
         loop {
             let previous = self.contextual_prefers_uninstantiated;
