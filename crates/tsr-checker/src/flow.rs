@@ -2586,6 +2586,14 @@ impl Checker<'_, '_> {
         }
         match self.store.get(t).data {
             TypeData::Anonymous { symbol, .. } => {
+                let symbol = self.binder.merged_symbol(symbol);
+                if self.binder.symbols().get(symbol).flags.contains(SymbolFlags::CLASS) {
+                    return if is_call {
+                        Some(Vec::new())
+                    } else {
+                        self.get_class_construct_signatures(symbol)
+                    };
+                }
                 let signatures = self.get_signatures_of_symbol(symbol)?;
                 Some(
                     signatures

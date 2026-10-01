@@ -1972,6 +1972,11 @@ impl Checker<'_, '_> {
         // through `export *`, so `z.string` found nothing.
         let found = match data.exports.get(name).copied() {
             Some(found) => Some(found),
+            None if is_class => self
+                .late_bound_static_members_of(symbol)
+                .into_iter()
+                .find_map(|(spelled, member)| (spelled == name).then_some(member))
+                .or_else(|| self.get_export_from_star(symbol, name)),
             None => self.get_export_from_star(symbol, name),
         };
         let found = match found {
@@ -2213,6 +2218,13 @@ impl Checker<'_, '_> {
             {
                 return Some(found);
             }
+            if let Some(found) = self
+                .late_bound_static_members_of(base)
+                .into_iter()
+                .find_map(|(spelled, member)| (spelled == name).then_some(member))
+            {
+                return Some(found);
+            }
             if let Some(found) = self.static_property_of_bases(base, name, visiting) {
                 return Some(found);
             }
@@ -2253,6 +2265,9 @@ impl Checker<'_, '_> {
         for declaration in declarations {
             let member_ids: Vec<tsr_ast::NodeId> = match self.node_map.get(declaration) {
                 Some(Node::ClassDeclaration(class)) => {
+                    class.members.iter().filter_map(|m| tsr_ast::Node::from(*m).node_id()).collect()
+                }
+                Some(Node::ClassExpression(class)) => {
                     class.members.iter().filter_map(|m| tsr_ast::Node::from(*m).node_id()).collect()
                 }
                 Some(Node::InterfaceDeclaration(interface)) => interface
@@ -2303,6 +2318,22 @@ impl Checker<'_, '_> {
             }
         }
         out
+    }
+
+    pub(crate) fn late_bound_static_members_of(
+        &mut self,
+        owner: SymbolId,
+    ) -> Vec<(String, SymbolId)> {
+        // resolveAnonymousTypeMembers / getLateBoundSymbol (checker.go):
+        // computed static members belong to exports, never instance members.
+        self.late_bound_members_of(owner)
+            .into_iter()
+            .filter_map(|(name, declaration)| {
+                let symbol = self.binder.symbol_of(declaration)?;
+                self.property_has_modifier(symbol, tsr_ast::SyntaxKind::StaticKeyword)
+                    .then_some((name, symbol))
+            })
+            .collect()
     }
 
     fn get_property_of_declared_symbol(

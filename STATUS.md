@@ -24,23 +24,23 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-10-01
 
-Measured on **`aab165d8`**: **452,054/478,855 assertions (94.40%)**,
-**6,687/9,538 complete cases (70.11%)**. The 95% target requires
-454,913 correct assertions; **2,859 remain**. Denominator and pinned oracle
-unchanged. Aligned verdicts: **474,243 total; 452,054 right; 3,453 gap; 18,736 wrong**.
-Binder re-verifies **8,497/8,497 (100%)**;
+Measured on **`CODE_CHECKPOINT`**: **452,265/478,855 assertions (94.45%)**,
+**6,694/9,538 complete cases (70.18%)**. The 95% target requires
+454,913 correct assertions; **2,648 remain**. Denominator and pinned oracle
+unchanged. Aligned verdicts: **474,243 total; 452,265 right; 3,402 gap; 18,576 wrong**.
+Binder retains its verified **8,497/8,497 (100%)** result at aab165d8;
 other suites below retain historical measurements.
 
-This unit adds **170 matching assertions**, with **zero RIGHT losses** relative
-to a529367a: 144 WRONG→RIGHT, 26 GAP→RIGHT, 2 GAP→WRONG and 70 changed wrong answers.
-Release workspace tests, clippy with warnings denied, all **3,363 upstream
+This unit adds **211 matching assertions**, with **zero RIGHT losses** relative
+to aab165d8: 171 WRONG→RIGHT, 40 GAP→RIGHT, 11 GAP→WRONG and 19 changed wrong answers.
+Release workspace tests, clippy with warnings denied, all **3,362 upstream
 anchors**, format, snapshot and whitespace checks pass.
-[Structured overloads](docs/architecture/checker-95-structured-overloads.md) records
-effective intersection constraints, generic signature erasure, fresh-object
-excess checks, widening boundaries, spread members and merged namespace lookup.
-Pinned controls pass. Full normalization, discriminant-sensitive excess checks,
-this/mapped-index relations and broader CheckMode remain in tsr-6.28;
-generic mapped/conditional representation remains in tsr-6.30.
+[Construct relations](docs/architecture/checker-95-construct-relations.md) records
+shared call/construct comparison, abstractness/accessibility, class constructor
+inheritance and defaults, and computed static requirements. Pinned controls pass.
+Contextual/higher-order constructor inference remains in tsr-6.30; implicit
+heritage instance members, JS generic constructor defaults, mixed index/signature
+requirements and broader relation work remain in tsr-6.28.
 The 95% goal is unfinished; verified changes commit and push to main.
 
 ### Previous whole-suite measurement — historical
@@ -1090,6 +1090,12 @@ Per-crate, by what the conformance suites actually assert — not by what exists
 
 ### Inside the checker — what has an arm
 
+Call and construct signature sets share overload comparison. Constructor
+abstractness and accessibility are checked; class values expose own, inherited
+and default constructor signatures with generic substitutions. Static member
+comparison includes prototype, inherited exports and computed static members.
+See [construct relations](docs/architecture/checker-95-construct-relations.md).
+
 Effective combined constraints preserve variable identities for target unions.
 Structured overload arguments now reach the subtype relation; generic overload
 matrices erase their parameters. Fresh object literals check excess names while
@@ -1194,7 +1200,18 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-### Current priorities at `aab165d8` — 2026-10-01
+### Current priorities at `CODE_CHECKPOINT` — 2026-10-01
+
+Construct relations and class constructor signatures add 211 matches with zero
+RIGHT losses. Contextual constructor instantiation and higher-order generic
+constructor propagation remain in tsr-6.30. Implicit generic heritage instance
+members, JS generic constructor defaults, mixed index/signature requirements,
+full normalization, discriminant-sensitive excess checks and CheckMode remain
+in tsr-6.28. The fresh depend run walks 4,392 gap lines: 575 stale C1 roots,
+285 cycles, zero depth-cap hits, balanced C3 and stale C4. Instrument repair
+remains tsr-6.29; the aligned corpus comparison measures progress.
+
+### Previous structured overload checkpoint at `aab165d8`
 
 Structured overloads, object freshness and namespace lookup add 170 matches with
 zero RIGHT losses. Next relation work includes full normalization,
@@ -3851,6 +3868,17 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+### Construct relations at `CODE_CHECKPOINT`
+
+Annotation-only construct comparison gained 154 with zero RIGHT losses; class
+constructor resolution raised the gain to 203. Review caught an instance-only
+computed method satisfying a required static method; static lookup/enumeration
+restored the native fallback and added eight corpus matches. Final: +211,
+zero RIGHT losses, 11 new wrong answers (ten contextual Banana instantiations,
+one ObjectConstructor union) and 19 changed wrong answers. An implicit generic
+heritage instance-member gap remains separate from constructor defaulting.
+[Evidence and limits](docs/architecture/checker-95-construct-relations.md).
 
 ### Structured overloads at `aab165d8`
 
@@ -9707,6 +9735,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
+| 2026-10-01 | `CODE_CHECKPOINT` | **70.18%** | **6,694** | **452,265/478,855 assertions (94.45%).** +211 since aab165d8, zero RIGHT losses; 11G→W, 19 changed wrong. Construct-signature relations, class constructors and computed statics. Pinned controls; release tests/clippy; 3,362 anchors; snapshot refreshed. [Evidence](docs/architecture/checker-95-construct-relations.md). 2,648 remain; 95% unfinished. |
 | 2026-10-01 | `aab165d8` | **70.11%** | **6,687** | **452,054/478,855 assertions (94.40%).** +170 since a529367a, zero RIGHT losses; 2G→W, 70 changed wrong. Structured overloads, effective constraints, object freshness/widening, spread properties and merged namespace exports. Pinned controls; release tests/clippy; 3,363 anchors; binder 100%; snapshot refreshed. [Evidence](docs/architecture/checker-95-structured-overloads.md). 2,859 remain; 95% unfinished. |
 | 2026-10-01 | `a529367a` | **70.03%** | **6,679** | **451,884/478,855 assertions (94.37%).** +72 since e5ee6cc5, zero RIGHT losses; 1G→W, 4 changed wrong. Source constraints, union identity order, indexed deferral, callable reference substitution and contextual generic callbacks. Pinned controls; release tests/clippy; 3,363 anchors; snapshot refreshed. [Evidence](docs/architecture/checker-95-source-constraints.md). 3,029 remain; 95% unfinished. |
 | 2026-10-01 | `e5ee6cc5` | **69.97%** | **6,674** | **451,812/478,855 assertions (94.35%).** +44 since 6786ef93, zero RIGHT losses; 1G→W, 20 changed wrong. Generic indexed deferral, conditional identities/constraints, homomorphic mapped contexts and no-alias awaiting. Pinned controls; release tests/clippy; 3,364 anchors; snapshot refreshed. [Evidence](docs/architecture/checker-95-generic-indexed-objects.md). 3,101 remain; 95% unfinished. |

@@ -606,19 +606,13 @@ impl Relater<'_, '_, '_> {
         // anyFunctionType has no properties, and function expressions have
         // no own property requirements. Their call-signature relation is the
         // wildcard rule even when no symbol member table is attached.
-        if self.checker.any_function_type == Some(source)
-            && self.is_plain_function_expression_type(target)
-        {
+        if self.checker.any_function_type == Some(source) && self.is_pure_signature_type(target) {
             return Ternary::Related;
         }
-        if self.checker.any_function_type == Some(target)
-            && self.is_plain_function_expression_type(source)
-        {
+        if self.checker.any_function_type == Some(target) && self.is_pure_signature_type(source) {
             return Ternary::NotRelated;
         }
-        if self.is_plain_function_expression_type(source)
-            && self.is_plain_function_expression_type(target)
-        {
+        if self.is_pure_signature_type(source) && self.is_pure_signature_type(target) {
             return self.recursive_type_related_to(source, target);
         }
         // §17 (`checker-notes-assign.md`): both-own-private class pairs are
@@ -766,15 +760,29 @@ impl Relater<'_, '_, '_> {
         }
     }
 
-    /// Whether `id` is an object type with a members table to compare.
-    fn has_members(&self, id: TypeId) -> bool {
-        matches!(
-            &self.checker.type_of(id).data,
-            TypeData::Named { members: Some(_), .. } | TypeData::Anonymous { signature: true, .. }
-        )
+    /// resolveAnonymousTypeMembers (checker.go): class values own a static side.
+    fn class_static_symbol(&self, id: TypeId) -> Option<tsr_binder::SymbolId> {
+        let TypeData::Anonymous { symbol, .. } = self.checker.type_of(id).data else { return None };
+        let symbol = self.checker.binder.merged_symbol(symbol);
+        self.checker
+            .binder
+            .symbols()
+            .get(symbol)
+            .flags
+            .contains(tsr_binder::SymbolFlags::CLASS)
+            .then_some(symbol)
     }
 
-    fn is_plain_function_expression_type(&self, id: TypeId) -> bool {
+    fn has_members(&self, id: TypeId) -> bool {
+        self.class_static_symbol(id).is_some()
+            || matches!(
+                &self.checker.type_of(id).data,
+                TypeData::Named { members: Some(_), .. }
+                    | TypeData::Anonymous { signature: true, .. }
+            )
+    }
+
+    fn is_pure_signature_type(&self, id: TypeId) -> bool {
         self.checker.signature_types.get(&id).is_some_and(|signatures| {
             !signatures.is_empty()
                 && signatures.iter().all(|signature| {
@@ -786,6 +794,8 @@ impl Relater<'_, '_, '_> {
                             | tsr_ast::SyntaxKind::MethodSignature
                             | tsr_ast::SyntaxKind::MethodDeclaration
                             | tsr_ast::SyntaxKind::CallSignature
+                            | tsr_ast::SyntaxKind::ConstructorType
+                            | tsr_ast::SyntaxKind::ConstructSignature
                     )
                 })
         })
@@ -798,35 +808,57 @@ impl Relater<'_, '_, '_> {
         !flags.is_empty() && FLAG_DECIDABLE.contains(flags)
     }
 
-    /// Whether `id` carries call, construct or index signatures that this
-    /// module's structural comparison does not look at.
-    ///
-    /// This is row 6 of `checker-notes-assign.md` §2, and it is the load-bearing
-    /// one: for a signature-bearing pair the comparison is unsound in **both**
-    /// directions at once — a missing rejection (the signatures are never
-    /// compared, so two differently-callable types can relate) and a missing
-    /// acceptance (a bare `{}` target is satisfied without them). Neither
-    /// direction is recoverable from the property walk, so the pair is not
-    /// decided at all.
-    ///
-    /// Two sources, because signatures reach a type by two routes in this port:
-    /// [`Checker::signatures_of_type`] for a baked function-shaped type, and the
-    /// members symbol's own declarations for an interface or type literal that
-    /// writes a signature member.
-    /// §935: the one-call-signature arm of `signaturesRelatedTo`
-    /// (`relater.go:4441`). `None` when the shape is outside what this port can
-    /// decide, which keeps row 6's `Unknown`; `Some` is a real verdict.
-    fn related_call_signatures(&mut self, source: TypeId, target: TypeId) -> Option<Ternary> {
+    /// signaturesRelatedTo (relater.go:4441) compares call and construct sets
+    /// independently. Index-only targets retain their separate relation path.
+    /// None means signature resolution is unsupported, not a rejection.
+    fn related_signatures(&mut self, source: TypeId, target: TypeId) -> Option<Ternary> {
         if self.checker.any_function_type == Some(source) {
             return Some(Ternary::Related);
         }
         if self.checker.any_function_type == Some(target) {
             return Some(Ternary::NotRelated);
         }
-        let source_signatures = self.checker.call_signatures_of_type(source)?;
-        let target_signatures = self.checker.call_signatures_of_type(target)?;
-        if source_signatures.is_empty() || target_signatures.is_empty() {
+        if !self.declares_call_or_construct(target) {
             return None;
+        }
+        let calls =
+            self.related_signature_kind(source, target, crate::signatures::SignatureKind::Call)?;
+        let constructs = self.related_signature_kind(
+            source,
+            target,
+            crate::signatures::SignatureKind::Construct,
+        )?;
+        Some(Ternary::all([calls, constructs]))
+    }
+
+    /// signaturesRelatedTo (relater.go:4441), for either signature kind.
+    fn related_signature_kind(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+        kind: crate::signatures::SignatureKind,
+    ) -> Option<Ternary> {
+        use crate::signatures::SignatureKind;
+        let target_signatures = self.checker.signatures_of_type_kind(target, kind)?;
+        if target_signatures.is_empty() {
+            return Some(Ternary::Related);
+        }
+        let source_signatures = self.checker.signatures_of_type_kind(source, kind)?;
+        if source_signatures.is_empty() {
+            return Some(Ternary::NotRelated);
+        }
+        if kind == SignatureKind::Construct {
+            if source_signatures[0].kind == SignatureKind::AbstractConstruct
+                && target_signatures[0].kind != SignatureKind::AbstractConstruct
+            {
+                return Some(Ternary::NotRelated);
+            }
+            if !self.constructor_visibilities_are_compatible(
+                &source_signatures[0],
+                &target_signatures[0],
+            ) {
+                return Some(Ternary::NotRelated);
+            }
         }
         // signaturesRelatedTo (relater.go:4441) erases generic signatures
         // for the overload matrix and comparable single signatures. Keep an
@@ -893,6 +925,38 @@ impl Relater<'_, '_, '_> {
         Some(Ternary::all(parts))
     }
 
+    /// constructorVisibilitiesAreCompatible (relater.go:4520).
+    fn constructor_visibilities_are_compatible(
+        &self,
+        source: &crate::signatures::Signature,
+        target: &crate::signatures::Signature,
+    ) -> bool {
+        use tsr_ast::{ModifierLike, Node, SyntaxKind};
+        let visibility = |signature: &crate::signatures::Signature| {
+            let modifiers = match self.checker.node_map.get(signature.declaration) {
+                Some(Node::ConstructorDeclaration(node)) => node.modifiers,
+                _ => return None,
+            };
+            modifiers.iter().find_map(|modifier| match modifier {
+                ModifierLike::Token(token)
+                    if matches!(
+                        token.kind,
+                        SyntaxKind::PrivateKeyword | SyntaxKind::ProtectedKeyword
+                    ) =>
+                {
+                    Some(token.kind)
+                }
+                _ => None,
+            })
+        };
+        let source = visibility(source);
+        let target = visibility(target);
+        target == Some(SyntaxKind::PrivateKeyword)
+            || (target == Some(SyntaxKind::ProtectedKeyword)
+                && source != Some(SyntaxKind::PrivateKeyword))
+            || (target != Some(SyntaxKind::ProtectedKeyword) && source.is_none())
+    }
+
     /// hasExcessProperties' Object/empty-object exemption for assignability
     /// and comparability (relater.go:2720). Unknown member sets do not exempt.
     fn target_exempts_excess_properties(&mut self, target: TypeId) -> bool {
@@ -919,7 +983,7 @@ impl Relater<'_, '_, '_> {
     }
 
     /// One source signature against one target signature — the comparison §935
-    /// ported, now the inner step of [`Relater::related_call_signatures`].
+    /// ported, now the inner step of [`Relater::related_signatures`].
     ///
     /// `None` when the pair is outside what this port can judge, which lets the
     /// caller keep looking rather than reading "cannot judge" as "not related".
@@ -1114,6 +1178,9 @@ impl Relater<'_, '_, '_> {
     /// [`Relater::signature_bearing`] that §935's arm is about, split out so
     /// §936's index arm cannot run on a type §935 should be judging.
     fn declares_call_or_construct(&self, id: TypeId) -> bool {
+        if self.class_static_symbol(id).is_some() {
+            return true;
+        }
         if self.checker.signatures_of_type(id).is_some_and(|signatures| !signatures.is_empty()) {
             return true;
         }
@@ -1193,6 +1260,9 @@ impl Relater<'_, '_, '_> {
     }
 
     fn signature_bearing(&self, id: TypeId) -> bool {
+        if self.class_static_symbol(id).is_some() {
+            return true;
+        }
         if self.checker.any_function_type == Some(id) {
             return true;
         }
@@ -1682,10 +1752,8 @@ impl Relater<'_, '_, '_> {
                 return self.is_related_to(source_element, target_element);
             }
         }
-        if self.is_plain_function_expression_type(source)
-            && self.is_plain_function_expression_type(target)
-        {
-            return self.related_call_signatures(source, target).unwrap_or(Ternary::Unknown);
+        if self.is_pure_signature_type(source) && self.is_pure_signature_type(target) {
+            return self.related_signatures(source, target).unwrap_or(Ternary::Unknown);
         }
         // relateVariances (internal/checker/relater.go): shared reference
         // targets compare their arguments in the measured directions. Marker
@@ -1796,7 +1864,7 @@ impl Relater<'_, '_, '_> {
             // upstream's shape: `signaturesRelatedTo` and `propertiesRelatedTo`
             // are conjuncts.
             if self.signature_bearing(target) {
-                if let Some(signatures) = self.related_call_signatures(source, target) {
+                if let Some(signatures) = self.related_signatures(source, target) {
                     let properties = self.properties_related_to(source, target);
                     return Ternary::all(vec![signatures, properties]);
                 }
@@ -2182,6 +2250,12 @@ impl Relater<'_, '_, '_> {
     /// The `None`-on-an-unfollowable-base rule is [`Checker::base_symbols_of`]'s
     /// and is why the walk cannot silently under-report a requirement.
     fn property_names_of(&mut self, id: TypeId) -> Option<Vec<String>> {
+        if let Some(symbol) = self.class_static_symbol(id) {
+            let mut names = vec!["prototype".to_owned()];
+            return self
+                .collect_static_property_names(symbol, &mut names, &mut Vec::new())
+                .then_some(names);
+        }
         if let TypeData::Anonymous { symbol, signature: true, .. } = self.checker.type_of(id).data {
             let mut names: Vec<_> = self
                 .checker
@@ -2208,6 +2282,36 @@ impl Relater<'_, '_, '_> {
         let mut names = Vec::new();
         let mut visiting = Vec::new();
         self.collect_property_names(owner, &mut names, &mut visiting).then_some(names)
+    }
+
+    /// resolveAnonymousTypeMembers (checker.go): the class's static properties
+    /// include base exports. The synthetic prototype is added by the caller.
+    fn collect_static_property_names(
+        &mut self,
+        owner: tsr_binder::SymbolId,
+        names: &mut Vec<String>,
+        visiting: &mut Vec<tsr_binder::SymbolId>,
+    ) -> bool {
+        if visiting.contains(&owner) {
+            return true;
+        }
+        let inherited = !visiting.is_empty();
+        visiting.push(owner);
+        for (&name, &symbol) in &self.checker.binder.symbols().get(owner).exports {
+            if self.checker.symbol_is_value(symbol)
+                && !(inherited && name.starts_with('#'))
+                && !names.iter().any(|existing| existing == name)
+            {
+                names.push(name.to_owned());
+            }
+        }
+        for (name, _) in self.checker.late_bound_static_members_of(owner) {
+            if !names.contains(&name) {
+                names.push(name);
+            }
+        }
+        let Some(bases) = self.checker.base_symbols_of_ex(owner, false) else { return false };
+        bases.into_iter().all(|base| self.collect_static_property_names(base, names, visiting))
     }
 
     /// One step of [`Relater::property_names_of`]'s walk.

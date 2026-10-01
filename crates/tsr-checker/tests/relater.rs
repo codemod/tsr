@@ -155,6 +155,38 @@ fn combined_constraints_preserve_identities_and_reduce_disjoint_domains() {
     }
 }
 
+#[test]
+fn construct_signatures_compare_parameters_returns_and_abstractness() {
+    use tsr_checker::relater::{Relation, Ternary};
+    for (source, target, expected) in [
+        ("new (x:number)=>{value:number;extra:string}", "new (x:number)=>{value:number}", true),
+        ("new (x:number)=>string", "new (x:number)=>number", false),
+        ("new (x:string)=>number", "new (x:number)=>number", false),
+        ("new <T>(x:T)=>T", "new (x:number)=>number", true),
+        ("abstract new (x:number)=>number", "new (x:number)=>number", false),
+        ("new (x:number)=>number", "abstract new (x:number)=>number", true),
+        ("() => number", "new () => number", false),
+        ("new () => number", "() => number", false),
+        ("{new (x:number):number;new (x:string):string;}", "new(x:string)=>string", true),
+        ("{():number;new():string;}", "{():number;new():number;}", false),
+    ] {
+        with_checker(
+            &format!("let source:{source};let target:{target};"),
+            |checker, statements| {
+                let source_type = annotation_type(checker, statements, 0);
+                let target_type = annotation_type(checker, statements, 1);
+                for relation in [Relation::Assignable, Relation::Subtype] {
+                    assert_eq!(
+                        checker.relate_ternary(source_type, target_type, relation),
+                        if expected { Ternary::Related } else { Ternary::NotRelated },
+                        "{source} -> {target} ({relation:?})"
+                    );
+                }
+            },
+        );
+    }
+}
+
 /// Parse, bind and check one source, then answer a question about it.
 ///
 /// Same shape as the harness in `tests/unions.rs`, and for the same reason: the
@@ -1072,10 +1104,10 @@ fn an_absent_property_that_may_be_optional_is_unknown() {
 /// from the rest, and therefore why `SELECTABLE` could never have been widened
 /// into the fix.
 #[test]
-fn a_signature_bearing_pair_is_unknown() {
+fn a_missing_required_call_signature_rejects() {
     assert_eq!(
         verdict("let a: { x: string }; let b: { x: string, (): void };"),
-        tsr_checker::relater::Ternary::Unknown
+        tsr_checker::relater::Ternary::NotRelated
     );
 }
 

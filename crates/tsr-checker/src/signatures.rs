@@ -594,6 +594,187 @@ impl<'a> Checker<'a, '_> {
         Some(result)
     }
 
+    /// resolveAnonymousTypeMembers (checker.go:20650) resolves a class's own
+    /// constructors before synthesizing getDefaultConstructSignatures.
+    pub(crate) fn get_class_construct_signatures(
+        &mut self,
+        symbol: SymbolId,
+    ) -> Option<Vec<Signature>> {
+        if let Some(signatures) = self.class_construct_signatures.get(&symbol) {
+            return signatures.clone();
+        }
+        self.class_construct_signatures.insert(symbol, None);
+        let signatures = self.resolve_class_construct_signatures(symbol);
+        self.class_construct_signatures.insert(symbol, signatures.clone());
+        signatures
+    }
+
+    /// getDefaultConstructSignatures (checker.go:20857). Retain inherited
+    /// declarations for accessibility, substitute base arguments, and replace
+    /// the return and type parameters with the derived class's own identities.
+    fn resolve_class_construct_signatures(&mut self, symbol: SymbolId) -> Option<Vec<Signature>> {
+        let declaration =
+            self.binder.symbols().get(symbol).declarations.iter().copied().find(|&id| {
+                matches!(
+                    self.node_map.get(id),
+                    Some(Node::ClassDeclaration(_) | Node::ClassExpression(_))
+                )
+            })?;
+        let (members, clauses, modifiers) = match self.node_map.get(declaration)? {
+            Node::ClassDeclaration(class) => {
+                (class.members, class.heritage_clauses, class.modifiers)
+            }
+            Node::ClassExpression(class) => {
+                (class.members, class.heritage_clauses, class.modifiers)
+            }
+            _ => return None,
+        };
+        let kind = if modifiers.iter().any(|modifier| {
+            matches!(modifier,
+            ModifierLike::Token(token) if token.kind == SyntaxKind::AbstractKeyword)
+        }) {
+            SignatureKind::AbstractConstruct
+        } else {
+            SignatureKind::Construct
+        };
+        let type_parameters: Vec<_> = self
+            .local_type_parameters_of(symbol)
+            .iter()
+            .map(|parameter| self.type_parameter_of(parameter))
+            .collect::<Option<_>>()?;
+        let arguments = type_parameters
+            .iter()
+            .map(|parameter| parameter.resolved_type)
+            .collect::<Option<Vec<_>>>()?;
+        let instance = if arguments.is_empty() {
+            self.get_declared_type_of_symbol(symbol)
+        } else {
+            self.create_type_reference(symbol, arguments)
+        };
+        if instance == self.intrinsics.error {
+            return None;
+        }
+        let constructors: Vec<_> = members
+            .iter()
+            .filter_map(|member| match member {
+                tsr_ast::ClassElement::ConstructorDeclaration(node) => node.node_id,
+                _ => None,
+            })
+            .collect();
+        let mut signatures = Vec::new();
+        for (index, &constructor) in constructors.iter().enumerate() {
+            if index > 0 && self.is_overload_implementation(constructor, constructors[index - 1]) {
+                continue;
+            }
+            let mut signature = self.get_signature_from_declaration(constructor)?;
+            signature.kind = kind;
+            signature.r#type = instance;
+            signatures.push(signature);
+        }
+        if !signatures.is_empty() {
+            return Some(signatures);
+        }
+        let base = clauses
+            .iter()
+            .find(|clause| clause.token.kind == SyntaxKind::ExtendsKeyword)
+            .and_then(|clause| clause.types.first())
+            .copied();
+        if let Some(base) = base {
+            let base_type = self.check_expression(base.expression?);
+            let base_signatures = if base_type == self.intrinsics.null {
+                Vec::new()
+            } else {
+                self.signatures_of_type_kind(base_type, SignatureKind::Construct)?
+            };
+            if !base_signatures.is_empty() {
+                let arguments: Vec<_> = base
+                    .type_arguments
+                    .iter()
+                    .map(|argument| self.get_type_from_type_node(*argument))
+                    .collect();
+                if arguments.contains(&self.intrinsics.error) {
+                    return None;
+                }
+                for mut signature in base_signatures {
+                    // fillMissingTypeArguments uses implicit any and special
+                    // default normalization in JavaScript. Until that path is
+                    // shared here, do not treat its missing arguments as an
+                    // inapplicable constructor.
+                    if self.in_js_file(declaration) && !signature.type_parameters.is_empty() {
+                        return None;
+                    }
+                    let minimum = signature
+                        .type_parameters
+                        .iter()
+                        .rposition(|parameter| parameter.default.is_none())
+                        .map_or(0, |index| index + 1);
+                    if arguments.len() < minimum
+                        || arguments.len() > signature.type_parameters.len()
+                    {
+                        continue;
+                    }
+                    if !signature.type_parameters.is_empty() {
+                        let parameters = self.type_parameter_types(&signature)?;
+                        let names: Vec<_> = signature
+                            .type_parameters
+                            .iter()
+                            .map(|parameter| parameter.name.clone())
+                            .collect();
+                        let names: Vec<_> = names.iter().map(String::as_str).collect();
+                        // fillMissingTypeArguments (checker.go:21954) maps
+                        // unfilled parameters to error before applying defaults,
+                        // so an invalid forward reference cannot escape unbound.
+                        let mut map: Vec<_> = parameters
+                            .iter()
+                            .enumerate()
+                            .map(|(index, &parameter)| {
+                                (
+                                    parameter,
+                                    arguments.get(index).copied().unwrap_or(self.intrinsics.error),
+                                )
+                            })
+                            .collect();
+                        for index in 0..parameters.len() {
+                            let argument = if let Some(&argument) = arguments.get(index) {
+                                argument
+                            } else {
+                                self.instantiate_type(
+                                    signature.type_parameters[index].default?,
+                                    &map,
+                                    &parameters,
+                                    &names,
+                                )
+                            };
+                            if argument == self.intrinsics.error {
+                                return None;
+                            }
+                            map[index].1 = argument;
+                        }
+                        signature.type_parameters.clear();
+                        signature =
+                            self.instantiate_signature(signature, &map, &parameters, &names)?;
+                    }
+                    signature.type_parameters.clone_from(&type_parameters);
+                    signature.r#type = instance;
+                    signature.kind = kind;
+                    signatures.push(signature);
+                }
+                return Some(signatures);
+            }
+        }
+        Some(vec![Signature {
+            declaration,
+            target: None,
+            kind,
+            type_parameters,
+            this_parameter: None,
+            parameters: Vec::new(),
+            r#type: instance,
+            written_return: None,
+            predicate: None,
+        }])
+    }
+
     /// §74's raw candidate list: every construct/call signature a named
     /// type's interface declarations carry, GENERICS INCLUDED, or `None`
     /// for shapes `get_signature_of_named_type` also declines (no member

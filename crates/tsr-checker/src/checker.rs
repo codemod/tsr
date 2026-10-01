@@ -937,6 +937,10 @@ pub struct Checker<'a, 'n> {
     /// per distinct baked type; written where the text is rendered, because
     /// that is the last point the structure exists. `bd tsr-0hc`.
     pub(crate) signature_types: FxHashMap<TypeId, Vec<crate::signatures::Signature>>,
+    /// resolveAnonymousTypeMembers / getDefaultConstructSignatures (checker.go).
+    /// None marks an active or unsupported class constructor resolution.
+    pub(crate) class_construct_signatures:
+        FxHashMap<SymbolId, Option<Vec<crate::signatures::Signature>>>,
     /// `(baked signature type, substitution map) -> the instantiated type`,
     /// upstream's per-mapper instantiation cache (`checker.go:22125`) reduced
     /// to the one key this port can build.
@@ -1287,6 +1291,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             variadic_alias_in_progress: rustc_hash::FxHashSet::default(),
             type_parameter_symbols: FxHashMap::default(),
             signature_types: FxHashMap::default(),
+            class_construct_signatures: FxHashMap::default(),
             instantiated_signatures: FxHashMap::default(),
             minted_signature_types: rustc_hash::FxHashSet::default(),
             contextual_prefers_uninstantiated: false,
