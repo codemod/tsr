@@ -31,7 +31,7 @@ A setter-only type inferred as any would hide this missing prerequisite.
 
 ## Verification and limits
 
-Checkpoint CHECKPOINT_SHA:450,417/478,855 assertions (94.06%).
+Checkpoint 5d47e663:450,417/478,855 assertions (94.06%).
 Complete cases:6,616/9,538 (69.36%);4,496 assertions remain for95%.
 Aligned verdicts:474,243 total;450,417 RIGHT;4,044 GAP;19,782 WRONG.
 Against2b92b583:111 WRONG→RIGHT,2 GAP→RIGHT,zero RIGHT losses,
