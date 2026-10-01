@@ -24,24 +24,22 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-10-01
 
-Measured on **`25215cc8`**: **449,486/478,855 assertions (93.87%)**,
-**6,589/9,538 complete cases (69.08%)**. The95% target requires
-454,913 correct assertions; **5,427 remain**. The denominator and pinned oracle
-are unchanged. Aligned verdicts: **474,243 total;449,486 right;4,200 gap;20,557 wrong**.
+Measured on **`CONST_VARIABLE_CODE_SHA`**: **449,493/478,855 assertions (93.87%)**,
+**6,590/9,538 complete cases (69.09%)**. The95% target requires
+454,913 correct assertions; **5,420 remain**. The denominator and pinned oracle
+are unchanged. Aligned verdicts: **474,243 total;449,493 right;4,200 gap;20,550 wrong**.
 Binder symbols retain the preceding measurement at **8,497/8,497 (100%)**;
 other suites below retain historical measurements.
 
-This unit adds **227 matching assertions**, with **zero RIGHT losses** relative
-to83c358c0:187 WRONG→RIGHT and40 GAP→RIGHT.44 previous gaps expose incomplete
-contextual defaults,implicit constraints and iteration inference;49 already-wrong
-types change. Release workspace tests,clippy with warnings denied,all **3,375
-upstream anchors**,and whitespace checks pass. The checker snapshot is refreshed.
-[Union continuation](docs/architecture/checker-95-union-continuation.md) records
-nesting-ordered matching,observed priorities,naked remainders,subtype constraint
-prerequisites and predicate false-branch recovery. Eight pinned declarations and
-two subtype controls pass. Generic alias matching,structural identity,intersection
-fallbacks and downstream inference remain in tsr-6.1/6.3/6.15. The95% goal remains
-unfinished;verified changes commit and push to main.
+This unit adds **7 matching assertions**, with **zero RIGHT losses** and no
+other type changes relative to25215cc8. Release workspace tests,clippy with
+warnings denied,all **3,374 upstream anchors**,and whitespace checks pass.
+The checker snapshot is refreshed. [Constant-variable template evaluation](docs/architecture/checker-95-constant-variables.md)
+records semantic const initializer evaluation,order/cycle guards and the nested
+template const-context parent rule.16 pinned declaration outputs pass,including
+6 diagnostic recovery controls. Import/enum values and deferred-use ordering
+remain in tsr-6.18. General inference continues in tsr-6.1/6.3/6.15. The95% goal
+is unfinished;verified changes commit and push to main.
 
 ### Previous whole-suite measurement — historical
 
@@ -1143,7 +1141,7 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-### Current priorities at `25215cc8` — 2026-10-01
+### Current priorities at `CONST_VARIABLE_CODE_SHA` — 2026-10-01
 
 Const type-variable contexts now follow semantic parameter/union/indexed/mapped/
 variadic identities and deferred conditional constraints. Generic mapped property
@@ -1159,8 +1157,9 @@ Union constituents now match exact literals and nesting-ordered same-origin refe
 before priority-aware naked-variable inference. Subtype constraints now supply
 common-supertype prerequisites;general assignability declines remain.
 Structural thenables,general iteration protocols,mapped/overloaded callback
-contexts and other indirect sources remain next (`tsr-6.15`). Constant-variable template evaluation
-remains unported (`tsr-6.18`).
+contexts and other indirect sources remain next (`tsr-6.15`). Constant-variable template evaluation now follows unannotated const
+initializers and namespace exports with order/cycle guards. Import/enum values
+and deferred-use ordering remain (`tsr-6.18`).
 
 
 Inference priorities, independent contextual return mappers, captured structural
@@ -3728,6 +3727,15 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+### Constant-variable templates at `CONST_VARIABLE_CODE_SHA`
+
+The first value-based draft added7 RIGHT assertions but lost5 nested template
+answers. Those exposed an incorrect TemplateSpan const-context parent rule;
+porting the upstream parent rule preserves all5 without treating mutable literal
+types as constant values. Final:+7 RIGHT,zero adverse transitions. Imported/enum
+values and complete deferred-use ordering remain unported. [Evidence](docs/architecture/checker-95-constant-variables.md).
+
 
 ### Union continuation at `25215cc8`
 
@@ -9353,6 +9361,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
+| 2026-10-01 | `CONST_VARIABLE_CODE_SHA` | **69.09%** | **6,590** | **449,493/478,855 assertions (93.87%).** +7 since25215cc8,zero adverse transitions. Semantic const initializer evaluation and nested template const context.16 pinned declarations;release tests/clippy;3,374 anchors;snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-constant-variables.md).5,420 assertions remain;95% unfinished. |
 | 2026-10-01 | `25215cc8` | **69.08%** | **6,589** | **449,486/478,855 assertions (93.87%).** +227 since83c358c0,zero RIGHT losses;187 W→R,40 G→R,44 G→W,49 W→W. Ordered union matching,observed priorities,naked remainders,subtype constraints and predicate recovery.8 pinned declarations,2 subtype controls;release tests/clippy;3,375 anchors;snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-union-continuation.md).5,427 assertions remain;95% unfinished. |
 | 2026-10-01 | `83c358c0` | **69.03%** | **6,584** | **449,259/478,855 assertions (93.82%).** +118 since5fffc9af,zero RIGHT losses;67 W→R,51 G→R,3 G→W and3 W→W. Async contextual return slots,const source bookkeeping,generator contexts,array yield* awaiting and exact nullable union matching.20 pinned declarations plus expression control;release workspace tests/clippy;3,377 anchors;snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-async-contexts.md).5,654 assertions remain;95% unfinished. |
 | 2026-09-30 | `5fffc9af` | **68.97%** | **6,578** | **449,141/478,855 assertions (93.79%).** +196 since a973e8e8,zero RIGHT losses;132 W→R,64 G→R,3 G→W and40 W→W. Const callback body source views before widening,active parameter identities,const templates and generator iteration slots.15 pinned controls;release workspace tests/clippy;3,378 anchors;snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-const-callbacks.md).5,772 assertions remain;95% unfinished. |

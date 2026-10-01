@@ -1576,7 +1576,7 @@ impl Checker<'_, '_> {
         }
     }
 
-    fn is_constant_variable(&self, symbol: SymbolId) -> bool {
+    pub(crate) fn is_constant_variable(&self, symbol: SymbolId) -> bool {
         // §756: `isConstantVariable` (`utilities.go:1040`) is
         // `symbol.Flags&Variable != 0 && getDeclarationNodeFlagsFromSymbol(symbol)&Constant != 0`,
         // and that flag lookup is `getCombinedNodeFlags` on the value

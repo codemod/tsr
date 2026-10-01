@@ -263,9 +263,12 @@ impl Checker<'_, '_> {
                 | Node::SpreadElement(_)
                 | Node::SpreadAssignment(_)
                 | Node::PropertyAssignment(_)
-                | Node::ShorthandPropertyAssignment(_)
-                | Node::TemplateSpan(_),
+                | Node::ShorthandPropertyAssignment(_),
             ) => self.is_const_context(parent),
+            Some(Node::TemplateSpan(_)) => self
+                .nodes
+                .parent(parent)
+                .is_some_and(|template| self.is_const_context(template)),
             _ => false,
         }
     }

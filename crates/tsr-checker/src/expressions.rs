@@ -113,34 +113,21 @@ impl Checker<'_, '_> {
         if tagged {
             return self.intrinsics.string;
         }
-        let mut folded: Option<String> =
-            if untyped_span { None } else { node.head.map(|head| head.text.to_string()) };
-        for (span, &span_type) in node.template_spans.iter().zip(&span_types) {
-            let Some(previous) = folded else { break };
-            let piece = match &self.store.get(span_type).data {
-                crate::types::TypeData::StringLiteral(text)
-                | crate::types::TypeData::NumberLiteral(text) => Some(text.clone()),
-                // §101 (`checker-notes-narrow.md`): a span whose TYPE is not
-                // a literal may still have a constant VALUE — upstream hands
-                // the whole template to the evaluator (`checker.go:7991`).
-                _ => span
-                    .expression
-                    .as_ref()
-                    .and_then(evaluate_constant_expression)
-                    .map(EvaluatedValue::render),
-            };
-            folded = match (piece, span.literal) {
-                (Some(piece), Some(literal)) => {
-                    let tail = match literal {
-                        tsr_ast::TemplateMiddleOrTail::TemplateMiddle(part) => part.text,
-                        tsr_ast::TemplateMiddleOrTail::TemplateTail(part) => part.text,
-                    };
-                    Some(previous + &piece + tail)
-                }
-                _ => None,
-            };
-        }
-        if let Some(value) = folded {
+        // Evaluate values through const declarations, not through a span's
+        // inferred type: string concatenation widens the type without losing
+        // its constant initializer value (checker.go:24024).
+        let folded = if untyped_span {
+            None
+        } else {
+            node.node_id.and_then(|location| {
+                self.evaluate_template_constant(
+                    &Expression::TemplateExpression(node),
+                    location,
+                    &mut Vec::new(),
+                )
+            })
+        };
+        if let Some(EvaluatedValue::Text(value)) = folded {
             return self.store.intern_literal(
                 TypeFlags::STRING_LITERAL,
                 TypeData::StringLiteral(value),
@@ -293,6 +280,72 @@ impl Checker<'_, '_> {
             at = owner;
         }
         at
+    }
+
+    /// Constant-variable slice of `evaluateEntity` (checker.go:24024).
+    /// Each initializer becomes the location for its recursive evaluation, so
+    /// forward references and self/dependent initializer cycles cannot fold.
+    fn evaluate_template_constant(
+        &self,
+        expression: &Expression<'_>,
+        location: NodeId,
+        active: &mut Vec<NodeId>,
+    ) -> Option<EvaluatedValue> {
+        evaluate_constant_expression_with(expression, &mut |entity| {
+            let symbol = self.constant_entity_symbol(entity)?;
+            let symbol = self.binder.merged_symbol(symbol);
+            if !self.is_constant_variable(symbol) {
+                return None;
+            }
+            let declaration = self.binder.symbols().get(symbol).value_declaration?;
+            let Node::VariableDeclaration(variable) = self.node_map.get(declaration)? else {
+                return None;
+            };
+            if variable.r#type.is_some() || declaration == location || active.contains(&declaration)
+            {
+                return None;
+            }
+            if self.source_file_of_for_diagnostics(declaration)
+                == self.source_file_of_for_diagnostics(location)
+                && (self.nodes.span(declaration).start > self.nodes.span(location).start
+                    || self.nodes.ancestors(location).any(|id| id == declaration))
+            {
+                return None;
+            }
+            let initializer = variable.initializer?;
+            active.push(declaration);
+            let value = self.evaluate_template_constant(&initializer, declaration, active);
+            active.pop();
+            value
+        })
+    }
+
+    /// Resolve only entity-name expressions. Object property values are not
+    /// constant variables; namespace exports retain their declaration symbol.
+    fn constant_entity_symbol(&self, expression: &Expression<'_>) -> Option<tsr_binder::SymbolId> {
+        match expression {
+            Expression::Identifier(identifier) => self.binder.resolve_name(
+                self.nodes,
+                self.node_map,
+                identifier.node_id?,
+                identifier.text,
+                SymbolFlags::VALUE,
+            ),
+            Expression::PropertyAccessExpression(access) => {
+                let owner = self.constant_entity_symbol(&access.expression?)?;
+                let name = match access.name? {
+                    tsr_ast::MemberName::Identifier(identifier) => identifier.text,
+                    tsr_ast::MemberName::PrivateIdentifier(_) => return None,
+                };
+                self.binder
+                    .symbols()
+                    .get(self.binder.merged_symbol(owner))
+                    .exports
+                    .get(name)
+                    .copied()
+            }
+            _ => None,
+        }
     }
 
     /// The §50 shape test + pseudo-narrow + re-projection
@@ -3664,17 +3717,28 @@ impl EvaluatedValue {
 pub(crate) fn evaluate_constant_expression(
     expr: &tsr_ast::Expression<'_>,
 ) -> Option<EvaluatedValue> {
+    evaluate_constant_expression_with(expr, &mut |_| None)
+}
+
+fn evaluate_constant_expression_with<'a>(
+    expr: &tsr_ast::Expression<'a>,
+    entity: &mut impl FnMut(&tsr_ast::Expression<'a>) -> Option<EvaluatedValue>,
+) -> Option<EvaluatedValue> {
     use tsr_ast::SyntaxKind;
     match expr {
         tsr_ast::Expression::NumericLiteral(n) => {
             Some(EvaluatedValue::Number(tsr_core::jsnum::numeric_value(n.text)))
         }
         tsr_ast::Expression::StringLiteral(s) => Some(EvaluatedValue::Text(s.text.to_string())),
-        tsr_ast::Expression::ParenthesizedExpression(node) => {
-            node.expression.as_ref().and_then(evaluate_constant_expression)
-        }
+        tsr_ast::Expression::ParenthesizedExpression(node) => node
+            .expression
+            .as_ref()
+            .and_then(|expression| evaluate_constant_expression_with(expression, entity)),
         tsr_ast::Expression::PrefixUnaryExpression(node) => {
-            let operand = node.operand.as_ref().and_then(evaluate_constant_expression)?;
+            let operand = node
+                .operand
+                .as_ref()
+                .and_then(|expression| evaluate_constant_expression_with(expression, entity))?;
             let EvaluatedValue::Number(value) = operand else { return None };
             match node.operator.kind {
                 SyntaxKind::MinusToken => Some(EvaluatedValue::Number(-value)),
@@ -3684,8 +3748,14 @@ pub(crate) fn evaluate_constant_expression(
         }
         tsr_ast::Expression::BinaryExpression(node) => {
             let operator = node.operator_token?.kind;
-            let left = node.left.as_ref().and_then(evaluate_constant_expression)?;
-            let right = node.right.as_ref().and_then(evaluate_constant_expression)?;
+            let left = node
+                .left
+                .as_ref()
+                .and_then(|expression| evaluate_constant_expression_with(expression, entity))?;
+            let right = node
+                .right
+                .as_ref()
+                .and_then(|expression| evaluate_constant_expression_with(expression, entity))?;
             match (left, right, operator) {
                 (a, b, SyntaxKind::PlusToken) => match (a, b) {
                     (EvaluatedValue::Number(a), EvaluatedValue::Number(b)) => {
@@ -3754,8 +3824,11 @@ pub(crate) fn evaluate_constant_expression(
         tsr_ast::Expression::TemplateExpression(node) => {
             let mut folded = node.head.map(|head| head.text.to_string())?;
             for span in node.template_spans {
-                let piece =
-                    span.expression.as_ref().and_then(evaluate_constant_expression)?.render();
+                let piece = span
+                    .expression
+                    .as_ref()
+                    .and_then(|expression| evaluate_constant_expression_with(expression, entity))?
+                    .render();
                 let tail = match span.literal? {
                     tsr_ast::TemplateMiddleOrTail::TemplateMiddle(part) => part.text,
                     tsr_ast::TemplateMiddleOrTail::TemplateTail(part) => part.text,
@@ -3764,7 +3837,7 @@ pub(crate) fn evaluate_constant_expression(
             }
             Some(EvaluatedValue::Text(folded))
         }
-        _ => None,
+        _ => entity(expr),
     }
 }
 
