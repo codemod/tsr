@@ -831,9 +831,11 @@ impl Checker<'_, '_> {
                 )
                 && let Some(callbacks) = self.call_signatures_of_type(parameter.r#type)
                 && let [callback] = callbacks.as_slice()
-                && self.is_const_type_variable(callback.r#type, 0)
             {
-                const_source_parameters.push(callback.r#type);
+                self.collect_const_callback_source_parameters(
+                    callback.r#type,
+                    &mut const_source_parameters,
+                );
             }
             if self.is_context_sensitive_argument(&argument_expression) {
                 deferred.push(index);
@@ -3793,7 +3795,56 @@ impl Checker<'_, '_> {
             if constituents.iter().filter(|t| parameters.contains(t)).count() > 1 {
                 return;
             }
-            if matches!(self.store.get(source).data, TypeData::Union { .. }) {
+            if let TypeData::Union { types: source_types, .. } = self.store.get(source).data.clone()
+            {
+                // inferFromMatchingTypes first removes identical constituents
+                // (inference.go:101). Nullable callback unions can then infer
+                // through the remaining signatures instead of losing every
+                // candidate because null/undefined have no signatures.
+                let mut targets = constituents.clone();
+                let mut sources = Vec::new();
+                for candidate in source_types {
+                    if let Some(index) = targets.iter().position(|&target| target == candidate) {
+                        let target = targets.remove(index);
+                        self.infer_from_types_within(
+                            candidate,
+                            target,
+                            original,
+                            parameters,
+                            out,
+                            depth + 1,
+                        );
+                    } else {
+                        sources.push(candidate);
+                    }
+                }
+                if targets.len() == constituents.len() || targets.is_empty() {
+                    return;
+                }
+                let target = self.get_union_type(&targets);
+                if sources.is_empty() {
+                    let saved = self.inference_priority;
+                    self.inference_priority |= InferencePriority::NAKED_TYPE_VARIABLE;
+                    self.infer_from_types_within(
+                        source,
+                        target,
+                        original,
+                        parameters,
+                        out,
+                        depth + 1,
+                    );
+                    self.inference_priority = saved;
+                } else {
+                    let source = self.get_union_type(&sources);
+                    self.infer_from_types_within(
+                        source,
+                        target,
+                        original,
+                        parameters,
+                        out,
+                        depth + 1,
+                    );
+                }
                 return;
             }
             // §465: a `Promise<X>` source against a `PromiseLike<T>`

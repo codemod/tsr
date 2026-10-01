@@ -8,6 +8,58 @@ use crate::{
 use tsr_ast::{Expression, ObjectLiteralElementLike, PropertyName};
 
 impl Checker<'_, '_> {
+    /// Callback source views already handle literal origins before inference.
+    /// Their direct return, promised return and generator yield/return variables
+    /// must not receive the legacy blanket readonly image at the final mapper.
+    pub(crate) fn collect_const_callback_source_parameters(
+        &mut self,
+        target: TypeId,
+        parameters: &mut Vec<TypeId>,
+    ) {
+        self.collect_const_callback_source_parameters_with_stack(
+            target,
+            parameters,
+            &mut Vec::new(),
+        );
+    }
+
+    fn collect_const_callback_source_parameters_with_stack(
+        &mut self,
+        target: TypeId,
+        parameters: &mut Vec<TypeId>,
+        stack: &mut Vec<TypeId>,
+    ) {
+        if stack.contains(&target) {
+            return;
+        }
+        if self.store.get(target).flags.contains(TypeFlags::TYPE_PARAMETER) {
+            if self.is_const_type_variable(target, 0) {
+                parameters.push(target);
+            }
+            return;
+        }
+        if let Some((symbol, arguments)) = self.type_reference_targets.get(&target).cloned()
+            && let [argument] = arguments.as_slice()
+            && ["Promise", "PromiseLike"].iter().any(|name| {
+                self.global_type_symbol(name).is_some_and(|known| {
+                    self.binder.merged_symbol(known) == self.binder.merged_symbol(symbol)
+                })
+            })
+        {
+            stack.push(target);
+            self.collect_const_callback_source_parameters_with_stack(*argument, parameters, stack);
+            stack.pop();
+            return;
+        }
+        for slot in [0, 1] {
+            if let Some(variable) = self.contextual_generator_iteration_type(target, slot)
+                && self.store.get(variable).flags.contains(TypeFlags::TYPE_PARAMETER)
+                && self.is_const_type_variable(variable, 0)
+            {
+                parameters.push(variable);
+            }
+        }
+    }
     /// The type-parameter/indexed/tuple base-constraint paths needed to decide
     /// mutable literal contexts (checker.go:27550 and :23526).
     fn const_literal_context_base(&mut self, id: TypeId, stack: &mut Vec<TypeId>) -> TypeId {

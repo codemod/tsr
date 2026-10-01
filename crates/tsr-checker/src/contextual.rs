@@ -844,7 +844,7 @@ impl<'a> Checker<'a, '_> {
                     && self.nodes.kind(node) != tsr_ast::SyntaxKind::Block =>
             {
                 let signature = self.contextual_signature(parent)?;
-                (signature.r#type != self.intrinsics.error).then_some(signature.r#type)
+                self.contextual_return_expression_slot(parent, signature.r#type, true)
             }
             Node::ReturnStatement(_) => {
                 let mut function = self.nodes.parent(parent)?;
@@ -879,12 +879,12 @@ impl<'a> Checker<'a, '_> {
                 };
                 if let Some(annotation) = annotation {
                     let contextual = self.get_type_from_type_node(annotation);
-                    return self.contextual_return_expression_slot(function, contextual);
+                    return self.contextual_return_expression_slot(function, contextual, false);
                 }
                 // getContextualReturnType also uses the non-generic contextual
                 // signature of function expressions and object literal methods.
                 let signature = self.contextual_signature(function)?;
-                self.contextual_return_expression_slot(function, signature.r#type)
+                self.contextual_return_expression_slot(function, signature.r#type, true)
             }
             _ => None,
         }
@@ -892,10 +892,11 @@ impl<'a> Checker<'a, '_> {
 
     /// getContextualTypeForReturnExpression's generator return slot
     /// (checker.go:29627). Other iterable shapes need iteration protocol lookup.
-    fn contextual_return_expression_slot(
+    pub(crate) fn contextual_return_expression_slot(
         &mut self,
         function: NodeId,
         contextual: TypeId,
+        filter_signature: bool,
     ) -> Option<TypeId> {
         if contextual == self.intrinsics.error {
             return None;
@@ -906,11 +907,121 @@ impl<'a> Checker<'a, '_> {
             Some(Node::MethodDeclaration(f)) => f.asterisk_token.is_some(),
             _ => false,
         };
-        if generator {
+        let contextual = if generator {
             self.contextual_generator_iteration_type(contextual, 1)
         } else {
             Some(contextual)
+        }?;
+        if self.contextual_function_is_async(function) {
+            let contextual = if filter_signature && !generator {
+                self.async_contextual_return_type(contextual)
+            } else {
+                contextual
+            };
+            let awaited = self.contextual_awaited_type_no_alias(contextual)?;
+            let promise = self.global_type_symbol("PromiseLike")?;
+            let promise = self.create_type_reference(promise, vec![awaited]);
+            Some(self.get_union_type(&[awaited, promise]))
+        } else {
+            Some(contextual)
         }
+    }
+
+    /// getContextualReturnType filters async signature results to promises or
+    /// instantiable/any/unknown/void types (checker.go:29683). Written return
+    /// annotations precede this filtering in the upstream function.
+    fn async_contextual_return_type(&mut self, contextual: TypeId) -> TypeId {
+        use crate::flags::TypeFlags;
+        let types = match self.store.get(contextual).data.clone() {
+            TypeData::Union { types, .. } => types,
+            _ => vec![contextual],
+        };
+        let types: Vec<_> = types
+            .into_iter()
+            .filter(|&ty| {
+                self.store.get(ty).flags.intersects(
+                    TypeFlags::ANY
+                        | TypeFlags::UNKNOWN
+                        | TypeFlags::VOID
+                        | TypeFlags::TYPE_PARAMETER
+                        | TypeFlags::CONDITIONAL
+                        | TypeFlags::SUBSTITUTION
+                        | TypeFlags::INDEXED_ACCESS,
+                ) || self.contextual_promised_type(ty).is_some()
+            })
+            .collect();
+        self.get_union_type(&types)
+    }
+
+    fn contextual_promised_type(&mut self, contextual: TypeId) -> Option<TypeId> {
+        let (target, arguments) = self.type_reference_targets.get(&contextual)?.clone();
+        let [argument] = arguments.as_slice() else { return None };
+        ["Promise", "PromiseLike"]
+            .iter()
+            .any(|name| {
+                self.global_type_symbol(name).is_some_and(|symbol| {
+                    self.binder.merged_symbol(symbol) == self.binder.merged_symbol(target)
+                })
+            })
+            .then_some(*argument)
+    }
+
+    fn contextual_function_is_async(&self, function: NodeId) -> bool {
+        let modifiers = match self.node_map.get(function) {
+            Some(Node::FunctionDeclaration(f)) => f.modifiers,
+            Some(Node::FunctionExpression(f)) => f.modifiers,
+            Some(Node::ArrowFunction(f)) => f.modifiers,
+            Some(Node::MethodDeclaration(f)) => f.modifiers,
+            _ => return false,
+        };
+        crate::check::has_modifier(modifiers, tsr_ast::SyntaxKind::AsyncKeyword)
+    }
+
+    /// getAwaitedTypeNoAlias for contextual return slots (checker.go:31270).
+    /// Generic variables retain their identity; Awaited<T> aliases belong to
+    /// expression/return construction, not this contextual query.
+    fn contextual_awaited_type_no_alias(&mut self, contextual: TypeId) -> Option<TypeId> {
+        self.contextual_awaited_type_with_stack(contextual, &mut Vec::new())
+    }
+
+    fn contextual_awaited_type_with_stack(
+        &mut self,
+        contextual: TypeId,
+        stack: &mut Vec<TypeId>,
+    ) -> Option<TypeId> {
+        if stack.contains(&contextual) {
+            return None;
+        }
+        stack.push(contextual);
+        let result =
+            if self.store.get(contextual).flags.contains(crate::flags::TypeFlags::TYPE_PARAMETER) {
+                Some(contextual)
+            } else if let TypeData::Union { types, .. } = self.store.get(contextual).data.clone() {
+                let types = types
+                    .into_iter()
+                    .map(|ty| self.contextual_awaited_type_with_stack(ty, stack))
+                    .collect::<Option<Vec<_>>>();
+                types.map(|types| self.get_union_type(&types))
+            } else if let Some(promised) = self.contextual_promised_type(contextual) {
+                self.contextual_awaited_type_with_stack(promised, stack)
+            } else {
+                self.awaited_type_no_alias(contextual)
+            };
+        stack.pop();
+        result
+    }
+
+    /// getWidenedLiteralLikeTypeForContextualReturnTypeIfNeeded's async
+    /// promised-type lookup (checker.go:20407).
+    pub(crate) fn contextual_return_widening_type(
+        &mut self,
+        function: NodeId,
+        contextual: TypeId,
+    ) -> Option<TypeId> {
+        if !self.contextual_function_is_async(function) {
+            return Some(contextual);
+        }
+        self.contextual_promised_type(contextual)
     }
 
     pub(crate) fn contextual_generator_iteration_type(
@@ -1025,7 +1136,11 @@ impl<'a> Checker<'a, '_> {
         let yielded = *arguments.first()?;
         let is_async = crate::check::has_modifier(modifiers, tsr_ast::SyntaxKind::AsyncKeyword);
         if !delegates {
-            return if is_async { self.awaited_type_no_alias(yielded) } else { Some(yielded) };
+            return if is_async {
+                self.contextual_awaited_type_no_alias(yielded)
+            } else {
+                Some(yielded)
+            };
         }
         let returned = self.get_contextual_type(yield_id).unwrap_or(self.intrinsics.never);
         let next = arguments.get(2).copied().unwrap_or(self.intrinsics.unknown);
@@ -1452,6 +1567,21 @@ impl<'a> Checker<'a, '_> {
             return self.contextual_property_type(contextual, name);
         };
         let constituents = types.clone();
+        // A value-or-promise return context is S | PromiseLike<S>. A property
+        // absent from the promise branch has exactly S as its context; it does
+        // not depend on discriminating arbitrary object-union alternatives.
+        for &constituent in &constituents {
+            if let Some(value) = self.contextual_promised_type(constituent)
+                && self.contextual_property_type(constituent, name).is_none()
+            {
+                let remaining: Vec<_> =
+                    constituents.iter().copied().filter(|&ty| ty != constituent).collect();
+                let remaining = self.get_union_type(&remaining);
+                if value == remaining {
+                    return self.contextual_property_type(value, name);
+                }
+            }
+        }
         // §938: **discriminate first.** `discriminateTypeByDiscriminableItems`
         // (`checker.go:30779`) selects the constituent the literal's own
         // context-free members identify, and the member lookup then happens on

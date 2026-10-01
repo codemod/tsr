@@ -1509,7 +1509,13 @@ impl<'a> Checker<'a, '_> {
             // nothing to read and measured zero.
             if (is_async
                 && generator_expression
-                && !self.declaration_takes_no_contextual_return(declaration, may_return_never))
+                && !self.declaration_takes_no_contextual_return(declaration, may_return_never)
+                && self
+                    .contextual_signature(declaration)
+                    .and_then(|signature| {
+                        self.contextual_generator_iteration_type(signature.r#type, 0)
+                    })
+                    .is_none())
                 || (!is_async
                     && !generator_expression
                     && !self.declaration_takes_no_contextual_return(declaration, may_return_never))
@@ -1527,6 +1533,7 @@ impl<'a> Checker<'a, '_> {
             for expression in self.return_expressions_of(block, declaration) {
                 let Some(expression) = expression else { continue };
                 let t = self.check_expression(expression);
+                let t = if is_async { self.awaited_type_no_alias(t)? } else { t };
                 let t = self.const_function_body_expression_type(expression, t);
                 if t == self.intrinsics.error {
                     return None;
@@ -1592,7 +1599,13 @@ impl<'a> Checker<'a, '_> {
                             self.binder.merged_symbol(target) == self.binder.merged_symbol(array)
                         })
                     {
-                        let element = arguments[0];
+                        // getYieldedTypeOfYieldExpression awaits the iterated
+                        // element for async yield*, just as for a plain yield.
+                        let element = if is_async {
+                            self.awaited_type_no_alias(arguments[0])?
+                        } else {
+                            arguments[0]
+                        };
                         if !operand_types.contains(&element) {
                             operand_types.push(element);
                         }
@@ -2055,15 +2068,14 @@ impl<'a> Checker<'a, '_> {
         // `Promise<void>` — `getReturnTypeFromBody`'s zero-aggregate arm
         // (`checker.go:20175`) through `createPromiseReturnType`
         // (`checker.go:20372`) and `createPromiseType` (`checker.go:20348`),
-        // where `void` unwraps to itself. Every other async shape declines:
-        // a valued return needs `getAwaitedType`, and a non-declaration
-        // (arrow, function expression, object-literal method) consults the
-        // contextual return type at `checker.go:20179`, which can turn the
-        // `void` into `undefined` — a declaration never has one, which is
-        // what makes this slice sound. `checker-notes-callres.md` §14 sized
-        // it at 174 lines / 0 want-any and carries the bar.
+        // where `void` unwraps to itself. Contextual signatures now supply the
+        // return-expression slot and the empty-body undefined/void decision
+        // (checker.go:20179). If neither the absence of context nor a concrete
+        // contextual signature can be established, keep the body unanswered.
         if is_async {
-            if !self.declaration_takes_no_contextual_return(declaration, may_return_never) {
+            if !self.declaration_takes_no_contextual_return(declaration, may_return_never)
+                && self.contextual_signature(declaration).is_none()
+            {
                 return None;
             }
             // §559: a CONCISE arrow body is the return expression itself —
@@ -2144,6 +2156,7 @@ impl<'a> Checker<'a, '_> {
                     // because this port mints no `Awaited<T>`.
                     self.awaited_type_no_alias(id)?
                 };
+                let awaited = self.const_function_body_expression_type(node, awaited);
                 if !valued.contains(&awaited) {
                     valued.push(awaited);
                 }
@@ -2199,7 +2212,18 @@ impl<'a> Checker<'a, '_> {
             let promised = match valued.as_slice() {
                 // The empty aggregate — `Promise<void>` (`checker.go:20184`);
                 // a bare-return-only body takes the same arm.
-                [] => self.intrinsics.void,
+                [] => {
+                    let contextual = self.contextual_signature(declaration).and_then(|signature| {
+                        self.contextual_return_expression_slot(declaration, signature.r#type, true)
+                    });
+                    if contextual.is_some_and(|ty| {
+                        self.maybe_type_of_kind(ty, crate::flags::TypeFlags::UNDEFINED)
+                    }) {
+                        self.intrinsics.undefined
+                    } else {
+                        self.intrinsics.void
+                    }
+                }
                 // One distinct awaited type runs the same tail as the plain
                 // path (`getWidenedType` at `:20231`, and §64's non-strict
                 // nullable widening — `asyncFunctionDeclaration15_es6` wants
@@ -2556,7 +2580,12 @@ impl<'a> Checker<'a, '_> {
             else {
                 return Some(widened);
             };
-            return if self.is_literal_of_contextual_type(id, signature.r#type)? {
+            let contextual = self.contextual_return_widening_type(declaration, signature.r#type);
+            let keep = match contextual {
+                Some(contextual) => self.is_literal_of_contextual_type(id, contextual)?,
+                None => false,
+            };
+            return if keep {
                 Some(self.get_regular_type_of_literal_type(id))
             } else {
                 Some(widened)
@@ -2591,7 +2620,10 @@ impl<'a> Checker<'a, '_> {
             self.contextual_return_depth += 1;
             let keeps_literal = self
                 .contextual_signature(declaration)
-                .map(|signature| self.is_literal_of_contextual_type(id, signature.r#type));
+                .and_then(|signature| {
+                    self.contextual_return_widening_type(declaration, signature.r#type)
+                })
+                .map(|contextual| self.is_literal_of_contextual_type(id, contextual));
             self.contextual_return_depth -= 1;
             self.contextual_return_in_flight.remove(&declaration);
             if keeps_literal == Some(Some(true)) {

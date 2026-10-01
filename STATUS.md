@@ -22,27 +22,26 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
-### Current checker checkpoint — 2026-09-30
+### Current checker checkpoint — 2026-10-01
 
-Measured on **`5fffc9af`**: **449,141/478,855 assertions (93.79%)**,
-**6,578/9,538 complete cases (68.97%)**. The95% target requires
-454,913 correct assertions; **5,772 remain**. The denominator and pinned oracle
-are unchanged. Aligned verdicts: **474,243 total;449,141 right;4,338 gap;20,764 wrong**.
+Measured on **`ASYNC_CODE_SHA`**: **449,259/478,855 assertions (93.82%)**,
+**6,584/9,538 complete cases (69.03%)**. The95% target requires
+454,913 correct assertions; **5,654 remain**. The denominator and pinned oracle
+are unchanged. Aligned verdicts: **474,243 total;449,259 right;4,284 gap;20,700 wrong**.
 Binder symbols retain the preceding measurement at **8,497/8,497 (100%)**;
 other suites below retain historical measurements.
 
-This unit adds **196 matching assertions**, with **zero RIGHT losses** relative
-to a973e8e8 (448,945):132 WRONG→RIGHT and64 GAP→RIGHT. Three template gaps now
-produce wrong patterns because constant-variable evaluation remains unported;
-40 already-wrong types change. Release workspace tests,workspace clippy with
-warnings denied,all **3,378 upstream anchors**,and whitespace checks pass.
-The checker snapshot is refreshed.
-[Const callback contexts](docs/architecture/checker-95-const-callbacks.md) records
-active uninstantiated parameter identities,return/yield regularization,literal
-source views,const templates,generator iteration slots and15 pinned controls.
-Async,mapped and overloaded callback contexts remain in tsr-6.15;
-constant-variable evaluation is tsr-6.18. The95% goal is unfinished;
-verified changes commit and push to main.
+This unit adds **118 matching assertions**, with **zero RIGHT losses** relative
+to5fffc9af:67 WRONG→RIGHT and51 GAP→RIGHT. Three previous gaps expose incomplete
+union inference/alias provenance;three already-wrong types change. Release
+workspace tests,clippy with warnings denied,all **3,377 upstream anchors**,and
+whitespace checks pass. The checker snapshot is refreshed.
+[Async callback contexts](docs/architecture/checker-95-async-contexts.md) records
+awaited return slots,const source bookkeeping,async generator contexts,delegated
+array awaiting and exact nullable union constituent matching. Twenty pinned
+declaration outputs plus a pinned contextual call control pass. General union
+matching remains in tsr-6.1;mapped/overloaded and other indirect const sources
+remain in tsr-6.15. The95% goal is unfinished;verified changes commit and push to main.
 
 ### Previous whole-suite measurement — historical
 
@@ -1144,7 +1143,7 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-### Current priorities at `5fffc9af` — 2026-09-30
+### Current priorities at `ASYNC_CODE_SHA` — 2026-10-01
 
 Const type-variable contexts now follow semantic parameter/union/indexed/mapped/
 variadic identities and deferred conditional constraints. Generic mapped property
@@ -1154,8 +1153,11 @@ source views before collecting candidates. Deep literal readonly,mutable array
 constraints,existing mutable variables,fixed tuple spreads and last-write object
 origins are ported. Direct const callback return contexts now preserve body
 literal sources before widening; known generator slots and const template
-patterns are ported. Async,mapped and overloaded callback contexts and other
-indirect sources remain next (`tsr-6.15`). Constant-variable template evaluation
+patterns are ported. Known async callback return and generator contexts now
+unwrap promised slots,preserve const sources and await delegated array elements.
+Exact nullable union constituents now match before structural inference.
+Structural thenables,general iteration protocols,mapped/overloaded callback
+contexts and other indirect sources remain next (`tsr-6.15`). Constant-variable template evaluation
 remains unported (`tsr-6.18`).
 
 
@@ -1165,7 +1167,8 @@ variadic tuple normalization and concrete tuple relations are now implemented.
 Identity homomorphic maps preserve tuple labels and optional/readonly state;
 deferred maps normalize after substitution. This supersedes the older board's
 claims that these mechanisms are wholly unported. General transformed maps,
-recursive generic signature relations and union matching remain incomplete.
+recursive generic signature relations,close union matching and general
+inferToMultipleTypes remain incomplete (`tsr-6.1`).
 
 Infer declarations now have conditional-local identities and true-branch scope.
 Concrete conditional inference uses a signature-less mapper with strict variance
@@ -3722,6 +3725,20 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+### Async callback contexts at `ASYNC_CODE_SHA`
+
+Adds118 matching assertions with zero RIGHT losses. Broad property-context
+filtering lost eight previously correct rows;the identity-checked value/promise
+rule repairs async object contexts without them. Exact nullable matching repairs
+the Promise.reject regression;awaiting delegated array elements repairs three
+new wrong generator rows. Three previous gaps still expose multi-variable union
+inference or lost alias provenance (`tsr-6.1`);three already-wrong types change.
+[Evidence and limits](docs/architecture/checker-95-async-contexts.md).
+Twenty pinned declaration outputs plus a pinned expression control and release
+workspace gates pass. Structural thenables,general iteration protocols and
+mapped/overloaded contexts remain incomplete;5,654 assertions remain for95%.
+
 
 ### Const callback contexts at `5fffc9af`
 
@@ -9322,6 +9339,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
+| 2026-10-01 | `ASYNC_CODE_SHA` | **69.03%** | **6,584** | **449,259/478,855 assertions (93.82%).** +118 since5fffc9af,zero RIGHT losses;67 W→R,51 G→R,3 G→W and3 W→W. Async contextual return slots,const source bookkeeping,generator contexts,array yield* awaiting and exact nullable union matching.20 pinned declarations plus expression control;release workspace tests/clippy;3,377 anchors;snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-async-contexts.md).5,654 assertions remain;95% unfinished. |
 | 2026-09-30 | `5fffc9af` | **68.97%** | **6,578** | **449,141/478,855 assertions (93.79%).** +196 since a973e8e8,zero RIGHT losses;132 W→R,64 G→R,3 G→W and40 W→W. Const callback body source views before widening,active parameter identities,const templates and generator iteration slots.15 pinned controls;release workspace tests/clippy;3,378 anchors;snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-const-callbacks.md).5,772 assertions remain;95% unfinished. |
 | 2026-09-30 | `a973e8e8` | **68.97%** | **6,578** | **448,945/478,855 assertions (93.75%).** +23 W→R since79500ed4,zero RIGHT losses and no other transitions. AST const candidates before inference,deep literal readonly,mutable constraints/variables,fixed spreads and last-write origins;rest primitive retention/mutability.24 pinned controls;release workspace tests/clippy;3,378 anchors;snapshot refreshed. [Evidence and remaining work](docs/architecture/checker-95-const-sources.md).5,968 assertions remain;95% unfinished. |
 | 2026-09-30 | `79500ed4` | **68.97%** | **6,578** | **448,922/478,855 assertions (93.75%).** +54 W→R,+12 G→R since a8933f8a,zero RIGHT losses and no other transitions. Semantic const identities,conditional constraints,indexed rest and mapped property contexts;re-entry repairs. Ten pinned control assertions;release workspace tests/clippy;3,379 anchors;snapshot refreshed. [Evidence and remaining work](docs/architecture/checker-95-const-contexts.md).5,991 assertions remain;95% unfinished. |
