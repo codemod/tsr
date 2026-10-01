@@ -36,7 +36,7 @@ without these context rules would have regressed existing literal inference.
 
 ## Evidence and remaining work
 
-Checkpoint INDEX_CHECKPOINT: **450,757/478,855 (94.13%)**;
+Checkpoint 6837bbf9: **450,757/478,855 (94.13%)**;
 6,634/9,538 complete cases (69.55%). The95% target needs4,156 more matches.
 Aligned:474,243 total;450,757 RIGHT;3,885 GAP;19,601 WRONG.
 Against87f2dc92:115 WRONG→RIGHT,14 GAP→RIGHT,zero RIGHT losses,

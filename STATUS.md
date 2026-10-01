@@ -24,7 +24,7 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-10-01
 
-Measured on **`INDEX_CHECKPOINT`**: **450,757/478,855 assertions (94.13%)**,
+Measured on **`6837bbf9`**: **450,757/478,855 assertions (94.13%)**,
 **6,634/9,538 complete cases (69.55%)**. The 95% target requires
 454,913 correct assertions; **4,156 remain**. Denominator and pinned oracle
 unchanged. Aligned verdicts: **474,243 total;450,757 right;3,885 gap;19,601 wrong**.
@@ -1141,7 +1141,7 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-### Current priorities at `INDEX_CHECKPOINT` — 2026-10-01
+### Current priorities at `6837bbf9` — 2026-10-01
 
 Assignment property symbols now collect binary/descriptor values with readonly
 checks and CommonJS default precedence. Object-literal member docs reach the
@@ -3755,7 +3755,7 @@ version of bare `any`.
 
 ## 5. Refused, with the number that refused it
 
-### Composite index signatures at `INDEX_CHECKPOINT`
+### Composite index signatures at `6837bbf9`
 
 The129-match gain has zero RIGHT losses. A draft lost25 correct assertions:
 concrete-property priority recovered12,then any-to-unknown intersection context
@@ -9483,7 +9483,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
-| 2026-10-01 | `INDEX_CHECKPOINT` | **69.55%** | **6,634** | **450,757/478,855 assertions (94.13%).** +129 since87f2dc92,zero RIGHT losses;115 W→R,14 G→R,15 G→W,14 changed wrong. Composite and static indexes,intersection context precedence and no-reduction unions. Pinned controls;release tests/clippy;3,366 anchors;checker snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-composite-indexes.md).4,156 remain;95% unfinished. |
+| 2026-10-01 | `6837bbf9` | **69.55%** | **6,634** | **450,757/478,855 assertions (94.13%).** +129 since87f2dc92,zero RIGHT losses;115 W→R,14 G→R,15 G→W,14 changed wrong. Composite and static indexes,intersection context precedence and no-reduction unions. Pinned controls;release tests/clippy;3,366 anchors;checker snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-composite-indexes.md).4,156 remain;95% unfinished. |
 | 2026-10-01 | `87f2dc92` | **69.48%** | **6,627** | **450,628/478,855 assertions (94.11%).** +211 since5d47e663,zero RIGHT losses;105 W→R,106 G→R,24 G→W,12 changed wrong. Callable exports,property substitution,assignment context,numeric/Unicode names. Pinned controls;release tests/clippy;3,366 anchors;checker snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-callable-expandos.md).4,285 remain;95% unfinished. |
 | 2026-10-01 | `5d47e663` | **69.36%** | **6,616** | **450,417/478,855 assertions (94.06%).** +113 since2b92b583,zero adverse transitions;111 W→R,2 G→R. Assignment/descriptor values and readonly writes,CommonJS defaults,expando scope,object JSDoc. Pinned controls;release tests/clippy;3,367 anchors;checker/binder snapshots refreshed. [Evidence and limits](docs/architecture/checker-95-assignment-declarations.md).4,496 assertions remain;95% unfinished. |
 | 2026-10-01 | `2b92b583` | **69.35%** | **6,615** | **450,304/478,855 assertions (94.04%).** +194 since594ac488,zero RIGHT losses;151 W→R,43 G→R,11 G→W,16 W→W. Semantic index keys and contextual object callbacks. Pinned controls;release tests/clippy;3,367 anchors;snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-semantic-index-keys.md).4,609 assertions remain;95% unfinished. |
