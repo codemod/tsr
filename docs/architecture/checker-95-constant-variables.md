@@ -26,7 +26,7 @@ folding mutable literal-typed variables.
 
 ## Verification and limits
 
-Checkpoint CONST_VARIABLE_CODE_SHA:449,493/478,855 matching assertions (93.87%).
+Checkpoint 3f8bade8:449,493/478,855 matching assertions (93.87%).
 Complete cases:6,590/9,538 (69.09%). Another5,420 assertions are needed for95%.
 Aligned verdicts:474,243 total;449,493 right;4,200 gap;20,550 wrong.
 Against25215cc8:7 WRONG→RIGHT,zero RIGHT losses and no other type changes.
