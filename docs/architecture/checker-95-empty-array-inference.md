@@ -34,7 +34,7 @@ implicit-any diagnostics remain outside this change.
 
 ## Verification and limits
 
-Checkpoint EMPTY_CHECKPOINT: **450,819/478,855 (94.15%)**;
+Checkpoint abff3df6: **450,819/478,855 (94.15%)**;
 6,639/9,538 complete cases (69.61%). The95% goal needs4,094 more matches.
 Aligned verdicts:474,243 total;450,819 RIGHT;3,885 GAP;19,539 WRONG.
 Against6837bbf9:62 WRONG→RIGHT,zero RIGHT losses,no new GAP→WRONG,

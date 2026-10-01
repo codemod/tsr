@@ -24,7 +24,7 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-10-01
 
-Measured on **`EMPTY_CHECKPOINT`**: **450,819/478,855 assertions (94.15%)**,
+Measured on **`abff3df6`**: **450,819/478,855 assertions (94.15%)**,
 **6,639/9,538 complete cases (69.61%)**. The 95% target requires
 454,913 correct assertions; **4,094 remain**. Denominator and pinned oracle
 unchanged. Aligned verdicts: **474,243 total;450,819 right;3,885 gap;19,539 wrong**.
@@ -1141,7 +1141,7 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-### Current priorities at `EMPTY_CHECKPOINT` — 2026-10-01
+### Current priorities at `abff3df6` — 2026-10-01
 
 Assignment property symbols now collect binary/descriptor values with readonly
 checks and CommonJS default precedence. Object-literal member docs reach the
@@ -3756,7 +3756,7 @@ version of bare `any`.
 
 ## 5. Refused, with the number that refused it
 
-### Empty-array inference at `EMPTY_CHECKPOINT`
+### Empty-array inference at `abff3df6`
 
 Distinct inferred element identities initially lost179 correct assertions because
 non-strict variable widening recognized only ordinary undefined. The corresponding
@@ -9497,7 +9497,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
-| 2026-10-01 | `EMPTY_CHECKPOINT` | **69.61%** | **6,639** | **450,819/478,855 assertions (94.15%).** +62 since6837bbf9,zero RIGHT losses/no new G→W;one changed wrong. Distinct empty-array identities,assignment/JS initializer recovery,non-strict array widening. Pinned controls;release tests/clippy;3,366 anchors;checker snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-empty-array-inference.md).4,094 remain;95% unfinished. |
+| 2026-10-01 | `abff3df6` | **69.61%** | **6,639** | **450,819/478,855 assertions (94.15%).** +62 since6837bbf9,zero RIGHT losses/no new G→W;one changed wrong. Distinct empty-array identities,assignment/JS initializer recovery,non-strict array widening. Pinned controls;release tests/clippy;3,366 anchors;checker snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-empty-array-inference.md).4,094 remain;95% unfinished. |
 | 2026-10-01 | `6837bbf9` | **69.55%** | **6,634** | **450,757/478,855 assertions (94.13%).** +129 since87f2dc92,zero RIGHT losses;115 W→R,14 G→R,15 G→W,14 changed wrong. Composite and static indexes,intersection context precedence and no-reduction unions. Pinned controls;release tests/clippy;3,366 anchors;checker snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-composite-indexes.md).4,156 remain;95% unfinished. |
 | 2026-10-01 | `87f2dc92` | **69.48%** | **6,627** | **450,628/478,855 assertions (94.11%).** +211 since5d47e663,zero RIGHT losses;105 W→R,106 G→R,24 G→W,12 changed wrong. Callable exports,property substitution,assignment context,numeric/Unicode names. Pinned controls;release tests/clippy;3,366 anchors;checker snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-callable-expandos.md).4,285 remain;95% unfinished. |
 | 2026-10-01 | `5d47e663` | **69.36%** | **6,616** | **450,417/478,855 assertions (94.06%).** +113 since2b92b583,zero adverse transitions;111 W→R,2 G→R. Assignment/descriptor values and readonly writes,CommonJS defaults,expando scope,object JSDoc. Pinned controls;release tests/clippy;3,367 anchors;checker/binder snapshots refreshed. [Evidence and limits](docs/architecture/checker-95-assignment-declarations.md).4,496 assertions remain;95% unfinished. |
