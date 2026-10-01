@@ -453,6 +453,9 @@ pub struct Checker<'a, 'n> {
     pub(crate) inference_bivariant: bool,
     /// Current `InferenceState.priority` (`internal/checker/inference.go`).
     pub(crate) inference_priority: crate::inference::InferencePriority,
+    /// Lowest priority reached by this inference walk (`InferenceState`'s
+    /// inferencePriority); -1 records an incomplete recursive walk.
+    pub(crate) inference_observed_priority: i32,
     /// Active `InferenceContext` snapshots for nested call return inference.
     pub(crate) active_inference_contexts:
         FxHashMap<NodeId, crate::inference::InferenceContextSnapshot>,
@@ -1170,6 +1173,9 @@ impl<'a, 'n> Checker<'a, 'n> {
             inference_contravariant: false,
             inference_bivariant: false,
             inference_priority: crate::inference::InferencePriority::NONE,
+            inference_observed_priority: i32::from(
+                crate::inference::InferencePriority::MAX_VALUE.bits(),
+            ),
             active_inference_contexts: FxHashMap::default(),
             silent_never_type: None,
             variance_cache: FxHashMap::default(),

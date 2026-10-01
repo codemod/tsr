@@ -610,15 +610,30 @@ impl Relater<'_, '_, '_> {
             && self.checker.tuple_spread_array_element(target).is_some())
             || (target_tuple && self.checker.tuple_spread_array_element(source).is_some());
         // structuredTypeRelatedTo compares primitive sources through their
-        // apparent wrapper type (internal/checker/relater.go). Keep indexed
-        // targets unsupported until their sourceIsPrimitive rules are ported.
+        // apparent wrapper type (internal/checker/relater.go). Indexed targets
+        // still need sourceIsPrimitive rules for an acceptance, but a failed
+        // required-property comparison already proves a rejection.
         if s.intersects(TypeFlags::PRIMITIVE)
             && !s.intersects(TypeFlags::NULLABLE | TypeFlags::VOID)
             && t.intersects(TypeFlags::OBJECT)
-            && self.checker.get_index_infos_of_type(target).is_none_or(|infos| infos.is_empty())
         {
             let apparent = self.checker.apparent_type(source);
             if apparent != source {
+                if self
+                    .checker
+                    .get_index_infos_of_type(target)
+                    .is_some_and(|infos| !infos.is_empty())
+                {
+                    return if matches!(self.relation, Relation::Subtype | Relation::StrictSubtype)
+                        && self.has_members(apparent)
+                        && self.has_members(target)
+                        && self.properties_related_to(apparent, target) == Ternary::NotRelated
+                    {
+                        Ternary::NotRelated
+                    } else {
+                        Ternary::Unknown
+                    };
+                }
                 return self.is_related_to(apparent, target);
             }
         }
@@ -631,6 +646,7 @@ impl Relater<'_, '_, '_> {
             || (self.has_members(source) && self.has_members(target))
             || (source_tuple && target_tuple)
             || tuple_array_pair
+            || s.contains(TypeFlags::TYPE_PARAMETER)
             || t.contains(TypeFlags::STRING_MAPPING)
             || (t.contains(TypeFlags::TEMPLATE_LITERAL)
                 && s.intersects(
@@ -673,6 +689,23 @@ impl Relater<'_, '_, '_> {
         // is what lets a class-instance union carry its nullable constituent
         // through subtype reduction (`generatorTypeCheck22`).
         if s.intersects(TypeFlags::OBJECT) && self.flag_decidable(target) {
+            return Ternary::NotRelated;
+        }
+        // A concrete object cannot inhabit an arbitrary target parameter.
+        // Generic mapped types have a separate target-parameter relation
+        // (relater.go:3423), which remains outside this arm.
+        if t.contains(TypeFlags::TYPE_PARAMETER)
+            && s.intersects(TypeFlags::OBJECT | TypeFlags::UNKNOWN)
+            && matches!(self.relation, Relation::Subtype | Relation::StrictSubtype)
+            && !self.checker.mapped_types.contains_key(&source)
+        {
+            return Ternary::NotRelated;
+        }
+        if self.checker.strict_null_checks
+            && s.intersects(TypeFlags::NULLABLE)
+            && t.contains(TypeFlags::OBJECT)
+            && matches!(self.relation, Relation::Subtype | Relation::StrictSubtype)
+        {
             return Ternary::NotRelated;
         }
         // A template always inhabits the string domain. Generic holes do not
@@ -1342,6 +1375,44 @@ impl Relater<'_, '_, '_> {
     /// target's constituents — which it is not, since union interning makes
     /// `"a" | "b"` a type the target's list does not contain.
     fn structured_type_related_to(&mut self, source: TypeId, target: TypeId) -> Ternary {
+        // Source type variables explore their constraint under the same cycle
+        // guard (relater.go:3664). Synthetic this types keep the existing
+        // structural member path; an unreadable written constraint is unknown.
+        if self.checker.type_of(source).flags.contains(TypeFlags::TYPE_PARAMETER)
+            && matches!(self.relation, Relation::Subtype | Relation::StrictSubtype)
+            && let Some(&symbol) = self.checker.type_parameter_symbols.get(&source)
+            && let Some(declaration) =
+                self.checker.binder.symbols().get(symbol).declarations.iter().find_map(|&id| {
+                    match self.checker.node_map.get(id) {
+                        Some(tsr_ast::Node::TypeParameterDeclaration(parameter)) => Some(parameter),
+                        _ => None,
+                    }
+                })
+        {
+            let mut constraint = if declaration.constraint.is_some() {
+                let Some(constraint) = self.checker.type_parameter_constraint(source) else {
+                    return Ternary::Unknown;
+                };
+                constraint
+            } else {
+                self.checker.intrinsics.unknown
+            };
+            // Constraint cycles do not justify a coinductive object relation.
+            // Stop type-parameter-only cycles before entering the pair cache;
+            // a constraint equal to the target keeps its direct identity proof.
+            let mut seen = vec![source];
+            while constraint != target
+                && self.checker.type_of(constraint).flags.contains(TypeFlags::TYPE_PARAMETER)
+            {
+                if seen.contains(&constraint) {
+                    return Ternary::Unknown;
+                }
+                seen.push(constraint);
+                let Some(next) = self.checker.type_parameter_constraint(constraint) else { break };
+                constraint = next;
+            }
+            return self.is_related_to(constraint, target);
+        }
         if let Some(constituents) = self.union_constituents(source) {
             // Every constituent of a source union must be related.
             // Upstream's `eachTypeRelatedToType` — except under the

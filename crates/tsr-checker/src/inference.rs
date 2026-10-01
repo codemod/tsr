@@ -2403,6 +2403,8 @@ impl Checker<'_, '_> {
         self.inference_contravariant = false;
         self.inference_bivariant = false;
         self.inference_priority = InferencePriority::NONE;
+        let saved_observed = self.inference_observed_priority;
+        self.inference_observed_priority = i32::from(InferencePriority::MAX_VALUE.bits());
         let mut inferences = Vec::new();
         self.apply_to_parameter_types(contextual, &signature, None, &own, &mut inferences, 0);
         let (source_return, target_return) = contextual.inference_return_types(&signature);
@@ -2415,6 +2417,7 @@ impl Checker<'_, '_> {
             InferencePriority::RETURN_TYPE,
         );
         (self.inference_contravariant, self.inference_bivariant, self.inference_priority) = saved;
+        self.inference_observed_priority = saved_observed;
         let owned_names: Vec<_> =
             signature.type_parameters.iter().map(|parameter| parameter.name.clone()).collect();
         let names: Vec<_> = owned_names.iter().map(String::as_str).collect();
@@ -2578,7 +2581,10 @@ impl Checker<'_, '_> {
         self.inference_contravariant = false;
         self.inference_bivariant = false;
         self.inference_priority = priority;
+        let saved_observed = self.inference_observed_priority;
+        self.inference_observed_priority = i32::from(InferencePriority::MAX_VALUE.bits());
         self.infer_from_types_within(source, target, target, parameters, out, depth);
+        self.inference_observed_priority = saved_observed;
         (self.inference_contravariant, self.inference_bivariant, self.inference_priority) = saved;
     }
 
@@ -3263,6 +3269,9 @@ impl Checker<'_, '_> {
                 && let Some(inferred) =
                     self.reverse_homomorphic_mapped_type(source, target, info, operand, constraint)
             {
+                self.inference_observed_priority = self.inference_observed_priority.min(i32::from(
+                    (self.inference_priority | InferencePriority::HOMOMORPHIC_MAPPED_TYPE).bits(),
+                ));
                 add_directional_candidate(
                     out,
                     operand,
@@ -3643,6 +3652,10 @@ impl Checker<'_, '_> {
         // arbitrarily, and `instantiate_type`'s own limit sits on the other
         // side of the walk. Sixteen is far past anything the corpus reaches.
         if depth > 16 {
+            self.inference_observed_priority = -1;
+            return;
+        }
+        if source == self.intrinsics.error {
             return;
         }
         if self.infer_from_tuple_types(source, target, original, parameters, out, depth) {
@@ -3654,6 +3667,8 @@ impl Checker<'_, '_> {
             {
                 return;
             }
+            self.inference_observed_priority =
+                self.inference_observed_priority.min(i32::from(self.inference_priority.bits()));
             // inferFromTypes keeps both candidates and topLevel unchanged once
             // the inference is fixed (internal/checker/inference.go).
             if out.iter().any(|info| info.type_parameter == target && info.is_fixed) {
@@ -3790,177 +3805,8 @@ impl Checker<'_, '_> {
             // structurally when the reference targets differ. Candidate
             // direction and priority resolve the resulting inferences.
         }
-        if let TypeData::Union { types, .. } = &self.store.get(target).data {
-            let constituents = types.clone();
-            if constituents.iter().filter(|t| parameters.contains(t)).count() > 1 {
-                return;
-            }
-            if let TypeData::Union { types: source_types, .. } = self.store.get(source).data.clone()
-            {
-                // inferFromMatchingTypes first removes identical constituents
-                // (inference.go:101). Nullable callback unions can then infer
-                // through the remaining signatures instead of losing every
-                // candidate because null/undefined have no signatures.
-                let mut targets = constituents.clone();
-                let mut sources = Vec::new();
-                for candidate in source_types {
-                    if let Some(index) = targets.iter().position(|&target| target == candidate) {
-                        let target = targets.remove(index);
-                        self.infer_from_types_within(
-                            candidate,
-                            target,
-                            original,
-                            parameters,
-                            out,
-                            depth + 1,
-                        );
-                    } else {
-                        sources.push(candidate);
-                    }
-                }
-                if targets.len() == constituents.len() || targets.is_empty() {
-                    return;
-                }
-                let target = self.get_union_type(&targets);
-                if sources.is_empty() {
-                    let saved = self.inference_priority;
-                    self.inference_priority |= InferencePriority::NAKED_TYPE_VARIABLE;
-                    self.infer_from_types_within(
-                        source,
-                        target,
-                        original,
-                        parameters,
-                        out,
-                        depth + 1,
-                    );
-                    self.inference_priority = saved;
-                } else {
-                    let source = self.get_union_type(&sources);
-                    self.infer_from_types_within(
-                        source,
-                        target,
-                        original,
-                        parameters,
-                        out,
-                        depth + 1,
-                    );
-                }
-                return;
-            }
-            // §465: a `Promise<X>` source against a `PromiseLike<T>`
-            // constituent (or the reverse) infers argument-wise — upstream
-            // reaches the match structurally through the `then` member, and
-            // its REGULAR priority beats the naked constituent's candidate
-            // (`InferencePriorityNakedTypeVariable`, inference.go), so the
-            // naked `TResult1` is NOT consulted: `p.then(() =>
-            // Promise.resolve(1))` infers `TResult1 := number`, not
-            // `Promise<number>`. Gated to the global Promise/PromiseLike
-            // pair, whose argument slots correspond by construction.
-            if let Some((source_symbol, source_args)) =
-                self.type_reference_targets.get(&source).cloned()
-                && source_args.len() == 1
-            {
-                let source_symbol = self.binder.merged_symbol(source_symbol);
-                let promise_like_pair = ["Promise", "PromiseLike"].iter().any(|name| {
-                    self.global_type_symbol(name)
-                        .is_some_and(|s| self.binder.merged_symbol(s) == source_symbol)
-                });
-                if promise_like_pair {
-                    for constituent in &constituents {
-                        let Some((constituent_symbol, constituent_args)) =
-                            self.type_reference_targets.get(constituent).cloned()
-                        else {
-                            continue;
-                        };
-                        if constituent_args.len() != 1 {
-                            continue;
-                        }
-                        let constituent_symbol = self.binder.merged_symbol(constituent_symbol);
-                        let matches = ["Promise", "PromiseLike"].iter().any(|name| {
-                            self.global_type_symbol(name)
-                                .is_some_and(|s| self.binder.merged_symbol(s) == constituent_symbol)
-                        });
-                        if matches {
-                            self.infer_from_types_within(
-                                source_args[0],
-                                constituent_args[0],
-                                original,
-                                parameters,
-                                out,
-                                depth + 1,
-                            );
-                            return;
-                        }
-                    }
-                }
-            }
-            if let Some((source_symbol, _)) = self.type_reference_targets.get(&source).cloned()
-                && constituents.iter().any(|c| {
-                    self.type_reference_targets.get(c).is_some_and(|(s, _)| *s != source_symbol)
-                })
-            {
-                return;
-            }
-            // `inferToMultipleTypes` (`inference.go:700`) strikes the target
-            // constituents the source already matches **before** anything
-            // reaches the naked type variable. `f1(1, "hello")` against
-            // `<T>(x: T, y: string | T) => T` is the case: `"hello"` matches
-            // the `string` constituent, so upstream infers nothing from that
-            // position and the answer is `1`
-            // (`baselines/reference/submodule/conformance/unionTypeInference.types:27`).
-            // Without this the naked `T` also collects `"hello"`, the two
-            // positions disagree and a right line becomes a gap — which is how
-            // the bar's second leg found it.
-            //
-            // `is_type_assignable_to` decides this over exactly the domain it
-            // is proved on — primitives, literals and unions of them
-            // (`crate::relater`) — and answers `false` between two object types
-            // rather than guessing, which is a refusal in the safe direction
-            // here: it leaves the position contributing a candidate, and a
-            // disagreeing candidate gaps.
-            //
-            // `never` and `any` are excluded as sources: both are assignable
-            // to everything, so they would strike every union position and
-            // contribute nothing anywhere. Upstream infers *from* them
-            // normally — `never` is a real candidate — and including them cost
-            // **84 converted lines** against the two the strike was added for,
-            // measured over the corpus pair.
-            let source_is_wildcard =
-                source == self.intrinsics.never || source == self.intrinsics.any;
-            // §787: the strike must skip every constituent that MENTIONS an
-            // inference parameter, not only one that IS one.
-            //
-            // `!parameters.contains(&c)` excludes a NAKED `T` and nothing else,
-            // so `readonly T[] | null` — the shape every lib collection
-            // constructor uses — was struck whole: `Array<number>` is
-            // assignable to `ReadonlyArray<T>`, the strike fired, and `T`
-            // collected no candidate at all. `new Set([0, 1, 2])` answered
-            // `Set<any>` through the `T = any` default.
-            //
-            // Upstream's `inferToMultipleTypes` (`inference.go:700`) cannot
-            // reach that state: its first pass matches constituents
-            // IDENTICALLY, and a constituent carrying an uninferred parameter
-            // is identical to nothing. Striking on assignability instead is
-            // this port's approximation, and it is sound only where the
-            // constituent is closed.
-            if !source_is_wildcard
-                && constituents.clone().into_iter().any(|c| {
-                    !self.mentions_type_parameter(c, parameters, &[])
-                        && self.is_type_assignable_to(source, c)
-                })
-            {
-                return;
-            }
-            for constituent in constituents {
-                self.infer_from_types_within(
-                    source,
-                    constituent,
-                    original,
-                    parameters,
-                    out,
-                    depth + 1,
-                );
-            }
+        if let TypeData::Union { types, .. } = self.store.get(target).data.clone() {
+            self.infer_to_union(source, &types, original, parameters, out, depth);
             return;
         }
         // §937: `inferFromProperties` (`inference.go`), the arm every other
@@ -4118,6 +3964,154 @@ impl Checker<'_, '_> {
                     depth + 1,
                 );
             }
+        }
+    }
+
+    /// inferFromMatchingTypes followed by inferToMultipleTypes for a union
+    /// (internal/checker/inference.go). Structured matches consume source
+    /// constituents before naked variables receive the less specific remainder.
+    fn infer_to_union(
+        &mut self,
+        source: TypeId,
+        targets: &[TypeId],
+        original: TypeId,
+        parameters: &[TypeId],
+        out: &mut Vec<InferenceInfo>,
+        depth: usize,
+    ) {
+        use crate::flags::TypeFlags;
+        let mut sources = match &self.store.get(source).data {
+            TypeData::Union { types, .. } => types.clone(),
+            _ => vec![source],
+        };
+        let mut targets = targets.to_vec();
+        for closely in [false, true] {
+            let mut matched_sources = Vec::new();
+            let mut matched_targets = Vec::new();
+            let mut ordered_targets = targets.clone();
+            if closely {
+                ordered_targets
+                    .sort_by_key(|&t| (std::cmp::Reverse(self.inference_type_depth(t, 3)), t));
+            }
+            for target in ordered_targets {
+                for &from in &sources {
+                    let matches = if closely {
+                        let references = matches!(
+                            (self.type_reference_targets.get(&from), self.type_reference_targets.get(&target)),
+                            (Some((s, _)), Some((t, _))) if self.binder.merged_symbol(*s) == self.binder.merged_symbol(*t));
+                        let objects = self.type_of(from).flags.contains(TypeFlags::OBJECT)
+                            && self.type_of(target).flags.contains(TypeFlags::OBJECT)
+                            && matches!((&self.store.get(from).data, &self.store.get(target).data),
+                                (TypeData::Named { members: Some(s), .. }, TypeData::Named { members: Some(t), .. })
+                                    if self.binder.merged_symbol(*s) == self.binder.merged_symbol(*t));
+                        references || objects
+                    } else {
+                        self.get_regular_type_of_literal_type(from)
+                            == self.get_regular_type_of_literal_type(target)
+                            || self.type_of(target).flags.contains(TypeFlags::STRING)
+                                && self.type_of(from).flags.contains(TypeFlags::STRING_LITERAL)
+                            || self.type_of(target).flags.contains(TypeFlags::NUMBER)
+                                && self.type_of(from).flags.contains(TypeFlags::NUMBER_LITERAL)
+                    };
+                    if matches {
+                        self.infer_from_types_within(
+                            from,
+                            target,
+                            original,
+                            parameters,
+                            out,
+                            depth + 1,
+                        );
+                        matched_sources.push(from);
+                        matched_targets.push(target);
+                    }
+                }
+            }
+            sources.retain(|s| !matched_sources.contains(s));
+            targets.retain(|t| !matched_targets.contains(t));
+        }
+        if targets.is_empty() {
+            return;
+        }
+        if sources.is_empty() {
+            let saved = self.inference_priority;
+            self.inference_priority |= InferencePriority::NAKED_TYPE_VARIABLE;
+            let target = self.get_union_type(&targets);
+            self.infer_from_types_within(source, target, original, parameters, out, depth + 1);
+            self.inference_priority = saved;
+            return;
+        }
+        if let [target] = targets.as_slice() {
+            let source = self.get_union_type(&sources);
+            self.infer_from_types_within(source, *target, original, parameters, out, depth + 1);
+            return;
+        }
+        let variables: Vec<_> =
+            targets.iter().copied().filter(|t| parameters.contains(t)).collect();
+        let mut matched = vec![false; sources.len()];
+        let mut circular = false;
+        for &target in &targets {
+            if parameters.contains(&target) {
+                continue;
+            }
+            for (index, &from) in sources.iter().enumerate() {
+                let saved = self.inference_observed_priority;
+                self.inference_observed_priority = i32::from(InferencePriority::MAX_VALUE.bits());
+                self.infer_from_types_within(from, target, original, parameters, out, depth + 1);
+                matched[index] |=
+                    self.inference_observed_priority == i32::from(self.inference_priority.bits());
+                circular |= self.inference_observed_priority == -1;
+                self.inference_observed_priority = self.inference_observed_priority.min(saved);
+            }
+        }
+        if let [variable] = variables.as_slice()
+            && !circular
+        {
+            let unmatched: Vec<_> = sources
+                .iter()
+                .copied()
+                .enumerate()
+                .filter_map(|(i, t)| (!matched[i]).then_some(t))
+                .collect();
+            if !unmatched.is_empty() {
+                let remainder = self.get_union_type(&unmatched);
+                self.infer_from_types_within(
+                    remainder,
+                    *variable,
+                    original,
+                    parameters,
+                    out,
+                    depth + 1,
+                );
+                return;
+            }
+        }
+        let saved = self.inference_priority;
+        self.inference_priority |= InferencePriority::NAKED_TYPE_VARIABLE;
+        let source = self.get_union_type(&sources);
+        for variable in variables {
+            self.infer_from_types_within(source, variable, original, parameters, out, depth + 1);
+        }
+        self.inference_priority = saved;
+    }
+
+    /// getTypeDepth (internal/checker/inference.go), bounded generic nesting.
+    fn inference_type_depth(&self, t: TypeId, limit: usize) -> usize {
+        if limit == 0 {
+            return 0;
+        }
+        if let Some((_, arguments)) = self.type_reference_targets.get(&t) {
+            1 + arguments
+                .iter()
+                .map(|&t| self.inference_type_depth(t, limit - 1))
+                .max()
+                .unwrap_or(0)
+        } else if let TypeData::Union { types, .. } | TypeData::Intersection { types, .. } =
+            &self.store.get(t).data
+        {
+            types.iter().map(|&t| self.inference_type_depth(t, limit)).max().unwrap_or(0)
+        } else {
+            0
         }
     }
 

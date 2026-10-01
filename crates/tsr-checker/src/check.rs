@@ -6429,9 +6429,7 @@ impl Checker<'_, '_> {
         // The guard costs none of §839's wins because it already requires
         // `subtree_has_unported_narrowing` — a pure `typeof` condition, which
         // is every row of that family, does not match.
-        if self.reference_is_guarded_by_a_condition_on(node, text) {
-            return false;
-        }
+        let guarded_by_unported_narrowing = self.reference_is_guarded_by_a_condition_on(node, text);
         // `assignmentKind == AssignmentKindDefinite` returns before the flow
         // section (`checker.go:11109`), so `x = 1` never reports even though the
         // flow type at `x` carries `undefined`.
@@ -6591,6 +6589,13 @@ impl Checker<'_, '_> {
             .unwrap_or(symbol);
         let flow =
             self.get_flow_type_of_reference_ex(node, Some(flow_symbol), declared, Some(initial));
+        // The preceding blanket guard predates predicate subtype comparison.
+        // A computed narrowing of the optional initial type can now retain
+        // undefined on a false branch: checkIdentifier must then recover the
+        // declared type. Preserve the guard when that query made no progress.
+        if guarded_by_unported_narrowing && flow == initial {
+            return false;
+        }
         if flow == self.intrinsics.error || !self.contains_undefined_type(flow) {
             return false;
         }

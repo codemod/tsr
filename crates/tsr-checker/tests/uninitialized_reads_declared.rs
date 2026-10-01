@@ -144,20 +144,18 @@ fn a_declared_type_containing_undefined_narrows_in_the_else_branch() {
     );
 }
 
-/// §839.1: the guard. A condition that names the reference *and* uses a
-/// narrowing this port does not model suppresses the rule, because upstream
-/// removes `undefined` there and this port does not. Without this the type road
-/// measured `RIGHT->WRONG 67` instead of 20, most of it the follow-on from a
-/// property access off an un-narrowed union.
+/// A supported predicate narrows the flow but leaves `undefined` in its false
+/// branch. Pinned tsgo reports TS2454 and rejects assignment of this read to
+/// `number` with TS2322: the recovery type is the declared union.
 #[test]
-fn a_call_guard_suppresses_the_rule() {
+fn a_supported_call_guard_recovers_the_declared_type() {
     assert_eq!(
         type_of_last_expression(
             "declare function isString(x: unknown): x is string;
              var strOrNum: string | number;
              if (isString(strOrNum)) { strOrNum; } else { strOrNum; }"
         ),
-        "number"
+        "string | number"
     );
 }
 

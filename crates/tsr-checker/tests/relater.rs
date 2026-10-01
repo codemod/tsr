@@ -28,6 +28,34 @@ use tsr_ast::Statement;
 use tsr_checker::{Checker, TypeId};
 use tsr_core::Arena;
 
+#[test]
+fn subtype_follows_parameter_constraints_and_rejects_the_reverse() {
+    use tsr_checker::relater::{Relation, Ternary};
+    with_checker("function f<T, U extends T>(x:T, y:U) {}", |checker, statements| {
+        let Statement::FunctionDeclaration(function) = statements[0] else { panic!("function") };
+        let source = checker.get_type_from_type_node(function.parameters[0].r#type.unwrap());
+        let derived = checker.get_type_from_type_node(function.parameters[1].r#type.unwrap());
+        assert_eq!(checker.relate_ternary(derived, source, Relation::Subtype), Ternary::Related);
+        assert_eq!(checker.relate_ternary(source, derived, Relation::Subtype), Ternary::NotRelated);
+    });
+}
+
+#[test]
+fn circular_parameter_constraints_do_not_prove_an_object_subtype() {
+    use tsr_checker::relater::{Relation, Ternary};
+    with_checker(
+        "function f<T extends U,U extends T>(x:T,y:{value:number}) {}",
+        |checker, statements| {
+            let Statement::FunctionDeclaration(function) = statements[0] else {
+                panic!("function")
+            };
+            let source = checker.get_type_from_type_node(function.parameters[0].r#type.unwrap());
+            let target = checker.get_type_from_type_node(function.parameters[1].r#type.unwrap());
+            assert_eq!(checker.relate_ternary(source, target, Relation::Subtype), Ternary::Unknown);
+        },
+    );
+}
+
 /// Parse, bind and check one source, then answer a question about it.
 ///
 /// Same shape as the harness in `tests/unions.rs`, and for the same reason: the
