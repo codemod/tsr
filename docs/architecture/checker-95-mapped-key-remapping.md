@@ -62,7 +62,7 @@ recovery, not the parameter contexts (47/50 correct).
 
 ## Verification and limits
 
-Checkpoint CODE_CHECKPOINT:451,183/478,855 correct assertions (94.22%).
+Checkpoint 00c67552:451,183/478,855 correct assertions (94.22%).
 The95% target needs3,730 more matches. Aligned verdicts:474,243 total;
 451,183 RIGHT;3,701 GAP;19,359 WRONG. Against95f55180:59 WRONG→RIGHT,
 7 GAP→RIGHT,zero RIGHT losses,11 GAP→WRONG and34 changed wrong answers.

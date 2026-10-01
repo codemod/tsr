@@ -24,7 +24,7 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-10-01
 
-Measured on **`CODE_CHECKPOINT`**: **451,183/478,855 assertions (94.22%)**,
+Measured on **`00c67552`**: **451,183/478,855 assertions (94.22%)**,
 **6,656/9,538 complete cases (69.78%)**. The95% target requires
 454,913 correct assertions; **3,730 remain**. Denominator and pinned oracle
 unchanged. Aligned verdicts: **474,243 total;451,183 right;3,701 gap;19,359 wrong**.
@@ -1152,7 +1152,7 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-### Current priorities at `CODE_CHECKPOINT` — 2026-10-01
+### Current priorities at `00c67552` — 2026-10-01
 
 Assignment property symbols now collect binary/descriptor values with readonly
 checks and CommonJS default precedence. Object-literal member docs reach the
@@ -3779,7 +3779,7 @@ version of bare `any`.
 
 ## 5. Refused, with the number that refused it
 
-### Key remapping at `CODE_CHECKPOINT`
+### Key remapping at `00c67552`
 
 Conditional filtering initially lost2 RIGHT callback parameter rows for a removed
 property. Applying the partial mapper to remapped contexts recovers both.
@@ -9562,7 +9562,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
-| 2026-10-01 | `CODE_CHECKPOINT` | **69.78%** | **6,656** | **451,183/478,855 assertions (94.22%).** +66 since95f55180,zero RIGHT losses;11 G→W,34 changed wrong. Key remapping,collisions,mapped keyof,deferred conditional templates and callback filtering. Pinned controls;release tests/clippy;3,366 anchors;checker snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-mapped-key-remapping.md).3,730 remain;95% unfinished. |
+| 2026-10-01 | `00c67552` | **69.78%** | **6,656** | **451,183/478,855 assertions (94.22%).** +66 since95f55180,zero RIGHT losses;11 G→W,34 changed wrong. Key remapping,collisions,mapped keyof,deferred conditional templates and callback filtering. Pinned controls;release tests/clippy;3,366 anchors;checker snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-mapped-key-remapping.md).3,730 remain;95% unfinished. |
 | 2026-10-01 | `95f55180` | **69.74%** | **6,652** | **451,117/478,855 assertions (94.21%).** +61 since996bb885,zero RIGHT losses;19 G→W,37 changed wrong. Anonymous mapped instantiation,context preservation,checked parameter reuse and captured order. Pinned controls;release tests/clippy;3,366 anchors;checker snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-anonymous-mapped-instantiation.md).3,796 remain;95% unfinished. |
 | 2026-10-01 | `996bb885` | **69.70%** | **6,648** | **451,056/478,855 assertions (94.19%).** +78 since48e1e6d4,zero RIGHT losses;9 G→W,21 changed wrong. Inline mapped semantic construction,array-to-readonly relation and reverse mapped source order. Pinned controls;release tests/clippy;3,366 anchors;checker snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-inline-mapped-templates.md).3,857 remain;95% unfinished. |
 | 2026-10-01 | `48e1e6d4` | **69.66%** | **6,644** | **450,978/478,855 assertions (94.18%).** +159 since abff3df6,zero RIGHT losses;31 G→W,28 changed wrong,3 W→G. Structured intersection inference,partial object sources and intersection substitution. Pinned controls;release tests/clippy;3,366 anchors;checker snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-intersection-inference.md).3,935 remain;95% unfinished. |
