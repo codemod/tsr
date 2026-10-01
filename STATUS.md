@@ -24,7 +24,7 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-10-01
 
-Measured on **`CODE_CHECKPOINT`**: **452,293/478,855 assertions (94.45%)**,
+Measured on **`5f7bb6e4`**: **452,293/478,855 assertions (94.45%)**,
 **6,696/9,538 complete cases (70.20%)**. The 95% target requires
 454,913 correct assertions; **2,620 remain**. Denominator and pinned oracle
 unchanged. Aligned verdicts: **474,243 total; 452,293 right; 3,402 gap; 18,548 wrong**.
@@ -1207,7 +1207,7 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-### Current priorities at `CODE_CHECKPOINT` — 2026-10-01
+### Current priorities at `5f7bb6e4` — 2026-10-01
 
 Contextual constructor instantiation and generic constructor alias return
 propagation add 28 matches with zero adverse transitions. Generic mapped and
@@ -3877,7 +3877,7 @@ version of bare `any`.
 
 ## 5. Refused, with the number that refused it
 
-### Contextual constructor inference at `CODE_CHECKPOINT`
+### Contextual constructor inference at `5f7bb6e4`
 
 Resolving single call/construct signatures gained 26 with zero RIGHT losses.
 Two remaining alias returns omitted propagated type parameters; creating a fresh
@@ -9754,7 +9754,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
-| 2026-10-01 | `CODE_CHECKPOINT` | **70.20%** | **6,696** | **452,293/478,855 assertions (94.45%).** +28 since 42e7881a, all WRONG→RIGHT with no adverse transitions. Contextual construct selection and generic alias return propagation. Thirteen pinned outcomes; release tests/clippy; 3,362 anchors; snapshot refreshed. [Evidence](docs/architecture/checker-95-contextual-construct-inference.md). 2,620 remain; 95% unfinished. |
+| 2026-10-01 | `5f7bb6e4` | **70.20%** | **6,696** | **452,293/478,855 assertions (94.45%).** +28 since 42e7881a, all WRONG→RIGHT with no adverse transitions. Contextual construct selection and generic alias return propagation. Thirteen pinned outcomes; release tests/clippy; 3,362 anchors; snapshot refreshed. [Evidence](docs/architecture/checker-95-contextual-construct-inference.md). 2,620 remain; 95% unfinished. |
 | 2026-10-01 | `42e7881a` | **70.18%** | **6,694** | **452,265/478,855 assertions (94.45%).** +211 since aab165d8, zero RIGHT losses; 11G→W, 19 changed wrong. Construct-signature relations, class constructors and computed statics. Pinned controls; release tests/clippy; 3,362 anchors; snapshot refreshed. [Evidence](docs/architecture/checker-95-construct-relations.md). 2,648 remain; 95% unfinished. |
 | 2026-10-01 | `aab165d8` | **70.11%** | **6,687** | **452,054/478,855 assertions (94.40%).** +170 since a529367a, zero RIGHT losses; 2G→W, 70 changed wrong. Structured overloads, effective constraints, object freshness/widening, spread properties and merged namespace exports. Pinned controls; release tests/clippy; 3,363 anchors; binder 100%; snapshot refreshed. [Evidence](docs/architecture/checker-95-structured-overloads.md). 2,859 remain; 95% unfinished. |
 | 2026-10-01 | `a529367a` | **70.03%** | **6,679** | **451,884/478,855 assertions (94.37%).** +72 since e5ee6cc5, zero RIGHT losses; 1G→W, 4 changed wrong. Source constraints, union identity order, indexed deferral, callable reference substitution and contextual generic callbacks. Pinned controls; release tests/clippy; 3,363 anchors; snapshot refreshed. [Evidence](docs/architecture/checker-95-source-constraints.md). 3,029 remain; 95% unfinished. |

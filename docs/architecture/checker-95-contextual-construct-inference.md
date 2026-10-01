@@ -58,7 +58,7 @@ isolation, shared-helper relocation and both positive and negative controls.
 
 ## Checkpoint and remaining work
 
-CODE_CHECKPOINT: 452,293/478,855 correct assertions (94.45%).
+5f7bb6e4: 452,293/478,855 correct assertions (94.45%).
 The aligned comparison has 474,243 assertions: 452,293 RIGHT, 3,402 GAP and
 18,548 WRONG. Relative to 42e7881a, all 28 transitions are WRONG->RIGHT:
 contextualSignatureInstantiation4 (10), genericFunctionInference1 (9),
