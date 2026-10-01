@@ -2218,34 +2218,18 @@ fn a_cycle_in_the_base_graph_terminates() {
     );
 }
 
-/// A base this port cannot follow does not answer through it.
-///
-/// **Labelled, not counted: this cannot currently distinguish the gap from an
-/// empty list.** `get_index_infos_of_type` returns `Option` so that "cannot
-/// know" and "none declared" are different values, and the reasoning for that is
-/// in `index_signatures.rs`. But replacing the `?` on `base_symbols_of` with
-/// `unwrap_or_default()` — collapsing the gap into "no index signatures" — leaves
-/// this test **green**, because the sole caller,
-/// `get_applicable_index_info`, maps both to `None` and both therefore print
-/// `error`. Verified by running that mutation, not by reading it.
-///
-/// So this pins the *answer* and not the distinction. It becomes a real check
-/// the moment any caller acts on emptiness rather than on absence, which is
-/// exactly when the distinction starts to matter.
+/// Generic heritage instantiates inherited index values before lookup.
 #[test]
-fn a_base_this_port_cannot_follow_does_not_answer_through_it() {
-    // A base with type arguments is `base_symbols_of`'s existing gap.
+fn generic_bases_substitute_inherited_index_values() {
     assert_eq!(
         type_of_declaration(
             "interface B<T> { [k: string]: T; }\ninterface D extends B<number> {}\n\
              declare const a: D;\nconst x = a[\"k\"];",
             "x"
         ),
-        "error"
+        "number"
     );
-    // The control, for the same reason as the cycle test above: drop the type
-    // ARGUMENTS and the identical shape answers, so the gap is pinned to the
-    // generic base rather than to index signatures or to `extends` in general.
+    // Non-generic heritage retains the same index value.
     assert_eq!(
         type_of_declaration(
             "interface B { [k: string]: number; }\ninterface D extends B {}\n\

@@ -1872,7 +1872,13 @@ impl Relater<'_, '_, '_> {
                     return Ternary::all(vec![indexes, properties]);
                 }
                 reasons::note(reasons::Site::SignatureBearing);
-                return Ternary::Unknown;
+                // Unknown signature/index relations do not erase a definite
+                // missing required property. Native structured comparison
+                // requires every independent member axis to hold.
+                return Ternary::all([
+                    Ternary::Unknown,
+                    self.properties_related_to(source, target),
+                ]);
             }
             return self.properties_related_to(source, target);
         }

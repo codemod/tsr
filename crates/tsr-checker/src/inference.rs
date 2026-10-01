@@ -3343,6 +3343,7 @@ impl Checker<'_, '_> {
                 }
                 let reversed_index = index.map(|index| crate::index_signatures::IndexInfo {
                     key: index.key,
+                    readonly: false,
                     value: self.reverse_mapped_member_type(
                         index.value,
                         target,

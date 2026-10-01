@@ -1857,12 +1857,16 @@ impl Checker<'_, '_> {
             // their literal types only, and a key it cannot judge must stay a
             // gap rather than become a confident wrong value.
             minted_index_info = match key {
-                "number" => {
-                    Some(crate::index_signatures::IndexInfo { key: self.intrinsics.number, value })
-                }
-                "string" => {
-                    Some(crate::index_signatures::IndexInfo { key: self.intrinsics.string, value })
-                }
+                "number" => Some(crate::index_signatures::IndexInfo {
+                    key: self.intrinsics.number,
+                    value,
+                    readonly: const_context,
+                }),
+                "string" => Some(crate::index_signatures::IndexInfo {
+                    key: self.intrinsics.string,
+                    value,
+                    readonly: const_context,
+                }),
                 _ => None,
             };
         }

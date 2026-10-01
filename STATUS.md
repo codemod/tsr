@@ -24,21 +24,21 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-10-01
 
-Measured on **`87402686`**: **452,762/478,855 assertions (94.55%)**,
-**6,714/9,538 complete cases (70.39%)**. The 99% target requires
-474,067 correct assertions; **21,305 remain**. Denominator and pinned oracle
-unchanged. Aligned verdicts: **474,243 total; 452,762 right; 3,316 gap; 18,165 wrong**.
+Measured on **`UNIT_CODE_CHECKPOINT`**: **452,875/478,855 assertions (94.57%)**,
+**6,723/9,538 complete cases (70.49%)**. The 99% target requires
+474,067 correct assertions; **21,192 remain**. Denominator and pinned oracle
+unchanged. Aligned verdicts: **474,243 total; 452,875 right; 3,297 gap; 18,071 wrong**.
 Binder retains its verified **8,497/8,497 (100%)** result at aab165d8;
 other suites below retain historical measurements.
 
-This unit adds **137 matching assertions**, with **zero RIGHT losses** relative
-to 3ef6d975. There are 23 GAP→WRONG, six WRONG→GAP and 23 changed wrong answers.
-[Synchronous iteration](docs/architecture/checker-99-iteration.md) records
-semantic iterator yields, indirect generic member substitution, the
-BuiltinIteratorReturn intrinsic and nullish annotation/type-query boundaries.
-Six focused tests, native declaration probes, release workspace tests, clippy,
-anchors and the refreshed checker snapshot validate the checkpoint. The 99%
-goal remains unfinished; verified changes commit and push to main.
+This unit adds **113 matching assertions**, with **zero RIGHT losses** relative
+to 87402686. There are six GAP→WRONG and 11 changed wrong answers.
+[Tuple binding and union members](docs/architecture/checker-99-destructuring.md)
+records tuple/rest distribution, inherited generic indexes, array-like versus
+iterable binding, union property/index fallback, readonly metadata and callback
+identity matching. Seven focused tests, native/pinned controls, release workspace
+tests, clippy, anchors and the refreshed checker snapshot validate the checkpoint.
+The 99% goal remains unfinished; verified changes commit and push to main.
 
 ### Previous whole-suite measurement — historical
 
@@ -1079,7 +1079,7 @@ Per-crate, by what the conformance suites actually assert — not by what exists
 | module resolution | **done** | 95/95, `file_loader` 96/96, [ADR-0041](docs/adr/0041-the-checker-asks-its-program-for-a-module.md) |
 | printer | **done** | 100% round-trip at `8dcdc71` |
 | declaration emit | **partial** | `dts_shape` 85.32%, `dts_emit` 89.04% at `8dcdc71` |
-| **checker** | **94.55% of assertions** | 452,762/478,855 at `87402686`; §4 and §5 |
+| **checker** | **94.57% of assertions** | 452,875/478,855 at `UNIT_CODE_CHECKPOINT`; §4 and §5 |
 | transformers | **not started** | |
 | **compiler driver / CLI** | **seam only** | three pieces, no binary. `tsr_vfs::OsFileSystem` (the real disk, `internal/vfs/osvfs`), `Checker::apply_compiler_options` ([ADR-0042](docs/adr/0042-checker-options-come-from-compiler-options.md)), and `tsr_diagnostics::format` (the plain `a.ts(1,1): error TS2304:` line and the `Found N errors` summary, byte-exact). **No command-line parser, no `tsc` binary, no emit, no pretty output** — see §4 |
 | diagnostics | **started — 6.89%** | the check traversal (ADR-0040 (1) and (2)) plus three rules; §1 and `docs/architecture/checker-notes-diag2.md` |
@@ -1220,7 +1220,18 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-### Current priorities at `87402686` — 2026-10-01
+### Current priorities at `UNIT_CODE_CHECKPOINT` — 2026-10-01
+
+Continue toward 99% coverage: 21,192 matching assertions remain. Tuple/rest
+bindings and inherited generic index values now follow the native paths; union
+members accept index contributions and preserve readonly writes. Full binding
+flow, generic/composite union signatures and second-pass parameter intersection,
+implicit base defaults and qualified heritage remain in tsr-6.28. Empty-tuple
+normalization, union ordering, mapped/conditional inference and serialization
+remain in tsr-6.30. Full iteration records, async paths and spread applicability
+remain incomplete. Instrument repair is tsr-6.29.
+
+### Previous priorities at `87402686` — 2026-10-01
 
 Continue toward 99% coverage: 21,305 matching assertions remain. Synchronous
 yield lookup now supports derived array interfaces and inherited iterator
@@ -3917,6 +3928,17 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+### Tuple binding and union members at `UNIT_CODE_CHECKPOINT`
+
+The first binding candidate gained 15 but lost 11; inherited index substitution,
+structural alias views and relation/property completeness recovered ten. Callback
+identity recovered the last. Focused tests then exposed missing union index
+contributions; that port uncovered readonly-index writes and symbol-name string
+fallback. Readonly metadata and the symbol boundary recovered all three new
+losses. Final: +113, zero RIGHT losses, six G→W and 11 changed wrong answers.
+The new wrong answers remain empty-tuple normalization and union ordering.
+[Evidence and limits](docs/architecture/checker-99-destructuring.md).
 
 ### Synchronous iteration at `87402686`
 
@@ -9831,6 +9853,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
+| 2026-10-01 | `UNIT_CODE_CHECKPOINT` | **70.49%** | **6,723** | **452,875/478,855 assertions (94.57%).** +113 since 87402686, zero RIGHT losses; 6G→W, 11 changed wrong. Tuple/rest binding, inherited indexes, union members, readonly metadata and callback identity. Seven focused tests; native/pinned controls; release tests/clippy; anchors; snapshot refreshed. [Evidence](docs/architecture/checker-99-destructuring.md). 21,192 remain to 99%. |
 | 2026-10-01 | `87402686` | **70.39%** | **6,714** | **452,762/478,855 assertions (94.55%).** +137 since 3ef6d975, zero RIGHT losses; 23G→W, 6W→G, 23 changed wrong. Synchronous iterator yields, indirect generic members, BuiltinIteratorReturn and nullish widening boundaries. Native controls; release tests/clippy; 3,361 anchors; snapshot refreshed. [Evidence](docs/architecture/checker-99-iteration.md). 21,305 remain to 99%. |
 | 2026-10-01 | `3ef6d975` | **70.29%** | **6,704** | **452,625/478,855 assertions (94.52%).** +205 since 6c7fe447, zero RIGHT losses; 1G→W, 4 changed wrong. Generic rest spreads, contextual literal base constraints and instantiated discriminated members. Native controls; release tests/clippy; anchors; snapshot refreshed. [Evidence](docs/architecture/checker-99-spread-inference.md). 21,442 remain to 99%. |
 | 2026-10-01 | `6c7fe447` | **70.23%** | **6,699** | **452,420/478,855 assertions (94.48%).** +127 since 5f7bb6e4, zero RIGHT losses; 4G→W, 1W→G, 19 changed wrong. Receiver/rest applicability, constructor binding and recursive asserted returns. Twenty-two pinned outcomes; release tests/clippy; anchors; snapshot refreshed. [Evidence](docs/architecture/checker-95-rest-applicability.md). User raised the goal to 99%; 21,647 remain. |

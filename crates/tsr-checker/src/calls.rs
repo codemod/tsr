@@ -1596,8 +1596,8 @@ impl Checker<'_, '_> {
     ///   already there.
     /// - **Generic signatures.** Upstream requires an exact match including
     ///   return types and only from the first list; `signatures_identical`
-    ///   declines generics outright, so a generic anywhere in any list declines
-    ///   the whole build rather than half-answering.
+    ///   declines generic candidates. Other overloads can still match in every
+    ///   list, as in upstream's per-candidate first pass.
     /// - **`thisParameter` intersection** (`checker.go:21137`). The shape's own
     ///   `this` is kept.
     fn union_call_signatures(&mut self, constituents: &[TypeId]) -> Option<Vec<Signature>> {
@@ -1610,7 +1610,7 @@ impl Checker<'_, '_> {
             // named routes; an INSTANTIATED signature type keeps its list in
             // `signature_types` and is read here, the `bd tsr-1uz` seam the
             // callee road below takes for the same reason.
-            // A TYPE PREDICATE anywhere in the build declines it. Upstream's
+            // Predicate-bearing candidates are skipped below. Upstream's
             // union signature carries a COMPOSITE predicate over the members
             // (`getUnionOrIntersectionTypePredicate`, `relater.go:2049`), which
             // `docs/architecture/checker-notes-typepred.md` §1 records as
@@ -1640,20 +1640,19 @@ impl Checker<'_, '_> {
             if list.is_empty() {
                 return None;
             }
-            if list.iter().any(|signature| {
-                !signature.type_parameters.is_empty() || signature.predicate.is_some()
-            }) {
-                return None;
-            }
             lists.push(list);
         }
         let mut result: Vec<Signature> = Vec::new();
         for index in 0..lists.len() {
             for position in 0..lists[index].len() {
                 let signature = lists[index][position].clone();
-                if result
-                    .iter()
-                    .any(|held| Self::signatures_match_ignoring_return(held, &signature))
+                // findMatchingSignatures considers each candidate separately.
+                // Unsupported generic/composite-predicate candidates do not
+                // prevent matching another ordinary overload in every list.
+                if !signature.type_parameters.is_empty() || signature.predicate.is_some() {
+                    continue;
+                }
+                if result.iter().any(|held| self.signatures_match_ignoring_return(held, &signature))
                 {
                     continue;
                 }
@@ -1666,7 +1665,7 @@ impl Checker<'_, '_> {
                     }
                     if let Some(found) = list
                         .iter()
-                        .find(|held| Self::signatures_match_ignoring_return(held, &signature))
+                        .find(|held| self.signatures_match_ignoring_return(held, &signature))
                     {
                         matched.push(found.clone());
                     } else {
@@ -1693,21 +1692,70 @@ impl Checker<'_, '_> {
         (!result.is_empty()).then_some(result)
     }
 
-    /// `compareSignaturesIdentical` with `ignoreReturnTypes` (`relater.go:2141`),
-    /// reduced the way [`Checker::signatures_identical`] is: same shape, every
-    /// corresponding parameter the same interned `TypeId`. §931.1.
-    fn signatures_match_ignoring_return(left: &Signature, right: &Signature) -> bool {
+    /// The exact, nongeneric leg of `compareSignaturesIdentical`
+    /// (`relater.go:2167`). Callback images can have different `TypeIds` even
+    /// when their instantiated parameter/return types agree.
+    fn signatures_match_ignoring_return(&self, left: &Signature, right: &Signature) -> bool {
+        self.signature_shapes_identical(left, right, 0)
+    }
+
+    fn signature_shapes_identical(
+        &self,
+        left: &Signature,
+        right: &Signature,
+        depth: usize,
+    ) -> bool {
         if left.kind != right.kind
             || !left.type_parameters.is_empty()
             || !right.type_parameters.is_empty()
+            || left.predicate.is_some()
+            || right.predicate.is_some()
             || left.parameters.len() != right.parameters.len()
         {
             return false;
         }
-        left.parameters
-            .iter()
-            .zip(&right.parameters)
-            .all(|(a, b)| a.r#type == b.r#type && a.optional == b.optional && a.rest == b.rest)
+        let same_this = match (&left.this_parameter, &right.this_parameter) {
+            (None, None) => true,
+            (Some(a), Some(b)) => self.callback_types_identical(a.r#type, b.r#type, depth),
+            _ => false,
+        };
+        same_this
+            && left.parameters.iter().zip(&right.parameters).all(|(a, b)| {
+                a.optional == b.optional
+                    && a.rest == b.rest
+                    && self.callback_types_identical(a.r#type, b.r#type, depth)
+            })
+    }
+
+    /// A restricted `compareTypesIdentical`: interned types and pure function
+    /// types with nongeneric signatures. Object members, generic alpha-renaming,
+    /// predicates and recursive structural identity remain outside this slice.
+    /// In particular, bidirectional assignability is not an identity test.
+    fn callback_types_identical(&self, left: TypeId, right: TypeId, depth: usize) -> bool {
+        if left == right {
+            return true;
+        }
+        if depth >= 32 {
+            return false;
+        }
+        for ty in [left, right] {
+            if !matches!(self.store.get(ty).data, TypeData::Anonymous { signature: true, .. })
+                || self.anonymous_properties.get(&ty).is_some_and(|(props, _)| !props.is_empty())
+            {
+                return false;
+            }
+        }
+        let (Some(left), Some(right)) =
+            (self.signature_types.get(&left), self.signature_types.get(&right))
+        else {
+            return false;
+        };
+        !left.is_empty()
+            && left.len() == right.len()
+            && left.iter().zip(right).all(|(a, b)| {
+                self.signature_shapes_identical(a, b, depth + 1)
+                    && self.callback_types_identical(a.r#type, b.r#type, depth + 1)
+            })
     }
 
     /// The first candidate every argument is assignable to, or `None`.

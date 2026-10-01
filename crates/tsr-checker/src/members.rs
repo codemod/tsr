@@ -1207,6 +1207,7 @@ impl Checker<'_, '_> {
         if let TypeData::Union { types, .. } = &self.store.get(id).data {
             let constituents = types.clone();
             let mut projected = Vec::with_capacity(constituents.len());
+            let mut has_property = false;
             for constituent in constituents {
                 // §117 slice 3: each constituent reads through its APPARENT
                 // type — upstream's per-constituent getReducedApparentType;
@@ -1214,10 +1215,32 @@ impl Checker<'_, '_> {
                 // wrapper interfaces, and slice 1's Object fallback then
                 // covers the object constituents.
                 let apparent = self.apparent_type(constituent);
-                let member = self.get_type_of_property_of_type(apparent, name)?;
+                let member = if let Some(member) = self.get_type_of_property_of_type(apparent, name)
+                {
+                    has_property = true;
+                    member
+                } else {
+                    // createUnionOrIntersectionProperty accepts an applicable
+                    // index in a constituent missing the named property. For
+                    // example, [boolean, string] | string[] has a property 0
+                    // contributed by the tuple and an index from the array.
+                    // A purely indexed union still has no named property.
+                    if name.starts_with('[')
+                        || self.tuple_element_lists.contains_key(&apparent)
+                        || self.variadic_tuple_elements.contains_key(&apparent)
+                    {
+                        return None;
+                    }
+                    let key = self.store.intern_literal(
+                        TypeFlags::STRING_LITERAL,
+                        TypeData::StringLiteral(name.to_string()),
+                        false,
+                    );
+                    self.get_applicable_index_info(apparent, key)?.value
+                };
                 projected.push(member);
             }
-            return Some(self.get_union_type(&projected));
+            return has_property.then(|| self.get_union_type(&projected));
         }
         // A tuple's numeric-literal property IS its element. Upstream reaches
         // this through the synthesised tuple target's members
@@ -2472,7 +2495,7 @@ impl Checker<'_, '_> {
                 names.push(name);
             }
         }
-        let Some(bases) = self.base_symbols_of(owner) else {
+        let Some(bases) = self.base_symbols_of_ex(owner, false) else {
             return false;
         };
         bases.into_iter().all(|base| self.collect_structured_property_names(base, names, visiting))

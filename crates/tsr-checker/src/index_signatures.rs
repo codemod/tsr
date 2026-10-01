@@ -26,7 +26,9 @@
 //! keys by intersecting their values. Inherited instance indexes are ported;
 //! static indexes do not inherit. Mapped indexes use their resolved side table.
 //! `noUncheckedIndexedAccess` is applied by the access consumer, not here.
-//! Readonly metadata and general instantiated heritage remain incomplete.
+//! Generic heritage substitutes each base index value along the inheritance
+//! chain. Qualified heritage and implicit default arguments
+//! on bases remain incomplete.
 
 use tsr_ast::{Node, TypeElement};
 use tsr_binder::SymbolId;
@@ -38,15 +40,16 @@ use crate::{
 
 /// One index signature, reduced to what a lookup needs.
 ///
-/// Upstream's `IndexInfo` (`types.go`) also carries `isReadonly` and the
-/// declaration. This collector currently carries only key/value information;
-/// index-specific readonly assignment checks remain unported.
+/// Upstream's `IndexInfo` (`types.go`), retaining the key, value and readonly
+/// flag. Declaration provenance and general index-write diagnostics are absent.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct IndexInfo {
     /// `keyType` — a valid primitive, pattern or nongeneric intersection key.
     pub key: TypeId,
     /// `valueType`, what an applicable access yields.
     pub value: TypeId,
+    /// `isReadonly`, preserved by instantiation and combined with index values.
+    pub readonly: bool,
 }
 
 impl<'a> Checker<'a, '_> {
@@ -83,6 +86,7 @@ impl<'a> Checker<'a, '_> {
                         if let Some(info) = infos.iter_mut().find(|info| info.key == next.key) {
                             info.value =
                                 self.get_intersection_type(&[info.value, next.value], None);
+                            info.readonly &= next.readonly;
                         } else {
                             infos.push(next);
                         }
@@ -127,6 +131,7 @@ impl<'a> Checker<'a, '_> {
             return Some(vec![IndexInfo {
                 key: self.intrinsics.number,
                 value: self.intrinsics.string,
+                readonly: true,
             }]);
         }
         // §539: an OBJECT LITERAL's index signature is minted at check time
@@ -188,6 +193,7 @@ impl<'a> Checker<'a, '_> {
                 .map(|info| IndexInfo {
                     key: info.key,
                     value: self.instantiate_for_reference(id, info.value),
+                    readonly: info.readonly,
                 })
                 .collect(),
         )
@@ -210,7 +216,14 @@ impl<'a> Checker<'a, '_> {
                 })
                 .collect();
             if let Some(values) = values {
-                result.push(IndexInfo { key: info.key, value: self.get_union_type(&values) });
+                let readonly = constituents.iter().any(|infos| {
+                    infos.iter().any(|candidate| candidate.key == info.key && candidate.readonly)
+                });
+                result.push(IndexInfo {
+                    key: info.key,
+                    value: self.get_union_type(&values),
+                    readonly,
+                });
             }
         }
         Some(result)
@@ -352,12 +365,38 @@ impl<'a> Checker<'a, '_> {
             visiting.pop();
             return Some(infos);
         }
-        for base in self.base_symbols_of(owner)? {
-            for inherited in self.index_infos_of_symbol(base, static_side, visiting)? {
-                // `findIndexInfo(indexInfos, info.keyType) == nil` — an own
-                // signature for this key hides the base's outright.
-                if !infos.iter().any(|own| own.key == inherited.key) {
-                    infos.push(inherited);
+        // Resolve inherited index values under each heritage mapper before
+        // applying the receiver's own arguments in get_index_infos_of_type.
+        // Unlike value types, instantiateIndexInfo leaves key types unchanged.
+        let declarations = self.binder.symbols().get(owner).declarations.to_vec();
+        for declaration in declarations {
+            let clauses = match self.node_map.get(declaration) {
+                Some(Node::ClassDeclaration(node)) => node.heritage_clauses,
+                Some(Node::ClassExpression(node)) => node.heritage_clauses,
+                Some(Node::InterfaceDeclaration(node)) => node.heritage_clauses,
+                _ => continue,
+            };
+            for clause in clauses {
+                if clause.token.kind != tsr_ast::SyntaxKind::ExtendsKeyword {
+                    continue;
+                }
+                for entry in clause.types {
+                    let base = self.base_symbol_of_heritage_entry(entry, false)?;
+                    let base_type = if entry.type_arguments.is_empty() {
+                        self.get_declared_type_of_symbol(base)
+                    } else {
+                        self.base_type_of_heritage_entry(base, entry.type_arguments)?
+                    };
+                    for inherited in self.index_infos_of_symbol(base, false, visiting)? {
+                        // Own indexes and earlier bases win for the same key.
+                        if !infos.iter().any(|own| own.key == inherited.key) {
+                            infos.push(IndexInfo {
+                                key: inherited.key,
+                                value: self.instantiate_for_reference(base_type, inherited.value),
+                                readonly: inherited.readonly,
+                            });
+                        }
+                    }
                 }
             }
         }
@@ -386,7 +425,14 @@ impl<'a> Checker<'a, '_> {
         };
         keys.into_iter()
             .filter(|&key| self.is_valid_index_key_type(key))
-            .map(|key| IndexInfo { key, value })
+            .map(|key| IndexInfo {
+                key,
+                value,
+                readonly: signature.modifiers.iter().any(|modifier| {
+                    matches!(modifier, tsr_ast::ModifierLike::Token(token)
+                        if token.kind == tsr_ast::SyntaxKind::ReadonlyKeyword)
+                }),
+            })
             .collect()
     }
 
@@ -489,7 +535,7 @@ impl<'a> Checker<'a, '_> {
         }
         let record = self.binder.global("Record")?;
         (self.binder.merged_symbol(target) == self.binder.merged_symbol(record))
-            .then_some(IndexInfo { key, value: arguments[1] })
+            .then_some(IndexInfo { key, value: arguments[1], readonly: false })
     }
 
     /// findApplicableIndexInfo: string is the fallback when no other key
@@ -524,6 +570,7 @@ impl<'a> Checker<'a, '_> {
                     &applicable.iter().map(|info| info.value).collect::<Vec<_>>(),
                     None,
                 ),
+                readonly: applicable.iter().all(|info| info.readonly),
             }),
         }
     }

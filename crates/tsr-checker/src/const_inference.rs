@@ -108,7 +108,7 @@ impl Checker<'_, '_> {
         }
         let Some(array) = self.global_type_symbol("Array") else { return false };
         if let TypeData::Named { members: Some(owner), .. } = self.store.get(base).data
-            && self.has_mutable_array_base(owner, array, &mut Vec::new())
+            && self.has_declared_array_base(owner, array, &mut Vec::new())
         {
             return true;
         }
@@ -116,9 +116,9 @@ impl Checker<'_, '_> {
         self.is_type_assignable_to(base, array)
     }
 
-    /// Any instantiation of a declared Array base is assignable to Array<any>.
-    /// Heritage arguments affect elements, but not this mutability predicate.
-    fn has_mutable_array_base(
+    /// Any instantiation of a declared array base is assignable to that array
+    /// with an any element. Heritage arguments do not change this predicate.
+    pub(crate) fn has_declared_array_base(
         &mut self,
         owner: tsr_binder::SymbolId,
         array: tsr_binder::SymbolId,
@@ -133,7 +133,7 @@ impl Checker<'_, '_> {
         }
         visited.push(owner);
         self.base_symbols_of_ex(owner, false).is_some_and(|bases| {
-            bases.into_iter().any(|base| self.has_mutable_array_base(base, array, visited))
+            bases.into_iter().any(|base| self.has_declared_array_base(base, array, visited))
         })
     }
 

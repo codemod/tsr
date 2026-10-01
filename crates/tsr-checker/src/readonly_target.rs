@@ -304,6 +304,32 @@ impl Checker<'_, '_> {
         {
             return readonly && self.get_property_of_type(receiver_type, &name).is_some();
         }
+        // createUnionOrIntersectionProperty marks a union property readonly
+        // when a constituent contributes a readonly index signature.
+        if let crate::types::TypeData::Union { types, .. } =
+            self.store.get(receiver_type).data.clone()
+        {
+            let key = self.store.intern_literal(
+                TypeFlags::STRING_LITERAL,
+                crate::types::TypeData::StringLiteral(name.clone()),
+                false,
+            );
+            for part in types {
+                let apparent = self.apparent_type(part);
+                if let Some(property) = self.get_property_of_type(apparent, &name) {
+                    if self.is_readonly_symbol(property)
+                        || self.property_signature_is_readonly(property)
+                    {
+                        return true;
+                    }
+                } else if self
+                    .get_applicable_index_info(apparent, key)
+                    .is_some_and(|index| index.readonly)
+                {
+                    return true;
+                }
+            }
+        }
         let Some(property) = self.get_property_of_type(receiver_type, &name) else { return false };
         if !self.is_readonly_symbol(property) && !self.property_signature_is_readonly(property) {
             return false;

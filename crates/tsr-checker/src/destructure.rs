@@ -14,19 +14,16 @@
 //!   that a literal element access *is* a property access; upstream's
 //!   `getIndexedAccessTypeEx` at `AccessFlagsExpressionPosition` is the same
 //!   pair);
-//! - an **array pattern** takes the element's *position* as a numeric
-//!   property, which the tuple reverse index (`bd tsr-5ll`) answers for
-//!   tuples and the number index signature answers for arrays — upstream's
-//!   `isArrayLikeType` branch (`checker.go:17768`). A receiver that is
-//!   neither (an iterable, a generic) finds no property and no applicable
-//!   index signature and stays a gap, where upstream would consult
-//!   `checkIteratedTypeOrElementType` — unported, refused rather than
-//!   approximated.
+//! - an **array pattern** uses expression-position numeric indexing for
+//!   array-like parents, including inherited generic indexes. Other iterable
+//!   parents use their synchronous iterator yield type. An unresolved relation
+//!   remains a gap rather than choosing either branch speculatively.
 //!
 //! # What refuses, each with its number (`checker-notes-destructure.md` §3)
 //!
-//! - **array rest elements** use `sliceTupleType` for fixed and variadic
-//!   tuples, retaining optional flags and labels in a mutable copy. Other
+//! - **array rest elements** map base constraints and distribute
+//!   `sliceTupleType` over all-tuple unions, retaining optional flags and labels
+//!   in a mutable copy. Other
 //!   iterable parents use an array of the resolved element type. The
 //!   OBJECT half of the original rest refusal (172 lines) LANDED at §319 —
 //!   `getRestType`'s member subtraction over `spread_members_of`; what that
@@ -104,7 +101,7 @@ impl Checker<'_, '_> {
         // A REST element branches by pattern kind below (§319): the object
         // form is `getRestType` (`checker.go:17792`), whose member subtraction
         // the spread machinery already knows how to enumerate; the array form
-        // still needs `sliceTupleType` and stays refused in its arm.
+        // slices tuple constituents or builds an array of iterator yields.
         // A default is admitted on the two legs `checker.go:17781` separates —
         // annotated root (the strip below) and, since §315, the
         // annotation-less union (`getUnionTypeEx(strip(t) ∪ init,
@@ -207,7 +204,7 @@ impl Checker<'_, '_> {
                     // getBindingElementTypeFromParentType slices a tuple with
                     // sliceTupleType, preserving its flags and labels while
                     // removing readonly from the copied rest binding.
-                    if let Some(slice) = self.slice_tuple_type(parent_type, index, 0) {
+                    if let Some(slice) = self.binding_rest_tuple_slice(parent_type, index) {
                         return slice;
                     }
                     // Other iterables build an array from their element type.
@@ -220,94 +217,46 @@ impl Checker<'_, '_> {
                     }
                     return error;
                 }
-                // §497: upstream gates the positional read on
-                // `isArrayLikeType` (`checker.go:17769`); an ANONYMOUS parent
-                // — an object or type literal, a function — is never
-                // array-like, so the numeric property is NOT consulted even
-                // when it exists (`var [a, b] = { 0: "", 1: true }` reported
-                // string/boolean here where upstream reports not-iterable and
-                // answers error-any, `iterableArrayPattern21`). With no
-                // computed member that could spell `[Symbol.iterator]` the
-                // iteration road decidably fails →
-                // `checkIteratedTypeOrElementType`'s `anyType`
-                // (`checker.go:6103`); a computed member in either table is
-                // undecidable and keeps the gap.
-                // SS497: upstream gates the positional read on
-                // `isArrayLikeType` (`checker.go:17769`); an OBJECT-SHAPED
-                // parent - an object literal or a type literal, widened or
-                // not - is never array-like, so the numeric property is NOT
-                // consulted even when it exists
-                // (`var [a, b] = { 0: "", 1: true }` reported string/boolean
-                // here where upstream reports not-iterable and answers
-                // error-any, `iterableArrayPattern21`). With no computed
-                // member that could spell `[Symbol.iterator]` the iteration
-                // road decidably fails - `checkIteratedTypeOrElementType`'s
-                // `anyType` (`checker.go:6103`); a computed member is
-                // undecidable and keeps the gap. Decided by the member
-                // symbol's DECLARATIONS (a class instance prints Named too
-                // and must not fire - its protocol question is
-                // `iteration_decidably_fails`' separate arm).
-                let literal_shaped_symbol = match self.store.get(parent_type).data {
-                    TypeData::Anonymous { symbol, .. }
-                    | TypeData::Named { members: Some(symbol), .. } => Some(symbol),
-                    _ => None,
-                }
-                .filter(|&symbol| {
-                    let declarations = &self.binder.symbols().get(symbol).declarations;
-                    !declarations.is_empty()
-                        && declarations.iter().all(|&declaration| {
-                            matches!(
-                                self.node_map.get(declaration),
-                                Some(Node::ObjectLiteralExpression(_) | Node::TypeLiteralNode(_))
-                            )
-                        })
-                });
-                if let Some(symbol) = literal_shaped_symbol {
-                    let entry = self.binder.symbols().get(symbol);
-                    if entry.members.contains_key("__computed")
-                        || entry.exports.contains_key("__computed")
-                    {
-                        return error;
+                // isArrayLikeType selects positional access. Other iterable
+                // objects use the iterator yield even if they own a numeric
+                // property (checker.go:17768).
+                match self.binding_parent_is_array_like(parent_type) {
+                    Some(false) => {
+                        if let Some(element_type) = self.for_of_element_type(parent_type) {
+                            if self.no_unchecked_indexed_access {
+                                self.get_union_type(&[element_type, self.intrinsics.undefined])
+                            } else {
+                                element_type
+                            }
+                        } else if self.iteration_decidably_fails(parent_type)
+                            || (self.declared_members_are_complete(parent_type)
+                                && self
+                                    .get_property_of_type(parent_type, "[Symbol.iterator]")
+                                    .is_none())
+                        {
+                            self.intrinsics.any
+                        } else {
+                            error
+                        }
                     }
-                    return self.intrinsics.any;
-                }
-                let positional = if self.variadic_tuple_elements.contains_key(&parent_type) {
-                    let index_type = self.store.intern_literal(
-                        TypeFlags::NUMBER_LITERAL,
-                        TypeData::NumberLiteral(index.to_string()),
-                        false,
-                    );
-                    self.tuple_index_type(parent_type, index_type, self.no_unchecked_indexed_access)
+                    Some(true) => {
+                        let index_type = self.store.intern_literal(
+                            TypeFlags::NUMBER_LITERAL,
+                            TypeData::NumberLiteral(index.to_string()),
+                            false,
+                        );
+                        // Expression-position indexing reads the apparent
+                        // constraint of a generic source, rather than creating
+                        // an annotation-position deferred T[index].
+                        let apparent = self.apparent_type(parent_type);
+                        self.resolved_indexed_access_type(
+                            apparent,
+                            index_type,
+                            self.no_unchecked_indexed_access,
+                        )
                         .unwrap_or(error)
-                } else {
-                    self.destructuring_property_lookup(parent_type, &index.to_string(), true)
-                };
-                if positional == error {
-                    // Upstream's else-arm (`checker.go:17771`): a receiver
-                    // that is not array-like takes
-                    // `checkIteratedTypeOrElementType`. §317 wires the slice
-                    // of it that exists — §284's `for_of_element_type`, gated
-                    // to receivers with a SYNTACTIC `[Symbol.iterator]` —
-                    // `var [a, b] = new SymbolIterator` reads `symbol` from
-                    // `next()`'s return (`iterableArrayPattern1/2`). A
-                    // receiver neither road answers stays the gap it was.
-                    // §571: the syntactic gate is DROPPED, exactly as §569
-                    // dropped it on the spread road. `declares_symbol_iterator`
-                    // asks whether the receiver's OWN declarations spell
-                    // `[Symbol.iterator]`, which a LIB iterable never does —
-                    // `Generator`, `Set`, `Map` carry it on the interface — so
-                    // `var [a] = new SymbolIterator` read `symbol` while
-                    // `var [a] = g()` gapped. `for_of_element_type` answers
-                    // `Option` and declines where it cannot decide, so removing
-                    // the gate can only turn a gap into an answer the for-of
-                    // road already trusts.
-                    if let Some(element) = self.for_of_element_type(parent_type) {
-                        element
-                    } else {
-                        error
                     }
-                } else {
-                    positional
+                    None => error,
                 }
             }
             _ => error,
@@ -586,7 +535,85 @@ impl Checker<'_, '_> {
         }
     }
 
-    /// The strict-mode parent adjustments of
+    /// Native aliases expose their structural body. This port keeps generic
+    /// alias identities separately; project that body before testing tuple/array
+    /// shape, without changing the printed source identity.
+    fn binding_type_alias_body(&mut self, mut source: TypeId) -> TypeId {
+        let mut visited = Vec::new();
+        while let Some((symbol, arguments)) = self.type_reference_targets.get(&source).cloned() {
+            if visited.contains(&source) {
+                break;
+            }
+            visited.push(source);
+            let Some(body) = self.evaluate_alias_body(symbol, &arguments) else { break };
+            if body == source {
+                break;
+            }
+            source = body;
+        }
+        source
+    }
+
+    /// The binding consumer of isArrayLikeType (checker.go:23520). Unknown
+    /// relations remain unresolved instead of claiming a protocol failure.
+    fn binding_parent_is_array_like(&mut self, source: TypeId) -> Option<bool> {
+        let source = self.binding_type_alias_body(source);
+        if self.tuple_array_like(source) {
+            return Some(true);
+        }
+        if self.store.get(source).flags.intersects(TypeFlags::NULLABLE) {
+            return Some(false);
+        }
+        // A declared array heritage is the same assignability fact without
+        // requiring the port's structural relation to enumerate lib methods.
+        if let TypeData::Named { members: Some(owner), .. } = self.store.get(source).data {
+            for name in ["Array", "ReadonlyArray"] {
+                if let Some(array) = self.global_type_symbol(name)
+                    && self.has_declared_array_base(owner, array, &mut Vec::new())
+                {
+                    return Some(true);
+                }
+            }
+        }
+        let array = self.global_type_symbol("ReadonlyArray")?;
+        let array = self.create_type_reference(array, vec![self.intrinsics.any]);
+        match self.relate_ternary(source, array, crate::relater::Relation::Assignable) {
+            crate::relater::Ternary::Related => Some(true),
+            crate::relater::Ternary::NotRelated => Some(false),
+            crate::relater::Ternary::Unknown => None,
+        }
+    }
+
+    /// getBindingElementTypeFromParentType maps instantiable constraints,
+    /// then slices only if every constituent is a tuple (checker.go:17753).
+    fn binding_rest_tuple_slice(&mut self, source: TypeId, index: usize) -> Option<TypeId> {
+        let source = self.binding_type_alias_body(source);
+        let parts = match self.store.get(source).data.clone() {
+            TypeData::Union { types, .. } => types,
+            _ => vec![source],
+        };
+        let constrained: Vec<_> = parts
+            .into_iter()
+            .map(|part| {
+                if self.store.get(part).flags.intersects(TypeFlags::INSTANTIABLE_NON_PRIMITIVE) {
+                    self.base_constraint_of_type(part).unwrap_or(part)
+                } else {
+                    part
+                }
+            })
+            .collect();
+        let base = self.get_union_type(&constrained);
+        let parts = match self.store.get(base).data.clone() {
+            TypeData::Union { types, .. } => types,
+            _ => vec![base],
+        };
+        let slices = parts
+            .into_iter()
+            .map(|part| self.slice_tuple_type(part, index, 0))
+            .collect::<Option<Vec<_>>>()?;
+        Some(self.get_union_type(&slices))
+    }
+
     /// `getBindingElementTypeFromParentType` (`checker.go:17713`–`:17718`),
     /// under this port's standing strict-throughout assumption
     /// (`array_literals.rs` and `unions.rs` state the same one):

@@ -541,10 +541,16 @@ impl<'a> Checker<'a, '_> {
                     } else {
                         name_type
                     };
+                    let readonly = info.readonly.unwrap_or_else(|| {
+                        info.modifiers_source
+                            .and_then(|source| self.get_applicable_index_info(source, name_type))
+                            .is_some_and(|index| index.readonly)
+                    });
                     if let Some(existing) = indexes.iter_mut().find(|index| index.key == key) {
                         existing.value = self.get_union_type(&[existing.value, value]);
+                        existing.readonly |= readonly;
                     } else {
-                        indexes.push(crate::index_signatures::IndexInfo { key, value });
+                        indexes.push(crate::index_signatures::IndexInfo { key, value, readonly });
                     }
                 }
                 continue;
