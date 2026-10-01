@@ -24,7 +24,7 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-10-01
 
-Measured on **`CODE_CHECKPOINT`**: **450,978/478,855 assertions (94.18%)**,
+Measured on **`48e1e6d4`**: **450,978/478,855 assertions (94.18%)**,
 **6,644/9,538 complete cases (69.66%)**. The95% target requires
 454,913 correct assertions; **3,935 remain**. Denominator and pinned oracle
 unchanged. Aligned verdicts: **474,243 total;450,978 right;3,808 gap;19,457 wrong**.
@@ -1141,7 +1141,7 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-### Current priorities at `CODE_CHECKPOINT` — 2026-10-01
+### Current priorities at `48e1e6d4` — 2026-10-01
 
 Assignment property symbols now collect binary/descriptor values with readonly
 checks and CommonJS default precedence. Object-literal member docs reach the
@@ -3759,7 +3759,7 @@ version of bare `any`.
 
 ## 5. Refused, with the number that refused it
 
-### Intersection inference at `CODE_CHECKPOINT`
+### Intersection inference at `48e1e6d4`
 
 The new native paths gain159 matches with zero RIGHT losses, but expose31
 GAP→WRONG answers and change28 existing wrong answers;3 wrong constraint rows
@@ -9513,7 +9513,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
-| 2026-10-01 | `CODE_CHECKPOINT` | **69.66%** | **6,644** | **450,978/478,855 assertions (94.18%).** +159 since abff3df6,zero RIGHT losses;31 G→W,28 changed wrong,3 W→G. Structured intersection inference,partial object sources and intersection substitution. Pinned controls;release tests/clippy;3,366 anchors;checker snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-intersection-inference.md).3,935 remain;95% unfinished. |
+| 2026-10-01 | `48e1e6d4` | **69.66%** | **6,644** | **450,978/478,855 assertions (94.18%).** +159 since abff3df6,zero RIGHT losses;31 G→W,28 changed wrong,3 W→G. Structured intersection inference,partial object sources and intersection substitution. Pinned controls;release tests/clippy;3,366 anchors;checker snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-intersection-inference.md).3,935 remain;95% unfinished. |
 | 2026-10-01 | `abff3df6` | **69.61%** | **6,639** | **450,819/478,855 assertions (94.15%).** +62 since6837bbf9,zero RIGHT losses/no new G→W;one changed wrong. Distinct empty-array identities,assignment/JS initializer recovery,non-strict array widening. Pinned controls;release tests/clippy;3,366 anchors;checker snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-empty-array-inference.md).4,094 remain;95% unfinished. |
 | 2026-10-01 | `6837bbf9` | **69.55%** | **6,634** | **450,757/478,855 assertions (94.13%).** +129 since87f2dc92,zero RIGHT losses;115 W→R,14 G→R,15 G→W,14 changed wrong. Composite and static indexes,intersection context precedence and no-reduction unions. Pinned controls;release tests/clippy;3,366 anchors;checker snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-composite-indexes.md).4,156 remain;95% unfinished. |
 | 2026-10-01 | `87f2dc92` | **69.48%** | **6,627** | **450,628/478,855 assertions (94.11%).** +211 since5d47e663,zero RIGHT losses;105 W→R,106 G→R,24 G→W,12 changed wrong. Callable exports,property substitution,assignment context,numeric/Unicode names. Pinned controls;release tests/clippy;3,366 anchors;checker snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-callable-expandos.md).4,285 remain;95% unfinished. |

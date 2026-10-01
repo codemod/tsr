@@ -51,7 +51,7 @@ boolean literal retention, not call-result or callback-parameter inference.
 
 ## Verification and limits
 
-Checkpoint CODE_CHECKPOINT: 450,978/478,855 correct assertions (94.18%).
+Checkpoint 48e1e6d4: 450,978/478,855 correct assertions (94.18%).
 The95% target requires3,935 additional matches. Aligned verdicts:
 474,243 total;450,978 RIGHT;3,808 GAP;19,457 WRONG.
 Against abff3df6:110 WRONG→RIGHT,49 GAP→RIGHT,zero RIGHT losses,
