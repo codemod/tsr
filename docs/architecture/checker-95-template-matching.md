@@ -33,7 +33,7 @@ than rereading uninstantiated property declarations after that mapper is popped.
 
 ## Verification and limits
 
-Checkpoint TEMPLATE_MATCH_SHA:448,659/478,855 correct assertions (93.69%).
+Checkpoint 55510106:448,659/478,855 correct assertions (93.69%).
 Complete cases: 6,574/9,538 (68.92%).
 Another6,254 correct assertions are needed for95%.
 Aligned verdicts:474,243 total;448,659 right;4,451 gap;21,133 wrong.
