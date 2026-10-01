@@ -24,7 +24,7 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-10-01
 
-Measured on **`CODE_CHECKPOINT`**: **451,117/478,855 assertions (94.21%)**,
+Measured on **`95f55180`**: **451,117/478,855 assertions (94.21%)**,
 **6,652/9,538 complete cases (69.74%)**. The95% target requires
 454,913 correct assertions; **3,796 remain**. Denominator and pinned oracle
 unchanged. Aligned verdicts: **474,243 total;451,117 right;3,719 gap;19,407 wrong**.
@@ -1148,7 +1148,7 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-### Current priorities at `CODE_CHECKPOINT` — 2026-10-01
+### Current priorities at `95f55180` — 2026-10-01
 
 Assignment property symbols now collect binary/descriptor values with readonly
 checks and CommonJS default precedence. Object-literal member docs reach the
@@ -3772,7 +3772,7 @@ version of bare `any`.
 
 ## 5. Refused, with the number that refused it
 
-### Anonymous mapped instantiation at `CODE_CHECKPOINT`
+### Anonymous mapped instantiation at `95f55180`
 
 Initial substitution lost11 RIGHT assertions. Native mapped context preservation
 and checked-parameter reuse recover all11. Final:+61 matches,zero RIGHT losses,
@@ -9545,7 +9545,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
-| 2026-10-01 | `CODE_CHECKPOINT` | **69.74%** | **6,652** | **451,117/478,855 assertions (94.21%).** +61 since996bb885,zero RIGHT losses;19 G→W,37 changed wrong. Anonymous mapped instantiation,context preservation,checked parameter reuse and captured order. Pinned controls;release tests/clippy;3,366 anchors;checker snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-anonymous-mapped-instantiation.md).3,796 remain;95% unfinished. |
+| 2026-10-01 | `95f55180` | **69.74%** | **6,652** | **451,117/478,855 assertions (94.21%).** +61 since996bb885,zero RIGHT losses;19 G→W,37 changed wrong. Anonymous mapped instantiation,context preservation,checked parameter reuse and captured order. Pinned controls;release tests/clippy;3,366 anchors;checker snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-anonymous-mapped-instantiation.md).3,796 remain;95% unfinished. |
 | 2026-10-01 | `996bb885` | **69.70%** | **6,648** | **451,056/478,855 assertions (94.19%).** +78 since48e1e6d4,zero RIGHT losses;9 G→W,21 changed wrong. Inline mapped semantic construction,array-to-readonly relation and reverse mapped source order. Pinned controls;release tests/clippy;3,366 anchors;checker snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-inline-mapped-templates.md).3,857 remain;95% unfinished. |
 | 2026-10-01 | `48e1e6d4` | **69.66%** | **6,644** | **450,978/478,855 assertions (94.18%).** +159 since abff3df6,zero RIGHT losses;31 G→W,28 changed wrong,3 W→G. Structured intersection inference,partial object sources and intersection substitution. Pinned controls;release tests/clippy;3,366 anchors;checker snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-intersection-inference.md).3,935 remain;95% unfinished. |
 | 2026-10-01 | `abff3df6` | **69.61%** | **6,639** | **450,819/478,855 assertions (94.15%).** +62 since6837bbf9,zero RIGHT losses/no new G→W;one changed wrong. Distinct empty-array identities,assignment/JS initializer recovery,non-strict array widening. Pinned controls;release tests/clippy;3,366 anchors;checker snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-empty-array-inference.md).4,094 remain;95% unfinished. |

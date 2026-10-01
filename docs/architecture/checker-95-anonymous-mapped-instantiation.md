@@ -51,7 +51,7 @@ their lists as authoritative.
 
 ## Measurement and boundaries
 
-Checkpoint CODE_CHECKPOINT: 451,117/478,855 correct assertions (94.21%);
+Checkpoint 95f55180: 451,117/478,855 correct assertions (94.21%);
 6,652/9,538 complete cases (69.74%). The95% target needs3,796 more matches.
 Aligned verdicts:474,243 total;451,117 RIGHT;3,719 GAP;19,407 WRONG.
 Against996bb885:31 WRONG→RIGHT,30 GAP→RIGHT,zero RIGHT losses,
