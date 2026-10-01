@@ -2502,11 +2502,74 @@ impl Checker<'_, '_> {
         (self.inference_contravariant, self.inference_bivariant, self.inference_priority) = saved;
     }
 
-    /// The single-variadic middle of `inferFromObjectTypes`
-    /// (`internal/checker/inference.go`), using `sliceTupleType`'s mutable slice.
-    /// Optional suffixes need speculative inference priority and are left to
-    /// that path. Adjacent variadics split using the call's implied arity.
-    fn infer_from_variadic_tuple(
+    /// Tuple element arguments and flags for inferFromObjectTypes.
+    fn inference_tuple_elements(&mut self, id: TypeId) -> Option<Vec<crate::tuples::TupleElement>> {
+        if let Some((elements, _)) = self.variadic_tuple_elements.get(&id) {
+            return Some(elements.clone());
+        }
+        let (types, _) = self.tuple_element_lists.get(&id)?.clone();
+        let mask = self.tuple_optional_masks.get(&id).cloned();
+        let labels = self.tuple_labels.get(&id).cloned();
+        Some(
+            types
+                .into_iter()
+                .enumerate()
+                .map(|(i, mut ty)| {
+                    let optional =
+                        mask.as_ref().and_then(|mask| mask.get(i)).copied().unwrap_or(false);
+                    if optional && self.strict_null_checks && !self.exact_optional_property_types {
+                        ty = self.get_union_type(&[ty, self.intrinsics.undefined]);
+                    }
+                    crate::tuples::TupleElement {
+                        r#type: ty,
+                        spread: false,
+                        optional,
+                        label: labels.as_ref().and_then(|labels| labels.get(i)).cloned().flatten(),
+                    }
+                })
+                .collect(),
+        )
+    }
+
+    /// getElementTypeOfSliceOfTupleType (checker.go:24830). A variadic slot
+    /// contributes its numeric indexed access; a rest slot its array element.
+    fn inference_tuple_slice_element(
+        &mut self,
+        elements: &[crate::tuples::TupleElement],
+    ) -> Option<TypeId> {
+        if elements.is_empty() {
+            return None;
+        }
+        let mut types = Vec::with_capacity(elements.len());
+        for element in elements {
+            let ty = if element.spread {
+                self.tuple_index_type(element.r#type, self.intrinsics.number, false)?
+            } else {
+                element.r#type
+            };
+            types.push(ty);
+        }
+        Some(self.get_union_type(&types))
+    }
+
+    /// Fixed tuple base constraints used by the adjacent variadic/rest rules.
+    fn inference_fixed_tuple_arity(&mut self, parameter: TypeId) -> Option<usize> {
+        let mut constraint = parameter;
+        let mut seen = Vec::new();
+        while self.store.get(constraint).flags.contains(crate::flags::TypeFlags::TYPE_PARAMETER) {
+            if seen.contains(&constraint) {
+                return None;
+            }
+            seen.push(constraint);
+            constraint = self.type_parameter_constraint(constraint)?;
+        }
+        self.tuple_element_lists.get(&constraint).map(|(types, _)| types.len())
+    }
+
+    /// Ported from inferFromObjectTypes (internal/checker/inference.go:714-809).
+    /// Rest slots are represented here by their array operand; upstream stores
+    /// the element argument instead. Convert at the inference boundary.
+    fn infer_from_tuple_types(
         &mut self,
         source: TypeId,
         target: TypeId,
@@ -2515,90 +2578,39 @@ impl Checker<'_, '_> {
         out: &mut Vec<InferenceInfo>,
         depth: usize,
     ) -> bool {
-        let Some((elements, _)) = self.variadic_tuple_elements.get(&target).cloned() else {
-            return false;
-        };
-        if let [element] = elements.as_slice()
-            && element.spread
-            && parameters.contains(&element.r#type)
-        {
-            add_directional_candidate(
-                out,
-                element.r#type,
-                source,
-                self.inference_contravariant && !self.inference_bivariant,
-                self.inference_priority,
-            );
-            return true;
-        }
-        let Some((source_elements, _)) = self.tuple_element_lists.get(&source).cloned() else {
-            return false;
-        };
-        let mut rest_indices = Vec::new();
-        let mut targets = Vec::with_capacity(elements.len());
-        for (index, element) in elements.iter().enumerate() {
-            if element.optional || element.r#type == self.intrinsics.error {
-                return false;
-            }
-            if element.spread {
-                rest_indices.push(index);
-            }
-            targets.push(element.r#type);
-        }
-        let Some(&start) = rest_indices.first() else { return false };
-        if rest_indices.len() > 1 {
-            let [first, second] = rest_indices.as_slice() else { return false };
-            if *second != first + 1
-                || !parameters.contains(&targets[*first])
-                || !parameters.contains(&targets[*second])
+        let Some(targets) = self.inference_tuple_elements(target) else {
+            // inferFromObjectTypes delegates tuple-to-array inference to its
+            // numeric index signatures. Tuple metadata supplies that index.
+            if let Some(sources) = self.inference_tuple_elements(source)
+                && !self.store.get(target).flags.contains(crate::flags::TypeFlags::ANY)
+                && let Some(element) = self.tuple_spread_array_element(target)
             {
-                return false;
-            }
-            let Some(arity) = out
-                .iter()
-                .find(|info| info.type_parameter == targets[*first])
-                .and_then(|info| info.implied_arity)
-            else {
-                return false;
-            };
-            let end_skip = targets.len() - second - 1;
-            if source_elements.len() < start + end_skip {
-                return false;
-            }
-            for index in 0..start {
+                let source_element = if sources.is_empty() {
+                    self.intrinsics.never
+                } else if let Some(element) = self.inference_tuple_slice_element(&sources) {
+                    element
+                } else {
+                    return true;
+                };
                 self.infer_from_types_within(
-                    source_elements[index],
-                    targets[index],
+                    source_element,
+                    element,
                     original,
                     parameters,
                     out,
                     depth + 1,
                 );
+                return true;
             }
-            let first_skip = (end_skip + source_elements.len()).saturating_sub(arity);
-            let first_slice = self.slice_tuple_type(source, start, first_skip).unwrap();
-            let second_slice = self.slice_tuple_type(source, start + arity, end_skip).unwrap();
-            self.infer_from_types_within(
-                first_slice,
-                targets[*first],
-                original,
-                parameters,
-                out,
-                depth + 1,
-            );
-            self.infer_from_types_within(
-                second_slice,
-                targets[*second],
-                original,
-                parameters,
-                out,
-                depth + 1,
-            );
-            let end = source_elements.len() - end_skip;
-            for index in 0..end_skip {
+            return false;
+        };
+        // inferFromTypes visits each source union constituent before entering
+        // inferFromObjectTypes. Tuple metadata belongs to those constituents.
+        if let TypeData::Union { types, .. } = &self.store.get(source).data {
+            for constituent in types.clone() {
                 self.infer_from_types_within(
-                    source_elements[end + index],
-                    targets[second + 1 + index],
+                    constituent,
+                    target,
                     original,
                     parameters,
                     out,
@@ -2607,32 +2619,105 @@ impl Checker<'_, '_> {
             }
             return true;
         }
-        let array_rest = self.tuple_spread_array_element(targets[start]);
-        if !parameters.contains(&targets[start]) && array_rest.is_none() {
+        let source_elements = self.inference_tuple_elements(source);
+        let source_array = if source_elements.is_none()
+            && !self.store.get(source).flags.contains(crate::flags::TypeFlags::ANY)
+        {
+            self.tuple_spread_array_element(source)
+        } else {
+            None
+        };
+        if source_elements.is_none() && source_array.is_none() {
             return false;
         }
-        let end_skip = targets.len() - start - 1;
-        if source_elements.len() < start + end_skip {
-            return false;
+        let target_rest: Vec<_> = targets
+            .iter()
+            .map(|e| if e.spread { self.tuple_spread_array_element(e.r#type) } else { None })
+            .collect();
+        let sources = source_elements.unwrap_or_default();
+        let source_rest: Vec<_> = sources
+            .iter()
+            .map(|e| if e.spread { self.tuple_spread_array_element(e.r#type) } else { None })
+            .collect();
+        // tupleTypesDefinitelyUnrelated rejects incompatible tuple arities
+        // before element inference; array sources have no tuple arity.
+        if source_array.is_none() {
+            let target_variadic =
+                targets.iter().enumerate().any(|(i, e)| e.spread && target_rest[i].is_none());
+            let target_variable = targets.iter().any(|e| e.spread);
+            let source_variable = sources.iter().any(|e| e.spread);
+            let target_min = targets
+                .iter()
+                .enumerate()
+                .filter(|(i, e)| !e.optional && (!e.spread || target_rest[*i].is_none()))
+                .count();
+            let source_min = sources
+                .iter()
+                .enumerate()
+                .filter(|(i, e)| !e.optional && (!e.spread || source_rest[*i].is_none()))
+                .count();
+            let source_fixed = sources.iter().take_while(|e| !e.spread).count();
+            if (!target_variadic && target_min > source_min)
+                || (!target_variable && (source_variable || targets.len() < source_fixed))
+            {
+                return true;
+            }
         }
-        let end = source_elements.len() - end_skip;
-        for index in 0..start {
+        if source_array.is_none()
+            && sources.len() == targets.len()
+            && sources.iter().zip(&targets).enumerate().all(|(i, (s, t))| {
+                s.spread == t.spread
+                    && s.optional == t.optional
+                    && source_rest[i].is_some() == target_rest[i].is_some()
+            })
+        {
+            for (source, target) in sources.iter().zip(&targets) {
+                self.infer_from_types_within(
+                    source.r#type,
+                    target.r#type,
+                    original,
+                    parameters,
+                    out,
+                    depth + 1,
+                );
+            }
+            return true;
+        }
+        let start_length = sources
+            .iter()
+            .take_while(|e| !e.spread)
+            .count()
+            .min(targets.iter().take_while(|e| !e.spread).count());
+        let target_ending = targets.iter().rev().take_while(|e| !e.spread).count();
+        let end_length = if targets.iter().any(|e| e.spread) {
+            sources.iter().rev().take_while(|e| !e.spread).count().min(target_ending)
+        } else {
+            0
+        };
+        for i in 0..start_length {
             self.infer_from_types_within(
-                source_elements[index],
-                targets[index],
+                sources[i].r#type,
+                targets[i].r#type,
                 original,
                 parameters,
                 out,
                 depth + 1,
             );
         }
-        if let Some(array_rest) = array_rest {
-            // A zero-length slice contributes no array element inference.
-            if start < end {
-                let middle = self.get_union_type(&source_elements[start..end]);
+        let source_middle = sources.len().saturating_sub(start_length + end_length);
+        let remaining_source_rest =
+            if source_middle == 1 { source_rest[start_length] } else { None };
+        if let Some(rest) = source_array.or(remaining_source_rest) {
+            for target in &targets[start_length..targets.len() - end_length] {
+                let ty = if target.spread {
+                    let Some(array) = self.global_type_symbol("Array") else { return true };
+                    self.create_type_reference(array, vec![rest])
+                } else {
+                    rest
+                };
                 self.infer_from_types_within(
-                    middle,
-                    array_rest,
+                    ty,
+                    target.r#type,
                     original,
                     parameters,
                     out,
@@ -2640,34 +2725,149 @@ impl Checker<'_, '_> {
                 );
             }
         } else {
-            let sliced = if let Some(mask) = self.tuple_optional_masks.get(&source).cloned() {
-                let labels = self
-                    .tuple_labels
-                    .get(&source)
-                    .cloned()
-                    .unwrap_or_else(|| vec![None; source_elements.len()]);
-                let elements: Vec<_> = source_elements[start..end]
-                    .iter()
-                    .copied()
-                    .zip(mask[start..end].iter().copied())
-                    .collect();
-                self.create_optional_tuple_type(&elements, &labels[start..end], false)
-            } else {
-                self.create_tuple_type(source_elements[start..end].to_vec(), false)
-            };
-            self.infer_from_types_within(
-                sliced,
-                targets[start],
-                original,
-                parameters,
-                out,
-                depth + 1,
-            );
+            let middle_length = targets.len().saturating_sub(start_length + end_length);
+            if middle_length == 2 {
+                let first = start_length;
+                let second = first + 1;
+                if targets[first].spread && targets[second].spread {
+                    match (target_rest[first], target_rest[second]) {
+                        (None, None) => {
+                            if let Some(arity) = out
+                                .iter()
+                                .find(|info| info.type_parameter == targets[first].r#type)
+                                .and_then(|info| info.implied_arity)
+                            {
+                                let skip = (end_length + sources.len()).saturating_sub(arity);
+                                let first_slice =
+                                    self.slice_tuple_type(source, start_length, skip).unwrap();
+                                let second_slice = self
+                                    .slice_tuple_type(source, start_length + arity, end_length)
+                                    .unwrap();
+                                self.infer_from_types_within(
+                                    first_slice,
+                                    targets[first].r#type,
+                                    original,
+                                    parameters,
+                                    out,
+                                    depth + 1,
+                                );
+                                self.infer_from_types_within(
+                                    second_slice,
+                                    targets[second].r#type,
+                                    original,
+                                    parameters,
+                                    out,
+                                    depth + 1,
+                                );
+                            }
+                        }
+                        (None, Some(rest)) if parameters.contains(&targets[first].r#type) => {
+                            if let Some(arity) =
+                                self.inference_fixed_tuple_arity(targets[first].r#type)
+                            {
+                                let skip = sources.len().saturating_sub(start_length + arity);
+                                let slice =
+                                    self.slice_tuple_type(source, start_length, skip).unwrap();
+                                self.infer_from_types_within(
+                                    slice,
+                                    targets[first].r#type,
+                                    original,
+                                    parameters,
+                                    out,
+                                    depth + 1,
+                                );
+                                let start = start_length + arity;
+                                let end = sources.len().saturating_sub(end_length);
+                                if start < end
+                                    && let Some(ty) =
+                                        self.inference_tuple_slice_element(&sources[start..end])
+                                {
+                                    self.infer_from_types_within(
+                                        ty,
+                                        rest,
+                                        original,
+                                        parameters,
+                                        out,
+                                        depth + 1,
+                                    );
+                                }
+                            }
+                        }
+                        (Some(rest), None) if parameters.contains(&targets[second].r#type) => {
+                            if let Some(arity) =
+                                self.inference_fixed_tuple_arity(targets[second].r#type)
+                                && let Some(end) = sources.len().checked_sub(target_ending)
+                                && let Some(start) = end.checked_sub(arity)
+                                && start >= start_length
+                            {
+                                let trailing = self
+                                    .normalize_variadic_tuple(sources[start..end].to_vec(), false);
+                                let rest_end = sources.len().saturating_sub(end_length + arity);
+                                if start_length < rest_end
+                                    && let Some(ty) = self.inference_tuple_slice_element(
+                                        &sources[start_length..rest_end],
+                                    )
+                                {
+                                    self.infer_from_types_within(
+                                        ty,
+                                        rest,
+                                        original,
+                                        parameters,
+                                        out,
+                                        depth + 1,
+                                    );
+                                }
+                                self.infer_from_types_within(
+                                    trailing,
+                                    targets[second].r#type,
+                                    original,
+                                    parameters,
+                                    out,
+                                    depth + 1,
+                                );
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            } else if middle_length == 1 && targets[start_length].spread {
+                if let Some(rest) = target_rest[start_length] {
+                    let end = sources.len().saturating_sub(end_length);
+                    if start_length < end
+                        && let Some(ty) =
+                            self.inference_tuple_slice_element(&sources[start_length..end])
+                    {
+                        self.infer_from_types_within(
+                            ty,
+                            rest,
+                            original,
+                            parameters,
+                            out,
+                            depth + 1,
+                        );
+                    }
+                } else {
+                    let slice = self.slice_tuple_type(source, start_length, end_length).unwrap();
+                    let saved = self.inference_priority;
+                    if targets.last().is_some_and(|element| element.optional) {
+                        self.inference_priority |= InferencePriority::SPECULATIVE_TUPLE;
+                    }
+                    self.infer_from_types_within(
+                        slice,
+                        targets[start_length].r#type,
+                        original,
+                        parameters,
+                        out,
+                        depth + 1,
+                    );
+                    self.inference_priority = saved;
+                }
+            }
         }
-        for index in 0..end_skip {
+        for i in 0..end_length {
             self.infer_from_types_within(
-                source_elements[end + index],
-                targets[start + 1 + index],
+                sources[sources.len() - i - 1].r#type,
+                targets[targets.len() - i - 1].r#type,
                 original,
                 parameters,
                 out,
@@ -2922,7 +3122,7 @@ impl Checker<'_, '_> {
         if depth > 16 {
             return;
         }
-        if self.infer_from_variadic_tuple(source, target, original, parameters, out, depth) {
+        if self.infer_from_tuple_types(source, target, original, parameters, out, depth) {
             return;
         }
         if parameters.contains(&target) {
@@ -2966,27 +3166,6 @@ impl Checker<'_, '_> {
                     out,
                     depth + 1,
                 );
-            }
-            return;
-        }
-        // §801: a TUPLE target infers ELEMENT-WISE from a tuple source.
-        // `f4<const T>(x: [T, T])` called with `[[1, "x"], [2, "y"]]` infers
-        // `T` from BOTH positions and unions them —
-        // `readonly [1, "x"] | readonly [2, "y"]`
-        // (`jsdocTemplateTag6.types:137`). A tuple is not a type REFERENCE in
-        // this port, so the reference arm below never saw the pair and the
-        // whole call answered `errorType`.
-        //
-        // Equal length only. A length mismatch is upstream's variadic
-        // arithmetic (a rest element absorbing several positions), which this
-        // port does not have — inferring positionally across a mismatch would
-        // pair the wrong source with the wrong parameter.
-        if let Some((target_elements, _)) = self.tuple_element_lists.get(&target).cloned()
-            && let Some((source_elements, _)) = self.tuple_element_lists.get(&source).cloned()
-            && target_elements.len() == source_elements.len()
-        {
-            for (t, s) in target_elements.iter().zip(source_elements.iter()) {
-                self.infer_from_types_within(*s, *t, original, parameters, out, depth + 1);
             }
             return;
         }
@@ -3377,8 +3556,26 @@ impl Checker<'_, '_> {
             );
         }
         if let Some(target_start) = target_start {
-            let target_rest =
-                self.normalize_variadic_tuple(target_elements[target_start..].to_vec(), false);
+            // getEffectiveRestType retains a non-tuple operand directly. In
+            // particular ...args: P targets P, not a synthetic [...P]; the
+            // bare parameter must capture a source union as one candidate.
+            let target_rest = t
+                .parameters
+                .last()
+                .filter(|parameter| {
+                    parameter.rest
+                        && !self.tuple_element_lists.contains_key(&parameter.r#type)
+                        && !self.variadic_tuple_elements.contains_key(&parameter.r#type)
+                })
+                .map_or_else(
+                    || {
+                        self.normalize_variadic_tuple(
+                            target_elements[target_start..].to_vec(),
+                            false,
+                        )
+                    },
+                    |parameter| parameter.r#type,
+                );
             let source_slice = if let Some(start) = source_start
                 && paired > start
             {
@@ -3389,6 +3586,13 @@ impl Checker<'_, '_> {
                     return;
                 };
                 self.create_type_reference(array, vec![element])
+            } else if let Some(parameter) = s.parameters.last()
+                && parameter.rest
+                && paired == s.parameters.len() - 1
+                && !self.tuple_element_lists.contains_key(&parameter.r#type)
+                && !self.variadic_tuple_elements.contains_key(&parameter.r#type)
+            {
+                parameter.r#type
             } else {
                 self.normalize_variadic_tuple(source_elements[paired..].to_vec(), false)
             };

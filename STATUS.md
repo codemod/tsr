@@ -24,20 +24,21 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-09-30
 
-Measured on **`c438a8aa`**: **448,134/478,855 assertions (93.58%)**,
-**6,558/9,538 complete cases (68.76%)**. The active 95% target requires 454,913
-correct assertions; **6,779 remain**. The denominator and pinned oracle are
-unchanged. Aligned verdicts: **474,243 total;448,134 right;4,628 gap;21,481 wrong**.
+Measured on **`VARIABLE_TUPLES_COMMIT`**: **448,193/478,855 assertions (93.60%)**,
+**6,559/9,538 complete cases (68.77%)**. The active 95% target requires 454,913
+correct assertions; **6,720 remain**. The denominator and pinned oracle are
+unchanged. Aligned verdicts: **474,243 total;448,193 right;4,624 gap;21,426 wrong**.
 Binder symbols retain the preceding measurement at **8,497/8,497 (100%)**;
 other suites below retain historical measurements.
 
-This unit adds **12 WRONG→RIGHT**, with **zero RIGHT losses and no new wrong
-answers** relative to `a88f8a1e` (448,122). The initial-tree attribution and
-preceding transitions remain in their evidence documents. Release workspace
-tests,workspace clippy with warnings denied,all **3,380 upstream anchors**,and
-whitespace checks pass. The checker snapshot is refreshed.
-[Adjacent variadic tuple inference](docs/architecture/checker-95-implied-arity.md)
-records the controls and manual review. The goal and `tsr-6` remain active.
+This unit adds **56 WRONG→RIGHT and 3 GAP→RIGHT**, with **zero RIGHT losses**
+relative to `c438a8aa` (448,134). One former gap now has a wrong Map inference,
+recorded in the deficit. The initial-tree attribution and preceding transitions
+remain in their evidence documents. Release workspace tests,workspace clippy
+with warnings denied,all **3,379 upstream anchors**,and whitespace checks pass.
+The checker snapshot is refreshed.
+[Variable source tuple inference](docs/architecture/checker-95-variable-tuples.md)
+records the controls,repairs and manual review. The goal and `tsr-6` remain active.
 Verified changes commit and push to `main` per the user's instruction.
 
 ### Previous whole-suite measurement — historical
@@ -1140,7 +1141,7 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-### Current priorities at `c438a8aa` — 2026-09-30
+### Current priorities at `VARIABLE_TUPLES_COMMIT` — 2026-09-30
 
 Inference priorities, independent contextual return mappers, captured structural
 substitution, call/construct signature kinds, measured reference variances,
@@ -1158,8 +1159,8 @@ union/never distribution now run under the mapper, preserving distributed alias
 names. Implicit syntax/reference constraints, direct dependent constraints and
 any branch unions now participate in conditional inference. Composite dependent
 constraints and general implicit constraint integration remain incomplete
-(`tsr-6.3`). Ten wrong constrained tuple answers from the preceding unit remain
-in the reported deficit.
+(`tsr-6.3`). Fixed constraint arity now repairs all ten constrained tuple
+answers from the conditional continuation;variable source/rest matching is ported.
 
 Class this annotations now share expression identities and substitute through
 receiver methods. Written this annotations survive semantic error recovery;
@@ -1170,9 +1171,11 @@ The largest remaining combined gap/wrong cases are `correlatedUnions` (187),
 `parsingDeepParenthensizedExpression` (137). `strictBindCallApply1` has 105 deficits
 after generic this-argument inference. Call signatures now infer from the receiver
 before ordinary arguments. Adjacent inferred variadics now split fixed source tuples
-using the supplied rest-argument count. Variable sources, constrained array-rest
-splits and deferred conditional alias evaluation remain concrete bind/apply work.
-`variadicTuples1` has 95 deficits after the implied-arity port (`tsr-6.7`).
+using the supplied rest-argument count. Variable source/rest matching now follows
+fixed prefix/suffix and constraint arity rules. Deferred conditional alias evaluation
+and bind selection remain incomplete.
+`variadicTuples1` has 66 deficits after variable tuple matching. Mapped targets need
+key/template metadata and homomorphic reverse inference next (`tsr-6.8`).
 Composite dependent constraints and general implicit constraint integration are next; bind signature
 inference remains a candidate; `tsr-6.1` tracks the generic signature prerequisite
 for union matching. These counts are deficits, not predicted gains.
@@ -3686,6 +3689,16 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+### Variable tuple inference at `VARIABLE_TUPLES_COMMIT`
+
+Tuple matching now handles variable source rests,constrained adjacent splits,
+optional suffix speculation and tuple/array numeric index inference. The draft's
+union-rest RIGHT loss was repaired through effective signature rest types;the
+final matcher has zero RIGHT losses. One prior gap in iterableArrayPattern30 now
+has an incorrect Map inference from missing contextual tuple typing.
+[Evidence and limits](docs/architecture/checker-95-variable-tuples.md).
+
 
 ### Adjacent variadic implied arity at `c438a8aa`
 
@@ -9171,6 +9184,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
+| 2026-09-30 | `VARIABLE_TUPLES_COMMIT` | **68.77%** | **6,559** | **448,193/478,855 assertions (93.60%).** +56 W→R,+3 G→R since c438a8aa,zero RIGHT losses;one G→W remains in Map context inference. Ports variable source/rest tuple matching,constrained splits,effective signature rests and optional speculation. Pinned controls and release workspace tests/clippy pass;3,379 anchors resolve;snapshot refreshed. [Evidence and remaining work](docs/architecture/checker-95-variable-tuples.md). 6,720 assertions remain;goal active. |
 | 2026-09-30 | `c438a8aa` | **68.76%** | **6,558** | **448,134/478,855 assertions (93.58%).** +12 W→R since a88f8a1e,zero RIGHT losses,no new wrong. Ports rest implied arity and fixed-source adjacent variadic splits. Pinned controls and release workspace tests/clippy pass;3,380 anchors resolve;snapshot refreshed. [Evidence and remaining work](docs/architecture/checker-95-implied-arity.md). 6,779 assertions remain;goal active. |
 | 2026-09-30 | `a88f8a1e` | **68.76%** | **6,558** | **448,122/478,855 assertions (93.58%).** +26 W→R since15643d99,zero RIGHT losses,no new wrong. Ports generic this-argument receiver inference with wrapper/optional-chain handling. Pinned controls and release workspace tests/clippy pass;3,380 anchors resolve;snapshot refreshed. [Evidence and remaining work](docs/architecture/checker-95-this-argument.md). 6,791 assertions remain;goal active. |
 | 2026-09-30 | `15643d99` | **68.75%** | **6,557** | **448,096/478,855 assertions (93.58%).** +342 correct since `1609ae84`:310 W→R,32 G→R,zero RIGHT losses;11 G→W remain in the deficit. Ports class this annotation/container identity,written error recovery and globalThis runtime-property recovery. Release workspace tests/clippy pass;3,380 anchors resolve;snapshot refreshed. [Evidence and remaining work](docs/architecture/checker-95-class-this.md). 6,817 assertions remain;goal active. |
