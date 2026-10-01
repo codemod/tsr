@@ -2994,7 +2994,9 @@ impl<'a> Checker<'a, '_> {
                 match hits.len() {
                     0 => None,
                     1 => Some(hits[0]),
-                    _ => Some(self.get_union_type_unprinted(&hits)),
+                    // mapTypeEx(..., noReductions=true) preserves context
+                    // from the other constituents beside any/unknown.
+                    _ => Some(self.get_union_type_without_reduction(&hits)),
                 }
             }
             crate::types::TypeData::Intersection { types, .. } => {
@@ -3009,11 +3011,45 @@ impl<'a> Checker<'a, '_> {
                     return None;
                 }
                 let mut hits = Vec::new();
+                let mut index_candidates = Vec::new();
+                let mut ignore_indexes = false;
                 for constituent in constituents {
+                    if !self
+                        .store
+                        .get(constituent)
+                        .flags
+                        .intersects(crate::flags::TypeFlags::OBJECT)
+                    {
+                        continue;
+                    }
+                    if let Some(member) =
+                        self.generic_mapped_contextual_property_type(constituent, name)
+                    {
+                        hits.push(member);
+                        continue;
+                    }
                     if let Some(member) = self.get_type_of_property_of_type(constituent, name)
                         && member != self.intrinsics.error
                     {
                         hits.push(member);
+                        ignore_indexes = true;
+                        index_candidates.clear();
+                    } else if !ignore_indexes {
+                        index_candidates.push(constituent);
+                    }
+                }
+                // getTypeOfPropertyOfContextualTypeEx: a concrete property in
+                // any constituent suppresses all index-signature candidates.
+                for candidate in index_candidates {
+                    if let Some(member) = self.contextual_property_type(candidate, name) {
+                        hits.push(member);
+                    }
+                }
+                // appendContextualPropertyTypeConstituent replaces any with
+                // unknown so it cannot erase another member's context.
+                for member in &mut hits {
+                    if *member == self.intrinsics.any {
+                        *member = self.intrinsics.unknown;
                     }
                 }
                 match hits.len() {

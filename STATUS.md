@@ -24,21 +24,21 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-10-01
 
-Measured on **`87f2dc92`**: **450,628/478,855 assertions (94.11%)**,
-**6,627/9,538 complete cases (69.48%)**. The 95% target requires
-454,913 correct assertions; **4,285 remain**. Denominator and pinned oracle
-unchanged. Aligned verdicts: **474,243 total;450,628 right;3,914 gap;19,701 wrong**.
+Measured on **`INDEX_CHECKPOINT`**: **450,757/478,855 assertions (94.13%)**,
+**6,634/9,538 complete cases (69.55%)**. The 95% target requires
+454,913 correct assertions; **4,156 remain**. Denominator and pinned oracle
+unchanged. Aligned verdicts: **474,243 total;450,757 right;3,885 gap;19,601 wrong**.
 Binder retains the preceding verified **8,497/8,497 (100%)**;
 other suites below retain historical measurements.
 
-This unit adds **211 matching assertions**, with **zero RIGHT losses** relative
-to5d47e663:105 WRONG→RIGHT,106 GAP→RIGHT,24 GAP→WRONG and12 changed wrong types.
+This unit adds **129 matching assertions**, with **zero RIGHT losses** relative
+to87f2dc92:115 WRONG→RIGHT,14 GAP→RIGHT,15 GAP→WRONG and14 changed wrong types.
 Release workspace tests,clippy with warnings denied,all **3,366 upstream anchors**,
 snapshot and whitespace checks pass.
-[Callable export properties](docs/architecture/checker-95-callable-expandos.md)
-records function object rendering, generic property substitution, assignment
-context and numeric/Unicode names. Pinned declaration controls pass. Late-bound
-properties,JS inference and constructor instance members remain incomplete.
+[Composite index signatures](docs/architecture/checker-95-composite-indexes.md)
+records union/intersection collectors,class static/instance separation and
+intersection contextual precedence. Pinned controls pass. Reverse mapped
+intersection inference,readonly metadata and instantiated heritage remain incomplete.
 The95% goal remains unfinished; verified changes commit and push to main.
 
 ### Previous whole-suite measurement — historical
@@ -1141,7 +1141,7 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-### Current priorities at `87f2dc92` — 2026-10-01
+### Current priorities at `INDEX_CHECKPOINT` — 2026-10-01
 
 Assignment property symbols now collect binary/descriptor values with readonly
 checks and CommonJS default precedence. Object-literal member docs reach the
@@ -1152,8 +1152,9 @@ recursive callable boundaries remain (tsr-6.27).
 
 Semantic index keys now use the relation, union-key splitting and overlapping
 value intersections. Object-literal callback contexts use applicable indexes.
-Composite intersections,class/static index collection and recursive callback
-inference remain (tsr-6.25).
+Composite index collection,class/static separation and intersection contextual
+priority are now ported. Reverse mapped intersections,readonly metadata,
+instantiated heritage and recursive callbacks remain (tsr-6.25,tsr-6.9).
 
 Const type-variable contexts now follow semantic parameter/union/indexed/mapped/
 variadic identities and deferred conditional constraints. Generic mapped property
@@ -3753,6 +3754,18 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+### Composite index signatures at `INDEX_CHECKPOINT`
+
+The129-match gain has zero RIGHT losses. A draft lost25 correct assertions:
+concrete-property priority recovered12,then any-to-unknown intersection context
+and contextual unions without reduction recovered13. Pinned tsgo rejects inherited
+static indexes, so the constructor collector deliberately stops at own indexes.
+The15 new GAP→WRONG and8 changed wrong results in reverseMappedIntersectionInference1
+expose incomplete inference (tsr-6.9); four other changed wrong rows concern index
+assignment flow and two unchecked destructuring. See the
+[measured rationale](docs/architecture/checker-95-composite-indexes.md).
+
 
 ### Callable export properties at `87f2dc92`
 
@@ -9470,6 +9483,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
+| 2026-10-01 | `INDEX_CHECKPOINT` | **69.55%** | **6,634** | **450,757/478,855 assertions (94.13%).** +129 since87f2dc92,zero RIGHT losses;115 W→R,14 G→R,15 G→W,14 changed wrong. Composite and static indexes,intersection context precedence and no-reduction unions. Pinned controls;release tests/clippy;3,366 anchors;checker snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-composite-indexes.md).4,156 remain;95% unfinished. |
 | 2026-10-01 | `87f2dc92` | **69.48%** | **6,627** | **450,628/478,855 assertions (94.11%).** +211 since5d47e663,zero RIGHT losses;105 W→R,106 G→R,24 G→W,12 changed wrong. Callable exports,property substitution,assignment context,numeric/Unicode names. Pinned controls;release tests/clippy;3,366 anchors;checker snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-callable-expandos.md).4,285 remain;95% unfinished. |
 | 2026-10-01 | `5d47e663` | **69.36%** | **6,616** | **450,417/478,855 assertions (94.06%).** +113 since2b92b583,zero adverse transitions;111 W→R,2 G→R. Assignment/descriptor values and readonly writes,CommonJS defaults,expando scope,object JSDoc. Pinned controls;release tests/clippy;3,367 anchors;checker/binder snapshots refreshed. [Evidence and limits](docs/architecture/checker-95-assignment-declarations.md).4,496 assertions remain;95% unfinished. |
 | 2026-10-01 | `2b92b583` | **69.35%** | **6,615** | **450,304/478,855 assertions (94.04%).** +194 since594ac488,zero RIGHT losses;151 W→R,43 G→R,11 G→W,16 W→W. Semantic index keys and contextual object callbacks. Pinned controls;release tests/clippy;3,367 anchors;snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-semantic-index-keys.md).4,609 assertions remain;95% unfinished. |

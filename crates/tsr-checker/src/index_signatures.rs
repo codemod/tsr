@@ -21,15 +21,12 @@
 //! signature applies"*, so a type with both answers a numeric access from the
 //! **number** signature.
 //!
-//! # What is not ported
-//!
-//! - **`noUncheckedIndexedAccess`.** An index signature does not make a property
-//!   optional and does not add `| undefined`; that is a compiler option this port
-//!   does not read (`bd tsr-y5a`). The two are deliberately not blended.
-//! - Index signatures on a **class** and on a mapped type.
-//!
-//! **Inherited** index signatures *are* ported — see
-//! [`Checker::index_infos_of_symbol`].
+//! Class instance and static indexes are collected separately. Union types
+//! retain keys shared by every constituent; intersection types merge equal
+//! keys by intersecting their values. Inherited instance indexes are ported;
+//! static indexes do not inherit. Mapped indexes use their resolved side table.
+//! `noUncheckedIndexedAccess` is applied by the access consumer, not here.
+//! Readonly metadata and general instantiated heritage remain incomplete.
 
 use tsr_ast::{Node, TypeElement};
 use tsr_binder::SymbolId;
@@ -42,8 +39,8 @@ use crate::{
 /// One index signature, reduced to what a lookup needs.
 ///
 /// Upstream's `IndexInfo` (`types.go`) also carries `isReadonly` and the
-/// declaration; neither changes the type an access yields, and `readonly` is only
-/// consulted by assignment checking, which does not exist here.
+/// declaration. This collector currently carries only key/value information;
+/// index-specific readonly assignment checks remain unported.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct IndexInfo {
     /// `keyType` — a valid primitive, pattern or nongeneric intersection key.
@@ -60,10 +57,9 @@ impl<'a> Checker<'a, '_> {
     /// `IndexSignatureDeclaration` members off the declarations of the symbol the
     /// type is named by.
     ///
-    /// Only a type with a members table has any — that is
-    /// [`TypeData::Named`]'s `members`, the same field property access reads, and
-    /// for the same reason: it is the one table the binder already built. An
-    /// intrinsic, a literal and an anonymous function type have none.
+    /// Named types use their members owner; class constructor objects use
+    /// static declarations. Resolved object/mapped types use stored indexes,
+    /// and unions/intersections combine their constituents' indexes.
     ///
     /// **`None` is a gap, `Some(vec![])` is "none declared".** The two are not
     /// the same claim: a type whose base this port cannot follow might have an
@@ -75,6 +71,27 @@ impl<'a> Checker<'a, '_> {
     pub(crate) fn get_index_infos_of_type(&mut self, id: TypeId) -> Option<Vec<IndexInfo>> {
         let id = self.apparent_mapped_type(id);
         self.resolve_mapped_type_members(id);
+        match self.store.get(id).data.clone() {
+            TypeData::Union { types, .. } => {
+                return self.union_index_infos(&types);
+            }
+            // resolveIntersectionTypeMembers / appendIndexInfo (checker.go).
+            TypeData::Intersection { types, .. } => {
+                let mut infos: Vec<IndexInfo> = Vec::new();
+                for ty in types {
+                    for next in self.get_index_infos_of_type(ty)? {
+                        if let Some(info) = infos.iter_mut().find(|info| info.key == next.key) {
+                            info.value =
+                                self.get_intersection_type(&[info.value, next.value], None);
+                        } else {
+                            infos.push(next);
+                        }
+                    }
+                }
+                return Some(infos);
+            }
+            _ => {}
+        }
         // §262. An ENUM's object type is `TypeData::Anonymous`, not `Named`, so
         // it returned empty here before the collector was ever asked — proven
         // by probe: `index_infos_of_symbol` is invoked ZERO times on
@@ -148,11 +165,16 @@ impl<'a> Checker<'a, '_> {
         if let Some(info) = self.record_index_info(id) {
             return Some(vec![info]);
         }
+        if let TypeData::Anonymous { symbol, .. } = self.store.get(id).data
+            && self.binder.symbols().get(symbol).flags.contains(tsr_binder::SymbolFlags::CLASS)
+        {
+            return self.index_infos_of_symbol(symbol, true, &mut Vec::new());
+        }
         let TypeData::Named { members: Some(owner), .. } = self.store.get(id).data else {
             return Some(Vec::new());
         };
         let mut visiting = Vec::new();
-        let infos = self.index_infos_of_symbol(owner, &mut visiting)?;
+        let infos = self.index_infos_of_symbol(owner, false, &mut visiting)?;
         // On an instantiated reference the declared value types are the
         // target's uninstantiated ones — `Array<string>`'s `[n: number]: T`
         // must answer `string`, not `T`. Same seam rule as
@@ -169,6 +191,29 @@ impl<'a> Checker<'a, '_> {
                 })
                 .collect(),
         )
+    }
+
+    /// `getUnionIndexInfos` (internal/checker/checker.go): only keys present
+    /// in every constituent survive; their value types are unioned.
+    fn union_index_infos(&mut self, types: &[TypeId]) -> Option<Vec<IndexInfo>> {
+        let mut constituents = Vec::with_capacity(types.len());
+        for &ty in types {
+            constituents.push(self.get_index_infos_of_type(ty)?);
+        }
+        let Some(first) = constituents.first() else { return Some(Vec::new()) };
+        let mut result = Vec::new();
+        for info in first {
+            let values: Option<Vec<_>> = constituents
+                .iter()
+                .map(|infos| {
+                    infos.iter().find(|candidate| candidate.key == info.key).map(|info| info.value)
+                })
+                .collect();
+            if let Some(values) = values {
+                result.push(IndexInfo { key: info.key, value: self.get_union_type(&values) });
+            }
+        }
+        Some(result)
     }
 
     /// A symbol's own index signatures, then its base types', in that order.
@@ -217,6 +262,7 @@ impl<'a> Checker<'a, '_> {
     fn index_infos_of_symbol(
         &mut self,
         owner: SymbolId,
+        static_side: bool,
         visiting: &mut Vec<SymbolId>,
     ) -> Option<Vec<IndexInfo>> {
         if visiting.contains(&owner) {
@@ -255,14 +301,14 @@ impl<'a> Checker<'a, '_> {
                 }
             };
             match self.node_map.get(declaration) {
-                Some(Node::InterfaceDeclaration(node)) => {
+                Some(Node::InterfaceDeclaration(node)) if !static_side => {
                     for member in node.members {
                         if let TypeElement::IndexSignatureDeclaration(signature) = member {
                             push_from(self, signature);
                         }
                     }
                 }
-                Some(Node::TypeLiteralNode(node)) => {
+                Some(Node::TypeLiteralNode(node)) if !static_side => {
                     for member in node.members {
                         if let TypeElement::IndexSignatureDeclaration(signature) = member {
                             push_from(self, signature);
@@ -272,6 +318,22 @@ impl<'a> Checker<'a, '_> {
                 Some(Node::ClassDeclaration(node)) => {
                     for member in node.members {
                         if let tsr_ast::ClassElement::IndexSignatureDeclaration(signature) = member
+                            && tsr_ast::has_syntactic_modifier(
+                                signature.modifiers,
+                                tsr_ast::SyntaxKind::StaticKeyword,
+                            ) == static_side
+                        {
+                            push_from(self, signature);
+                        }
+                    }
+                }
+                Some(Node::ClassExpression(node)) => {
+                    for member in node.members {
+                        if let tsr_ast::ClassElement::IndexSignatureDeclaration(signature) = member
+                            && tsr_ast::has_syntactic_modifier(
+                                signature.modifiers,
+                                tsr_ast::SyntaxKind::StaticKeyword,
+                            ) == static_side
                         {
                             push_from(self, signature);
                         }
@@ -283,8 +345,15 @@ impl<'a> Checker<'a, '_> {
                 _ => {}
             }
         }
+        // resolveAnonymousTypeMembers inherits named properties from the base
+        // constructor, not its __index export. Instance indexes instead
+        // inherit independently by key in resolveObjectTypeMembers.
+        if static_side {
+            visiting.pop();
+            return Some(infos);
+        }
         for base in self.base_symbols_of(owner)? {
-            for inherited in self.index_infos_of_symbol(base, visiting)? {
+            for inherited in self.index_infos_of_symbol(base, static_side, visiting)? {
                 // `findIndexInfo(indexInfos, info.keyType) == nil` — an own
                 // signature for this key hides the base's outright.
                 if !infos.iter().any(|own| own.key == inherited.key) {
@@ -292,6 +361,7 @@ impl<'a> Checker<'a, '_> {
                 }
             }
         }
+        visiting.pop();
         Some(infos)
     }
 
