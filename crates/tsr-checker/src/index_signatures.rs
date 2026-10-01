@@ -391,7 +391,7 @@ impl<'a> Checker<'a, '_> {
     }
 
     /// isValidIndexKeyType (checker.go:19787), using existing pattern metadata.
-    fn is_valid_index_key_type(&mut self, key: TypeId) -> bool {
+    pub(crate) fn is_valid_index_key_type(&mut self, key: TypeId) -> bool {
         if self.store.get(key).flags.intersects(
             crate::flags::TypeFlags::STRING
                 | crate::flags::TypeFlags::NUMBER

@@ -277,6 +277,9 @@ impl<'a> Checker<'a, '_> {
             {
                 let Some(inner) = node.r#type else { return self.intrinsics.error };
                 let target = self.get_type_from_type_node(inner);
+                if self.mapped_types.contains_key(&target) {
+                    return self.resolved_keyof_type(target).unwrap_or(self.intrinsics.error);
+                }
                 match self.keys_of(target) {
                     Some(keys) => {
                         let union = self.literal_key_union(&keys);
@@ -380,7 +383,14 @@ impl<'a> Checker<'a, '_> {
                     // same-name test can see. Taking the three is the better
                     // trade at 208:1, and the guard is recorded rather than kept.
                     Some(text) => {
-                        let id = self.store.new_named(TypeFlags::OBJECT, text, None);
+                        let flags = if self.mapped_template_depth > 0
+                            && matches!(node, TypeNode::ConditionalTypeNode(_))
+                        {
+                            TypeFlags::CONDITIONAL
+                        } else {
+                            TypeFlags::OBJECT
+                        };
+                        let id = self.store.new_named(flags, text, None);
                         if let TypeNode::MappedTypeNode(mapped) = node {
                             self.capture_mapped_type(id, mapped);
                         } else if let TypeNode::ConditionalTypeNode(conditional) = node
@@ -395,6 +405,29 @@ impl<'a> Checker<'a, '_> {
                             {
                                 self.mapped_conditional_branches
                                     .insert(id, (true_type, false_type));
+                                if let (Some(declaration), Some(check), Some(extends)) = (
+                                    conditional.node_id,
+                                    conditional.check_type,
+                                    conditional.extends_type,
+                                ) {
+                                    let check = self.get_type_from_type_node(check);
+                                    let extends = self.get_type_from_type_node(extends);
+                                    let bindings = self
+                                        .alias_evaluation_bindings
+                                        .iter()
+                                        .flat_map(|frame| {
+                                            frame.iter().map(|(&symbol, &ty)| (symbol, ty))
+                                        })
+                                        .collect();
+                                    self.mapped_conditionals.insert(
+                                        id,
+                                        crate::mapped::MappedConditionalInfo {
+                                            declaration,
+                                            bindings,
+                                            operands: [check, extends, true_type, false_type],
+                                        },
+                                    );
+                                }
                             }
                         }
                         id
@@ -5060,6 +5093,38 @@ impl<'a> Checker<'a, '_> {
         result
     }
 
+    /// getConditionalTypeInstantiation composes the outer mapper before
+    /// testing the check type or distributing its substituted constituents.
+    pub(crate) fn instantiate_mapped_conditional(
+        &mut self,
+        id: TypeId,
+        map: &[(TypeId, TypeId)],
+        parameters: &[TypeId],
+        names: &[&str],
+    ) -> TypeId {
+        let Some(info) = self.mapped_conditionals.get(&id).cloned() else {
+            return self.intrinsics.error;
+        };
+        let Some(Node::ConditionalTypeNode(node)) = self.node_map.get(info.declaration) else {
+            return self.intrinsics.error;
+        };
+        let mut bindings = info.bindings;
+        for value in bindings.values_mut() {
+            *value = self.instantiate_type(*value, map, parameters, names);
+        }
+        for &(parameter, value) in map {
+            if let Some(&symbol) = self.type_parameter_symbols.get(&parameter) {
+                bindings.insert(symbol, value);
+            }
+        }
+        self.alias_evaluation_bindings.push(bindings);
+        self.mapped_template_depth += 1;
+        let result = self.get_type_from_type_node(TypeNode::ConditionalTypeNode(node));
+        self.mapped_template_depth -= 1;
+        self.alias_evaluation_bindings.pop();
+        result
+    }
+
     /// getConditionalType's branch walk under an active alias/infer mapper.
     fn evaluate_conditional_node(
         &mut self,
@@ -5628,8 +5693,15 @@ impl<'a> Checker<'a, '_> {
         if target == self.intrinsics.error {
             return None;
         }
+        if let Some(keys) = self.mapped_index_type(target) {
+            return Some(keys);
+        }
         if self.store.get(target).flags.contains(TypeFlags::TYPE_PARAMETER)
             || self.is_generic_homomorphic_mapped_type(target)
+            || self.mapped_types.get(&target).cloned().is_some_and(|info| {
+                info.name_type.is_some()
+                    && self.signature_parameter_type_is_generic(info.constraint)
+            })
         {
             let text = format!("keyof {}", self.type_to_string(target));
             let id = self.store.new_named(TypeFlags::INDEX, text, None);

@@ -611,7 +611,8 @@ impl Checker<'_, '_> {
         if contexts.iter().any(|t| {
             self.tuple_element_lists.contains_key(t)
                 || self.variadic_tuple_elements.contains_key(t)
-                || self.is_generic_homomorphic_mapped_type(*t)
+                || (self.is_generic_homomorphic_mapped_type(*t)
+                    && self.mapped_types.get(t).is_some_and(|info| info.name_type.is_none()))
         }) {
             return true;
         }
@@ -631,7 +632,8 @@ impl Checker<'_, '_> {
                     crate::types::TypeData::Union { types, .. } => types.clone(),
                     _ => vec![original],
                 };
-                return contexts.iter().any(|t| self.is_generic_homomorphic_mapped_type(*t));
+                return contexts.iter().any(|t| self.is_generic_homomorphic_mapped_type(*t)
+                    && self.mapped_types.get(t).is_some_and(|info| info.name_type.is_none()));
             }
         }
         false

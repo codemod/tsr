@@ -1862,7 +1862,10 @@ impl<'a> Checker<'a, '_> {
             // through `contextual_prefers_uninstantiated`.
             if self.contextual_prefers_uninstantiated
                 || (call.type_arguments.is_empty()
-                    && self.mapped_types.contains_key(&parameter_type))
+                    && self
+                        .mapped_types
+                        .get(&parameter_type)
+                        .is_some_and(|info| info.name_type.is_none()))
                 || self
                     .uninstantiated_context_node
                     .is_some_and(|node| call.arguments[index].node_id() == Some(node))

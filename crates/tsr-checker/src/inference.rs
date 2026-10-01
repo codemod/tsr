@@ -1435,7 +1435,13 @@ impl Checker<'_, '_> {
                     // instantiateContextualType does not instantiate mapped
                     // object contexts. Their key-specific templates are read
                     // before the member mapper fixes the referenced variables.
-                    if self.mapped_types.contains_key(&parameter.r#type) {
+                    // An as clause disables reverse inference; its context
+                    // uses candidates already collected from the other arguments.
+                    if self
+                        .mapped_types
+                        .get(&parameter.r#type)
+                        .is_some_and(|info| info.name_type.is_none())
+                    {
                         continue;
                     }
                     let image =
@@ -3314,6 +3320,10 @@ impl Checker<'_, '_> {
         depth: usize,
     ) -> bool {
         let Some(info) = self.mapped_types.get(&target).cloned() else { return false };
+        // inferFromObjectTypes only reverses mappings without an as clause.
+        if info.name_type.is_some() {
+            return false;
+        }
         self.infer_to_mapped_constraint(
             source,
             target,
@@ -4578,6 +4588,9 @@ impl Checker<'_, '_> {
         names: &[&str],
     ) -> TypeId {
         let error = self.intrinsics.error;
+        if self.mapped_conditionals.contains_key(&id) {
+            return self.instantiate_mapped_conditional(id, map, parameters, names);
+        }
         if let Some((symbol, target)) = self.string_mapping_types.get(&id).copied() {
             let target = self.instantiate_type(target, map, parameters, names);
             return self.get_string_mapping_type(symbol, target);
@@ -5320,9 +5333,18 @@ impl Checker<'_, '_> {
                 .iter()
                 .any(|&ty| self.mentions_type_parameter_inner(ty, parameters, names, visited));
         }
+        if let Some(info) = self.mapped_conditionals.get(&id) {
+            return info
+                .operands
+                .iter()
+                .any(|&ty| self.mentions_type_parameter_inner(ty, parameters, names, visited));
+        }
         if let Some(info) = self.mapped_types.get(&id) {
             return self.mentions_type_parameter_inner(info.constraint, parameters, names, visited)
-                || self.mentions_type_parameter_inner(info.template, parameters, names, visited);
+                || self.mentions_type_parameter_inner(info.template, parameters, names, visited)
+                || info.name_type.is_some_and(|ty| {
+                    self.mentions_type_parameter_inner(ty, parameters, names, visited)
+                });
         }
         if let Some(signatures) = self.signature_types.get(&id) {
             if signatures.iter().any(|signature| {

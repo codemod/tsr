@@ -857,6 +857,7 @@ pub struct Checker<'a, 'n> {
     pub(crate) mapped_template_depth: usize,
     /// True/false types of deferred mapped templates (inferToConditionalType).
     pub(crate) mapped_conditional_branches: FxHashMap<TypeId, (TypeId, TypeId)>,
+    pub(crate) mapped_conditionals: FxHashMap<TypeId, crate::mapped::MappedConditionalInfo>,
     /// Deferred alias constraints captured lazily under their reference mapper.
     /// Kept separate from inference branches because a distributive constraint
     /// may replace the check parameter with its base constraint.
@@ -1252,6 +1253,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             mapped_types: FxHashMap::default(),
             mapped_template_depth: 0,
             mapped_conditional_branches: FxHashMap::default(),
+            mapped_conditionals: FxHashMap::default(),
             conditional_constraint_branches: FxHashMap::default(),
             mapped_alias_in_progress: rustc_hash::FxHashSet::default(),
             mapped_members_in_progress: rustc_hash::FxHashSet::default(),

@@ -10,10 +10,20 @@ pub(crate) struct MappedTypeInfo {
     pub(crate) constraint: TypeId,
     pub(crate) constraint_intersection: Option<Vec<TypeId>>,
     pub(crate) template: TypeId,
+    pub(crate) name_type: Option<TypeId>,
     pub(crate) optionality: Option<bool>,
     pub(crate) readonly: Option<bool>,
     pub(crate) modifiers_source: Option<TypeId>,
     pub(crate) homomorphic_symbol: Option<SymbolId>,
+}
+
+/// A deferred conditional retains the declaration and outer mapper, just as
+/// ConditionalRoot/getConditionalTypeInstantiation do in checker.go.
+#[derive(Clone, Debug)]
+pub(crate) struct MappedConditionalInfo {
+    pub(crate) declaration: tsr_ast::NodeId,
+    pub(crate) bindings: rustc_hash::FxHashMap<SymbolId, TypeId>,
+    pub(crate) operands: [TypeId; 4],
 }
 
 impl<'a> Checker<'a, '_> {
@@ -66,7 +76,10 @@ impl<'a> Checker<'a, '_> {
             Some(SyntaxKind::MinusToken) => "-?",
             _ => return None,
         };
-        Some(format!("{{ {readonly}[{name} in {constraint}]{optional}: {template}; }}"))
+        let remapping = info
+            .name_type
+            .map_or_else(String::new, |ty| format!(" as {}", self.type_to_string(ty)));
+        Some(format!("{{ {readonly}[{name} in {constraint}{remapping}]{optional}: {template}; }}"))
     }
 
     /// getIndexedMappedTypeSubstitutedTypeOfContextualType
@@ -79,6 +92,25 @@ impl<'a> Checker<'a, '_> {
     ) -> Option<TypeId> {
         use crate::{flags::TypeFlags, types::TypeData};
         let info = self.mapped_types.get(&id)?.clone();
+        if let Some(name_type) = info.name_type {
+            // getMappedTypeNameTypeKind relates a conditional through its
+            // default constraint (getDefaultConstraintOfConditionalType).
+            let name_constraint =
+                if let Some(&(yes, no)) = self.mapped_conditional_branches.get(&name_type) {
+                    if self.store.get(yes).flags.contains(TypeFlags::ANY) {
+                        no
+                    } else if self.store.get(no).flags.contains(TypeFlags::ANY) {
+                        yes
+                    } else {
+                        self.get_union_type(&[yes, no])
+                    }
+                } else {
+                    name_type
+                };
+            if !self.is_type_assignable_to(name_constraint, info.parameter) {
+                return None;
+            }
+        }
         let parameters: Vec<_> = self.type_parameter_symbols.keys().copied().collect();
         let constraints =
             info.constraint_intersection.clone().unwrap_or_else(|| vec![info.constraint]);
@@ -100,10 +132,31 @@ impl<'a> Checker<'a, '_> {
             TypeData::StringLiteral(name.to_owned()),
             false,
         );
+        if self.is_excluded_mapped_property_name(info.constraint, key)
+            || info.name_type.is_some_and(|ty| self.is_excluded_mapped_property_name(ty, key))
+        {
+            return None;
+        }
         if !self.is_type_assignable_to(key, constraint) {
             return None;
         }
         Some(self.instantiate_mapped_template(&info, key, false))
+    }
+
+    /// isExcludedMappedPropertyName (checker.go:30624), for a conditional
+    /// that excludes its extends type and otherwise keeps the check variable.
+    fn is_excluded_mapped_property_name(&mut self, ty: TypeId, key: TypeId) -> bool {
+        if let Some(info) = self.mapped_conditionals.get(&ty).cloned() {
+            let [check, extends, yes, no] = info.operands;
+            return yes == self.intrinsics.never
+                && no == check
+                && self.is_type_assignable_to(key, extends);
+        }
+        if let crate::types::TypeData::Intersection { types, .. } = self.store.get(ty).data.clone()
+        {
+            return types.into_iter().any(|ty| self.is_excluded_mapped_property_name(ty, key));
+        }
+        false
     }
 
     /// The parameter, union/intersection and index arms of
@@ -187,9 +240,6 @@ impl<'a> Checker<'a, '_> {
         &mut self,
         node: &'a tsr_ast::MappedTypeNode<'a>,
     ) -> Option<MappedTypeInfo> {
-        if node.name_type.is_some() {
-            return None;
-        }
         let parameter = node.type_parameter?;
         let symbol = parameter.node_id.and_then(|id| self.binder.symbol_of(id))?;
         let parameter_type = self.get_declared_type_of_symbol(symbol);
@@ -235,9 +285,13 @@ impl<'a> Checker<'a, '_> {
         };
         self.mapped_template_depth += 1;
         let template = self.get_type_from_type_node(template);
+        let name_type = node.name_type.map(|node| self.get_type_from_type_node(node));
         self.mapped_template_depth -= 1;
 
-        if constraint == self.intrinsics.error || template == self.intrinsics.error {
+        if constraint == self.intrinsics.error
+            || template == self.intrinsics.error
+            || name_type == Some(self.intrinsics.error)
+        {
             return None;
         }
         Some(MappedTypeInfo {
@@ -246,6 +300,7 @@ impl<'a> Checker<'a, '_> {
             constraint,
             constraint_intersection,
             template,
+            name_type,
             optionality: node.question_token.map(|token| token.kind != SyntaxKind::MinusToken),
             readonly: node.readonly_token.map(|token| token.kind != SyntaxKind::MinusToken),
             modifiers_source,
@@ -300,8 +355,7 @@ impl<'a> Checker<'a, '_> {
             return;
         };
         let Some(TypeNode::MappedTypeNode(mapped)) = alias.r#type else { return };
-        if mapped.name_type.is_some()
-            || alias.type_parameters.len() != arguments.len()
+        if alias.type_parameters.len() != arguments.len()
             || !self.mapped_alias_in_progress.insert(symbol)
         {
             return;
@@ -332,17 +386,51 @@ impl<'a> Checker<'a, '_> {
         self.mapped_members_in_progress.remove(&id);
     }
 
-    fn resolve_mapped_type_members_worker(&mut self, id: TypeId) {
-        use crate::{flags::TypeFlags, types::TypeData};
-        let Some(info) = self.mapped_types.get(&id).cloned() else { return };
-        if self.anonymous_properties.contains_key(&id) {
-            return;
-        }
-        let mut keys = Vec::new();
+    /// getIndexTypeForMappedType (checker.go:26871). Unremapped keys are
+    /// exactly the constraint; remapped keys follow the same per-property mapper.
+    pub(crate) fn mapped_index_type(&mut self, id: TypeId) -> Option<TypeId> {
+        let info = self.mapped_types.get(&id)?.clone();
+        let Some(name_type) = info.name_type else { return Some(info.constraint) };
         let modifiers = info.modifiers_source.map(|source| self.apparent_type(source));
+        let keys = self.mapped_member_keys(&info, modifiers)?;
+        let mut names = Vec::new();
+        for key in keys {
+            let name =
+                self.instantiate_type(name_type, &[(info.parameter, key)], &[info.parameter], &[]);
+            if name == self.intrinsics.error {
+                return None;
+            }
+            names.push(name);
+            if name == self.intrinsics.string {
+                names.push(self.intrinsics.number);
+            }
+        }
+        Some(self.get_union_type(&names))
+    }
+
+    fn mapped_member_keys(
+        &mut self,
+        info: &MappedTypeInfo,
+        modifiers: Option<TypeId>,
+    ) -> Option<Vec<TypeId>> {
+        use crate::{flags::TypeFlags, types::TypeData};
+        let mut keys = Vec::new();
+        if info.name_type.is_some()
+            && modifiers.is_some()
+            && self.signature_parameter_type_is_generic(info.constraint)
+        {
+            return None;
+        }
         if let Some(source) = modifiers {
             if self.store.get(source).flags.contains(TypeFlags::TYPE_PARAMETER) {
-                return;
+                return None;
+            }
+            if self.is_mapped_sequence_input(source) {
+                let key = self.resolved_keyof_type(source)?;
+                return Some(match self.store.get(key).data.clone() {
+                    TypeData::Union { types, .. } => types,
+                    _ => vec![key],
+                });
             }
             for name in self.property_names_of(source) {
                 keys.push(self.store.intern_literal(
@@ -359,15 +447,71 @@ impl<'a> Checker<'a, '_> {
             while let Some(key) = pending.pop() {
                 if let TypeData::Union { types, .. } = &self.store.get(key).data {
                     pending.extend(types.iter().rev().copied());
-                } else if self.store.get(key).flags.intersects(
-                    TypeFlags::STRING_LITERAL
-                        | TypeFlags::NUMBER_LITERAL
-                        | TypeFlags::STRING
-                        | TypeFlags::NUMBER,
-                ) {
+                } else if info.name_type.is_some()
+                    || self.store.get(key).flags.intersects(
+                        TypeFlags::STRING_LITERAL
+                            | TypeFlags::NUMBER_LITERAL
+                            | TypeFlags::STRING
+                            | TypeFlags::NUMBER,
+                    )
+                {
+                    if self.signature_parameter_type_is_generic(key) {
+                        return None;
+                    }
                     keys.push(key);
                 } else if key != self.intrinsics.never {
+                    return None;
+                }
+            }
+        }
+        Some(keys)
+    }
+
+    fn resolve_mapped_type_members_worker(&mut self, id: TypeId) {
+        use crate::types::TypeData;
+        let Some(info) = self.mapped_types.get(&id).cloned() else { return };
+        if self.anonymous_properties.contains_key(&id) {
+            return;
+        }
+        let modifiers = info.modifiers_source.map(|source| self.apparent_type(source));
+        let Some(keys) = self.mapped_member_keys(&info, modifiers) else { return };
+        // resolveMappedTypeMembers combines source keys before substituting
+        // the template, so colliding names see the entire key union.
+        let mut members: Vec<(TypeId, TypeId, TypeId)> = Vec::new();
+        for key in keys {
+            let name = info.name_type.map_or(key, |name| {
+                self.instantiate_type(name, &[(info.parameter, key)], &[info.parameter], &[])
+            });
+            if name == self.intrinsics.error {
+                return;
+            }
+            let names = match self.store.get(name).data.clone() {
+                TypeData::Union { types, .. } => types,
+                _ => vec![name],
+            };
+            for name in names {
+                if name == self.intrinsics.never {
+                    continue;
+                }
+                if self.signature_parameter_type_is_generic(name) {
                     return;
+                }
+                if let Some((_, keys, _)) = members.iter_mut().find(|(existing, _, _)| {
+                    matches!(
+                        self.store.get(name).data,
+                        TypeData::StringLiteral(_) | TypeData::NumberLiteral(_)
+                    ) && (existing == &name
+                        || match (&self.store.get(*existing).data, &self.store.get(name).data) {
+                            (
+                                TypeData::StringLiteral(a) | TypeData::NumberLiteral(a),
+                                TypeData::StringLiteral(b) | TypeData::NumberLiteral(b),
+                            ) => a == b,
+                            _ => false,
+                        })
+                }) {
+                    *keys = self.get_union_type(&[*keys, key]);
+                } else {
+                    members.push((name, key, key));
                 }
             }
         }
@@ -375,9 +519,9 @@ impl<'a> Checker<'a, '_> {
         // setStructuredTypeMembers does. Types are published after substitution.
         self.anonymous_properties.insert(id, (Vec::new(), true));
         let mut properties = Vec::new();
-        let mut indexes = Vec::new();
-        for key in keys {
-            let name = match &self.store.get(key).data {
+        let mut indexes: Vec<crate::index_signatures::IndexInfo> = Vec::new();
+        for (name_type, key, first_key) in members {
+            let name = match &self.store.get(name_type).data {
                 TypeData::StringLiteral(name) | TypeData::NumberLiteral(name) => Some(name.clone()),
                 _ => None,
             };
@@ -388,7 +532,18 @@ impl<'a> Checker<'a, '_> {
                     &[info.parameter],
                     &[],
                 );
-                indexes.push(crate::index_signatures::IndexInfo { key, value });
+                if self.is_valid_index_key_type(name_type) || name_type == self.intrinsics.any {
+                    let key = if name_type == self.intrinsics.any {
+                        self.intrinsics.string
+                    } else {
+                        name_type
+                    };
+                    if let Some(existing) = indexes.iter_mut().find(|index| index.key == key) {
+                        existing.value = self.get_union_type(&[existing.value, value]);
+                    } else {
+                        indexes.push(crate::index_signatures::IndexInfo { key, value });
+                    }
+                }
                 continue;
             };
             if properties
@@ -397,12 +552,20 @@ impl<'a> Checker<'a, '_> {
             {
                 continue;
             }
-            let source_property =
-                modifiers.and_then(|source| self.get_property_of_type(source, &name));
-            let captured =
-                modifiers.and_then(|source| self.anonymous_properties.get(&source)).and_then(
-                    |(properties, _)| properties.iter().find(|property| property.name == name),
-                );
+            let source_name = match &self.store.get(first_key).data {
+                TypeData::StringLiteral(name) | TypeData::NumberLiteral(name) => Some(name.clone()),
+                _ => None,
+            };
+            let source_property = modifiers
+                .zip(source_name.as_deref())
+                .and_then(|(source, name)| self.get_property_of_type(source, name));
+            let captured = modifiers
+                .and_then(|source| self.anonymous_properties.get(&source))
+                .and_then(|(properties, _)| {
+                    properties
+                        .iter()
+                        .find(|property| Some(property.name.as_str()) == source_name.as_deref())
+                });
             let was_optional = captured.map_or_else(
                 || source_property.is_some_and(|property| self.property_is_optional(property)),
                 |property| property.optional,
@@ -413,8 +576,17 @@ impl<'a> Checker<'a, '_> {
             );
             let optional = info.optionality.unwrap_or(was_optional);
             let readonly = info.readonly.unwrap_or(was_readonly);
-            let printed_name =
-                captured.map_or_else(|| name.clone(), |property| property.printed_name.clone());
+            let printed_name = if info.name_type.is_some() {
+                if crate::objects::is_identifier_text(&name)
+                    || matches!(self.store.get(name_type).data, TypeData::NumberLiteral(_))
+                {
+                    name.clone()
+                } else {
+                    crate::printing::quote(&name)
+                }
+            } else {
+                captured.map_or_else(|| name.clone(), |property| property.printed_name.clone())
+            };
             let mut value = self.instantiate_type(
                 info.template,
                 &[(info.parameter, key)],
@@ -482,6 +654,7 @@ impl<'a> Checker<'a, '_> {
         }
         info.constraint = self.instantiate_type(info.constraint, map, parameters, names);
         info.template = self.instantiate_type(info.template, map, parameters, names);
+        info.name_type = info.name_type.map(|ty| self.instantiate_type(ty, map, parameters, names));
         info.modifiers_source = info
             .modifiers_source
             .map(|source| self.instantiate_type(source, map, parameters, names));
@@ -506,7 +679,10 @@ impl<'a> Checker<'a, '_> {
                 return sequence;
             }
         }
-        if info.constraint == self.intrinsics.error || info.template == self.intrinsics.error {
+        if info.constraint == self.intrinsics.error
+            || info.template == self.intrinsics.error
+            || info.name_type == Some(self.intrinsics.error)
+        {
             return self.intrinsics.error;
         }
         let Some(text) = self.mapped_type_text(&info) else { return self.intrinsics.error };
@@ -596,6 +772,10 @@ impl<'a> Checker<'a, '_> {
             } else {
                 union
             });
+        }
+        // An as clause remaps properties even on arrays and tuples.
+        if info.name_type.is_some() {
+            return None;
         }
         if let TypeData::Intersection { types, .. } = &self.store.get(source).data {
             let types = types.clone();

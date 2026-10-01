@@ -24,23 +24,22 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-10-01
 
-Measured on **`95f55180`**: **451,117/478,855 assertions (94.21%)**,
-**6,652/9,538 complete cases (69.74%)**. The95% target requires
-454,913 correct assertions; **3,796 remain**. Denominator and pinned oracle
-unchanged. Aligned verdicts: **474,243 total;451,117 right;3,719 gap;19,407 wrong**.
+Measured on **`CODE_CHECKPOINT`**: **451,183/478,855 assertions (94.22%)**,
+**6,656/9,538 complete cases (69.78%)**. The95% target requires
+454,913 correct assertions; **3,730 remain**. Denominator and pinned oracle
+unchanged. Aligned verdicts: **474,243 total;451,183 right;3,701 gap;19,359 wrong**.
 Binder retains the preceding verified **8,497/8,497 (100%)**;
 other suites below retain historical measurements.
 
-This unit adds **61 matching assertions**, with **zero RIGHT losses** relative
-to996bb885:31 WRONG→RIGHT,30 GAP→RIGHT,19 GAP→WRONG and37 changed wrong answers.
+This unit adds **66 matching assertions**, with **zero RIGHT losses** relative
+to95f55180:59 WRONG→RIGHT,7 GAP→RIGHT,11 GAP→WRONG and34 changed wrong answers.
 Release workspace tests,clippy with warnings denied,all **3,366 upstream anchors**,
 format,snapshot and whitespace checks pass.
-[Anonymous mapped instantiation](docs/architecture/checker-95-anonymous-mapped-instantiation.md)
-records shared sequence transformations,semantic member reconstruction,mapped
-context preservation,checked callback parameter reuse and captured property order.
-Pinned controls pass. Callback fallback contexts,key remapping,readonly propagation
-and recursive mapped boundaries remain. The95% goal remains unfinished;
-verified changes commit and push to main.
+[Mapped key remapping](docs/architecture/checker-95-mapped-key-remapping.md)
+records name substitution,property/index collisions,mapped keyof,deferred
+conditional templates and callback filtering. Pinned controls pass. Late-bound
+members,generic key reduction,recursive mappings and readonly index metadata
+remain. The95% goal remains unfinished; verified changes commit and push to main.
 
 ### Previous whole-suite measurement — historical
 
@@ -1089,6 +1088,11 @@ Per-crate, by what the conformance suites actually assert — not by what exists
 
 ### Inside the checker — what has an arm
 
+Mapped key remapping now transforms name types,merges property and index
+collisions with their distinct rules,and evaluates conditional key/value templates
+under captured outer bindings. Mapped keyof and callback filtering use the same
+metadata. See the [measured unit](docs/architecture/checker-95-mapped-key-remapping.md).
+
 Anonymous mapped instantiation now shares homomorphic sequence transformations,
 substitutes captured constraints/templates and materializes concrete member
 shapes. Mapped contexts remain generic during inference; completed callback
@@ -1148,7 +1152,7 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-### Current priorities at `95f55180` — 2026-10-01
+### Current priorities at `CODE_CHECKPOINT` — 2026-10-01
 
 Assignment property symbols now collect binary/descriptor values with readonly
 checks and CommonJS default precedence. Object-literal member docs reach the
@@ -1170,8 +1174,11 @@ semantic construction; reverse inference preserves captured source order, and
 mutable arrays compare with readonly arrays through their numeric elements.
 Anonymous mapped objects now instantiate captured templates and share sequence
 transformations with aliases. Mapped contexts stay generic during inference and
-checked callback parameter types survive later binding reads. Key remapping,
-fallback contexts,readonly propagation and recursive mapping remain (tsr-6.9).
+checked callback parameter types survive later binding reads. Key remapping now
+captures name types,merges collisions and evaluates deferred conditional templates;
+mapped keyof and callback filtering follow the same semantic metadata. Late-bound
+members,generic key reduction,fallback contexts,readonly propagation and recursive
+mapping remain (tsr-6.9).
 
 Const type-variable contexts now follow semantic parameter/union/indexed/mapped/
 variadic identities and deferred conditional constraints. Generic mapped property
@@ -3771,6 +3778,16 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+### Key remapping at `CODE_CHECKPOINT`
+
+Conditional filtering initially lost2 RIGHT callback parameter rows for a removed
+property. Applying the partial mapper to remapped contexts recovers both.
+Final:+66 matches,zero RIGHT losses,11 GAP→WRONG and34 changed wrong answers.
+Newly exposed wrong rows concern correlated unions,late-bound properties,
+isomorphic inference and recursive remapping. General conditional roots and
+readonly index metadata remain incomplete.
+[Evidence and boundaries](docs/architecture/checker-95-mapped-key-remapping.md).
 
 ### Anonymous mapped instantiation at `95f55180`
 
@@ -9545,6 +9562,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
+| 2026-10-01 | `CODE_CHECKPOINT` | **69.78%** | **6,656** | **451,183/478,855 assertions (94.22%).** +66 since95f55180,zero RIGHT losses;11 G→W,34 changed wrong. Key remapping,collisions,mapped keyof,deferred conditional templates and callback filtering. Pinned controls;release tests/clippy;3,366 anchors;checker snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-mapped-key-remapping.md).3,730 remain;95% unfinished. |
 | 2026-10-01 | `95f55180` | **69.74%** | **6,652** | **451,117/478,855 assertions (94.21%).** +61 since996bb885,zero RIGHT losses;19 G→W,37 changed wrong. Anonymous mapped instantiation,context preservation,checked parameter reuse and captured order. Pinned controls;release tests/clippy;3,366 anchors;checker snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-anonymous-mapped-instantiation.md).3,796 remain;95% unfinished. |
 | 2026-10-01 | `996bb885` | **69.70%** | **6,648** | **451,056/478,855 assertions (94.19%).** +78 since48e1e6d4,zero RIGHT losses;9 G→W,21 changed wrong. Inline mapped semantic construction,array-to-readonly relation and reverse mapped source order. Pinned controls;release tests/clippy;3,366 anchors;checker snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-inline-mapped-templates.md).3,857 remain;95% unfinished. |
 | 2026-10-01 | `48e1e6d4` | **69.66%** | **6,644** | **450,978/478,855 assertions (94.18%).** +159 since abff3df6,zero RIGHT losses;31 G→W,28 changed wrong,3 W→G. Structured intersection inference,partial object sources and intersection substitution. Pinned controls;release tests/clippy;3,366 anchors;checker snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-intersection-inference.md).3,935 remain;95% unfinished. |
