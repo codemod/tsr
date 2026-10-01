@@ -40,7 +40,7 @@ limitation of this checker's String representation.
 
 ## Verification and limits
 
-Checkpoint STRING_MAPPING_SHA:448,856/478,855 correct assertions (93.74%).
+Checkpoint a8933f8a:448,856/478,855 correct assertions (93.74%).
 Complete cases:6,577/9,538 (68.96%).
 Another6,057 correct assertions are needed for95%.
 Aligned verdicts:474,243 total;448,856 right;4,417 gap;20,970 wrong.
