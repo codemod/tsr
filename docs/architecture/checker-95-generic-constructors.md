@@ -27,7 +27,7 @@ structural thenables remain incomplete.
 
 ## Verification and limits
 
-Checkpoint CONSTRUCTOR_CODE_SHA:449,665/478,855 matching assertions (93.90%).
+Checkpoint 0b84e435:449,665/478,855 matching assertions (93.90%).
 Complete cases:6,598/9,538 (69.18%). Another5,248 assertions are needed for95%.
 Aligned verdicts:474,243 total;449,665 right;4,158 gap;20,420 wrong.
 Against3f8bade8:136 WRONG→RIGHT,36 GAP→RIGHT,zero RIGHT losses,
