@@ -13,6 +13,12 @@ use crate::{
     types::{TypeData, TypeId},
 };
 
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct TypeParameterConstraintKey {
+    parameter: TypeId,
+    bindings: Vec<(SymbolId, TypeId)>,
+}
+
 /// Which symbol table a property lookup should read, decided by the type's
 /// shape before any `&mut self` call borrows the store back.
 ///
@@ -884,6 +890,20 @@ impl Checker<'_, '_> {
             return None;
         }
         let symbol = *self.type_parameter_symbols.get(&id)?;
+        // getConstraintOfTypeParameter keeps a resolved constraint identity.
+        // This port evaluates nodes under alias binding frames, so the cache
+        // also retains the effective mapper rather than sharing substitutions.
+        let bindings: rustc_hash::FxHashMap<_, _> = self
+            .alias_evaluation_bindings
+            .iter()
+            .flat_map(|frame| frame.iter().map(|(&symbol, &ty)| (symbol, ty)))
+            .collect();
+        let mut bindings: Vec<_> = bindings.into_iter().collect();
+        bindings.sort_unstable_by_key(|&(symbol, _)| symbol);
+        let key = TypeParameterConstraintKey { parameter: id, bindings };
+        if let Some(&constraint) = self.type_parameter_constraint_cache.get(&key) {
+            return constraint;
+        }
         // getConstraintDeclaration searches all merged declarations; an infer
         // parameter can have its constraint on a later occurrence.
         let constraint_node =
@@ -893,10 +913,13 @@ impl Checker<'_, '_> {
                     _ => None,
                 }
             })?;
+        self.type_parameter_constraint_cache.insert(key.clone(), None);
         let constraint = self.get_type_from_type_node(constraint_node);
         // A constraint that itself gaps leaves the parameter as it was: a gap
         // beats reading members off `errorType`.
-        (constraint != self.intrinsics.error).then_some(constraint)
+        let constraint = (constraint != self.intrinsics.error).then_some(constraint);
+        self.type_parameter_constraint_cache.insert(key, constraint);
+        constraint
     }
 
     /// getInferredTypeParameterConstraint (checker.go:17114). Conditional
@@ -1095,6 +1118,7 @@ impl Checker<'_, '_> {
     /// (`crate::relater`'s `properties_related_to`) meaning what it did.
     #[must_use]
     pub fn get_type_of_property_of_type(&mut self, id: TypeId, name: &str) -> Option<TypeId> {
+        self.resolve_mapped_type_members(id);
         if let Some(property) = self
             .anonymous_properties
             .get(&id)

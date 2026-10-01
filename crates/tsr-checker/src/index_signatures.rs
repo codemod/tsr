@@ -88,6 +88,7 @@ impl<'a> Checker<'a, '_> {
     /// answer, which is why the distinction has to be carried here rather than
     /// discovered later.
     pub(crate) fn get_index_infos_of_type(&mut self, id: TypeId) -> Option<Vec<IndexInfo>> {
+        self.resolve_mapped_type_members(id);
         // §262. An ENUM's object type is `TypeData::Anonymous`, not `Named`, so
         // it returned empty here before the collector was ever asked — proven
         // by probe: `index_infos_of_symbol` is invoked ZERO times on

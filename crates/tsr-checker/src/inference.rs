@@ -4671,6 +4671,13 @@ impl Checker<'_, '_> {
         ) {
             return false;
         }
+        if let Some(&operand) = self.deferred_keyof_operands.get(&id) {
+            return self.mentions_type_parameter_inner(operand, parameters, names, visited);
+        }
+        if let Some(&(object, index, _)) = self.deferred_indexed_access_types.get(&id) {
+            return self.mentions_type_parameter_inner(object, parameters, names, visited)
+                || self.mentions_type_parameter_inner(index, parameters, names, visited);
+        }
         if let Some((_, arguments)) = self.type_reference_targets.get(&id) {
             return arguments
                 .iter()

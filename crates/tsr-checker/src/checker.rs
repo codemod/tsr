@@ -853,6 +853,9 @@ pub struct Checker<'a, 'n> {
     /// True/false types of deferred mapped templates (inferToConditionalType).
     pub(crate) mapped_conditional_branches: FxHashMap<TypeId, (TypeId, TypeId)>,
     pub(crate) mapped_alias_in_progress: rustc_hash::FxHashSet<SymbolId>,
+    pub(crate) mapped_members_in_progress: rustc_hash::FxHashSet<TypeId>,
+    pub(crate) type_parameter_constraint_cache:
+        FxHashMap<crate::members::TypeParameterConstraintKey, Option<TypeId>>,
     pub(crate) reverse_mapped_cache: FxHashMap<(TypeId, TypeId), Option<TypeId>>,
     pub(crate) reverse_mapped_member_cache: FxHashMap<(TypeId, TypeId), TypeId>,
     pub(crate) tuple_element_lists: FxHashMap<TypeId, (Vec<TypeId>, bool)>,
@@ -1231,6 +1234,8 @@ impl<'a, 'n> Checker<'a, 'n> {
             mapped_template_depth: 0,
             mapped_conditional_branches: FxHashMap::default(),
             mapped_alias_in_progress: rustc_hash::FxHashSet::default(),
+            mapped_members_in_progress: rustc_hash::FxHashSet::default(),
+            type_parameter_constraint_cache: FxHashMap::default(),
             reverse_mapped_cache: FxHashMap::default(),
             reverse_mapped_member_cache: FxHashMap::default(),
             tuple_element_lists: FxHashMap::default(),

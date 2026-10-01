@@ -376,20 +376,17 @@ fn a_homomorphic_identity_mapped_type_reads_the_sources_members() {
     );
 }
 
-/// §952's falsifier legs — the two shapes that must keep declining, because
-/// answering from the source's members would be a confident WRONG answer rather
-/// than a missing one. The same line `record_index_info` draws for a
-/// literal-union `Record` key (§785).
+/// Per-key template instantiation retires §952's transforming-map refusal.
+/// Remapping keys still requires its own name-template mechanism.
 #[test]
-fn a_mapped_type_that_is_not_the_identity_still_declines() {
-    // A TRANSFORMING template needs the template instantiated per key, which
-    // this arm deliberately does not build. Answering `string` here where
-    // upstream answers `Box<string>` would be worse than gapping.
+fn transformed_mapped_members_resolve_and_remapped_keys_still_decline() {
+    // The per-key template substitution now preserves the transformation,
+    // matching pinned tsgo's Box<string> rather than the source's string.
     assert_eq!(
         type_of_last_expression(
             "type Box<V> = { v: V };\ntype B<T> = { [K in keyof T]: Box<T[K]> };\ndeclare let b: B<{ x: string }>;\nb.x;"
         ),
-        "error"
+        "Box<string>"
     );
     // A key REMAPPING (`as`) changes the NAMES, which is exactly what reusing
     // the source's member owner cannot express.
@@ -407,15 +404,11 @@ fn a_mapped_type_that_is_not_the_identity_still_declines() {
 #[test]
 fn a_literal_index_naming_a_property_resolves() {
     assert_eq!(
-        type_of_last_expression(
-            "type O = { x: string };\ndeclare let v: O[\"x\"];\nv;"
-        ),
+        type_of_last_expression("type O = { x: string };\ndeclare let v: O[\"x\"];\nv;"),
         "string"
     );
     assert_eq!(
-        type_of_last_expression(
-            "interface I { a: boolean }\ndeclare let v: I[\"a\"];\nv;"
-        ),
+        type_of_last_expression("interface I { a: boolean }\ndeclare let v: I[\"a\"];\nv;"),
         "boolean"
     );
     // §952.2 through §952's mapped members: the modifier is applied by
@@ -436,10 +429,7 @@ fn a_literal_index_naming_a_property_resolves() {
     // `normalise_number` is NOT the numeric test — it returns its input
     // unchanged for text it cannot read, so a first draft using it excluded
     // every ordinary property name and made this whole arm look unreachable.
-    assert_eq!(
-        type_of_last_expression("declare let v: [string, number][0];\nv;"),
-        "string"
-    );
+    assert_eq!(type_of_last_expression("declare let v: [string, number][0];\nv;"), "string");
 }
 
 /// §952.1: `keyof` over a homomorphic identity mapped type is the SOURCE's key
