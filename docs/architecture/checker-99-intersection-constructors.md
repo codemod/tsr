@@ -102,19 +102,41 @@ successful control. Sharing the target directory let a subsequent main test reus
 the scratch build, so the real checker was forced to rebuild before final checks.
 The committed-source measurement uses an isolated worktree.
 
-## Verification
+## Verified checkpoint
 
-The fifth full candidate records 453,951 RIGHT, 3,055 GAP and 17,237 WRONG
-among 474,243 aligned assertions: +319 versus 82ca5f80, with 251 WRONG-to-RIGHT,
-68 GAP-to-RIGHT and zero RIGHT losses. Nineteen GAP-to-WRONG, three WRONG-to-GAP
-and 52 changed wrong answers remain. This is 453,951/478,855 assertions (94.80%);
-20,116 additional matches are needed for the 99% target.
+At e8c208fc, an isolated detached worktree with a separate build directory records
+453,951 RIGHT, 3,055 GAP and 17,237 WRONG among 474,243 aligned assertions.
+That is +319 versus 82ca5f80: 251 WRONG-to-RIGHT, 68 GAP-to-RIGHT and zero
+RIGHT losses. Nineteen GAP-to-WRONG, three WRONG-to-GAP and 52 changed wrong
+answers remain visible.
 
-Final committed-source coverage and validation are pending. The previously
-verified checkpoint remains 82ca5f80 until the evidence commit records the new
-counts. Intermediate evidence is under /tmp/tsr-99-intersection-constructors-*.
+Coverage is 453,951/478,855 assertions (94.80%) and 6,791/9,538 fully matching
+cases (71.20%), an increase of 25 complete cases. The 99% goal still requires
+20,116 correct assertions. The corpus comparison finishes in 27.63 seconds;
+the checker snapshot run finishes in 32.06 seconds. Its verdict bytes match the
+fifth candidate exactly.
 
-Release workspace tests pass (193 result blocks), and all seven focused tests
-pass after rebuilding the real checker following mutation. Clippy with warnings
-denied, formatting and whitespace checks pass. Upstream anchors pass. Final
-committed-source corpus and snapshot verification follow in the evidence commit.
+Release workspace tests pass with 193 result blocks. All seven focused tests
+pass again in the isolated committed checkout. Clippy with warnings denied,
+3,340 upstream anchors, formatting and whitespace checks pass. Four existing
+test files replace obsolete refusals or an incorrect ordinary-intersection
+expectation, each checked against native results.
+
+Evidence:
+- /tmp/tsr-99-intersection-constructors-verified.tsv
+- /tmp/tsr-99-intersection-verified-verdict.log
+- /tmp/tsr-99-intersection-constructors-verified-transitions.txt
+- /tmp/tsr-99-intersection-coverage.log
+- /tmp/tsr-99-intersection-sourcehash.txt
+- /tmp/tsr-99-intersection-mutation-return.log
+- /tmp/compound-engineering-501/ce-code-review/intersection-constructors/review.json
+
+Checker sources plus trace_case SHA-256:
+7acfc91c96635d54781ee6b5cc5667a3f711d99d4455d19dc2bb3b074e3c8bce.
+The committed worktree and main checkout hashes agree.
+
+The depend instrument exits 0 but its controls remain stale: C1 reports 553
+nongapping roots, C2 reports 245 cycles and zero depth-cap hits, and C3 balances
+3,975 walked gap lines. C4 still quotes a historical checkpoint. These are not
+coverage evidence; tsr-6.29 remains open. Remaining checker work is tracked in
+tsr-6.28 and tsr-6.30. The goal remains active.

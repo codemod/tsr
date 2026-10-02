@@ -24,22 +24,22 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-10-01
 
-Measured on **`82ca5f80`**: **453,632/478,855 assertions (94.73%)**,
-**6,766/9,538 complete cases (70.94%)**. The 99% target requires
-474,067 correct assertions; **20,435 remain**. Denominator and pinned oracle
-unchanged. Aligned verdicts: **474,243 total; 453,632 right; 3,139 gap; 17,472 wrong**.
+Measured on **`e8c208fc`** in an isolated checkout: **453,951/478,855 assertions
+(94.80%)**, **6,791/9,538 complete cases (71.20%)**. The 99% target requires
+474,067 correct assertions; **20,116 remain**. Denominator and pinned oracle
+unchanged. Aligned verdicts: **474,243 total; 453,951 right; 3,055 gap; 17,237 wrong**.
 Binder retains its verified **8,497/8,497 (100%)** result at aab165d8;
 other suites below retain historical measurements.
 
-This unit adds **295 matching assertions**, with **zero RIGHT losses** relative
-to 0d806f93: 229 WRONG→RIGHT and 66 GAP→RIGHT. There are 19 GAP→WRONG and
-43 changed wrong answers. [Inherited signatures](docs/architecture/checker-99-inherited-signatures.md)
-records base/receiver mapper composition, defaulted and qualified heritage,
-cycle detection, persistent nongeneric callback contexts, never-discriminant
-signature reduction and instantiated super bases. Seven focused tests, two updated
-former-refusal tests, a scratch mutation control, native/pinned controls, release
-workspace tests, clippy, 3,344 anchors and the refreshed checker snapshot validate
-this checkpoint. The 99% goal remains unfinished; verified changes push to main.
+This unit adds **319 matching assertions**, with **zero RIGHT losses** relative
+to 82ca5f80: 251 WRONG→RIGHT and 68 GAP→RIGHT. There are 19 GAP→WRONG,
+three WRONG→GAP and 52 changed wrong answers. [Constructor resolution](docs/architecture/checker-99-intersection-constructors.md)
+records native mixin intersections, apparent construct signatures, candidate
+ordering, late-bound property inference, tuple parameter traversal and structural
+inference pair memoization. Seven focused tests, four updated test files, a
+scratch mutation, native controls, release workspace tests, clippy, 3,340 anchors
+and the refreshed checker snapshot validate this checkpoint. The goal remains
+unfinished; verified changes push to main.
 
 ### Previous whole-suite measurement — historical
 
@@ -1080,7 +1080,7 @@ Per-crate, by what the conformance suites actually assert — not by what exists
 | module resolution | **done** | 95/95, `file_loader` 96/96, [ADR-0041](docs/adr/0041-the-checker-asks-its-program-for-a-module.md) |
 | printer | **done** | 100% round-trip at `8dcdc71` |
 | declaration emit | **partial** | `dts_shape` 85.32%, `dts_emit` 89.04% at `8dcdc71` |
-| **checker** | **94.73% of assertions** | 453,632/478,855 at `82ca5f80`; §4 and §5 |
+| **checker** | **94.80% of assertions** | 453,951/478,855 at `e8c208fc`; §4 and §5 |
 | transformers | **not started** | |
 | **compiler driver / CLI** | **seam only** | three pieces, no binary. `tsr_vfs::OsFileSystem` (the real disk, `internal/vfs/osvfs`), `Checker::apply_compiler_options` ([ADR-0042](docs/adr/0042-checker-options-come-from-compiler-options.md)), and `tsr_diagnostics::format` (the plain `a.ts(1,1): error TS2304:` line and the `Found N errors` summary, byte-exact). **No command-line parser, no `tsc` binary, no emit, no pretty output** — see §4 |
 | diagnostics | **started — 6.89%** | the check traversal (ADR-0040 (1) and (2)) plus three rules; §1 and `docs/architecture/checker-notes-diag2.md` |
@@ -1228,7 +1228,19 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-### Current priorities at `82ca5f80` — 2026-10-01
+### Current priorities at `e8c208fc` — 2026-10-01
+
+Continue toward 99% coverage: 20,116 matching assertions remain. Constructor
+intersections now distinguish mixins from ordinary overloads, and supported new
+expressions share native candidate ordering and inference. Late-bound properties
+and tuple arguments participate in structural inference with pair memoization.
+Constructor accessibility, expression-valued base members, generic mixin static
+intersections, captured outer parameters, full CheckMode state and expanding
+recursion identities remain in tsr-6.28. Iterable tuple contexts, mapped/conditional
+inference, JSDoc augments and namespace serialization remain in tsr-6.30.
+The depend C1/C4 controls remain stale (tsr-6.29).
+
+### Previous priorities at `82ca5f80` — 2026-10-01
 
 Continue toward 99% coverage: 20,435 matching assertions remain. Inherited
 call/construct signatures, defaults, qualified names and nongeneric callback
@@ -3958,6 +3970,22 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+### Constructor intersections at `e8c208fc`
+
+The verified unit gains 319 matches with zero RIGHT losses; 19 GAP→WRONG,
+three WRONG→GAP and 52 changed wrong answers remain visible. The ordering
+candidate exposed 19 RIGHT losses: six missing declaration identities and
+thirteen iterable-inference failures. Native identity grouping, late-bound
+members and tuple parameter traversal recovered all of them. The first full
+semantic-member run was stopped without a verdict after several minutes;
+invokeOnce's pair memo made the committed run finish in 27.63 seconds.
+Constructor accessibility, complete error recovery, generic CheckMode and
+expanding recursion identities remain incomplete. A classification mutation
+survived and is not counted as a successful control; a direct return mutation
+failed as expected, and the real source was rebuilt after shared build artifacts
+were detected. See [evidence and limits](docs/architecture/checker-99-intersection-constructors.md).
+
 
 ### Inherited signatures at `82ca5f80`
 
@@ -9910,6 +9938,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
+| 2026-10-01 | `e8c208fc` | **71.20%** | **6,791** | **453,951/478,855 assertions (94.80%).** +319 since 82ca5f80, zero RIGHT losses; 251W→R, 68G→R, 19G→W, 3W→G, 52 changed wrong. Native constructor intersections, ordering and shared resolution; late-bound and tuple inference with pair memoization. Seven focused tests, four updated test files, native/mutation controls; release workspace193 blocks, clippy,3,340 anchors; isolated committed-source measurement and snapshot. [Evidence](docs/architecture/checker-99-intersection-constructors.md). 20,116 remain to 99%. |
 | 2026-10-01 | `82ca5f80` | **70.94%** | **6,766** | **453,632/478,855 assertions (94.73%).** +295 since 0d806f93, zero RIGHT losses; 229W→R, 66G→R, 19G→W, 43 changed wrong. Instantiated inherited signatures, defaults/qualified names, callback context retention, never intersections and super bases. Seven focused tests, two updated refusal tests, mutation/native controls; release tests/clippy; 3,344 anchors; snapshot refreshed. [Evidence](docs/architecture/checker-99-inherited-signatures.md). 20,435 remain to 99%. |
 | 2026-10-01 | `0d806f93` | **70.66%** | **6,740** | **453,337/478,855 assertions (94.67%).** +462 since ced80f1f, zero RIGHT losses; 405W→R, 57G→R, 16G→W, 27 changed wrong. Union signatures, predicates, array fallback, contextual intersections, abstract component flags and explicit receivers. Six focused tests plus seven binding tests; native/pinned controls; release tests/clippy; 3,348 anchors; snapshot refreshed. [Evidence](docs/architecture/checker-99-union-signatures.md). 20,730 remain to 99%. |
 | 2026-10-01 | `ced80f1f` | **70.49%** | **6,723** | **452,875/478,855 assertions (94.57%).** +113 since 87402686, zero RIGHT losses; 6G→W, 11 changed wrong. Tuple/rest binding, inherited indexes, union members, readonly metadata and callback identity. Seven focused tests; native/pinned controls; release tests/clippy; anchors; snapshot refreshed. [Evidence](docs/architecture/checker-99-destructuring.md). 21,192 remain to 99%. |
