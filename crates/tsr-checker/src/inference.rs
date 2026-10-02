@@ -1693,24 +1693,11 @@ impl Checker<'_, '_> {
                 Some(inferred) if inferred != error => map.push((type_parameter, inferred)),
                 Some(_) => return decline,
                 None => {
-                    // `fillMissingTypeArguments` (`checker.go:19458`), reduced
-                    // to the fallback leg of `getInferredType`
-                    // (`inference.go:1406`): with **no candidates**, an
-                    // uninferred type parameter takes its default, instantiated
-                    // with the substitutions resolved so far — `then`'s
-                    // `TResult2 = never` is the head case, reached by
-                    // `p.then(f)` and `p.catch()`.
-                    //
-                    // The guard is what keeps this from guessing: the default
-                    // applies only when **no supplied argument could have been
-                    // an inference source** for this parameter — no supplied
-                    // bare position, and no supplied argument whose parameter's
-                    // type *mentions* it. Upstream would run `inferFromTypes`
-                    // structurally over such an argument (unported), so
-                    // substituting the default there would answer
-                    // `Promise<boolean>` where upstream infers
-                    // `Promise<number>` — a confident wrong line. Those calls
-                    // stay gaps.
+                    // Structural inference is still incomplete. Keep its existing
+                    // refusal when a supplied source could contain a candidate;
+                    // absence from our collector does not prove native absence.
+                    // Candidate-free parameters admitted here are resolved below
+                    // with getInferredType's default and constraint mapper.
                     let name = names[position];
                     let structural_source_supplied =
                         signature.parameters.iter().enumerate().any(|(index, parameter)| {
@@ -1751,46 +1738,22 @@ impl Checker<'_, '_> {
                     {
                         return decline;
                     }
-                    let Some(default) = signature
-                        .type_parameters
-                        .get(position)
-                        .and_then(|parameter| parameter.default)
-                    else {
-                        // `getInferredType`'s final fallback
-                        // (`inference.go:1406`): no candidates, no default,
-                        // no possible source — `unknownType`
-                        // (`checker-notes-narrow.md` §36). §403: `anyType`
-                        // at a JS call site, the same site-file split §389
-                        // measured (`plainJSGrammarErrors3`'s
-                        // `new Promise(undefined) : any`).
-                        let fallback = if call.is_some_and(|id| self.in_js_file(id)) {
-                            self.intrinsics.any
-                        } else {
-                            self.intrinsics.unknown
-                        };
-                        let fallback = if skip_context_sensitive
-                            && let Some(constraint) = signature.type_parameters[position].constraint
-                        {
-                            self.instantiate_type(constraint, &map, &parameters, &names)
-                        } else {
-                            fallback
-                        };
-                        if fallback == error {
-                            return decline;
-                        }
-                        map.push((type_parameter, fallback));
-                        continue;
-                    };
-                    // A default may reference an earlier parameter
-                    // (`T = U`), which is why it is instantiated with the
-                    // map built so far — upstream fills left to right for
-                    // the same reason.
-                    let image = self.instantiate_type(default, &map, &parameters, &names);
-                    if image == error {
-                        return decline;
-                    }
-                    map.push((type_parameter, image));
                 }
+            }
+        }
+        // Resolve candidate-free parameters through the non-fixing mapper only
+        // after every collected candidate is available to dependent constraints.
+        let any_default = call.is_some_and(|id| self.in_js_file(id));
+        for position in 0..parameters.len() {
+            if self.resolve_missing_inference(
+                signature,
+                position,
+                &parameters,
+                &mut map,
+                any_default,
+            ) == error
+            {
+                return decline;
             }
         }
         // inferSignatureInstantiationForOverloadFailure uses a fresh inference
@@ -1867,6 +1830,84 @@ impl Checker<'_, '_> {
         }
         let returned = self.instantiate_type(returned, &map, &parameters, &names);
         self.propagate_return_type_parameters(returned, &inferred_type_parameters)
+    }
+
+    /// The candidate-free leg of `getInferredType` and `newBackreferenceMapper`
+    /// (`internal/checker/inference.go`, `internal/checker/mapper.go`). The map
+    /// also stores provisional results so recursive constraints see the native
+    /// unknown/any fallback rather than re-entering inference indefinitely.
+    fn resolve_missing_inference(
+        &mut self,
+        signature: &Signature,
+        position: usize,
+        parameters: &[TypeId],
+        map: &mut Vec<(TypeId, TypeId)>,
+        any_default: bool,
+    ) -> TypeId {
+        use crate::relater::{Relation, Ternary};
+        let parameter = parameters[position];
+        if let Some(&(_, inferred)) = map.iter().find(|&&(source, _)| source == parameter) {
+            return inferred;
+        }
+        let fallback = if any_default { self.intrinsics.any } else { self.intrinsics.unknown };
+        let slot = map.len();
+        map.push((parameter, fallback));
+        let names: Vec<_> = signature.type_parameters.iter().map(|p| p.name.as_str()).collect();
+        let declaration = &signature.type_parameters[position];
+        let mut inferred = fallback;
+        if let Some(default) = declaration.default {
+            // Defaults resolve earlier parameters through the non-fixing mapper;
+            // self/forward references always map to unknown, even in JS files.
+            let mut default_map = Vec::with_capacity(parameters.len());
+            for (index, &source) in parameters.iter().enumerate() {
+                let image = if index < position
+                    && self.mentions_type_parameter(default, &[source], &[names[index]])
+                {
+                    self.resolve_missing_inference(signature, index, parameters, map, any_default)
+                } else {
+                    self.intrinsics.unknown
+                };
+                if image == self.intrinsics.error {
+                    map[slot].1 = image;
+                    return image;
+                }
+                default_map.push((source, image));
+            }
+            inferred = self.instantiate_type(default, &default_map, parameters, &names);
+            map[slot].1 = inferred;
+            if inferred == self.intrinsics.error {
+                return inferred;
+            }
+        }
+        if let Some(constraint) = declaration.constraint {
+            for (index, &source) in parameters.iter().enumerate() {
+                if self.mentions_type_parameter(constraint, &[source], &[names[index]])
+                    && self.resolve_missing_inference(
+                        signature,
+                        index,
+                        parameters,
+                        map,
+                        any_default,
+                    ) == self.intrinsics.error
+                {
+                    map[slot].1 = self.intrinsics.error;
+                    return self.intrinsics.error;
+                }
+            }
+            let constraint = self.instantiate_type(constraint, map, parameters, &names);
+            if constraint == self.intrinsics.error {
+                map[slot].1 = constraint;
+                return constraint;
+            }
+            if declaration.default.is_none()
+                || self.relate_ternary(inferred, constraint, Relation::Assignable)
+                    == Ternary::NotRelated
+            {
+                inferred = constraint;
+            }
+        }
+        map[slot].1 = inferred;
+        inferred
     }
 
     /// inferFromSignatures falls back to ordinary return types when predicates

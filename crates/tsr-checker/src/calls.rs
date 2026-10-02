@@ -2599,6 +2599,10 @@ impl Checker<'_, '_> {
                 return OverloadPass::Undecidable;
             }
             // isSignatureApplicable checks the call receiver before arguments.
+            // A definite argument mismatch still rejects a candidate when the
+            // receiver comparison is unsupported. Unknown must prevent choosing
+            // the candidate, but must not hide an independently known failure.
+            let mut receiver_relation_unknown = false;
             if let Some(parameter) = &concrete.this_parameter
                 && parameter.r#type != self.intrinsics.void
             {
@@ -2606,7 +2610,7 @@ impl Checker<'_, '_> {
                 let receiver = self.this_argument_type_of_call(Some(call));
                 match self.relate_ternary(receiver, parameter.r#type, relation) {
                     Ternary::NotRelated => continue,
-                    Ternary::Unknown => return OverloadPass::Undecidable,
+                    Ternary::Unknown => receiver_relation_unknown = true,
                     Ternary::Related => {}
                 }
             }
@@ -2690,7 +2694,8 @@ impl Checker<'_, '_> {
                     return OverloadPass::Undecidable;
                 }
             }
-            let mut verdict = Ternary::Related;
+            let mut verdict =
+                if receiver_relation_unknown { Ternary::Unknown } else { Ternary::Related };
             for (&argument, &parameter) in checked_arguments.iter().zip(&parameter_types) {
                 // Non-strict `undefined`/`null` inhabit every domain — the
                 // same skip the ladder's loops carry.
