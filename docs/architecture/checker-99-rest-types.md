@@ -59,8 +59,11 @@ Fixing (1) alone measured 8 RIGHT→WRONG: the private names had been making
 Iteration against `7332f284` (my own rest port, before rebasing onto
 tsr-6.25) took the private-key fix from 10 RIGHT losses to 0 by adding the
 `Omit` read, and the `?` fix converted `objectRest:116`. After rebasing onto
-tsr-6.25's version the numbers recorded in `STATUS.md` §1/§7 are the landing
-gate, measured against a separate worktree at the rebased-onto commit.
+tsr-6.25's version, the full run against a separate worktree at `7184f54a`
+(457,321 RIGHT) reads 457,356: +35 (32 W→R in
+`destructuringUnspreadableIntoRest`, one each in `objectRest` and
+`mappedTypeConstraints`, one G→R in `mappedTypeConstraints`), zero RIGHT
+losses, zero GAP→WRONG and no changed WRONG rows.
 
 ## Rejected and remaining
 

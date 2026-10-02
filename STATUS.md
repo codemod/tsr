@@ -24,26 +24,29 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-10-02
 
-Measured on **`8ed14e53`** (rebased on 5206b571): **457,321/478,855 assertions
-(95.50%)**, **6,999/9,538 complete cases (73.38%)**. The 99% target requires
-474,067 correct assertions; **16,746 remain**. Denominator and pinned oracle
-unchanged. Aligned verdicts: **474,243 total; 457,321 right; 2,572 gap; 14,350
-wrong**. Binder retains its verified **8,497/8,497 (100%)** result at aab165d8;
-other suites below retain historical measurements.
+Measured on **`1421c2f2`** (tsr-8 rest keys and `Omit` reads, rebased onto
+`7184f54a`): **457,356/478,855 assertions (95.51%)**, **7,000/9,538 complete
+cases (73.39%)**. The 99% target requires 474,067 correct assertions;
+**16,711 remain**. Denominator and pinned oracle unchanged. Aligned verdicts:
+**474,243 total; 457,356 right; 2,571 gap; 14,316 wrong**. Binder retains its
+verified **8,497/8,497 (100%)** result at aab165d8; other suites below retain
+historical measurements.
 
-This unit (tsr-6.38, shadowed type-parameter names) adds **55 matching
-assertions** (all WRONG-to-RIGHT) and **one complete case** with **zero RIGHT
-losses and zero GAP transitions** relative to a full baseline measured at
-5206b571 (457,266; 6998 cases as recorded at f102831c); 16 already-WRONG rows
-change and stay wrong. [Shadowed names](docs/architecture/checker-99-shadowed-names.md)
-records generic qualified references keyed by argument identity
-(createTypeReferenceEx), site allocation of declared type-parameter names
-(typeParameterToName), and the two prerequisites the measurement exposed:
-concise arrow bodies read the written return annotation, and an alias of a
-conditional alias stays generic. Release workspace tests (219 result blocks),
-clippy, formatting, 3,346 anchors and section citations pass; issue-ids
-still reports the historical registry gap (tsr-10). The previous checkpoint's
-unit record remains in §7. The 99% goal and tsr-8 remain active.
+This unit (tsr-8) adds **35 matching assertions (34 W→R, 1 G→R) and
+1 complete case(s)** relative to a full baseline measured in a separate
+worktree at `7184f54a` (457,321; 6,999 cases), with **zero RIGHT losses,
+zero GAP-to-WRONG and no changed WRONG rows**.
+[Rest keys and Omit reads](docs/architecture/checker-99-rest-types.md)
+records non-public members leaving generic rest omit keys, `Omit<T, K>` reads
+following keyof publicity with deferred `T[P]`, and `?`-only property
+optionality; it converged with tsr-6.25's getRestType port, which landed first.
+`destructuringUnspreadableIntoRest` is fully RIGHT. One added regression; all
+218 release workspace result blocks passed on the identical unit at the
+`fa90d3a4` rebase; clippy, formatting, anchors and the section gate pass here;
+only checker_types moves (other snapshots were byte-identical to a baseline
+coverage run at `6aeac608`). The issue-id gate still reports the historical
+registry gap (tsr-10). The previous checkpoint (`8ed14e53`) is recorded in §7.
+The 99% goal and tsr-8 remain active.
 
 ### Previous whole-suite measurement — historical
 
@@ -1269,6 +1272,16 @@ recursive conditionals and mapped-template conditionals. circularConstructorWith
 four GAP-to-WRONG rows need lazy class member types during an alias's own
 resolution. Mapped-alias references still enumerate only literal keys;
 reporting them unenumerable measured 22 RIGHT losses.
+
+### tsr-8 note at `1421c2f2` — 2026-10-02
+
+Rest omit keys and `Omit<T, K>` reads now follow keyof publicity (+35, zero
+RIGHT losses). Remaining tsr-8 spread work: multi-operand union distribution
+and native property ordering in getSpreadType, generic rest/`Omit` sources
+beyond bare type parameters (isGenericObjectType/isGenericIndexType), TS2700
+reporting, `for-of49`'s unnormalized `[string, ...[boolean]]` tuple-target
+spelling, and the residual spreadUnion2/spreadObjectOrFalsy/
+spreadExpressionContextualTypeWithNamespace rows.
 
 ### Current priorities at `8ed14e53` — 2026-10-02
 
@@ -11771,3 +11784,5 @@ that were true of a different population than the one they were quoted about.
 | 2026-10-02 | `211366eb` | **95.47%** | **6,994/9,538** | **Generic construct-signature argument contexts (tsr-6.21): +45 assertions (41 W-to-R, 4 G-to-R: 34 destructuringParameterProperties3, 8 inferenceContextualReturnTypeUnion3, 3 contextualTypeIterableUnions), zero RIGHT losses, zero G-to-W; two changed already-WRONG rows** against a full baseline at fa90d3a4: 457,162/478,855. The NewExpression contextual arm now shares the call road's inferential-context read and single-generic-candidate fixing helper. [Record](docs/architecture/checker-99-construct-argument-contexts.md). |
 
 | 2026-10-02 | `8ed14e53` | **95.50%** | **6,999/9,538** | **Shadowed type-parameter names (tsr-6.38): +55 assertions (55 W-to-R), +1 complete case, zero RIGHT losses, zero GAP transitions; 16 changed already-WRONG rows** against a full baseline at 5206b571: 457,321/478,855. Generic qualified references are cached by argument ids (createTypeReferenceEx), so a class `R` and an overload's `R` no longer share `Promise.Thenable<R>` (46 bluebirdStaticThis rows); declared type parameters take their site name (typeParameterToName). The site rule alone lost two RIGHT rows (contextualSignatureInstantiation2) to a concise-body contextual-typing defect; fixing that lost one (conditionalTypes1) to alias-of-conditional genericity; both fixed. [Record](docs/architecture/checker-99-shadowed-names.md). |
+
+| 2026-10-02 | `1421c2f2` | **95.51%** | **7,000/9,538** | **Rest keys and Omit reads (tsr-8): +35 assertions (34 W-to-R, 1 G-to-R), +1 complete case(s) vs `7184f54a`, zero RIGHT losses, GAP-to-WRONG or changed WRONG rows.** 457,356/478,855, 2,571 aligned gaps, 14,316 wrong. Generic rest omit keys skip non-public members; `Omit<T, K>` reads follow keyof publicity and defer `T[P]`; `?`-only optionality. Converged with tsr-6.25's getRestType port (landed first). One new destructure test; 218 release blocks (at the fa90d3a4 rebase), clippy, anchors, sections. [Evidence](docs/architecture/checker-99-rest-types.md). 16,711 matches remain to 99%. |
