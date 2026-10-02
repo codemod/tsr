@@ -128,3 +128,28 @@ candidate. Source SHA-256 (checker sources plus trace_case):
 1187c9e9586b537f70a4191383dd984280a66922bff3f41aa84f4c0adbfa27cd.
 Logs: /tmp/tsr-99-enum-workspace4.log, /tmp/tsr-99-enum-clippy4.log,
 /tmp/tsr-99-enum-anchors.log and /tmp/tsr-99-enum-final-delta.txt.
+
+Committed verification at fd9b42be0e6f232f6907484bff4c3de7869b9861 used the
+isolated /tmp/tsr-99-enum-verify checkout. Its full verdict is byte-identical to
+the frozen candidate, and its source hash matches. The checker snapshot records
+6,895/9,538 complete cases (72.29%), 24 more than the previous checkpoint.
+All 207 release workspace result blocks, clippy, formatting and 3,331 anchors
+pass there. Fresh depend: 505 non-gapping roots, 210 cycles, zero depth-cap hits
+and 3,626 walked gaps. C3 balances; C1/C4 remain stale (tsr-6.29) and are not
+coverage evidence. The snapshot is copied from this committed checkout.
+
+Committed evidence: /tmp/tsr-99-enum-verified.tsv and
+/tmp/tsr-99-enum-verified-{coverage,workspace,clippy,anchors,depend}.log.
+
+Five isolated mutations fail their intended assertions, with successful compilation:
+removing native literal flags fails words; removing property index candidates
+fails numericEnum; restoring semantic overload specialization fails pickedA;
+allowing premature inferred annotation contexts fails assign; repeating the
+final check for non-generic calls fails the loop's lastId assignment. Each source
+is restored in a finally block. The final restored hash matches the committed
+source hash byte-for-byte.
+
+Mutation logs: /tmp/tsr-99-enum-mutation-{flags,inference,specialized,context,loop}.log.
+Review receipt: /tmp/compound-engineering-501/ce-code-review/enum-literals/review.json.
+
+All six focused tests pass after restoration: /tmp/tsr-99-enum-restored-tests.log.
