@@ -187,9 +187,9 @@ pub struct SyntacticResolver<'a> {
 impl<'a> SyntacticResolver<'a> {
     /// Build the resolver for one file.
     #[must_use]
-    pub fn new(file: &tsr_ast::SourceFile<'a>, strict_null_checks: bool) -> Self {
+    pub fn new(file: &tsr_ast::SourceFile<'a>, strict_null_checks: bool, commonjs: bool) -> Self {
         Self {
-            visible: tsr_dts::visibility::visible_declarations(file),
+            visible: tsr_dts::visibility::visible_declarations(file, commonjs),
             strict_null_checks,
             scope: type_builder::FileScope::of(file),
             top_level: file.statements.iter().filter_map(Statement::node_id).collect(),

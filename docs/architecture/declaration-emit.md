@@ -3,8 +3,8 @@
 **Status:** slice 4 of Phase 3.5 (`bd tsr-49v.6`), at **47.49%** on the byte-exact
 emit gate and **67.76%** on the structural one *when this document was written*.
 Those are historical; the live numbers are in [`STATUS.md`](../../STATUS.md) §1
-(at the third 2026-10-02 landing: `dts_emit` 338/375, `dts_shape`
-877/1,006). This is the artifact the phase
+(at the fourth 2026-10-02 landing: `dts_emit` 342/375, `dts_shape`
+892/1,006). This is the artifact the phase
 exists to ship: the first `.d.ts` this port has ever produced.
 
 **Upstream pin:** `vendor/typescript-go` @ `5b1047d10`.
@@ -403,6 +403,47 @@ One consequence was found by measurement, not foresight: the synthesized
 name and the query's entity, so the declaring-name skip hid the reference. Every
 synthesized type query now takes a fresh name node.
 
+### A `CommonJS` file is a module, and that is syntactic (2026-10-02)
+
+The transform's module docs said `CommonJS` emit "needs the `Program` to know the
+module kind". It does not: the kind is the binder's `CommonJSModuleIndicator`
+(`internal/binder/binder.go:927`), set on the first `require(…)` call,
+`module.exports =`, `exports.x =`/`module.exports.x =` or
+`Object.defineProperty(exports, …)` in a JavaScript file that is not already an
+ES module — all syntax. `tsr_dts::visibility::is_commonjs_module` reproduces it,
+and the consequences follow upstream:
+
+- **The file is a module** (`IsExternalOrCommonJSModule`), so unexported
+  declarations are dropped unless an export reaches them and the scope marker
+  applies — `commonJSAliasedExport`'s `bug43713.js` is just `export {};`.
+- **Its exports are its assignments.** `visible_declarations` seeds reachability
+  from every top-level `module.exports = right` / `exports.x = right`.
+- **`module.exports = right` leads the file** (`visitCJSExportAssignments`,
+  `appendCjsExports`): `export = right;` for an identifier, a promoted
+  `declare function _exports` for a function, else `declare const _exports: T;`.
+  The last such assignment in tree order wins, as upstream's visitor overwrites.
+- **`exports.x = right` members** follow `transformCommonJSExportWorker`'s
+  non-class arms: a top-level, singly-assigned identifier is
+  `export { right as x }`; `default` is `_default` + `export default`; a name no
+  file-level declaration takes is `export declare var x: T`; otherwise an
+  `_exported` binding and a renaming specifier. A primitive literal keeps its
+  literal type (`exports.j = 1` → `j: 1`). With a synthesized `export =` name the
+  members are wrapped in its namespace, `declare` stripped.
+
+**The analysis had to move with it**, or the reachable denominator would lie.
+JavaScript is outside upstream's isolated-declarations mode, so there is no
+upstream rule to port; `tsr_dts::rules` now treats a `CommonJS` export's right
+side as an exported initializer — `TS9037` for `module.exports =`, `TS9010` for a
+member, and always for `Object.defineProperty` exports, whose descriptor the
+emitter does not read. Without that, ten cases entered `dts_emit`'s denominator
+with `any` where upstream inferred a type; with it the denominator is unchanged
+(375) and the passes rise 338 → 342. `dts_shape` 877 → 892, no case lost in
+either suite.
+
+Still absent: `exports.K = class K {}` (the class-expression arm with its
+`_ns` isolation namespace), `require` → `import x = require(…)`, and the
+multiple-`export =` merge at `transform.go:360`.
+
 ## Known approximations
 
 Each is a place where upstream consults the checker or the `Program` and this
@@ -416,7 +457,7 @@ crate does not. They are the expected source of divergence.
 | `strictNullChecks` | a compiler option | absent. `null` widens to `any`, which is the corpus default and every baseline currently in the target |
 | Module specifiers | re-emitted from the original source text | re-quoted with double quotes, so `require('x')` becomes `require("x")` |
 | Comments | preserved in `.d.ts` output | dropped — the printer emits none |
-| `module.exports =`, expando functions, JS/JSDoc declarations | `transformCommonJSExport`, `transformExpandoAssignment`, `visitThisPropertyAssignments` | **absent, not stubbed.** Each needs the `Program` or JSDoc types |
+| `module.exports =`, expando functions, JS/JSDoc declarations | `transformCommonJSExport`, `transformExpandoAssignment`, `visitThisPropertyAssignments` | *Originally* absent. The `CommonJS` assignment forms and syntactic expandos have since been ported (see the 2026-10-02 sections above); the class-expression and `Object.defineProperty` export arms and `require` → `import =` are still absent |
 
 ## What is left, by shape
 

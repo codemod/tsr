@@ -49,8 +49,12 @@ use tsr_diagnostics::Diagnostic;
 /// `.errors.txt` baselines list them in.
 #[must_use]
 pub fn analyze<'a>(file: &'a SourceFile<'a>, nodes: &NodeTable) -> Vec<Diagnostic> {
-    let visible = visibility::visible_declarations(file);
-    let mut diagnostics = rules::check(file, nodes, &visible);
+    let javascript = file
+        .node_id
+        .is_some_and(|id| nodes.flags(id).contains(tsr_ast::NodeFlags::JAVASCRIPT_FILE));
+    let commonjs = visibility::is_commonjs_module(file, javascript);
+    let visible = visibility::visible_declarations(file, commonjs);
+    let mut diagnostics = rules::check(file, nodes, &visible, commonjs);
     diagnostics.sort_by_key(|d| (d.span.start, d.message.code()));
     diagnostics
 }

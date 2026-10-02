@@ -1285,3 +1285,34 @@ fn type_references_reach_their_symbol_not_every_same_named_declaration() {
         "export interface Foo {\n    item: Bar;\n}\ninterface Bar {\n    baz(): void;\n}\ndeclare namespace Bar {\n    function biz(): number;\n}\nexport {};\n",
     );
 }
+
+#[test]
+fn commonjs_files_are_modules_whose_exports_are_their_assignments() {
+    // `module.exports = foo` leads the file as `export = foo`
+    // (`jsDeclarationsTypeReassignmentFromDeclaration`); a `require` call alone
+    // makes the file a module, so unexported declarations drop.
+    assert_eq!(
+        emit_javascript_trimmed("function foo() {}\nfunction unused() {}\nmodule.exports = foo;"),
+        "export = foo;\ndeclare function foo(): void;"
+    );
+    assert_eq!(emit_javascript_trimmed("const a = require(\"x\");\nvar b = 1;"), "export {};");
+    // `exports.x = …` members (`transformCommonJSExportWorker`): literal types
+    // survive, `default` goes through `_default`, a top-level single alias is
+    // a specifier, and a name declared elsewhere takes an `_exported` binding.
+    assert_eq!(
+        emit_javascript_trimmed(
+            "function f() {}\nconst g = 1;\nexports.y = 2;\nexports.default = { x: \"x\" };\nexports.h = f;\nexports.g = \"s\";"
+        ),
+        "export declare var y: 2;\ndeclare const _default: {\n    x: string;\n};\nexport default _default;\nexport { f as h };\ndeclare const _exported: \"s\";\nexport { _exported as g };\ndeclare function f(): void;"
+    );
+    // A synthesized `export =` name wraps the members in its namespace
+    // (`wrapInCJSExportNamespace`).
+    assert_eq!(
+        emit_javascript_trimmed("module.exports = function () {};\nmodule.exports.x = 1;"),
+        "export = _exports;\ndeclare function _exports(): void;\ndeclare namespace _exports {\n    export var x: 1;\n}"
+    );
+}
+
+fn emit_javascript_trimmed(source: &str) -> String {
+    emit_javascript(source).trim_end().to_string()
+}

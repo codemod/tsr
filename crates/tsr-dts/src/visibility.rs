@@ -81,12 +81,18 @@ impl Visible {
 }
 
 /// Compute the visible set for a file.
+///
+/// `commonjs` is [`is_commonjs_module`]'s answer: a `CommonJS` file is a module
+/// whose exports are its `module.exports`/`exports.x` assignments.
 #[must_use]
-pub fn visible_declarations<'a>(file: &'a SourceFile<'a>) -> Visible {
+pub fn visible_declarations<'a>(file: &'a SourceFile<'a>, commonjs: bool) -> Visible {
     // A *script* — no imports, no exports — emits every top-level declaration,
     // because there is no export list to be reachable from. `isolatedDeclarationErrors`
     // is exactly this shape: not one `export` in the file, and upstream still
     // reports four errors in it.
+    if commonjs {
+        return visible_members(file.statements, true);
+    }
     if !is_module(file.statements) {
         let ids = file.statements.iter().filter_map(Statement::node_id).collect();
         let names = file
@@ -109,6 +115,130 @@ pub fn visible_declarations<'a>(file: &'a SourceFile<'a>) -> Visible {
 /// members no longer keep private aliases alive.
 #[must_use]
 pub fn visible_module_members<'a>(statements: &'a [Statement<'a>]) -> Visible {
+    visible_members(statements, false)
+}
+
+/// Whether a JavaScript file is a `CommonJS` module: upstream's binder sets
+/// `CommonJSModuleIndicator` (`internal/binder/binder.go:927`) on the first
+/// `require(…)` call, `module.exports = …`, `exports.x = …`/`module.exports.x
+/// = …` or `Object.defineProperty(exports, …)` it binds — anywhere in the file
+/// — unless the file is already an ES module.
+#[must_use]
+pub fn is_commonjs_module(file: &SourceFile<'_>, javascript: bool) -> bool {
+    struct Finder(bool);
+    impl<'a> Visit<'a> for Finder {
+        fn visit_node(&mut self, node: tsr_ast::Node<'a>) {
+            if self.0 {
+                return;
+            }
+            match node {
+                tsr_ast::Node::CallExpression(call) => {
+                    let require = matches!(call.expression, Some(Expression::Identifier(callee)) if callee.text == "require")
+                        && call.arguments.len() == 1;
+                    if require || is_define_property_on_exports(call) {
+                        self.0 = true;
+                        return;
+                    }
+                }
+                tsr_ast::Node::BinaryExpression(binary)
+                    if binary
+                        .operator_token
+                        .is_some_and(|token| token.kind == SyntaxKind::EqualsToken)
+                        && binary
+                            .left
+                            .as_ref()
+                            .is_some_and(|left| commonjs_export_target(left).is_some()) =>
+                {
+                    self.0 = true;
+                    return;
+                }
+                _ => {}
+            }
+            tsr_ast::visit::walk_node(self, node);
+        }
+    }
+    if !javascript || is_module(file.statements) {
+        return false;
+    }
+    let mut finder = Finder(false);
+    for statement in file.statements {
+        finder.visit_node(tsr_ast::Node::from(*statement));
+    }
+    finder.0
+}
+
+/// `Object.defineProperty(exports | module.exports, "name", descriptor)`
+/// (`ast.IsBindableObjectDefinePropertyCall` with an exports target).
+#[must_use]
+pub fn is_define_property_on_exports(call: &tsr_ast::CallExpression<'_>) -> bool {
+    matches!(
+        call.expression,
+        Some(Expression::PropertyAccessExpression(access))
+            if matches!(access.expression, Some(Expression::Identifier(object)) if object.text == "Object")
+                && matches!(access.name, Some(tsr_ast::MemberName::Identifier(name)) if name.text == "defineProperty")
+    ) && call.arguments.len() == 3
+        && call.arguments.first().is_some_and(is_exports_object)
+        && matches!(
+            call.arguments.get(1),
+            Some(Expression::StringLiteral(_) | Expression::NumericLiteral(_))
+        )
+}
+
+/// What a `CommonJS` assignment target exports.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommonJsTarget<'a> {
+    /// `module.exports = …` (`JSDeclarationKindModuleExports`).
+    ModuleExports,
+    /// `exports.name = …` or `module.exports.name = …`
+    /// (`JSDeclarationKindExportsProperty`).
+    Property(&'a str),
+}
+
+/// `ast.GetAssignmentDeclarationKind`'s two `CommonJS` arms
+/// (`internal/ast/utilities.go:1541`), for an assignment's left side.
+#[must_use]
+pub fn commonjs_export_target<'a>(left: &Expression<'a>) -> Option<CommonJsTarget<'a>> {
+    if is_module_exports(left) {
+        return Some(CommonJsTarget::ModuleExports);
+    }
+    let (object, name) = match left {
+        Expression::PropertyAccessExpression(access) => match access.name {
+            Some(tsr_ast::MemberName::Identifier(name)) => (access.expression.as_ref()?, name.text),
+            _ => return None,
+        },
+        Expression::ElementAccessExpression(access) => match access.argument_expression {
+            Some(Expression::StringLiteral(name)) => (access.expression.as_ref()?, name.text),
+            _ => return None,
+        },
+        _ => return None,
+    };
+    is_exports_object(object).then_some(CommonJsTarget::Property(name))
+}
+
+/// `exports` or `module.exports`.
+fn is_exports_object(expression: &Expression<'_>) -> bool {
+    matches!(expression, Expression::Identifier(identifier) if identifier.text == "exports")
+        || is_module_exports(expression)
+}
+
+/// `ast.IsModuleExportsAccessExpression`.
+fn is_module_exports(expression: &Expression<'_>) -> bool {
+    let (object, name) = match expression {
+        Expression::PropertyAccessExpression(access) => match access.name {
+            Some(tsr_ast::MemberName::Identifier(name)) => (access.expression.as_ref(), name.text),
+            _ => return false,
+        },
+        Expression::ElementAccessExpression(access) => match access.argument_expression {
+            Some(Expression::StringLiteral(name)) => (access.expression.as_ref(), name.text),
+            _ => return false,
+        },
+        _ => return false,
+    };
+    name == "exports"
+        && matches!(object, Some(Expression::Identifier(module)) if module.text == "module")
+}
+
+fn visible_members<'a>(statements: &'a [Statement<'a>], commonjs: bool) -> Visible {
     let by_name = index_by_name(statements);
 
     let mut visible: FxHashSet<NodeId> = FxHashSet::default();
@@ -152,6 +282,48 @@ pub fn visible_module_members<'a>(statements: &'a [Statement<'a>]) -> Visible {
                         {
                             queue.push(target);
                         }
+                    }
+                }
+            }
+        }
+    }
+
+    // A `CommonJS` file's exports are its top-level `module.exports = …` and
+    // `exports.x = …` assignments; each emits its right side's shape (an
+    // `export =` of an identifier, or a typed `_exports`/member), so whatever
+    // that names is reached.
+    if commonjs {
+        for statement in statements {
+            let Statement::ExpressionStatement(expression) = statement else { continue };
+            let Some(Expression::BinaryExpression(binary)) = &expression.expression else {
+                continue;
+            };
+            if binary.operator_token.is_none_or(|token| token.kind != SyntaxKind::EqualsToken)
+                || binary.left.as_ref().is_none_or(|left| commonjs_export_target(left).is_none())
+            {
+                continue;
+            }
+            let Some(right) = &binary.right else { continue };
+            let mut collector = ReferenceCollector::default();
+            collector.record_default_export_expression(right);
+            let restated: Vec<&str> = collector
+                .value_names
+                .iter()
+                .copied()
+                .filter(|name| {
+                    by_name.get(name).is_some_and(|targets| {
+                        targets.iter().all(|target| restates_as_typeof(target))
+                    })
+                })
+                .collect();
+            for name in collector.names.into_iter().chain(restated) {
+                let Some(targets) = by_name.get(name) else { continue };
+                names.insert(name.to_string());
+                for target in targets {
+                    if let Some(id) = target.node_id()
+                        && visible.insert(id)
+                    {
+                        queue.push(target);
                     }
                 }
             }

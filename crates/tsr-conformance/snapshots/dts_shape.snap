@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 dts_shape Summary:
 What a pass means: the declarations this port emits into a .d.ts — their kind, name and order, recursing into namespaces — match upstream's, ignoring types and formatting; judged on every case with declaration output, including the ones dts_emit cannot reach because they need inference
-Passed         : 877/1006 (87.18%)
-Failed         : 129
+Passed         : 892/1006 (88.67%)
+Failed         : 114
 Skipped        : 11438 (excluded from the denominator)
 
   11  skipped: a unit of this case does not parse cleanly
@@ -12,9 +12,9 @@ Skipped        : 11438 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   8  skipped: upstream's .d.ts baseline does not reparse
 
-First 100 of 129 failures:
+First 100 of 114 failures:
 compiler/amdLikeInputDeclarationEmit
-  #0: missing `var ExtendedClass`
+  #0: want `var ExtendedClass`, got `export=`
 compiler/caseInsensitiveFileSystemWithCapsImportTypeDeclarations
   #0: want `import`, got `class Broken`
 compiler/classReferencedInContextualParameterWithinItsOwnBaseExpression
@@ -127,26 +127,20 @@ compiler/internalAliasFunctionInsideTopLevelModuleWithoutExport
   #2: want `import= b`, got `var bVal`
 compiler/isolatedDeclarationsAddUndefined
   emitted file2.d.ts, upstream emitted no declaration file
-compiler/jsDeclarationEmitExportAssignedArray
-  #0: missing `var _exports`
 compiler/jsDeclarationEmitExportAssignedFunctionWithExtraTypedefsMembers
-  #0: missing `export=`
+  #2: missing `type Options`
 compiler/jsDeclarationsGlobalFileConstFunction
   #4: want `function SomeConstructor3`, got `var SomeConstructor3`
 compiler/jsDeclarationsGlobalFileConstFunctionNamed
   #4: want `function SomeConstructor3`, got `var SomeConstructor3`
 compiler/jsDeclarationsInheritedTypes
   #0: want `type A`, got `class C1`
-compiler/jsExportAssignmentNonMutableLocation
-  #0: want `var _exports`, got `var customSymbol`
 compiler/jsFileFunctionOverloads
   #1: want `function getTypeName`, got `var identity`
 compiler/jsFileFunctionOverloads2
   #1: want `function getTypeName`, got `var identity`
 compiler/jsxDeclarationsWithEsModuleInteropNoCrash
   #0: want `import`, got `function Foo`
-compiler/modulePreserve4
-  #0: missing `var _default`
 compiler/multiImportExport
   #0: want `import= Adder`, got `var Math`
 compiler/nodeModuleReexportFromDottedPath
@@ -179,18 +173,8 @@ compiler/typeReferenceDirectives9
   #1: want `import`, got `var cls`
 compiler/uniqueSymbolPropertyDeclarationEmit
   #0: want `import`, got `function foo`
-conformance/assignmentToVoidZero1
-  #0: missing `var y`
-conformance/assignmentToVoidZero2
-  #0: want `var j`, got `var o`
-conformance/commonJSAliasedExport
-  #0: want `export=`, got `var donkey`
-conformance/commonJSImportClassTypeReference
-  #0: want `export{}`, got `var <pattern>`
 conformance/commonJSImportExportedClassExpression
-  #0: want `export{}`, got `var <pattern>`
-conformance/commonJSImportNestedClassTypeReference
-  #0: want `export{}`, got `var <pattern>`
+  #0: want `class K`, got `var K`
 conformance/exportDefaultNamespace
   #1: want `export=`, got `namespace someFunc`
 conformance/importTag16
@@ -208,8 +192,24 @@ conformance/jsDeclarationsClassMethod
 conformance/jsDeclarationsClassStatic2
   #2: want `namespace Foo`, got `export{}`
 conformance/jsDeclarationsCommonjsRelativePath
-  #0: want `var _exports`, got `class Thing`
+  #2: missing `class Thing`
 conformance/jsDeclarationsExportDefinePropertyEmit
-  #0: want `var a`, got `function d`
+  #0: want `var a`, got `export{}`
 conformance/jsDeclarationsExportDoubleAssignmentInClosure
-  #0: want `export=`, got `function foo`
+  #0: want `export=`, got `var _exports`
+conformance/jsDeclarationsExportedClassAliases
+  #2: missing `class FancyError`
+conformance/jsDeclarationsImportAliasExposedWithinNamespace
+  #4: want `  type typeB`, got `  type typeC`
+conformance/jsDeclarationsImportAliasExposedWithinNamespaceCjs
+  #5: want `  type typeB`, got `  type typeC`
+conformance/jsDeclarationsNonIdentifierInferredNames
+  #0: want `var dynPropName`, got `var ExampleFunctionalComponent`
+conformance/jsDeclarationsParameterTagReusesInputNodeInEmit1
+  #1: want `class Base`, got `var BaseFactory`
+conformance/jsDeclarationsParameterTagReusesInputNodeInEmit2
+  #1: want `class Base`, got `var BaseFactory`
+conformance/jsDeclarationsReferenceToClassInstanceCrossFile
+  #2: missing `class Rectangle`
+conformance/jsDeclarationsTypeAliases
+  #3: want `function doTheThing`, got `class ExportedThing`

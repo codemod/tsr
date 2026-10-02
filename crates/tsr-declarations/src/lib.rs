@@ -232,7 +232,11 @@ pub fn emit_with_references_and_options<'a>(
     options: DeclarationEmitOptions<'a>,
 ) -> DeclarationEmit {
     let diagnostics = tsr_dts::analyze(file, nodes);
-    let resolver = SyntacticResolver::new(file, options.strict_null_checks);
+    let javascript = file
+        .node_id
+        .is_some_and(|id| nodes.flags(id).contains(tsr_ast::NodeFlags::JAVASCRIPT_FILE));
+    let commonjs = tsr_dts::visibility::is_commonjs_module(file, javascript);
+    let resolver = SyntacticResolver::new(file, options.strict_null_checks, commonjs);
 
     let (declaration_file, inference_required) = {
         let factory = Factory::new(arena, nodes);

@@ -54,12 +54,16 @@ pub fn check<'a>(
     file: &'a SourceFile<'a>,
     nodes: &NodeTable,
     visible: &Visible,
+    commonjs: bool,
 ) -> Vec<Diagnostic> {
     let mut checker = Checker { nodes, out: Vec::new(), in_parameter_default: false };
     for statement in file.statements {
         if visible.contains(statement.node_id()) {
             checker.statement(statement);
         }
+    }
+    if commonjs {
+        checker.commonjs_exports(file);
     }
     checker.out
 }
@@ -76,6 +80,81 @@ struct Checker<'t> {
 }
 
 impl Checker<'_> {
+    /// A `CommonJS` file's export assignments are declarations too: the
+    /// emitter restates `module.exports = right` and `exports.x = right` as
+    /// typed bindings (`transformCommonJSExport`), so a right side whose type
+    /// is not apparent needs inference exactly as an unannotated exported
+    /// variable's initializer does. Upstream has no isolated-declarations rule
+    /// here — JavaScript is outside that mode — so this is the reachable
+    /// target's own boundary, spelled with the codes the analogous TypeScript
+    /// forms draw: `TS9037` for `module.exports =`, `TS9010` for a member. An
+    /// identifier is apparent when it is restated by name (`export = x`, a
+    /// top-level `exports.x = x`), and a function or arrow is judged by its
+    /// signature as a default export's would be.
+    fn commonjs_exports(&mut self, file: &SourceFile<'_>) {
+        struct Collect<'a> {
+            found: Vec<(&'a Expression<'a>, &'a Expression<'a>, bool)>,
+            define_properties: Vec<Option<NodeId>>,
+        }
+        impl<'a> tsr_ast::Visit<'a> for Collect<'a> {
+            // `Object.defineProperty(exports, "x", descriptor)`
+            // (`JSDeclarationKindObjectDefinePropertyExports`): the export's
+            // type comes from the descriptor, which the emitter does not read.
+            fn visit_call_expression(&mut self, node: &'a tsr_ast::CallExpression<'a>) {
+                if crate::visibility::is_define_property_on_exports(node) {
+                    self.define_properties.push(node.node_id);
+                }
+                tsr_ast::visit::walk_call_expression(self, node);
+            }
+
+            fn visit_binary_expression(&mut self, node: &'a tsr_ast::BinaryExpression<'a>) {
+                if node.operator_token.is_some_and(|token| token.kind == SyntaxKind::EqualsToken)
+                    && let (Some(left), Some(right)) = (&node.left, &node.right)
+                    && let Some(target) = crate::visibility::commonjs_export_target(left)
+                {
+                    self.found.push((
+                        left,
+                        right,
+                        target == crate::visibility::CommonJsTarget::ModuleExports,
+                    ));
+                }
+                tsr_ast::visit::walk_binary_expression(self, node);
+            }
+        }
+        let mut collect = Collect { found: Vec::new(), define_properties: Vec::new() };
+        for statement in file.statements {
+            tsr_ast::Visit::visit_node(&mut collect, tsr_ast::Node::from(*statement));
+        }
+        for id in collect.define_properties {
+            let span = self.span(id);
+            self.report(
+                &messages::VARIABLE_MUST_HAVE_AN_EXPLICIT_TYPE_ANNOTATION_WITH_ISOLATEDDECLARATIONS,
+                span,
+            );
+        }
+        for (left, right, module_exports) in collect.found {
+            if matches!(right, Expression::Identifier(_)) {
+                continue;
+            }
+            if self.infer(right, Ctx::binding(false)) != Inferability::Generic {
+                continue;
+            }
+            if module_exports {
+                let span = self.span(right.node_id());
+                self.report(
+                    &messages::DEFAULT_EXPORTS_CAN_T_BE_INFERRED_WITH_ISOLATEDDECLARATIONS,
+                    span,
+                );
+            } else {
+                let span = self.span(left.node_id());
+                self.report(
+                    &messages::VARIABLE_MUST_HAVE_AN_EXPLICIT_TYPE_ANNOTATION_WITH_ISOLATEDDECLARATIONS,
+                    span,
+                );
+            }
+        }
+    }
+
     fn span(&self, id: Option<NodeId>) -> Span {
         id.map_or(Span::new(0, 0), |id| self.nodes.span(id))
     }

@@ -30,7 +30,7 @@
 //!
 //! | Upstream | Why it is out |
 //! |---|---|
-//! | `transformCommonJSExport`, `visitCJSExportAssignments` (`:1326`, `:2672`) | `CommonJS` `module.exports =` emit. Needs the `Program` to know the module kind |
+//! | `transformCommonJSExport`'s class-expression arm, `Object.defineProperty` exports, `require` → `import =` (`:1352`, `:2707`, `:836`) | `CommonJS` emit beyond the assignment forms. The module kind itself turned out to be syntactic (`CommonJSModuleIndicator`) and the assignment forms are ported |
 //! | `visitThisPropertyAssignments`, `collectThisPropertyAssignments` (`:2072`, `:2163`) | JS-file only, and JSDoc-driven |
 //! | The `JSDoc*` transform arms (`:2576`–`:2632`) | JS-file only |
 //! | `CreateLateBoundIndexSignatures` in `buildClassMembers` (`:1918`) | Purely a checker product |
@@ -187,7 +187,9 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
     pub(crate) fn transform_source_file(&mut self, file: &SourceFile<'a>) -> &'a SourceFile<'a> {
         self.javascript_file =
             self.factory.flags_of(file.node_id).contains(NodeFlags::JAVASCRIPT_FILE);
-        let is_module = is_external_module(file.statements) || self.options.force_module;
+        let commonjs = tsr_dts::visibility::is_commonjs_module(file, self.javascript_file);
+        let is_module =
+            is_external_module(file.statements) || self.options.force_module || commonjs;
         reserve_statement_names(file.statements, &mut self.used_names);
         self.file_identifiers = file_identifier_texts(file);
         reserve_statement_names(file.statements, &mut self.file_scope_names);
@@ -256,6 +258,39 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
             }
         }
         statements.extend(aliases.map(|(_, alias)| alias));
+
+        // `transformSourceFile` collects the `CommonJS` `module.exports =`
+        // assignment before visiting anything (the last one wins) and
+        // `appendCjsExports` puts its result first.
+        if commonjs {
+            let mut leading = Vec::new();
+            let mut namespace_name = None;
+            if let Some(right) = last_module_exports_assignment(file) {
+                let span = self.span_of(right.node_id());
+                let (assignment, name) = self.transform_commonjs_export_assignment(right, span);
+                leading = assignment;
+                namespace_name = name;
+                self.result_has_scope_marker = true;
+                self.result_has_external_module_indicator = true;
+            }
+            // `visitNestedExpression`'s `ExportsProperty` arm, deduplicated by
+            // name (`witnessedCjsExports`), each result wrapped in the
+            // synthesized `export =` namespace when there is one.
+            for export in commonjs_exports(file) {
+                let members = self.transform_commonjs_export(&export);
+                self.result_has_scope_marker = true;
+                self.result_has_external_module_indicator = true;
+                match namespace_name {
+                    Some(name) => {
+                        let span = self.span_of(export.node_id);
+                        leading.push(self.wrap_in_commonjs_export_namespace(name, &members, span));
+                    }
+                    None => leading.extend(members),
+                }
+            }
+            leading.append(&mut statements);
+            statements = leading;
+        }
 
         // Visibility is initially computed from source syntax so declarations
         // needed by an emitted type are available to the transformer. Recompute
@@ -511,6 +546,237 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
         vec![variable, export]
     }
 
+    /// `visitCJSExportAssignments` (`transform.go:2672`): a `CommonJS` file's
+    /// `module.exports = right` goes through `transformExportAssignment` with
+    /// `isExportEquals` set, and the result leads the file (`appendCjsExports`,
+    /// `:325`). The synthesized binding is `_exports`, which "only JS files
+    /// prefer" (`getNameOfExportedAssignedExpression`, `:1195`); a named
+    /// function expression keeps its own name when nothing in scope has it.
+    fn transform_commonjs_export_assignment(
+        &mut self,
+        right: &'a Expression<'a>,
+        span: Span,
+    ) -> (Vec<Statement<'a>>, Option<&'a tsr_ast::Identifier<'a>>) {
+        let export_of = |transformer: &mut Self, name: &'a tsr_ast::Identifier<'a>| {
+            Statement::ExportAssignment(transformer.factory.alloc(
+                tsr_ast::ExportAssignment::new(&[], true, None, Some(Expression::Identifier(name))),
+                SyntaxKind::ExportAssignment,
+                span,
+                NodeFlags::empty(),
+            ))
+        };
+        if let Expression::Identifier(identifier) = right {
+            return (vec![export_of(self, identifier)], None);
+        }
+        if let Some(function) = skip_parentheses_to_function(right) {
+            let own_name = match function {
+                Expression::FunctionExpression(function) => function.name,
+                _ => None,
+            };
+            let name = match own_name {
+                Some(own) if own.text != "default" && !self.is_name_resolvable(own.text) => {
+                    self.used_names.insert(own.text.to_string());
+                    self.factory.identifier(own.text, span)
+                }
+                Some(own) if own.text != "default" => self.fresh_unique_name(own.text, span),
+                _ => self.fresh_unique_name("_exports", span),
+            };
+            let export = export_of(self, name);
+            let declaration = self.function_like_to_declaration(function, name, span);
+            return (vec![export, declaration], Some(name));
+        }
+        let name = self.fresh_unique_name("_exports", span);
+        let literal = self.ensure_no_initializer(LiteralConstHost::Expression(right));
+        let r#type = if literal.is_some() {
+            None
+        } else {
+            self.ensure_type(None, Some(right), Freshness::Widening, right.node_id())
+        };
+        let declaration = self.factory.alloc(
+            tsr_ast::VariableDeclaration::new(
+                Some(tsr_ast::BindingName::Identifier(name)),
+                None,
+                r#type,
+                literal,
+            ),
+            SyntaxKind::VariableDeclaration,
+            span,
+            NodeFlags::empty(),
+        );
+        let declarations = self.factory.slice(&[declaration]);
+        let list = self.factory.alloc(
+            tsr_ast::VariableDeclarationList::new(declarations),
+            SyntaxKind::VariableDeclarationList,
+            span,
+            NodeFlags::CONST,
+        );
+        let declare = self.factory.modifier(SyntaxKind::DeclareKeyword, span);
+        let modifiers = self.factory.slice(&[declare]);
+        let variable = Statement::VariableStatement(self.factory.alloc(
+            tsr_ast::VariableStatement::new(modifiers, Some(list)),
+            SyntaxKind::VariableStatement,
+            span,
+            NodeFlags::empty(),
+        ));
+        (vec![variable, export_of(self, name)], Some(name))
+    }
+
+    /// `transformCommonJSExportWorker` (`transform.go:1334`) for one
+    /// `exports.name = right`, without the class-expression arm. A top-level
+    /// alias (`exports.a = b`, the name assigned once) is `export { b as a }`;
+    /// `default` is a `_default` binding with `export default`; a name nothing
+    /// else in scope declares is `export declare var name: T`; anything else
+    /// goes through an `_exported` binding and a renaming specifier.
+    fn transform_commonjs_export(&mut self, export: &CommonJsExport<'a>) -> Vec<Statement<'a>> {
+        let span = self.span_of(export.node_id);
+        let name = self.factory.identifier(export.name, span);
+        if export.is_alias
+            && let Expression::Identifier(right) = export.right
+        {
+            let property_name = (right.text != export.name).then_some(*right);
+            return vec![self.export_specifier_statement(property_name, name, span)];
+        }
+        // A primitive literal keeps its literal type (`assignmentToVoidZero2`:
+        // `exports.j = 1` emits `export declare var j: 1;`); anything else is
+        // the widened shape.
+        let freshness = if crate::type_builder::is_primitive_literal_value(export.right) {
+            Freshness::Const
+        } else {
+            Freshness::Widening
+        };
+        let r#type = self.ensure_type(None, Some(export.right), freshness, export.node_id);
+        let declare: &'a [ModifierLike<'a>] = if self.needs_declare {
+            let declare = self.factory.modifier(SyntaxKind::DeclareKeyword, span);
+            self.factory.slice(&[declare])
+        } else {
+            &[]
+        };
+        if export.name == "default" {
+            let local = self.fresh_default_export_name(span);
+            let variable = self.const_statement(declare, local, r#type, span);
+            let assignment = Statement::ExportAssignment(self.factory.alloc(
+                tsr_ast::ExportAssignment::new(
+                    &[],
+                    false,
+                    None,
+                    Some(Expression::Identifier(local)),
+                ),
+                SyntaxKind::ExportAssignment,
+                span,
+                NodeFlags::empty(),
+            ));
+            return vec![variable, assignment];
+        }
+        if is_identifier_text(export.name) && !self.file_scope_names.contains(export.name) {
+            let mut flags = ModifierFlags::EXPORT;
+            if self.needs_declare {
+                flags |= ModifierFlags::AMBIENT;
+            }
+            let created = modifiers::create_modifiers_from_flags(&mut self.factory, flags, span);
+            let modifiers = self.factory.slice(&created);
+            return vec![self.namespace_variable(modifiers, name, r#type, span)];
+        }
+        let local = self.fresh_unique_name("_exported", span);
+        let variable = self.const_statement(declare, local, r#type, span);
+        let specifier = self.export_specifier_statement(Some(local), name, span);
+        vec![variable, specifier]
+    }
+
+    fn const_statement(
+        &mut self,
+        modifiers: &'a [ModifierLike<'a>],
+        name: &'a tsr_ast::Identifier<'a>,
+        r#type: Option<TypeNode<'a>>,
+        span: Span,
+    ) -> Statement<'a> {
+        let declaration = self.factory.alloc(
+            tsr_ast::VariableDeclaration::new(
+                Some(tsr_ast::BindingName::Identifier(name)),
+                None,
+                r#type,
+                None,
+            ),
+            SyntaxKind::VariableDeclaration,
+            span,
+            NodeFlags::empty(),
+        );
+        let declarations = self.factory.slice(&[declaration]);
+        let list = self.factory.alloc(
+            tsr_ast::VariableDeclarationList::new(declarations),
+            SyntaxKind::VariableDeclarationList,
+            span,
+            NodeFlags::CONST,
+        );
+        Statement::VariableStatement(self.factory.alloc(
+            tsr_ast::VariableStatement::new(modifiers, Some(list)),
+            SyntaxKind::VariableStatement,
+            span,
+            NodeFlags::empty(),
+        ))
+    }
+
+    /// `wrapInCJSExportNamespace` (`transform.go:1518`): with a synthesized
+    /// `export =` name, the members become that namespace's body, `declare`
+    /// stripped.
+    fn wrap_in_commonjs_export_namespace(
+        &mut self,
+        name: &'a tsr_ast::Identifier<'a>,
+        members: &[Statement<'a>],
+        span: Span,
+    ) -> Statement<'a> {
+        let members: Vec<Statement<'a>> =
+            members.iter().map(|member| self.strip_declare(member)).collect();
+        let body = self.factory.slice(&members);
+        let block = self.factory.alloc(
+            tsr_ast::ModuleBlock::new(body),
+            SyntaxKind::ModuleBlock,
+            span,
+            NodeFlags::empty(),
+        );
+        let keyword = self.factory.token(SyntaxKind::NamespaceKeyword, span);
+        let modifiers: &'a [ModifierLike<'a>] = if self.needs_declare {
+            let declare = self.factory.modifier(SyntaxKind::DeclareKeyword, span);
+            self.factory.slice(&[declare])
+        } else {
+            &[]
+        };
+        Statement::ModuleDeclaration(self.factory.alloc(
+            tsr_ast::ModuleDeclaration::new(
+                modifiers,
+                keyword,
+                Some(tsr_ast::ModuleName::Identifier(name)),
+                Some(tsr_ast::ModuleBody::ModuleBlock(block)),
+                None,
+            ),
+            SyntaxKind::ModuleDeclaration,
+            span,
+            NodeFlags::empty(),
+        ))
+    }
+
+    /// The statement without a `declare` modifier (`declareStrippingVisitor`).
+    fn strip_declare(&mut self, statement: &Statement<'a>) -> Statement<'a> {
+        let Statement::VariableStatement(variable) = statement else { return *statement };
+        let kept: Vec<ModifierLike<'a>> = variable
+            .modifiers
+            .iter()
+            .copied()
+            .filter(|modifier| {
+                !matches!(modifier, ModifierLike::Token(token) if token.kind == SyntaxKind::DeclareKeyword)
+            })
+            .collect();
+        if kept.len() == variable.modifiers.len() {
+            return *statement;
+        }
+        let modifiers = self.factory.slice(&kept);
+        Statement::VariableStatement(self.factory.alloc(
+            tsr_ast::VariableStatement::new(modifiers, variable.declaration_list),
+            SyntaxKind::VariableStatement,
+            self.span_of(variable.node_id),
+            NodeFlags::empty(),
+        ))
+    }
+
     /// `transformFunctionLikeToDeclaration` (`transform.go:1281`) without a
     /// full signature: the expression's own type parameters and parameters,
     /// and its return type — written, or what the syntactic resolver can say
@@ -569,10 +835,15 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
     }
 
     fn fresh_default_export_name(&mut self, span: Span) -> &'a tsr_ast::Identifier<'a> {
+        self.fresh_unique_name("_default", span)
+    }
+
+    /// `NewUniqueNameEx(base, Optimistic)`: the base itself when free, else
+    /// `base_1`, `base_2`, ….
+    fn fresh_unique_name(&mut self, base: &str, span: Span) -> &'a tsr_ast::Identifier<'a> {
         let mut suffix = 0usize;
         loop {
-            let candidate =
-                if suffix == 0 { "_default".to_string() } else { format!("_default_{suffix}") };
+            let candidate = if suffix == 0 { base.to_string() } else { format!("{base}_{suffix}") };
             if self.used_names.insert(candidate.clone()) {
                 return self.factory.identifier(&candidate, span);
             }
@@ -3468,6 +3739,98 @@ fn file_identifier_texts(file: &SourceFile<'_>) -> HashSet<String> {
         tsr_ast::Visit::visit_node(&mut collect, tsr_ast::Node::from(*statement));
     }
     collect.0
+}
+
+/// One `exports.name = right` a `CommonJS` file exports.
+struct CommonJsExport<'a> {
+    name: &'a str,
+    right: &'a Expression<'a>,
+    node_id: Option<tsr_ast::NodeId>,
+    /// `isCommonJSAliasExport` at the top level: the right side is an
+    /// identifier, the export name is assigned once, and the assignment is a
+    /// top-level expression statement.
+    is_alias: bool,
+}
+
+/// Every `exports.name = …` / `module.exports.name = …` in tree order, the
+/// first per name (`witnessedCjsExports`).
+fn commonjs_exports<'a>(file: &SourceFile<'a>) -> Vec<CommonJsExport<'a>> {
+    struct Finder<'a> {
+        found: Vec<CommonJsExport<'a>>,
+        counts: HashMap<&'a str, usize>,
+        top_level: HashSet<tsr_ast::NodeId>,
+    }
+    impl<'a> tsr_ast::Visit<'a> for Finder<'a> {
+        fn visit_binary_expression(&mut self, node: &'a tsr_ast::BinaryExpression<'a>) {
+            if node.operator_token.is_some_and(|token| token.kind == SyntaxKind::EqualsToken)
+                && let Some(left) = &node.left
+                && let Some(tsr_dts::visibility::CommonJsTarget::Property(name)) =
+                    tsr_dts::visibility::commonjs_export_target(left)
+                && let Some(right) = &node.right
+            {
+                *self.counts.entry(name).or_default() += 1;
+                if !self.found.iter().any(|export| export.name == name) {
+                    self.found.push(CommonJsExport {
+                        name,
+                        right,
+                        node_id: node.node_id,
+                        is_alias: matches!(right, Expression::Identifier(_))
+                            && node.node_id.is_some_and(|id| self.top_level.contains(&id)),
+                    });
+                }
+            }
+            tsr_ast::visit::walk_binary_expression(self, node);
+        }
+    }
+    let top_level = file
+        .statements
+        .iter()
+        .filter_map(|statement| match statement {
+            Statement::ExpressionStatement(statement) => statement.expression?.node_id(),
+            _ => None,
+        })
+        .collect();
+    let mut finder = Finder { found: Vec::new(), counts: HashMap::new(), top_level };
+    for statement in file.statements {
+        tsr_ast::Visit::visit_node(&mut finder, tsr_ast::Node::from(*statement));
+    }
+    let counts = finder.counts;
+    finder
+        .found
+        .into_iter()
+        .map(|mut export| {
+            export.is_alias &= counts.get(export.name) == Some(&1);
+            export
+        })
+        .collect()
+}
+
+/// The right side of the file's last `module.exports = …`, in the tree order
+/// `visitCJSExportAssignments` walks (`transform.go:2672`).
+fn last_module_exports_assignment<'a>(file: &SourceFile<'a>) -> Option<&'a Expression<'a>> {
+    struct Finder<'a> {
+        found: Option<&'a Expression<'a>>,
+    }
+    impl<'a> tsr_ast::Visit<'a> for Finder<'a> {
+        fn visit_binary_expression(&mut self, node: &'a tsr_ast::BinaryExpression<'a>) {
+            if node.operator_token.is_some_and(|token| token.kind == SyntaxKind::EqualsToken)
+                && node.left.as_ref().is_some_and(|left| {
+                    tsr_dts::visibility::commonjs_export_target(left)
+                        == Some(tsr_dts::visibility::CommonJsTarget::ModuleExports)
+                })
+                && !matches!(node.right, Some(Expression::Identifier(right)) if right.text == "exports")
+                && let Some(right) = &node.right
+            {
+                self.found = Some(right);
+            }
+            tsr_ast::visit::walk_binary_expression(self, node);
+        }
+    }
+    let mut finder = Finder { found: None };
+    for statement in file.statements {
+        tsr_ast::Visit::visit_node(&mut finder, tsr_ast::Node::from(*statement));
+    }
+    finder.found
 }
 
 /// `ast.SkipOuterExpressions(expression, OEKExpressionTypePassthrough)` down to

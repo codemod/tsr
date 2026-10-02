@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 dts_emit Summary:
 What a pass means: the .d.ts text this port emits is byte-identical to upstream's, for every unit of a case that needs no inference — the emitter's own rate, over the population dts_reachable_target measures
-Passed         : 338/375 (90.13%)
-Failed         : 37
+Passed         : 342/375 (91.20%)
+Failed         : 33
 Skipped        : 12069 (excluded from the denominator)
 
   633  skipped: a declaration in this case needs inference (see dts_reachable_target)
@@ -15,7 +15,7 @@ Skipped        : 12069 (excluded from the denominator)
 compiler/accessorInferredReturnTypeErrorInReturnStatement
   line 1: want `export declare var basePrototype: {`, got `export declare var basePrototype: any;`
 compiler/amdLikeInputDeclarationEmit
-  line 1: missing `declare const ExtendedClass: new () => {`
+  line 1: want `declare const ExtendedClass: new () => {`, got `export = ExtendedClass;`
 compiler/declarationEmitDuplicateParameterDestructuring
   line 1: want `export declare const fn1: ({ prop: a, prop: b }: {`, got `export declare const fn1: any;`
 compiler/declarationEmitExportAliasVisibiilityMarking
@@ -50,16 +50,10 @@ compiler/isolatedDeclarationsAddUndefined
   line 3: want `    c?: readonly [1] | undefined;`, got `    c?: readonly [N];`
 compiler/javascriptThisAssignmentInStaticBlock
   line 2: want `    static doSomething: () => void;`, got `}`
-compiler/jsDeclarationEmitExportAssignedArray
-  line 1: missing `declare const _exports: {`
-compiler/jsDeclarationEmitExportAssignedFunctionWithExtraTypedefsMembers
-  line 1: missing `/**`
 compiler/mappedTypeGenericInstantiationPreservesHomomorphism
   line 1: want `export declare const mappedUnionWithPrivateType: <T extends unknown[]>(...args: T) => T[any] extends infer T_1 ? { [K in keyof T_1]: T_1[K]; } : never;`, got `export declare const mappedUnionWithPrivateType: any;`
 compiler/mappedTypeWithAsClauseAndLateBoundProperty2
   line 2: want `    [x: number]: number;`, got `    [K in keyof number[] as Exclude<K, "length">]: (number[])[K];`
-compiler/modulePreserve4
-  line 1: missing `declare const _default: 0;`
 compiler/referenceTypesPreferedToPathIfPossible
   line 1: want `export declare const thing: () => import("url").Url;`, got `export declare const thing: any;`
 compiler/typeReferenceDirectives13
@@ -70,8 +64,6 @@ compiler/typeReferenceDirectives7
   line 3: want `export declare let y: () => number;`, got `export declare let y: any;`
 compiler/unionTypeWithLeadingOperator
   line 1: want `export type D = /*leading1*/ 1 | /*leading2*/ 2;`, got `export type D = 1 | 2;`
-conformance/assignmentToVoidZero1
-  line 1: missing `export declare var y: 2;`
 conformance/contextuallyTypedStringLiteralsInJsxAttributes01
   line 9: want `declare const FooComponent: (props: {`, got `declare const FooComponent: any;`
 conformance/declarationEmitWorkWithInlineComments
