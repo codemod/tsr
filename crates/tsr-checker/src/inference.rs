@@ -92,6 +92,10 @@ pub(crate) struct InferenceContextSnapshot {
     pub(crate) flags: InferenceFlags,
     pub(crate) inferential: bool,
     pub(crate) intra_expression_sites: Vec<(NodeId, TypeId)>,
+    /// InferenceContext.outerReturnMapper (createOuterReturnMapper,
+    /// inference.go:1423): built once from the first snapshot an inner call
+    /// requests, then reused by every later inner call of this context.
+    pub(crate) outer_return_map: Option<Vec<(TypeId, TypeId)>>,
 }
 
 /// cloneTypeParameter / instantiateSignatureEx (internal/checker/checker.go).
@@ -280,6 +284,7 @@ impl Checker<'_, '_> {
                     return_inferences: Vec::new(),
                     inferential: false,
                     intra_expression_sites: Vec::new(),
+                    outer_return_map: None,
                     flags: if self.in_js_file(call) {
                         InferenceFlags::ANY_DEFAULT
                     } else {
@@ -359,6 +364,45 @@ impl Checker<'_, '_> {
             self.infer_from_types(return_source, returned, parameters, &mut return_mapper, 0);
         }
         (infos, return_mapper)
+    }
+
+    /// checkExpressionWithContextualType's literal regularization
+    /// (checker.go): an argument literal loses freshness when it is a literal
+    /// of `instantiateContextualType(paramType, arg, ContextFlagsNone)`.
+    /// With a return mapper that instantiation incorporates only return-type
+    /// inferences and drops the boolean pair (#48363); otherwise the raw
+    /// parameter type answers through its base constraint.
+    #[allow(clippy::type_complexity)]
+    fn contextual_argument_literal_source(
+        &mut self,
+        source: TypeId,
+        parameter_type: TypeId,
+        return_map: Option<&(Vec<(TypeId, TypeId)>, Vec<TypeId>)>,
+        names: &[&str],
+    ) -> TypeId {
+        use crate::flags::TypeFlags;
+        if !self.store.get(source).fresh {
+            return source;
+        }
+        let mut contextual = parameter_type;
+        if let Some((map, parameters)) = return_map
+            && self.maybe_type_of_kind(parameter_type, TypeFlags::INSTANTIABLE)
+        {
+            contextual =
+                self.instantiate_instantiable_types(parameter_type, map, parameters, names);
+            if let TypeData::Union { types, .. } = &self.store.get(contextual).data
+                && types.contains(&self.intrinsics.regular_true)
+                && types.contains(&self.intrinsics.regular_false)
+            {
+                let (t, f) = (self.intrinsics.regular_true, self.intrinsics.regular_false);
+                contextual = self.filter_type(contextual, |_, part| part != t && part != f);
+            }
+        }
+        if self.is_literal_of_contextual_type(source, contextual) == Some(true) {
+            self.get_regular_type_of_literal_type(source)
+        } else {
+            source
+        }
     }
 
     /// getMutableArrayOrTupleType (checker.go:29571). Preserve mutable generic
@@ -530,6 +574,34 @@ impl Checker<'_, '_> {
             context.inferences.clone_from(&infos);
             context.return_inferences.clone_from(&return_mapper);
         }
+        // context.returnMapper = getMapperFromContext(cloneInferredPartOfContext
+        // (returnContext)) (checker.go inferTypeArguments): only parameters
+        // with return candidates are mapped; the rest stay themselves.
+        let names = signature.type_parameters.iter().map(|p| p.name.as_str()).collect::<Vec<_>>();
+        let return_literal_map = if let Some(parameters) = parameter_types.as_deref()
+            && return_mapper
+                .iter()
+                .any(|info| !info.candidates.is_empty() || !info.contra_candidates.is_empty())
+        {
+            let flags = call
+                .and_then(|call| self.active_inference_contexts.get(&call))
+                .map_or(InferenceFlags::NONE, |context| context.flags);
+            self.resolved_inference_map(&return_mapper, signature, parameters, flags).map(|map| {
+                let map = map
+                    .into_iter()
+                    .filter(|(parameter, _)| {
+                        return_mapper.iter().any(|info| {
+                            info.type_parameter == *parameter
+                                && (!info.candidates.is_empty()
+                                    || !info.contra_candidates.is_empty())
+                        })
+                    })
+                    .collect::<Vec<_>>();
+                (map, parameters.to_vec())
+            })
+        } else {
+            None
+        };
 
         // inferSignatureInstantiationForOverloadFailure (checker.go) skips
         // context-sensitive arguments. A function requiring more parameters
@@ -560,6 +632,16 @@ impl Checker<'_, '_> {
                 });
             } else {
                 let source = self.check_expression(argument);
+                let source = match (signature.parameters.get(index), &return_literal_map) {
+                    (Some(parameter), map) if !parameter.rest => self
+                        .contextual_argument_literal_source(
+                            source,
+                            parameter.r#type,
+                            map.as_ref(),
+                            &names,
+                        ),
+                    _ => source,
+                };
                 argument_types.push(source);
                 // Ordinary positional arguments contribute before the next
                 // expression is checked (inferTypeArguments, checker.go:9485).
@@ -1754,16 +1836,19 @@ impl Checker<'_, '_> {
         no_default: bool,
     ) -> TypeId {
         let mut parent = self.nodes.parent(node);
-        let context = loop {
+        let (outer_call, context) = loop {
             let Some(node) = parent else { return t };
             if let Some(context) = self.active_inference_contexts.get(&node) {
-                break context.clone();
+                break (node, context.clone());
             }
             parent = self.nodes.parent(node);
         };
         let Some(parameters) = self.type_parameter_types(&context.signature) else { return t };
         let names: Vec<_> =
             context.signature.type_parameters.iter().map(|p| p.name.as_str()).collect();
+        if !no_default && let Some(map) = &context.outer_return_map {
+            return self.instantiate_type(t, map, &parameters, &names);
+        }
         let selected: Vec<_> = parameters
             .iter()
             .filter_map(|&parameter| {
@@ -1784,6 +1869,9 @@ impl Checker<'_, '_> {
         else {
             return self.intrinsics.error;
         };
+        if !no_default && let Some(context) = self.active_inference_contexts.get_mut(&outer_call) {
+            context.outer_return_map = Some(map.clone());
+        }
         self.instantiate_type(t, &map, &parameters, &names)
     }
 
