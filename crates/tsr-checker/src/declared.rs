@@ -1463,13 +1463,199 @@ impl<'a> Checker<'a, '_> {
             return resolved;
         }
         self.store.complete_object(reserved, resolved);
+        self.type_literal_origins.insert(reserved, node_id);
         if let Some(properties) = self.anonymous_properties.remove(&resolved) {
             self.anonymous_properties.insert(reserved, properties);
         }
         if let Some(signatures) = self.signature_types.remove(&resolved) {
             self.signature_types.insert(reserved, signatures);
         }
+        if self.alias_named_signature_types.remove(&resolved) {
+            self.alias_named_signature_types.insert(reserved);
+        }
+        if let Some(indexes) = self.object_literal_index_infos.remove(&resolved) {
+            self.object_literal_index_infos.insert(reserved, indexes);
+        }
         reserved
+    }
+
+    /// instantiateAnonymousType / resolveAnonymousTypeMembers (checker.go).
+    /// Substitute captured semantic members; source syntax supplies only method
+    /// versus property rendering and index parameter names, never member types.
+    pub(crate) fn instantiate_type_literal(
+        &mut self,
+        id: TypeId,
+        map: &[(TypeId, TypeId)],
+        parameters: &[TypeId],
+        names: &[&str],
+    ) -> Option<TypeId> {
+        let origin = *self.type_literal_origins.get(&id)?;
+        let mut properties = self.anonymous_properties.get(&id).map(|(p, _)| p.clone());
+        let original_signatures = self.signature_types.get(&id).cloned();
+        if properties.is_none() && original_signatures.is_none() {
+            return None;
+        }
+        let cache_key = (id, map.to_vec());
+        if let Some(&cached) = self.instantiated_objects.get(&cache_key) {
+            return Some(cached);
+        }
+        let Some(Node::TypeLiteralNode(node)) = self.node_map.get(origin) else {
+            return Some(self.intrinsics.error);
+        };
+        let owner = self.binder.symbol_of(origin)?;
+        let placeholder = self.type_to_string(id);
+        let reserved = self.store.new_named(TypeFlags::OBJECT, placeholder, Some(owner));
+        self.instantiated_objects.insert(cache_key.clone(), reserved);
+        let mut failed = false;
+        for property in properties.iter_mut().flatten() {
+            property.r#type = self.instantiate_type(property.r#type, map, parameters, names);
+            failed |= property.r#type == self.intrinsics.error;
+            property.printed_type = self.type_to_string(property.r#type);
+        }
+        let signatures: Option<Vec<_>> = original_signatures
+            .unwrap_or_default()
+            .into_iter()
+            .map(|signature| self.instantiate_signature(signature, map, parameters, names))
+            .collect();
+        let Some(signatures) = signatures else {
+            self.instantiated_objects.insert(cache_key, self.intrinsics.error);
+            return Some(self.intrinsics.error);
+        };
+        let mut indexes = self.object_literal_index_infos.get(&id).cloned().unwrap_or_default();
+        for index in &mut indexes {
+            index.key = self.instantiate_type(index.key, map, parameters, names);
+            index.value = self.instantiate_type(index.value, map, parameters, names);
+            failed |= index.key == self.intrinsics.error || index.value == self.intrinsics.error;
+        }
+        if failed {
+            self.instantiated_objects.insert(cache_key, self.intrinsics.error);
+            return Some(self.intrinsics.error);
+        }
+        let mut members: Vec<_> = signatures
+            .iter()
+            .map(|signature| crate::objects::Member::Signature {
+                printed: crate::objects::signature_member_text(self, signature),
+            })
+            .collect();
+        let index_names: Vec<_> = node
+            .members
+            .iter()
+            .filter_map(|member| {
+                let tsr_ast::TypeElement::IndexSignatureDeclaration(index) = member else {
+                    return None;
+                };
+                let Some(tsr_ast::BindingName::Identifier(name)) = index.parameters.first()?.name
+                else {
+                    return None;
+                };
+                Some(name.text)
+            })
+            .collect();
+        for (position, index) in indexes.iter().enumerate() {
+            members.push(crate::objects::Member::Index {
+                readonly: index.readonly,
+                name: index_names
+                    .get(position)
+                    .or_else(|| index_names.first())
+                    .copied()
+                    .unwrap_or("x")
+                    .to_string(),
+                key: self.type_to_string(index.key),
+                value: self.type_to_string(index.value),
+            });
+        }
+        for property in properties.iter().flatten() {
+            let is_method = node.members.iter().any(|member| {
+                let tsr_ast::TypeElement::MethodSignatureDeclaration(method) = member else {
+                    return false;
+                };
+                let Some(symbol) = method.node_id.and_then(|id| self.binder.symbol_of(id)) else {
+                    return false;
+                };
+                let printed = if let tsr_ast::PropertyName::ComputedPropertyName(computed) =
+                    method.name
+                {
+                    let Some((printed, _)) = self.late_bound_symbol_member_name(computed) else {
+                        return false;
+                    };
+                    printed
+                } else {
+                    self.binder.symbols().get(symbol).name.to_string()
+                };
+                self.type_literal_member_key(method.name, symbol, &printed) == property.name
+            });
+            if is_method
+                && let Some(overloads) = self.signature_types.get(&property.r#type).cloned()
+            {
+                for signature in overloads {
+                    members.push(crate::objects::Member::Signature {
+                        printed: format!(
+                            "{}{}{}",
+                            property.printed_name,
+                            if property.optional { "?" } else { "" },
+                            crate::objects::signature_member_text(self, &signature)
+                        ),
+                    });
+                }
+            } else {
+                members.push(crate::objects::Member::Property {
+                    name: property.printed_name.clone(),
+                    optional: property.optional,
+                    readonly: property.readonly,
+                    printed: property.printed_type.clone(),
+                });
+            }
+        }
+        let single = matches!(
+            node.members,
+            [tsr_ast::TypeElement::CallSignatureDeclaration(_)
+                | tsr_ast::TypeElement::ConstructSignatureDeclaration(_)]
+        );
+        let resolved = if single && signatures.len() == 1 {
+            let text = self.signature_to_string(&signatures[0]);
+            self.store.new_anonymous(TypeFlags::OBJECT, text, owner, true)
+        } else {
+            let text = crate::objects::render_object_type(&members);
+            self.store.new_named(TypeFlags::OBJECT, text, Some(owner))
+        };
+        self.store.complete_object(reserved, resolved);
+        self.type_literal_origins.insert(reserved, origin);
+        if let Some(properties) = properties {
+            self.anonymous_properties.insert(reserved, (properties, true));
+        }
+        if !signatures.is_empty() {
+            self.signature_types.insert(reserved, signatures);
+            if !single {
+                self.alias_named_signature_types.insert(reserved);
+            }
+        }
+        if !indexes.is_empty() {
+            self.object_literal_index_infos.insert(reserved, indexes);
+        }
+        Some(reserved)
+    }
+
+    /// getPropertyNameFromType (checker.go): semantic lookup keys omit the
+    /// display quotes used for literal names; symbol chains retain their
+    /// existing bracketed lookup representation in this port.
+    fn type_literal_member_key(
+        &mut self,
+        name: tsr_ast::PropertyName<'a>,
+        symbol: SymbolId,
+        printed: &str,
+    ) -> String {
+        if let tsr_ast::PropertyName::ComputedPropertyName(computed) = name {
+            let key = computed.expression.map(|expression| self.check_expression(expression));
+            match key.map(|id| &self.store.get(id).data) {
+                Some(
+                    crate::types::TypeData::StringLiteral(value)
+                    | crate::types::TypeData::NumberLiteral(value),
+                ) => value.clone(),
+                _ => printed.to_string(),
+            }
+        } else {
+            self.binder.symbols().get(symbol).name.to_string()
+        }
     }
 
     fn build_type_literal(&mut self, node: &tsr_ast::TypeLiteralNode<'a>) -> TypeId {
@@ -1542,7 +1728,10 @@ impl<'a> Checker<'a, '_> {
         let mut signatures = Vec::new();
         let mut indexes = Vec::new();
         let mut properties = Vec::with_capacity(node.members.len());
-        let mut typed_properties = Vec::with_capacity(node.members.len());
+        let mut typed_properties: Vec<crate::objects::AnonymousProperty> =
+            Vec::with_capacity(node.members.len());
+        let mut typed_signatures = Vec::new();
+        let mut typed_indexes = Vec::new();
         // SS333: computed property signatures whose name cannot late-bind
         // contribute an INDEX (`var v: { [e]: number }` with unresolved `e`
         // records `{ [x: number]: number; }`, `parserComputedPropertyName13`),
@@ -1641,6 +1830,57 @@ impl<'a> Checker<'a, '_> {
                 };
                 let text = crate::objects::signature_member_text(self, &signature);
                 let name = name.unwrap_or_default();
+                if is_property {
+                    let Some(symbol) = self.binder.symbol_of(id) else { return error };
+                    let optional = name.ends_with('?');
+                    let printed_name = name.trim_end_matches('?').to_string();
+                    let key = match self.node_map.get(id) {
+                        Some(Node::MethodSignatureDeclaration(method)) => {
+                            self.type_literal_member_key(method.name, symbol, &printed_name)
+                        }
+                        _ => return error,
+                    };
+                    let existing =
+                        typed_properties.iter().position(|property| property.name == key);
+                    let mut overloads = existing
+                        .and_then(|index| self.signature_types.get(&typed_properties[index].r#type))
+                        .cloned()
+                        .unwrap_or_default();
+                    overloads.push(signature);
+                    let printed_type = if let [signature] = overloads.as_slice() {
+                        self.signature_to_string(signature)
+                    } else {
+                        let members: Vec<_> = overloads
+                            .iter()
+                            .map(|signature| crate::objects::Member::Signature {
+                                printed: crate::objects::signature_member_text(self, signature),
+                            })
+                            .collect();
+                        crate::objects::render_object_type(&members)
+                    };
+                    let method_type = self.store.new_anonymous(
+                        TypeFlags::OBJECT,
+                        printed_type.clone(),
+                        symbol,
+                        overloads.len() == 1,
+                    );
+                    self.signature_types.insert(method_type, overloads);
+                    let property = crate::objects::AnonymousProperty {
+                        name: key,
+                        printed_name,
+                        printed_type,
+                        optional,
+                        readonly: false,
+                        r#type: method_type,
+                    };
+                    if let Some(index) = existing {
+                        typed_properties[index] = property;
+                    } else {
+                        typed_properties.push(property);
+                    }
+                } else {
+                    typed_signatures.push(signature);
+                }
                 let bucket = if is_property { &mut properties } else { &mut signatures };
                 bucket.push(crate::objects::Member::Signature {
                     printed: format!("{prefix}{name}{text}"),
@@ -1668,6 +1908,7 @@ impl<'a> Checker<'a, '_> {
                     continue;
                 }
                 let Some(rendered) = self.index_signature_member(index) else { return error };
+                typed_indexes.extend(self.index_infos_of_declaration(index));
                 indexes.push(rendered);
                 continue;
             }
@@ -1741,6 +1982,14 @@ impl<'a> Checker<'a, '_> {
                     None => (self.intrinsics.any, None),
                 };
                 let printed = spelled.unwrap_or_else(|| self.type_to_string(member_type));
+                typed_properties.push(crate::objects::AnonymousProperty {
+                    name: accessor_name.text.to_string(),
+                    printed_name: accessor_name.text.to_string(),
+                    printed_type: printed.clone(),
+                    optional: false,
+                    readonly: is_getter && !paired,
+                    r#type: member_type,
+                });
                 properties.push(crate::objects::Member::Property {
                     name: accessor_name.text.to_string(),
                     optional: false,
@@ -1889,7 +2138,7 @@ impl<'a> Checker<'a, '_> {
             };
             if let Some(symbol) = property.node_id.and_then(|id| self.binder.symbol_of(id)) {
                 typed_properties.push(crate::objects::AnonymousProperty {
-                    name: self.binder.symbols().get(symbol).name.to_string(),
+                    name: self.type_literal_member_key(property.name, symbol, &name),
                     printed_name: name.clone(),
                     printed_type: printed.clone(),
                     optional,
@@ -1920,6 +2169,17 @@ impl<'a> Checker<'a, '_> {
                     reduced
                 }
             };
+            let key_type = match key {
+                "string" => self.intrinsics.string,
+                "number" => self.intrinsics.number,
+                "symbol" => self.intrinsics.es_symbol,
+                _ => return error,
+            };
+            typed_indexes.push(crate::index_signatures::IndexInfo {
+                key: key_type,
+                value,
+                readonly: false,
+            });
             indexes.push(crate::objects::Member::Index {
                 readonly: false,
                 name: "x".to_string(),
@@ -1977,7 +2237,7 @@ impl<'a> Checker<'a, '_> {
         let owner = node.node_id.and_then(|id| self.binder.symbol_of(id));
         let structural = printed.starts_with('{');
         let minted = self.store.new_named(TypeFlags::OBJECT, printed, owner);
-        if structural && typed_properties.len() == node.members.len() {
+        if structural {
             self.anonymous_properties.insert(
                 minted,
                 (
@@ -1985,6 +2245,15 @@ impl<'a> Checker<'a, '_> {
                     self.mapped_template_depth > 0 || !self.alias_evaluation_bindings.is_empty(),
                 ),
             );
+            if !typed_signatures.is_empty() {
+                self.signature_types.insert(minted, typed_signatures);
+                // The literal renderer preserves method and index declarations.
+                // Callable-expando rendering only has property syntax.
+                self.alias_named_signature_types.insert(minted);
+            }
+            if !typed_indexes.is_empty() {
+                self.object_literal_index_infos.insert(minted, typed_indexes);
+            }
         }
         minted
     }
@@ -5803,14 +6072,11 @@ impl<'a> Checker<'a, '_> {
         let error = self.intrinsics.error;
         let mut result = None;
         if self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_ALIAS)
-            && let Some(declaration) = self.binder.symbols().get(symbol).declarations.first().copied()
+            && let Some(declaration) =
+                self.binder.symbols().get(symbol).declarations.first().copied()
             && let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration)
             && let Some(body) = alias.r#type
             && !matches!(body, TypeNode::ConditionalTypeNode(_))
-            // Statically named properties capture instantiated members. Methods,
-            // accessors and index/call signatures still consult the declaration
-            // symbol outside this frame, so they retain the old refusal.
-            && !Self::body_requires_uncaptured_members(body)
             && self.instantiation_depth < 100
         {
             let parameters = self.local_type_parameters_of(symbol);
@@ -5842,31 +6108,6 @@ impl<'a> Checker<'a, '_> {
             self.alias_evaluated_types.insert(evaluated);
         }
         result
-    }
-
-    /// The unevaluated part of the literal-member boundary in
-    /// `getTypeFromTypeAliasReference` (`checker.go:23580`). The port captures
-    /// property signatures under alias bindings; other literal members do not
-    /// yet retain their instantiated types after that frame is popped.
-    fn body_requires_uncaptured_members(node: TypeNode<'_>) -> bool {
-        match node {
-            TypeNode::TypeLiteralNode(literal) => literal.members.iter().any(|member| {
-                !matches!(member, tsr_ast::TypeElement::PropertySignatureDeclaration(property)
-                    if matches!(property.name, tsr_ast::PropertyName::Identifier(_)
-                        | tsr_ast::PropertyName::StringLiteral(_)
-                        | tsr_ast::PropertyName::NumericLiteral(_)))
-            }),
-            TypeNode::UnionTypeNode(union) => {
-                union.types.iter().any(|&ty| Self::body_requires_uncaptured_members(ty))
-            }
-            TypeNode::IntersectionTypeNode(intersection) => {
-                intersection.types.iter().any(|&ty| Self::body_requires_uncaptured_members(ty))
-            }
-            TypeNode::ParenthesizedTypeNode(parenthesized) => {
-                parenthesized.r#type.is_some_and(Self::body_requires_uncaptured_members)
-            }
-            _ => false,
-        }
     }
 
     /// The literal-key texts of a string-literal union (or single literal, or

@@ -4900,6 +4900,9 @@ impl Checker<'_, '_> {
             }
             return self.get_intersection_type(&substituted, symbol);
         }
+        if let Some(instantiated) = self.instantiate_type_literal(id, map, parameters, names) {
+            return instantiated;
+        }
         if self.signature_types.contains_key(&id) {
             return self.instantiate_signature_type(id, map, parameters, names);
         }
@@ -5550,6 +5553,14 @@ impl Checker<'_, '_> {
                 || info.name_type.is_some_and(|ty| {
                     self.mentions_type_parameter_inner(ty, parameters, names, visited)
                 });
+        }
+        if self.object_literal_index_infos.get(&id).is_some_and(|infos| {
+            infos.iter().any(|info| {
+                self.mentions_type_parameter_inner(info.key, parameters, names, visited)
+                    || self.mentions_type_parameter_inner(info.value, parameters, names, visited)
+            })
+        }) {
+            return true;
         }
         if let Some(signatures) = self.signature_types.get(&id) {
             if signatures.iter().any(|signature| {

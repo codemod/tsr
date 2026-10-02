@@ -348,12 +348,9 @@ impl Checker<'_, '_> {
             if let Some(chain) = chain_text(&index) {
                 let name = format!("[{chain}]");
                 if let Some(member) = self.get_type_of_property_of_type(object_type, &name) {
-                    return self.include_unchecked_undefined(
-                        member,
-                        include_undefined,
-                        object_type,
-                        index_type,
-                    );
+                    // getPropertyTypeForIndexType: a known symbol property,
+                    // like a known string property, does not use index fallback.
+                    return member;
                 }
             }
         }

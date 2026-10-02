@@ -88,15 +88,13 @@ export function returned<T>({ok,data}:Result<T>){return data;}
             "chained : ({ ok, data }: Alias<string>) => string",
             "nested : ({ outer: { ok, data } }: { outer: Result<number>; }) => number",
             "returned : <T>({ ok, data }: Result<T>) => T | undefined",
-            // Native returns readonly [number, number]. Method-bearing alias
-            // literals still decline; do not leak the uninstantiated T.
-            "methodRead : ({ kind, value, get }: Methods<number>) => any",
+            "methodRead : ({ kind, value, get }: Methods<number>) => readonly [number, number]",
         ],
     );
 }
 
 #[test]
-fn static_numeric_properties_capture_instantiations_while_computed_members_decline() {
+fn static_and_computed_properties_capture_instantiations() {
     expect(
         r#"// @strict: true
 declare const key: unique symbol;
@@ -105,10 +103,6 @@ export function computed(u:U<number>){const {kind}=u;if(kind==="a")return u[key]
 type N<T>={kind:"a";0:T}|{kind:"b";0:T[]};
 export function numeric(u:N<number>){const {kind,0:value}=u;if(kind==="a")return value;throw 0;}
 "#,
-        &[
-            "numeric : (u: N<number>) => number",
-            // Native returns number. Computed members are not captured yet.
-            "computed : (u: U<number>) => any",
-        ],
+        &["numeric : (u: N<number>) => number", "computed : (u: U<number>) => number"],
     );
 }

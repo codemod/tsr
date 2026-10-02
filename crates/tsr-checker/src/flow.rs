@@ -4571,7 +4571,25 @@ impl Checker<'_, '_> {
         self.narrow_type(&mut state, initial, condition, assume_true)
     }
 
+    /// Native narrowType (flow.go) receives the instantiated semantic body.
+    /// Expand the port's named alias carrier, retaining its identity when no
+    /// narrowing occurs so a written alias does not become structural text.
     fn narrow_type(
+        &mut self,
+        state: &mut FlowState,
+        t: TypeId,
+        condition: NodeId,
+        assume_true: bool,
+    ) -> TypeId {
+        let body = self.binding_type_alias_body(t);
+        // The missing representation here is a union hidden by its alias.
+        // Non-union mapped/reference types keep their existing narrowing road.
+        let expanded = if self.store.get(body).flags.contains(TypeFlags::UNION) { body } else { t };
+        let narrowed = self.narrow_type_worker(state, expanded, condition, assume_true);
+        if narrowed == expanded { t } else { narrowed }
+    }
+
+    fn narrow_type_worker(
         &mut self,
         state: &mut FlowState,
         t: TypeId,

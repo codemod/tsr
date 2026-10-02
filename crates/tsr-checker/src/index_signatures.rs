@@ -403,7 +403,7 @@ impl<'a> Checker<'a, '_> {
 
     /// getIndexInfosOfIndexSymbol splits union keys and retains each valid
     /// primitive, pattern or nongeneric intersection key (checker.go).
-    fn index_infos_of_declaration(
+    pub(crate) fn index_infos_of_declaration(
         &mut self,
         signature: &tsr_ast::IndexSignatureDeclaration<'a>,
     ) -> Vec<IndexInfo> {
