@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 6924/9538 (72.59%)
-Assertion lines: 456048/478855 (95.24%)  — a gradient, not a pass rate
-Failed         : 2614
+Passed         : 6945/9538 (72.81%)
+Assertion lines: 456322/478855 (95.29%)  — a gradient, not a pass rate
+Failed         : 2593
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -12,7 +12,7 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 2614 failures:
+First 100 of 2593 failures:
 compiler/ClassDeclaration26
   ClassDeclaration26.ts: 5 assertion(s), expected 6
 compiler/abstractClassInLocalScopeIsAbstract
@@ -145,8 +145,6 @@ compiler/asyncFunctionReturnType
   asyncFunctionReturnType.ts: >[1, true] : [number, boolean] — expected >[1, true] : [number, true]
 compiler/asyncFunctionsAndStrictNullChecks
   asyncFunctionsAndStrictNullChecks.ts: >number : error — expected >number : number
-compiler/asyncIIFE
-  asyncIIFE.ts: >(async () => {        await 10        throw new Error();    })() : Promise<void> — expected >(async () => {        await 10        throw new Error();    })() : Promise<never>
 compiler/asyncImportNestedYield
   asyncImportNestedYield.ts: >foo : error — expected >foo : () => AsyncGenerator<string, void, string>
 compiler/asyncYieldStarContextualType
@@ -213,3 +211,5 @@ compiler/cannotIndexGenericWritingError
   cannotIndexGenericWritingError.ts: >foo2 : <T extends number[] & { [s: string]: string | number; }>(target: T, p: string | number) => void — expected >foo2 : <T extends number[] & { [s: string]: number | string; }>(target: T, p: string | number) => void
 compiler/cannotInvokeNewOnErrorExpression
   cannotInvokeNewOnErrorExpression.ts: >new M.ClassA : any — expected >M.ClassA[] : any
+compiler/cannotInvokeNewOnIndexExpression
+  cannotInvokeNewOnIndexExpression.ts: >new any : any — expected >any[1] : any

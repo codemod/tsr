@@ -121,3 +121,33 @@ It covers state restoration, source-order queue consumption, native annotation
 and rest semantics, test attribution and project standards. No independent or
 cross-model review is claimed. Committed verification and mutation evidence follow
 in the next checkpoint record.
+
+Committed verification at c0da5327 in /tmp/tsr-99-live-verify reproduces the frozen
+candidate byte-for-byte. Source hash:
+11a51196834bd13f1bf432b96c7770337c473fda36d8c4e1577fd7704c8dfceb.
+The isolated coverage run reports 456,322/478,855 RIGHT (95.29%) and 6,945/9,538
+complete cases (72.81%), leaving 17,745 matches to 99%. Aligned rows comprise
+456,322 RIGHT, 2,697 GAP and 15,224 WRONG. All 216 release workspace result blocks,
+clippy, formatting and 3,327 anchors pass in both checkouts. Fresh depend records
+498 non-gapping roots, 209 cycles, zero depth caps and 3,503 walked gaps. C3 balances;
+C1/C4 remain stale under tsr-6.29. The committed snapshot is from the isolated run.
+The primary-thread review receipt is
+/tmp/compound-engineering-501/ce-code-review/live-inference/review.json.
+
+The 38 changed already-WRONG rows were inspected separately: eight JS optional
+annotation rows, five nested return-context rows, ten unique-symbol rows, eight
+generic-function/annotated-return rows, four function-property assignment rows,
+two JS typedef rows and one partially annotated callback row. Their expected
+outputs remain unmatched; they are not counted as gains.
+
+Three isolated mutations compile and fail the intended assertion: disabling site
+registration fails the nested-object test; disabling tuple element registration
+fails the tuple test; omitting annotation inference fails the annotated-parameter
+test. Replacing all six changed production files with 660653be yields six failures
+and five passes. The five passing tests are preservation controls, not independent
+proof that this change produced their behavior. The restored source hash matches
+the committed hash, and all 11 tests pass again. Without the corpus, fixture reads
+emit 12 explicit skip messages and the self-contained ordering control still
+passes. Scripts/logs are /tmp/tsr-99-live-mutations.py,
+/tmp/tsr-99-live-mutations.log, /tmp/tsr-99-live-mutation-*.log and
+/tmp/tsr-99-live-absent-corpus.log.

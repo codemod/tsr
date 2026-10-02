@@ -24,25 +24,24 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-10-02
 
-Measured on **`5b72e201`** in an isolated checkout: **456,048/478,855 assertions
-(95.24%)**, **6,924/9,538 complete cases (72.59%)**. The 99% target requires
-474,067 correct assertions; **18,019 remain**. Denominator and pinned oracle
-unchanged. Aligned verdicts: **474,243 total; 456,048 right; 2,743 gap; 15,452 wrong**.
+Measured on **`c0da5327`** in an isolated checkout: **456,322/478,855 assertions
+(95.29%)**, **6,945/9,538 complete cases (72.81%)**. The 99% target requires
+474,067 correct assertions; **17,745 remain**. Denominator and pinned oracle
+unchanged. Aligned verdicts: **474,243 total; 456,322 right; 2,697 gap; 15,224 wrong**.
 Binder retains its verified **8,497/8,497 (100%)** result at aab165d8;
 other suites below retain historical measurements.
 
-This unit adds **47 matching assertions and one complete case**, with **zero
-RIGHT losses, zero GAP-to-WRONG and no changed already-WRONG rows** relative to
-3d546aa9. [Partial inference](docs/architecture/checker-99-partial-inference.md)
-records the early context-free method and array construction that preserves data
-beside deferred callbacks. Four regression tests cover method sibling data,
-mutable/readonly tuple positions, nested methods and array subtype reduction.
-Committed verdict and source hash match the frozen candidate. All 215 release
-workspace result blocks, clippy, formatting and 3,329 anchors pass in both
-checkouts. Fresh depend has 497 non-gapping roots, 210 cycles, zero depth caps and
-3,552 walked gaps; C3 balances while C1/C4 remain stale (tsr-6.29). Native live
-context state and nested inference fixing order remain incomplete. The 99% goal and tsr-8
-remain active.
+This unit adds **274 matching assertions and 21 complete cases**, with **zero
+RIGHT losses and zero GAP-to-WRONG** relative to 5b72e201; 38 already-WRONG rows
+change but remain wrong. [Live inference](docs/architecture/checker-99-live-inference.md)
+records completion-ordered object/tuple sites, annotation inference and their
+contextual/return-flow prerequisites. Eleven regression tests pass. The isolated
+committed verdict matches the frozen candidate byte-for-byte. All 216 release
+workspace result blocks, clippy, formatting and 3,327 anchors pass in both
+checkouts. Fresh depend has 498 non-gapping roots, 209 cycles, zero depth caps and
+3,503 walked gaps; C3 balances while C1/C4 remain stale (tsr-6.29). Signature-level
+fixing still approximates native lazy mapper traversal, and const/spread early-pass
+forms remain incomplete. The 99% goal and tsr-8 remain active.
 
 ### Previous whole-suite measurement — historical
 
@@ -1077,6 +1076,7 @@ Per-crate, by what the conformance suites actually assert — not by what exists
 
 | subsystem | state | evidence |
 |---|---|---|
+| live intra-expression inference | **completed object/tuple sites feed fixing reads** | c0da5327: +274 matches, +21 complete cases, zero RIGHT losses or GAP-to-WRONG; 11 regression tests; [evidence](docs/architecture/checker-99-live-inference.md) |
 | partial inference sources | **method sibling data and deferred array/tuple elements** | 5b72e201: +47 matches, +1 complete case, zero adverse or changed already-WRONG rows; four regression tests; [evidence](docs/architecture/checker-99-partial-inference.md) |
 | contextual inference mappers | **recursive constraints, preserved templates and mapped callback signatures** | 3d546aa9: +73 matches, +6 complete cases, zero RIGHT losses/new WRONG rows; nine regression tests; [evidence](docs/architecture/checker-99-contextual-mappers.md) |
 | retained generic signatures | **fresh identities, lazy constraints and native comparison prerequisites** | 7ef88ba8: +39 matches, +2 complete cases, zero RIGHT losses/new WRONG rows; eight regression tests; [evidence](docs/architecture/checker-99-fresh-signatures.md) |
@@ -1254,7 +1254,19 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-### Current priorities at `5b72e201` — 2026-10-02
+### Current priorities at `c0da5327` — 2026-10-02
+
+Continue toward 99%: 17,745 matching assertions remain. Completion-ordered
+intra-expression sites now replace the eager nested callback walk. Next compare
+signature-level fixing with native per-variable lazy mapper traversal, especially
+interdependent constraints and nested returned callbacks. Const-array element
+registration and spread/omitted early-pass forms still need the ordinary checker
+threaded with check mode. The 38 changed already-WRONG rows cluster in JS optional
+annotation inference, nested return contexts, generic functions and unique-symbol
+metadata. Promise.try still misses the invalid callback's U[0] display. tsr-8
+retains these and the conditional/recursive relation gaps below.
+
+### Previous priorities at `5b72e201` — 2026-10-02
 
 Continue toward 99%: 18,019 matching assertions remain. Method and array sibling
 data now survive the early context-free inference pass. The next missing native
@@ -4286,6 +4298,18 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+### Live inference drafts at `c0da5327`
+
+The initial queue draft gained 115 but lost 169 RIGHT assertions. Missing apparent
+contextual types, raw contextual returns, parent return mapping and checker paths
+previously masked by the eager callback walk accounted for those regressions.
+The final full comparison gains 274 with zero RIGHT losses or GAP-to-WRONG.
+Do not restore eager harvesting to conceal an ordinary checker gap. In particular,
+using the syntactic body walk for async never inference lost 21 RIGHT assertions;
+the existing bound-flow query removes that re-entry and reachability regression.
+Native per-variable lazy fixing and const/spread queue registration remain bounded
+work, not claims of a complete inference engine. [Evidence](docs/architecture/checker-99-live-inference.md).
 
 ### Partial inference bounds at `5b72e201`
 
@@ -11523,3 +11547,5 @@ that were true of a different population than the one they were quoted about.
 | 2026-10-02 | `3d546aa9` | **95.23%** | **6,923/9,538** | **Recursive contextual inference mappers: +73 assertions (+48 W-to-R, +25 G-to-R), +6 complete cases, zero RIGHT losses/new WRONG rows.** Isolated full verdict matches candidate byte-for-byte: 456,001/478,855; 2,743 aligned gaps and 15,499 wrong. Nine regression tests, all 214 release workspace blocks, clippy and 3,329 anchors pass. Sixty-two changed already-WRONG rows retain nested reverse-mapping and const metadata residue. Fresh depend: 499 non-gapping roots, 210 cycles, zero depth caps, 3,554 walked gaps; C3 balances, C1/C4 stale (tsr-6.29). [Evidence](docs/architecture/checker-99-contextual-mappers.md); tsr-8 remains active with 18,066 matches to 99%. |
 
 | 2026-10-02 | `5b72e201` | **95.24%** | **6,924/9,538** | **Partial inference beside callbacks: +47 assertions (all W-to-R), +1 complete case, zero adverse or changed already-WRONG rows.** Isolated full verdict equals the candidate byte-for-byte: 456,048/478,855; 2,743 aligned gaps and 15,452 wrong. Four regression tests; all 215 release workspace blocks, clippy, formatting and 3,329 anchors pass in both checkouts. Fresh depend: 497 non-gapping roots, 210 cycles, zero depth caps, 3,552 walked gaps; C3 balances, C1/C4 stale (tsr-6.29). [Evidence](docs/architecture/checker-99-partial-inference.md); tsr-8 remains active with 18,019 matches to 99%. |
+
+| 2026-10-02 | `c0da5327` | **95.29%** | **6,945/9,538** | **Live intra-expression inference: +274 assertions (228 W-to-R, 46 G-to-R), +21 complete cases, zero RIGHT losses or GAP-to-WRONG; 38 changed already-WRONG rows.** Isolated full verdict equals frozen candidate byte-for-byte: 456,322/478,855, 2,697 aligned gaps, 15,224 wrong. Eleven regression tests; all 216 release workspace blocks, clippy, formatting and 3,327 anchors pass in both checkouts. Fresh depend: 498 non-gapping roots, 209 cycles, zero depth caps, 3,503 walked gaps; C3 balances, C1/C4 stale (tsr-6.29). [Evidence](docs/architecture/checker-99-live-inference.md); tsr-8 remains active with 17,745 matches to 99%. |
