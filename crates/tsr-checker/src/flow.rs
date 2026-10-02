@@ -5905,23 +5905,29 @@ impl Checker<'_, '_> {
 
     /// `getAccessedPropertyName` (`flow.go:1727`), the access-expression
     /// arms: a property access's name, or an element access whose argument is
-    /// a string/numeric literal. The binding-element and parameter arms
-    /// belong to the pseudo-reference road, not ported. §750.
+    /// a string/numeric literal. Binding elements and parameters also expose
+    /// their property name or tuple index to pseudo-reference narrowing.
     fn get_accessed_property_name(&self, access: NodeId) -> Option<String> {
         match self.node_map.get(access)? {
             Node::PropertyAccessExpression(node) => match node.name? {
                 tsr_ast::MemberName::Identifier(name) => Some(name.text.to_string()),
                 tsr_ast::MemberName::PrivateIdentifier(name) => Some(name.text.to_string()),
             },
-            // §756: `getDestructuringPropertyName` (`flow.go:1792`), the
-            // OBJECT-pattern arm — `getBindingElementPropertyName`
-            // (`utilities.go:1081`) is `PropertyNameOrName()`, so
-            // `{ kind: x }` answers `kind` and the shorthand `{ kind }`
-            // answers `kind` too. The ARRAY-pattern arm (`:1800`) is the
-            // element's INDEX, which belongs with the parameter arm on the
-            // pseudo-reference road; it declines here.
+            // `getDestructuringPropertyName` (`flow.go:1792`): an array
+            // binding uses its position, including omitted elements. Object
+            // bindings use the explicit property name or shorthand name.
             Node::BindingElement(node) => {
                 let parent = self.nodes.parent(access)?;
+                if self.nodes.kind(parent) == SyntaxKind::ArrayBindingPattern {
+                    let Node::BindingPattern(pattern) = self.node_map.get(parent)? else {
+                        return None;
+                    };
+                    return pattern
+                        .elements
+                        .iter()
+                        .position(|element| element.node_id == Some(access))
+                        .map(|index| index.to_string());
+                }
                 if self.nodes.kind(parent) != SyntaxKind::ObjectBindingPattern {
                     return None;
                 }

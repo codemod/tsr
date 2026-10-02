@@ -5767,12 +5767,10 @@ impl<'a> Checker<'a, '_> {
             && let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration)
             && let Some(body) = alias.r#type
             && !matches!(body, TypeNode::ConditionalTypeNode(_))
-            // A TypeLiteral anywhere in the body's structural spine belongs
-            // to the §90 symbol road, whose member reads instantiate;
-            // evaluating one here mints WRITTEN member types (`T | undefined`
-            // for a bound T — 19 G→W in controlFlowAliasedDiscriminants,
-            // whose `UseQueryResult<T>` is a union of two literals).
-            && !Self::body_carries_type_literal(body)
+            // Statically named properties capture instantiated members. Methods,
+            // accessors and index/call signatures still consult the declaration
+            // symbol outside this frame, so they retain the old refusal.
+            && !Self::body_requires_uncaptured_members(body)
             && self.instantiation_depth < 100
         {
             let parameters = self.local_type_parameters_of(symbol);
@@ -5806,19 +5804,26 @@ impl<'a> Checker<'a, '_> {
         result
     }
 
-    /// §92's admission walk: whether a `TypeLiteral` sits on the body's
-    /// structural spine (through unions, intersections, parentheses).
-    fn body_carries_type_literal(node: TypeNode<'_>) -> bool {
+    /// The unevaluated part of the literal-member boundary in
+    /// `getTypeFromTypeAliasReference` (`checker.go:23580`). The port captures
+    /// property signatures under alias bindings; other literal members do not
+    /// yet retain their instantiated types after that frame is popped.
+    fn body_requires_uncaptured_members(node: TypeNode<'_>) -> bool {
         match node {
-            TypeNode::TypeLiteralNode(_) => true,
+            TypeNode::TypeLiteralNode(literal) => literal.members.iter().any(|member| {
+                !matches!(member, tsr_ast::TypeElement::PropertySignatureDeclaration(property)
+                    if matches!(property.name, tsr_ast::PropertyName::Identifier(_)
+                        | tsr_ast::PropertyName::StringLiteral(_)
+                        | tsr_ast::PropertyName::NumericLiteral(_)))
+            }),
             TypeNode::UnionTypeNode(union) => {
-                union.types.iter().any(|&t| Self::body_carries_type_literal(t))
+                union.types.iter().any(|&ty| Self::body_requires_uncaptured_members(ty))
             }
             TypeNode::IntersectionTypeNode(intersection) => {
-                intersection.types.iter().any(|&t| Self::body_carries_type_literal(t))
+                intersection.types.iter().any(|&ty| Self::body_requires_uncaptured_members(ty))
             }
             TypeNode::ParenthesizedTypeNode(parenthesized) => {
-                parenthesized.r#type.is_some_and(Self::body_carries_type_literal)
+                parenthesized.r#type.is_some_and(Self::body_requires_uncaptured_members)
             }
             _ => false,
         }

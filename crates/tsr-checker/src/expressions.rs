@@ -405,6 +405,7 @@ impl Checker<'_, '_> {
             return None;
         }
         let parent_type = self.get_type_for_binding_element_parent(holder);
+        let parent_type = self.binding_type_alias_body(parent_type);
         if parent_type == self.intrinsics.error {
             return None;
         }
@@ -418,8 +419,13 @@ impl Checker<'_, '_> {
                 crate::types::TypeData::Union { types, .. } => types.clone(),
                 _ => vec![parent_type],
             };
-            let mapped: Vec<TypeId> =
-                constituents.iter().map(|&c| self.base_constraint_or_type(c)).collect();
+            let mapped: Vec<TypeId> = constituents
+                .iter()
+                .map(|&constituent| {
+                    let constraint = self.base_constraint_or_type(constituent);
+                    self.binding_type_alias_body(constraint)
+                })
+                .collect();
             if mapped == constituents { parent_type } else { self.get_union_type(&mapped) }
         };
         if !self.store.get(parent_constraint).flags.intersects(crate::flags::TypeFlags::UNION) {

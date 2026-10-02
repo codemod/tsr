@@ -536,9 +536,9 @@ impl Checker<'_, '_> {
     }
 
     /// Native aliases expose their structural body. This port keeps generic
-    /// alias identities separately; project that body before testing tuple/array
-    /// shape, without changing the printed source identity.
-    fn binding_type_alias_body(&mut self, mut source: TypeId) -> TypeId {
+    /// alias identities separately; project that body before testing tuple,
+    /// array or discriminated-union shape, preserving the printed source identity.
+    pub(crate) fn binding_type_alias_body(&mut self, mut source: TypeId) -> TypeId {
         let mut visited = Vec::new();
         while let Some((symbol, arguments)) = self.type_reference_targets.get(&source).cloned() {
             if visited.contains(&source) {
