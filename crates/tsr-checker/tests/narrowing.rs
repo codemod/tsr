@@ -81,6 +81,18 @@ fn last_expression_statement<'a>(statements: &[Statement<'a>]) -> Option<tsr_ast
                     found = last_expression_statement(clause.statements).or(found);
                 }
             }
+            Statement::TryStatement(node) => {
+                for block in [
+                    node.try_block,
+                    node.catch_clause.and_then(|clause| clause.block),
+                    node.finally_block,
+                ]
+                .into_iter()
+                .flatten()
+                {
+                    found = last_expression_statement(block.statements).or(found);
+                }
+            }
             _ => {}
         }
     }
@@ -92,6 +104,46 @@ fn assignment_filtering_preserves_a_named_union_when_every_member_survives() {
     assert_eq!(
         type_of_last_expression("type Choice = 'a' | 'b'; let value: Choice = undefined; value;"),
         "Choice"
+    );
+}
+
+#[test]
+fn a_read_after_finally_uses_only_normal_try_completion() {
+    assert_eq!(
+        type_of_last_expression("function f(x: string | number) { try { x = 1; } finally {} x; }"),
+        "number"
+    );
+}
+
+#[test]
+fn a_read_inside_finally_retains_exception_paths() {
+    assert_eq!(
+        type_of_last_expression("function f(x: string | number) { try { x = 1; } finally { x; } }"),
+        "string | number"
+    );
+}
+
+#[test]
+fn a_read_after_finally_excludes_pending_returns() {
+    assert_eq!(
+        type_of_last_expression(
+            "function f(x: string | number, stop: boolean) {
+                try { if (stop) return; x = 1; } finally {} x;
+            }"
+        ),
+        "number"
+    );
+}
+
+#[test]
+fn nested_finally_reductions_preserve_the_normal_assignment() {
+    assert_eq!(
+        type_of_last_expression(
+            "function f(x: string | number) {
+                try { try { x = 1; } finally {} } finally {} x;
+            }"
+        ),
+        "number"
     );
 }
 

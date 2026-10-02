@@ -43,7 +43,7 @@
 //!   a wrong number.
 
 use tsr_ast::{Node, NodeFlags, NodeId, SyntaxKind};
-use tsr_binder::{FlowFlags, FlowId, ReduceLabel, SymbolFlags, SymbolId};
+use tsr_binder::{Antecedents, FlowFlags, FlowId, FlowStore, ReduceLabel, SymbolFlags, SymbolId};
 
 use crate::{
     checker::Checker,
@@ -72,6 +72,10 @@ struct FlowState {
     /// Element types seen at `ARRAY_MUTATION` nodes while walking an auto-array
     /// reference. §710's `addEvolvingArrayElementType`.
     array_elements: Vec<TypeId>,
+    /// Active `finally` path reductions (`FlowState.reduceLabels`, flow.go:48).
+    /// A read past a finally block excludes paths that are still throwing or
+    /// returning; a read inside the block retains those paths.
+    reduce_labels: Vec<ReduceLabel>,
     /// The reference node the question is about.
     reference: NodeId,
     /// What that reference resolves to, when it is an identifier.
@@ -135,6 +139,22 @@ struct FlowState {
 
 /// Upstream's cap (`flow.go:118`), reproduced exactly rather than rounded.
 const MAX_FLOW_DEPTH: u32 = 2_000;
+
+/// `getBranchLabelAntecedents` (flow.go): use the innermost active reduction.
+/// The iterator borrows only the graph, so recursive walks may update the
+/// reduction stack without allocating a temporary antecedent list.
+fn branch_label_antecedents<'flow>(
+    store: &'flow FlowStore,
+    flow: FlowId,
+    reduce_labels: &[ReduceLabel],
+) -> Antecedents<'flow> {
+    for reduce in reduce_labels.iter().rev() {
+        if reduce.target == flow {
+            return store.reduced_antecedents(*reduce);
+        }
+    }
+    store.antecedents(flow)
+}
 
 /// One constituent's fate under `getNarrowedTypeWorker`'s ladder
 /// (`checker-notes-narrow.md` §22).
@@ -299,6 +319,7 @@ impl Checker<'_, '_> {
         };
         let mut state = FlowState {
             array_elements: Vec::new(),
+            reduce_labels: Vec::new(),
             reference,
             symbol: None,
             declared_type: parent_union,
@@ -379,6 +400,7 @@ impl Checker<'_, '_> {
         let is_auto = symbol.is_some_and(|symbol| self.is_auto_typed_declaration(symbol));
         let mut state = FlowState {
             array_elements: Vec::new(),
+            reduce_labels: Vec::new(),
             reference,
             symbol,
             declared_type,
@@ -679,16 +701,31 @@ impl Checker<'_, '_> {
             } else if flags.contains(FlowFlags::LOOP_LABEL) && !self.in_js_file(state.reference) {
                 break self.get_type_at_flow_loop_label(state, flow);
             } else if flags.contains(FlowFlags::BRANCH_LABEL) {
-                let mut antecedents = binder.flow().antecedents(flow);
-                let Some(first) = antecedents.next() else {
+                let antecedents =
+                    branch_label_antecedents(binder.flow(), flow, &state.reduce_labels);
+                let mut probe = antecedents.clone();
+                let Some(first) = probe.next() else {
                     // A label with no antecedents is unreachable.
                     break FlowType { t: self.declared_or_never(state), incomplete: false };
                 };
-                if antecedents.next().is_none() {
+                if probe.next().is_none() {
                     flow = first;
                     continue;
                 }
-                break self.get_type_at_flow_branch_label(state, flow);
+                break self.get_type_at_flow_branch_label(state, antecedents);
+            } else if flags.contains(FlowFlags::REDUCE_LABEL) {
+                // `getTypeAtFlowNode` (flow.go:181) scopes the replacement to
+                // this recursive walk, restoring it before a sibling path.
+                let Some(reduce) = binder.flow().reduce_label(flow) else {
+                    break FlowType { t: state.declared_type, incomplete: false };
+                };
+                let Some(antecedent) = binder.flow().antecedent(flow) else {
+                    break FlowType { t: state.declared_type, incomplete: false };
+                };
+                state.reduce_labels.push(reduce);
+                let result = self.get_type_at_flow_node(state, antecedent);
+                state.reduce_labels.pop();
+                break result;
             } else if flags.contains(FlowFlags::START) {
                 // Every container has its own START (`binder.rs:903`), so the
                 // walk stops at the function boundary by construction —
@@ -812,11 +849,8 @@ impl Checker<'_, '_> {
                         break FlowType { t: self.intrinsics.any, incomplete: false };
                     }
                 }
-                // SWITCH_CLAUSE, CALL, ARRAY_MUTATION and REDUCE_LABEL. Each is
-                // a narrowing this port does not do, and skipping to the
-                // antecedent yields the *unnarrowed* type — today's answer, not
-                // a wrong one. A `CALL` node additionally guards assertion
-                // signatures, which need call resolution this checker lacks.
+                // An unrelated array mutation contributes no type change;
+                // continue along its antecedent after the evolving-array work.
                 match binder.flow().antecedent(flow) {
                     Some(next) => {
                         flow = next;
@@ -2987,9 +3021,12 @@ impl Checker<'_, '_> {
     /// short-circuits on `declaredType` once every constituent is present.
     /// Neither changes the answer here; both are performance and loop
     /// bookkeeping.
-    fn get_type_at_flow_branch_label(&mut self, state: &mut FlowState, flow: FlowId) -> FlowType {
-        let antecedents: Vec<FlowId> = self.binder.flow().antecedents(flow).collect();
-        let mut types: Vec<TypeId> = Vec::with_capacity(antecedents.len());
+    fn get_type_at_flow_branch_label(
+        &mut self,
+        state: &mut FlowState,
+        antecedents: Antecedents<'_>,
+    ) -> FlowType {
+        let mut types: Vec<TypeId> = Vec::new();
         let never = self.intrinsics.never;
         let mut subtype_reduction = false;
         for antecedent in antecedents {
@@ -3161,7 +3198,7 @@ impl Checker<'_, '_> {
                 }
             } else if flags.contains(FlowFlags::BRANCH_LABEL) {
                 // A branching point is reachable if any branch is reachable.
-                let antecedents = self.branch_label_antecedents(flow, reduce_labels);
+                let antecedents = branch_label_antecedents(binder.flow(), flow, reduce_labels);
                 for antecedent in antecedents {
                     if self.is_reachable_flow_node_worker(reduce_labels, antecedent, false) {
                         return true;
@@ -3197,18 +3234,6 @@ impl Checker<'_, '_> {
                 return !flags.contains(FlowFlags::UNREACHABLE);
             }
         }
-    }
-
-    /// `getBranchLabelAntecedents` (`flow.go`): a label whose antecedents an
-    /// in-flight `REDUCE_LABEL` replaces reads the replacement list.
-    fn branch_label_antecedents(&self, flow: FlowId, reduce_labels: &[ReduceLabel]) -> Vec<FlowId> {
-        let store = self.binder.flow();
-        for reduce in reduce_labels.iter().rev() {
-            if reduce.target == flow {
-                return store.reduced_antecedents(*reduce).collect();
-            }
-        }
-        store.antecedents(flow).collect()
     }
 
     /// The CALL arm of `isReachableFlowNodeWorker` (`flow.go:2541`): a call
@@ -4539,6 +4564,7 @@ impl Checker<'_, '_> {
     ) -> TypeId {
         let mut state = FlowState {
             array_elements: Vec::new(),
+            reduce_labels: Vec::new(),
             reference,
             symbol,
             declared_type: declared,

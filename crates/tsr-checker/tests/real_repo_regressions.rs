@@ -9,9 +9,10 @@
 //! asserted to still fire. Those pairs are the point of the file; the mutation
 //! tables under each section name which of the two a given mutation reddens.
 //!
-//! The conformance suites are byte-identical across all of these — that is what
-//! made a real repository the only instrument, and it is also why the true
-//! positives have to be written by hand here rather than left to the corpus.
+//! The original fixes left the conformance suites byte-identical, making a
+//! real repository their only instrument. Later flow fixes also affect corpus
+//! types; the diagnostic pairs still prevent a suppression from passing merely
+//! by disabling the rule.
 //!
 //! ---
 //!
@@ -648,6 +649,54 @@ fn a_non_exhaustive_switch_still_reports() {
         codes(&[(
             "/a.ts",
             "export function g(i: \"day\" | \"week\"): string {\n  let x: string;\n  switch (i) {\n    case \"day\": x = \"d\"; break;\n  }\n  return x;\n}\n"
+        )]),
+        vec!["TS2454".to_string()]
+    );
+}
+
+#[test]
+fn normal_try_finally_completion_definitely_assigns() {
+    assert_eq!(
+        codes(&[(
+            "/a.ts",
+            "declare function compute(): number;
+             declare function cleanup(): void;
+             function f() {
+                 let result: number;
+                 try { result = compute(); } finally { cleanup(); }
+                 return result;
+             }"
+        )]),
+        Vec::<String>::new()
+    );
+}
+
+#[test]
+fn an_unassigned_catch_path_after_finally_still_reports() {
+    assert_eq!(
+        codes(&[(
+            "/a.ts",
+            "declare function compute(): number;
+             function f() {
+                 let result: number;
+                 try { result = compute(); } catch {} finally {}
+                 return result;
+             }"
+        )]),
+        vec!["TS2454".to_string()]
+    );
+}
+
+#[test]
+fn an_exception_path_inside_finally_still_reports() {
+    assert_eq!(
+        codes(&[(
+            "/a.ts",
+            "declare function compute(): number;
+             function f() {
+                 let result: number;
+                 try { result = compute(); } finally { result; }
+             }"
         )]),
         vec!["TS2454".to_string()]
     );
