@@ -92,7 +92,7 @@ non-authoritative while tsr-6.29's C1/C4 controls are stale.
 
 ## Verified checkpoint
 
-At UNIT_CODE_CHECKPOINT the full aligned comparison records 453,337 RIGHT,
+At 0d806f93 the full aligned comparison records 453,337 RIGHT,
 3,224 GAP and 17,682 WRONG among 474,243 aligned assertions. This is +462
 versus ced80f1f: 405 WRONG-to-RIGHT, 57 GAP-to-RIGHT, zero RIGHT losses,
 16 GAP-to-WRONG and 27 changed wrong answers.
