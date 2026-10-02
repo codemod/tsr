@@ -24,24 +24,26 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-10-02
 
-Measured on **`69d64026`** (rebased on 91439f0b): **457,226/478,855 assertions
-(95.48%)**, **6,998/9,538 complete cases (73.37%)**. The 99% target requires
-474,067 correct assertions; **16,841 remain**. Denominator and pinned oracle
-unchanged. Aligned verdicts: **474,243 total; 457,226 right; 2,572 gap; 14,445 wrong**.
+Measured on **`f102831c`** (rebased on 68fc00ef): **457,266/478,855 assertions
+(95.49%)**, **6,998/9,538 complete cases (73.37%)**. The 99% target requires
+474,067 correct assertions; **16,801 remain**. Denominator and pinned oracle
+unchanged. Aligned verdicts: **474,243 total; 457,266 right; 2,572 gap; 14,405 wrong**.
 Binder retains its verified **8,497/8,497 (100%)** result at aab165d8;
 other suites below retain historical measurements.
 
-This unit (indexed access, tsr-6.30/6.25) adds **64 matching assertions and 4
-complete cases** (50 W→R, 14 G→R) with **zero RIGHT losses** relative to a
-full-run baseline measured at 91439f0b. Two GAP-to-WRONG rows in
-partialOfLargeAPIIsAbleToBeWorkedWith print a union-key write intersection in
-the order of `keyof`'s string-literal keys, where native uses number literals
-for numeric names. [Union-key element access](docs/architecture/checker-99-union-key-access.md)
-records union-key distribution, the fresh object-literal key arm with receiver
-widening, identifier-key reference matching and the constant-key name gate.
-Three added regressions; all 218 release workspace result blocks, clippy,
-formatting, 3,349 anchors and the section gate pass.
-The 99% goal and tsr-8 remain active.
+This unit (mapped types, tsr-6.9) adds **40 matching assertions** (all
+WRONG-to-RIGHT; no complete case moves) with **zero RIGHT losses and no other
+transitions** relative to a full-run baseline measured at 68fc00ef.
+[Recursive reverse mapped inference](docs/architecture/checker-95-recursive-reverse-mapped.md)
+records lazy self-referencing mapped aliases, optional mapped templates in
+reverse inference, the reverse expanding stacks with mapped recursion
+identities, lazily resolved reverse mapped objects with replaceIndexedAccess
+and the node builder's nested placeholder, and operand identity for deferred
+keyof in limited-constraint filtering. One added regression; all 217 release
+workspace result blocks, clippy, formatting, 3,330 anchors and the section
+gate pass. The issue-id gate still reports the historical IDs missing from the
+available registry (tsr-10). The previous unit's record (69d64026, indexed access, tsr-6.30/6.25) remains
+in §7. The 99% goal and tsr-8 remain active.
 
 ### Previous whole-suite measurement — historical
 
@@ -1267,6 +1269,18 @@ recursive conditionals and mapped-template conditionals. circularConstructorWith
 four GAP-to-WRONG rows need lazy class member types during an alias's own
 resolution. Mapped-alias references still enumerate only literal keys;
 reporting them unenumerable measured 22 RIGHT losses.
+
+### Current priorities at `f102831c` — 2026-10-02 (mapped types, tsr-6.9)
+
+Continue toward 99%: 16,801 matching assertions remain. Recursive reverse
+mapped inference now resolves members on demand. Remaining in this family:
+primitive sources reversed through their apparent members (native
+`label: { toString: any; ... }`), the index-signature expanding placeholder
+(`interface B { [s: string]: B }`), placeholder rules (1) and (3) of
+shouldUsePlaceholderForProperty, getSimplifiedType on indexed-access inference
+targets (`Pick<T & U, K>` reverses to unknown members), numeric key origins
+(tsr-6.10) and tsr-9's context-sensitive reverse tuple rows. The priorities
+below stand.
 
 ### Current priorities at `69d64026` — 2026-10-02 (indexed access, tsr-6.30)
 
@@ -11541,6 +11555,7 @@ holds only the numbers.
 | 2026-10-02 | `6443fd74` | — | — | **dts: `isolated_declarations` 13 → 14/15; `dts_reachable_target` 494 → 493/1,162; `dts_emit` 342/375 and `dts_shape` 892/1,006 unmoved.** | `TS9025` (`typeFromParameterWorker` / `addUndefinedIfDefinitelyRequired`): under strict null checks, an initialized parameter before a required one whose initializer is `x as T` with a type node that could already contain `undefined` reports at the parameter. First analysis rule that reads a compiler option: `tsr_dts::analyze_with_options(AnalysisOptions { strict_null_checks })`, default on as in typescript-go, threaded through the three dts suites and the emitter. The reachable −1 is `isolatedDeclarationsAddUndefined`, which upstream reports. The last `isolated_declarations` miss is `TS9026` (another file's augmentation), out of per-file reach. Release workspace tests, clippy, fmt pass. [Notes](docs/architecture/isolated-declarations.md). |
 | 2026-10-02 | `9a14a090` | — | — | **dts: `dts_shape` 892 → 897/1,006; `dts_emit` 342/375, `isolated_declarations` 14/15, `dts_reachable_target` 493/1,162 unmoved.** | JSDoc `@import` tags emit as the `import type` declarations upstream's reparser makes of them (`importTag5`, `importTag16`, `importTag18`–`20`), recovered from comment text and parsed by a new `tsr_parser::parse_standalone_statement` past the end of the source; a script keeps one only when an emitted declaration names it. No case lost (full failure-list diff). Release workspace tests, clippy, fmt pass. [Notes](docs/architecture/declaration-emit.md). |
 | 2026-10-02 | `69d64026` | **73.37%** | **6,998** | **457,226/478,855 assertions (95.48%).** +64 vs full-run baseline at 91439f0b, +4 cases; 50 W→R, 14 G→R, zero RIGHT losses; 2 G→W (numeric `keyof` key order). | **Indexed access (tsr-6.30): union-key element access and identifier-key references.** Element access distributes getPropertyTypeForIndexType over non-boolean union keys; unwidened fresh object literals answer the string/number and noImplicitAny literal-key arm (assignment/call receivers widen first — omitting that lost 6 RIGHT rows); isMatchingReference matches `obj[key]` for unassigned parameter/local keys; tryGetElementAccessExpressionName requires a constant or enum-member key. Pinned tsgo controls; release workspace 218 blocks, clippy, fmt, 3,349 anchors pass. [Evidence](docs/architecture/checker-99-union-key-access.md). |
+| 2026-10-02 | `f102831c` | **95.49%** | **6,998/9,538** | **Recursive reverse mapped inference (tsr-6.9): +40 assertions (40 W→R), zero RIGHT losses and no other transitions vs a full baseline at 68fc00ef; no complete case moves.** Self-referencing mapped aliases capture on first inference use; `?` templates add optionality for reverse inference; reverse expanding stacks with mapped recursion identities; reverse mapped objects resolve lazily (replaceIndexedAccess, nested placeholder text) so `Deep<XMLHttpRequest>` stays finite. Gains: mappedTypeRecursiveInference 25, isomorphicMappedTypeInference 8, mappedTypesArraysTuples 4. [Evidence and limits](docs/architecture/checker-95-recursive-reverse-mapped.md). |
 
 ## 8. Updating this file
 
