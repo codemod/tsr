@@ -24,37 +24,25 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-10-02
 
-Measured on **`b1900137`** (rebased on 6b2203cc): **457,058/478,855 assertions
-(95.45%)**, **6,987/9,538 complete cases (73.25%)**. The 99% target requires
-474,067 correct assertions; **17,009 remain**. Denominator and pinned oracle
-unchanged. Aligned verdicts: **474,243 total; 457,058 right; 2,606 gap; 14,579
-wrong**. Diagnostics 2,781/5,488 at the same commit. Binder retains its verified
-**8,497/8,497 (100%)** result at aab165d8; other suites below retain historical
-measurements.
+Measured on **`e68ea2ed`** (rebased on ab1bbead): **457,117/478,855 assertions
+(95.46%)**, **6,994/9,538 complete cases (73.33%)**. The 99% target
+requires 474,067 correct assertions; **16,950 remain**. Denominator and
+pinned oracle unchanged. Aligned verdicts: **474,243 total; 457,117 right;
+2,592 gap; 14,534 wrong**. Binder retains its verified **8,497/8,497
+(100%)** result at aab165d8; other suites below retain historical measurements.
 
-This unit (agreeing generic overloads, tsr-6.1) adds **109 matching assertions
-and one complete case** (arrayFrom), all WRONG-to-RIGHT, with **zero RIGHT
-losses, zero GAP-to-WRONG and zero changed already-WRONG rows** relative to a
-full baseline measured at 6b2203cc.
-[Agreeing generic overloads](docs/architecture/checker-99-agreeing-overloads.md)
-records why return-spelling agreement no longer skips per-candidate inference
-and applicability; arrayFrom's TS2322 now follows the selected overload
-(diagnostics +1). Release workspace tests (217 result blocks), clippy,
-formatting, 3,330 anchors and the section gate pass.
-
-The preceding unit, measured at 4da26276: (conditional alias chains, tsr-6.3/tsr-6.23) adds **34 matching assertions (all WRONG-to-RIGHT) and one complete case**
-relative to a full baseline measured at 6c230ca2, with **zero RIGHT losses and
-zero GAP-to-WRONG**; one WRONG-to-GAP.
+This unit (non-generic conditional nodes, tsr-6.3) adds **59 matching assertions (49 WRONG-to-RIGHT, 10 GAP-to-RIGHT) and seven complete cases** relative to
+a full baseline measured at ab1bbead, with **zero RIGHT losses**; four GAP-to-WRONG in circularConstructorWithReturn (lazy class member types during alias resolution, recorded).
 [Conditional alias chains](docs/architecture/checker-99-conditional-chains.md)
-records alias-of-conditional-alias evaluation with default fill and native alias
-naming, getConditionalType's permissive/restrictive definite outcomes for a
-generic extends type, and literal-key names for mapped alias references.
-Four regressions in conditional_alias_chains pin pinned-tsgo declaration output.
-The previous unit's rest index-info record (241e2d60, tsr-6.25) remains in §7; the later dts commits b8fc7176/36290758 touch only declaration emit. All 218 release workspace result blocks, clippy, formatting, 3,324
-anchors and 16,616 section citations pass; issue-ids reports the same 191
-historical IDs as its base (tsr-10). Non-generic conditional evaluation,
-recursive relations and the tsr-9 inference/reduction mechanisms remain
-incomplete. The 99% goal and tsr-8 remain active.
+records getTypeFromConditionalTypeNode evaluation outside alias frames, written
+conditional annotation reuse, `extends never` relation for non-literal checks
+and exactOptionalPropertyTypes missing-type removal in property relations.
+Six regressions in conditional_alias_chains pin pinned-tsgo declaration output.
+The preceding unit (agreeing generic overloads, tsr-6.1, measured at b1900137: +109 assertions, +1 complete case, zero RIGHT losses) remains recorded in §7; later commits 9a14a090–c0951dfd touch only declaration emit and add one unused parser entry point. The diagnostics snapshot moves 2,781 → 2,782. All release workspace result blocks, clippy, formatting, 3,324 anchors
+and section citations pass; issue-ids reports the same 191 historical IDs as its
+base (tsr-10). Distributive constraints of generic checks, recursive relations
+and the tsr-9 inference/reduction mechanisms remain incomplete. The 99% goal and
+tsr-8 remain active.
 
 ### Previous whole-suite measurement — historical
 
@@ -1270,14 +1258,16 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-### Conditional chains note at `4da26276` — 2026-10-02 (tsr-6.3/tsr-6.23)
+### Conditional chains note at `e68ea2ed` — 2026-10-02 (tsr-6.3/tsr-6.23)
 
-Generic aliases whose body references a conditional alias now evaluate, and a
-generic extends type takes native permissive/restrictive definite outcomes.
-Next in this family: evaluate non-generic conditional type nodes
-(getTypeFromConditionalTypeNode); about 76 non-RIGHT rows print a conditional's
-written text where the baseline wants its branch. Mapped-alias references still
-enumerate only literal keys; reporting them unenumerable measured 22 RIGHT losses.
+Conditional alias chains, permissive/restrictive definite outcomes and
+non-generic conditional nodes now follow native. About 25 non-RIGHT rows still
+print a conditional where the baseline wants its branch: generic-check
+distributive constraints, NonNullable<T> reduction, polymorphic this checks,
+recursive conditionals and mapped-template conditionals. circularConstructorWithReturn's
+four GAP-to-WRONG rows need lazy class member types during an alias's own
+resolution. Mapped-alias references still enumerate only literal keys;
+reporting them unenumerable measured 22 RIGHT losses.
 
 ### Current priorities at `b1900137` — 2026-10-02 (call-site generic inference)
 
@@ -11728,3 +11718,5 @@ that were true of a different population than the one they were quoted about.
 | 2026-10-02 | `4da26276` | **95.43%** | **6,986/9,538** | **Conditional alias chains (tsr-6.3/tsr-6.23): 34 matching assertions (all WRONG-to-RIGHT) and one complete case, zero RIGHT losses or GAP-to-WRONG; one W-to-G.** Rebased on 6c230ca2 and scored against a full baseline measured there: 456,949/478,855, 2,606 aligned gaps, 14,688 wrong. Alias-of-conditional chains with default fill and native alias naming; permissive/restrictive definite outcomes; Record literal-key names. The unenumerable-alias alternative measured 22 R-to-W and is recorded. Four regressions; 218 release workspace blocks, clippy, formatting, 3,324 anchors and section citations pass. [Evidence](docs/architecture/checker-99-conditional-chains.md). |
 
 | 2026-10-02 | `b1900137` | **95.45%** | **6,987/9,538** | **Agreeing generic overloads (tsr-6.1): +109 assertions (109 W-to-R: 51 promisePermutations, 51 promisePermutations3, 4 variadicTuples1, 2 underscoreTest1, 1 arrayFrom), +1 complete case, diagnostics +1, zero RIGHT losses, zero G-to-W, zero changed already-WRONG rows** against a full baseline at 6b2203cc: 457,058/478,855. choose_overload's equal-return-spelling arm now runs the transcribed per-candidate walk for every call, keeping its recovery only when the walk is undecidable. [Record](docs/architecture/checker-99-agreeing-overloads.md). |
+
+| 2026-10-02 | `e68ea2ed` | **95.46%** | **6,994/9,538** | **Non-generic conditional nodes (tsr-6.3): 59 matching assertions (49 WRONG-to-RIGHT, 10 GAP-to-RIGHT) and seven complete cases, zero RIGHT losses; four GAP-to-WRONG in circularConstructorWithReturn (lazy class member types during alias resolution, recorded).** Rebased on ab1bbead and scored against a full baseline measured there: 457,117/478,855, 2,592 aligned gaps, 14,534 wrong. getTypeFromConditionalTypeNode outside alias frames, written conditional annotation reuse, `extends never` for non-literal checks, exact-optional missing-type removal in property relations. Six regressions; release workspace blocks, clippy, formatting, anchors and section citations pass. [Evidence](docs/architecture/checker-99-conditional-chains.md). |
