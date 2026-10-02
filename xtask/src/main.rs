@@ -7,6 +7,7 @@
 //!                        --upstream <path> checks a newer checkout, which is
 //!                        the drift report (bd tsr-l68)
 //! cargo xtask issue-ids  verify every `bd` id cited in docs/ actually exists
+//! cargo xtask sections   verify every internal `§N` citation resolves (bd tsr-5)
 //! cargo xtask gate       the five per-build checks, in one command that FAILS
 //! cargo xtask measure    clippy, then — only if it is clean — the conformance run
 //! ```
@@ -28,6 +29,7 @@ mod gen_unicode;
 mod issue_ids;
 mod measure;
 mod perf;
+mod sections;
 
 use std::{fs, path::PathBuf};
 
@@ -52,15 +54,16 @@ fn main() -> Result<()> {
             anchors::run(&workspace_root(), upstream)
         }
         Some("issue-ids") => issue_ids::run(&workspace_root()),
+        Some("sections") => sections::run(&workspace_root()),
         Some("gate") => gate::run(&workspace_root()),
         Some("measure") => measure::run(&workspace_root()),
         Some(other) => {
             bail!(
-                "unknown task {other:?}; expected `codegen`, `perf`, `anchors`, `issue-ids`, `gate` or `measure`"
+                "unknown task {other:?}; expected `codegen`, `perf`, `anchors`, `issue-ids`, `sections`, `gate` or `measure`"
             )
         }
         None => {
-            eprintln!("usage: cargo xtask <codegen|perf|anchors|issue-ids|gate|measure>");
+            eprintln!("usage: cargo xtask <codegen|perf|anchors|issue-ids|sections|gate|measure>");
             Ok(())
         }
     }

@@ -6923,7 +6923,8 @@ Falsifiers:
 1. **If the binder does not merge two same-named type parameters into one
    symbol**, the rule's test can never fire and the build measures zero. It
    does merge them — that is `declare_into`'s ordinary behaviour, and the
-   §2315 fix that stopped `class A<T>` and `class B<T>` sharing a symbol is
+   binder fix that stopped `class A<T>` and `class B<T>` sharing a symbol
+   (`binder.md`, the `IS_CONTAINER`-without-`HAS_LOCALS` defect) is
    what makes the merge mean "same list" rather than "same file".
 2. **If the report belongs on both declarations**, every case gains a wrong
    line and loses a right one. It does not: upstream reports on the *later* one
@@ -41835,8 +41836,8 @@ own row.**
 ## §834 — §833's defect class, swept: the two name paths' guard sets, diffed
 
 §833's finding was a guard present on one call site and absent from the other.
-The two name paths are `check_value_identifier` (§3851) and
-`check_type_reference_name` (§4411), and their guard lists diff cleanly:
+The two name paths are `check_value_identifier` (`check.rs:3851` at `08bb9804`) and
+`check_type_reference_name` (`check.rs:4411`), and their guard lists diff cleanly:
 
 ```
                                         value   type

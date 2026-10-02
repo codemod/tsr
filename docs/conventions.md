@@ -30,6 +30,24 @@ the drift report. An anchor nobody verifies is worse than no anchor, because it 
 believed — the tool found four broken ones on its first run, three of them written
 the previous day. See [architecture/upstream-anchors.md](architecture/upstream-anchors.md).
 
+**Internal `§N` citations are checked too.** `cargo xtask sections` (`bd tsr-5`)
+requires every `§N` in `crates/` and `docs/` to resolve to a heading or a
+bold-led paragraph in `docs/architecture/checker-notes-*.md` or `STATUS.md`. A
+citation written right after a notes file name (`` `checker-notes-diag2.md` §299 ``)
+must resolve **in that file**; one qualified by another document (`PLAN.md §3.5`)
+or by the TypeScript spec is skipped; an unqualified one may resolve in any record
+file, and `§N.M` falls back to `§N`. **Qualify a citation with its file whenever
+you can** — section numbers are not unique across workstreams (`§93` is a heading
+in both `checker-notes-diag2.md` and `checker-notes-narrow.md`), so an unqualified
+citation only proves the number exists somewhere. That is the gate's stated limit:
+§267's "§38's second fired leg", the incident that motivated it, would still pass,
+because `§38` is a heading in two files. Steps recorded only in a commit message
+are listed with their commits in `RECORDED` (`xtask/src/sections.rs`), and an entry
+that stops being needed fails the gate. The first run found 3 danglers among
+16,621 citations, all in `checker-notes-diag2.md`: two function line numbers
+(`check.rs` 3851 and 4411) written with a section sign, and a section-signed 2315
+that meant `binder.md`'s type-parameter fix. All three were fixed in place.
+
 Coverage is reported per crate but does **not** fail the build: most crates are
 near zero, and a gate that always fails gets deleted rather than fixed. Raising
 that rate is a ratchet, not a gate.
@@ -3521,11 +3539,12 @@ shared census it is one message against a duplicated arm.
 
 ## The per-build gate
 
-`cargo xtask gate` runs the five checks every build ends with — `fmt --check`,
-`clippy -D warnings`, `cargo test`, `anchors`, `issue-ids` — in order, stopping at
-the first failure and exiting non-zero.
+`cargo xtask gate` runs the six checks every build ends with — `fmt --check`,
+`clippy -D warnings`, `cargo test`, `anchors`, `issue-ids`, `sections` — in order,
+stopping at the first failure and exiting non-zero. (`sections` joined at
+`bd tsr-5`; the other five are the original §923 set.)
 
-Use it instead of the five separately. Four of them only printed their result
+Use it instead of the six separately. Four of them only printed their result
 until §924, and a commit went out with clippy red because a number that had read
 `0` for four hundred builds stopped being read
 (`docs/architecture/checker-notes-diag2.md` §923).
