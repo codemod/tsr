@@ -1681,14 +1681,16 @@ impl Checker<'_, '_> {
                 let prints: Vec<String> =
                     survivors.iter().map(|survivor| self.type_to_string(survivor.r#type)).collect();
                 if prints.windows(2).all(|pair| pair[0] == pair[1]) {
-                    // Equal return spellings do not imply equal callback
-                    // contexts. Prefer the applicable candidate when the
-                    // contextual walk can decide it; unsupported sets retain
-                    // the existing return-agreement recovery.
+                    // Equal return spellings imply neither equal callback
+                    // contexts nor equal inferences: `then<U>(s: (v: T) =>
+                    // Promise<U>)` and `then<U>(s: (v: T) => U)` both print
+                    // `Promise<U>` but infer different U. chooseOverload
+                    // (checker.go:9040) infers and checks applicability per
+                    // candidate, so the walk decides first whether or not an
+                    // argument is context-sensitive; undecidable sets retain
+                    // the return-agreement recovery
+                    // (docs/architecture/checker-99-agreeing-overloads.md).
                     if !has_type_arguments
-                        && arguments
-                            .iter()
-                            .any(|argument| self.is_context_sensitive_argument(argument))
                         && let Some(picked) =
                             self.transcribed_generic_set_walk(candidates, arguments, call)
                     {

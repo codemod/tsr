@@ -71,3 +71,35 @@ export const reversed = reversedValue.flag;
         assert!(lines.iter().any(|line| line == wanted), "missing {wanted}: {lines:?}");
     }
 }
+
+/// Pinned tsgo 5b1047d1: generic overloads whose returns print alike still
+/// infer and check per candidate (chooseOverload), with no callback argument.
+#[test]
+fn agreeing_generic_returns_still_select_by_applicability() {
+    let source = r"// @target: es2015
+interface Promise<T> {
+    then<U>(success?: (value: T) => Promise<U>, error?: (error: any) => Promise<U>, progress?: (progress: any) => void): Promise<U>;
+    then<U>(success?: (value: T) => U, error?: (error: any) => U, progress?: (progress: any) => void): Promise<U>;
+}
+interface IPromise<T> {
+    then<U>(success?: (value: T) => IPromise<U>, error?: (error: any) => IPromise<U>, progress?: (progress: any) => void): IPromise<U>;
+    then<U>(success?: (value: T) => U, error?: (error: any) => U, progress?: (progress: any) => void): IPromise<U>;
+}
+declare var s1: Promise<number>;
+declare function legacy(): IPromise<number>;
+declare function native(): Promise<number>;
+var viaLegacy = s1.then(legacy, legacy, legacy);
+var viaNative = s1.then(native, native, native);
+";
+    let case = TestCase::parse("probe/agreeing-overloads", "agreeing-overloads.ts", source);
+    let expected: Vec<_> = case
+        .files
+        .iter()
+        .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
+        .collect();
+    let assertions = types_producer::assertions_for_case(&case, &expected, false);
+    let lines: Vec<_> = assertions.iter().flatten().map(types_producer::Assertion::line).collect();
+    for wanted in ["viaLegacy : Promise<IPromise<number>>", "viaNative : Promise<number>"] {
+        assert!(lines.iter().any(|line| line == wanted), "missing {wanted}: {lines:?}");
+    }
+}
