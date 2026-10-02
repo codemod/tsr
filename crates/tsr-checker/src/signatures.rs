@@ -5046,6 +5046,29 @@ impl<'a> Checker<'a, '_> {
         self.signature_parts_of(declaration).is_some_and(|parts| !parts.type_parameters.is_empty())
     }
 
+    /// getTypeOfParameter (internal/checker/checker.go) includes undefined for
+    /// initializers even before a later required parameter, where the printed
+    /// signature does not mark that position optional.
+    pub(crate) fn signature_parameter_includes_undefined(
+        &self,
+        signature: &Signature,
+        position: usize,
+    ) -> bool {
+        let Some(parameter) = signature.parameters.get(position).filter(|p| !p.rest) else {
+            return false;
+        };
+        parameter.optional
+            || self.signature_parts_of(signature.declaration).is_some_and(|parts| {
+                let offset = usize::from(
+                    parts
+                        .parameters
+                        .first()
+                        .is_some_and(|p| Self::is_this_parameter_declaration(p)),
+                );
+                parts.parameters.get(position + offset).is_some_and(|p| p.initializer.is_some())
+            })
+    }
+
     /// The signature-shaped parts of a node, or `None` if it is not one of the
     /// function-like kinds this slice reaches.
     ///

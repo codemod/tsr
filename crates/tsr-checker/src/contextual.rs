@@ -340,11 +340,39 @@ impl<'a> Checker<'a, '_> {
         let signature = self.contextual_signature(function)?;
         // getContextuallyTypedParameterType delegates both ordinary and rest
         // positions to the effective signature (internal/checker/checker.go).
-        let contextual = if asking_for_rest {
+        let mut contextual = if asking_for_rest {
             Some(self.signature_rest_type_at_position(&signature, index))
         } else {
             self.signature_type_at_position(&signature, index)
         }?;
+        // assignContextualParameterTypes (internal/checker/checker.go) allows
+        // an initializer to widen a contextual parameter, but only when the
+        // contextual type is assignable to the widened initializer type.
+        if !asking_for_rest && let Some(initializer) = parameters[index].initializer {
+            use crate::relater::{Relation, Ternary};
+            // getTypeOfParameter includes undefined for optional/defaulted
+            // positions; stored signature types omit it for printing.
+            let comparison = if self.strict_null_checks
+                && self.signature_parameter_includes_undefined(&signature, index)
+            {
+                self.get_union_type(&[contextual, self.intrinsics.undefined])
+            } else {
+                contextual
+            };
+            let initializer_type = self.check_expression(initializer);
+            if initializer_type != self.intrinsics.error
+                && self.relate_ternary(initializer_type, comparison, Relation::Assignable)
+                    == Ternary::NotRelated
+            {
+                let widened =
+                    self.widen_type_inferred_from_initializer(parameter, initializer_type);
+                if self.relate_ternary(comparison, widened, Relation::Assignable)
+                    == Ternary::Related
+                {
+                    contextual = widened;
+                }
+            }
+        }
         (contextual != self.intrinsics.error).then_some(contextual)
     }
 
