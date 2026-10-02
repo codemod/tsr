@@ -79,8 +79,9 @@ its generic flags (`getGenericObjectFlags`, `checker.go:24880`).
 
 ## Measurement
 
-Full `scorepair` against 7332f284: **+55 WRONG-to-RIGHT, zero RIGHT losses, zero
-GAP transitions**; 16 already-WRONG rows change and stay wrong (12 move closer:
+Full `scorepair` against 7332f284, and again after rebasing against a fresh
+baseline at 5206b571 (landed as 8ed14e53, 457321/478,855, 6999 complete
+cases): **+55 WRONG-to-RIGHT, zero RIGHT losses, zero GAP transitions**; 16 already-WRONG rows change and stay wrong (12 move closer:
 bluebird/ipromise rows whose remaining defect is an unresolved
 `Promise.Inspection<R>` mint or `Windows.Foundation` qualification). The
 46 bluebirdStaticThis rows are the reference-identity fix; the rest are the site

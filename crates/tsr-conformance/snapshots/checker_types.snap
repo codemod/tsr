@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 6998/9538 (73.37%)
-Assertion lines: 457266/478855 (95.49%)  — a gradient, not a pass rate
-Failed         : 2540
+Passed         : 6999/9538 (73.38%)
+Assertion lines: 457321/478855 (95.50%)  — a gradient, not a pass rate
+Failed         : 2539
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -12,7 +12,7 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 2540 failures:
+First 100 of 2539 failures:
 compiler/ClassDeclaration26
   ClassDeclaration26.ts: 5 assertion(s), expected 6
 compiler/abstractClassInLocalScopeIsAbstract
@@ -190,7 +190,7 @@ compiler/bigintWithLib
 compiler/bindingPatternCannotBeOnlyInferenceSource
   bindingPatternCannotBeOnlyInferenceSource.ts: >useReduxDispatch1 : <T extends IDestructuring<{ funcA: (a: boolean) => void; funcB: (b: string, bb: string) => void; funcC: (c: number, cc: number, ccc: boolean) => void; }>>(destructuring: Destructuring<{ funcA: (a: boolean) => void; funcB: (b: string, bb: string) => void; funcC: (c: number, cc: number, ccc: boolean) => void; }, T>) => T — expected >useReduxDispatch1 : <T extends IDestructuring<TFuncs1>>(destructuring: Destructuring<TFuncs1, T>) => T
 compiler/bluebirdStaticThis
-  bluebirdStaticThis.ts: >try : { <R_1>(dit: typeof Promise, fn: () => Promise.Thenable<R>, args?: any[], ctx?: any): Promise<R_1>; <R>(dit: typeof Promise, fn: () => R, args?: any[], ctx?: any): Promise<R>; } — expected >try : { <R_1>(dit: typeof Promise, fn: () => Promise.Thenable<R_1>, args?: any[], ctx?: any): Promise<R_1>; <R>(dit: typeof Promise, fn: () => R, args?: any[], ctx?: any): Promise<R>; }
+  bluebirdStaticThis.ts: >settle : { <R>(dit: typeof Promise, values: Promise.Thenable<Promise.Thenable<R>[]>): Promise<Promise.Inspection<R>[]>; <R_1>(dit: typeof Promise, values: Promise.Thenable<R_1[]>): Promise<Promise.Inspection<R>[]>; <R_1>(dit: typeof Promise, values: Promise.Thenable<R_1>[]): Promise<Promise.Inspection<R>[]>; <R_1>(dit: typeof Promise, values: R_1[]): Promise<Promise.Inspection<R>[]>; } — expected >settle : { <R>(dit: typeof Promise, values: Promise.Thenable<Promise.Thenable<R>[]>): Promise<Promise.Inspection<R>[]>; <R_1>(dit: typeof Promise, values: Promise.Thenable<R_1[]>): Promise<Promise.Inspection<R_1>[]>; <R_1>(dit: typeof Promise, values: Promise.Thenable<R_1>[]): Promise<Promise.Inspection<R_1>[]>; <R_1>(dit: typeof Promise, values: R_1[]): Promise<Promise.Inspection<R_1>[]>; }
 compiler/booleanFilterAnyArray
   booleanFilterAnyArray.ts: >anys.filter(Bullean) : error — expected >anys.filter(Bullean) : Ari<any>
 compiler/booleanLiteralsContextuallyTypedFromUnion

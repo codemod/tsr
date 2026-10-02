@@ -24,26 +24,26 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-10-02
 
-Measured on **`f102831c`** (rebased on 68fc00ef): **457,266/478,855 assertions
-(95.49%)**, **6,998/9,538 complete cases (73.37%)**. The 99% target requires
-474,067 correct assertions; **16,801 remain**. Denominator and pinned oracle
-unchanged. Aligned verdicts: **474,243 total; 457,266 right; 2,572 gap; 14,405 wrong**.
-Binder retains its verified **8,497/8,497 (100%)** result at aab165d8;
+Measured on **`8ed14e53`** (rebased on 5206b571): **457,321/478,855 assertions
+(95.50%)**, **6,999/9,538 complete cases (73.38%)**. The 99% target requires
+474,067 correct assertions; **16,746 remain**. Denominator and pinned oracle
+unchanged. Aligned verdicts: **474,243 total; 457,321 right; 2,572 gap; 14,350
+wrong**. Binder retains its verified **8,497/8,497 (100%)** result at aab165d8;
 other suites below retain historical measurements.
 
-This unit (mapped types, tsr-6.9) adds **40 matching assertions** (all
-WRONG-to-RIGHT; no complete case moves) with **zero RIGHT losses and no other
-transitions** relative to a full-run baseline measured at 68fc00ef.
-[Recursive reverse mapped inference](docs/architecture/checker-95-recursive-reverse-mapped.md)
-records lazy self-referencing mapped aliases, optional mapped templates in
-reverse inference, the reverse expanding stacks with mapped recursion
-identities, lazily resolved reverse mapped objects with replaceIndexedAccess
-and the node builder's nested placeholder, and operand identity for deferred
-keyof in limited-constraint filtering. One added regression; all 217 release
-workspace result blocks, clippy, formatting, 3,330 anchors and the section
-gate pass. The issue-id gate still reports the historical IDs missing from the
-available registry (tsr-10). The previous unit's record (69d64026, indexed access, tsr-6.30/6.25) remains
-in §7. The 99% goal and tsr-8 remain active.
+This unit (tsr-6.38, shadowed type-parameter names) adds **55 matching
+assertions** (all WRONG-to-RIGHT) and **one complete case** with **zero RIGHT
+losses and zero GAP transitions** relative to a full baseline measured at
+5206b571 (457,266; 6998 cases as recorded at f102831c); 16 already-WRONG rows
+change and stay wrong. [Shadowed names](docs/architecture/checker-99-shadowed-names.md)
+records generic qualified references keyed by argument identity
+(createTypeReferenceEx), site allocation of declared type-parameter names
+(typeParameterToName), and the two prerequisites the measurement exposed:
+concise arrow bodies read the written return annotation, and an alias of a
+conditional alias stays generic. Release workspace tests (219 result blocks),
+clippy, formatting, 3,346 anchors and section citations pass; issue-ids
+still reports the historical registry gap (tsr-10). The previous checkpoint's
+unit record remains in §7. The 99% goal and tsr-8 remain active.
 
 ### Previous whole-suite measurement — historical
 
@@ -1270,7 +1270,18 @@ four GAP-to-WRONG rows need lazy class member types during an alias's own
 resolution. Mapped-alias references still enumerate only literal keys;
 reporting them unenumerable measured 22 RIGHT losses.
 
-### Current priorities at `f102831c` — 2026-10-02 (mapped types, tsr-6.9)
+### Current priorities at `8ed14e53` — 2026-10-02
+
+Continue toward 99%: 16,746 matching assertions remain. Type-parameter naming
+(tsr-6.38) now allocates declared parameter names at the print site and keys
+generic qualified references by argument identity. Remaining in that family:
+receiver instantiation that clones type parameters (chainedCalls*2's
+`<S extends S_1>`), by-text allocation inside baked composites (tuples,
+conditional/mapped text), and unresolved generic mints that cannot be renamed
+by instantiation (bluebirdStaticThis' `Promise.Inspection<R>`). The f102831c
+priorities below stand.
+
+### Previous priorities at `f102831c` — 2026-10-02 (mapped types, tsr-6.9)
 
 Continue toward 99%: 16,801 matching assertions remain. Recursive reverse
 mapped inference now resolves members on demand. Remaining in this family:
@@ -11758,3 +11769,5 @@ that were true of a different population than the one they were quoted about.
 | 2026-10-02 | `e68ea2ed` | **95.46%** | **6,994/9,538** | **Non-generic conditional nodes (tsr-6.3): 59 matching assertions (49 WRONG-to-RIGHT, 10 GAP-to-RIGHT) and seven complete cases, zero RIGHT losses; four GAP-to-WRONG in circularConstructorWithReturn (lazy class member types during alias resolution, recorded).** Rebased on ab1bbead and scored against a full baseline measured there: 457,117/478,855, 2,592 aligned gaps, 14,534 wrong. getTypeFromConditionalTypeNode outside alias frames, written conditional annotation reuse, `extends never` for non-literal checks, exact-optional missing-type removal in property relations. Six regressions; release workspace blocks, clippy, formatting, anchors and section citations pass. [Evidence](docs/architecture/checker-99-conditional-chains.md). |
 
 | 2026-10-02 | `211366eb` | **95.47%** | **6,994/9,538** | **Generic construct-signature argument contexts (tsr-6.21): +45 assertions (41 W-to-R, 4 G-to-R: 34 destructuringParameterProperties3, 8 inferenceContextualReturnTypeUnion3, 3 contextualTypeIterableUnions), zero RIGHT losses, zero G-to-W; two changed already-WRONG rows** against a full baseline at fa90d3a4: 457,162/478,855. The NewExpression contextual arm now shares the call road's inferential-context read and single-generic-candidate fixing helper. [Record](docs/architecture/checker-99-construct-argument-contexts.md). |
+
+| 2026-10-02 | `8ed14e53` | **95.50%** | **6,999/9,538** | **Shadowed type-parameter names (tsr-6.38): +55 assertions (55 W-to-R), +1 complete case, zero RIGHT losses, zero GAP transitions; 16 changed already-WRONG rows** against a full baseline at 5206b571: 457,321/478,855. Generic qualified references are cached by argument ids (createTypeReferenceEx), so a class `R` and an overload's `R` no longer share `Promise.Thenable<R>` (46 bluebirdStaticThis rows); declared type parameters take their site name (typeParameterToName). The site rule alone lost two RIGHT rows (contextualSignatureInstantiation2) to a concise-body contextual-typing defect; fixing that lost one (conditionalTypes1) to alias-of-conditional genericity; both fixed. [Record](docs/architecture/checker-99-shadowed-names.md). |
