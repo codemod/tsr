@@ -191,6 +191,17 @@ impl Checker<'_, '_> {
         self.get_union_type_unprinted(&[ty, missing_or_undefined])
     }
 
+    /// Ported from `Checker.removeMissingOrUndefinedType` (`checker.go:29099`).
+    /// Exact optional properties distinguish an absent write from an explicit
+    /// undefined value; ordinary optional properties use the same undefined type.
+    pub(crate) fn remove_missing_or_undefined_type(&mut self, ty: TypeId) -> TypeId {
+        if self.exact_optional_property_types {
+            self.remove_missing_type(ty)
+        } else {
+            self.get_type_with_facts(ty, crate::flow::TypeFacts::NE_UNDEFINED)
+        }
+    }
+
     /// `removeMissingType` (`checker.go:14650`): drop `missingType` from a
     /// union — the write-position half of `exactOptionalPropertyTypes`.
     pub(crate) fn remove_missing_type(&mut self, ty: TypeId) -> TypeId {

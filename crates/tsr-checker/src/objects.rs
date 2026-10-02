@@ -915,10 +915,14 @@ impl Checker<'_, '_> {
                 tsr_ast::ObjectLiteralElementLike::SpreadAssignment(spread) => {
                     let Some(expression) = spread.expression else { return error };
                     let source = self.check_expression(expression);
+                    if !self.is_valid_spread_type(source) {
+                        return error;
+                    }
+                    let source = self.try_merge_union_of_object_type_and_empty_object(source);
                     let Some(spread_members) = self.spread_members_of(source) else {
                         return error;
                     };
-                    for member in spread_members {
+                    for mut member in spread_members {
                         if property_only
                             && let Member::Property { name, optional, readonly, printed } = &member
                         {
@@ -935,7 +939,7 @@ impl Checker<'_, '_> {
                                 self.get_type_of_property_of_type(source, &semantic_name)
                                 && value != error
                             {
-                                let property = AnonymousProperty {
+                                let mut property = AnonymousProperty {
                                     name: semantic_name,
                                     printed_name: name.clone(),
                                     printed_type: printed.clone(),
@@ -947,6 +951,39 @@ impl Checker<'_, '_> {
                                     .iter()
                                     .position(|held| held.name == property.name)
                                 {
+                                    // getSpreadType (checker.go:13463): an optional
+                                    // right property preserves the left's presence and
+                                    // unions the values that can actually be written.
+                                    let left = &typed_properties[index];
+                                    if property.optional {
+                                        let left_type = left.r#type;
+                                        property.optional = left.optional;
+                                        let left_present =
+                                            self.remove_missing_or_undefined_type(left_type);
+                                        let right_present =
+                                            self.remove_missing_or_undefined_type(value);
+                                        property.r#type = if left_present == right_present {
+                                            left_type
+                                        } else {
+                                            let Some(merged) =
+                                                self.union_with_subtype_reduction(&[
+                                                    left_type,
+                                                    right_present,
+                                                ])
+                                            else {
+                                                return error;
+                                            };
+                                            merged
+                                        };
+                                        let displayed = self.remove_missing_type(property.r#type);
+                                        property.printed_type = self.type_to_string(displayed);
+                                        member = Member::Property {
+                                            name: property.printed_name.clone(),
+                                            optional: property.optional,
+                                            readonly: property.readonly,
+                                            printed: property.printed_type.clone(),
+                                        };
+                                    }
                                     typed_properties[index] = property;
                                 } else {
                                     typed_properties.push(property);
@@ -1903,6 +1940,119 @@ impl Checker<'_, '_> {
         minted
     }
 
+    /// Ported from `Checker.isValidSpreadType` (`checker.go:13504`).
+    /// Filter definitely falsy alternatives only after resolving base constraints;
+    /// a primitive that can be truthy still makes the operand invalid.
+    fn is_valid_spread_type(&mut self, source: TypeId) -> bool {
+        let constrained = if let TypeData::Union { types, .. } = self.store.get(source).data.clone()
+        {
+            let types: Vec<_> = types
+                .into_iter()
+                .map(|ty| self.base_constraint_of_type(ty).unwrap_or(ty))
+                .collect();
+            self.get_union_type(&types)
+        } else {
+            self.base_constraint_of_type(source).unwrap_or(source)
+        };
+        let source = self.remove_definitely_falsy_types(constrained);
+        if self.store.get(source).flags.intersects(
+            TypeFlags::ANY
+                | TypeFlags::NON_PRIMITIVE
+                | TypeFlags::OBJECT
+                | TypeFlags::INSTANTIABLE_NON_PRIMITIVE,
+        ) {
+            return true;
+        }
+        match self.store.get(source).data.clone() {
+            TypeData::Union { types, .. } | TypeData::Intersection { types, .. } => {
+                types.into_iter().all(|ty| self.is_valid_spread_type(ty))
+            }
+            _ => false,
+        }
+    }
+
+    /// Ported from `Checker.tryMergeUnionOfObjectTypeAndEmptyObject`
+    /// (`checker.go:13530`). A union with one nonempty object spreads as a
+    /// partial object. Multiple nonempty alternatives still need distribution.
+    fn try_merge_union_of_object_type_and_empty_object(&mut self, source: TypeId) -> TypeId {
+        let TypeData::Union { types, .. } = self.store.get(source).data.clone() else {
+            return source;
+        };
+        let mut nonempty = None;
+        let mut empty = None;
+        for ty in types {
+            if self.is_empty_anonymous_object_type(ty) {
+                empty = Some(ty);
+            } else if !self.store.get(ty).flags.intersects(
+                TypeFlags::NULLABLE
+                    | TypeFlags::BOOLEAN_LIKE
+                    | TypeFlags::NUMBER_LIKE
+                    | TypeFlags::BIG_INT_LIKE
+                    | TypeFlags::STRING_LIKE
+                    | TypeFlags::ENUM_LIKE
+                    | TypeFlags::NON_PRIMITIVE
+                    | TypeFlags::INDEX,
+            ) {
+                if nonempty.is_some_and(|previous| previous != ty) {
+                    return source;
+                }
+                nonempty = Some(ty);
+            }
+        }
+        let Some(first) = nonempty else {
+            return empty.unwrap_or(self.intrinsics.empty_object);
+        };
+        let Some(members) = self.spread_members_of(first) else { return source };
+        let Some(infos) = self.get_index_infos_of_type(first) else { return source };
+        // The current spread-member representation cannot carry index infos.
+        if !infos.is_empty() {
+            return source;
+        }
+        let mut properties = Vec::with_capacity(members.len());
+        let mut partial_members = Vec::with_capacity(members.len());
+        for member in members {
+            let Member::Property { name, .. } = member else { return source };
+            let semantic_name = self
+                .anonymous_properties
+                .get(&first)
+                .and_then(|(properties, _)| {
+                    properties.iter().find(|property| property.printed_name == name)
+                })
+                .map_or_else(|| name.clone(), |property| property.name.clone());
+            let Some(value) = self.get_type_of_property_of_type(first, &semantic_name) else {
+                return source;
+            };
+            let value =
+                if self.strict_null_checks { self.get_optional_type(value, true) } else { value };
+            let displayed = self.remove_missing_type(value);
+            let printed = self.type_to_string(displayed);
+            properties.push(AnonymousProperty {
+                name: semantic_name,
+                printed_name: name.clone(),
+                printed_type: printed.clone(),
+                optional: true,
+                readonly: false,
+                r#type: value,
+            });
+            partial_members.push(Member::Property {
+                name,
+                optional: true,
+                readonly: false,
+                printed,
+            });
+        }
+        let owner = match self.store.get(first).data {
+            TypeData::Named { members, .. } => members,
+            _ => None,
+        };
+        let result =
+            self.store.new_named(TypeFlags::OBJECT, render_object_type(&partial_members), owner);
+        self.anonymous_properties.insert(result, (properties, true));
+        self.object_literal_members.insert(result, partial_members);
+        self.object_literal_spread_flags.insert(result, false);
+        result
+    }
+
     /// The members a `{ ...source }` contributes, or `None` when this port
     /// cannot compute them — in which case the whole literal gaps.
     ///
@@ -1916,10 +2066,8 @@ impl Checker<'_, '_> {
     /// - **A non-object source** — a primitive, a union, `any`, `errorType`.
     ///   Upstream distributes a spread over a union and drops primitives;
     ///   answering `{}` for `{ ...someUnion }` would be a confident wrong type.
-    /// - **A member whose own type gaps**, and **a member whose type is
-    ///   nullable**, which is the same `getWidenedType` limitation the plain
-    ///   member path already gaps on (see the module docs). `a?: number` on the
-    ///   source yields `number | undefined` and stops the literal.
+    /// - **A member whose own type gaps.** Nullable member values are retained;
+    ///   the declaration's widening path now handles their later widening.
     /// - **A method member.** A spread copies a *property*; upstream then
     ///   prints it as `m: () => void` where the source printed `m(): void`, and
     ///   this port has no measurement of which side it lands on. A gap here is
@@ -1983,16 +2131,16 @@ impl Checker<'_, '_> {
                 return None;
             }
             let member_type = self.get_type_of_symbol(member);
-            if member_type == error
-                || self.store.get(member_type).flags.intersects(TypeFlags::NULLABLE)
-            {
+            if member_type == error {
                 return None;
             }
+            let optional = self.property_is_optional(member);
+            let displayed = self.remove_missing_type(member_type);
             spread.push(Member::Property {
                 name,
-                optional: flags.intersects(SymbolFlags::OPTIONAL),
+                optional,
                 readonly: false,
-                printed: self.type_to_string(member_type),
+                printed: self.type_to_string(displayed),
             });
         }
         Some(spread)

@@ -521,7 +521,7 @@ impl Checker<'_, '_> {
 
     /// `removeDefinitelyFalsyTypes` (`checker.go:29106`) — `filterType` by
     /// `TypeFactsTruthy` per constituent.
-    fn remove_definitely_falsy_types(&mut self, id: TypeId) -> TypeId {
+    pub(crate) fn remove_definitely_falsy_types(&mut self, id: TypeId) -> TypeId {
         let ty = self.store.get(id);
         let TypeData::Union { types, .. } = &ty.data else {
             return if self.get_type_facts(id).contains(TypeFacts::TRUTHY) {

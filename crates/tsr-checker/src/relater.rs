@@ -2070,6 +2070,17 @@ impl Relater<'_, '_, '_> {
             reasons::note(reasons::Site::UnfollowableBase);
             return Ternary::Unknown;
         };
+        // propertiesRelatedTo (relater.go:4240): an object-literal target
+        // requires actual named properties, even when it has an index signature.
+        // Regularization retains ObjectLiteral; widening removes it.
+        if self.checker.is_object_literal_type(target) {
+            let Some(source_names) = self.checker.get_property_names_of_type(source) else {
+                return Ternary::Unknown;
+            };
+            if source_names.iter().any(|name| !names.contains(name)) {
+                return Ternary::NotRelated;
+            }
+        }
         let mut parts = Vec::with_capacity(names.len());
         for name in names {
             // Through [`Checker::get_type_of_property_of_type`], not
