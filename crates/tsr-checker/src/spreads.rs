@@ -35,6 +35,7 @@ impl Checker<'_, '_> {
             if source == self.intrinsics.error || !self.is_valid_spread_type(source) {
                 return self.intrinsics.error;
             }
+            let source = self.try_merge_union_of_object_type_and_empty_object(source);
             result = self.get_spread_type(result, source, owner, readonly);
         }
         if start < node.properties.len() {
@@ -94,10 +95,10 @@ impl Checker<'_, '_> {
             TypeData::Union { types, .. } => types.len(),
             _ => 1,
         };
-        if union_size(left).saturating_mul(union_size(right)) >= 100_000 {
-            return error;
-        }
         if let TypeData::Union { types, .. } = self.store.get(left).data.clone() {
+            if types.len().saturating_mul(union_size(right)) >= 100_000 {
+                return error;
+            }
             let parts: Vec<_> = types
                 .into_iter()
                 .map(|part| self.get_spread_type(part, right, owner, readonly))
@@ -106,6 +107,9 @@ impl Checker<'_, '_> {
         }
         right = self.try_merge_union_of_object_type_and_empty_object(right);
         if let TypeData::Union { types, .. } = self.store.get(right).data.clone() {
+            if types.len() >= 100_000 {
+                return error;
+            }
             let parts: Vec<_> = types
                 .into_iter()
                 .map(|part| self.get_spread_type(left, part, owner, readonly))

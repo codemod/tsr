@@ -67,8 +67,10 @@ The frozen candidate /tmp/tsr-99-spread-fold2.tsv records 455,237 RIGHT,
 2,879 GAP and 16,127 WRONG among 474,243 aligned rows. Relative to f2661fe5:
 99 WRONG-to-RIGHT, 31 GAP-to-RIGHT, zero RIGHT losses, three GAP-to-WRONG,
 three WRONG-to-GAP and seven changed-wrong rows. The full denominator is 478,855.
-The final review restores native normalization order: right normalization follows
-left union distribution. The isolated committed verdict must reproduce the candidate.
+The final review restores native normalization order: the caller partially normalizes
+spread operands, and the fold normalizes its right operand after left distribution.
+The cross-product guard belongs inside each union arm, after that arm's normalization.
+The isolated committed verdict must reproduce the candidate.
 
 All 203 release workspace result blocks pass before that final control-flow ordering
 adjustment; focused tests and clean-checkout gates verify the final source.
@@ -77,7 +79,7 @@ limits, tests, standards and maintainability. No independent or cross-model revi
 is claimed. Simplification retains the existing collector and renderer because the
 remaining mixed-member path is still live; removing it would change behavior.
 
-Final checker sources plus trace_case SHA-256: 363d74672cc7c04a30c99c5ac1961c20ec6c6c407ac12e30b3b0660c2bc90fd3
+Final checker sources plus trace_case SHA-256: 7dd422e9a2b8ac0db60a1da77891b8af15c1ba2d14697d4d3e96ffe0af9ca870
 
 Committed-checkout measurements, mutation results and final gates follow in the
 evidence update. The broader 99% goal and tsr-8 remain active.
