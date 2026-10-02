@@ -81,4 +81,29 @@ under the user's no-delegation instruction. Simplification reuses the existing
 tuple-context predicate, function placeholder, return-only signature helper and
 subtype reducer. Restricting the new array arm to context-sensitive arrays avoids
 replicating ordinary-array semantics. Isolated committed verification and mutation
-results will be recorded below after running.
+results are recorded below.
+
+Committed verification at 5b72e201 in /tmp/tsr-99-partial-verify reproduces the
+frozen full verdict byte-for-byte. Source hash:
+a20a966823a0efa834ef3f119d14cb8b1ea2f11edabebd1b9172995e802f4861.
+Coverage is 456,048/478,855 RIGHT (95.24%) and 6,924/9,538 complete cases (72.59%),
+leaving 18,019 matches to 99%. All 215 release workspace result blocks, clippy,
+formatting and 3,329 upstream references pass in both checkouts. Fresh depend has
+497 non-gapping roots, 210 cycles, zero depth caps and 3,552 walked gaps; C3 balances
+and C1/C4 remain stale (tsr-6.29). The committed coverage snapshot comes from this
+isolated run. The sequential primary-thread review receipt is
+/tmp/compound-engineering-501/ce-code-review/partial-inference/review.json.
+
+Three isolated mutations compile and fail the intended assertions: omitting
+method construction fails the method sibling-data test; omitting the early array
+builder fails the tuple test; omitting top-level array admission fails the array
+test. A fourth mutation replaces subtype reduction with a plain union and survives
+the array test: later inference still produces Fooer[]. That test establishes the
+early array path, not independent necessity of subtype reduction at that point.
+Native checkArrayLiteral supplies the reason to retain the subtype reducer.
+Replacing all three changed production files with 58a4e940 makes all four new tests
+fail. Every mutation restores its source, and the final hash matches the committed
+hash. The restored compiler passes all four tests. Running its test binary with
+the corpus absent produces four explicit skips and exit 0. Scripts and logs use
+/tmp/tsr-99-partial-mutations.py, /tmp/tsr-99-partial-mutations.log,
+/tmp/tsr-99-partial-mutation-{name}.log and /tmp/tsr-99-partial-absent-corpus.log.
