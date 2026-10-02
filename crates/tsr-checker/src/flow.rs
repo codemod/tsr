@@ -510,6 +510,52 @@ impl Checker<'_, '_> {
         if result == self.intrinsics.unreachable_never { declared_type } else { result }
     }
 
+    /// `getFlowTypeOfProperty` (`checker.go:11444`): an access-expression
+    /// reference whose declared type is upstream's `autoType`, starting at
+    /// `start` — the reference's own flow node, or a constructor's
+    /// `ReturnFlowNode` for `getFlowTypeInConstructor` (`flow.go:2466`).
+    ///
+    /// Upstream synthesizes a fresh `this.x` node parented to the constructor;
+    /// this tree is immutable (ADR-0012), so the caller passes an existing
+    /// `this.x` reference from the same constructor. Matching is structural
+    /// (`isMatchingReference`), so any same-named `this` access in that
+    /// container denotes the same reference. The auto declared type is
+    /// spelled `any`, as for auto-typed variables here.
+    pub(crate) fn get_flow_type_of_property(
+        &mut self,
+        reference: NodeId,
+        start: Option<FlowId>,
+        initial_type: TypeId,
+    ) -> TypeId {
+        let any = self.intrinsics.any;
+        if self.flow_analysis_disabled {
+            return self.intrinsics.error;
+        }
+        let Some(flow) = start.or_else(|| self.binder.flow_of(reference)) else {
+            return any;
+        };
+        let mut state = FlowState {
+            array_elements: Vec::new(),
+            reduce_labels: Vec::new(),
+            reference,
+            symbol: None,
+            declared_type: any,
+            initial_type,
+            is_auto: true,
+            discriminant_pattern: None,
+            is_auto_array: false,
+            outer_reference: false,
+            flow_container: self.extended_flow_container(reference, None),
+            shared_flow_start: self.shared_flows.len(),
+            element_dedupe_mark: 0,
+            depth: 0,
+        };
+        let answer = self.get_type_at_flow_node(&mut state, flow);
+        let result = self.finalize_evolving_array(&mut state, answer).t;
+        self.shared_flows.truncate(state.shared_flow_start);
+        if result == self.intrinsics.unreachable_never { any } else { result }
+    }
+
     /// `getUnionOrEvolvingArrayType` (`flow.go:1314`), the junction rule:
     ///
     /// ```go
@@ -3818,7 +3864,7 @@ impl Checker<'_, '_> {
     /// arm is an equality rather than a heuristic — an element access whose
     /// argument this port cannot prove constant is refused rather than matched
     /// on its text.
-    fn references_match(&mut self, source: NodeId, target: NodeId) -> bool {
+    pub(crate) fn references_match(&mut self, source: NodeId, target: NodeId) -> bool {
         if source == target {
             return true;
         }

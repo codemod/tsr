@@ -120,6 +120,34 @@ impl Checker<'_, '_> {
                 return self.intrinsics.any;
             }
         }
+        // `isThisPropertyAccessInConstructor` (`checker.go:27042`), the
+        // element-access twin of the property-access arm: `this["x"]` inside
+        // the declaring constructor reads `autoType` through its flow.
+        if self.in_js_file(id)
+            && let Some(constructor) = self.get_this_container(id, true)
+            && self.nodes.kind(constructor) == tsr_ast::SyntaxKind::Constructor
+            && let (Some(receiver), Some(index)) = (node.expression, node.argument_expression)
+        {
+            let object_type = self.check_expression(receiver);
+            let index_type = self.check_expression(index);
+            if let Some(property) = self
+                .property_name_from_index(index_type)
+                .and_then(|name| self.get_property_of_type(object_type, &name))
+                && matches!(
+                    self.is_constructor_declared_this_property(property),
+                    crate::assignment_declarations::ThisAssignmentDeclaration::Constructor(declaring)
+                        if declaring == constructor
+                )
+            {
+                if self.assignment_target_kind(id)
+                    == crate::expressions::AssignmentTargetKind::Definite
+                {
+                    return self.intrinsics.any;
+                }
+                let flowed = self.get_flow_type_of_property_symbol(id, None, property);
+                return self.propagate_optional_type_marker_at(node.node_id, flowed, was_optional);
+            }
+        }
         // §12.7's element-access half (the §52 scorecard's recorded residue):
         // a WRITE-position read takes the declared type — upstream's
         // assignment-target dispatch, which the identifier road has had

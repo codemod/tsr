@@ -3,16 +3,359 @@
 //! and `getTypeFromPropertyDescriptor`. The binder has already classified and
 //! attached these declarations to their property symbols.
 
-use tsr_ast::{Expression, Node, SyntaxKind};
-use tsr_binder::SymbolId;
+use tsr_ast::{Expression, Node, NodeId, SyntaxKind, TypeNode};
+use tsr_binder::{SymbolFlags, SymbolId};
 
 use crate::{
     Checker,
     flags::TypeFlags,
+    flow::TypeFacts,
     types::{TypeData, TypeId},
 };
 
+/// `thisAssignmentDeclarationKind` (`checker.go`), with upstream's separately
+/// cached location folded into the variant that carries it.
+#[derive(Clone, Copy)]
+pub(crate) enum ThisAssignmentDeclaration<'a> {
+    /// Not (all) `this.property` assignments.
+    None,
+    /// A declaration carries a type annotation; use it.
+    Typed(TypeNode<'a>),
+    /// At least one declaration is in this class constructor; use its flow.
+    Constructor(NodeId),
+    /// Methods only: the base class property, else the declaration union
+    /// plus `undefined`.
+    Method,
+}
+
 impl<'a> Checker<'a, '_> {
+    /// `isConstructorDeclaredThisProperty` (`checker.go`): every declaration
+    /// is a `this.x` (or literal `this["x"]`) assignment declaration.
+    pub(crate) fn is_constructor_declared_this_property(
+        &mut self,
+        symbol: SymbolId,
+    ) -> ThisAssignmentDeclaration<'a> {
+        let record = self.binder.symbols().get(symbol);
+        let Some(value_declaration) = record.value_declaration else {
+            return ThisAssignmentDeclaration::None;
+        };
+        if self.nodes.kind(value_declaration) != SyntaxKind::BinaryExpression {
+            return ThisAssignmentDeclaration::None;
+        }
+        if let Some(&cached) = self.this_expando_kinds.get(&symbol) {
+            return cached;
+        }
+        let declarations = record.declarations.clone();
+        let mut all_this = true;
+        let mut annotation = None;
+        for &declaration in &declarations {
+            let Some(Node::BinaryExpression(binary)) = self.node_map.get(declaration) else {
+                all_this = false;
+                break;
+            };
+            let is_this_property = match binary.left {
+                Some(Expression::PropertyAccessExpression(access)) => {
+                    is_this_keyword(access.expression)
+                }
+                Some(Expression::ElementAccessExpression(access)) => {
+                    is_this_keyword(access.expression)
+                        && matches!(
+                            access.argument_expression,
+                            Some(
+                                Expression::StringLiteral(_)
+                                    | Expression::NoSubstitutionTemplateLiteral(_)
+                                    | Expression::NumericLiteral(_)
+                            )
+                        )
+                }
+                _ => false,
+            };
+            if !is_this_property || !self.in_js_file(declaration) {
+                all_this = false;
+                break;
+            }
+            if let Some(node) = self.assignment_declaration_type_node(declaration) {
+                annotation = Some(node);
+            }
+        }
+        let kind = if !all_this {
+            ThisAssignmentDeclaration::None
+        } else if let Some(annotation) = annotation {
+            ThisAssignmentDeclaration::Typed(annotation)
+        } else if let Some(constructor) = self.get_declaring_constructor(&declarations) {
+            ThisAssignmentDeclaration::Constructor(constructor)
+        } else {
+            ThisAssignmentDeclaration::Method
+        };
+        self.this_expando_kinds.insert(symbol, kind);
+        kind
+    }
+
+    /// `BinaryExpression.Type`: the parser's JSDoc reparse moves a statement's
+    /// `@type` tag onto an assignment declaration (`reparser.go`'s
+    /// `KindExpressionStatement` arm). This tree is not reparsed, so the tag
+    /// is read from the statement that hosts it.
+    pub(crate) fn assignment_declaration_type_node(
+        &self,
+        declaration: NodeId,
+    ) -> Option<TypeNode<'a>> {
+        if let Some(Node::BinaryExpression(binary)) = self.node_map.get(declaration)
+            && let Some(annotation) = binary.r#type
+        {
+            return Some(annotation);
+        }
+        if let Some(annotation) = self.jsdoc_cast_annotation(declaration) {
+            return Some(annotation);
+        }
+        if !self.in_js_file(declaration) {
+            return None;
+        }
+        let statement = self.nodes.parent(declaration)?;
+        if self.nodes.kind(statement) != SyntaxKind::ExpressionStatement {
+            return None;
+        }
+        self.jsdoc_cast_annotation(statement)
+    }
+
+    /// `getDeclaringConstructor` (`checker.go:27345`).
+    fn get_declaring_constructor(&self, declarations: &[NodeId]) -> Option<NodeId> {
+        declarations.iter().find_map(|&declaration| {
+            self.get_this_container(declaration, false)
+                .filter(|&container| self.nodes.kind(container) == SyntaxKind::Constructor)
+        })
+    }
+
+    /// `ast.GetThisContainer` (`ast/utilities.go:1790`) without the class
+    /// computed-name stop, which no caller here requests.
+    pub(crate) fn get_this_container(
+        &self,
+        node: NodeId,
+        include_arrow_functions: bool,
+    ) -> Option<NodeId> {
+        let mut current = self.nodes.parent(node);
+        while let Some(id) = current {
+            match self.nodes.kind(id) {
+                SyntaxKind::ComputedPropertyName => {
+                    current = self.nodes.parent(id).and_then(|member| self.nodes.parent(member));
+                    continue;
+                }
+                SyntaxKind::Decorator => {
+                    let parent = self.nodes.parent(id);
+                    let grandparent = parent.and_then(|p| self.nodes.parent(p));
+                    if parent.is_some_and(|p| self.nodes.kind(p) == SyntaxKind::Parameter)
+                        && grandparent.is_some_and(|g| self.is_class_element(g))
+                    {
+                        current = grandparent;
+                    } else if parent.is_some_and(|p| self.is_class_element(p)) {
+                        current = parent;
+                    }
+                }
+                SyntaxKind::ArrowFunction if include_arrow_functions => return Some(id),
+                SyntaxKind::FunctionDeclaration
+                | SyntaxKind::FunctionExpression
+                | SyntaxKind::ModuleDeclaration
+                | SyntaxKind::ClassStaticBlockDeclaration
+                | SyntaxKind::PropertyDeclaration
+                | SyntaxKind::PropertySignature
+                | SyntaxKind::MethodDeclaration
+                | SyntaxKind::MethodSignature
+                | SyntaxKind::Constructor
+                | SyntaxKind::GetAccessor
+                | SyntaxKind::SetAccessor
+                | SyntaxKind::CallSignature
+                | SyntaxKind::ConstructSignature
+                | SyntaxKind::IndexSignature
+                | SyntaxKind::EnumDeclaration
+                | SyntaxKind::SourceFile => return Some(id),
+                _ => {}
+            }
+            current = current.and_then(|id| self.nodes.parent(id));
+        }
+        None
+    }
+
+    fn is_class_element(&self, node: NodeId) -> bool {
+        matches!(
+            self.nodes.kind(node),
+            SyntaxKind::Constructor
+                | SyntaxKind::PropertyDeclaration
+                | SyntaxKind::MethodDeclaration
+                | SyntaxKind::GetAccessor
+                | SyntaxKind::SetAccessor
+                | SyntaxKind::IndexSignature
+                | SyntaxKind::ClassStaticBlockDeclaration
+                | SyntaxKind::SemicolonClassElement
+        )
+    }
+
+    /// `getFlowTypeInConstructor` (`flow.go:2466`). The reference is an
+    /// existing `this.x` declaration target in `constructor`, standing in for
+    /// upstream's synthesized access parented to the constructor.
+    fn get_flow_type_in_constructor(
+        &mut self,
+        symbol: SymbolId,
+        constructor: NodeId,
+    ) -> Option<TypeId> {
+        let declarations = self.binder.symbols().get(symbol).declarations.clone();
+        let reference = declarations.iter().find_map(|&declaration| {
+            if self.get_this_container(declaration, false) != Some(constructor) {
+                return None;
+            }
+            match self.node_map.get(declaration) {
+                Some(Node::BinaryExpression(binary)) => binary.left.and_then(|l| l.node_id()),
+                _ => None,
+            }
+        })?;
+        let return_flow = self.binder.return_flow(constructor)?;
+        let flow_type = self.get_flow_type_of_property_symbol(reference, Some(return_flow), symbol);
+        // We don't infer a type if assignments are only null or undefined.
+        if self.every_type_is_nullable(flow_type) {
+            return None;
+        }
+        Some(flow_type)
+    }
+
+    /// `getFlowTypeOfProperty` (`checker.go:11444`): the initial type is the
+    /// base class property when there is one, else `undefined`.
+    pub(crate) fn get_flow_type_of_property_symbol(
+        &mut self,
+        reference: NodeId,
+        start: Option<tsr_binder::FlowId>,
+        symbol: SymbolId,
+    ) -> TypeId {
+        let initial =
+            self.get_type_of_property_in_base_class(symbol).unwrap_or(self.intrinsics.undefined);
+        self.get_flow_type_of_property(reference, start, initial)
+    }
+
+    /// `everyType(t, isNullableType)`.
+    fn every_type_is_nullable(&mut self, t: TypeId) -> bool {
+        let types = match &self.store.get(t).data {
+            TypeData::Union { types, .. } => types.clone(),
+            _ => vec![t],
+        };
+        types.into_iter().all(|t| {
+            self.get_type_facts(t).intersects(TypeFacts::IS_UNDEFINED | TypeFacts::IS_NULL)
+        })
+    }
+
+    /// `getTypeOfPropertyInBaseClass` (`checker.go:11455`) through
+    /// `getDeclaringClass`: the first base type of the class whose members
+    /// hold the property.
+    pub(crate) fn get_type_of_property_in_base_class(
+        &mut self,
+        symbol: SymbolId,
+    ) -> Option<TypeId> {
+        let record = self.binder.symbols().get(symbol);
+        let name = record.name.to_owned();
+        let parent = record.parent?;
+        if !self.binder.symbols().get(parent).flags.intersects(SymbolFlags::CLASS) {
+            return None;
+        }
+        let base = self.first_base_type_of_class_symbol(parent)?;
+        self.get_type_of_property_of_type(base, &name)
+    }
+
+    /// `getBaseTypes(classType)[0]` for a class symbol: its class
+    /// declaration's single `extends` entry, instantiated.
+    pub(crate) fn first_base_type_of_class_symbol(&mut self, class: SymbolId) -> Option<TypeId> {
+        let declaration = self.binder.symbols().get(class).value_declaration?;
+        let clauses = match self.node_map.get(declaration)? {
+            Node::ClassDeclaration(node) => node.heritage_clauses,
+            Node::ClassExpression(node) => node.heritage_clauses,
+            _ => return None,
+        };
+        let entry = clauses
+            .iter()
+            .filter(|clause| clause.token.kind == SyntaxKind::ExtendsKeyword)
+            .flat_map(|clause| clause.types.iter())
+            .next()?;
+        let base = self.base_symbol_of_heritage_entry(entry, false)?;
+        let t = self.instance_base_type_of_heritage_entry(base, entry);
+        (t != self.intrinsics.error).then_some(t)
+    }
+
+    /// The instance half of `resolveBaseTypesOfClass` (checker.go:19220) for
+    /// one resolved `extends` entry.
+    pub(crate) fn instance_base_type_of_heritage_entry(
+        &mut self,
+        base: SymbolId,
+        entry: &tsr_ast::ExpressionWithTypeArguments<'a>,
+    ) -> TypeId {
+        let error = self.intrinsics.error;
+        // resolveBaseTypesOfClass (checker.go:19220): actual classes apply
+        // heritage arguments directly; class-like values use the first
+        // constructor with the matching type-argument arity.
+        if self.binder.symbols().get(base).flags.contains(SymbolFlags::CLASS) {
+            return self
+                .instantiated_heritage_base(base, entry.type_arguments, entry.node_id)
+                .unwrap_or(error);
+        }
+        let constructor = self.get_type_of_symbol(base);
+        let Some(signatures) =
+            self.signatures_of_type_kind(constructor, crate::signatures::SignatureKind::Construct)
+        else {
+            return error;
+        };
+        let count = entry.type_arguments.len();
+        for signature in signatures {
+            let minimum = signature
+                .type_parameters
+                .iter()
+                .rposition(|p| p.default.is_none())
+                .map_or(0, |index| index + 1);
+            if count < minimum || count > signature.type_parameters.len() {
+                continue;
+            }
+            if signature.type_parameters.is_empty() {
+                return signature.r#type;
+            }
+            let Some(parameters) = self.type_parameter_types(&signature) else { return error };
+            let names: Vec<_> = signature.type_parameters.iter().map(|p| p.name.as_str()).collect();
+            let mut arguments: Vec<_> = entry
+                .type_arguments
+                .iter()
+                .map(|&argument| self.get_type_from_type_node(argument))
+                .collect();
+            arguments.resize(parameters.len(), error);
+            for index in count..parameters.len() {
+                let Some(default) = signature.type_parameters[index].default else { return error };
+                let map: Vec<_> =
+                    parameters.iter().copied().zip(arguments.iter().copied()).collect();
+                arguments[index] = self.instantiate_type(default, &map, &parameters, &names);
+            }
+            let map: Vec<_> = parameters.iter().copied().zip(arguments).collect();
+            return self.instantiate_type(signature.r#type, &map, &parameters, &names);
+        }
+        error
+    }
+
+    /// `containsSameNamedThisProperty` (`checker.go`): the right side reads
+    /// the property being declared, outside nested functions.
+    fn contains_same_named_this_property(&mut self, this_property: NodeId, node: NodeId) -> bool {
+        if self.references_match(this_property, node) {
+            return true;
+        }
+        if matches!(
+            self.nodes.kind(node),
+            SyntaxKind::FunctionDeclaration
+                | SyntaxKind::FunctionExpression
+                | SyntaxKind::ArrowFunction
+                | SyntaxKind::MethodDeclaration
+                | SyntaxKind::Constructor
+                | SyntaxKind::GetAccessor
+                | SyntaxKind::SetAccessor
+        ) {
+            return false;
+        }
+        let Some(typed) = self.node_map.get(node) else { return false };
+        let mut children = Vec::new();
+        tsr_ast::for_each_child_id(typed, |child| children.push(child));
+        children
+            .into_iter()
+            .any(|child| self.contains_same_named_this_property(this_property, child))
+    }
+
     /// `isReadonlyAssignmentDeclaration` (checker.go). A value descriptor is
     /// readonly unless its writable property exists and is not literal false;
     /// an accessor descriptor is readonly when it has no setter.
@@ -57,16 +400,29 @@ impl<'a> Checker<'a, '_> {
         &mut self,
         symbol: SymbolId,
     ) -> TypeId {
+        let kind = self.is_constructor_declared_this_property(symbol);
+        let resolved = match kind {
+            ThisAssignmentDeclaration::Typed(annotation) => {
+                Some(self.get_type_from_type_node(annotation))
+            }
+            ThisAssignmentDeclaration::Constructor(constructor) => {
+                self.get_flow_type_in_constructor(symbol, constructor)
+            }
+            ThisAssignmentDeclaration::Method => self.get_type_of_property_in_base_class(symbol),
+            ThisAssignmentDeclaration::None => None,
+        };
+        if let Some(resolved) = resolved {
+            return self.finish_assignment_declaration_type(symbol, resolved);
+        }
         let declarations = self.binder.symbols().get(symbol).declarations.clone();
         let mut types = Vec::new();
         for (index, &declaration) in declarations.iter().enumerate() {
             let Some(node) = self.node_map.get(declaration) else { continue };
             let assigned = match node {
                 Node::BinaryExpression(binary) => {
-                    if let Some(annotation) =
-                        binary.r#type.or_else(|| self.jsdoc_cast_annotation(declaration))
-                    {
-                        return self.get_type_from_type_node(annotation);
+                    if let Some(annotation) = self.assignment_declaration_type_node(declaration) {
+                        let annotated = self.get_type_from_type_node(annotation);
+                        return self.finish_assignment_declaration_type(symbol, annotated);
                     }
                     let Some(left) = binary.left else { return self.intrinsics.error };
                     let Some(right) = binary.right else { return self.intrinsics.error };
@@ -75,11 +431,15 @@ impl<'a> Checker<'a, '_> {
                         Expression::ElementAccessExpression(access) => access.expression,
                         _ => None,
                     };
-                    // Constructor/method this-property declarations require the
-                    // constructor flow and inherited-property precedence paths.
-                    if matches!(target, Some(Expression::KeywordExpression(keyword)) if keyword.kind == SyntaxKind::ThisKeyword)
+                    // `getAssignmentDeclarationInitializerType`'s
+                    // JSDeclarationKindThisProperty arm: `this.x = this.x || …`
+                    // contributes nothing of its own.
+                    if is_this_keyword(target)
+                        && let Some(left_id) = left.node_id()
+                        && let Some(right_id) = right.node_id()
+                        && self.contains_same_named_this_property(left_id, right_id)
                     {
-                        return self.intrinsics.error;
+                        continue;
                     }
                     let exports = matches!(target, Some(Expression::Identifier(name)) if name.text == "exports")
                         || matches!(target, Some(Expression::PropertyAccessExpression(access))
@@ -140,7 +500,23 @@ impl<'a> Checker<'a, '_> {
                 types.push(assigned);
             }
         }
+        if matches!(kind, ThisAssignmentDeclaration::Method)
+            && !types.is_empty()
+            && self.strict_null_checks
+            && !types.contains(&self.intrinsics.undefined)
+        {
+            types.push(self.intrinsics.undefined);
+        }
         let t = if types.is_empty() { self.intrinsics.any } else { self.get_union_type(&types) };
+        self.finish_assignment_declaration_type(symbol, t)
+    }
+
+    /// The tail of `getWidenedTypeForAssignmentDeclaration`, shared by every
+    /// exit that upstream routes through it.
+    fn finish_assignment_declaration_type(&mut self, symbol: SymbolId, t: TypeId) -> TypeId {
+        if t == self.intrinsics.error {
+            return t;
+        }
         // getWidenedType does not widen regular CommonJS literal types. Mutable
         // assignment and descriptor values have already widened at their own
         // expression boundary. JS all-nullable assignment inference is any,
@@ -225,4 +601,9 @@ impl<'a> Checker<'a, '_> {
         }
         self.intrinsics.any
     }
+}
+
+fn is_this_keyword(expression: Option<Expression<'_>>) -> bool {
+    matches!(expression, Some(Expression::KeywordExpression(keyword))
+        if keyword.kind == SyntaxKind::ThisKeyword)
 }

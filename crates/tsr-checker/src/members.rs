@@ -243,6 +243,12 @@ impl Checker<'_, '_> {
             // narrow (catch variables, assertion predicates); those keep the
             // honest gap.
             if self.receiver_is_purely_nullish(non_optional) {
+                // §14.1's split: a JS baseline prints upstream's errorType
+                // verbatim (`jsFileClassSelfReferencedProperty`'s
+                // `this.testStackOverflow.bind : error`).
+                if node.node_id.is_some_and(|id| self.in_js_file(id)) {
+                    return error;
+                }
                 return self.intrinsics.any;
             }
             return error;
@@ -310,6 +316,27 @@ impl Checker<'_, '_> {
                 .is_some_and(|property| self.is_readonly_symbol(property))
         {
             return self.intrinsics.any;
+        }
+        // `isThisPropertyAccessInConstructor` (`checker.go:27328`): inside the
+        // constructor that declares a this-property, the property reads as
+        // `autoType` and `getFlowTypeOfAccessExpression` follows its flow.
+        if let Some(access) = node.node_id
+            && self.in_js_file(access)
+            && let Some(constructor) = self.get_this_container(access, true)
+            && self.nodes.kind(constructor) == tsr_ast::SyntaxKind::Constructor
+            && let Some(property) = self.get_property_of_type(stripped, name)
+            && matches!(
+                self.is_constructor_declared_this_property(property),
+                crate::assignment_declarations::ThisAssignmentDeclaration::Constructor(declaring)
+                    if declaring == constructor
+            )
+        {
+            if self.assignment_target_kind(access)
+                == crate::expressions::AssignmentTargetKind::Definite
+            {
+                return self.intrinsics.any;
+            }
+            return self.get_flow_type_of_property_symbol(access, None, property);
         }
         let result = self.access_member_lookup(stripped, name, node.node_id);
         if result == error {
@@ -829,6 +856,18 @@ impl Checker<'_, '_> {
         // type — a confident wrong line out of a missing one.
         let Some(id) = node_id else { return property_type };
         if property_type == error {
+            return property_type;
+        }
+        // `getFlowTypeOfAccessExpression` (`checker.go:11396`): a definite
+        // assignment target is not narrowed by the flow reaching it.
+        // Under `exactOptionalPropertyTypes` the caller's `removeMissingType`
+        // still misses members whose optionality this port spells as plain
+        // `undefined` (`strictOptionalProperties1`'s `Partial<…>` writes), so
+        // that mode keeps the earlier narrowed answer until those members
+        // carry `missingType`.
+        if !self.exact_optional_property_types
+            && self.assignment_target_kind(id) == crate::expressions::AssignmentTargetKind::Definite
+        {
             return property_type;
         }
         self.get_flow_type_of_reference(id, None, property_type)

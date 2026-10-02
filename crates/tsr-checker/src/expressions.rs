@@ -2068,51 +2068,7 @@ impl Checker<'_, '_> {
             }
             return self.get_type_of_symbol(base);
         }
-        // resolveBaseTypesOfClass (checker.go:19220): actual classes apply
-        // heritage arguments directly; class-like values use the first
-        // constructor with the matching type-argument arity.
-        if self.binder.symbols().get(base).flags.contains(SymbolFlags::CLASS) {
-            return self
-                .instantiated_heritage_base(base, entry.type_arguments, entry.node_id)
-                .unwrap_or(error);
-        }
-        let constructor = self.get_type_of_symbol(base);
-        let Some(signatures) =
-            self.signatures_of_type_kind(constructor, crate::signatures::SignatureKind::Construct)
-        else {
-            return error;
-        };
-        let count = entry.type_arguments.len();
-        for signature in signatures {
-            let minimum = signature
-                .type_parameters
-                .iter()
-                .rposition(|p| p.default.is_none())
-                .map_or(0, |index| index + 1);
-            if count < minimum || count > signature.type_parameters.len() {
-                continue;
-            }
-            if signature.type_parameters.is_empty() {
-                return signature.r#type;
-            }
-            let Some(parameters) = self.type_parameter_types(&signature) else { return error };
-            let names: Vec<_> = signature.type_parameters.iter().map(|p| p.name.as_str()).collect();
-            let mut arguments: Vec<_> = entry
-                .type_arguments
-                .iter()
-                .map(|&argument| self.get_type_from_type_node(argument))
-                .collect();
-            arguments.resize(parameters.len(), error);
-            for index in count..parameters.len() {
-                let Some(default) = signature.type_parameters[index].default else { return error };
-                let map: Vec<_> =
-                    parameters.iter().copied().zip(arguments.iter().copied()).collect();
-                arguments[index] = self.instantiate_type(default, &map, &parameters, &names);
-            }
-            let map: Vec<_> = parameters.iter().copied().zip(arguments).collect();
-            return self.instantiate_type(signature.r#type, &map, &parameters, &names);
-        }
-        error
+        self.instance_base_type_of_heritage_entry(base, entry)
     }
 
     /// How many type parameters a class or interface symbol declares.

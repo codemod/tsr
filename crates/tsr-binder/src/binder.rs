@@ -3549,11 +3549,20 @@ impl<'a, 'n> Binder<'a, 'n> {
         let name = access_name(self.arena, left)?;
         let owner = self.owner?;
 
-        // Upstream files a *static* member in the class's exports and an
-        // instance member in its members. This binder puts both in `members`
-        // — `static x = 1` already goes there — so `this.x` follows suit; the
-        // divergence is pre-existing and uniform.
-        if let Some(existing) = self.symbols.get(owner).members.get(name).copied() {
+        // `getThisClassAndSymbolTable` (`binder.go:1137`): a static this
+        // container (a static block or static member) files the property in
+        // the class's exports, beside `static x = 1`; every other member files
+        // it in the instance members.
+        let this_container = self.this_container;
+        let is_static_container = self
+            .ancestors
+            .iter()
+            .rev()
+            .find(|(id, _)| *id == this_container)
+            .is_some_and(|(_, container)| is_static(*container));
+        if let Some(existing) =
+            this_property_table(self.symbols.get_mut(owner), is_static_container).get(name).copied()
+        {
             let flags = self.symbols.get(existing).flags;
             if !flags.contains(SymbolFlags::REPLACEABLE_BY_METHOD) {
                 // A real property or method of this name already exists. Upstream
@@ -3574,7 +3583,7 @@ impl<'a, 'n> Binder<'a, 'n> {
         entry.declarations.push(id);
         entry.value_declaration = Some(id);
         entry.parent = Some(owner);
-        self.symbols.get_mut(owner).members.insert(name, symbol);
+        this_property_table(self.symbols.get_mut(owner), is_static_container).insert(name, symbol);
         Some(symbol)
     }
 
@@ -3952,7 +3961,39 @@ impl<'a, 'n> Binder<'a, 'n> {
 
         let symbol = if let Some(existing) = existing {
             let existing_flags = self.symbols.get(existing).flags;
-            if excludes.intersects(existing_flags) {
+            if excludes.intersects(existing_flags)
+                && existing_flags.contains(SymbolFlags::REPLACEABLE_BY_METHOD)
+            {
+                // `declareSymbolEx` (`binder.go:203`): a JavaScript
+                // constructor-declared property loses to a prototype member of
+                // the same name — the table takes a fresh symbol and the
+                // `this.m = this.m.bind(this)` property is discarded without a
+                // diagnostic.
+                let created = self.symbols.create(name, SymbolFlags::empty());
+                match destination {
+                    Destination::Locals => {
+                        self.locals.entry(table_owner).or_default().insert(name, created);
+                    }
+                    Destination::Members => {
+                        if let Some(owner) = symbol_owner {
+                            self.symbols.get_mut(owner).members.insert(name, created);
+                        }
+                    }
+                    Destination::Exports => {
+                        if let Some(owner) = symbol_owner {
+                            self.symbols.get_mut(owner).exports.insert(name, created);
+                        }
+                    }
+                    Destination::GlobalExports => {
+                        self.global_exports.insert(name, created);
+                    }
+                }
+                if !matches!(destination, Destination::Locals) {
+                    self.symbols.get_mut(created).parent = symbol_owner;
+                }
+                self.symbols.get_mut(created).flags |= flags;
+                created
+            } else if excludes.intersects(existing_flags) {
                 // Ported from `binder.declareSymbol` (`internal/binder/binder.go:202`),
                 // whose message selection this originally collapsed into one
                 // diagnostic at one position. Three separate defects, all of which
@@ -4103,13 +4144,45 @@ impl<'a, 'n> Binder<'a, 'n> {
             created
         };
 
+        let new_is_assignment = matches!(
+            self.nodes.kind(declaration),
+            SyntaxKind::BinaryExpression | SyntaxKind::CallExpression
+        );
+        // `SetValueDeclaration`'s ambient guard (`ast/utilities.go`): an
+        // ambient TypeScript declaration does not displace a non-ambient one.
+        let ambient_ts = !self.in_js_file && (self.in_declaration_file || self.in_ambient_module);
         let entry = self.symbols.get_mut(symbol);
         entry.declarations.push(declaration);
-        if entry.value_declaration.is_none() && flags.intersects(SymbolFlags::VALUE) {
-            entry.value_declaration = Some(declaration);
+        if flags.intersects(SymbolFlags::VALUE) {
+            match entry.value_declaration {
+                None => entry.value_declaration = Some(declaration),
+                // `SetValueDeclaration`: other kinds of value declarations
+                // take precedence over assignment declarations. Its
+                // effective-module half is not ported here.
+                Some(current)
+                    if !ambient_ts
+                        && !new_is_assignment
+                        && matches!(
+                            self.nodes.kind(current),
+                            SyntaxKind::BinaryExpression | SyntaxKind::CallExpression
+                        ) =>
+                {
+                    entry.value_declaration = Some(declaration);
+                }
+                Some(_) => {}
+            }
         }
         symbol
     }
+}
+
+/// The class table a this-property files into: exports for a static
+/// this-container, members otherwise (`getThisClassAndSymbolTable`).
+fn this_property_table<'s, 'a>(
+    symbol: &'s mut crate::Symbol<'a>,
+    exports: bool,
+) -> &'s mut SymbolTable<'a> {
+    if exports { &mut symbol.exports } else { &mut symbol.members }
 }
 
 /// Whether `child` is the condition of `parent` (`isStatementCondition`).

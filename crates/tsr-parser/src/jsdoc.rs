@@ -414,7 +414,10 @@ impl<'a> Parser<'a> {
             }
             "template" => self.parse_template_tag(start, tag_name, margin, indent_text),
             "type" => {
-                let type_expression = self.try_parse_type_expression().map(Node::from);
+                // `parseTypeTag` (`parser/jsdoc.go:894`) parses with
+                // `mayOmitBraces`: `@type object` is a type expression too.
+                self.skip_whitespace_or_asterisk();
+                let type_expression = Some(Node::from(self.parse_jsdoc_type_expression(true)));
                 let comment = self.parse_trailing_tag_comments(start, margin, indent_text);
                 tsr_ast::JSDocTag::JSDocTypeTag(self.finish_jsdoc_node(
                     JSDocTypeTag::new(tag_name, type_expression, comment),

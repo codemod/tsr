@@ -125,6 +125,10 @@ pub struct Checker<'a, 'n> {
     pub(crate) diagnostics: Vec<(NodeId, tsr_diagnostics::Diagnostic)>,
     /// `symbol -> its type`, upstream's `valueSymbolLinks[symbol].resolvedType`.
     pub(crate) symbol_types: FxHashMap<SymbolId, TypeId>,
+    /// `thisExpandoKinds` / `thisExpandoLocations` (`checker.go`): the
+    /// classification `isConstructorDeclaredThisProperty` caches per symbol.
+    pub(crate) this_expando_kinds:
+        FxHashMap<SymbolId, crate::assignment_declarations::ThisAssignmentDeclaration<'a>>,
     /// `symbol -> whether any assignment in its container targets it` — the
     /// ever-assigned memo (`checker-notes-narrow.md` §9.7), read by the flow
     /// START arm's outer-reference split.
@@ -1205,6 +1209,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             enum_member_owners: FxHashMap::default(),
             diagnostics: Vec::new(),
             symbol_types,
+            this_expando_kinds: FxHashMap::default(),
             symbol_assignment_scan: FxHashMap::default(),
             symbol_empty_array_assignment_scan: FxHashMap::default(),
             last_assignment_pos: FxHashMap::default(),
