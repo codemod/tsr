@@ -1518,6 +1518,17 @@ impl Checker<'_, '_> {
     pub(crate) fn check_this_expression(&mut self, node: NodeId) -> TypeId {
         let mut current = self.nodes.parent(node);
         while let Some(id) = current {
+            // getThisContainer skips object members when evaluating their
+            // computed names. Class computed-name diagnostics use a separate
+            // native container path; preserve that existing class lookup here.
+            if self.nodes.kind(id) == SyntaxKind::ComputedPropertyName
+                && let Some(owner) =
+                    self.nodes.parent(id).and_then(|member| self.nodes.parent(member))
+                && self.nodes.kind(owner) == SyntaxKind::ObjectLiteralExpression
+            {
+                current = self.nodes.parent(owner);
+                continue;
+            }
             // **Arm 1 shadows arm 2, and the order is upstream's.**
             // `tryGetThisTypeAtEx` (`checker.go:12146`) asks
             // `ast.IsFunctionLike(container)` *before* it asks
@@ -1557,6 +1568,9 @@ impl Checker<'_, '_> {
             // signature's own `this` is an annotation the user wrote and is
             // read in every mode.
             if let Some(this_type) = self.contextual_this_parameter_type(id) {
+                return this_type;
+            }
+            if let Some(this_type) = self.contextual_object_this_type(id) {
                 return this_type;
             }
             match self.nodes.kind(id) {
@@ -1599,64 +1613,6 @@ impl Checker<'_, '_> {
                     }
                     return self.intrinsics.any;
                 }
-                // §912: `getContextualThisParameterType`'s `noImplicitThis`
-                // branch — when the containing object literal HAS a contextual
-                // type, `this` inside its method is that type **discriminated by
-                // the literal's own members**, not the whole union:
-                //
-                // ```ts
-                // function foo(bar: X | Y) { }
-                // foo({ type: 'y', value: 'done', method() { this } })  // this : Y
-                // ```
-                //
-                // §911 built this and answered `X | Y`, which measured 4
-                // `RIGHT→WRONG` and — the tell — **5 `GAP→WRONG` in the very case
-                // it was meant to fix**. The want is the constituent the literal's
-                // `type: 'y'` selects, and `discriminate_union_root`
-                // (`symbols.rs`) has done exactly that selection since §750's
-                // family. It was never called from here.
-                //
-                // The `ThisType<T>` marker half stays unported: upstream prefers a
-                // `ThisType<T>` member of the contextual type over the type
-                // itself, and this port has no such lookup.
-                SyntaxKind::MethodDeclaration
-                    if self.nodes.parent(id).is_some_and(|parent| {
-                        self.nodes.kind(parent) == SyntaxKind::ObjectLiteralExpression
-                            && self.no_implicit_this
-                            && !self.in_js_file(parent)
-                            && !self.has_no_contextual_type(parent)
-                    }) =>
-                {
-                    let Some(literal) = self.nodes.parent(id) else {
-                        return self.intrinsics.error;
-                    };
-                    // **Only a UNION contextual type is used.** Upstream's first
-                    // branch — the method's own contextual SIGNATURE carrying a
-                    // `this` parameter — wins ahead of the literal one, and this
-                    // port's `contextual_signature` cannot reach an INDEX
-                    // signature, which is where `thisTypeInFunctions2` gets its
-                    // `(this: any, …) => any`. Without the restriction the
-                    // literal road ran there instead and returned the index
-                    // signature's whole union: 4 `RIGHT→WRONG`.
-                    //
-                    // A union is exactly the shape discrimination is for, and it
-                    // is the shape this arm exists to serve, so restricting to it
-                    // costs nothing measured and removes the whole adverse set.
-                    // The non-union case keeps `any`, which is what it answered
-                    // before.
-                    let contextual = self.get_contextual_type(literal);
-                    match contextual {
-                        Some(contextual)
-                            if matches!(
-                                self.store.get(contextual).data,
-                                crate::types::TypeData::Union { .. }
-                            ) =>
-                        {
-                            return self.discriminate_union_root(contextual, literal);
-                        }
-                        _ => return self.intrinsics.any,
-                    }
-                }
                 // §142 (parked state rebuilt for the looseThis probe):
                 // literal-self this, methods only, all four gates.
                 SyntaxKind::MethodDeclaration
@@ -1684,6 +1640,17 @@ impl Checker<'_, '_> {
                     );
                     self.literal_this_types.insert(literal, minted);
                     return minted;
+                }
+                // tryGetThisTypeAtEx stops at an object method/accessor even
+                // when neither an explicit nor contextual this type exists.
+                SyntaxKind::MethodDeclaration
+                | SyntaxKind::GetAccessor
+                | SyntaxKind::SetAccessor
+                    if self.nodes.parent(id).is_some_and(|parent| {
+                        self.nodes.kind(parent) == SyntaxKind::ObjectLiteralExpression
+                    }) =>
+                {
+                    return self.intrinsics.any;
                 }
                 SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression => {
                     let Some(symbol) = self.binder.symbol_of(id) else {

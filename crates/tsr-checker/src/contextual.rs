@@ -603,6 +603,119 @@ impl<'a> Checker<'a, '_> {
         self.apparent_type(ty)
     }
 
+    /// getContextualThisParameterType's object literal arm (checker.go).
+    /// An explicit contextual signature has already taken precedence.
+    pub(crate) fn contextual_object_this_type(&mut self, function: NodeId) -> Option<TypeId> {
+        use tsr_ast::SyntaxKind;
+        if !matches!(
+            self.nodes.kind(function),
+            SyntaxKind::FunctionExpression
+                | SyntaxKind::MethodDeclaration
+                | SyntaxKind::GetAccessor
+                | SyntaxKind::SetAccessor
+        ) || !(self.no_implicit_this || self.in_js_file(function))
+        {
+            return None;
+        }
+        let mut parent = self.nodes.parent(function)?;
+        if self.nodes.kind(parent) == SyntaxKind::PropertyAssignment {
+            parent = self.nodes.parent(parent)?;
+        }
+        if self.nodes.kind(parent) != SyntaxKind::ObjectLiteralExpression {
+            return None;
+        }
+        let literal = parent;
+        let contextual = self.get_contextual_type(literal)?;
+        let contextual = self.instantiate_contextual_inference_type(contextual, literal);
+        let contextual = self.apparent_contextual_type(contextual);
+        // getThisTypeOfObjectLiteralFromContextualType also checks directly
+        // enclosing literals through property assignments.
+        let mut current_literal = literal;
+        let mut current_context = contextual;
+        loop {
+            if let Some(this_type) =
+                self.this_type_from_contextual_type(current_context, &mut Vec::new())
+            {
+                // Native instantiates the entire marker argument, including
+                // object members, with the non-fixing inference mapper.
+                let mapper = self.live_contextual_mapper(literal, &[]).or_else(|| {
+                    self.nodes
+                        .ancestors(literal)
+                        .find_map(|node| self.contextual_signature_mappers.get(&node).cloned())
+                });
+                let this_type = if let Some((map, parameters, names)) = mapper {
+                    let names: Vec<_> = names.iter().map(String::as_str).collect();
+                    self.instantiate_type(this_type, &map, &parameters, &names)
+                } else {
+                    this_type
+                };
+                // Native aliases already have their body's semantic flags.
+                // Retain this port's alias display unless reduction eliminates
+                // the composite entirely (for example D & X with D = any).
+                let body = self.binding_type_alias_body(this_type);
+                return Some(if matches!(self.store.get(body).data, TypeData::Intrinsic { .. }) {
+                    body
+                } else {
+                    this_type
+                });
+            }
+            let Some(assignment) = self.nodes.parent(current_literal) else { break };
+            if self.nodes.kind(assignment) != SyntaxKind::PropertyAssignment {
+                break;
+            }
+            let Some(outer) = self.nodes.parent(assignment) else { break };
+            let Some(outer_context) = self.get_contextual_type(outer) else { break };
+            current_literal = outer;
+            current_context = self.apparent_contextual_type(outer_context);
+        }
+        let contextual = self.discriminate_union_root(contextual, literal);
+        let contextual = self.get_non_nullable_type(contextual);
+        Some(self.widen_object_literal_freshness(contextual))
+    }
+
+    /// getThisTypeFromContextualType (checker.go): union the marker results,
+    /// taking the first direct marker in each intersection constituent.
+    fn this_type_from_contextual_type(
+        &mut self,
+        contextual: TypeId,
+        seen: &mut Vec<TypeId>,
+    ) -> Option<TypeId> {
+        if seen.contains(&contextual) {
+            return None;
+        }
+        seen.push(contextual);
+        let body = self.binding_type_alias_body(contextual);
+        let result = if body == contextual {
+            match self.store.get(contextual).data.clone() {
+                TypeData::Union { types, .. } => {
+                    let mut results = Vec::new();
+                    for ty in types {
+                        if let Some(result) = self.this_type_from_contextual_type(ty, seen) {
+                            results.push(result);
+                        }
+                    }
+                    (!results.is_empty()).then(|| self.get_union_type(&results))
+                }
+                TypeData::Intersection { types, .. } => {
+                    types.into_iter().find_map(|ty| self.this_type_from_contextual_type(ty, seen))
+                }
+                _ => self.this_type_argument(contextual),
+            }
+        } else {
+            self.this_type_from_contextual_type(body, seen)
+        };
+        seen.pop();
+        result
+    }
+
+    /// getThisTypeArgument (checker.go) recognizes the global marker by identity.
+    fn this_type_argument(&self, ty: TypeId) -> Option<TypeId> {
+        let (target, arguments) = self.type_reference_targets.get(&ty)?;
+        (self.global_type_symbol_with_arity("ThisType", 1) == Some(*target))
+            .then(|| arguments.first().copied())
+            .flatten()
+    }
+
     fn contextual_signature_result_worker(
         &mut self,
         function: NodeId,

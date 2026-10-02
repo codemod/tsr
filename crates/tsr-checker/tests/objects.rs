@@ -775,17 +775,15 @@ fn this_in_an_object_literal_method_is_the_discriminated_contextual_type() {
     assert_eq!(type_of_last_this(source), "Y");
 }
 
-/// Restricted to a UNION contextual type. Upstream's first branch — the method's
-/// own contextual SIGNATURE carrying a `this` parameter — wins ahead of the
-/// literal one, and this port cannot reach an INDEX signature to find it, which
-/// is where `thisTypeInFunctions2` gets its `(this: any, …) => any`. A non-union
-/// contextual type keeps `any`, which is what it answered before.
+/// getContextualThisParameterType uses a plain contextual object after the
+/// signature's explicit this slot. The former union-only restriction protected
+/// the then-missing index-signature lookup and is no longer needed.
 #[test]
-fn a_non_union_contextual_type_keeps_any() {
+fn a_non_union_contextual_type_supplies_this() {
     let source = "interface I { [k: string]: any; method(): void; }\n\
          declare function foo(bar: I): void;\n\
          foo({ method() { this; } });";
-    assert_eq!(type_of_last_this(source), "any");
+    assert_eq!(type_of_last_this(source), "I");
 }
 
 /// §914: a tagged template's WRITTEN type arguments instantiate the return, as a

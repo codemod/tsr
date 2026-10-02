@@ -739,37 +739,38 @@ impl Checker<'_, '_> {
         // signature answers the member's type (`noImplicitAny` errors are
         // diagnostics, not types). The key is the name's string literal type.
         // See `checker-notes-narrow.md` §17.
-        let property_type =
-            if let Some(found) = self.get_type_of_property_of_type(receiver_type, name) {
-                found
-            } else {
-                let key = self.store.intern_literal(
-                    crate::flags::TypeFlags::STRING_LITERAL,
-                    crate::types::TypeData::StringLiteral(name.to_string()),
-                    false,
-                );
-                if let Some(info) = self.get_applicable_index_info(receiver_type, key) {
-                    if self.no_unchecked_indexed_access {
-                        let undefined = self.intrinsics.undefined;
-                        self.get_union_type(&[info.value, undefined])
-                    } else {
-                        info.value
-                    }
-                } else if node_id.is_some_and(|id| !self.in_js_file(id))
-                    && self.miss_is_established(receiver_type, name)
-                {
-                    // §123 (`checker-notes-narrow.md`): the walk COMPLETED —
-                    // every base on the chain was followed and the name is
-                    // established absent — so this is upstream's TS2339/TS2550
-                    // report and its errorType-printed-any, not a table this
-                    // port failed to read. A blocked walk keeps the gap.
-                    // JS positions excluded — unchecked-JS misses answer
-                    // differently upstream (spellingUncheckedJS's 7 R→W).
-                    self.intrinsics.any
+        let property_type = if let Some(found) =
+            self.get_type_of_property_with_this_argument(receiver_type, name, this_argument)
+        {
+            found
+        } else {
+            let key = self.store.intern_literal(
+                crate::flags::TypeFlags::STRING_LITERAL,
+                crate::types::TypeData::StringLiteral(name.to_string()),
+                false,
+            );
+            if let Some(info) = self.get_applicable_index_info(receiver_type, key) {
+                if self.no_unchecked_indexed_access {
+                    let undefined = self.intrinsics.undefined;
+                    self.get_union_type(&[info.value, undefined])
                 } else {
-                    error
+                    info.value
                 }
-            };
+            } else if node_id.is_some_and(|id| !self.in_js_file(id))
+                && self.miss_is_established(receiver_type, name)
+            {
+                // §123 (`checker-notes-narrow.md`): the walk COMPLETED —
+                // every base on the chain was followed and the name is
+                // established absent — so this is upstream's TS2339/TS2550
+                // report and its errorType-printed-any, not a table this
+                // port failed to read. A blocked walk keeps the gap.
+                // JS positions excluded — unchecked-JS misses answer
+                // differently upstream (spellingUncheckedJS's 7 R→W).
+                self.intrinsics.any
+            } else {
+                error
+            }
+        };
         // §164 (`checker-notes-narrow.md`), §163's decidable slice 1: a
         // member whose type IS the owner's `this` type answers the
         // RECEIVER — `getTypeWithThisArgument` (`checker.go:19573`) reads a
@@ -1142,6 +1143,17 @@ impl Checker<'_, '_> {
     /// (`crate::relater`'s `properties_related_to`) meaning what it did.
     #[must_use]
     pub fn get_type_of_property_of_type(&mut self, id: TypeId, name: &str) -> Option<TypeId> {
+        self.get_type_of_property_with_this_argument(id, name, id)
+    }
+
+    /// getTypeWithThisArgument retains the original receiver when member
+    /// lookup proceeds through its apparent constraint.
+    fn get_type_of_property_with_this_argument(
+        &mut self,
+        id: TypeId,
+        name: &str,
+        this_argument: TypeId,
+    ) -> Option<TypeId> {
         self.resolve_mapped_type_members(id);
         if let Some(property) = self
             .anonymous_properties
@@ -1364,7 +1376,8 @@ impl Checker<'_, '_> {
         }
         if let Some(property) = self.get_property_of_type(id, name) {
             let declared = self.get_type_of_symbol(property);
-            let instantiated = self.instantiate_for_reference(id, declared);
+            let instantiated =
+                self.instantiate_for_reference_with_this(id, declared, this_argument);
             // §92: a property the symbol road FINDS but cannot type may
             // still answer through the shape road (chain1's low reads — the
             // alias symbol's table hands back a symbol whose declared type
@@ -1637,13 +1650,31 @@ impl Checker<'_, '_> {
         declared: TypeId,
         this_argument: TypeId,
     ) -> TypeId {
-        let Some((symbol, arguments)) = self.type_reference_targets.get(&receiver).cloned() else {
-            return declared;
-        };
+        // resolveTypeReferenceMembers also supplies a this argument for a
+        // non-generic class or interface. The port keeps those as Named types
+        // rather than entries in type_reference_targets.
+        let (symbol, arguments) =
+            if let Some((symbol, arguments)) = self.type_reference_targets.get(&receiver) {
+                (*symbol, Some(arguments.clone()))
+            } else if self.store.get(receiver).flags.contains(TypeFlags::OBJECT)
+                && let TypeData::Named { members: Some(symbol), .. } = self.store.get(receiver).data
+                && self
+                    .binder
+                    .symbols()
+                    .get(symbol)
+                    .flags
+                    .intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE)
+            {
+                (symbol, None)
+            } else {
+                return declared;
+            };
         let error = self.intrinsics.error;
         let Some(parameters) = self.local_type_parameter_types_of(symbol) else {
             return error;
         };
+        let arguments = arguments
+            .unwrap_or_else(|| parameters.iter().map(|(parameter, _)| *parameter).collect());
         if parameters.len() != arguments.len() {
             return error;
         }
@@ -1654,9 +1685,11 @@ impl Checker<'_, '_> {
         let mut types: Vec<TypeId> = Vec::new();
         let mut map: Vec<(TypeId, TypeId)> = Vec::new();
         for (index, (parameter, name)) in parameters.iter().enumerate() {
-            names.push(name.as_str());
-            types.push(*parameter);
-            map.push((*parameter, arguments[index]));
+            if *parameter != arguments[index] {
+                names.push(name.as_str());
+                types.push(*parameter);
+                map.push((*parameter, arguments[index]));
+            }
         }
         // resolveTypeReferenceMembers pads the type arguments with the
         // reference itself for the target's polymorphic this parameter.
@@ -1668,7 +1701,9 @@ impl Checker<'_, '_> {
                 .iter()
                 .find_map(|node| self.this_type_nodes.get(node).copied())
         });
-        if let Some(this_type) = this_type {
+        if let Some(this_type) = this_type
+            && this_type != this_argument
+        {
             types.push(this_type);
             map.push((this_type, this_argument));
         }
