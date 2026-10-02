@@ -53,6 +53,8 @@ use crate::{
 /// `instantiateAnonymousType` and `instantiateSymbol` (checker.go).
 #[derive(Clone)]
 pub(crate) struct AnonymousProperty {
+    /// Setter parameter retained only while the native accessor symbol is reused.
+    pub(crate) accessor_write: Option<crate::signatures::Parameter>,
     /// Native Method flag; provenance alone cannot distinguish a copied method
     /// from a synthesized property originating at that method's declaration.
     pub(crate) method: bool,
@@ -325,6 +327,7 @@ impl Checker<'_, '_> {
                     let ty = self.get_type_of_property_of_type(id, &name)?;
                     let symbol = self.get_property_of_type(id, &name);
                     Some(AnonymousProperty {
+                        accessor_write: None,
                         method: symbol.is_some_and(|symbol| {
                             self.binder.symbols().get(symbol).flags.contains(SymbolFlags::METHOD)
                         }),
@@ -773,18 +776,7 @@ impl Checker<'_, '_> {
         let has_spread = node.properties.iter().any(|property| {
             matches!(property, tsr_ast::ObjectLiteralElementLike::SpreadAssignment(_))
         });
-        // The typed property batches are complete on this path. Methods and
-        // accessor pairs still use the original member collector until their
-        // synthetic symbol flags are captured for every member of a batch.
-        let property_only = node.properties.iter().all(|property| {
-            matches!(
-                property,
-                tsr_ast::ObjectLiteralElementLike::PropertyAssignment(_)
-                    | tsr_ast::ObjectLiteralElementLike::ShorthandPropertyAssignment(_)
-                    | tsr_ast::ObjectLiteralElementLike::SpreadAssignment(_)
-            )
-        });
-        if has_spread && property_only {
+        if has_spread {
             return self.check_object_spread_literal(node);
         }
         self.check_object_literal_members(node)
@@ -836,6 +828,7 @@ impl Checker<'_, '_> {
         let contextual_pattern = node.node_id.and_then(|id| self.contextual_binding_pattern(id));
         let mut members = Vec::with_capacity(node.properties.len());
         let mut typed_properties: Vec<AnonymousProperty> = Vec::new();
+        let mut capture_complete = true;
         let property_only = node.properties.iter().all(|property| {
             matches!(
                 property,
@@ -941,108 +934,9 @@ impl Checker<'_, '_> {
                     };
                     (shorthand.name, PropertyValue::Shorthand(identifier))
                 }
-                // `{ ...a }`. Ported from `Checker.getSpreadType`
-                // (`checker.go:13387`, from `grep -n` on the declaration),
-                // **object-typed sources only** — see
-                // [`Checker::spread_members_of`] for what is deliberately
-                // gapped and why.
-                tsr_ast::ObjectLiteralElementLike::SpreadAssignment(spread) => {
-                    let Some(expression) = spread.expression else { return error };
-                    let source = self.check_expression(expression);
-                    if !self.is_valid_spread_type(source) {
-                        return error;
-                    }
-                    let source = self.try_merge_union_of_object_type_and_empty_object(source);
-                    let Some(spread_members) = self.spread_members_of(source) else {
-                        return error;
-                    };
-                    for mut member in spread_members {
-                        if property_only
-                            && let Member::Property { name, optional, readonly, printed } = &member
-                        {
-                            let semantic_name = self
-                                .anonymous_properties
-                                .get(&source)
-                                .and_then(|(properties, _)| {
-                                    properties
-                                        .iter()
-                                        .find(|property| property.printed_name == *name)
-                                })
-                                .map_or_else(|| name.clone(), |property| property.name.clone());
-                            if let Some(value) =
-                                self.get_type_of_property_of_type(source, &semantic_name)
-                                && value != error
-                            {
-                                let mut property = AnonymousProperty {
-                                    method: false,
-                                    origin: self.property_origin(source, &semantic_name),
-                                    name: semantic_name,
-                                    printed_name: name.clone(),
-                                    printed_type: printed.clone(),
-                                    optional: *optional,
-                                    readonly: const_context || *readonly,
-                                    r#type: value,
-                                };
-                                if let Some(index) = typed_properties
-                                    .iter()
-                                    .position(|held| held.name == property.name)
-                                {
-                                    // getSpreadType (checker.go:13463): an optional
-                                    // right property preserves the left's presence and
-                                    // unions the values that can actually be written.
-                                    let left = &typed_properties[index];
-                                    if property.optional {
-                                        let left_type = left.r#type;
-                                        property.optional = left.optional;
-                                        property.origin = left.origin;
-                                        let left_present =
-                                            self.remove_missing_or_undefined_type(left_type);
-                                        let right_present =
-                                            self.remove_missing_or_undefined_type(value);
-                                        property.r#type = if left_present == right_present {
-                                            left_type
-                                        } else {
-                                            let Some(merged) =
-                                                self.union_with_subtype_reduction(&[
-                                                    left_type,
-                                                    right_present,
-                                                ])
-                                            else {
-                                                return error;
-                                            };
-                                            merged
-                                        };
-                                        let displayed = self.remove_missing_type(property.r#type);
-                                        property.printed_type = self.type_to_string(displayed);
-                                        member = Member::Property {
-                                            name: property.printed_name.clone(),
-                                            optional: property.optional,
-                                            readonly: property.readonly,
-                                            printed: property.printed_type.clone(),
-                                        };
-                                    }
-                                    typed_properties[index] = property;
-                                } else {
-                                    typed_properties.push(property);
-                                }
-                            }
-                        }
-                        // §105 slice 2a fired leg (B): `{ ...o } as const`
-                        // marks the SPREAD-contributed members readonly too
-                        // (constAssertions o5, 0:147-153); their types stay
-                        // as the source held them.
-                        let member = match member {
-                            Member::Property { name, optional, readonly: _, printed }
-                                if const_context =>
-                            {
-                                Member::Property { name, optional, readonly: true, printed }
-                            }
-                            other => other,
-                        };
-                        upsert_member(&mut members, member);
-                    }
-                    continue;
-                }
+                // Every spread is folded by check_object_spread_literal;
+                // this collector only receives contiguous ordinary batches.
+                tsr_ast::ObjectLiteralElementLike::SpreadAssignment(_) => return error,
                 // `{ m() {} }`. Upstream types the member as a signature and
                 // prints it `m(): void`, not `m: () => void` — the distinction
                 // [`Member`]'s own doc calls out, and the reason `Signature`
@@ -1068,6 +962,11 @@ impl Checker<'_, '_> {
                     // `{ #foo() {} }` is `{}`
                     // (`conformance/privateNameInObjectLiteral-2.types`).
                     if matches!(method.name, tsr_ast::PropertyName::PrivateIdentifier(_)) {
+                        capture_complete &= self.capture_checked_object_member(
+                            property,
+                            const_context,
+                            &mut typed_properties,
+                        );
                         continue;
                     }
                     // SS307: a computed-name METHOD takes the same index route
@@ -1106,6 +1005,11 @@ impl Checker<'_, '_> {
                                         printed,
                                     });
                                 }
+                                capture_complete &= self.capture_checked_object_member(
+                                    property,
+                                    const_context,
+                                    &mut typed_properties,
+                                );
                                 continue;
                             }
                             ComputedNameKey::Nothing => continue,
@@ -1117,6 +1021,11 @@ impl Checker<'_, '_> {
                             return error;
                         }
                         index_values.push((key, member_type));
+                        capture_complete &= self.capture_checked_object_member(
+                            property,
+                            const_context,
+                            &mut typed_properties,
+                        );
                         continue;
                     }
                     // §413: numeric and string method names take the SAME
@@ -1169,6 +1078,11 @@ impl Checker<'_, '_> {
                                 printed: arrow,
                             },
                         );
+                        capture_complete &= self.capture_checked_object_member(
+                            property,
+                            const_context,
+                            &mut typed_properties,
+                        );
                         continue;
                     }
                     // §735: the method arm's slots render at the literal's site
@@ -1186,6 +1100,11 @@ impl Checker<'_, '_> {
                         format!("{name}{member_text}")
                     };
                     upsert_member(&mut members, Member::Signature { printed });
+                    capture_complete &= self.capture_checked_object_member(
+                        property,
+                        const_context,
+                        &mut typed_properties,
+                    );
                     continue;
                 }
                 // SS307: computed-name ACCESSORS join the index route. A
@@ -1250,6 +1169,11 @@ impl Checker<'_, '_> {
                                     self.type_to_string(signature.r#type)
                                 );
                                 members.push(Member::Signature { printed });
+                                capture_complete &= self.capture_checked_object_member(
+                                    property,
+                                    const_context,
+                                    &mut typed_properties,
+                                );
                                 continue;
                             }
                         }
@@ -1262,6 +1186,11 @@ impl Checker<'_, '_> {
                                 readonly: const_context || setter_sibling.is_none(),
                                 printed,
                             },
+                        );
+                        capture_complete &= self.capture_checked_object_member(
+                            property,
+                            const_context,
+                            &mut typed_properties,
                         );
                         continue;
                     }
@@ -1292,6 +1221,11 @@ impl Checker<'_, '_> {
                                     readonly: const_context,
                                     printed,
                                 });
+                                capture_complete &= self.capture_checked_object_member(
+                                    property,
+                                    const_context,
+                                    &mut typed_properties,
+                                );
                                 continue;
                             }
                             let mut has_setter_sibling = false;
@@ -1322,6 +1256,11 @@ impl Checker<'_, '_> {
                                 accessor_members.push((name, members.len()));
                                 members.push(member);
                             }
+                            capture_complete &= self.capture_checked_object_member(
+                                property,
+                                const_context,
+                                &mut typed_properties,
+                            );
                             continue;
                         }
                         ComputedNameKey::Nothing => continue,
@@ -1331,6 +1270,11 @@ impl Checker<'_, '_> {
                         return error;
                     };
                     index_values.push((key, signature.r#type));
+                    capture_complete &= self.capture_checked_object_member(
+                        property,
+                        const_context,
+                        &mut typed_properties,
+                    );
                     continue;
                 }
                 tsr_ast::ObjectLiteralElementLike::SetAccessorDeclaration(accessor) => {
@@ -1379,6 +1323,11 @@ impl Checker<'_, '_> {
                                     self.type_to_string(setter_type)
                                 );
                                 members.push(Member::Signature { printed });
+                                capture_complete &= self.capture_checked_object_member(
+                                    property,
+                                    const_context,
+                                    &mut typed_properties,
+                                );
                                 continue;
                             }
                         }
@@ -1391,6 +1340,11 @@ impl Checker<'_, '_> {
                                 readonly: const_context,
                                 printed,
                             },
+                        );
+                        capture_complete &= self.capture_checked_object_member(
+                            property,
+                            const_context,
+                            &mut typed_properties,
                         );
                         continue;
                     }
@@ -1413,6 +1367,11 @@ impl Checker<'_, '_> {
                             {
                                 // The getter already owns the display; a
                                 // getter appearing LATER replaces in place.
+                                capture_complete &= self.capture_checked_object_member(
+                                    property,
+                                    const_context,
+                                    &mut typed_properties,
+                                );
                                 continue;
                             }
                             let Some(signature) = self.get_signature_from_declaration(id) else {
@@ -1432,6 +1391,11 @@ impl Checker<'_, '_> {
                                 readonly: const_context,
                                 printed,
                             });
+                            capture_complete &= self.capture_checked_object_member(
+                                property,
+                                const_context,
+                                &mut typed_properties,
+                            );
                             continue;
                         }
                         ComputedNameKey::Nothing => continue,
@@ -1445,6 +1409,11 @@ impl Checker<'_, '_> {
                         .first()
                         .map_or(self.intrinsics.any, |parameter| parameter.r#type);
                     index_values.push((key, member_type));
+                    capture_complete &= self.capture_checked_object_member(
+                        property,
+                        const_context,
+                        &mut typed_properties,
+                    );
                     continue;
                 }
             };
@@ -1733,13 +1702,21 @@ impl Checker<'_, '_> {
             // PROPERTY assignments collapse to one row
             // (`symbolProperty36`'s `{ [Symbol.isConcatSpreadable]: 0,
             // [Symbol.isConcatSpreadable]: 1 }` prints one member).
-            if property_only {
+            {
+                let component = if let tsr_ast::PropertyName::ComputedPropertyName(computed) =
+                    name_node
+                {
+                    self.late_bound_symbol_member_name(computed).is_some_and(|(_, named)| !named)
+                } else {
+                    false
+                };
                 let semantic_name = property_node_id
                     .and_then(|id| self.binder.symbol_of(id))
-                    .map(|symbol| self.binder.symbols().get(symbol).name.to_string())
+                    .map(|symbol| self.type_literal_member_key(name_node, symbol, &name))
                     .or_else(|| property_name_text(&name_node).map(str::to_string));
-                if let Some(semantic_name) = semantic_name {
+                if let Some(semantic_name) = semantic_name.filter(|_| !component) {
                     let property = AnonymousProperty {
+                        accessor_write: None,
                         method: false,
                         origin: property.node_id().and_then(|id| self.binder.symbol_of(id)),
                         name: semantic_name,
@@ -1756,6 +1733,8 @@ impl Checker<'_, '_> {
                     } else {
                         typed_properties.push(property);
                     }
+                } else if !component {
+                    capture_complete = false;
                 }
             }
             upsert_member(
@@ -1845,40 +1824,9 @@ impl Checker<'_, '_> {
             if index_values.iter().any(|(k, _)| *k != key) {
                 return error;
             }
-            let mut distinct: Vec<TypeId> = Vec::new();
-            for (_, value) in &index_values {
-                if !distinct.contains(value) {
-                    distinct.push(*value);
-                }
-            }
-            let value = match distinct.as_slice() {
-                [single] => *single,
-                many => {
-                    // SS331: the relation answers UNKNOWN for any pair
-                    // involving a signature-shaped type, and one Unknown
-                    // declines the whole reduction - which gapped
-                    // `{ [Symbol()]: 0, [Symbol()]() { }, get ... }`
-                    // (`symbolProperty4`, want
-                    // `number | (() => void)`). A callable is never a strict
-                    // subtype of a non-callable, so the callables pass
-                    // through and only the plain constituents reduce.
-                    let (callable, plain): (Vec<TypeId>, Vec<TypeId>) = many
-                        .iter()
-                        .partition(|candidate| self.signature_types.contains_key(candidate));
-                    let mut kept = if plain.len() > 1 {
-                        let Some(reduced) = self.union_with_subtype_reduction(&plain) else {
-                            return error;
-                        };
-                        match &self.store.get(reduced).data {
-                            crate::types::TypeData::Union { types, .. } => types.clone(),
-                            _ => vec![reduced],
-                        }
-                    } else {
-                        plain
-                    };
-                    kept.extend(callable);
-                    self.get_union_type(&kept)
-                }
+            let values: Vec<_> = index_values.iter().map(|(_, value)| *value).collect();
+            let Some(value) = self.object_literal_index_value(&values) else {
+                return error;
             };
             // The parameter name is upstream's synthesized `x` — a real index
             // signature prints the name its declaration wrote, but this one has
@@ -1916,18 +1864,18 @@ impl Checker<'_, '_> {
             // `{ [this.bar()]: 1 }` printed `{ [x: number]: number; }` and
             // `{ [this.bar()]: 1 }[0]` answered `errorType`.
             //
-            // `symbol` keys are deliberately NOT recorded: `is_applicable_index_type`
-            // decides applicability for the `string`/`number` intrinsics and
-            // their literal types only, and a key it cannot judge must stay a
-            // gap rather than become a confident wrong value.
+            // Symbol indexes are collected with their component declarations
+            // below, so copied indexes can retain native computed-name syntax.
             minted_index_info = match key {
                 "number" => Some(crate::index_signatures::IndexInfo {
+                    components: None,
                     declaration: None,
                     key: self.intrinsics.number,
                     value,
                     readonly: const_context,
                 }),
                 "string" => Some(crate::index_signatures::IndexInfo {
+                    components: None,
                     declaration: None,
                     key: self.intrinsics.string,
                     value,
@@ -1936,6 +1884,9 @@ impl Checker<'_, '_> {
                 _ => None,
             };
         }
+        let Some(symbol_indexes) = self.object_literal_symbol_indexes(node, const_context) else {
+            return error;
+        };
         // getNamedMembers (checker.go:22047) sorts by the originating
         // declaration, including replaced and merged spread properties.
         if property_only && typed_properties.len() == members.len() {
@@ -1953,11 +1904,7 @@ impl Checker<'_, '_> {
         // arrangement `get_type_from_type_literal` relies on for `__type`.
         let symbol = node.node_id.and_then(|id| self.binder.symbol_of(id));
         let minted = self.store.new_named(TypeFlags::OBJECT, printed, symbol);
-        if property_only
-            && typed_properties.len()
-                + members.iter().filter(|member| matches!(member, Member::Index { .. })).count()
-                == members.len()
-        {
+        if capture_complete {
             // Spread properties have no binder symbol on this literal. Use
             // their resolved semantic types for member lookup (getSpreadType).
             let synthetic = node.properties.iter().any(|property| {
@@ -1987,10 +1934,142 @@ impl Checker<'_, '_> {
         self.object_literal_members.insert(minted, members.clone());
         // §539: keyed by the minted type id, so the element-access lookup
         // reaches the signature this literal prints.
-        if let Some(info) = minted_index_info {
-            self.object_literal_index_infos.insert(minted, vec![info]);
-        }
+        let mut indexes: Vec<_> = minted_index_info.into_iter().collect();
+        indexes.extend(symbol_indexes);
+        self.object_literal_index_infos.insert(minted, indexes);
         minted
+    }
+
+    /// getObjectLiteralIndexInfo (checker.go:19721): symbol components are
+    /// distinct declarations, including repeated names, outside propertiesTable.
+    fn object_literal_symbol_indexes(
+        &mut self,
+        node: &ObjectLiteralExpression<'_>,
+        readonly: bool,
+    ) -> Option<Vec<crate::index_signatures::IndexInfo>> {
+        let mut components = Vec::new();
+        let mut values = Vec::new();
+        let mut has_computed_symbol = false;
+        for member in node.properties {
+            let name = match member {
+                tsr_ast::ObjectLiteralElementLike::PropertyAssignment(node) => node.name,
+                tsr_ast::ObjectLiteralElementLike::MethodDeclaration(node) => node.name,
+                tsr_ast::ObjectLiteralElementLike::GetAccessorDeclaration(node) => node.name,
+                tsr_ast::ObjectLiteralElementLike::SetAccessorDeclaration(node) => node.name,
+                _ => continue,
+            };
+            let tsr_ast::PropertyName::ComputedPropertyName(computed) = name else { continue };
+            let key = self.check_expression(computed.expression?);
+            let flags = self.store.get(key).flags;
+            if !flags.intersects(TypeFlags::ES_SYMBOL_LIKE) {
+                continue;
+            }
+            has_computed_symbol |= !flags.intersects(TypeFlags::UNIQUE_ES_SYMBOL);
+            let declaration = member.node_id()?;
+            let symbol = self.binder.symbol_of(declaration)?;
+            let value = self.get_type_of_symbol(symbol);
+            if value == self.intrinsics.error {
+                return None;
+            }
+            components.push(declaration);
+            values.push(value);
+        }
+        if !has_computed_symbol {
+            return Some(Vec::new());
+        }
+        let value = self.object_literal_index_value(&values)?;
+        let components_id = crate::index_signatures::IndexComponentsId(self.index_components.len());
+        self.index_components.push(components);
+        Some(vec![crate::index_signatures::IndexInfo {
+            components: Some(components_id),
+            declaration: None,
+            key: self.intrinsics.es_symbol,
+            value,
+            readonly,
+        }])
+    }
+
+    /// getObjectLiteralIndexInfo unions component values with subtype reduction.
+    fn object_literal_index_value(&mut self, values: &[TypeId]) -> Option<TypeId> {
+        let (callable, plain): (Vec<_>, Vec<_>) = values
+            .iter()
+            .copied()
+            .partition(|candidate| self.signature_types.contains_key(candidate));
+        let mut kept = if plain.len() > 1 {
+            let reduced = self.union_with_subtype_reduction(&plain)?;
+            match &self.store.get(reduced).data {
+                TypeData::Union { types, .. } => types.clone(),
+                _ => vec![reduced],
+            }
+        } else {
+            plain
+        };
+        kept.extend(callable);
+        Some(self.get_union_type(&kept))
+    }
+
+    /// Retain the already-checked method/accessor value beside ordinary batch
+    /// properties. The enclosing binder table also contains other batches and
+    /// therefore cannot substitute for this complete semantic table.
+    fn capture_checked_object_member(
+        &mut self,
+        member: &tsr_ast::ObjectLiteralElementLike<'_>,
+        readonly: bool,
+        properties: &mut Vec<AnonymousProperty>,
+    ) -> bool {
+        let (name, method) = match member {
+            tsr_ast::ObjectLiteralElementLike::MethodDeclaration(node) => (node.name, true),
+            tsr_ast::ObjectLiteralElementLike::GetAccessorDeclaration(node) => (node.name, false),
+            tsr_ast::ObjectLiteralElementLike::SetAccessorDeclaration(node) => (node.name, false),
+            _ => return false,
+        };
+        if matches!(name, tsr_ast::PropertyName::PrivateIdentifier(_)) {
+            return true;
+        }
+        let Some(symbol) = member.node_id().and_then(|id| self.binder.symbol_of(id)) else {
+            return false;
+        };
+        let (name, printed_name) =
+            if let tsr_ast::PropertyName::ComputedPropertyName(computed) = name {
+                match self.computed_member_index_key(computed) {
+                    ComputedNameKey::LateBound => {
+                        let Some((printed, named)) = self.late_bound_symbol_member_name(computed)
+                        else {
+                            return false;
+                        };
+                        if !named {
+                            return true;
+                        }
+                        (self.type_literal_member_key(name, symbol, &printed), printed)
+                    }
+                    ComputedNameKey::Index(_) | ComputedNameKey::Nothing => return true,
+                }
+            } else {
+                let key = self.binder.symbols().get(symbol).name.to_string();
+                let printed = self.callable_property_name(symbol, &key);
+                (key, printed)
+            };
+        let value = self.get_type_of_symbol(symbol);
+        if value == self.intrinsics.error {
+            return false;
+        }
+        let property = AnonymousProperty {
+            accessor_write: self.accessor_write_parameter(symbol),
+            origin: Some(symbol),
+            method,
+            name,
+            printed_name,
+            printed_type: self.type_to_string(value),
+            r#type: value,
+            optional: self.property_is_optional(symbol),
+            readonly: readonly || self.is_readonly_symbol(symbol),
+        };
+        if let Some(index) = properties.iter().position(|held| held.name == property.name) {
+            properties[index] = property;
+        } else {
+            properties.push(property);
+        }
+        true
     }
 
     /// Declaration provenance survives synthetic spread and instantiation images.
@@ -2073,10 +2152,16 @@ impl Checker<'_, '_> {
         let Some((mut properties, _)) = self.spread_properties(first, false) else { return source };
         let Some(resolved) = self.resolved_spread_source(first) else { return source };
         let Some(infos) = self.get_index_infos_of_type(resolved) else { return source };
-        let mut partial_members: Vec<_> =
-            infos.iter().map(|info| self.index_info_member(info)).collect();
+        let mut partial_members = Vec::new();
+        for info in &infos {
+            let Some(members) = self.index_info_members(info) else {
+                return source;
+            };
+            partial_members.extend(members);
+        }
         for property in &mut properties {
             property.method = false;
+            property.accessor_write = None;
             property.optional = true;
             if self.strict_null_checks {
                 property.r#type = self.get_optional_type(property.r#type, true);

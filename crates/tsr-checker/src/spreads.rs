@@ -28,6 +28,9 @@ impl Checker<'_, '_> {
                     multi_line: node.multi_line,
                 };
                 let right = self.check_object_literal_members(&batch);
+                if !self.anonymous_properties.contains_key(&right) {
+                    return self.intrinsics.error;
+                }
                 result = self.get_spread_type(result, right, owner, readonly);
             }
             start = index + 1;
@@ -46,6 +49,9 @@ impl Checker<'_, '_> {
                 multi_line: node.multi_line,
             };
             let right = self.check_object_literal_members(&batch);
+            if !self.anonymous_properties.contains_key(&right) {
+                return self.intrinsics.error;
+            }
             result = self.get_spread_type(result, right, owner, readonly);
         }
         if result == self.intrinsics.empty_object {
@@ -195,6 +201,7 @@ impl Checker<'_, '_> {
                     // A collision creates a new property symbol without Readonly.
                     right_property.readonly = false;
                     right_property.method = false;
+                    right_property.accessor_write = None;
                     let displayed = self.remove_missing_type(value);
                     right_property.printed_type = self.type_to_string(displayed);
                 }
@@ -217,9 +224,14 @@ impl Checker<'_, '_> {
             (None, Some(_)) => std::cmp::Ordering::Greater,
             _ => left.name.cmp(&right.name),
         });
-        let mut members: Vec<_> =
-            indexes.iter().map(|index| self.index_info_member(index)).collect();
-        let Some(property_members) = self.spread_property_members(&properties) else {
+        let mut members = Vec::new();
+        for index in &indexes {
+            let Some(index_members) = self.index_info_members(index) else {
+                return self.intrinsics.error;
+            };
+            members.extend(index_members);
+        }
+        let Some(property_members) = self.anonymous_property_members(&properties) else {
             return self.intrinsics.error;
         };
         members.extend(property_members);
@@ -292,6 +304,7 @@ impl Checker<'_, '_> {
                 }
                 let displayed = self.remove_missing_type(value);
                 AnonymousProperty {
+                    accessor_write: origin.and_then(|symbol| self.accessor_write_parameter(symbol)),
                     method: flags.contains(SymbolFlags::METHOD),
                     origin,
                     printed_name: self.spread_property_name(origin?, &name)?,
@@ -305,6 +318,7 @@ impl Checker<'_, '_> {
             // getSpreadSymbol reuses a method symbol only if readonly agrees.
             if property.readonly != readonly || set_only {
                 property.method = false;
+                property.accessor_write = None;
             }
             property.readonly = readonly;
             if set_only {
@@ -389,10 +403,30 @@ impl Checker<'_, '_> {
             || !class_member
     }
 
-    fn spread_property_members(&mut self, properties: &[AnonymousProperty]) -> Option<Vec<Member>> {
+    pub(crate) fn anonymous_property_members(
+        &mut self,
+        properties: &[AnonymousProperty],
+    ) -> Option<Vec<Member>> {
         let mut members = Vec::new();
         for property in properties {
-            if !property.method {
+            if let Some(write) = &property.accessor_write
+                && !property.readonly
+                && write.r#type != property.r#type
+            {
+                let name = &property.printed_name;
+                members.push(Member::Signature {
+                    printed: format!("get {name}(): {}", property.printed_type),
+                });
+                members.push(Member::Signature {
+                    printed: format!(
+                        "set {name}({}: {})",
+                        write.name,
+                        self.type_to_string(write.r#type)
+                    ),
+                });
+                continue;
+            }
+            if !property.method || property.readonly {
                 members.extend(crate::callable_expandos::property_members(std::slice::from_ref(
                     property,
                 )));

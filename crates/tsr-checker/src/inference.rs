@@ -3379,6 +3379,7 @@ impl Checker<'_, '_> {
                         printed: printed_type.clone(),
                     });
                     properties.push(crate::objects::AnonymousProperty {
+                        accessor_write: None,
                         method: false,
                         origin,
                         name,
@@ -3390,6 +3391,7 @@ impl Checker<'_, '_> {
                     });
                 }
                 let reversed_index = index.map(|index| crate::index_signatures::IndexInfo {
+                    components: None,
                     declaration: None,
                     key: index.key,
                     readonly: false,
@@ -4957,8 +4959,8 @@ impl Checker<'_, '_> {
     }
 
     /// `instantiateAnonymousType` and `instantiateSymbol` (checker.go), for
-    /// property-only type literals. Keep the owner for member identity and
-    /// capture mapped member types for subsequent reads and instantiations.
+    /// captured anonymous objects. Keep member flags and index provenance while
+    /// mapping semantic values for subsequent reads and instantiations.
     fn instantiate_anonymous_properties(
         &mut self,
         id: TypeId,
@@ -4975,25 +4977,43 @@ impl Checker<'_, '_> {
             return self.intrinsics.error;
         };
         let mut rendered = Vec::with_capacity(properties.len());
+        let mut indexes = self.object_literal_index_infos.get(&id).cloned().unwrap_or_default();
+        for index in &mut indexes {
+            index.key = self.instantiate_type(index.key, map, parameters, names);
+            index.value = self.instantiate_type(index.value, map, parameters, names);
+            if index.key == self.intrinsics.error || index.value == self.intrinsics.error {
+                return self.intrinsics.error;
+            }
+            let Some(members) = self.index_info_members(index) else {
+                return self.intrinsics.error;
+            };
+            rendered.extend(members);
+        }
         for property in &mut properties {
             let original = property.r#type;
             property.r#type = self.instantiate_type(original, map, parameters, names);
+            if let Some(write) = &mut property.accessor_write {
+                write.r#type = self.instantiate_type(write.r#type, map, parameters, names);
+                if write.r#type == self.intrinsics.error {
+                    return self.intrinsics.error;
+                }
+            }
             if property.r#type == self.intrinsics.error {
                 return self.intrinsics.error;
             }
             if property.r#type != original {
                 property.printed_type = self.type_to_string(property.r#type);
             }
-            rendered.push(crate::objects::Member::Property {
-                name: property.printed_name.clone(),
-                optional: property.optional,
-                readonly: property.readonly,
-                printed: property.printed_type.clone(),
-            });
+            let Some(members) = self.anonymous_property_members(std::slice::from_ref(property))
+            else {
+                return self.intrinsics.error;
+            };
+            rendered.extend(members);
         }
         let text = crate::objects::render_object_type(&rendered);
         let minted = self.store.new_named(crate::flags::TypeFlags::OBJECT, text, owner);
         self.anonymous_properties.insert(minted, (properties, true));
+        self.object_literal_index_infos.insert(minted, indexes);
         self.instantiated_objects.insert(key, minted);
         minted
     }
@@ -5060,6 +5080,12 @@ impl Checker<'_, '_> {
             .unwrap_or_default();
         for property in &mut properties {
             property.r#type = self.instantiate_type(property.r#type, map, parameters, names);
+            if let Some(write) = &mut property.accessor_write {
+                write.r#type = self.instantiate_type(write.r#type, map, parameters, names);
+                if write.r#type == self.intrinsics.error {
+                    return self.intrinsics.error;
+                }
+            }
             if property.r#type == error {
                 return error;
             }

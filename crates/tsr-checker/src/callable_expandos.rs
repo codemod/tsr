@@ -42,6 +42,7 @@ impl Checker<'_, '_> {
             }
             let printed_name = self.callable_property_name(member, &name);
             members.push(AnonymousProperty {
+                accessor_write: None,
                 method: false,
                 origin: Some(member),
                 name,

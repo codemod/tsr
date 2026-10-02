@@ -216,6 +216,7 @@ impl Checker<'_, '_> {
                         .get_type_of_property_of_type(id, &name)
                         .unwrap_or(self.intrinsics.error);
                     AnonymousProperty {
+                        accessor_write: None,
                         method: symbol.is_some_and(|symbol| {
                             self.binder
                                 .symbols()

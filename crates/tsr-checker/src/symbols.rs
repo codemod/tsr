@@ -266,6 +266,22 @@ impl<'a> Checker<'a, '_> {
         Some(written)
     }
 
+    /// Native accessor symbol serialization retains both read and write types.
+    pub(crate) fn accessor_write_parameter(
+        &mut self,
+        symbol: SymbolId,
+    ) -> Option<crate::signatures::Parameter> {
+        let symbol = self.binder.symbols().get(symbol);
+        if !symbol.flags.contains(SymbolFlags::GET_ACCESSOR | SymbolFlags::SET_ACCESSOR) {
+            return None;
+        }
+        let setter =
+            symbol.declarations.iter().copied().find(|&id| {
+                matches!(self.node_map.get(id), Some(Node::SetAccessorDeclaration(_)))
+            })?;
+        self.get_signature_from_declaration(setter)?.parameters.into_iter().next()
+    }
+
     fn get_type_of_accessors_worker(&mut self, symbol: SymbolId) -> TypeId {
         let mut declarations =
             self.binder.symbols().get(symbol).declarations.iter().copied().collect::<Vec<_>>();

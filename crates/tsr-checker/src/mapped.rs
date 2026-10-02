@@ -583,6 +583,7 @@ impl<'a> Checker<'a, '_> {
                         existing.readonly |= readonly;
                     } else {
                         indexes.push(crate::index_signatures::IndexInfo {
+                            components: None,
                             declaration: None,
                             key,
                             value,
@@ -652,6 +653,7 @@ impl<'a> Checker<'a, '_> {
                 value = self.get_type_with_facts(value, crate::flow::TypeFacts::NE_UNDEFINED);
             }
             properties.push(crate::objects::AnonymousProperty {
+                accessor_write: None,
                 method: false,
                 origin,
                 name,

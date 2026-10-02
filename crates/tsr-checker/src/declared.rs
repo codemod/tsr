@@ -1509,6 +1509,10 @@ impl<'a> Checker<'a, '_> {
         let mut failed = false;
         for property in properties.iter_mut().flatten() {
             property.r#type = self.instantiate_type(property.r#type, map, parameters, names);
+            if let Some(write) = &mut property.accessor_write {
+                write.r#type = self.instantiate_type(write.r#type, map, parameters, names);
+                failed |= write.r#type == self.intrinsics.error;
+            }
             failed |= property.r#type == self.intrinsics.error;
             property.printed_type = self.type_to_string(property.r#type);
         }
@@ -1638,9 +1642,9 @@ impl<'a> Checker<'a, '_> {
     /// getPropertyNameFromType (checker.go): semantic lookup keys omit the
     /// display quotes used for literal names; symbol chains retain their
     /// existing bracketed lookup representation in this port.
-    fn type_literal_member_key(
+    pub(crate) fn type_literal_member_key(
         &mut self,
-        name: tsr_ast::PropertyName<'a>,
+        name: tsr_ast::PropertyName<'_>,
         symbol: SymbolId,
         printed: &str,
     ) -> String {
@@ -1866,6 +1870,7 @@ impl<'a> Checker<'a, '_> {
                     );
                     self.signature_types.insert(method_type, overloads);
                     let property = crate::objects::AnonymousProperty {
+                        accessor_write: None,
                         method: true,
                         origin: Some(symbol),
                         name: key,
@@ -1985,6 +1990,7 @@ impl<'a> Checker<'a, '_> {
                 };
                 let printed = spelled.unwrap_or_else(|| self.type_to_string(member_type));
                 typed_properties.push(crate::objects::AnonymousProperty {
+                    accessor_write: None,
                     method: false,
                     origin: member.node_id().and_then(|id| self.binder.symbol_of(id)),
                     name: accessor_name.text.to_string(),
@@ -2142,6 +2148,7 @@ impl<'a> Checker<'a, '_> {
             };
             if let Some(symbol) = property.node_id.and_then(|id| self.binder.symbol_of(id)) {
                 typed_properties.push(crate::objects::AnonymousProperty {
+                    accessor_write: None,
                     method: false,
                     origin: Some(symbol),
                     name: self.type_literal_member_key(property.name, symbol, &name),
@@ -2182,6 +2189,7 @@ impl<'a> Checker<'a, '_> {
                 _ => return error,
             };
             typed_indexes.push(crate::index_signatures::IndexInfo {
+                components: None,
                 declaration: None,
                 key: key_type,
                 value,

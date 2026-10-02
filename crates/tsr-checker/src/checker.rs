@@ -673,7 +673,7 @@ pub struct Checker<'a, 'n> {
     /// a re-mint through the symbol road silently widens
     /// (`{ readonly a: 1; }` became `{ readonly a: number; }`). ADR-0003.
     pub(crate) object_literal_members: rustc_hash::FxHashMap<TypeId, Vec<crate::objects::Member>>,
-    /// Captured semantic members of property-only anonymous type literals.
+    /// Captured semantic members of anonymous objects.
     /// Instantiation maps these `TypeId`s; property reads use the same images.
     pub(crate) anonymous_properties:
         rustc_hash::FxHashMap<TypeId, (Vec<crate::objects::AnonymousProperty>, bool)>,
@@ -681,6 +681,8 @@ pub struct Checker<'a, 'n> {
     pub(crate) any_function_type: Option<TypeId>,
     /// `ObjectFlagsNonInferrableType` on `SkipContextSensitive` object images.
     pub(crate) non_inferrable_types: rustc_hash::FxHashSet<TypeId>,
+    /// IndexInfo.components declaration lists; copies retain this identity.
+    pub(crate) index_components: Vec<Vec<tsr_ast::NodeId>>,
     pub(crate) object_literal_index_infos:
         rustc_hash::FxHashMap<crate::types::TypeId, Vec<crate::index_signatures::IndexInfo>>,
     /// The identifier the JSX namespace hangs off, `getJsxNamespace`'s
@@ -1259,6 +1261,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             instantiated_objects: rustc_hash::FxHashMap::default(),
             any_function_type: None,
             non_inferrable_types: rustc_hash::FxHashSet::default(),
+            index_components: Vec::new(),
             object_literal_index_infos: rustc_hash::FxHashMap::default(),
             pattern_implied_members: rustc_hash::FxHashMap::default(),
             jsx_namespace: "React".to_string(),

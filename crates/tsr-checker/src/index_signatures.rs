@@ -38,12 +38,15 @@ use crate::{
     types::{TypeData, TypeId},
 };
 
-/// One index signature, reduced to what a lookup needs.
-///
-/// Upstream's `IndexInfo` (`types.go`), retaining the key, value and readonly
-/// flag and declaration provenance. General index-write diagnostics are absent.
+/// Identity of IndexInfo.components in the checker's declaration-list store.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct IndexComponentsId(pub(crate) usize);
+
+/// Native `IndexInfo` key, value, readonly flag and declaration/component provenance.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct IndexInfo {
+    /// Computed declarations retained by copies, absent on synthesized indexes.
+    pub components: Option<IndexComponentsId>,
     /// Source index declaration, retained by copies and cleared by synthesized merges.
     pub declaration: Option<tsr_ast::NodeId>,
     /// `keyType` — a valid primitive, pattern or nongeneric intersection key.
@@ -90,6 +93,7 @@ impl<'a> Checker<'a, '_> {
                                 self.get_intersection_type(&[info.value, next.value], None);
                             info.readonly &= next.readonly;
                             info.declaration = None;
+                            info.components = None;
                         } else {
                             infos.push(next);
                         }
@@ -132,6 +136,7 @@ impl<'a> Checker<'a, '_> {
                 .intersects(tsr_binder::SymbolFlags::REGULAR_ENUM)
         {
             return Some(vec![IndexInfo {
+                components: None,
                 declaration: None,
                 key: self.intrinsics.number,
                 value: self.intrinsics.string,
@@ -195,6 +200,7 @@ impl<'a> Checker<'a, '_> {
             infos
                 .into_iter()
                 .map(|info| IndexInfo {
+                    components: info.components,
                     declaration: info.declaration,
                     key: info.key,
                     value: self.instantiate_for_reference(id, info.value),
@@ -225,6 +231,7 @@ impl<'a> Checker<'a, '_> {
                     infos.iter().any(|candidate| candidate.key == info.key && candidate.readonly)
                 });
                 result.push(IndexInfo {
+                    components: None,
                     declaration: None,
                     key: info.key,
                     value: self.get_union_type(&values),
@@ -394,6 +401,7 @@ impl<'a> Checker<'a, '_> {
                         // Own indexes and earlier bases win for the same key.
                         if !infos.iter().any(|own| own.key == inherited.key) {
                             infos.push(IndexInfo {
+                                components: inherited.components,
                                 declaration: inherited.declaration,
                                 key: inherited.key,
                                 value: self.instantiate_for_reference(base_type, inherited.value),
@@ -430,6 +438,7 @@ impl<'a> Checker<'a, '_> {
         keys.into_iter()
             .filter(|&key| self.is_valid_index_key_type(key))
             .map(|key| IndexInfo {
+                components: None,
                 declaration: signature.node_id,
                 key,
                 value,
@@ -457,6 +466,49 @@ impl<'a> Checker<'a, '_> {
                 && types.iter().any(|&key| self.is_valid_index_key_type(key));
         }
         false
+    }
+
+    /// indexInfoToIndexSignatureDeclarationHelper (nodebuilderimpl.go:2088):
+    /// serializable computed components print individually as property signatures.
+    pub(crate) fn index_info_members(
+        &mut self,
+        info: &IndexInfo,
+    ) -> Option<Vec<crate::objects::Member>> {
+        if let Some(components) = info.components {
+            let declarations = self.index_components[components.0].clone();
+            let mut members = Vec::new();
+            for declaration in declarations {
+                let name = match self.node_map.get(declaration)? {
+                    Node::PropertyAssignment(node) => node.name,
+                    Node::MethodDeclaration(node) => node.name,
+                    Node::GetAccessorDeclaration(node) => node.name,
+                    Node::SetAccessorDeclaration(node) => node.name,
+                    _ => return None,
+                };
+                let tsr_ast::PropertyName::ComputedPropertyName(computed) = name else {
+                    return None;
+                };
+                let Some((name, named)) = self.late_bound_symbol_member_name(computed) else {
+                    return Some(vec![self.index_info_member(info)]);
+                };
+                if named {
+                    continue;
+                }
+                let symbol = self.binder.symbol_of(declaration)?;
+                let value = self.get_type_of_symbol(symbol);
+                if value == self.intrinsics.error {
+                    return None;
+                }
+                members.push(crate::objects::Member::Property {
+                    name,
+                    readonly: info.readonly,
+                    optional: false,
+                    printed: self.type_to_string(value),
+                });
+            }
+            return Some(members);
+        }
+        Some(vec![self.index_info_member(info)])
     }
 
     /// indexInfoToIndexSignatureDeclarationHelper: copies retain the original
@@ -562,8 +614,15 @@ impl<'a> Checker<'a, '_> {
             return None;
         }
         let record = self.binder.global("Record")?;
-        (self.binder.merged_symbol(target) == self.binder.merged_symbol(record))
-            .then_some(IndexInfo { declaration: None, key, value: arguments[1], readonly: false })
+        (self.binder.merged_symbol(target) == self.binder.merged_symbol(record)).then_some(
+            IndexInfo {
+                components: None,
+                declaration: None,
+                key,
+                value: arguments[1],
+                readonly: false,
+            },
+        )
     }
 
     /// findApplicableIndexInfo: string is the fallback when no other key
@@ -593,6 +652,7 @@ impl<'a> Checker<'a, '_> {
             }
             [info] => Some(*info),
             _ => Some(IndexInfo {
+                components: None,
                 declaration: None,
                 key: self.intrinsics.unknown,
                 value: self.get_intersection_type(
