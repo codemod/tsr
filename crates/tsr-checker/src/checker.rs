@@ -294,6 +294,8 @@ pub struct Checker<'a, 'n> {
     /// (`checker.go:17334`). One per class, so `this` has a stable identity
     /// inside one.
     pub(crate) this_types: FxHashMap<SymbolId, TypeId>,
+    /// `ObjectFlagsIsConstrainedTypeVariable`: intersection -> (variable, primitive).
+    pub(crate) constrained_type_variables: FxHashMap<TypeId, (TypeId, TypeId)>,
     /// `symbol -> the type it *declares*`, upstream's
     /// `declaredTypeLinks[symbol].declaredType`.
     ///
@@ -1196,6 +1198,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             flow_loop_stack: Vec::new(),
             declared_types: FxHashMap::default(),
             this_types: FxHashMap::default(),
+            constrained_type_variables: FxHashMap::default(),
             instantiations: FxHashMap::default(),
             type_reference_targets: FxHashMap::default(),
             reference_display_arity: FxHashMap::default(),

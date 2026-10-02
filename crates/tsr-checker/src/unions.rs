@@ -639,6 +639,11 @@ impl Checker<'_, '_> {
             set = self.remove_redundant_literal_types(set, includes.flags);
         }
 
+        if reduce_literals && set.iter().any(|id| self.constrained_type_variables.contains_key(id))
+        {
+            set = self.remove_constrained_type_variables(set);
+        }
+
         if set.is_empty() {
             // With `strictNullChecks` off a union of nothing but `null` and
             // `undefined` empties the set, and upstream answers
@@ -659,6 +664,45 @@ impl Checker<'_, '_> {
             return self.build_origin_union(set, extra_flags, entries);
         }
         self.get_union_type_from_sorted_list(set, extra_flags, symbol)
+    }
+
+    /// removeConstrainedTypeVariables (internal/checker/checker.go:25881).
+    /// Recombine intersections that collectively cover a variable's constraint.
+    fn remove_constrained_type_variables(&mut self, mut types: Vec<TypeId>) -> Vec<TypeId> {
+        let mut variables = Vec::new();
+        for id in &types {
+            if let Some(&(variable, _)) = self.constrained_type_variables.get(id)
+                && !variables.contains(&variable)
+            {
+                variables.push(variable);
+            }
+        }
+        for variable in variables {
+            let primitives: Vec<_> = types
+                .iter()
+                .filter_map(|id| {
+                    let &(owner, primitive) = self.constrained_type_variables.get(id)?;
+                    (owner == variable).then_some(primitive)
+                })
+                .collect();
+            let Some(constraint) = self.base_constraint_of_type(variable) else { continue };
+            let covered = match &self.store.get(constraint).data {
+                TypeData::Union { types, .. } => types.iter().all(|part| primitives.contains(part)),
+                _ => primitives.contains(&constraint),
+            };
+            if covered {
+                types.retain(|id| {
+                    self.constrained_type_variables
+                        .get(id)
+                        .is_none_or(|&(owner, _)| owner != variable)
+                });
+                if !types.contains(&variable) {
+                    types.push(variable);
+                }
+            }
+        }
+        types.sort_by(|&a, &b| self.compare_types(a, b));
+        types
     }
 
     /// `Checker.getUnionTypeFromSortedList` (`checker.go:25736`).

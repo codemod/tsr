@@ -1202,8 +1202,7 @@ impl Checker<'_, '_> {
                 | TypeFlags::BIG_INT
                 | TypeFlags::ES_SYMBOL
                 | TypeFlags::VOID
-                | TypeFlags::NEVER
-                | TypeFlags::NON_PRIMITIVE,
+                | TypeFlags::NEVER,
         ) {
             return Some(false);
         }
@@ -1213,14 +1212,12 @@ impl Checker<'_, '_> {
         // decidable-false / else None). Source constraints follow below.
         if let TypeData::Union { types, .. } = &self.store.get(t).data {
             let constituents = types.clone();
-            let mut all_true = true;
             for constituent in constituents {
                 match self.is_derived_from_decidable(constituent, candidate) {
                     Some(true) => {}
                     Some(false) => return Some(false),
                     None => return None,
                 }
-                let _ = &mut all_true;
             }
             return Some(true);
         }
@@ -1274,6 +1271,15 @@ impl Checker<'_, '_> {
                 flags.intersects(TypeFlags::OBJECT | TypeFlags::NON_PRIMITIVE)
                     && !self.is_empty_anonymous_object_type(t),
             );
+        }
+        // hasBaseType cannot derive an object from a primitive target, nor
+        // can the primitive `object` type have a declared base chain. This
+        // also decides the reverse comparison when a predicate removes a
+        // primitive constituent from an object union.
+        if !self.store.get(candidate).flags.contains(TypeFlags::OBJECT)
+            || flags.contains(TypeFlags::NON_PRIMITIVE)
+        {
+            return Some(false);
         }
         let owner_of = |checker: &Self, id: TypeId| -> Option<SymbolId> {
             match checker.store.get(id).data {
@@ -1341,111 +1347,6 @@ impl Checker<'_, '_> {
             }
             None => !has_heritage,
         }
-    }
-
-    /// SS159: `getNarrowedTypeWorker`'s checkDerived flavor (flow.go:860-965,
-    /// the SS158 transcription), over the DECIDABLE domain - `None` where any
-    /// rung is undecidable, and the caller keeps its old road. Generic
-    /// constraints preserve their source identities through intersections;
-    /// the keyProperty lookup optimization is omitted.
-    fn narrowed_type_worker_derived(
-        &mut self,
-        t: TypeId,
-        candidate: TypeId,
-        assume_true: bool,
-    ) -> Option<TypeId> {
-        if !assume_true {
-            if t == candidate {
-                return Some(self.intrinsics.never);
-            }
-            let constituents: Vec<TypeId> = match &self.store.get(t).data {
-                TypeData::Union { types, .. } => types.clone(),
-                _ => vec![t],
-            };
-            let mut kept = Vec::new();
-            for constituent in constituents {
-                if !self.is_derived_from_decidable(constituent, candidate)? {
-                    kept.push(constituent);
-                }
-            }
-            if kept.is_empty() {
-                return Some(self.intrinsics.never);
-            }
-            return Some(self.rebuild_union_subset(t, &kept));
-        }
-        if self.store.get(t).flags.intersects(TypeFlags::ANY_OR_UNKNOWN) {
-            return Some(candidate);
-        }
-        if t == candidate {
-            return Some(candidate);
-        }
-        let constituents: Vec<TypeId> = match &self.store.get(t).data {
-            TypeData::Union { types, .. } => types.clone(),
-            _ => vec![t],
-        };
-        let mut mapped = Vec::new();
-        for constituent in constituents {
-            if self.is_derived_from_decidable(constituent, candidate)? {
-                mapped.push(constituent);
-                continue;
-            }
-            if self.is_derived_from_decidable(candidate, constituent)? {
-                mapped.push(candidate);
-            }
-            // never - dropped.
-        }
-        if mapped.is_empty() {
-            // getNarrowedTypeWorker (flow.go:933): unrelated generic
-            // constituents can still overlap the candidate through their
-            // constraints. Preserve the generic identity in an intersection.
-            let constituents = match self.store.get(t).data.clone() {
-                TypeData::Union { types, .. } => types,
-                _ => vec![t],
-            };
-            for constituent in constituents {
-                if self.store.get(constituent).flags.intersects(TypeFlags::INSTANTIABLE) {
-                    let constraint = self.base_constraint_of_type(constituent);
-                    let related = match constraint {
-                        None => true,
-                        Some(constraint) => {
-                            self.is_derived_from_decidable(candidate, constraint)?
-                        }
-                    };
-                    if related {
-                        mapped.push(self.get_intersection_type(&[constituent, candidate], None));
-                    }
-                }
-            }
-        }
-        if mapped.is_empty() {
-            // The key-property fast path selects a constituent that the
-            // per-constituent map above already finds; it remains an optimization.
-            //
-            // SS173: the ALL-NEVER TAIL (flow.go:952-963, transcribed):
-            // subtype(candidate, t) -> candidate; assignable(t, candidate)
-            // -> t; assignable(candidate, t) -> candidate; else the
-            // intersection. Each rung decidable-only; an undecidable rung
-            // declines the whole worker as before.
-            use crate::relater::{Relation, Ternary};
-            match self.relate_ternary(candidate, t, Relation::Subtype) {
-                Ternary::Related => return Some(candidate),
-                Ternary::NotRelated => {}
-                Ternary::Unknown => return None,
-            }
-            match self.relate_ternary(t, candidate, Relation::Assignable) {
-                Ternary::Related => return Some(t),
-                Ternary::NotRelated => {}
-                Ternary::Unknown => return None,
-            }
-            match self.relate_ternary(candidate, t, Relation::Assignable) {
-                Ternary::Related => return Some(candidate),
-                Ternary::NotRelated => {}
-                Ternary::Unknown => return None,
-            }
-            return Some(self.get_intersection_type(&[t, candidate], None));
-        }
-        mapped.dedup();
-        Some(self.rebuild_union_subset(t, &mapped))
     }
 
     fn class_extends_chain_contains(&mut self, derived: SymbolId, base: SymbolId) -> bool {
@@ -2744,10 +2645,8 @@ impl Checker<'_, '_> {
 
     /// `getTypeAtFlowCall` (`flow.go`), the assertion half: a CALL flow
     /// node whose resolved signature carries an `asserts` predicate narrows
-    /// the matching reference argument. `None` means no assertion effect —
-    /// the walk skips to the antecedent, today's behaviour. Not in this
-    /// slice (§127's bar): `asserts this` (no parameter name),
-    /// never-returning calls, non-reference arguments.
+    /// its reference argument or receiver. A bare `asserts this` has no type
+    /// effect; never-returning calls contribute the unreachable sentinel.
     fn get_type_at_flow_call(&mut self, state: &mut FlowState, flow: FlowId) -> Option<FlowType> {
         let binder = self.binder;
         let call_node = binder.flow().node(flow)?;
@@ -2782,28 +2681,25 @@ impl Checker<'_, '_> {
         if !predicate.asserts {
             return None;
         }
-        let name = predicate.parameter_name.clone()?;
         let predicate_type = predicate.r#type;
-        let index = signature.parameters.iter().position(|parameter| parameter.name == name)?;
-        let argument = call.arguments.get(index).copied()?;
-        let argument_id = tsr_ast::Node::from(argument).node_id()?;
-        // `asserts x is T` narrows the MATCHING reference to T; bare
-        // `asserts x` narrows by the ARGUMENT AS A TRUE CONDITION —
-        // upstream's `narrowTypeByAssertion` is `narrowType(type, arg,
-        // /*assumeTrue*/ true)`, which is what makes
-        // `assert(typeof x === "number")` work: the argument is a condition
-        // expression, not the reference (the first §127 pair's miss).
-        if predicate_type.is_some() && !self.is_matching_reference(state, argument_id) {
-            return None;
-        }
+        let argument_id = self.get_type_predicate_argument(&signature, call);
         let antecedent = binder.flow().antecedent(flow)?;
         let incoming = self.get_type_at_flow_node(state, antecedent);
         if self.store.get(incoming.t).flags.contains(TypeFlags::NEVER) {
             return Some(incoming);
         }
-        let narrowed = match predicate_type {
-            Some(predicate_type) => self.narrow_by_predicate_type(incoming.t, predicate_type, true),
-            None => self.narrow_type_by_assertion(state, incoming.t, argument_id),
+        let narrowed = match (predicate_type, argument_id) {
+            (Some(predicate_type), Some(argument)) => self.narrow_type_by_type_predicate(
+                state,
+                incoming.t,
+                predicate_type,
+                argument,
+                true,
+            ),
+            (None, Some(argument)) if predicate.parameter_name.is_some() => {
+                self.narrow_type_by_assertion(state, incoming.t, argument)
+            }
+            _ => incoming.t,
         };
         Some(FlowType { t: narrowed, incomplete: incoming.incomplete })
     }
@@ -4812,7 +4708,9 @@ impl Checker<'_, '_> {
                     // boolean-returning hasInstance and every other shape keep
                     // the §83 structural road below.
                     if let Some(predicate_type) = self.has_instance_predicate_type(callee_type) {
-                        return self.narrow_by_predicate_type(t, predicate_type, assume_true);
+                        return self
+                            .narrowed_type_worker(t, predicate_type, assume_true, true)
+                            .unwrap_or(t);
                     }
                     // §126 iteration 2: the false arm holds for TOP-LEVEL
                     // script vars — typeGuardOfFormInstanceOf's baseline
@@ -4927,7 +4825,7 @@ impl Checker<'_, '_> {
                             return t;
                         }
                         if let Some(narrowed) =
-                            self.narrowed_type_worker_derived(t, instance, assume_true)
+                            self.narrowed_type_worker(t, instance, assume_true, true)
                         {
                             return narrowed;
                         }
@@ -4971,7 +4869,7 @@ impl Checker<'_, '_> {
                     // decidable domain; any undecidable rung falls through
                     // to the SS83/SS126 roads unchanged.
                     if let Some(narrowed) =
-                        self.narrowed_type_worker_derived(t, instance, assume_true)
+                        self.narrowed_type_worker(t, instance, assume_true, true)
                     {
                         return narrowed;
                     }
@@ -5472,42 +5370,35 @@ impl Checker<'_, '_> {
             return t;
         }
         let Some(predicate_type) = predicate.r#type else { return t };
-        // `getTypePredicateArgument` (`flow.go:2451`): the argument at the
-        // predicate parameter's position (recovered by name — this port's
-        // predicate carries no index), or for `this is T` the RECEIVER of
-        // the invoked access, parentheses skipped on both sides. §749
-        // added the `this` half.
-        let argument = if let Some(name) = &predicate.parameter_name {
-            let Some(index) =
-                signature.parameters.iter().position(|parameter| parameter.name == *name)
-            else {
-                return t;
-            };
-            let Some(argument) = call.arguments.get(index) else { return t };
-            let Some(id) = tsr_ast::Node::from(*argument).node_id() else { return t };
-            id
-        } else {
-            let Some(callee_id) = call.expression.and_then(|callee| callee.node_id()) else {
-                return t;
-            };
-            let invoked = self.skip_parentheses(callee_id);
-            let Some(receiver) = (match self.node_map.get(invoked) {
-                Some(Node::PropertyAccessExpression(access)) => access.expression,
-                Some(Node::ElementAccessExpression(access)) => access.expression,
-                _ => None,
-            })
-            .and_then(|e| e.node_id()) else {
-                return t;
-            };
-            self.skip_parentheses(receiver)
-        };
+        let Some(argument) = self.get_type_predicate_argument(&signature, call) else { return t };
         self.narrow_type_by_type_predicate(state, t, predicate_type, argument, assume_true)
     }
 
-    /// `narrowTypeByTypePredicate` (`flow.go:315`), less the discriminant
-    /// road (`getDiscriminantPropertyAccess` → `narrowTypeByDiscriminant`,
-    /// which this port has not factored out of its arms — §749's named
-    /// residue). The any-vs-global-`Object`/`Function` guard lives in
+    /// getTypePredicateArgument (internal/checker/flow.go:2451), shared by
+    /// condition predicates and assertion-call flow effects.
+    fn get_type_predicate_argument(
+        &self,
+        signature: &crate::signatures::Signature,
+        call: &tsr_ast::CallExpression<'_>,
+    ) -> Option<NodeId> {
+        let predicate = signature.predicate.as_ref()?;
+        if let Some(name) = &predicate.parameter_name {
+            let index =
+                signature.parameters.iter().position(|parameter| parameter.name == *name)?;
+            return tsr_ast::Node::from(*call.arguments.get(index)?).node_id();
+        }
+        let invoked = self.skip_parentheses(call.expression?.node_id()?);
+        let receiver = match self.node_map.get(invoked)? {
+            Node::PropertyAccessExpression(access) => access.expression,
+            Node::ElementAccessExpression(access) => access.expression,
+            _ => None,
+        }?
+        .node_id()?;
+        Some(self.skip_parentheses(receiver))
+    }
+
+    /// `narrowTypeByTypePredicate` (`flow.go:315`). The
+    /// any-vs-global-`Object`/`Function` guard lives in
     /// [`Checker::narrow_by_predicate_type`].
     fn narrow_type_by_type_predicate(
         &mut self,
@@ -6100,7 +5991,7 @@ impl Checker<'_, '_> {
     /// A required property must have nonuniform types, a literal constituent,
     /// no already-never constituent, and an intersection reducing to never.
     /// Keep this reduced view separate from the written intersection identity.
-    fn intersection_has_never_discriminant(&mut self, ty: TypeId) -> bool {
+    pub(crate) fn intersection_has_never_discriminant(&mut self, ty: TypeId) -> bool {
         let TypeData::Intersection { types, .. } = self.store.get(ty).data.clone() else {
             return false;
         };
@@ -6120,6 +6011,22 @@ impl Checker<'_, '_> {
             parts.push((part, part_names));
         }
         'property: for name in names {
+            // A property contributed by only one constituent cannot acquire
+            // a conflicting discriminant or private declaration. Avoid forcing
+            // its type while a recursive alias is still being resolved.
+            if parts.iter().filter(|(_, names)| names.contains(&name)).count() < 2 {
+                continue;
+            }
+            let symbols = self.intersection_property_symbols(ty, &name);
+            if symbols.len() > 1
+                && symbols
+                    .iter()
+                    .any(|&symbol| self.property_has_modifier(symbol, SyntaxKind::PrivateKeyword))
+            {
+                self.never_intersection_types.insert(ty, true);
+                return true;
+            }
+
             let mut values = Vec::new();
             let mut optional = true;
             let mut literal = false;
@@ -6561,81 +6468,6 @@ impl Checker<'_, '_> {
         None
     }
 
-    /// The §22 ladder over a predicate type — shared by call-condition
-    /// narrowing and §111's `[Symbol.hasInstance]` arm.
-    /// SS146: enumerate a Named interface's full member map (own + bases),
-    /// None on any shape this cannot prove (non-interface, computed names,
-    /// optional members, index signatures, unfollowable bases, cycles).
-    fn plain_member_map(
-        &mut self,
-        id: crate::types::TypeId,
-    ) -> Option<Vec<(String, crate::types::TypeId)>> {
-        let TypeData::Named { members: Some(owner), .. } = self.store.get(id).data else {
-            return None;
-        };
-        let mut map: Vec<(String, crate::types::TypeId)> = Vec::new();
-        let mut stack = vec![owner];
-        let mut seen = Vec::new();
-        while let Some(current) = stack.pop() {
-            if seen.contains(&current) {
-                return None;
-            }
-            seen.push(current);
-            let declarations: Vec<_> =
-                self.binder.symbols().get(current).declarations.iter().copied().collect();
-            for declaration in declarations {
-                let Some(Node::InterfaceDeclaration(interface)) = self.node_map.get(declaration)
-                else {
-                    return None;
-                };
-                for member in interface.members {
-                    let tsr_ast::TypeElement::PropertySignatureDeclaration(property) = member
-                    else {
-                        return None;
-                    };
-                    let tsr_ast::PropertyName::Identifier(name) = property.name else {
-                        return None;
-                    };
-                    if property.postfix_token.is_some() {
-                        return None;
-                    }
-                    let annotation = property.r#type?;
-                    let member_type = self.get_type_from_type_node(annotation);
-                    if member_type == self.intrinsics.error {
-                        return None;
-                    }
-                    if !map.iter().any(|(existing, _)| existing == name.text) {
-                        map.push((name.text.to_string(), member_type));
-                    }
-                }
-            }
-            match self.base_symbols_of(current) {
-                None => {
-                    let has_heritage = self
-                        .binder
-                        .symbols()
-                        .get(current)
-                        .declarations
-                        .iter()
-                        .copied()
-                        .collect::<Vec<_>>()
-                        .into_iter()
-                        .any(|d| {
-                            matches!(self.node_map.get(d),
-                                Some(Node::InterfaceDeclaration(i)) if !i.heritage_clauses.is_empty())
-                        });
-                    if has_heritage {
-                        return None;
-                    }
-                }
-                Some(bases) => stack.extend(bases),
-            }
-        }
-        Some(map)
-    }
-
-    /// SS146: the decidable member-set rung. `Some(...)` decides; `None`
-    /// falls through to the relater rungs.
     /// SS146.1: whether `owner`'s declared base chain (transitive,
     /// `base_symbols_of`) contains `target`. An unfollowable link answers
     /// `false` — the caller then DROPS, which is the oracle's answer for
@@ -6672,60 +6504,6 @@ impl Checker<'_, '_> {
             .any(|base| base == target || self.heritage_chain_contains(base, target, visiting))
     }
 
-    fn member_set_rung(
-        &mut self,
-        constituent: crate::types::TypeId,
-        candidate: crate::types::TypeId,
-    ) -> Option<NarrowedConstituent> {
-        if constituent == candidate {
-            return None;
-        }
-        let candidate_map = self.plain_member_map(candidate)?;
-        let constituent_map = self.plain_member_map(constituent)?;
-        let mut missing = false;
-        let mut mismatched = false;
-        for (name, candidate_type) in &candidate_map {
-            match constituent_map.iter().find(|(n, _)| n == name) {
-                Some((_, constituent_type)) if constituent_type == candidate_type => {}
-                Some(_) => mismatched = true,
-                None => missing = true,
-            }
-        }
-        if missing && !mismatched {
-            return Some(NarrowedConstituent::Dropped);
-        }
-        if !missing && !mismatched {
-            // SS146.1, decoded against the oracle (lhs2/rhs3): a PURE
-            // STRUCTURAL superset DROPS under the predicate (Point3D
-            // {x,y,z} narrowed by `x is Point` disappears - upstream's
-            // subtype relation refuses it) while a DECLARED-heritage
-            // subtype KEEPS (Point3D2 extends Point survives). The
-            // discriminator is the constituent's base chain declaring the
-            // candidate's owner.
-            let TypeData::Named { members: Some(candidate_owner), .. } =
-                self.store.get(candidate).data
-            else {
-                return None;
-            };
-            let TypeData::Named { members: Some(constituent_owner), .. } =
-                self.store.get(constituent).data
-            else {
-                return None;
-            };
-            let mut visiting = Vec::new();
-            return if self.heritage_chain_contains(
-                constituent_owner,
-                candidate_owner,
-                &mut visiting,
-            ) {
-                Some(NarrowedConstituent::Mapped(constituent))
-            } else {
-                Some(NarrowedConstituent::Dropped)
-            };
-        }
-        None
-    }
-
     fn narrow_by_predicate_type(
         &mut self,
         t: TypeId,
@@ -6754,91 +6532,151 @@ impl Checker<'_, '_> {
             }
             return t;
         }
-        // `getNarrowedTypeWorker`'s per-constituent ladder (`flow.go:915`):
-        // strictSubtype(t,n) -> t; strictSubtype(n,t) -> n; subtype(t,n) -> t;
-        // subtype(n,t) -> n; else drop — the asserted type wins mutual
-        // relations (`narrowingMutualSubtypes`, the §22 bar's fired leg: a
-        // plain assignability keep answered the wrong side). Kleene: any
-        // undecidable rung declines the whole narrowing.
-        let constituents: Vec<TypeId> = match &self.store.get(t).data {
-            TypeData::Union { types, .. } => types.clone(),
-            _ => vec![t],
-        };
-        let mut kept = Vec::with_capacity(constituents.len());
-        for constituent in constituents {
-            match self.narrowed_constituent(constituent, predicate_type) {
-                NarrowedConstituent::Undecidable => return t,
-                NarrowedConstituent::Mapped(mapped) => {
-                    if assume_true {
-                        kept.push(mapped);
-                    } else if mapped != constituent {
-                        // The false branch keeps what the true branch mapped
-                        // AWAY — upstream's `!isTypeSubsetOf(c, trueType)`
-                        // (`flow.go:873`): a constituent that only reached
-                        // the true side AS THE CANDIDATE is still possible
-                        // when the predicate is false
-                        // (`narrowingMutualSubtypes`' `{}` vs
-                        // `Record<string, unknown>`, the third fired leg).
-                        kept.push(constituent);
-                    }
-                }
-                NarrowedConstituent::Dropped => {
-                    if !assume_true {
-                        kept.push(constituent);
-                    }
-                }
-            }
-        }
-        if kept.is_empty() && assume_true {
-            // Upstream's empty-filter fallback, now BOTH halves
-            // (`getNarrowedTypeWorker`'s tail): candidate assignable into
-            // the declared → the candidate; otherwise MINT the intersection
-            // — `Line | Point3D` under `x is Point` wants
-            // `(Line | Point3D) & Point` (SS148.1, wall 3 of the census —
-            // the missing arm was this port returning `t`).
-            return match self.relate_ternary(
-                predicate_type,
-                t,
-                crate::relater::Relation::Assignable,
-            ) {
-                crate::relater::Ternary::Related => predicate_type,
-                _ => self.get_intersection_type(&[t, predicate_type], None),
-            };
-        }
-        // Identity preservation: a mapping that changed nothing answers the
-        // ORIGINAL type — a named union alias keeps its name
-        // (`narrowingMutualSubtypes`' `Union` positions, the second fired
-        // leg), exactly as upstream's `filterType` identity short-circuit.
-        let original: Vec<TypeId> = match &self.store.get(t).data {
-            TypeData::Union { types, .. } => types.clone(),
-            _ => vec![t],
-        };
-        if kept == original {
-            return t;
-        }
-        self.rebuild_union_subset(t, &kept)
+        self.narrowed_type_worker(t, predicate_type, assume_true, false).unwrap_or(t)
     }
 
-    /// One rung of `getNarrowedTypeWorker`'s ladder: `Some(Some(image))`
-    /// maps the constituent, `Some(None)` drops it, `None` is an
-    /// undecidable rung.
+    /// getNarrowedTypeWorker (internal/checker/flow.go:859).
+    /// Preserve an undecidable relation rather than treating a missing relater
+    /// operation as a negative answer. The key-property lookup is an optimization.
+    fn narrowed_type_worker(
+        &mut self,
+        mut t: TypeId,
+        candidate: TypeId,
+        assume_true: bool,
+        check_derived: bool,
+    ) -> Option<TypeId> {
+        use crate::relater::{Relation, Ternary};
+        if !assume_true {
+            if t == candidate {
+                return Some(self.intrinsics.never);
+            }
+            if check_derived {
+                let parts = match self.store.get(t).data.clone() {
+                    TypeData::Union { types, .. } => types,
+                    _ => vec![t],
+                };
+                let mut kept = Vec::new();
+                for part in parts {
+                    if !self.is_derived_from_decidable(part, candidate)? {
+                        kept.push(part);
+                    }
+                }
+                return Some(self.rebuild_union_subset(t, &kept));
+            }
+            if self.store.get(t).flags.contains(TypeFlags::UNKNOWN) {
+                t = self.intrinsics.unknown_union;
+            }
+            let true_type = self.narrowed_type_worker(t, candidate, true, false)?;
+            let parts = match self.store.get(t).data.clone() {
+                TypeData::Union { types, .. } => types,
+                _ => vec![t],
+            };
+            let kept: Vec<_> = parts
+                .into_iter()
+                .filter(|&part| !self.is_type_subset_of(part, true_type))
+                .collect();
+            let result = self.rebuild_union_subset(t, &kept);
+            return Some(self.recombine_unknown_type(result));
+        }
+        if t == candidate || self.store.get(t).flags.intersects(TypeFlags::ANY_OR_UNKNOWN) {
+            return Some(candidate);
+        }
+        let narrowed = self.map_narrowing_type(candidate, &mut |checker, candidate_part| {
+            let directly_related = checker.map_narrowing_type(t, &mut |checker, part| {
+                if check_derived {
+                    return Some(if checker.is_derived_from_decidable(part, candidate_part)? {
+                        part
+                    } else if checker.is_derived_from_decidable(candidate_part, part)? {
+                        candidate_part
+                    } else {
+                        checker.intrinsics.never
+                    });
+                }
+                match checker.narrowed_constituent(part, candidate_part) {
+                    NarrowedConstituent::Mapped(image) => Some(image),
+                    NarrowedConstituent::Dropped => Some(checker.intrinsics.never),
+                    NarrowedConstituent::Undecidable => None,
+                }
+            })?;
+            if !checker.store.get(directly_related).flags.contains(TypeFlags::NEVER) {
+                return Some(directly_related);
+            }
+            checker.map_narrowing_type(t, &mut |checker, part| {
+                if !checker.maybe_type_of_kind(part, TypeFlags::INSTANTIABLE) {
+                    return Some(checker.intrinsics.never);
+                }
+                if let Some(constraint) = checker.base_constraint_of_type(part) {
+                    let related = if check_derived {
+                        checker.is_derived_from_decidable(candidate_part, constraint)?
+                    } else {
+                        match checker.relate_ternary(candidate_part, constraint, Relation::Subtype)
+                        {
+                            Ternary::Related => true,
+                            Ternary::NotRelated => false,
+                            Ternary::Unknown => return None,
+                        }
+                    };
+                    if !related {
+                        return Some(checker.intrinsics.never);
+                    }
+                }
+                Some(checker.get_intersection_type(&[part, candidate_part], None))
+            })
+        })?;
+        if !self.store.get(narrowed).flags.contains(TypeFlags::NEVER) {
+            return Some(narrowed);
+        }
+        for (source, target, relation, image) in [
+            (candidate, t, Relation::Subtype, candidate),
+            (t, candidate, Relation::Assignable, t),
+            (candidate, t, Relation::Assignable, candidate),
+        ] {
+            match self.relate_ternary(source, target, relation) {
+                Ternary::Related => return Some(image),
+                Ternary::NotRelated => {}
+                Ternary::Unknown => return None,
+            }
+        }
+        Some(self.get_intersection_type(&[t, candidate], None))
+    }
+
+    /// mapType (internal/checker/checker.go:25561), preserving union origins
+    /// and identity. None propagates an undecidable narrowing relation.
+    fn map_narrowing_type(
+        &mut self,
+        t: TypeId,
+        mapper: &mut dyn FnMut(&mut Self, TypeId) -> Option<TypeId>,
+    ) -> Option<TypeId> {
+        if self.store.get(t).flags.contains(TypeFlags::NEVER) {
+            return Some(t);
+        }
+        let TypeData::Union { types, .. } = &self.store.get(t).data else {
+            return mapper(self, t);
+        };
+        let parts = self
+            .union_origin
+            .get(&t)
+            .filter(|origin| {
+                origin.len() != 1
+                    || !self.store.get(origin[0]).flags.contains(TypeFlags::INTERSECTION)
+            })
+            .unwrap_or(types)
+            .clone();
+        let mut images = Vec::with_capacity(parts.len());
+        for &part in &parts {
+            images.push(self.map_narrowing_type(part, mapper)?);
+        }
+        Some(if images == parts { t } else { self.get_union_type(&images) })
+    }
+
+    /// One rung of getNarrowedTypeWorker's predicate ladder: map a related
+    /// constituent, drop an unrelated one, or preserve an undecidable result.
     fn narrowed_constituent(
         &mut self,
         constituent: TypeId,
         candidate: TypeId,
     ) -> NarrowedConstituent {
         use crate::relater::{Relation, Ternary};
-        // SS146 (checker-notes-callres2.md): the LOCAL member-set rung -
-        // decidable structural subtyping between plain Named interface
-        // types, scoped to this ladder only (the global relater untouched).
-        // Candidate's full member set present in the constituent with
-        // IDENTICAL member TypeIds -> the constituent narrows (kept as
-        // itself); a required candidate member missing from the constituent
-        // -> NotRelated (dropped on the true branch). Anything else falls
-        // through to the relater rungs unchanged.
-        if let Some(decided) = self.member_set_rung(constituent, candidate) {
-            return decided;
-        }
         // SS148 (wall 2 of the SS145.1 census): a declared `object`
         // constituent narrows TO an object-flagged Named/Anonymous
         // candidate - upstream's `subtype(candidate, object)` rung answers

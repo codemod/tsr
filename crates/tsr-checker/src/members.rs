@@ -740,7 +740,7 @@ impl Checker<'_, '_> {
         // diagnostics, not types). The key is the name's string literal type.
         // See `checker-notes-narrow.md` §17.
         let property_type = if let Some(found) =
-            self.get_type_of_property_with_this_argument(receiver_type, name, this_argument)
+            self.get_type_of_property_with_this_argument(receiver_type, name, this_argument, false)
         {
             found
         } else {
@@ -1143,7 +1143,7 @@ impl Checker<'_, '_> {
     /// (`crate::relater`'s `properties_related_to`) meaning what it did.
     #[must_use]
     pub fn get_type_of_property_of_type(&mut self, id: TypeId, name: &str) -> Option<TypeId> {
-        self.get_type_of_property_with_this_argument(id, name, id)
+        self.get_type_of_property_with_this_argument(id, name, id, false)
     }
 
     /// getTypeWithThisArgument retains the original receiver when member
@@ -1153,6 +1153,7 @@ impl Checker<'_, '_> {
         id: TypeId,
         name: &str,
         this_argument: TypeId,
+        skip_object_function_augment: bool,
     ) -> Option<TypeId> {
         self.resolve_mapped_type_members(id);
         if let Some(property) = self
@@ -1217,9 +1218,22 @@ impl Checker<'_, '_> {
                 TypeData::Named { members: Some(owner), .. } => *owner,
                 _ => return None,
             };
-            let mut visiting = Vec::new();
-            let property = self.get_property_of_declared_symbol(owner, name, &mut visiting)?;
-            let member = self.get_type_of_symbol(property);
+            let source = self
+                .type_reference_targets
+                .get(&id)
+                .and_then(|(_, arguments)| (arguments.len() == 1).then_some(arguments[0]));
+            let member = if let Some(source) = source {
+                self.get_type_of_property_with_this_argument(
+                    source,
+                    name,
+                    source,
+                    skip_object_function_augment,
+                )?
+            } else {
+                let mut visiting = Vec::new();
+                let property = self.get_property_of_declared_symbol(owner, name, &mut visiting)?;
+                self.get_type_of_symbol(property)
+            };
             return Some(match optionality {
                 // `?` / `+?`: the property becomes optional, which a READ sees
                 // as `| undefined`.
@@ -1249,8 +1263,17 @@ impl Checker<'_, '_> {
                 // wrapper interfaces, and slice 1's Object fallback then
                 // covers the object constituents.
                 let apparent = self.apparent_type(constituent);
-                let member = if let Some(member) = self.get_type_of_property_of_type(apparent, name)
+                if self.store.get(apparent).flags.contains(TypeFlags::NEVER)
+                    || self.intersection_has_never_discriminant(apparent)
                 {
+                    continue;
+                }
+                let member = if let Some(member) = self.get_type_of_property_with_this_argument(
+                    apparent,
+                    name,
+                    constituent,
+                    skip_object_function_augment,
+                ) {
                     has_property = true;
                     member
                 } else {
@@ -1374,7 +1397,8 @@ impl Checker<'_, '_> {
                 .collect();
             return Some(self.get_union_type(&lengths));
         }
-        if let Some(property) = self.get_property_of_type(id, name) {
+        if let Some(property) = self.get_property_of_type_ex(id, name, skip_object_function_augment)
+        {
             let declared = self.get_type_of_symbol(property);
             let instantiated =
                 self.instantiate_for_reference_with_this(id, declared, this_argument);
@@ -1383,7 +1407,8 @@ impl Checker<'_, '_> {
             // alias symbol's table hands back a symbol whose declared type
             // does not compute).
             if instantiated == self.intrinsics.error
-                && let Some(shaped) = self.property_type_via_shape(id, name)
+                && let Some(shaped) =
+                    self.property_type_via_shape(id, name, skip_object_function_augment)
             {
                 return Some(shaped);
             }
@@ -1449,7 +1474,7 @@ impl Checker<'_, '_> {
                 }
             }
         }
-        self.property_type_via_shape(id, name)
+        self.property_type_via_shape(id, name, skip_object_function_augment)
     }
 
     /// Resolve inherited members through each instantiated base, guarded by
@@ -1538,56 +1563,69 @@ impl Checker<'_, '_> {
         None
     }
 
+    /// Root declarations contributing an intersection property, corresponding
+    /// to createUnionOrIntersectionProperty's distinct property set.
+    pub(crate) fn intersection_property_symbols(
+        &mut self,
+        id: TypeId,
+        name: &str,
+    ) -> Vec<SymbolId> {
+        let TypeData::Intersection { types, .. } = self.store.get(id).data.clone() else {
+            return self.get_property_of_type(id, name).into_iter().collect();
+        };
+        let mut symbols = Vec::new();
+        for part in types {
+            let apparent = self.apparent_type(part);
+            for symbol in self.intersection_property_symbols(apparent, name) {
+                if !symbols.contains(&symbol) {
+                    symbols.push(symbol);
+                }
+            }
+        }
+        symbols
+    }
+
     /// §92 (`checker-notes-narrow.md`): the property roads the symbol table
     /// cannot answer — an INTERSECTION's constituents (multiple hits
     /// intersect, upstream's synthesized intersection property), `Omit<T, K>`
     /// by its global symbol (a name outside `K` reads through `T`), and an
     /// alias reference with a non-literal body (evaluated under §91's
     /// bindings, then re-asked). `None` stays *no such property*.
-    fn property_type_via_shape(&mut self, id: TypeId, name: &str) -> Option<TypeId> {
-        // §120: EVERY intersection distributes — upstream's
-        // `getUnionOrIntersectionProperty` reads a member from any
-        // constituent that has it. The §92 gate (alias-evaluated
-        // intersections only) was priced at 134 G→W in the
-        // discriminated-union era; re-measured after §98's discrimination
-        // machinery landed.
+    fn property_type_via_shape(
+        &mut self,
+        id: TypeId,
+        name: &str,
+        skip_object_function_augment: bool,
+    ) -> Option<TypeId> {
+        // createUnionOrIntersectionProperty (checker.go): each constituent
+        // contributes its apparent property type, with the entire receiver
+        // substituted for polymorphic this before intersecting the types.
         if let TypeData::Intersection { types, .. } = &self.store.get(id).data {
             let constituents = types.clone();
-            let mut hits = Vec::new();
-            for constituent in constituents {
-                let apparent = self.apparent_type(constituent);
-                if let Some(member) = self.get_type_of_property_of_type(apparent, name) {
-                    hits.push((constituent, member));
+            if self.intersection_has_never_discriminant(id) {
+                return None;
+            }
+            for skip_augment in [true, false] {
+                if !skip_augment && skip_object_function_augment {
+                    break;
+                }
+                let mut hits = Vec::new();
+                for &constituent in &constituents {
+                    let apparent = self.apparent_type(constituent);
+                    if let Some(member) = self.get_type_of_property_with_this_argument(
+                        apparent,
+                        name,
+                        id,
+                        skip_augment,
+                    ) {
+                        hits.push(member);
+                    }
+                }
+                if !hits.is_empty() {
+                    return Some(self.get_intersection_type(&hits, None));
                 }
             }
-            // §120 iteration 3: a WRITTEN intersection answers only when
-            // exactly ONE constituent carries the name. Multi-hit positions
-            // are where every adverse class lived — upstream variously
-            // intersects the hits with parenthesized prints, keeps `this`
-            // polymorphic (intersectionThisTypes' `() => this`), or answers
-            // `never`/`any` from compatibility checks this port lacks; each
-            // measured as G→W under both the naive combination (iteration 1,
-            // 86) and TypeId-dedup (iteration 2, 55). Alias-evaluated
-            // intersections keep §92's multi-hit intersection behaviour.
-            return match hits.as_slice() {
-                [] => None,
-                // A member whose declaration mentions the polymorphic `this`
-                // type declines even at a single hit: upstream binds `this`
-                // to the WHOLE intersection and prints it as `this`
-                // (intersectionThisTypes' `() => this` wants); this port
-                // substitutes the declaring class, a confident wrong.
-                &[(constituent, one)] => {
-                    let this_typed = self
-                        .get_property_of_type(constituent, name)
-                        .is_some_and(|symbol| self.symbol_mentions_this_type(symbol));
-                    if this_typed { None } else { Some(one) }
-                }
-                _ if !self.alias_evaluated_types.contains(&id) => None,
-                many => {
-                    let many = many.iter().map(|&(_, member)| member).collect::<Vec<_>>();
-                    Some(self.get_intersection_type(&many, None))
-                }
-            };
+            return None;
         }
         let (target, arguments) = self.type_reference_targets.get(&id).cloned()?;
         if self.global_type_symbol_with_arity("Omit", 2) == Some(target) && arguments.len() == 2 {
@@ -1595,32 +1633,25 @@ impl Checker<'_, '_> {
             if removed.iter().any(|key| key == name) {
                 return None;
             }
-            return self.get_type_of_property_of_type(arguments[0], name);
+            return self.get_type_of_property_with_this_argument(
+                arguments[0],
+                name,
+                arguments[0],
+                skip_object_function_augment,
+            );
         }
         if self.binder.symbols().get(target).flags.contains(tsr_binder::SymbolFlags::TYPE_ALIAS) {
             let evaluated = self.evaluate_alias_body(target, &arguments)?;
             if evaluated != id {
-                return self.get_type_of_property_of_type(evaluated, name);
+                return self.get_type_of_property_with_this_argument(
+                    evaluated,
+                    name,
+                    evaluated,
+                    skip_object_function_augment,
+                );
             }
         }
         None
-    }
-
-    /// Whether any of a symbol's declarations contains a `ThisType` node —
-    /// §120's decline key for intersection member reads. Syntactic because
-    /// this port has no this-type at the type level; a bounded subtree scan.
-    fn symbol_mentions_this_type(&self, symbol: SymbolId) -> bool {
-        let declarations = &self.binder.symbols().get(symbol).declarations;
-        let mut stack: Vec<tsr_ast::NodeId> = declarations.iter().copied().collect();
-        while let Some(id) = stack.pop() {
-            if self.nodes.kind(id) == tsr_ast::SyntaxKind::ThisType {
-                return true;
-            }
-            if let Some(node) = self.node_map.get(id) {
-                tsr_ast::for_each_child_id(node, |child| stack.push(child));
-            }
-        }
-        false
     }
 
     /// A member's type as seen through an instantiated reference: `declared`
@@ -1764,6 +1795,15 @@ impl Checker<'_, '_> {
     /// table with a different name.
     #[must_use]
     pub fn get_property_of_type(&mut self, id: TypeId, name: &str) -> Option<SymbolId> {
+        self.get_property_of_type_ex(id, name, false)
+    }
+
+    fn get_property_of_type_ex(
+        &mut self,
+        id: TypeId,
+        name: &str,
+        skip_object_function_augment: bool,
+    ) -> Option<SymbolId> {
         // The borrow of `self.store` has to end before the recursion below, which
         // takes `&mut self`. Both bindings are `Copy`, so this statement copies
         // out what it needs and releases the type. ADR-0013's read-drop-recurse.
@@ -1801,7 +1841,10 @@ impl Checker<'_, '_> {
                 .flags
                 .contains(SymbolFlags::CONST_ENUM),
         };
-        if !withheld && self.store.get(id).flags.contains(TypeFlags::OBJECT) {
+        if !skip_object_function_augment
+            && !withheld
+            && self.store.get(id).flags.contains(TypeFlags::OBJECT)
+        {
             let mut fallbacks: Vec<&str> = Vec::new();
             // §395: a CLASS's static side is a constructor function — its
             // misses fall through the Function interface before Object

@@ -826,21 +826,17 @@ impl Relater<'_, '_, '_> {
         {
             return Ternary::NotRelated;
         }
-        // A primitive or unknown source is not assignable to an arbitrary
-        // target parameter (structuredTypeRelatedToWorker, relater.go). The
-        // simple relation above already handles any/never and loose nullability.
-        if t.contains(TypeFlags::TYPE_PARAMETER)
-            && s.intersects(TypeFlags::PRIMITIVE | TypeFlags::UNKNOWN)
-            && matches!(self.relation, Relation::Assignable)
-        {
-            return Ternary::NotRelated;
-        }
-        // A concrete object cannot inhabit an arbitrary target parameter.
+        // A concrete object, primitive or unknown cannot inhabit an arbitrary
+        // target parameter. The simple relation already handles any/never and
+        // loose nullability (structuredTypeRelatedToWorker, relater.go).
         // Generic mapped types have a separate target-parameter relation
         // (relater.go:3423), which remains outside this arm.
         if t.contains(TypeFlags::TYPE_PARAMETER)
-            && s.intersects(TypeFlags::OBJECT | TypeFlags::UNKNOWN)
-            && matches!(self.relation, Relation::Subtype | Relation::StrictSubtype)
+            && s.intersects(TypeFlags::OBJECT | TypeFlags::PRIMITIVE | TypeFlags::UNKNOWN)
+            && matches!(
+                self.relation,
+                Relation::Assignable | Relation::Subtype | Relation::StrictSubtype
+            )
             && !self.checker.mapped_types.contains_key(&source)
         {
             return Ternary::NotRelated;
@@ -883,6 +879,9 @@ impl Relater<'_, '_, '_> {
     }
 
     fn has_members(&self, id: TypeId) -> bool {
+        if self.checker.type_of(id).flags.contains(TypeFlags::TYPE_PARAMETER) {
+            return false;
+        }
         self.checker.class_static_symbol(id).is_some()
             || matches!(
                 &self.checker.type_of(id).data,
@@ -1842,9 +1841,17 @@ impl Relater<'_, '_, '_> {
                 _ => Ternary::Unknown,
             };
         }
+        // Synthetic polymorphic this is a source type variable too, not the
+        // object member table carried by its representation (relater.go:3665).
+        if self.checker.type_of(source).flags.contains(TypeFlags::TYPE_PARAMETER)
+            && !self.checker.type_parameter_symbols.contains_key(&source)
+            && let Some(constraint) = self.checker.type_parameter_constraint(source)
+            && constraint != source
+        {
+            return self.is_related_to_with_flags(constraint, target, RecursionFlags::SOURCE);
+        }
         // Source type variables explore their constraint under the same cycle
-        // guard (relater.go:3664). Synthetic this types keep the existing
-        // structural member path; an unreadable written constraint is unknown.
+        // guard (relater.go:3664). An unreadable written constraint is unknown.
         if self.checker.type_of(source).flags.contains(TypeFlags::TYPE_PARAMETER)
             && let Some(&symbol) = self.checker.type_parameter_symbols.get(&source)
             && let Some(declaration) =

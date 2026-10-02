@@ -380,3 +380,169 @@ const wrapped = (function() { const lexicalHost = this; return lexicalHost; });
         ],
     );
 }
+
+#[test]
+fn predicate_narrowing_preserves_generics_and_filters_candidate_unions() {
+    expect(
+        r"// @strict: true
+export class Base {
+  base = 0;
+  isDerived(): this is Derived { return this instanceof Derived; }
+  verify(): void {
+    if (this.isDerived()) { const refined = this; }
+  }
+  assertDerived(): asserts this is Derived {}
+  verified(): void { this.assertDerived(); const asserted = this; }
+}
+export class Derived extends Base { extra = ''; }
+declare function isDerived(value: Base): value is Derived;
+export function generic<T extends Base>(value: T) {
+  if (isDerived(value)) { const genericTrue = value; return genericTrue; }
+  const genericFalse = value;
+  return undefined;
+}
+declare function isPair(value: unknown): value is string | number;
+export function unionCandidate(value: string | number | boolean) {
+  if (isPair(value)) { const unionTrue = value; return unionTrue; }
+  const unionFalse = value;
+  return undefined;
+}
+declare function isUndefined(value: unknown): value is undefined;
+export function unknownNegative(value: unknown) {
+  if (isUndefined(value)) return;
+  const remaining = value;
+  return remaining;
+}
+",
+        &[
+            "refined : this & Derived",
+            "asserted : this & Derived",
+            "genericTrue : T & Derived",
+            "genericFalse : T",
+            "unionTrue : string | number",
+            "unionFalse : boolean",
+            "remaining : {} | null",
+        ],
+    );
+}
+
+#[test]
+fn predicate_prerequisites_keep_constraint_and_member_identity() {
+    expect(
+        r#"// @strict: true
+export declare function isA(x: unknown): x is "a";
+export declare function isB(x: unknown): x is "b";
+export function branches<K extends "a" | "b">(x: K) {
+    if (isA(x) || isB(x)) { const covered = x; return covered; }
+    return x;
+}
+export interface Dataful<T> { data: T; }
+export class Foo<T extends string> {
+    data: T | undefined;
+    hasData(): this is Dataful<T> { return true; }
+    lower(): void { if (this.hasData()) { const present = this.data; const lower = present.toLocaleLowerCase(); } }
+}
+export declare function paired<A, B, C, D>(left: (a: A) => B, right: (c: C) => D): (input: [A, C]) => [B, D];
+export declare function recursive<T extends { value: T }>(value: T): T;
+export const renamed = paired(recursive, recursive);
+export interface Receiver { self(): this; }
+export declare const intersection: Receiver & { count: number };
+export const recovered = intersection.self();
+export type Both = { kind: "a"; a: number } | { kind: "b"; b: string };
+export declare function isBoth(value: { kind: string }): value is Both;
+export function alias(value: { kind: string }) {
+    if (isBoth(value)) { const named = value; return named; }
+    return undefined;
+}
+"#,
+        &[
+            "covered : K",
+            "present : T",
+            "lower : string",
+            "renamed : <T extends { value: T; }, T1 extends { value: T1; }>(input: [T, T1]) => [T, T1]",
+            "recovered : Receiver & { count: number; }",
+            "named : Both",
+        ],
+    );
+}
+
+#[test]
+fn instance_predicates_use_derivation_and_preserve_false_branches() {
+    expect(
+        r"// @strict: true
+// @target: es2015
+export interface Point { x: number; y: number; }
+export interface Point3D { x: number; y: number; z: number; }
+export declare const guard: { [Symbol.hasInstance](value: unknown): value is Point };
+export function trueBranch(value: Point | Point3D | string) {
+    if (value instanceof guard) { const derivedTrue = value; return derivedTrue; }
+    return undefined;
+}
+export function falseBranch(value: Point | Point3D | string) {
+    if (value instanceof guard) return;
+    const derivedFalse = value;
+    return derivedFalse;
+}
+export class C1 { a = 0; }
+export class C2 { a = 0; }
+export function ordinary(value: C1 | C2) {
+    if (value instanceof C1) { const instanceTrue = value; return instanceTrue; }
+    return undefined;
+}
+",
+        &["derivedTrue : Point", "derivedFalse : string | Point3D", "instanceTrue : C1"],
+    );
+}
+
+#[test]
+fn intersection_members_reduce_conflicts_and_keep_own_properties() {
+    // Invalid accesses retain the port's explicit error sentinel; native emits
+    // TS2339 and prints that error type as any. Other assertions are exact types.
+    expect(
+        r#"// @strict: true
+export declare let mixed: { readonly value: number } & { value: number };
+export const writeMixed = mixed.value = 1;
+export declare let frozen: { readonly value: number } & { readonly value: number };
+export const writeFrozen = frozen.value = 1;
+export declare const conflict: { kind: "a" } & { kind: "b" };
+export const impossible = conflict.kind;
+export declare const surviving: ({ kind: "a" } & { kind: "b" }) | { kind: "c"; value: number };
+export const survivingValue = surviving.value;
+export class Left { private value = 1; }
+export class Right { private value = 2; }
+export declare const privateConflict: Left & Right;
+export const privateValue = privateConflict.value;
+export declare const ordinaryConflict: { value: string } & { value: number };
+export const ordinaryValue = ordinaryConflict.value;
+export type Explicit = { toString: "string" } & { other: number };
+export declare const own: Explicit;
+export const ownMember = own.toString;
+"#,
+        &[
+            "writeMixed : 1",
+            "writeFrozen : 1",
+            "mixed.value : number",
+            "frozen.value : any",
+            "impossible : error",
+            "survivingValue : number",
+            "privateValue : error",
+            "ordinaryValue : never",
+            "ownMember : \"string\"",
+        ],
+    );
+}
+
+#[test]
+fn mapped_intersection_properties_read_instantiated_sources() {
+    expect(
+        r"// @strict: true
+export class Model { value = 1; }
+export declare const constructors: Readonly<typeof Model> & (new () => { extra: string });
+export const modelPrototype = constructors.prototype;
+export interface Box<T> { value: T; }
+export declare const readonlyBox: Readonly<Box<number>>;
+export const numericValue = readonlyBox.value;
+",
+        &["modelPrototype : Model", "numericValue : number"],
+    );
+}

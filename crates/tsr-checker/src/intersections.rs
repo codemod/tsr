@@ -202,6 +202,7 @@ impl Checker<'_, '_> {
         if set.len() == 1 && symbol.is_none() {
             return set[0];
         }
+        let mut constrained_variable = None;
         // getIntersectionTypeEx reduces a primitive-constrained type variable
         // against a primitive or {}. Unknown constraints keep the intersection.
         if reduce_constraints
@@ -217,8 +218,9 @@ impl Checker<'_, '_> {
             let variable = set[variable_index];
             let other = set[1 - variable_index];
             match self.reduce_constrained_intersection(variable, other) {
-                Ok(Some(reduced)) => return reduced,
-                Ok(None) => {}
+                Ok((Some(reduced), _)) => return reduced,
+                Ok((None, true)) => constrained_variable = Some((variable, other)),
+                Ok((None, false)) => {}
                 Err(()) => return self.intrinsics.error,
             }
         }
@@ -232,7 +234,11 @@ impl Checker<'_, '_> {
                 reduce_constraints,
             );
         }
-        create_intersection(&mut self.store, set, named)
+        let result = create_intersection(&mut self.store, set, named);
+        if let Some(parts) = constrained_variable {
+            self.constrained_type_variables.insert(result, parts);
+        }
+        result
     }
 
     /// The constraint-reduction branch of `getIntersectionTypeEx` (checker.go).
@@ -241,7 +247,7 @@ impl Checker<'_, '_> {
         &mut self,
         variable: TypeId,
         other: TypeId,
-    ) -> Result<Option<TypeId>, ()> {
+    ) -> Result<(Option<TypeId>, bool), ()> {
         let mut parameter = variable;
         let mut seen = Vec::new();
         let constraint = loop {
@@ -255,9 +261,9 @@ impl Checker<'_, '_> {
             let Some(tsr_ast::Node::TypeParameterDeclaration(declaration)) =
                 self.node_map.get(declaration)
             else {
-                return Ok(None);
+                return Ok((None, false));
             };
-            let Some(annotation) = declaration.constraint else { return Ok(None) };
+            let Some(annotation) = declaration.constraint else { return Ok((None, false)) };
             let constraint = self.get_type_from_type_node(annotation);
             if self.is_error(constraint) {
                 return Err(());
@@ -275,7 +281,7 @@ impl Checker<'_, '_> {
             self.store.get(id).flags.intersects(TypeFlags::PRIMITIVE | TypeFlags::NON_PRIMITIVE)
                 || self.is_empty_anonymous_object_type(id)
         }) {
-            return Ok(None);
+            return Ok((None, false));
         }
         if parts.iter().any(|&id| {
             self.store
@@ -286,14 +292,14 @@ impl Checker<'_, '_> {
             return Err(());
         }
         if parts.iter().all(|&id| self.primitive_or_empty_subtype(id, other)) {
-            return Ok(Some(variable));
+            return Ok((Some(variable), false));
         }
         if !parts.iter().any(|&id| self.primitive_or_empty_subtype(id, other))
             && !parts.iter().any(|&id| self.primitive_or_empty_subtype(other, id))
         {
-            return Ok(Some(self.intrinsics.never));
+            return Ok((Some(self.intrinsics.never), false));
         }
-        Ok(None)
+        Ok((None, true))
     }
 
     fn primitive_or_empty_subtype(&mut self, source: TypeId, target: TypeId) -> bool {

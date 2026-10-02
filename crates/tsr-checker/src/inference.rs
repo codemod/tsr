@@ -2184,6 +2184,21 @@ impl Checker<'_, '_> {
             used.push(parameter.name.clone());
             map.push((original, image));
         }
+        let source_names: Vec<_> =
+            source_signature.type_parameters.iter().map(|p| p.name.clone()).collect();
+        for &(original, image) in &map {
+            if original != image {
+                self.instantiated_type_parameters.insert(
+                    image,
+                    InstantiatedTypeParameter {
+                        target: original,
+                        map: map.clone(),
+                        parameters: own.clone(),
+                        names: source_names.clone(),
+                    },
+                );
+            }
+        }
         let names: Vec<_> =
             source_signature.type_parameters.iter().map(|p| p.name.as_str()).collect();
         let Some(mut instantiated) =

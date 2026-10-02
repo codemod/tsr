@@ -304,6 +304,15 @@ impl Checker<'_, '_> {
         {
             return readonly && self.get_property_of_type(receiver_type, &name).is_some();
         }
+        if self.store.get(receiver_type).flags.contains(TypeFlags::INTERSECTION) {
+            let properties = self.intersection_property_symbols(receiver_type, &name);
+            return !properties.is_empty()
+                && properties.into_iter().all(|property| {
+                    (self.is_readonly_symbol(property)
+                        || self.property_signature_is_readonly(property))
+                        && !self.assignment_is_inside_the_declaring_constructor(node, property)
+                });
+        }
         // createUnionOrIntersectionProperty marks a union property readonly
         // when a constituent contributes a readonly index signature.
         if let crate::types::TypeData::Union { types, .. } =
