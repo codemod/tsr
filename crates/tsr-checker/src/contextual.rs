@@ -484,6 +484,31 @@ impl<'a> Checker<'a, '_> {
             return Some(result);
         }
         let ContextualSignature::Present(signature) = result else { return Some(result) };
+        if self.live_inference_context(function).is_some() {
+            self.infer_contextual_annotations(function, &signature);
+            let non_fixing_rest = signature.parameters.last().is_some_and(|parameter| {
+                parameter.rest
+                    && self
+                        .store
+                        .get(parameter.r#type)
+                        .flags
+                        .contains(crate::flags::TypeFlags::TYPE_PARAMETER)
+            });
+            let consumed = if non_fixing_rest {
+                Vec::new()
+            } else {
+                self.consumed_contextual_parameter_types(function, &signature)
+            };
+            let (map, parameters, names) = self.live_contextual_mapper(function, &consumed)?;
+            let names: Vec<_> = names.iter().map(String::as_str).collect();
+            let returned = signature.r#type;
+            return self.instantiate_signature(*signature, &map, &parameters, &names).map(
+                |mut signature| {
+                    signature.r#type = returned;
+                    ContextualSignature::Present(Box::new(signature))
+                },
+            );
+        }
         let mut parent = self.nodes.parent(function);
         while let Some(node) = parent {
             if let Some((map, parameters, names)) =
@@ -501,8 +526,37 @@ impl<'a> Checker<'a, '_> {
 
     /// instantiateContextualType (checker.go) keeps object templates intact
     /// while resolving an instantiable contextual operand through the mapper.
-    fn instantiate_contextual_inference_type(&mut self, ty: TypeId, node: NodeId) -> TypeId {
+    pub(crate) fn instantiate_contextual_inference_type(
+        &mut self,
+        ty: TypeId,
+        node: NodeId,
+    ) -> TypeId {
         if self.contextual_prefers_uninstantiated {
+            return ty;
+        }
+        if let Some((map, parameters, names)) = self.live_contextual_mapper(node, &[]) {
+            let names: Vec<_> = names.iter().map(String::as_str).collect();
+            let image = self.instantiate_instantiable_types(ty, &map, &parameters, &names);
+            if !self
+                .store
+                .get(image)
+                .flags
+                .intersects(crate::flags::TypeFlags::ANY | crate::flags::TypeFlags::UNKNOWN)
+            {
+                return image;
+            }
+            if let Some((map, parameters, names)) = self.live_contextual_return_mapper(node) {
+                let names: Vec<_> = names.iter().map(String::as_str).collect();
+                let image = self.instantiate_instantiable_types(ty, &map, &parameters, &names);
+                if !self
+                    .store
+                    .get(image)
+                    .flags
+                    .intersects(crate::flags::TypeFlags::ANY | crate::flags::TypeFlags::UNKNOWN)
+                {
+                    return image;
+                }
+            }
             return ty;
         }
         let mut parent = self.nodes.parent(node);
@@ -528,6 +582,27 @@ impl<'a> Checker<'a, '_> {
         ty
     }
 
+    /// getApparentTypeOfContextualType maps union operands while preserving
+    /// mapped templates. An unconstrained instantiable type has unknown as its
+    /// apparent type, hence no contextual call signature.
+    pub(crate) fn apparent_contextual_type(&mut self, ty: TypeId) -> TypeId {
+        if self.contextual_prefers_uninstantiated || self.mapped_types.contains_key(&ty) {
+            return ty;
+        }
+        if let TypeData::Union { types, .. } = &self.store.get(ty).data {
+            let types = types.clone();
+            let types: Vec<_> =
+                types.into_iter().map(|ty| self.apparent_contextual_type(ty)).collect();
+            return self.get_union_type_without_reduction(&types);
+        }
+        let ty = if self.store.get(ty).flags.intersects(crate::flags::TypeFlags::INSTANTIABLE) {
+            self.base_constraint_of_type(ty).unwrap_or(self.intrinsics.unknown)
+        } else {
+            ty
+        };
+        self.apparent_type(ty)
+    }
+
     fn contextual_signature_result_worker(
         &mut self,
         function: NodeId,
@@ -544,6 +619,8 @@ impl<'a> Checker<'a, '_> {
             }
             _ => self.get_contextual_type(function)?,
         };
+        let contextual = self.instantiate_contextual_inference_type(contextual, function);
+        let contextual = self.apparent_contextual_type(contextual);
         if let TypeData::Union { types, .. } = &self.store.get(contextual).data {
             let constituents = types.clone();
             let mut found: Option<Signature> = None;
@@ -949,6 +1026,8 @@ impl<'a> Checker<'a, '_> {
             // the Array-reference and tuple halves this port can read.
             Node::ArrayLiteralExpression(literal) => {
                 let contextual = self.get_contextual_type(parent)?;
+                let contextual = self.instantiate_contextual_inference_type(contextual, parent);
+                let contextual = self.apparent_contextual_type(contextual);
                 let index = literal.elements.iter().position(|e| e.node_id() == Some(node))?;
                 let first_spread =
                     literal.elements.iter().position(|e| matches!(e, Expression::SpreadElement(_)));
@@ -1534,7 +1613,7 @@ impl<'a> Checker<'a, '_> {
         {
             return Some(info.value);
         }
-        self.tuple_spread_array_element(contextual)
+        self.tuple_spread_array_element(contextual).or_else(|| self.for_of_element_type(contextual))
     }
 
     /// The rest-argument context used by `getSpreadArgumentType`, alongside
@@ -1647,7 +1726,7 @@ impl<'a> Checker<'a, '_> {
     /// The common property lookup of getContextualTypeForObjectLiteralElement
     /// and getContextualTypeForObjectLiteralMethod. A method's return annotation
     /// is not its contextual function type.
-    fn contextual_type_for_object_literal_named_element(
+    pub(crate) fn contextual_type_for_object_literal_named_element(
         &mut self,
         element: NodeId,
         property_name: PropertyName<'a>,
@@ -1669,6 +1748,7 @@ impl<'a> Checker<'a, '_> {
         let object_literal = self.nodes.parent(element)?;
         let contextual = self.get_contextual_type(object_literal)?;
         let contextual = self.instantiate_contextual_inference_type(contextual, object_literal);
+        let contextual = self.apparent_contextual_type(contextual);
         // `getTypeOfPropertyOfContextualTypeEx` (`checker.go:29932`). Upstream
         // maps over a union here.
         //
@@ -1705,8 +1785,10 @@ impl<'a> Checker<'a, '_> {
         // its type through the pass-1 substitution - the object parameter
         // itself is symbol-backed (uninstantiable structurally), so the
         // instantiation happens here, at the property read.
-        if let Some((map, type_parameters, names)) =
-            self.intra_expression_member_maps.get(&object_literal).cloned()
+        if !self.contextual_prefers_uninstantiated
+            && self.live_inference_context(object_literal).is_none()
+            && let Some((map, type_parameters, names)) =
+                self.intra_expression_member_maps.get(&object_literal).cloned()
         {
             let name_refs: Vec<&str> = names.iter().map(String::as_str).collect();
             let image = self.instantiate_type(property_type, &map, &type_parameters, &name_refs);
@@ -1876,6 +1958,23 @@ impl<'a> Checker<'a, '_> {
             let contextual = self.contextual_type_for_argument_resolving(call, callee, index);
             self.resolving_signature_calls.remove(&call_id);
             return contextual;
+        }
+
+        if let Some(call_id) = call.node_id
+            && let Some(context) = self
+                .active_inference_contexts
+                .get(&call_id)
+                .filter(|context| context.inferential)
+                .cloned()
+        {
+            let contextual =
+                self.contextual_argument_type(&context.signature, index, call.arguments.len())?;
+            if self.mapped_types.get(&contextual).is_some_and(|info| info.name_type.is_some()) {
+                let (map, parameters, names) = self.live_contextual_mapper(argument, &[])?;
+                let names: Vec<_> = names.iter().map(String::as_str).collect();
+                return Some(self.instantiate_type(contextual, &map, &parameters, &names));
+            }
+            return Some(contextual);
         }
 
         // Reunion memo consult (checker-notes-callres2.md): a pass-1

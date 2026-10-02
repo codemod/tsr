@@ -2,7 +2,7 @@
 //!
 //! Ported from `Checker.isContextSensitive` (`internal/checker/checker.go`).
 
-use tsr_ast::{Expression, Node, NodeId, SyntaxKind};
+use tsr_ast::{Expression, Node, SyntaxKind};
 
 use crate::Checker;
 
@@ -27,31 +27,6 @@ impl<'a> Checker<'a, '_> {
             }
         }
         false
-    }
-
-    /// Functions whose contextual signatures are consumed while checking an
-    /// argument. Uses the same expression boundaries as isContextSensitive.
-    pub(crate) fn context_sensitive_functions(&self, argument: Expression<'_>) -> Vec<NodeId> {
-        let Some(root) = argument.node_id().and_then(|id| self.node_map.get(id)) else {
-            return Vec::new();
-        };
-        let mut functions = Vec::new();
-        let mut pending = vec![root];
-        while let Some(node) = pending.pop() {
-            if is_function_like(node) {
-                if let Some(id) = node.node_id()
-                    && self.is_context_sensitive_function_like(id)
-                {
-                    functions.push(id);
-                    pending.extend(
-                        self.context_sensitive_function_contents(id).into_iter().map(Node::from),
-                    );
-                }
-            } else {
-                self.append_context_sensitive_children(node, &mut pending);
-            }
-        }
-        functions
     }
 
     /// Child positions inspected by isContextSensitive. In particular, a

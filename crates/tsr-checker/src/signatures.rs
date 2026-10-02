@@ -329,27 +329,46 @@ impl<'a> Checker<'a, '_> {
         consumed
     }
 
-    /// Context-sensitive returned/yielded functions checked inside their
-    /// enclosing function's contextual return type (isContextSensitive).
-    pub(crate) fn context_sensitive_function_contents(
-        &self,
+    /// inferFromAnnotatedParametersAndReturn contributes written annotations
+    /// before assigning the remaining contextual parameter types.
+    pub(crate) fn contextual_annotation_inferences(
+        &mut self,
         declaration: NodeId,
-    ) -> Vec<tsr_ast::Expression<'a>> {
+        contextual: &Signature,
+    ) -> Vec<(TypeId, TypeId)> {
         let Some(parts) = self.signature_parts_of(declaration) else { return Vec::new() };
-        match parts.body {
-            Some(Body::Expression(expression)) => vec![expression],
-            Some(Body::Block(block)) => self
-                .return_expressions_of(block, declaration)
-                .into_iter()
-                .flatten()
-                .chain(
-                    self.yield_expressions_of(block, declaration)
-                        .into_iter()
-                        .filter_map(|(_, _, expression)| expression),
-                )
-                .collect(),
-            None => Vec::new(),
+        let parameters: Vec<_> = parts
+            .parameters
+            .iter()
+            .copied()
+            .filter(|parameter| !Self::is_this_parameter_declaration(parameter))
+            .collect();
+        if !self.is_context_sensitive_function_like(declaration)
+            && (!parts.type_parameters.is_empty()
+                || contextual.parameters.len() <= parameters.len())
+        {
+            return Vec::new();
         }
+        let mut pairs = Vec::new();
+        for (index, parameter) in parameters
+            .iter()
+            .enumerate()
+            .take_while(|(_, parameter)| parameter.dot_dot_dot_token.is_none())
+        {
+            if let Some(annotation) = parameter.r#type
+                && let Some(target) = self.signature_type_at_position(contextual, index)
+            {
+                let mut source = self.get_type_from_type_node(annotation);
+                if self.strict_null_checks && parameter.question_token.is_some() {
+                    source = self.get_union_type(&[source, self.intrinsics.undefined]);
+                }
+                pairs.push((source, target));
+            }
+        }
+        if let Some(annotation) = parts.return_annotation {
+            pairs.push((self.get_type_from_type_node(annotation), contextual.r#type));
+        }
+        pairs
     }
 
     /// The anyFunctionType wildcard from Checker construction (checker.go),
@@ -479,11 +498,27 @@ impl<'a> Checker<'a, '_> {
                         readonly,
                         r#type: ty,
                     };
-                    let member = crate::objects::Member::Property {
-                        name: name.text.to_string(),
-                        optional: false,
-                        readonly,
-                        printed,
+                    let signature = if method {
+                        self.call_signatures_of_type(ty).and_then(|signatures| {
+                            (signatures.len() == 1).then(|| signatures[0].clone())
+                        })
+                    } else {
+                        None
+                    };
+                    let member = if let Some(signature) = signature {
+                        let member_text = crate::objects::signature_member_text(self, &signature);
+                        let printed_name = if name.text == "new" { "\"new\"" } else { name.text };
+                        crate::objects::Member::Method {
+                            name: name.text.to_string(),
+                            printed: format!("{printed_name}{member_text}"),
+                        }
+                    } else {
+                        crate::objects::Member::Property {
+                            name: name.text.to_string(),
+                            optional: false,
+                            readonly,
+                            printed,
+                        }
                     };
                     if let Some(index) = properties.iter().position(|p| p.name == name.text) {
                         properties[index] = property;
@@ -1835,7 +1870,13 @@ impl<'a> Checker<'a, '_> {
             let generator_expression = matches!(
                 self.nodes.kind(declaration),
                 SyntaxKind::FunctionExpression | SyntaxKind::ArrowFunction
-            );
+            ) || (self.nodes.kind(declaration)
+                == SyntaxKind::MethodDeclaration
+                && self.nodes.parent(declaration).is_some_and(|parent| {
+                    self.nodes.kind(parent) == SyntaxKind::ObjectLiteralExpression
+                }));
+            let contextual_generator = generator_expression
+                && !self.declaration_takes_no_contextual_return(declaration, may_return_never);
             // §640: an ASYNC generator mints `AsyncGenerator` from the same
             // three slots — `createGeneratorType(yield, return, next, isAsync)`
             // (`checker.go:20247`). §583 declined `is_async` wholesale; that gate
@@ -2080,7 +2121,7 @@ impl<'a> Checker<'a, '_> {
                         // unannotated `const a` as non-contextual made it WRONG
                         // where it had been a gap. Measured, not reasoned: it
                         // was this refinement's only adverse transition.
-                        if !generator_expression
+                        if !contextual_generator
                             && matches!(
                                 self.nodes.kind(parent),
                                 SyntaxKind::VariableDeclaration | SyntaxKind::PropertyDeclaration
@@ -2101,7 +2142,7 @@ impl<'a> Checker<'a, '_> {
                         // the premise is not assumed here, it is inherited —
                         // `function* g() { return yield yield 0 }` wants
                         // `Generator<any, any, unknown>` (`generatorTypeCheck37`).
-                        if !generator_expression
+                        if !contextual_generator
                             && self.nodes.kind(parent) == SyntaxKind::ReturnStatement
                         {
                             return false;
@@ -2114,7 +2155,7 @@ impl<'a> Checker<'a, '_> {
                         // `` var x = `abc${ yield 10 }def` `` in a generator
                         // wants `Generator<number, void, unknown>`
                         // (`templateStringWithEmbeddedYieldKeywordES6`).
-                        if !generator_expression
+                        if !contextual_generator
                             && self.nodes.kind(parent) == SyntaxKind::TemplateSpan
                         {
                             return self
@@ -2508,27 +2549,19 @@ impl<'a> Checker<'a, '_> {
                     valued.push(awaited);
                 }
             }
-            // `isNeverReturning` (`checker.go:20299`/`:20168`): every return
-            // was a self-call, nothing else aggregates, and the body end is
-            // unreachable — `createPromiseReturnType(fn, neverType)` answers
-            // `Promise<never>` (`simpleRecursionWithBaseCase2`'s rec3). A
-            // reachable end instead reads as an implicit return and falls
-            // into the empty-aggregate `Promise<void>` arm below; an
-            // undecidable end gaps.
-            if valued.is_empty() && !has_bare_return && has_return_of_type_never {
-                let completes = match block {
-                    Some(block) => self.block_completes_normally(block, declaration),
-                    None => Some(false),
-                };
-                match completes {
-                    Some(false) => {
-                        let never = self.intrinsics.never;
-                        let promise = self.global_type_symbol("Promise")?;
-                        return Some(self.create_type_reference(promise, vec![never]));
-                    }
-                    Some(true) => {}
-                    None => return None,
-                }
+            // `checkAndAggregateReturnExpressionTypes`: an empty aggregate
+            // is never-returning only when there is no explicit or implicit
+            // bare return and the function shape permits inference of never.
+            // Consult the bound flow graph without rechecking the body: that
+            // avoids re-entering mutually recursive async signatures.
+            if valued.is_empty()
+                && !has_bare_return
+                && (has_return_of_type_never || may_return_never)
+                && !self.function_has_implicit_return(declaration)
+            {
+                let never = self.intrinsics.never;
+                let promise = self.global_type_symbol("Promise")?;
+                return Some(self.create_type_reference(promise, vec![never]));
             }
             // Under strict, an implicit return appends `undefined` to a
             // non-empty aggregate (`checker.go:20302`), and
@@ -3266,7 +3299,9 @@ impl<'a> Checker<'a, '_> {
     ) -> bool {
         match self.nodes.kind(declaration) {
             SyntaxKind::FunctionDeclaration => true,
-            SyntaxKind::MethodDeclaration => !may_return_never,
+            SyntaxKind::MethodDeclaration => {
+                !may_return_never || self.has_no_contextual_type(declaration)
+            }
             // §169 (`checker-notes-narrow.md`): a function EXPRESSION or
             // ARROW takes no contextual return exactly when §94's predicate
             // can SHOW there is no contextual type at its position — the

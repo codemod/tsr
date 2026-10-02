@@ -607,6 +607,8 @@ impl Checker<'_, '_> {
     /// Homomorphic generic mapped contexts also preserve tuple positions.
     fn array_literal_has_a_tuple_contextual_type(&mut self, id: tsr_ast::NodeId) -> bool {
         let Some(contextual) = self.get_contextual_type(id) else { return false };
+        let contextual = self.instantiate_contextual_inference_type(contextual, id);
+        let contextual = self.apparent_contextual_type(contextual);
         let mut contexts = match &self.store.get(contextual).data {
             crate::types::TypeData::Union { types, .. } => types.clone(),
             _ => vec![contextual],
@@ -706,6 +708,22 @@ impl Checker<'_, '_> {
         self.create_array_literal_type(checked)
     }
 
+    fn check_array_literal_element(
+        &mut self,
+        node: &ArrayLiteralExpression<'_>,
+        element: Expression<'_>,
+    ) -> TypeId {
+        let ty = self.check_expression_for_mutable_location(element);
+        if let Some(id) = element.node_id()
+            && self.live_inference_context(id).is_some()
+            && self.is_context_sensitive_argument(&element)
+            && self.array_literal_in_tuple_context(node)
+        {
+            self.add_intra_expression_inference_site(id, ty);
+        }
+        ty
+    }
+
     fn check_array_literal_value(&mut self, node: &ArrayLiteralExpression<'_>) -> TypeId {
         let error = self.intrinsics.error;
         // `checkArrayLiteral` keeps array-like spread operands as variadic
@@ -727,7 +745,7 @@ impl Checker<'_, '_> {
                     supported = false;
                     break;
                 } else {
-                    (self.check_expression_for_mutable_location(*element), false)
+                    (self.check_array_literal_element(node, *element), false)
                 };
                 if self.is_error(t) {
                     return error;
@@ -843,7 +861,7 @@ impl Checker<'_, '_> {
                         break;
                     }
                     _ => {
-                        let element_type = self.check_expression_for_mutable_location(*element);
+                        let element_type = self.check_array_literal_element(node, *element);
                         if element_type == error {
                             clean = false;
                             break;
@@ -955,7 +973,7 @@ impl Checker<'_, '_> {
                         }
                         Expression::OmittedExpression(_) => return error,
                         _ => {
-                            let element_type = self.check_expression_for_mutable_location(*element);
+                            let element_type = self.check_array_literal_element(node, *element);
                             if element_type == error {
                                 return error;
                             }
@@ -981,7 +999,7 @@ impl Checker<'_, '_> {
                     }
                     Expression::OmittedExpression(_) => return error,
                     _ => {
-                        let element_type = self.check_expression_for_mutable_location(*element);
+                        let element_type = self.check_array_literal_element(node, *element);
                         if element_type == error {
                             return error;
                         }
@@ -1031,7 +1049,7 @@ impl Checker<'_, '_> {
                 elements.push(self.intrinsics.undefined);
                 continue;
             }
-            let element_type = self.check_expression_for_mutable_location(*element);
+            let element_type = self.check_array_literal_element(node, *element);
             // A gap in an element is a gap in the array — the same call made for
             // union constituents, type arguments, object members and array
             // *type* elements.

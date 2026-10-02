@@ -90,6 +90,8 @@ pub(crate) struct InferenceContextSnapshot {
     pub(crate) inferences: Vec<InferenceInfo>,
     pub(crate) return_inferences: Vec<InferenceInfo>,
     pub(crate) flags: InferenceFlags,
+    pub(crate) inferential: bool,
+    pub(crate) intra_expression_sites: Vec<(NodeId, TypeId)>,
 }
 
 /// cloneTypeParameter / instantiateSignatureEx (internal/checker/checker.go).
@@ -276,6 +278,8 @@ impl Checker<'_, '_> {
                     signature: signature.clone(),
                     inferences: Vec::new(),
                     return_inferences: Vec::new(),
+                    inferential: false,
+                    intra_expression_sites: Vec::new(),
                     flags: if self.in_js_file(call) {
                         InferenceFlags::ANY_DEFAULT
                     } else {
@@ -1045,7 +1049,9 @@ impl Checker<'_, '_> {
             let owns_memo = !self.call_inference_signatures.contains_key(&call_id);
             if owns_memo {
                 self.call_inference_signatures.insert(call_id, signature.clone());
-                self.contextual_signature_mappers.remove(&call_id);
+                if !skip_context_sensitive {
+                    self.contextual_signature_mappers.remove(&call_id);
+                }
             }
             // inferTypeArguments first checks the argument with
             // SkipContextSensitive: retain object data while callbacks are
@@ -1100,252 +1106,6 @@ impl Checker<'_, '_> {
                     );
                 }
             }
-            // The consumption rule: serve the pass-1 inferences as the
-            // instantiated contexts for the deferred arguments, marking the
-            // consumed parameters fixed. Parameters whose types still
-            // mention unmapped type parameters serve UNINSTANTIATED (the
-            // SS75 semantics) rather than half-instantiated (the first
-            // reunion's measured 363-G-to-W cause).
-            // SS135 intra-expression harvest (inferFromIntraExpressionSites,
-            // inference.go:1285): a deferred OBJECT LITERAL's
-            // non-context-sensitive property values infer against the
-            // parameter's corresponding property types BEFORE the serve map
-            // builds, so the literal's context-sensitive members see the
-            // committed inferences - callIt's produce fixes T for consume.
-            for &index in &deferred {
-                let Some(parameter_type) = signature.parameters.get(index).map(|p| p.r#type) else {
-                    continue;
-                };
-                // SS138: ARRAY literal elements harvest against tuple
-                // element types - the SS68.2 element road serves the memo's
-                // instantiated tuple, so harvest is the missing half.
-                if let Some(&Expression::ArrayLiteralExpression(array)) = arguments.get(index) {
-                    let elements = self.tuple_element_lists.get(&parameter_type).cloned();
-                    if let Some((element_types, _)) = elements {
-                        for (position, &element) in array.elements.iter().enumerate() {
-                            if self.is_context_sensitive_argument(&element) {
-                                continue;
-                            }
-                            let Some(&element_type) = element_types.get(position) else {
-                                continue;
-                            };
-                            let checked = self.check_expression(element);
-                            self.infer_from_types(
-                                checked,
-                                element_type,
-                                &parameters,
-                                &mut buckets[index],
-                                0,
-                            );
-                        }
-                    }
-                    continue;
-                }
-                let Some(&Expression::ObjectLiteralExpression(literal)) = arguments.get(index)
-                else {
-                    continue;
-                };
-                // inferFromIntraExpressionSites processes the non-contextual
-                // sites before a fixing read. Context-sensitive sites then
-                // contribute in their written order.
-                for contextual_pass in [false, true] {
-                    if contextual_pass && skip_context_sensitive {
-                        continue;
-                    }
-                    for property in literal.properties {
-                        let (property_name, value, method) = match property {
-                            tsr_ast::ObjectLiteralElementLike::PropertyAssignment(assignment) => {
-                                let Some(value) = assignment.initializer else { continue };
-                                (assignment.name, Some(value), None)
-                            }
-                            tsr_ast::ObjectLiteralElementLike::MethodDeclaration(method) => {
-                                (method.name, None, Some(method))
-                            }
-                            _ => continue,
-                        };
-                        let contextual_site = value.as_ref().map_or_else(
-                            || {
-                                method.is_some_and(|method| {
-                                    method.node_id.is_some_and(|id| {
-                                        self.is_context_sensitive_function_like(id)
-                                    })
-                                })
-                            },
-                            |argument| self.is_context_sensitive_argument(argument),
-                        );
-                        if contextual_site != contextual_pass {
-                            continue;
-                        }
-                        let site_id = value
-                            .and_then(|value| value.node_id())
-                            .or_else(|| method.and_then(|method| method.node_id));
-                        let name = match property_name {
-                            tsr_ast::PropertyName::Identifier(name) => name.text,
-                            tsr_ast::PropertyName::StringLiteral(name) => name.text,
-                            _ => continue,
-                        };
-                        let Some(property_symbol) = self.get_property_of_type(parameter_type, name)
-                        else {
-                            continue;
-                        };
-                        let property_type = self.get_type_of_symbol(property_symbol);
-                        // SS141: a REFERENCE parameter's member carries the
-                        // target's own type parameters - instantiate through the
-                        // reference so inference sees the call's parameters.
-                        let property_type = {
-                            let image =
-                                self.instantiate_for_reference(parameter_type, property_type);
-                            if image == error { property_type } else { image }
-                        };
-                        // Context-sensitive methods and property values use
-                        // the same intra-expression mapper before their return
-                        // types contribute to the following member's context.
-                        if contextual_site && let Some(literal_id) = literal.node_id {
-                            let so_far: Vec<(TypeId, TypeId)> = {
-                                let mut merged: Vec<InferenceInfo> = Vec::new();
-                                for bucket in &buckets {
-                                    for info in bucket {
-                                        merge_info(&mut merged, info);
-                                    }
-                                }
-                                // InferenceTypeMapper.Map fixes a candidate at
-                                // the first contextual read, before checking the
-                                // body of this site or any following member.
-                                if let Some(site_id) = site_id {
-                                    let previous =
-                                        self.intra_expression_member_maps.remove(&literal_id);
-                                    let functions = value.map_or_else(
-                                        || vec![site_id],
-                                        |value| self.context_sensitive_functions(value),
-                                    );
-                                    let mut consumed = Vec::new();
-                                    for function in functions {
-                                        if let Some(contextual) =
-                                            self.contextual_signature(function)
-                                        {
-                                            consumed.extend(
-                                                self.consumed_contextual_parameter_types(
-                                                    function,
-                                                    &contextual,
-                                                ),
-                                            );
-                                        }
-                                    }
-                                    if let Some(previous) = previous {
-                                        self.intra_expression_member_maps
-                                            .insert(literal_id, previous);
-                                    }
-                                    if !consumed.is_empty() {
-                                        // A fixing read also fixes an inference
-                                        // with no candidates to its fallback.
-                                        for (position, &parameter) in parameters.iter().enumerate()
-                                        {
-                                            if !merged
-                                                .iter()
-                                                .any(|info| info.type_parameter == parameter)
-                                                && consumed.iter().any(|&ty| {
-                                                    self.mentions_type_parameter(
-                                                        ty,
-                                                        &[parameter],
-                                                        &[names[position]],
-                                                    )
-                                                })
-                                            {
-                                                merged.push(InferenceInfo {
-                                                    type_parameter: parameter,
-                                                    priority: InferencePriority::MAX_VALUE,
-                                                    implied_arity: None,
-                                                    candidates: Vec::new(),
-                                                    contra_candidates: Vec::new(),
-                                                    fixed_type: None,
-                                                    is_fixed: true,
-                                                    top_level: true,
-                                                });
-                                            }
-                                        }
-                                        for info in &mut merged {
-                                            let Some(position) = parameters
-                                                .iter()
-                                                .position(|&p| p == info.type_parameter)
-                                            else {
-                                                continue;
-                                            };
-                                            if consumed.iter().any(|&t| {
-                                                self.mentions_type_parameter(
-                                                    t,
-                                                    &[info.type_parameter],
-                                                    &[names[position]],
-                                                )
-                                            }) {
-                                                info.is_fixed = true;
-                                            }
-                                        }
-                                    }
-                                }
-                                // The non-fixing mapper still resolves every read
-                                // through getInferredType. Missing candidates use
-                                // their fallback, then remain open for later sites.
-                                let flags = if self.in_js_file(call_id) {
-                                    InferenceFlags::ANY_DEFAULT
-                                } else {
-                                    InferenceFlags::NONE
-                                };
-                                let Some(map) = self.resolved_inference_map(
-                                    &merged,
-                                    signature,
-                                    &parameters,
-                                    flags,
-                                ) else {
-                                    return decline;
-                                };
-                                for info in merged.iter_mut().filter(|info| info.is_fixed) {
-                                    info.fixed_type = map
-                                        .iter()
-                                        .find(|(tp, _)| *tp == info.type_parameter)
-                                        .map(|(_, image)| *image);
-                                    for bucket in &mut buckets {
-                                        if let Some(existing) = bucket.iter_mut().find(|existing| {
-                                            existing.type_parameter == info.type_parameter
-                                        }) {
-                                            existing.is_fixed = true;
-                                            existing.fixed_type = info.fixed_type;
-                                        }
-                                    }
-                                    if !buckets[index].iter().any(|existing| {
-                                        existing.type_parameter == info.type_parameter
-                                    }) {
-                                        buckets[index].push(info.clone());
-                                    }
-                                }
-                                map
-                            };
-                            self.intra_expression_member_maps.insert(
-                                literal_id,
-                                (
-                                    so_far,
-                                    parameters.clone(),
-                                    names.iter().map(ToString::to_string).collect(),
-                                ),
-                            );
-                            if let Some(value_id) = site_id {
-                                self.evict_subtree(value_id);
-                            }
-                        }
-                        let checked = match (value, site_id) {
-                            (Some(value), _) => self.check_expression(value),
-                            (None, Some(method)) => self.get_type_of_function_expression(method),
-                            _ => continue,
-                        };
-                        self.infer_from_types(
-                            checked,
-                            property_type,
-                            &parameters,
-                            &mut buckets[index],
-                            0,
-                        );
-                    }
-                }
-            }
             for bucket in buckets.drain(..) {
                 for info in bucket {
                     merge_info(&mut infos, &info);
@@ -1355,240 +1115,29 @@ impl Checker<'_, '_> {
                 context.inferences.clone_from(&infos);
             }
             if !skip_context_sensitive {
-                let Some(mut partial) = self.inference_map(&infos, signature, &parameters) else {
-                    return decline;
-                };
-                // argument-partial OVER returnMapper: mapper entries fill only
-                // parameters the arguments left empty.
-                let Some(return_map) = self.inference_map(&return_mapper, signature, &parameters)
-                else {
-                    return decline;
-                };
-                for entry in return_map {
-                    if !partial.iter().any(|&(tp, _)| tp == entry.0) {
-                        partial.push(entry);
-                    }
-                }
                 let flags = if self.in_js_file(call_id) {
                     InferenceFlags::ANY_DEFAULT
                 } else {
                     InferenceFlags::NONE
                 };
-                let candidates = partial.clone();
-                let mut fallback_map = partial.clone();
-                for (position, &type_parameter) in parameters.iter().enumerate() {
-                    if !partial.iter().any(|&(tp, _)| tp == type_parameter)
-                        && signature.type_parameters[position]
-                            .default
-                            .or(signature.type_parameters[position].constraint)
-                            .is_some()
-                    {
-                        let fallback = self.resolve_inference_with_constraints(
-                            (signature, &infos),
-                            position,
-                            &parameters,
-                            &candidates,
-                            &mut fallback_map,
-                            flags,
-                        );
-                        if fallback == error {
-                            return decline;
-                        }
-                        partial.push((type_parameter, fallback));
-                    }
+                if owns_memo && (!inferred_type_parameters.is_empty() || !return_mapper.is_empty())
+                {
+                    self.higher_order_context_calls.insert(call_id);
                 }
-                // The FIXING mapper's final leg (`getInferredType`,
-                // `inference.go:1317`, same fallback as the resolution loop's
-                // no-candidate arm below): a parameter no argument or constraint
-                // reached fixes to `unknown` at serve time. This supersedes the
-                // SS75 uninstantiated-serve — the map is now TOTAL, so contexts
-                // always serve instantiated; `someGenerics6(n => n, ...)` is the
-                // head case (upstream: `(n: unknown) => unknown`; the ladder
-                // test's third flip).
-                // §134 returnMapper guard, same as arm (a)'s: a call in
-                // contextual position keeps its unfixed parameters (upstream's
-                // returnMapper is a live source there); only a
-                // statement-position call fills to `unknown`.
-                // §134 refined per-parameter: the returnMapper sources only
-                // parameters that APPEAR in the return type, so a contextual
-                // call protects exactly those; everything else fixes
-                // (contextualTypingTwoInstancesOfSameTypeParameter's giveback
-                // found the coarse call-level guard wrong by 4).
-                let contextual_call = self.get_contextual_type_of_call(call_id).is_some();
-                let mut filled = false;
-                for (position, &type_parameter) in parameters.iter().enumerate() {
-                    if partial.iter().any(|&(tp, _)| tp == type_parameter) {
-                        continue;
-                    }
-                    if contextual_call
-                        && self.mentions_type_parameter(
-                            returned,
-                            &[type_parameter],
-                            &[names[position]],
-                        )
-                    {
-                        continue;
-                    }
-                    partial.push((type_parameter, self.intrinsics.unknown));
-                    filled = true;
-                }
-                // Totality, not fill-count, is what licenses the unconditional
-                // serve below.
-                let filled = filled
-                    && parameters
-                        .iter()
-                        .all(|&type_parameter| partial.iter().any(|&(tp, _)| tp == type_parameter));
-                // InferenceTypeMapper.Map fixes a parameter when a contextual
-                // signature actually reads it, then calls getInferredType. Probe
-                // those signatures against the uninstantiated serving memo so the
-                // parameter identities survive the contextual property lookup.
                 if owns_memo {
-                    // Probe the raw parameter identities, before the intra-expression
-                    // substitution maps the object members to their inferred types.
-                    let mut member_maps = Vec::new();
                     for &index in &deferred {
                         if let Some(Expression::ObjectLiteralExpression(literal)) =
                             arguments.get(index)
                             && let Some(id) = literal.node_id
-                            && let Some(map) = self.intra_expression_member_maps.remove(&id)
                         {
-                            member_maps.push((id, map));
-                        }
-                    }
-                    let mut consumed_types = Vec::new();
-                    for &index in &deferred {
-                        for function in self.context_sensitive_functions(arguments[index]) {
-                            if let Some(contextual) = self.contextual_signature(function) {
-                                consumed_types.extend(
-                                    self.consumed_contextual_parameter_types(function, &contextual),
-                                );
-                            }
-                        }
-                    }
-                    self.intra_expression_member_maps.extend(member_maps);
-                    self.call_inference_signatures.remove(&call_id);
-                    for (position, &type_parameter) in parameters.iter().enumerate() {
-                        if !consumed_types.iter().any(|&contextual| {
-                            self.mentions_type_parameter(
-                                contextual,
-                                &[type_parameter],
-                                &[names[position]],
-                            )
-                        }) {
-                            continue;
-                        }
-                        let Some(info_index) =
-                            infos.iter().position(|info| info.type_parameter == type_parameter)
-                        else {
-                            infos.push(InferenceInfo {
-                                type_parameter,
-                                priority: InferencePriority::MAX_VALUE,
-                                implied_arity: None,
-                                candidates: Vec::new(),
-                                contra_candidates: Vec::new(),
-                                fixed_type: partial
-                                    .iter()
-                                    .find(|(tp, _)| *tp == type_parameter)
-                                    .map(|(_, image)| *image),
-                                is_fixed: true,
-                                top_level: true,
-                            });
-                            continue;
-                        };
-                        infos[info_index].is_fixed = true;
-                        let info = &infos[info_index];
-                        if !info.has_candidates() && info.fixed_type.is_none() {
-                            infos[info_index].fixed_type = partial
-                                .iter()
-                                .find(|(tp, _)| *tp == type_parameter)
-                                .map(|(_, image)| *image);
-                            continue;
-                        }
-                        let Some(inferred) =
-                            self.inferred_type_from_info(info, signature, position, &infos)
-                        else {
-                            return decline;
-                        };
-                        partial.retain(|&(parameter, _)| parameter != type_parameter);
-                        partial.push((type_parameter, inferred));
-                        infos[info_index].fixed_type = Some(inferred);
-                    }
-                }
-                let mut memo = signature.clone();
-                for parameter in &mut memo.parameters {
-                    // Key remapping does not participate in reverse inference;
-                    // its served keys use candidates from preceding arguments.
-                    let image = if self
-                        .mapped_types
-                        .get(&parameter.r#type)
-                        .is_some_and(|info| info.name_type.is_some())
-                    {
-                        self.instantiate_type(parameter.r#type, &partial, &parameters, &names)
-                    } else {
-                        self.instantiate_instantiable_types(
-                            parameter.r#type,
-                            &partial,
-                            &parameters,
-                            &names,
-                        )
-                    };
-
-                    // With the fill the map is TOTAL and the image always
-                    // serves; without it (contextual-position call) the SS75
-                    // mentions guard returns — a half-instantiated context was
-                    // the first reunion's measured 363-G-to-W cause.
-                    if image != error
-                        && (filled || !self.mentions_type_parameter(image, &parameters, &names))
-                    {
-                        parameter.r#type = image;
-                    }
-                }
-                if owns_memo {
-                    self.call_inference_signatures.insert(call_id, memo);
-                    // Contextual return inference can leave an outer variable
-                    // unfixed. A missing image retains that identity; it is not
-                    // an unsuccessful type computation.
-                    let mut contextual_map = partial.clone();
-                    for &parameter in &parameters {
-                        if !contextual_map.iter().any(|&(source, _)| source == parameter) {
-                            contextual_map.push((parameter, parameter));
-                        }
-                    }
-                    self.contextual_signature_mappers.insert(
-                        call_id,
-                        (
-                            contextual_map,
-                            parameters.clone(),
-                            names.iter().map(ToString::to_string).collect(),
-                        ),
-                    );
-                    if !inferred_type_parameters.is_empty() || !return_mapper.is_empty() {
-                        self.higher_order_context_calls.insert(call_id);
-                    }
-                }
-                // SS135: member-map registration for deferred literal arguments.
-                let mut registered_literals: Vec<tsr_ast::NodeId> = Vec::new();
-                if owns_memo {
-                    for &index in &deferred {
-                        if let Some(&Expression::ObjectLiteralExpression(literal)) =
-                            arguments.get(index)
-                            && let Some(literal_id) = literal.node_id
-                        {
-                            self.intra_expression_member_maps.insert(
-                                literal_id,
-                                (
-                                    partial.clone(),
-                                    parameters.clone(),
-                                    names.iter().map(ToString::to_string).collect(),
-                                ),
-                            );
-                            registered_literals.push(literal_id);
+                            self.intra_expression_member_maps.remove(&id);
                         }
                     }
                 }
                 for &index in &deferred {
                     if let Some(context) = self.active_inference_contexts.get_mut(&call_id) {
                         context.inferences.clone_from(&infos);
+                        context.inferential = owns_memo;
                     }
                     // SS135: the argument may have been checked EAGERLY during
                     // overload selection (calls.rs) with no memo present - the
@@ -1599,6 +1148,11 @@ impl Checker<'_, '_> {
                         self.evict_subtree(id);
                     }
                     let checked = self.check_expression(arguments[index]);
+                    if let Some(context) = self.active_inference_contexts.get_mut(&call_id) {
+                        infos.clone_from(&context.inferences);
+                        context.inferential = false;
+                        context.intra_expression_sites.clear();
+                    }
 
                     if let Some(slot) = argument_types.get_mut(index) {
                         *slot = checked;
@@ -1616,12 +1170,15 @@ impl Checker<'_, '_> {
                 if owns_memo {
                     self.call_inference_signatures.remove(&call_id);
                     self.higher_order_context_calls.remove(&call_id);
-                    // The member maps PERSIST - member reads are LAZY (the
-                    // walker asks for property/parameter types long after this
-                    // call resolved), and upstream's answer is stable because
-                    // the resolved signature's mapper never expires. A window
-                    // here measured ZERO: every read arrived after removal.
-                    let _ = registered_literals;
+                    let Some(map) =
+                        self.resolved_inference_map(&infos, signature, &parameters, flags)
+                    else {
+                        return decline;
+                    };
+                    self.contextual_signature_mappers.insert(
+                        call_id,
+                        (map, parameters.clone(), names.iter().map(ToString::to_string).collect()),
+                    );
                 }
             } else if owns_memo {
                 self.call_inference_signatures.remove(&call_id);
@@ -1750,13 +1307,22 @@ impl Checker<'_, '_> {
         }
         // inferSignatureInstantiationForOverloadFailure uses a fresh inference
         // context with SkipContextSensitive. A definite applicability failure
-        // therefore discards the fixing caused by callbacks in the normal pass.
+        // discards provisional inference from the normal pass. Already assigned
+        // callback parameter types retain their fixed mapper entries.
         // Unknown relations cannot establish this error-recovery path.
         if !skip_context_sensitive
             && (arguments.iter().any(|argument| self.is_context_sensitive_argument(argument))
                 || argument_types.iter().any(|argument| self.signature_types.get(argument).is_some_and(|signatures| matches!(signatures.as_slice(), [signature] if !signature.type_parameters.is_empty()))))
         {
-            let failed =
+            let arity_failed = if spread { false } else {
+                let mut effective = signature.clone();
+                for parameter in &mut effective.parameters {
+                    parameter.r#type = self.instantiate_type(parameter.r#type, &map, &parameters, &names);
+                }
+                arguments.len() < self.signature_min_argument_count(&effective)
+                    || (!self.signature_has_effective_rest(&effective) && arguments.len() > self.signature_parameter_count(&effective))
+            };
+            let failed = arity_failed ||
                 argument_types.iter().zip(signature.parameters.iter().take_while(|p| !p.rest)).any(|(&argument, parameter)| {
                     let image = self.instantiate_type(parameter.r#type, &map, &parameters, &names);
                     argument != error
@@ -1764,6 +1330,13 @@ impl Checker<'_, '_> {
                         && self.generic_argument_is_inapplicable(argument, image)
                 });
             if failed {
+                if let Some(call) = call {
+                    let fixed_map = parameters.iter().map(|&parameter| {
+                        let fixed = infos.iter().find(|info| info.type_parameter == parameter && info.is_fixed).and_then(|info| info.fixed_type);
+                        (parameter, fixed.unwrap_or(parameter))
+                    }).collect();
+                    self.contextual_signature_mappers.insert(call, (fixed_map, parameters.clone(), names.iter().map(ToString::to_string).collect()));
+                }
                 return self.check_generic_call_with_mode(
                     signature,
                     call,
@@ -2214,6 +1787,145 @@ impl Checker<'_, '_> {
         self.instantiate_type(t, &map, &parameters, &names)
     }
 
+    /// getInferenceContext searches the active contextual argument chain.
+    pub(crate) fn live_inference_context(&self, node: NodeId) -> Option<NodeId> {
+        let mut parent = self.nodes.parent(node);
+        while let Some(node) = parent {
+            if let Some(context) = self.active_inference_contexts.get(&node) {
+                return context.inferential.then_some(node);
+            }
+            parent = self.nodes.parent(node);
+        }
+        None
+    }
+
+    /// addIntraExpressionInferenceSite records a completed context-sensitive
+    /// member, never a callback whose body has not been checked yet.
+    pub(crate) fn add_intra_expression_inference_site(&mut self, node: NodeId, ty: TypeId) {
+        if let Some(call) = self.live_inference_context(node)
+            && let Some(context) = self.active_inference_contexts.get_mut(&call)
+        {
+            context.intra_expression_sites.push((node, ty));
+        }
+    }
+
+    pub(crate) fn infer_contextual_annotations(&mut self, node: NodeId, signature: &Signature) {
+        let Some(call) = self.live_inference_context(node) else { return };
+        let pairs = self.contextual_annotation_inferences(node, signature);
+        if pairs.is_empty() {
+            return;
+        }
+        let Some(mut context) = self.active_inference_contexts.get(&call).cloned() else { return };
+        let Some(parameters) = self.type_parameter_types(&context.signature) else { return };
+        for (source, target) in pairs {
+            self.infer_from_types(source, target, &parameters, &mut context.inferences, 0);
+        }
+        if let Some(current) = self.active_inference_contexts.get_mut(&call) {
+            current.inferences = context.inferences;
+        }
+    }
+
+    /// InferenceTypeMapper.Map consumes completed sites before the first fixing
+    /// read. Non-fixing reads recompute provisional results from current candidates.
+    #[allow(clippy::type_complexity)]
+    pub(crate) fn live_contextual_mapper(
+        &mut self,
+        node: NodeId,
+        consumed: &[TypeId],
+    ) -> Option<(Vec<(TypeId, TypeId)>, Vec<TypeId>, Vec<String>)> {
+        let call = self.live_inference_context(node)?;
+        let mut context = self.active_inference_contexts.get(&call)?.clone();
+        let parameters = self.type_parameter_types(&context.signature)?;
+        let names: Vec<_> =
+            context.signature.type_parameters.iter().map(|p| p.name.clone()).collect();
+        let fixing: Vec<_> = parameters
+            .iter()
+            .enumerate()
+            .filter_map(|(index, &parameter)| {
+                (!context
+                    .inferences
+                    .iter()
+                    .any(|info| info.type_parameter == parameter && info.is_fixed)
+                    && consumed.iter().any(|&ty| {
+                        self.mentions_type_parameter(ty, &[parameter], &[names[index].as_str()])
+                    }))
+                .then_some(parameter)
+            })
+            .collect();
+        if !fixing.is_empty() {
+            let sites = std::mem::take(
+                &mut self.active_inference_contexts.get_mut(&call)?.intra_expression_sites,
+            );
+            for (site, ty) in sites {
+                let previous = self.contextual_prefers_uninstantiated;
+                self.contextual_prefers_uninstantiated = true;
+                let target = match self.node_map.get(site) {
+                    Some(tsr_ast::Node::MethodDeclaration(method)) => {
+                        self.contextual_type_for_object_literal_named_element(site, method.name)
+                    }
+                    _ => self.get_contextual_type(site),
+                };
+                self.contextual_prefers_uninstantiated = previous;
+                if let Some(target) = target {
+                    self.infer_from_types(ty, target, &parameters, &mut context.inferences, 0);
+                }
+            }
+            for parameter in fixing {
+                if let Some(info) =
+                    context.inferences.iter_mut().find(|info| info.type_parameter == parameter)
+                {
+                    info.is_fixed = true;
+                } else {
+                    context.inferences.push(InferenceInfo {
+                        type_parameter: parameter,
+                        priority: InferencePriority::MAX_VALUE,
+                        implied_arity: None,
+                        candidates: Vec::new(),
+                        contra_candidates: Vec::new(),
+                        fixed_type: None,
+                        is_fixed: true,
+                        top_level: true,
+                    });
+                }
+            }
+        }
+        let map = self.resolved_inference_map(
+            &context.inferences,
+            &context.signature,
+            &parameters,
+            context.flags,
+        )?;
+        for info in context.inferences.iter_mut().filter(|info| info.is_fixed) {
+            info.fixed_type = map
+                .iter()
+                .find(|(parameter, _)| *parameter == info.type_parameter)
+                .map(|(_, ty)| *ty);
+        }
+        self.active_inference_contexts.get_mut(&call)?.inferences = context.inferences;
+        Some((map, parameters, names))
+    }
+
+    #[allow(clippy::type_complexity)]
+    pub(crate) fn live_contextual_return_mapper(
+        &mut self,
+        node: NodeId,
+    ) -> Option<(Vec<(TypeId, TypeId)>, Vec<TypeId>, Vec<String>)> {
+        let call = self.live_inference_context(node)?;
+        let context = self.active_inference_contexts.get(&call)?.clone();
+        if context.return_inferences.is_empty() {
+            return None;
+        }
+        let parameters = self.type_parameter_types(&context.signature)?;
+        let names = context.signature.type_parameters.iter().map(|p| p.name.clone()).collect();
+        let map = self.resolved_inference_map(
+            &context.return_inferences,
+            &context.signature,
+            &parameters,
+            context.flags,
+        )?;
+        Some((map, parameters, names))
+    }
+
     /// Native silentNeverType marks an absent inference, distinct from never.
     pub(crate) fn get_silent_never_type(&mut self) -> TypeId {
         if let Some(silent) = self.silent_never_type {
@@ -2273,26 +1985,6 @@ impl Checker<'_, '_> {
             }
         }
         inferred
-    }
-
-    /// Resolve mapper entries through getInferredType rather than flattening
-    /// multiple candidates into substitutions for the same type parameter.
-    fn inference_map(
-        &mut self,
-        infos: &[InferenceInfo],
-        signature: &Signature,
-        parameters: &[TypeId],
-    ) -> Option<Vec<(TypeId, TypeId)>> {
-        let mut map = Vec::new();
-        for (position, &parameter) in parameters.iter().enumerate() {
-            if let Some(info) = infos.iter().find(|info| info.type_parameter == parameter)
-                && (info.has_candidates() || info.fixed_type.is_some())
-            {
-                let image = self.inferred_type_from_info(info, signature, position, infos)?;
-                map.push((parameter, image));
-            }
-        }
-        Some(map)
     }
 
     /// getCovariantInference (internal/checker/inference.go), shared by final

@@ -1534,6 +1534,12 @@ impl Checker<'_, '_> {
                     tsr_ast::Expression::Identifier(identifier),
                 ),
             };
+            if let PropertyValue::Initializer(initializer) = value
+                && self.is_context_sensitive_argument(&initializer)
+                && let Some(id) = initializer.node_id()
+            {
+                self.add_intra_expression_inference_site(id, member_type);
+            }
             // §146 (`checker-notes-narrow.md`): a member whose error is
             // UPSTREAM'S OWN — a bare identifier `resolve_name(VALUE)` finds
             // NOWHERE, the TS2304 form, §144's establishment argument at
@@ -1919,6 +1925,9 @@ impl Checker<'_, '_> {
         };
         if value == self.intrinsics.error {
             return false;
+        }
+        if method && self.is_context_sensitive_function_like(id) {
+            self.add_intra_expression_inference_site(id, value);
         }
         checked_members.push((id, value));
         let (name, printed_name) =
