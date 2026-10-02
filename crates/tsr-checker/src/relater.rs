@@ -713,6 +713,15 @@ impl Relater<'_, '_, '_> {
         if s.intersects(TypeFlags::OBJECT) && self.flag_decidable(target) {
             return Ternary::NotRelated;
         }
+        // In strict mode unknown includes null and undefined, so it cannot
+        // inhabit an object type, including the empty anonymous object.
+        // This also decides an unconstrained parameter's base-constraint check.
+        if self.checker.strict_null_checks
+            && s.contains(TypeFlags::UNKNOWN)
+            && t.intersects(TypeFlags::OBJECT | TypeFlags::NON_PRIMITIVE)
+        {
+            return Ternary::NotRelated;
+        }
         // A concrete object cannot inhabit an arbitrary target parameter.
         // Generic mapped types have a separate target-parameter relation
         // (relater.go:3423), which remains outside this arm.
@@ -1409,14 +1418,19 @@ impl Relater<'_, '_, '_> {
         {
             return Some(true);
         }
-        // Upstream guards this with a `strictSubtypeRelation` exception for a
-        // stale empty anonymous object type (`relater.go:258`). This port has
-        // no object freshness and no `IsEmptyAnonymousObjectType`, so the
-        // exception is a stated divergence rather than an arm: `{}` relates to
-        // `object` under every relation here, which upstream denies only for
-        // `StrictSubtype` on that one shape.
-        if s.intersects(TypeFlags::OBJECT) && t.intersects(TypeFlags::NON_PRIMITIVE) {
+        // The strict-subtype exception for a non-fresh empty anonymous object
+        // is essential when narrowing unknown's empty constituent (relater.go:258).
+        if s.intersects(TypeFlags::NON_PRIMITIVE)
+            && self.checker.is_empty_anonymous_object_type(target)
+        {
             return Some(true);
+        }
+        if s.intersects(TypeFlags::OBJECT) && t.intersects(TypeFlags::NON_PRIMITIVE) {
+            return Some(
+                !(self.relation == Relation::StrictSubtype
+                    && self.checker.is_empty_anonymous_object_type(source)
+                    && !self.checker.fresh_object_literal_types.contains(&source)),
+            );
         }
         // The **assignable-only** arms (`relater.go:261`, `relation ==
         // assignable || relation == comparable`). This gate is the whole

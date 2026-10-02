@@ -362,8 +362,14 @@ impl Checker<'_, '_> {
     /// nullable or `never` refuses.
     pub(crate) fn check_non_null_type(&mut self, id: TypeId) -> TypeId {
         let error = self.intrinsics.error;
-        if self.store.get(id).flags.intersects(crate::flags::TypeFlags::UNKNOWN) {
+        if self.strict_null_checks && self.store.get(id).flags.intersects(TypeFlags::UNKNOWN) {
             return error;
+        }
+        if !self
+            .get_type_facts(id)
+            .intersects(crate::flow::TypeFacts::IS_UNDEFINED | crate::flow::TypeFacts::IS_NULL)
+        {
+            return id;
         }
         let non_nullable = self.get_non_nullable_type(id);
         if non_nullable == id {
@@ -389,14 +395,14 @@ impl Checker<'_, '_> {
             && !original.intersects(crate::flags::TypeFlags::UNKNOWN)
     }
 
-    /// `GetNonNullableType` (`checker.go:18663`): the `NEUndefinedOrNull`
-    /// facts filter, which for the shapes this port builds is the flag test —
-    /// a `null`/`undefined` constituent carries `TypeFlags::NULLABLE` and
-    /// nothing else does.
+    /// `GetNonNullableType` (`checker.go:18663`): adjust non-null facts in
+    /// strict mode, including semantic intersections for type variables.
     pub(crate) fn get_non_nullable_type(&mut self, id: TypeId) -> TypeId {
-        self.filter_type(id, |checker, constituent| {
-            !checker.store.get(constituent).flags.intersects(crate::flags::TypeFlags::NULLABLE)
-        })
+        if self.strict_null_checks {
+            self.get_adjusted_type_with_facts(id, crate::flow::TypeFacts::NE_UNDEFINED_OR_NULL)
+        } else {
+            id
+        }
     }
 
     /// `getOptionalExpressionType` (`checker.go:29064`): a chain **root**

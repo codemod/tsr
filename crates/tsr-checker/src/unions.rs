@@ -435,14 +435,12 @@ impl Checker<'_, '_> {
             let kept: Vec<TypeId> = types.iter().copied().filter(|&t| t != never).collect();
             return self.get_union_type(&kept);
         }
-        // §85's join reduction: a `T & {}`-family mint beside its own BASE is
-        // subsumed by it (upstream's subtype reduction over the real
-        // intersection; the mint is opaque to the general reducer). Without
-        // this every flow join after a type-variable narrowing prints
-        // `T | T & {}` (`unknownControlFlow`, 16 R→W).
-        if !self.non_null_mint_bases.is_empty()
+        // A semantic non-null intersection beside its base is subsumed by it.
+        // This explicit relation covers flow joins while the general subtype
+        // reducer still has capability boundaries (see checker-99-adjusted-facts).
+        if !self.non_null_refinement_bases.is_empty()
             && types.iter().any(|member| {
-                self.non_null_mint_bases.get(member).is_some_and(|(base, _)| types.contains(base))
+                self.non_null_refinement_bases.get(member).is_some_and(|base| types.contains(base))
             })
         {
             let reduced: Vec<TypeId> = types
@@ -450,9 +448,9 @@ impl Checker<'_, '_> {
                 .copied()
                 .filter(|member| {
                     !self
-                        .non_null_mint_bases
+                        .non_null_refinement_bases
                         .get(member)
-                        .is_some_and(|(base, _)| types.contains(base))
+                        .is_some_and(|base| types.contains(base))
                 })
                 .collect();
             return self.get_union_type(&reduced);
@@ -575,6 +573,16 @@ impl Checker<'_, '_> {
         reduce_literals: bool,
     ) -> TypeId {
         let (mut set, includes) = self.add_types_to_union(types);
+
+        if reduce_literals && !self.non_null_refinement_bases.is_empty() {
+            let retained = set.clone();
+            set.retain(|part| {
+                !self
+                    .non_null_refinement_bases
+                    .get(part)
+                    .is_some_and(|base| retained.contains(base))
+            });
+        }
 
         // §53 (`checker-notes-narrow.md`): upstream's denormalised `origin`
         // (`checker.go:25705`) — a union with a NAMED constituent keeps the
@@ -906,6 +914,12 @@ impl Checker<'_, '_> {
         let Some(entries) = self.union_origin.get(&original).cloned() else {
             return self.get_union_type(kept);
         };
+        // filterType retains union origins, but discards an intersection origin
+        // after its normalized union is filtered (checker.go:26568).
+        if entries.len() == 1 && self.store.get(entries[0]).flags.contains(TypeFlags::INTERSECTION)
+        {
+            return self.get_union_type(kept);
+        }
         let mut projected: Vec<TypeId> = Vec::new();
         for entry in entries {
             let members: Vec<TypeId> = match &self.store.get(entry).data {

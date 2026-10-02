@@ -68,16 +68,6 @@ pub struct FlowType {
 
 /// One `getFlowTypeOfReference` invocation's working state
 /// (upstream's `FlowState`, `flow.go`).
-/// §85's refinement lattice for the `T & {}` family.
-#[derive(Clone, Copy, PartialEq)]
-pub(crate) enum NonNullKind {
-    Both,
-    NoUndefined,
-    NoNull,
-    /// §85.1: the TRUTHY spelling, `NonNullable<T>`.
-    NonNull,
-}
-
 struct FlowState {
     /// Element types seen at `ARRAY_MUTATION` nodes while walking an auto-array
     /// reference. §710's `addEvolvingArrayElementType`.
@@ -900,7 +890,14 @@ impl Checker<'_, '_> {
             {
                 let antecedent = self.binder.flow().antecedent(flow)?;
                 let prior = self.get_type_at_flow_node(state, antecedent);
-                let t = self.get_non_nullable_type(prior.t);
+                let t = if self
+                    .get_type_facts(prior.t)
+                    .intersects(TypeFacts::IS_UNDEFINED | TypeFacts::IS_NULL)
+                {
+                    self.get_non_nullable_type(prior.t)
+                } else {
+                    prior.t
+                };
                 return Some(FlowType { t, incomplete: false });
             }
             // `flow.go:255`: the assignment may be to a **left-hand part** of
@@ -1251,6 +1248,18 @@ impl Checker<'_, '_> {
                 }
             }
             return if any_none { None } else { Some(false) };
+        }
+        // isTypeDerivedFrom's empty-object and global Object arms (relater.go:4982).
+        if self.is_empty_anonymous_object_type(candidate) {
+            return Some(flags.intersects(TypeFlags::OBJECT | TypeFlags::NON_PRIMITIVE));
+        }
+        if let TypeData::Named { members: Some(owner), .. } = self.store.get(candidate).data
+            && self.global_type_symbol_with_arity("Object", 0) == Some(owner)
+        {
+            return Some(
+                flags.intersects(TypeFlags::OBJECT | TypeFlags::NON_PRIMITIVE)
+                    && !self.is_empty_anonymous_object_type(t),
+            );
         }
         let owner_of = |checker: &Self, id: TypeId| -> Option<SymbolId> {
             match checker.store.get(id).data {
@@ -2532,6 +2541,16 @@ impl Checker<'_, '_> {
         if !self.has_type_predicate_or_never_return(&signature) {
             return None;
         }
+        if !signature.type_parameters.is_empty() {
+            let mut instantiated = None;
+            self.check_generic_call_with(
+                &signature,
+                Some(call_node),
+                call.arguments,
+                Some(&mut instantiated),
+            );
+            return instantiated;
+        }
         Some(signature)
     }
 
@@ -2981,6 +3000,7 @@ impl Checker<'_, '_> {
         } else {
             self.get_union_type(&types)
         };
+        let result = self.recombine_unknown_type(result);
         let incomplete = first.is_some_and(|f| f.incomplete);
         if std::env::var("TSR_TRACE_LOOP").is_ok() {
             eprintln!(
@@ -3147,6 +3167,7 @@ impl Checker<'_, '_> {
                 _ => joined,
             }
         };
+        let t = self.recombine_unknown_type(t);
         FlowType { t, incomplete: false }
     }
 
@@ -4588,7 +4609,7 @@ impl Checker<'_, '_> {
                     && assume_true
                     && self.optional_chain_contains_reference(state, condition)
                 {
-                    return self.get_type_with_facts(t, TypeFacts::NE_UNDEFINED_OR_NULL);
+                    return self.get_adjusted_type_with_facts(t, TypeFacts::NE_UNDEFINED_OR_NULL);
                 }
                 narrowed
             }
@@ -4602,7 +4623,7 @@ impl Checker<'_, '_> {
             | Node::ElementAccessExpression(_) => {
                 if self.is_matching_reference(state, condition) {
                     let facts = if assume_true { TypeFacts::TRUTHY } else { TypeFacts::FALSY };
-                    return self.get_type_with_facts(t, facts);
+                    return self.get_adjusted_type_with_facts(t, facts);
                 }
                 // §51.4 (`checker-notes-narrow.md`): `if (o?.foo)` — under
                 // strictNullChecks the true branch narrows the chain base
@@ -4612,7 +4633,7 @@ impl Checker<'_, '_> {
                     && assume_true
                     && self.optional_chain_contains_reference(state, condition)
                 {
-                    self.get_type_with_facts(t, TypeFacts::NE_UNDEFINED_OR_NULL)
+                    self.get_adjusted_type_with_facts(t, TypeFacts::NE_UNDEFINED_OR_NULL)
                 } else {
                     t
                 };
@@ -4712,7 +4733,8 @@ impl Checker<'_, '_> {
                             && self.strict_null_checks
                             && self.optional_chain_contains_reference(state, left_id)
                         {
-                            return self.get_type_with_facts(t, TypeFacts::NE_UNDEFINED_OR_NULL);
+                            return self
+                                .get_adjusted_type_with_facts(t, TypeFacts::NE_UNDEFINED_OR_NULL);
                         }
                         return t;
                     }
@@ -5037,7 +5059,8 @@ impl Checker<'_, '_> {
                             && result_not_undefined
                             && self.optional_chain_contains_reference(state, target)
                         {
-                            t = self.get_type_with_facts(t, TypeFacts::NE_UNDEFINED_OR_NULL);
+                            t = self
+                                .get_adjusted_type_with_facts(t, TypeFacts::NE_UNDEFINED_OR_NULL);
                         }
                         // `flow.go:624`-`:629`: the discriminant half, whose
                         // inner narrowing is `narrowTypeByLiteralExpression`
@@ -5103,11 +5126,10 @@ impl Checker<'_, '_> {
                                             !flags.intersects(TypeFlags::ANY_OR_UNKNOWN | nullable)
                                         }));
                                 if remove {
-                                    containment_narrowed =
-                                        Some(self.get_type_with_facts(
-                                            t,
-                                            TypeFacts::NE_UNDEFINED_OR_NULL,
-                                        ));
+                                    containment_narrowed = Some(self.get_adjusted_type_with_facts(
+                                        t,
+                                        TypeFacts::NE_UNDEFINED_OR_NULL,
+                                    ));
                                 }
                             }
                         }
@@ -5267,17 +5289,6 @@ impl Checker<'_, '_> {
     /// separation, and same reason, as the `&&` arm of `binary.rs`
     /// (`docs/architecture/checker-notes-armsplit.md` §3.1).
     ///
-    /// # What is not ported inside the branch that is
-    ///
-    /// Upstream calls `getAdjustedTypeWithFacts` (`checker.go:31159`), which
-    /// wraps `getTypeWithFacts` with two extras: recombining `unknown` into
-    /// `unknownUnionType` first, and mapping surviving constituents through
-    /// `getGlobalNonNullableTypeInstantiation` for the `NEUndefinedOrNull` and
-    /// `Truthy` cases. Both act on `unknown` and on type parameters —
-    /// `NonNullable<T>` — and neither changes the answer for a union of
-    /// concrete constituents, which is what `string | undefined` is. They are
-    /// left out rather than approximated, so those two shapes answer exactly
-    /// as they do today.
     /// `narrowTypeByCallExpression` (`flow.go:444`) reduced to the
     /// identifier-predicate half, plus `narrowTypeByTypePredicate`
     /// (`flow.go:316`) and `getNarrowedType`'s assignability filter with
@@ -5387,18 +5398,8 @@ impl Checker<'_, '_> {
         {
             return t;
         }
-        let Some(callee) = call.expression else { return t };
-        let callee_type = self.check_expression(callee);
-        if callee_type == self.intrinsics.error {
-            return t;
-        }
-        let Some(signature) = self.resolve_call_signature_with_type_arguments(
-            callee_type,
-            Some(call.arguments),
-            !call.type_arguments.is_empty(),
-        ) else {
-            return t;
-        };
+        let Some(call_id) = call.node_id else { return t };
+        let Some(signature) = self.get_effects_signature(call_id, call) else { return t };
         let Some(predicate) = &signature.predicate else { return t };
         // `TypePredicateKindThis || TypePredicateKindIdentifier`.
         if predicate.asserts {
@@ -5420,7 +5421,9 @@ impl Checker<'_, '_> {
             let Some(id) = tsr_ast::Node::from(*argument).node_id() else { return t };
             id
         } else {
-            let Some(callee_id) = callee.node_id() else { return t };
+            let Some(callee_id) = call.expression.and_then(|callee| callee.node_id()) else {
+                return t;
+            };
             let invoked = self.skip_parentheses(callee_id);
             let Some(receiver) = (match self.node_map.get(invoked) {
                 Some(Node::PropertyAccessExpression(access)) => access.expression,
@@ -5463,7 +5466,7 @@ impl Checker<'_, '_> {
                 self.every_type(predicate_type, |checker, part| checker.is_nullable_type(part))
             };
             if strips {
-                t = self.get_type_with_facts(t, TypeFacts::NE_UNDEFINED_OR_NULL);
+                t = self.get_adjusted_type_with_facts(t, TypeFacts::NE_UNDEFINED_OR_NULL);
             }
         }
         // `flow.go:327`: `isFoo(x.kind)` — the discriminant road. §750.
@@ -5696,7 +5699,7 @@ impl Checker<'_, '_> {
             TypeFacts::EQ_UNDEFINED_OR_NULL
         };
         if self.is_matching_reference(state, expr) {
-            return self.get_type_with_facts(t, facts);
+            return self.get_adjusted_type_with_facts(t, facts);
         }
         if let Some(access) = self.get_discriminant_property_access(state, expr, t) {
             return self.narrow_type_by_discriminant(t, access, |checker, prop| {
@@ -7062,7 +7065,8 @@ impl Checker<'_, '_> {
                 let replaced = self.replace_primitives_with_literals(filtered, value_type);
                 // SS151: the chain strip, after the filter.
                 if chain_strips_nullable && self.strict_null_checks {
-                    return self.get_type_with_facts(replaced, TypeFacts::NE_UNDEFINED_OR_NULL);
+                    return self
+                        .get_adjusted_type_with_facts(replaced, TypeFacts::NE_UNDEFINED_OR_NULL);
                 }
                 return replaced;
             }
@@ -7091,7 +7095,7 @@ impl Checker<'_, '_> {
         } else {
             TypeFacts::NE_UNDEFINED
         };
-        self.get_type_with_facts(t, facts)
+        self.get_adjusted_type_with_facts(t, facts)
     }
 
     /// `narrowTypeByInKeyword` (`flow.go:1001`), the known-property half:
@@ -7193,7 +7197,7 @@ impl Checker<'_, '_> {
                 "function" => TypeFacts::TYPEOF_NE_FUNCTION,
                 _ => TypeFacts::TYPEOF_NE_HOST_OBJECT,
             };
-            return self.get_type_with_facts(t, facts);
+            return self.get_adjusted_type_with_facts(t, facts);
         }
         // `narrowTypeByTypeName` (`flow.go:657`), arm for arm.
         match literal {
@@ -7349,136 +7353,131 @@ impl Checker<'_, '_> {
         }
     }
 
-    /// Keep only the constituents of `t` for which every bit of `facts` holds
-    /// (`getTypeWithFacts`, `checker.go:31245`).
+    /// `getTypeWithFacts` (`checker.go:31150`): filter without changing the
+    /// structure of the surviving constituents.
     pub(crate) fn get_type_with_facts(&mut self, t: TypeId, facts: TypeFacts) -> TypeId {
-        // §85 (`checker-notes-narrow.md`): `getAdjustedTypeWithFacts`'
-        // intersection road — a type variable (or `unknown`, or since §813 a
-        // deferred `keyof X` / `X[Y]` mint) under a non-null fact narrows by
-        // INTERSECTION rather than by filtering.
-        //
-        // §814 restores upstream's ORDER. `getAdjustedTypeWithFacts`
-        // (`checker.go:31159`) runs `getTypeWithFacts` FIRST and hands its
-        // result to `removeNullableByIntersection` (`:31179`), which maps over
-        // the *filtered* type's constituents. Folding both into one early
-        // return — as this port did from §85 until §814 — answers the
-        // intersection only when the operand is ALREADY free of its nullable,
-        // so the first narrowing of `T[K] | undefined` produced a bare `T[K]`
-        // and only a second identical guard produced `T[K] & ({} | null)`.
-        // Hence two attempts: once on the operand, once on what the filter left.
-        if let Some(minted) = self.non_null_mint(t, facts) {
-            return minted;
-        }
-        let filtered = self.filter_type(t, |checker, constituent| {
-            checker.get_type_facts(constituent).contains(facts)
-        });
-        // The second attempt is restricted to the DEFERRED mints. Measured on
-        // the stale-base rehearsal of this build: ungated it also reaches type
-        // parameters, gaining 2 (`typeVariableTypeGuards`, `unknownControlFlow`)
-        // and losing 2 (`indexedAccessConstraints:26` wants a bare `T` where the
-        // truthy arm spelled `NonNullable<T>`; `controlFlowGenericTypes:291`
-        // wants `T` where it spelled `T & ({} | null)`) — net zero for two
-        // regressed cases. Widening it to type parameters needs a measurement of
-        // when upstream's `mapType` declines, which is a separate item.
-        if filtered != t && self.deferred_index_mints.contains(&filtered) {
-            if let Some(minted) = self.non_null_mint(filtered, facts) {
-                return minted;
-            }
-        }
-        filtered
+        self.filter_type(t, |checker, constituent| {
+            checker.get_type_facts(constituent).intersects(facts)
+        })
     }
 
-    /// §85's `T & {}`-family mint: the answer `removeNullableByIntersection`
-    /// (`checker.go:31179`) gives for one operand and one fact set, or `None`
-    /// where upstream's filtering road is the right one.
-    ///
-    /// Minted as a **named print** with a per-`(base, spelling)` cache, because
-    /// this port's intersection machinery refuses `{}` as a constituent. The
-    /// base is either a raw type variable, a deferred §813 mint, or a §85 mint
-    /// being *refined* — `T & ({} | null)` under a further `!== null` combines
-    /// to `T & {}` through the `(base, kind)` reverse map.
-    fn non_null_mint(&mut self, t: TypeId, facts: TypeFacts) -> Option<TypeId> {
-        let (base, prior) = match self.non_null_mint_bases.get(&t) {
-            Some(&(base, prior)) => (base, Some(prior)),
-            None => (t, None),
-        };
-        let flags = self.store.get(base).flags;
-        // §813: a DEFERRED `keyof X` / `X[Y]` mint joins the type variables
-        // here. Upstream's `removeNullableByIntersection` (`checker.go:31179`)
-        // gates on the operand's FACTS and on nothing else, so `T[K] | undefined`
-        // narrows to `T[K] & ({} | undefined)` exactly as `T | undefined` does;
-        // this port's `TYPE_PARAMETER | UNKNOWN` test was narrower than upstream,
-        // and the corpus asks for the wider one by name
-        // (`indexedAccessAndNullableNarrowing`).
-        let deferred_mint = self.deferred_index_mints.contains(&base);
-        if self.strict_null_checks
-            && (flags.intersects(TypeFlags::TYPE_PARAMETER | TypeFlags::UNKNOWN) || deferred_mint)
-        {
-            let asked = if facts.contains(TypeFacts::TRUTHY) {
-                // §85.1: TRUTHY spells the UTILITY — `u && u` prints the
-                // second operand `NonNullable<U>`
-                // (`logicalAndOperatorWithTypeParameters`); TYPE PARAMETERS
-                // only — `unknown`'s truthiness stays on the filter road
-                // (`narrowingTruthyObject` measured 15 R→G against it).
-                flags.intersects(TypeFlags::TYPE_PARAMETER).then_some(NonNullKind::NonNull)
-            } else if facts.contains(TypeFacts::NE_UNDEFINED_OR_NULL) {
-                // PROBE: upstream's `getAdjustedTypeWithFacts` maps through
-                // `getGlobalNonNullableTypeInstantiation` for NEUndefinedOrNull
-                // as well as Truthy, so a TYPE PARAMETER should spell the
-                // utility here too, not `T & {}`.
-                if flags.intersects(TypeFlags::TYPE_PARAMETER) {
-                    Some(NonNullKind::NonNull)
-                } else {
-                    Some(NonNullKind::Both)
-                }
-            } else if facts.contains(TypeFacts::NE_UNDEFINED) {
-                Some(NonNullKind::NoUndefined)
-            } else if facts.contains(TypeFacts::NE_NULL) {
-                Some(NonNullKind::NoNull)
+    /// `getAdjustedTypeWithFacts` (`checker.go:31159`): expand unknown, filter,
+    /// then remove nullable values from surviving instantiable constituents.
+    pub(crate) fn get_adjusted_type_with_facts(&mut self, t: TypeId, facts: TypeFacts) -> TypeId {
+        let expanded =
+            if self.strict_null_checks && self.store.get(t).flags.contains(TypeFlags::UNKNOWN) {
+                self.intrinsics.unknown_union
             } else {
-                None
+                t
             };
-            if let Some(asked) = asked {
-                let combined = match (prior, asked) {
-                    (None, kind) => kind,
-                    (Some(NonNullKind::NonNull), _) | (_, NonNullKind::NonNull) => {
-                        NonNullKind::NonNull
-                    }
-                    (Some(NonNullKind::Both), _)
-                    | (_, NonNullKind::Both)
-                    | (Some(NonNullKind::NoUndefined), NonNullKind::NoNull)
-                    | (Some(NonNullKind::NoNull), NonNullKind::NoUndefined) => NonNullKind::Both,
-                    (Some(prior), _) => prior,
+        let reduced = self.get_type_with_facts(expanded, facts);
+        let reduced = self.recombine_unknown_type(reduced);
+        if !self.strict_null_checks {
+            return reduced;
+        }
+        match facts {
+            TypeFacts::NE_UNDEFINED => self.remove_nullable_by_intersection(
+                reduced,
+                TypeFacts::EQ_UNDEFINED,
+                TypeFacts::EQ_NULL,
+                TypeFacts::IS_NULL,
+                self.intrinsics.null,
+            ),
+            TypeFacts::NE_NULL => self.remove_nullable_by_intersection(
+                reduced,
+                TypeFacts::EQ_NULL,
+                TypeFacts::EQ_UNDEFINED,
+                TypeFacts::IS_UNDEFINED,
+                self.intrinsics.undefined,
+            ),
+            TypeFacts::NE_UNDEFINED_OR_NULL | TypeFacts::TRUTHY => {
+                let constituents = match self.store.get(reduced).data.clone() {
+                    crate::types::TypeData::Union { types, .. } => types,
+                    _ => vec![reduced],
                 };
-                if Some(combined) == prior {
-                    return Some(t);
+                let mapped: Vec<_> = constituents
+                    .iter()
+                    .map(|&part| {
+                        if self.get_type_facts(part).intersects(TypeFacts::EQ_UNDEFINED_OR_NULL) {
+                            let result = self.get_global_non_nullable_type_instantiation(part);
+                            self.record_non_null_refinement(result, part);
+                            result
+                        } else {
+                            part
+                        }
+                    })
+                    .collect();
+                if mapped == constituents { reduced } else { self.get_union_type(&mapped) }
+            }
+            _ => reduced,
+        }
+    }
+
+    /// `recombineUnknownType` (`checker.go:31201`): restore unknown after its
+    /// three distinct constituents meet at a flow join or survive filtering.
+    fn recombine_unknown_type(&self, t: TypeId) -> TypeId {
+        if t == self.intrinsics.unknown_union { self.intrinsics.unknown } else { t }
+    }
+
+    /// `removeNullableByIntersection` (`checker.go:31179`). Whether the whole
+    /// union already includes the opposite nullable determines each intersection.
+    fn remove_nullable_by_intersection(
+        &mut self,
+        t: TypeId,
+        target: TypeFacts,
+        other: TypeFacts,
+        includes_other: TypeFacts,
+        other_type: TypeId,
+    ) -> TypeId {
+        let facts = self.get_type_facts(t);
+        if !facts.intersects(target) {
+            return t;
+        }
+        let empty = self.intrinsics.empty_object;
+        let empty_and_other = self.get_union_type(&[empty, other_type]);
+        let constituents = match self.store.get(t).data.clone() {
+            crate::types::TypeData::Union { types, .. } => types,
+            _ => vec![t],
+        };
+        let mapped: Vec<_> = constituents
+            .iter()
+            .map(|&part| {
+                let part_facts = self.get_type_facts(part);
+                if !part_facts.intersects(target) {
+                    return part;
                 }
-                let text = if flags.intersects(TypeFlags::UNKNOWN) {
-                    match combined {
-                        NonNullKind::Both | NonNullKind::NonNull => "{}".to_string(),
-                        NonNullKind::NoUndefined => "{} | null".to_string(),
-                        NonNullKind::NoNull => "{} | undefined".to_string(),
-                    }
-                } else {
-                    let name = crate::printing::type_to_string(self.store.get(base));
-                    match combined {
-                        NonNullKind::NonNull => format!("NonNullable<{name}>"),
-                        NonNullKind::Both => format!("{name} & {{}}"),
-                        NonNullKind::NoUndefined => format!("{name} & ({{}} | null)"),
-                        NonNullKind::NoNull => format!("{name} & ({{}} | undefined)"),
-                    }
-                };
-                let key = (base, text.clone());
-                if let Some(&cached) = self.non_null_type_variables.get(&key) {
-                    return Some(cached);
-                }
-                let minted = self.store.new_named(TypeFlags::OBJECT, text, None);
-                self.non_null_type_variables.insert(key, minted);
-                self.non_null_mint_bases.insert(minted, (base, combined));
-                return Some(minted);
+                let preserve_other =
+                    !facts.intersects(includes_other) && part_facts.intersects(other);
+                let result = self.get_intersection_type(
+                    &[part, if preserve_other { empty_and_other } else { empty }],
+                    None,
+                );
+                self.record_non_null_refinement(result, part);
+                result
+            })
+            .collect();
+        if mapped == constituents { t } else { self.get_union_type(&mapped) }
+    }
+
+    /// Carry semantic subtypes back to their original variable for the port's
+    /// limited union join reduction. Never register a shared primitive result.
+    fn record_non_null_refinement(&mut self, result: TypeId, base: TypeId) {
+        let parts = match self.store.get(result).data.clone() {
+            TypeData::Union { types, .. } => types,
+            _ => vec![result],
+        };
+        if !parts.iter().all(|&part| {
+            matches!(&self.store.get(part).data,
+            TypeData::Intersection { types, .. } if types.contains(&base))
+        }) {
+            return;
+        }
+        let base = self.non_null_refinement_bases.get(&base).map_or(base, |&base| base);
+        for part in parts.into_iter().chain(std::iter::once(result)) {
+            if part != base {
+                self.non_null_refinement_bases.insert(part, base);
             }
         }
-        None
     }
 
     /// Keep the constituents of a union that satisfy `predicate`
@@ -7489,7 +7488,7 @@ impl Checker<'_, '_> {
     pub(crate) fn filter_type(
         &mut self,
         t: TypeId,
-        predicate: impl Fn(&Self, TypeId) -> bool,
+        mut predicate: impl FnMut(&mut Self, TypeId) -> bool,
     ) -> TypeId {
         let constituents: Option<Vec<TypeId>> = match &self.store.get(t).data {
             TypeData::Union { types, .. } => Some(types.clone()),
@@ -7522,12 +7521,27 @@ impl Checker<'_, '_> {
     /// What is knowable about a type without narrowing it
     /// (`getTypeFacts`, `checker.go:30982`).
     ///
-    /// **The default is both bits**, and that is a deliberate safety property
-    /// rather than laziness: a type whose truthiness this port cannot decide
-    /// keeps every constituent, so narrowing leaves the type alone and the
-    /// answer is the one given today. Claiming a type is truthy when it is not
-    /// would delete a constituent and print a plausible wrong type.
-    pub(crate) fn get_type_facts(&self, t: TypeId) -> TypeFacts {
+    /// Instantiable types use their base constraint. Empty anonymous objects
+    /// admit falsy primitives; other objects use the native object facts.
+    /// Unsupported representations retain both truthiness possibilities.
+    pub(crate) fn get_type_facts(&mut self, t: TypeId) -> TypeFacts {
+        let t = if self
+            .store
+            .get(t)
+            .flags
+            .intersects(TypeFlags::INTERSECTION | TypeFlags::INSTANTIABLE)
+            || self.deferred_keyof_operands.contains_key(&t)
+        {
+            self.base_constraint_of_type(t).unwrap_or(self.intrinsics.unknown)
+        } else {
+            t
+        };
+        if self.is_empty_anonymous_object_type(t) {
+            let nullable =
+                TypeFacts::EQ_UNDEFINED | TypeFacts::EQ_NULL | TypeFacts::EQ_UNDEFINED_OR_NULL;
+            let facts = TypeFacts::all() - TypeFacts::IS_UNDEFINED - TypeFacts::IS_NULL;
+            return if self.strict_null_checks { facts - nullable } else { facts };
+        }
         // SS201 `getIntersectionTypeFacts` (checker.go:31118-31134),
         // TRANSCRIBED after SS200's induced version failed:
         //
@@ -7653,6 +7667,7 @@ impl Checker<'_, '_> {
         // wrong answer for [`Checker::check_logical_and`], which asks about the
         // whole left operand. `undefined | null` must report `FALSY` alone.
         if let TypeData::Union { types, .. } = &ty.data {
+            let types = types.clone();
             return types
                 .iter()
                 .fold(TypeFacts::empty(), |facts, &c| facts | self.get_type_facts(c));
@@ -7708,7 +7723,7 @@ impl Checker<'_, '_> {
         //   in this port (the binder deliberately files no `__call`,
         //   `binder.rs:3482`), so `ObjectStrictFacts` is consistent with the
         //   port's own model rather than a guess about upstream's;
-        // - anything else object-flagged keeps every bit.
+        // - remaining object representations use ObjectStrictFacts.
         if flags.intersects(TypeFlags::OBJECT | TypeFlags::NON_PRIMITIVE) {
             let object_strict = TypeFacts::TRUTHY
                 | nullable_never
@@ -7732,11 +7747,8 @@ impl Checker<'_, '_> {
                     let symbol_flags = self.binder.symbols().get(*symbol).flags;
                     if symbol_flags.intersects(SymbolFlags::CLASS) {
                         function_strict
-                    } else if symbol_flags.intersects(SymbolFlags::ENUM | SymbolFlags::VALUE_MODULE)
-                    {
-                        object_strict
                     } else {
-                        both
+                        object_strict
                     }
                 }
                 // A named interface WITH call/construct signatures is
@@ -7751,7 +7763,7 @@ impl Checker<'_, '_> {
                         );
                     if has_call_signature { function_strict } else { object_strict }
                 }
-                _ => both,
+                _ => object_strict,
             };
         }
         // Every arm below is a **non-nullable** type, so each carries

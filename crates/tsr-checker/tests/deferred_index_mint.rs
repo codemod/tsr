@@ -148,25 +148,10 @@ fn the_first_guard_on_a_deferred_access_answers_the_intersection() {
     );
 }
 
-/// The DOUBLE-nullable composition, pinned as it behaves and **not** as a
-/// claim about upstream.
-///
-/// `T[K] | null | undefined` under two guards of opposite kind answers
-/// `T[K] & ({} | undefined)` here. §85's refinement lattice does not combine the
-/// two into `T[K] & {}`, because the first guard's filtered result is the union
-/// `T[K] | null` — not a mint — so §814's second attempt declines and no prior
-/// kind is recorded for the second guard to refine.
-///
-/// **This assertion is a description, not an oracle.** The expectation written
-/// first was `T[K] & {}`, from reading `removeNullableByIntersection`'s lattice,
-/// and it was withdrawn on finding that **the string `X[Y] & {}` does not occur
-/// in any `.types` baseline in the corpus** — so there is no evidence for either
-/// answer and inventing one would be worse than recording the gap. Filed as
-/// §814's residue. If a baseline for this shape ever appears, this test is the
-/// thing to re-derive, and the fix is to carry the prior kind through a filtered
-/// union rather than only through a bare mint.
+/// Native removeNullableByIntersection composes opposite guards on the
+/// semantic indexed-access intersection (checker.go:31179).
 #[test]
-fn the_double_nullable_composition_is_unmeasured_residue() {
+fn opposite_nullable_guards_compose_on_an_indexed_access() {
     assert_eq!(
         type_of_last_expression(
             "function f<T, K extends keyof T>(x: T[K] | null | undefined) {\n\
@@ -175,15 +160,14 @@ fn the_double_nullable_composition_is_unmeasured_residue() {
              x;\n\
              }"
         ),
-        "T[K] & ({} | undefined)"
+        "T[K] & {}"
     );
 }
 
-/// The boundary §814 deliberately did NOT cross: the second attempt is
-/// restricted to deferred mints, so a plain TYPE PARAMETER keeps §85's measured
-/// behaviour. Widening it measured +2 against −2 for two regressed cases.
+/// Native filters the explicit undefined before intersecting the surviving
+/// unconstrained parameter. A non-null constraint is tested separately.
 #[test]
-fn a_plain_type_parameter_keeps_the_eighty_five_road() {
+fn a_plain_type_parameter_is_adjusted_after_nullable_filtering() {
     assert_eq!(
         type_of_last_expression(
             "function f<T>(x: T | undefined) {\n\
@@ -191,7 +175,7 @@ fn a_plain_type_parameter_keeps_the_eighty_five_road() {
              x;\n\
              }"
         ),
-        "T"
+        "T & ({} | null)"
     );
 }
 

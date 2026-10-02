@@ -4292,6 +4292,11 @@ impl<'a> Checker<'a, '_> {
         arguments: Vec<TypeId>,
         display: Option<usize>,
     ) -> TypeId {
+        if arguments.len() == 1
+            && self.global_type_symbol_with_arity("NonNullable", 1) == Some(symbol)
+        {
+            return self.get_global_non_nullable_type_instantiation(arguments[0]);
+        }
         if let Some(mapped) = self.instantiate_string_mapping_alias(symbol, &arguments) {
             self.instantiations.insert((symbol, arguments), mapped);
             return mapped;
@@ -4438,6 +4443,41 @@ impl<'a> Checker<'a, '_> {
             return mapped;
         }
         id
+    }
+
+    /// `getGlobalNonNullableTypeInstantiation` (`checker.go:31207`). Preserve
+    /// the global alias when it names an intersection, retaining its operands
+    /// so subsequent instantiation operates on types rather than printed text.
+    pub(crate) fn get_global_non_nullable_type_instantiation(&mut self, t: TypeId) -> TypeId {
+        // Unresolved names represent error-any with a reusable written node.
+        // Their semantic nullability cannot improve; retain that print carrier.
+        if self.unresolved_types.contains(&t) {
+            return t;
+        }
+        let Some(symbol) = self.global_type_symbol_with_arity("NonNullable", 1) else {
+            return self.get_intersection_type(&[t, self.intrinsics.empty_object], None);
+        };
+        if let Some(&cached) = self.instantiations.get(&(symbol, vec![t])) {
+            return cached;
+        }
+        let Some(evaluated) = self.evaluate_alias_body(symbol, &[t]) else {
+            return self.intrinsics.error;
+        };
+        let result = if let crate::types::TypeData::Intersection { types, .. } =
+            self.store.get(evaluated).data.clone()
+        {
+            let text = self.type_reference_text(symbol, &[t]);
+            let named = self.store.intern_intersection(
+                TypeFlags::INTERSECTION,
+                crate::types::TypeData::Intersection { types, text, symbol: Some(symbol) },
+            );
+            self.type_reference_targets.insert(named, (symbol, vec![t]));
+            named
+        } else {
+            evaluated
+        };
+        self.instantiations.insert((symbol, vec![t]), result);
+        result
     }
 
     /// How an instantiated reference prints: `C<number>`, or `T[]` when the

@@ -579,6 +579,10 @@ impl Checker<'_, '_> {
     /// property table establishes emptiness; missing member data does not.
     pub(crate) fn is_empty_anonymous_object_type(&self, id: TypeId) -> bool {
         self.anonymous_properties.get(&id).is_some_and(|(properties, _)| properties.is_empty())
+            && self.any_function_type != Some(id)
+            && self.signature_types.get(&id).is_none_or(Vec::is_empty)
+            && self.object_literal_index_infos.get(&id).is_none_or(Vec::is_empty)
+            && !self.mapped_types.contains_key(&id)
     }
 }
 

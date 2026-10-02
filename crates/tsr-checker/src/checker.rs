@@ -697,10 +697,8 @@ pub struct Checker<'a, 'n> {
     /// §82: depth cap for aliased-condition inlining — upstream's
     /// `inlineLevel` (`flow.go`), capped at 5.
     pub(crate) alias_inline_level: u8,
-    /// §85: `T & {}`-family mints, keyed (type variable, spelling).
-    pub(crate) non_null_type_variables: FxHashMap<(TypeId, String), TypeId>,
-    /// §85's reverse map: mint → (base type variable, refinement kind).
-    pub(crate) non_null_mint_bases: FxHashMap<TypeId, (TypeId, crate::flow::NonNullKind)>,
+    /// Semantic non-null refinements and their base variables for flow joins.
+    pub(crate) non_null_refinement_bases: FxHashMap<TypeId, TypeId>,
     /// §5 of `checker-notes-nnaccess.md`: an optional-chain link's type **before**
     /// `propagateOptionalTypeMarker` unioned the marker in, keyed by the link's
     /// node.
@@ -1239,7 +1237,10 @@ impl<'a, 'n> Checker<'a, 'n> {
             fresh_object_literal_types: rustc_hash::FxHashSet::default(),
             regular_object_literal_types: FxHashMap::default(),
             object_literal_members: rustc_hash::FxHashMap::default(),
-            anonymous_properties: rustc_hash::FxHashMap::default(),
+            anonymous_properties: rustc_hash::FxHashMap::from_iter([
+                (intrinsics.empty_object, (Vec::new(), true)),
+                (intrinsics.unknown_empty_object, (Vec::new(), true)),
+            ]),
             instantiated_objects: rustc_hash::FxHashMap::default(),
             any_function_type: None,
             non_inferrable_types: rustc_hash::FxHashSet::default(),
@@ -1249,8 +1250,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             jsx_emit: tsr_core::JsxEmit::None,
             exact_optional_property_types: false,
             alias_inline_level: 0,
-            non_null_type_variables: FxHashMap::default(),
-            non_null_mint_bases: FxHashMap::default(),
+            non_null_refinement_bases: FxHashMap::default(),
             pre_optional_marker: FxHashMap::default(),
             jsdoc_entries: FxHashMap::default(),
             jsdoc_hosts: FxHashMap::default(),

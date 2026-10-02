@@ -43,6 +43,13 @@ pub struct Intrinsics {
     pub error: TypeId,
     /// `unknownType` — `checker.go:983`.
     pub unknown: TypeId,
+    /// The empty anonymous object and unknown's distinct empty constituent
+    /// (`checker.go:1021`, `checker.go:1025`).
+    pub empty_object: TypeId,
+    /// The distinct empty constituent of unknown (`checker.go:1025`).
+    pub unknown_empty_object: TypeId,
+    /// The strict unknown expansion (`checker.go:25036`).
+    pub unknown_union: TypeId,
     /// `undefinedType` — `checker.go:984`.
     pub undefined: TypeId,
     /// `undefinedWideningType` — the empty-array element in non-strict mode.
@@ -133,7 +140,18 @@ impl Intrinsics {
         let regular_true = literal(store, true, false);
         let true_type = literal(store, true, true);
         let boolean = crate::unions::create_boolean_type(store, regular_false, regular_true);
+        let empty_object = store.new_named(TypeFlags::OBJECT, "{}".to_string(), None);
+        let unknown_empty_object = store.new_named(TypeFlags::OBJECT, "{}".to_string(), None);
+        let unknown_union = crate::unions::create_union(
+            store,
+            TypeFlags::empty(),
+            vec![undefined, null, unknown_empty_object],
+            None,
+        );
         Self {
+            empty_object,
+            unknown_empty_object,
+            unknown_union,
             any,
             error,
             unknown,

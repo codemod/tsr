@@ -1001,22 +1001,16 @@ fn a_nullish_operand_narrows_by_presence_and_not_by_truth() {
     );
 }
 
-/// §758's other half: `getAdjustedTypeWithFacts` (`checker.go:31159`) maps
-/// surviving constituents through `getGlobalNonNullableTypeInstantiation` for
-/// **`NEUndefinedOrNull` as well as `Truthy`**. §85 had spelled the utility
-/// for `Truthy` only, so a type parameter under a non-null fact printed
-/// `T & {}` where upstream prints `NonNullable<T>`.
-///
-/// Reddened by: restoring `NonNullKind::Both` for a `TYPE_PARAMETER` under
-/// `NE_UNDEFINED_OR_NULL`.
+/// Native getGlobalNonNullableTypeInstantiation falls back to T & {} when
+/// no `NonNullable` alias is declared (checker.go:31207). This harness has no lib.
 #[test]
-fn a_type_parameter_under_a_non_null_fact_spells_the_nonnullable_utility() {
+fn without_a_global_alias_a_non_null_fact_uses_an_intersection() {
     assert_eq!(
         type_of_last_expression(
             "function g<T extends { x: string } | undefined>(obj: T) {\n\
              if (obj != null) { obj; }\n}"
         ),
-        "NonNullable<T>"
+        "T & {}"
     );
 }
 

@@ -278,7 +278,7 @@ impl Checker<'_, '_> {
         {
             return true;
         }
-        if let Some(&(base, _)) = self.non_null_mint_bases.get(&ty) {
+        if let Some(&base) = self.non_null_refinement_bases.get(&ty) {
             return self.context_type_is_generic_inner(base, aliases);
         }
         if let TypeData::Union { types, .. } | TypeData::Intersection { types, .. } =
