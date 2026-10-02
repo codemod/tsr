@@ -319,37 +319,101 @@ impl Checker<'_, '_> {
         if let Some(&(_, target)) = self.string_mapping_types.get(&ty) {
             return self.context_type_is_generic_inner(target, aliases);
         }
-        if let Some((symbol, arguments)) = self.type_reference_targets.get(&ty).cloned()
-            && !aliases.contains(&symbol)
-            && self.binder.symbols().get(symbol).flags.contains(tsr_binder::SymbolFlags::TYPE_ALIAS)
-            && let Some(declaration) =
-                self.binder.symbols().get(symbol).declarations.first().copied()
-            && let Some(tsr_ast::Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration)
-            && let Some(body) = alias.r#type
-        {
-            // Ordinary references such as Array<T> are not generic at the
-            // top level. Aliases inherit the generic flags of their body.
-            let parameters = self.local_type_parameters_of(symbol);
-            let frame = parameters
-                .iter()
-                .zip(arguments)
-                .filter_map(|(parameter, argument)| {
-                    parameter
-                        .node_id
-                        .and_then(|id| self.binder.symbol_of(id))
-                        .map(|symbol| (symbol, argument))
-                })
-                .collect();
-            aliases.push(symbol);
-            self.alias_evaluation_bindings.push(frame);
-            let body_type = self.get_type_from_type_node(body);
-            let result = matches!(body, tsr_ast::TypeNode::ConditionalTypeNode(_))
-                || self.context_type_is_generic_inner(body_type, aliases);
-            self.alias_evaluation_bindings.pop();
-            aliases.pop();
-            return result;
+        if let Some((symbol, arguments)) = self.type_reference_targets.get(&ty).cloned() {
+            return self.alias_reference_is_generic(symbol, arguments, aliases);
         }
         false
+    }
+
+    /// The type-alias arm of [`Self::context_type_is_generic_inner`]: an alias
+    /// reference carries the generic flags of its instantiated body
+    /// (`getTypeFromTypeAliasReference` instantiates the declared type, so
+    /// `getGenericObjectFlags` sees the body). Ordinary references such as
+    /// `Array<T>` are not generic at the top level.
+    ///
+    /// A body that is itself a reference to another alias (`type Baz<T> =
+    /// Foo<T>`) follows that alias with the bound arguments rather than
+    /// evaluating it: the evaluator answers `error` for a deferred conditional
+    /// reached that way, and upstream's `Baz<T>` IS the instantiated `Foo<T>`.
+    fn alias_reference_is_generic(
+        &mut self,
+        symbol: SymbolId,
+        arguments: Vec<TypeId>,
+        aliases: &mut Vec<SymbolId>,
+    ) -> bool {
+        if aliases.contains(&symbol)
+            || !self
+                .binder
+                .symbols()
+                .get(symbol)
+                .flags
+                .contains(tsr_binder::SymbolFlags::TYPE_ALIAS)
+        {
+            return false;
+        }
+        let Some(declaration) = self.binder.symbols().get(symbol).declarations.first().copied()
+        else {
+            return false;
+        };
+        let Some(tsr_ast::Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration)
+        else {
+            return false;
+        };
+        let Some(body) = alias.r#type else { return false };
+        let parameters = self.local_type_parameters_of(symbol);
+        let frame = parameters
+            .iter()
+            .zip(arguments)
+            .filter_map(|(parameter, argument)| {
+                parameter
+                    .node_id
+                    .and_then(|id| self.binder.symbol_of(id))
+                    .map(|symbol| (symbol, argument))
+            })
+            .collect();
+        aliases.push(symbol);
+        self.alias_evaluation_bindings.push(frame);
+        let result = if matches!(body, tsr_ast::TypeNode::ConditionalTypeNode(_)) {
+            true
+        } else {
+            let body_type = self.get_type_from_type_node(body);
+            let referenced_alias = match body {
+                tsr_ast::TypeNode::TypeReferenceNode(reference)
+                    if body_type == self.intrinsics.error =>
+                {
+                    let target = reference.node_id.and_then(|id| {
+                        let tsr_ast::EntityName::Identifier(name) = reference.type_name? else {
+                            return None;
+                        };
+                        self.binder.resolve_name(
+                            self.nodes,
+                            self.node_map,
+                            id,
+                            name.text,
+                            tsr_binder::SymbolFlags::TYPE,
+                        )
+                    });
+                    target.map(|target| {
+                        let arguments: Vec<TypeId> = reference
+                            .type_arguments
+                            .iter()
+                            .map(|argument| self.get_type_from_type_node(*argument))
+                            .collect();
+                        (target, arguments)
+                    })
+                }
+                _ => None,
+            };
+            match referenced_alias {
+                Some((target, arguments)) => {
+                    self.alias_reference_is_generic(target, arguments, aliases)
+                }
+                None => self.context_type_is_generic_inner(body_type, aliases),
+            }
+        };
+        self.alias_evaluation_bindings.pop();
+        aliases.pop();
+        result
     }
 
     fn generic_type_with_union_constraint(&mut self, ty: TypeId) -> bool {

@@ -1258,6 +1258,14 @@ impl<'a> Checker<'a, '_> {
                 if arrow.body.and_then(|b| tsr_ast::Node::from(b).node_id()) == Some(node)
                     && self.nodes.kind(node) != tsr_ast::SyntaxKind::Block =>
             {
+                // `getContextualReturnType` (`checker.go:29665`) reads the
+                // written return annotation before any contextual signature,
+                // for an arrow's concise body exactly as for a `return`
+                // (`checker.go:29358` routes both to the same function).
+                if let Some(annotation) = arrow.r#type {
+                    let contextual = self.get_type_from_type_node(annotation);
+                    return self.contextual_return_expression_slot(parent, contextual, false);
+                }
                 let signature = self.contextual_signature(parent)?;
                 self.contextual_return_expression_slot(parent, signature.r#type, true)
             }

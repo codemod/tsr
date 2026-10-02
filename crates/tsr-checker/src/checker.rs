@@ -163,6 +163,14 @@ pub struct Checker<'a, 'n> {
     /// One members-carrying qualified reference type per (namespace-site
     /// spelling, target symbol) — `checker-notes-narrow.md` §41.
     pub(crate) qualified_reference_types: FxHashMap<(String, SymbolId), TypeId>,
+    /// The GENERIC half of [`Self::qualified_reference_types`], keyed by the
+    /// type-argument identities as well as the printed text. Upstream's
+    /// `createTypeReferenceEx` (`checker.go:25107`) caches instantiations by
+    /// `getTypeListKey(typeArguments)`; two same-spelled but distinct type
+    /// parameters (`Promise.Thenable<R>` under a class `R` and under a method's
+    /// shadowing `R`) are two references. `checker-99-shadowed-names.md`.
+    pub(crate) qualified_generic_reference_types:
+        FxHashMap<(String, SymbolId, Vec<TypeId>), TypeId>,
     /// §926: the WRITTEN spelling of a qualified type reference whose printed
     /// name [`Checker::qualification_free_name`] shortened, keyed by the
     /// reference node.
@@ -1207,6 +1215,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             unique_symbol_nodes: FxHashMap::default(),
             this_type_nodes: FxHashMap::default(),
             qualified_reference_types: FxHashMap::default(),
+            qualified_generic_reference_types: FxHashMap::default(),
             qualified_written_text: FxHashMap::default(),
             assignments_marked: rustc_hash::FxHashSet::default(),
             definitely_assigned: rustc_hash::FxHashSet::default(),
@@ -1693,6 +1702,52 @@ impl<'a, 'n> Checker<'a, 'n> {
         self.signature_types.get(&id)
     }
 
+    /// A declared type parameter's name as the node builder allocates it at a
+    /// print site — `typeParameterToName` (`nodebuilderimpl.go:1404`) under
+    /// `GenerateNamesForShadowedTypeParams`, which the `.types` writer passes
+    /// with the assertion's parent as the enclosing declaration
+    /// (`type_symbol_baseline.go:394`).
+    ///
+    /// The written name is kept unless it is already allocated to a different
+    /// parameter in the enclosing signature renders (the by-text set, modelled
+    /// by [`Checker::render_type_parameter_scope`]) or it resolves at the
+    /// enclosing declaration to a different type parameter
+    /// (`typeParameterShadowsOtherTypeParameterInScope`, `:1396`); then the
+    /// first free `name_n` is used. A parameter already allocated in an
+    /// enclosing render answers that allocation — upstream's by-id cache.
+    /// `docs/architecture/checker-99-shadowed-names.md`.
+    fn type_parameter_name_at(&self, id: TypeId, symbol: SymbolId, reference: NodeId) -> String {
+        let raw = self.type_to_string(id);
+        if let Some((name, _)) =
+            self.render_type_parameter_scope.iter().rev().find(|(_, owner)| *owner == symbol)
+        {
+            return name.clone();
+        }
+        let enclosing = self.nodes.parent(reference).unwrap_or(reference);
+        let taken = |text: &str| {
+            self.render_type_parameter_scope.iter().any(|(name, _)| name == text)
+                || self
+                    .binder
+                    .resolve_name(self.nodes, self.node_map, enclosing, text, SymbolFlags::TYPE)
+                    .is_some_and(|found| {
+                        found != symbol
+                            && self
+                                .binder
+                                .symbols()
+                                .get(found)
+                                .flags
+                                .contains(SymbolFlags::TYPE_PARAMETER)
+                    })
+        };
+        let mut text = raw.clone();
+        let mut suffix = 0usize;
+        while taken(&text) {
+            suffix += 1;
+            text = format!("{raw}_{suffix}");
+        }
+        text
+    }
+
     /// Chain-depth cap for [`Checker::symbol_chain`]. Upstream has none.
     const MAX_SYMBOL_CHAIN: usize = 8;
 
@@ -1749,6 +1804,9 @@ impl<'a, 'n> Checker<'a, 'n> {
     /// §14.
     #[must_use]
     pub fn type_to_string_at(&mut self, id: TypeId, reference: NodeId) -> Option<String> {
+        if let Some(&symbol) = self.type_parameter_symbols.get(&id) {
+            return Some(self.type_parameter_name_at(id, symbol, reference));
+        }
         let module = match &self.store.get(id).data {
             crate::types::TypeData::Anonymous { symbol, .. } => {
                 let symbol = *symbol;
@@ -1833,7 +1891,12 @@ impl<'a, 'n> Checker<'a, 'n> {
                         reference,
                         &mut claimed,
                     );
+                    // Each overload is its own `enterNewScope`: its allocated
+                    // names are visible to its slots and to no sibling.
+                    let scope_depth = self.render_type_parameter_scope.len();
+                    self.push_render_type_parameter_scope(&signature);
                     out.push_str(&self.signature_member_text_at(&signature, reference));
+                    self.render_type_parameter_scope.truncate(scope_depth);
                     out.push_str("; ");
                 }
                 out.push('}');

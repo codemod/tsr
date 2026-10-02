@@ -3546,13 +3546,13 @@ impl<'a> Checker<'a, '_> {
                 arguments.iter().map(|&a| self.type_to_string(a)).collect();
             let name = self.binder.symbols().get(symbol).name.to_string();
             let text = format!("{name}<{}>", printed_arguments.join(", "));
-            let key = (text.clone(), symbol);
-            if let Some(&existing) = self.qualified_reference_types.get(&key) {
+            let key = (text.clone(), symbol, arguments.to_vec());
+            if let Some(&existing) = self.qualified_generic_reference_types.get(&key) {
                 return Some(existing);
             }
             let minted = self.store.new_named(TypeFlags::OBJECT, text, Some(source_owner));
             self.mapped_identity_optionality.insert(minted, (optionality, readonly));
-            self.qualified_reference_types.insert(key, minted);
+            self.qualified_generic_reference_types.insert(key, minted);
             self.type_reference_targets.insert(minted, (symbol, arguments.to_vec()));
             return Some(minted);
         }
@@ -4106,12 +4106,12 @@ impl<'a> Checker<'a, '_> {
         } else {
             format!("{text}<{}>", printed_arguments.join(", "))
         };
-        let key = (text.clone(), symbol);
-        if let Some(&existing) = self.qualified_reference_types.get(&key) {
+        let key = (text.clone(), symbol, arguments.clone());
+        if let Some(&existing) = self.qualified_generic_reference_types.get(&key) {
             return existing;
         }
         let minted = self.store.new_named(TypeFlags::OBJECT, text, Some(symbol));
-        self.qualified_reference_types.insert(key, minted);
+        self.qualified_generic_reference_types.insert(key, minted);
         if !arguments.is_empty() {
             self.type_reference_targets.insert(minted, (symbol, arguments));
         }
@@ -4337,12 +4337,12 @@ impl<'a> Checker<'a, '_> {
                 self.qualified_written_text.insert(id, written_text);
             }
             let text = printed_text;
-            let key = (text.clone(), resolved);
-            if let Some(&existing) = self.qualified_reference_types.get(&key) {
+            let key = (text.clone(), resolved, arguments.clone());
+            if let Some(&existing) = self.qualified_generic_reference_types.get(&key) {
                 return existing;
             }
             let minted = self.store.new_named(TypeFlags::OBJECT, text, Some(resolved));
-            self.qualified_reference_types.insert(key, minted);
+            self.qualified_generic_reference_types.insert(key, minted);
             self.type_reference_targets.insert(minted, (resolved, arguments));
             return minted;
         }
