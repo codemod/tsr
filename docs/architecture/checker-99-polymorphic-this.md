@@ -113,3 +113,32 @@ Main-checkout validation: all 217 release workspace result blocks pass, as do
 release clippy, formatting and 3,320 upstream anchors. The final source is frozen
 for committed verification; failed intermediate runs are retained in the scratch
 logs rather than reported as successful validation.
+
+
+## Committed verification
+
+Isolated code commit 08ea67e3 reproduces the frozen verdict byte-for-byte:
+456,431/478,855 matching assertions (95.32%), 6,950/9,538 complete cases (72.87%).
+This is 41 more assertions and four more complete cases than 270ada6b/0200c432.
+The 99% goal requires 474,067 matches; 17,636 remain. Isolated release workspace
+validation has 217 successful result blocks; release clippy, formatting and all
+3,320 upstream references pass. Fresh depend reports 495 non-gapping roots,
+209 cycles, zero depth caps and 3,500 walked gaps. C3 balances; C1/C4 remain stale
+under tsr-6.29, so this instrument is not a forecast for already-WRONG assertions.
+Logs and full verdict use the /tmp/tsr-99-polythis-verified prefix.
+
+Mutation checks run only in the isolated checkout, after all full checks ended:
+
+- Replacing all three changed production files with 0200c432 while retaining the
+  new tests gives six failures and four passing controls. Object-context, marker,
+  nested-alias, local-symbol and loose-mode receiver paths fail.
+- Keeping a marker in the cycle guard after returning from a union branch fails
+  the shared-marker test: this.x becomes string | number instead of number.
+- Using the apparent receiver for substitution fails the constrained-identity
+  test: the return is Fluent instead of T, and forward() returns Receiver<T>
+  instead of this.
+
+The production files were restored from 08ea67e3. Both checkouts reproduce the
+recorded source hash. Mutation logs use /tmp/tsr-99-polythis-mutation-*.log.
+The restored isolated checkout passes all ten direct regression tests again
+(/tmp/tsr-99-polythis-restored-tests.log).

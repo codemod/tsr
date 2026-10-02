@@ -24,25 +24,27 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-10-02
 
-Measured on **`270ada6b`** in an isolated checkout: **456,390/478,855 assertions
-(95.31%)**, **6,946/9,538 complete cases (72.82%)**. The 99% target requires
-474,067 correct assertions; **17,677 remain**. Denominator and pinned oracle
-unchanged. Aligned verdicts: **474,243 total; 456,390 right; 2,697 gap; 15,156 wrong**.
+Measured on **`08ea67e3`** in an isolated checkout: **456,431/478,855 assertions
+(95.32%)**, **6,950/9,538 complete cases (72.87%)**. The 99% target requires
+474,067 correct assertions; **17,636 remain**. Denominator and pinned oracle
+unchanged. Aligned verdicts: **474,243 total; 456,431 right; 2,697 gap; 15,115 wrong**.
 Binder retains its verified **8,497/8,497 (100%)** result at aab165d8;
 other suites below retain historical measurements.
 
-This unit adds **68 matching assertions and one complete case**, with **zero
-RIGHT losses and zero GAP-to-WRONG** relative to c0da5327/fc4577a9; four
-already-WRONG rows change but remain wrong. [Contextual this assignment](docs/architecture/checker-99-contextual-this.md)
-records the shared contextual signature route, assigned method slots and computed
-name query order. Five added regressions bring contextual_mappers to 14 tests.
+This unit adds **41 matching assertions and four complete cases**, with **zero
+RIGHT losses and zero GAP-to-WRONG** relative to 270ada6b/0200c432; 37
+already-WRONG rows change but remain wrong. [Polymorphic and contextual object
+receivers](docs/architecture/checker-99-polymorphic-this.md) records original
+receiver substitution, object contexts, ThisType markers, alias reductions and
+computed object-name scope. Ten direct regression tests cover these paths.
 The isolated committed verdict matches the frozen candidate byte-for-byte.
-All 216 release workspace result blocks, clippy, formatting and 3,320 upstream
+All 217 release workspace result blocks, clippy, formatting and 3,320 upstream
 anchors pass in both checkouts.
 Fresh depend has 495 non-gapping roots, 209 cycles, zero depth caps and 3,500
 walked gaps; C3 balances while C1/C4 remain stale (tsr-6.29). The full native
-signature-links/context-checked state machine remains incomplete. The 99% goal
-and tsr-8 remain active.
+signature-links/context-checked state machine, context-free literal self types
+and class computed-name query/diagnostic distinction remain incomplete.
+The 99% goal and tsr-8 remain active.
 
 ### Previous whole-suite measurement — historical
 
@@ -1077,6 +1079,7 @@ Per-crate, by what the conformance suites actually assert — not by what exists
 
 | subsystem | state | evidence |
 |---|---|---|
+| polymorphic and contextual object receivers | **original receiver substitution and contextual ThisType lookup** | 08ea67e3: +41 matches, +4 complete cases, zero RIGHT losses or GAP-to-WRONG; ten direct regressions; [evidence](docs/architecture/checker-99-polymorphic-this.md) |
 | contextual this assignment | **shared fixing mapper and retained completed method slots** | 270ada6b: +68 matches, +1 complete case, zero RIGHT losses or GAP-to-WRONG; five added regressions; [evidence](docs/architecture/checker-99-contextual-this.md) |
 | live intra-expression inference | **completed object/tuple sites feed fixing reads** | c0da5327: +274 matches, +21 complete cases, zero RIGHT losses or GAP-to-WRONG; 11 regression tests; [evidence](docs/architecture/checker-99-live-inference.md) |
 | partial inference sources | **method sibling data and deferred array/tuple elements** | 5b72e201: +47 matches, +1 complete case, zero adverse or changed already-WRONG rows; four regression tests; [evidence](docs/architecture/checker-99-partial-inference.md) |
@@ -1256,7 +1259,22 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-### Current priorities at `270ada6b` — 2026-10-02
+### Current priorities at `08ea67e3` — 2026-10-02
+
+Continue toward 99%: 17,636 matching assertions remain. Plain and generic receiver
+substitution now preserves the original constrained receiver; contextual objects
+and ThisType markers share native lookup and precedence. The 37 changed
+already-WRONG rows cluster in recursive conditional types, JS/accessor inference
+and nested generic contexts. Compare native signature-links completion and
+context-free literal self typing next; class computed-name diagnostic containers
+need a separate audit before widening object-name lexical skipping.
+Fresh depend: 495 non-gapping roots, 209 cycles, zero depth caps and 3,500 walked
+gaps. C3 balances; C1/C4 remain stale (tsr-6.29), so these root counts do not
+estimate the conversion available in the 15,115 already-WRONG aligned rows.
+Keep lazy per-variable fixing, const-array/spread check-mode threading and
+recursive/conditional relations on tsr-8's board.
+
+### Previous priorities at `270ada6b` — 2026-10-02
 
 Continue toward 99%: 17,677 matching assertions remain. Contextual this assignment
 now covers ordinary-parameter sensitivity and completed method reads. The four
@@ -4310,6 +4328,18 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+### Polymorphic/contextual receiver drafts at `08ea67e3`
+
+Substituting the apparent constraint instead of the original receiver gained 20
+but lost 91 RIGHT rows; preserving receiver identity and omitting identity mapper
+entries gained 18 with zero losses. Object contexts initially gained 39 but lost
+four; exposing markers inside aliases and instantiating their full arguments left
+one RIGHT loss until intrinsic alias reductions were honored. Making object
+methods opaque gained 41 but lost eight computed-name rows. Object-name lexical
+skipping fixes those; extending it to class names instead lost eight different
+rows and was rejected. Final: **41 gains, zero RIGHT losses or GAP-to-WRONG**.
+[Evidence](docs/architecture/checker-99-polymorphic-this.md).
 
 ### Contextual this drafts at `270ada6b`
 
@@ -11574,3 +11604,5 @@ that were true of a different population than the one they were quoted about.
 | 2026-10-02 | `c0da5327` | **95.29%** | **6,945/9,538** | **Live intra-expression inference: +274 assertions (228 W-to-R, 46 G-to-R), +21 complete cases, zero RIGHT losses or GAP-to-WRONG; 38 changed already-WRONG rows.** Isolated full verdict equals frozen candidate byte-for-byte: 456,322/478,855, 2,697 aligned gaps, 15,224 wrong. Eleven regression tests; all 216 release workspace blocks, clippy, formatting and 3,327 anchors pass in both checkouts. Fresh depend: 498 non-gapping roots, 209 cycles, zero depth caps, 3,503 walked gaps; C3 balances, C1/C4 stale (tsr-6.29). [Evidence](docs/architecture/checker-99-live-inference.md); tsr-8 remains active with 17,745 matches to 99%. |
 
 | 2026-10-02 | `270ada6b` | **95.31%** | **6,946/9,538** | **Contextual this assignment: +68 assertions, +1 complete case, zero RIGHT losses or GAP-to-WRONG; four changed already-WRONG rows.** Isolated full verdict equals frozen candidate byte-for-byte: 456,390/478,855, 2,697 aligned gaps, 15,156 wrong. Five added regressions; all 216 release workspace blocks, clippy, formatting and 3,320 anchors pass in both checkouts. Guard/slot mutations fail their targeted tests; baseline has two failures and twelve passing controls. Fresh depend: 495 non-gapping roots, 209 cycles, zero depth caps, 3,500 walked gaps; C3 balances, C1/C4 stale (tsr-6.29). [Evidence](docs/architecture/checker-99-contextual-this.md); tsr-8 remains active with 17,677 matches to 99%. |
+
+| 2026-10-02 | `08ea67e3` | **95.32%** | **6,950/9,538** | **Polymorphic and contextual object receivers: +41 assertions, +4 complete cases, zero RIGHT losses or GAP-to-WRONG; 37 changed already-WRONG rows.** Isolated full verdict equals frozen candidate byte-for-byte: 456,431/478,855, 2,697 aligned gaps, 15,115 wrong. Ten direct regressions; all 217 release workspace blocks, clippy, formatting and 3,320 anchors pass in both checkouts. Fresh depend: 495 non-gapping roots, 209 cycles, zero depth caps, 3,500 walked gaps; C3 balances, C1/C4 stale (tsr-6.29). [Evidence](docs/architecture/checker-99-polymorphic-this.md); tsr-8 remains active with 17,636 matches to 99%. |

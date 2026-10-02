@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 6946/9538 (72.82%)
-Assertion lines: 456390/478855 (95.31%)  — a gradient, not a pass rate
-Failed         : 2592
+Passed         : 6950/9538 (72.87%)
+Assertion lines: 456431/478855 (95.32%)  — a gradient, not a pass rate
+Failed         : 2588
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -12,7 +12,7 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 2592 failures:
+First 100 of 2588 failures:
 compiler/ClassDeclaration26
   ClassDeclaration26.ts: 5 assertion(s), expected 6
 compiler/abstractClassInLocalScopeIsAbstract
@@ -26,7 +26,7 @@ compiler/accessorBodyInTypeContext
 compiler/accessorDeclarationEmitJs
   /a.js: >v : any — expected >v : string
 compiler/accessorInferredReturnTypeErrorInReturnStatement
-  accessorInferredReturnTypeErrorInReturnStatement.ts: >_this : undefined — expected >_this : { readonly primaryPath: any; }
+  accessorInferredReturnTypeErrorInReturnStatement.ts: >_this : any — expected >_this : { readonly primaryPath: any; }
 compiler/aliasBug
   aliasBug.ts: >booz : any — expected >booz : typeof booz
 compiler/aliasDoesNotDuplicateSignatures
@@ -48,7 +48,7 @@ compiler/aliasUsageInObjectLiteral
 compiler/allowImportClausesToMergeWithTypes
   a.ts: >x : any — expected >x : zzz
 compiler/allowJscheckJsTypeParameterNoCrash
-  app.js: >this.data2 : any — expected >this.data2 : (val: any) => void
+  app.js: >this.data2 : WatchHandler<any> — expected >this.data2 : (val: any) => void
 compiler/allowSyntheticDefaultImports1
   a.ts: >Namespace : any — expected >Namespace : typeof Namespace
 compiler/allowSyntheticDefaultImports4
