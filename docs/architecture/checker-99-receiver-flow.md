@@ -119,3 +119,27 @@ is established by native/binder symbol tracing in addition to that control.
 Main validation passes all 217 release workspace result blocks (including all
 19 contextual_this_objects tests), clippy, formatting and 3,320 upstream anchors.
 The exact source is frozen for isolated committed verification.
+
+## Isolated committed verification
+
+Code commit 2671c87c reproduces the frozen full verdict byte-for-byte:
+456,480/478,855 matching assertions (95.33%), 6,953/9,538 complete cases (72.90%).
+That is 49 more assertions and three more cases than 08ea67e3/3de17368. The target
+of 474,067 correct assertions leaves 17,587 to 99%. The production source hash
+also matches the main checkout. All 217 isolated release workspace result blocks,
+clippy, formatting and 3,320 upstream anchors pass. Fresh depend reports 493
+non-gapping roots, 209 cycles, zero depth caps and 3,494 walked gaps. C3 balances;
+C1/C4 remain stale under tsr-6.29. Logs use the
+/tmp/tsr-99-assigned-this-verified prefix.
+
+## Mutation checks
+
+Replacing the five changed production files with their 3de17368 baseline while
+retaining the new tests produces eight failures and eleven passing controls.
+Two narrower mutations each fail their targeted test: removing bare-this
+truthiness narrowing leaves the present branch possibly undefined; disabling
+the JavaScript JSDoc receiver read selects the assignment receiver instead of
+the explicit annotation. These are assertion failures, not build failures.
+Restoring 2671c87c restores all 19 passing tests and the identical production
+source hash in both checkouts. Logs use the
+/tmp/tsr-99-assigned-this-mutation and -restored-tests prefixes.
