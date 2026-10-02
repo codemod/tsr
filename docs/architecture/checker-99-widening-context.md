@@ -110,3 +110,36 @@ review checks native context construction, source-symbol ordering, literal ident
 optional/readonly metadata, spread exclusion and cache boundaries; it does not claim
 independent or cross-model review. Committed verification and the mutation outcome
 are recorded in the checkpoint evidence after the source commit.
+
+## Committed checkpoint
+
+At bdc82dd5 the isolated checkout passes all three focused tests and reproduces
+the frozen verdict byte-for-byte: 454,946 RIGHT, 2,924 GAP, 16,373 WRONG among
+474,243 aligned rows. Coverage reports 6,822/9,538 complete cases (71.52%), six
+more than the baseline. The all-assertion result is 454,946/478,855 (95.01%);
+19,121 remain to the active 99% target. The checker snapshot is copied from this
+isolated run. A separate build directory prevents reuse of main-checkout binaries.
+
+Checker sources plus trace_case SHA-256:
+4d3cf1b1ab055d901af0bbb7485d38b4c958837dde9c58f90829527fca4ad728
+
+Depend completes with 512 non-gapping roots, 214 cycles, zero depth-cap hits and
+3,776 walked gaps. C3 balances. C1 and the historical C4 checkpoint remain stale
+(tsr-6.29) and are not evidence for the current coverage result.
+
+Evidence:
+- /tmp/tsr-99-widening-verified.tsv
+- /tmp/tsr-99-widening-v4-transitions.txt
+- /tmp/tsr-99-widening-verified-tests.log
+- /tmp/tsr-99-widening-workspace-v5.log
+- /tmp/tsr-99-widening-clippy-v5.log
+- /tmp/tsr-99-widening-anchors.log
+- /tmp/tsr-99-widening-verified-coverage.log
+- /tmp/tsr-99-widening-verified-depend.log
+- /tmp/compound-engineering-501/ce-code-review/widening-context/review.json
+
+The isolated mutation disables only the insertion of missing context properties.
+All three focused tests fail: flat normalization loses optional members, method
+normalization loses sibling members, and exact-optional reads become errors.
+The original committed source is restored byte-for-byte before cleanup. The
+mutation log is /tmp/tsr-99-widening-mutation.log. Main sources are unchanged.
