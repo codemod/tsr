@@ -108,3 +108,39 @@ print individually, and a numeric component in mixed string/number indexes
 appears twice. These are local regression tests, not corpus oracle edits.
 Production-source SHA-256 (checker sources plus trace_case):
 eb76b97e142e1622a946bcc9b1dd65d95b3e168b34013f5c5596336c58e73087.
+
+## Committed checkpoint
+
+Isolated checkout 056e7e87fac0e27599378e0f039d1687a1f2534d reproduces the candidate
+verdict byte-for-byte and has the same source hash. Coverage is 455,405/478,855
+matching assertions (95.10%) and 6,871/9,538 complete cases (72.04%), ten more
+complete cases than the baseline. The snapshot is copied from that checkout.
+18,662 matching assertions remain before 99%.
+
+All 206 release workspace result blocks, clippy and 3,335 upstream references
+pass in the isolated checkout. Main formatting and whitespace checks pass.
+Depend reports 517 non-gapping roots, 214 cycles, zero depth-cap hits and 3,696
+walked gaps. C3 balances; C1/C4 remain stale under tsr-6.29.
+
+Evidence:
+- /tmp/tsr-99-indexes-final-delta.txt
+- /tmp/tsr-99-indexes-verified.tsv
+- /tmp/tsr-99-indexes-verified-coverage.log
+- /tmp/tsr-99-indexes-verified-workspace.log
+- /tmp/tsr-99-indexes-verified-clippy.log
+- /tmp/tsr-99-indexes-verified-anchors.log
+- /tmp/tsr-99-indexes-verified-depend.log
+
+Four isolated mutations fail their intended assertions: omitting ordinary members
+from string-index values fails mixedReadString; disabling visibility fails local;
+reusing the binder method type fails repeatedMethodsRead; disabling keyof-alias
+constraint evaluation fails aliasKey. These are assertion failures, not compile
+errors. Restored sources match the committed hash byte-for-byte, and all five
+focused pipeline tests pass afterward.
+
+Mutation logs: /tmp/tsr-99-indexes-mutation-filter.log,
+/tmp/tsr-99-indexes-mutation-visibility.log,
+/tmp/tsr-99-indexes-mutation-method.log,
+/tmp/tsr-99-indexes-mutation-constraint.log.
+Restored check: /tmp/tsr-99-indexes-restored-tests.log.
+Review receipt: /tmp/compound-engineering-501/ce-code-review/computed-indexes/review.json.
