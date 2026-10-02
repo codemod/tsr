@@ -1,8 +1,9 @@
 //! `{ ...a }` — object spread, and the two properties that are not obvious.
 //!
 //! Ported behaviour is `Checker.getSpreadType` (`checker.go:13387`) reduced to
-//! an object-typed source; `crate::objects::spread_members_of` documents what is
-//! gapped and why. These tests pin the two things a naive implementation gets
+//! an object-typed source; `crate::spreads` documents what is gapped and why
+//! (the former `spread_members_of` enumerator was removed when object rest
+//! moved onto the semantic spread properties, `checker-99-rest-index-infos.md`). These tests pin the two things a naive implementation gets
 //! wrong, and both were chosen because a fixture that merely *works* passes
 //! either way.
 //!

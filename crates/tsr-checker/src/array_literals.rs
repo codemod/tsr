@@ -646,6 +646,9 @@ impl Checker<'_, '_> {
 
     pub(crate) fn check_array_literal(&mut self, node: &ArrayLiteralExpression<'_>) -> TypeId {
         let error = self.intrinsics.error;
+        // `inDestructuringPattern := ast.IsAssignmentTarget(node)`
+        // (`checker.go:8026`): nested targets such as `{ a: [x, ...y] } = o`
+        // count, not only the direct left operand of `=`.
         // §365: the literal that IS the target of a destructuring assignment
         // mints a TUPLE of its element targets' types — upstream's
         // `inDestructuringPattern` exit of `checkArrayLiteral`
@@ -654,10 +657,7 @@ impl Checker<'_, '_> {
         // and omissions need the rest/optional element flags this tuple mint
         // does not carry, so they keep today's road.
         if let Some(id) = node.node_id
-            && let Some(parent) = self.nodes.parent(id)
-            && let Some(tsr_ast::Node::BinaryExpression(binary)) = self.node_map.get(parent)
-            && binary.operator_token.is_some_and(|t| t.kind == tsr_ast::SyntaxKind::EqualsToken)
-            && binary.left.and_then(|l| l.node_id()) == Some(id)
+            && self.assignment_target_kind(id) != crate::expressions::AssignmentTargetKind::None
             && !node.elements.iter().enumerate().any(|(index, element)| {
                 // §431: ONE TRAILING spread WITH leading elements is the rest
                 // element and prints; a rest-only target prints `T[]` through
@@ -689,7 +689,10 @@ impl Checker<'_, '_> {
                     rest = Some(format!("...{}", self.type_to_string(operand_type)));
                     continue;
                 }
-                let element_type = self.check_expression(*element);
+                // `checkArrayLiteral` reads every element through
+                // checkExpressionForMutableLocation, so a defaulted target
+                // `b = 0` contributes `number`, not the fresh `0`.
+                let element_type = self.check_expression_for_mutable_location(*element);
                 if element_type == error {
                     return error;
                 }

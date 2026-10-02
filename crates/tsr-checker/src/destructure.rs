@@ -26,9 +26,11 @@
 //!   in a mutable copy. Other
 //!   iterable parents use an array of the resolved element type. The
 //!   OBJECT half of the original rest refusal (172 lines) LANDED at §319 —
-//!   `getRestType`'s member subtraction over `spread_members_of`; what that
-//!   enumerator refuses (methods, nullables, instantiated references) still
-//!   gaps the rest element;
+//!   `getRestType`'s member subtraction. It now runs over the semantic
+//!   spread properties (`spread_properties`, intersections included), keeps
+//!   the source's index infos, distributes unions and drops nullable
+//!   constituents (`checker-99-rest-index-infos.md`); what that enumerator
+//!   refuses still gaps the rest element;
 //! - **pattern-named defaults**: `padObjectLiteralType`/`padTupleType`
 //!   (`checker.go:16808`). The identifier-named half of the original default
 //!   refusal (224 lines) LANDED at §315, both legs of `checker.go:17781` —
@@ -173,15 +175,28 @@ impl Checker<'_, '_> {
                 // (`checker.go:17743`) is unported — the module doc's named
                 // risk — so the declared slice is the answer.
                 if element.dot_dot_dot_token.is_some() {
+                    // `getBindingElementTypeFromParentType` (`checker.go:17723`):
+                    // an unknown or non-spreadable parent reports TS2700 and
+                    // answers errorType, printed `any`, before `getRestType`.
+                    if self.store.get(parent_type).flags.intersects(TypeFlags::UNKNOWN)
+                        || !self.is_valid_spread_type(parent_type)
+                    {
+                        return self.intrinsics.any;
+                    }
                     return self.object_rest_type(parent_type, pattern_id, declaration);
                 }
                 if let Some(key) = computed_key {
                     if key == error {
                         return error;
                     }
-                    return self
-                        .get_applicable_index_info(parent_type, key)
-                        .map_or(error, |info| info.value);
+                    // AccessFlagsExpressionPosition: noUncheckedIndexedAccess
+                    // adds undefined to an index-signature result
+                    // (`checker.go:26947`, `:27117`).
+                    let Some(info) = self.get_applicable_index_info(parent_type, key) else {
+                        return error;
+                    };
+                    let include = self.no_unchecked_indexed_access;
+                    return self.include_unchecked_undefined(info.value, include, parent_type, key);
                 }
                 let Some((name, numeric)) = Self::binding_element_property_name(element) else {
                     return error;
@@ -894,20 +909,53 @@ impl Checker<'_, '_> {
             let omit_key = self.get_union_type(&keys);
             return self.create_type_reference(omit, vec![parent_type, omit_key]);
         }
-        let Some(members) = self.spread_members_of(parent_type) else {
+        self.concrete_rest_type(parent_type, &bound)
+    }
+
+    /// The non-generic tail of `getRestType` (`checker.go:17792`): nullable
+    /// constituents are filtered, `never` is the empty object, a union maps
+    /// per constituent, and an ordinary source keeps its spreadable properties
+    /// not named by a sibling element (as `getSpreadSymbol(prop, false)`
+    /// copies) together with **all of its index infos**
+    /// (`getIndexInfosOfType(source)`): `const { ...t } = strMap` is
+    /// `{ [s: string]: string; }`.
+    ///
+    /// A generic constituent of a union declines: native would mint an
+    /// `Omit` for it, which the top-level type-parameter branch above
+    /// implements only for a bare source.
+    fn concrete_rest_type(&mut self, source: TypeId, bound: &[String]) -> TypeId {
+        let error = self.intrinsics.error;
+        let source =
+            self.filter_type(source, |c, t| !c.store.get(t).flags.intersects(TypeFlags::NULLABLE));
+        let flags = self.store.get(source).flags;
+        if flags.intersects(TypeFlags::NEVER) {
+            return self.intrinsics.empty_object;
+        }
+        if let TypeData::Union { types, .. } = self.store.get(source).data.clone() {
+            let mut parts = Vec::with_capacity(types.len());
+            for part in types {
+                let rest = self.concrete_rest_type(part, bound);
+                if rest == error {
+                    return error;
+                }
+                parts.push(rest);
+            }
+            return self.get_union_type(&parts);
+        }
+        if flags.intersects(TypeFlags::INSTANTIABLE) {
+            return error;
+        }
+        let Some((properties, _)) = self.spread_properties(source, false) else {
             return error;
         };
-        let remaining: Vec<crate::objects::Member> = members
+        let properties: Vec<_> = properties
             .into_iter()
-            .filter(|member| match member {
-                crate::objects::Member::Property { name, .. } => {
-                    !bound.iter().any(|bound_name| bound_name == name)
-                }
-                _ => true,
-            })
+            .filter(|property| !bound.contains(&property.name))
             .collect();
-        let printed = crate::objects::render_object_type(&remaining);
-        self.store.new_named(TypeFlags::OBJECT, printed, None)
+        let Some(indexes) = self.get_index_infos_of_type(source) else {
+            return error;
+        };
+        self.mint_rest_properties(properties, indexes)
     }
 
     fn binding_element_property_name(
@@ -989,7 +1037,14 @@ impl Checker<'_, '_> {
                 false,
             )
         };
-        self.get_applicable_index_info(parent_type, key)
-            .map_or(self.intrinsics.error, |info| info.value)
+        // The binding element reads at AccessFlagsExpressionPosition, so
+        // noUncheckedIndexedAccess includes undefined in an index-signature
+        // result exactly as an element access read does (`checker.go:26947`,
+        // `getPropertyTypeForIndexType` `:27117`).
+        let Some(info) = self.get_applicable_index_info(parent_type, key) else {
+            return self.intrinsics.error;
+        };
+        let include = self.no_unchecked_indexed_access;
+        self.include_unchecked_undefined(info.value, include, parent_type, key)
     }
 }

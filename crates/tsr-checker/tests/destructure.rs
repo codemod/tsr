@@ -12,6 +12,47 @@ use tsr_ast::{BindingName, Statement};
 use tsr_checker::Checker;
 use tsr_core::Arena;
 
+/// `getBindingElementTypeFromParentType` reads at
+/// `AccessFlagsExpressionPosition`, so `noUncheckedIndexedAccess` adds
+/// `undefined` to an index-signature result but not to a declared property.
+/// `noUncheckedIndexedAccessDestructuring.types`: `>t1 : string | undefined`,
+/// `>x : number`, `>z : number | undefined`.
+#[test]
+fn an_unchecked_index_signature_element_includes_undefined() {
+    let strings = "declare const strMap: { [s: string]: string };\nconst { t1 } = strMap;";
+    assert_eq!(type_of_binding_with(strings, "t1", true), "string | undefined");
+    assert_eq!(type_of_binding_with(strings, "t1", false), "string");
+    let point = "declare const p: { x: number, y: number } & { [s: string]: number };\n\
+                 const { x, z } = p;";
+    assert_eq!(type_of_binding_with(point, "x", true), "number");
+    assert_eq!(type_of_binding_with(point, "z", true), "number | undefined");
+}
+
+/// `getRestType` copies the source's index infos onto the rest object and
+/// reads intersection properties through their combined symbols.
+/// `noUncheckedIndexedAccessDestructuring.types`:
+/// `>t2 : { [s: string]: string; }`, `>q : { [s: string]: number; y: number; }`.
+#[test]
+fn an_object_rest_keeps_index_signatures_and_intersection_members() {
+    let strings = "declare const strMap: { [s: string]: string };\nconst { ...t2 } = strMap;";
+    assert_eq!(type_of_binding(strings, "t2"), "{ [s: string]: string; }");
+    let point = "declare const p: { x: number, y: number } & { [s: string]: number };\n\
+                 const { x, ...q } = p;";
+    assert_eq!(type_of_binding(point, "q"), "{ [s: string]: number; y: number; }");
+}
+
+/// A rest of an `undefined`-only source is not a valid spread: TS2700 and
+/// errorType, printed `any` (`restInvalidArgumentType.types`: `>r14 : any`).
+/// A union rest distributes and drops its nullable constituents.
+#[test]
+fn an_object_rest_validates_and_distributes_its_source() {
+    let source = "declare const u: undefined;\nconst { ...r14 } = u;";
+    assert_eq!(type_of_binding(source, "r14"), "any");
+    let union = "declare const v: { a: number, b: string } | { a: boolean } | undefined;\n\
+                 const { a, ...rest } = v!;";
+    assert_eq!(type_of_binding(union, "rest"), "{ b: string; } | {}");
+}
+
 #[test]
 fn a_distributed_generic_constraint_supplies_a_common_destructured_property() {
     let source = "type Params = { foo: string } & ({ tag: \"a\" } | { tag: \"b\" });\n\
@@ -23,6 +64,11 @@ fn a_distributed_generic_constraint_supplies_a_common_destructured_property() {
 /// variable statements, function declaration parameters, or `for-of` heads,
 /// and return its printed symbol type.
 fn type_of_binding(source: &str, name: &str) -> String {
+    type_of_binding_with(source, name, false)
+}
+
+/// [`type_of_binding`] with `@noUncheckedIndexedAccess` set as given.
+fn type_of_binding_with(source: &str, name: &str, no_unchecked_indexed_access: bool) -> String {
     let arena = Arena::new();
     let parsed = tsr_parser::parse(&arena, source);
     let bound = tsr_binder::bind(
@@ -32,6 +78,7 @@ fn type_of_binding(source: &str, name: &str) -> String {
         tsr_binder::FileInfo { name: "test.ts", text: source },
     );
     let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+    checker.set_no_unchecked_indexed_access(no_unchecked_indexed_access);
     let mut found = None;
     for statement in parsed.source_file.statements {
         match statement {
@@ -184,7 +231,8 @@ fn the_refused_legs_stay_gaps() {
     assert_eq!(type_of_binding(default, "d"), "number");
     assert_eq!(type_of_binding(default, "x"), "number");
     // The OBJECT rest leg CAME DUE at §319 — `getRestType`'s member
-    // subtraction runs over `spread_members_of`
+    // subtraction now runs over the semantic spread properties and keeps
+    // the source's index infos (`checker-99-rest-index-infos.md`)
     // (`>rest : { b: string; }`, `conformance/objectRest`). The ARRAY rest
     // (`sliceTupleType`) is the half still refused.
     let rest = r#"var { a, ...rest } = { a: 1, b: "x" };"#;

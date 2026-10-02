@@ -214,6 +214,32 @@ impl Checker<'_, '_> {
 
     fn mint_spread_properties(
         &mut self,
+        properties: Vec<AnonymousProperty>,
+        indexes: Vec<IndexInfo>,
+        owner: Option<SymbolId>,
+    ) -> TypeId {
+        let result = self.mint_anonymous_properties(properties, indexes, owner);
+        if result != self.intrinsics.error {
+            self.object_literal_spread_flags.insert(result, true);
+            self.fresh_object_literal_types.insert(result);
+        }
+        result
+    }
+
+    /// `getRestType`'s `newAnonymousType(symbol, members, nil, nil,
+    /// getIndexInfosOfType(source))` (`checker.go:17792`): the same anonymous
+    /// member construction as a spread, without the object-literal and
+    /// freshness flags a spread carries.
+    pub(crate) fn mint_rest_properties(
+        &mut self,
+        properties: Vec<AnonymousProperty>,
+        indexes: Vec<IndexInfo>,
+    ) -> TypeId {
+        self.mint_anonymous_properties(properties, indexes, None)
+    }
+
+    fn mint_anonymous_properties(
+        &mut self,
         mut properties: Vec<AnonymousProperty>,
         indexes: Vec<IndexInfo>,
         owner: Option<SymbolId>,
@@ -239,8 +265,6 @@ impl Checker<'_, '_> {
         self.object_literal_index_infos.insert(result, indexes);
         self.anonymous_properties.insert(result, (properties, true));
         self.object_literal_members.insert(result, members);
-        self.object_literal_spread_flags.insert(result, true);
-        self.fresh_object_literal_types.insert(result);
         result
     }
 
@@ -258,6 +282,9 @@ impl Checker<'_, '_> {
             return Some((Vec::new(), Vec::new()));
         }
         let source = self.resolved_spread_source(source)?;
+        if let TypeData::Intersection { types, .. } = self.store.get(source).data.clone() {
+            return self.intersection_spread_properties(&types, readonly);
+        }
         self.resolve_mapped_type_members(source);
         let captured =
             self.anonymous_properties.get(&source).map(|(properties, _)| properties.clone());
@@ -328,6 +355,62 @@ impl Checker<'_, '_> {
                 property.r#type = self.get_optional_type(property.r#type, true);
             }
             properties.push(property);
+        }
+        Some((properties, skipped_private))
+    }
+
+    /// `getPropertiesOfUnionOrIntersectionType` (`checker.go:18861`) for an
+    /// intersection source: names in constituent order, each read through
+    /// `createUnionOrIntersectionProperty` (`checker.go:21452`). A name held by one
+    /// constituent is that constituent's own symbol; a shared name is a
+    /// synthetic `Property` whose type intersects the constituents' types and
+    /// which is optional only when every holder is. A private or protected
+    /// holder marks the synthetic property private, so it is skipped.
+    fn intersection_spread_properties(
+        &mut self,
+        types: &[TypeId],
+        readonly: bool,
+    ) -> Option<(Vec<AnonymousProperty>, Vec<String>)> {
+        let mut groups: Vec<Vec<AnonymousProperty>> = Vec::new();
+        let mut skipped_private = Vec::new();
+        for &ty in types {
+            let (properties, skipped) = self.spread_properties(ty, readonly)?;
+            for property in properties {
+                if let Some(group) = groups.iter_mut().find(|group| group[0].name == property.name)
+                {
+                    group.push(property);
+                } else {
+                    groups.push(vec![property]);
+                }
+            }
+            for name in skipped {
+                if !skipped_private.contains(&name) {
+                    skipped_private.push(name);
+                }
+            }
+        }
+        let mut properties = Vec::with_capacity(groups.len());
+        for group in groups {
+            if skipped_private.contains(&group[0].name) {
+                continue;
+            }
+            if group.len() == 1 {
+                properties.extend(group);
+                continue;
+            }
+            let value_types: Vec<TypeId> = group.iter().map(|property| property.r#type).collect();
+            let value = self.get_intersection_type(&value_types, None);
+            if value == self.intrinsics.error {
+                return None;
+            }
+            let mut combined = group[0].clone();
+            combined.optional = group.iter().all(|property| property.optional);
+            combined.method = false;
+            combined.accessor_write = None;
+            combined.r#type = value;
+            let displayed = self.remove_missing_type(value);
+            combined.printed_type = self.type_to_string(displayed);
+            properties.push(combined);
         }
         Some((properties, skipped_private))
     }

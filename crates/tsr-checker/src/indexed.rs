@@ -881,7 +881,7 @@ impl Checker<'_, '_> {
     /// exact. Upstream tests `indexType.symbol`'s parent against
     /// `objectType.symbol`; this port's equivalent back-edge is
     /// `enum_member_owners`, written at the one place a member type is minted.
-    fn include_unchecked_undefined(
+    pub(crate) fn include_unchecked_undefined(
         &mut self,
         value: TypeId,
         include_undefined: bool,
