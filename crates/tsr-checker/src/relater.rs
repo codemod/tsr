@@ -779,7 +779,12 @@ impl Relater<'_, '_, '_> {
             )
     }
 
-    fn is_pure_signature_type(&self, id: TypeId) -> bool {
+    fn is_pure_signature_type(&mut self, id: TypeId) -> bool {
+        if self.checker.get_property_names_of_type(id).is_some_and(|names| !names.is_empty())
+            || self.checker.get_index_infos_of_type(id).is_none_or(|infos| !infos.is_empty())
+        {
+            return false;
+        }
         self.checker.signature_types.get(&id).is_some_and(|signatures| {
             !signatures.is_empty()
                 && signatures.iter().all(|signature| {
@@ -1202,60 +1207,94 @@ impl Relater<'_, '_, '_> {
         })
     }
 
-    /// §936: `indexSignaturesRelatedTo` (`relater.go`), reduced to the two arms
-    /// upstream reaches for a plain object target.
-    ///
-    /// For each of the target's index infos:
-    ///
-    /// 1. the source declares an index info with **the same key type** and the
-    ///    values relate covariantly; or
-    /// 2. the source's property enumeration is complete and **every** property
-    ///    type relates to the target's value type — upstream's
-    ///    `membersRelatedToIndexInfo`.
-    ///
-    /// `None` when neither applies, which keeps row 6's `Unknown`.
-    ///
-    /// # Not ported
-    ///
-    /// - **Key subtyping is ported** (a `string`-keyed source satisfies a
-    ///   `number`-keyed target, since every numeric key is a string key; the
-    ///   reverse does not hold) and **measured zero change**. Kept because it is
-    ///   what `getApplicableIndexInfo` does, with the zero recorded so the next
-    ///   reader does not re-derive it — §935's discipline.
-    /// - **`symbol` and pattern keys**, which `IndexInfo` does not model.
-    /// - **`readonly` on the index signature**, which is a missing rejection and
-    ///   shares that status with every other `readonly` in this relater.
+    /// indexSignaturesRelatedTo / typeRelatedToIndexInfo (relater.go:4578).
+    /// Semantic target infos apply independently of properties and signatures.
     fn related_index_signatures(&mut self, source: TypeId, target: TypeId) -> Option<Ternary> {
         let target_infos = self.checker.get_index_infos_of_type(target)?;
         if target_infos.is_empty() {
-            return None;
+            return Some(Ternary::Related);
         }
-        let source_infos = self.checker.get_index_infos_of_type(source).unwrap_or_default();
+        let target_has_string =
+            target_infos.iter().any(|info| info.key == self.checker.intrinsics.string);
         let mut parts = Vec::with_capacity(target_infos.len());
         for info in &target_infos {
-            let applicable =
-                source_infos.iter().find(|candidate| candidate.key == info.key).or_else(|| {
-                    // Upstream's `getApplicableIndexInfo`: a STRING index
-                    // applies to a NUMBER access, because every numeric key is
-                    // also a string key. The reverse does not hold.
-                    (info.key == self.checker.intrinsics.number)
-                        .then(|| {
-                            source_infos.iter().find(|c| c.key == self.checker.intrinsics.string)
-                        })
-                        .flatten()
-                });
-            if let Some(from) = applicable {
-                let (from_value, to_value) = (from.value, info.value);
-                parts.push(self.is_related_to(from_value, to_value));
+            if self.relation != Relation::StrictSubtype
+                && target_has_string
+                && self.checker.type_of(info.value).flags.contains(TypeFlags::ANY)
+            {
                 continue;
+            }
+            // Unresolved source infos cannot prove that a declared index is absent.
+            let source_infos = self.checker.get_index_infos_of_type(source)?;
+            if let Some(from) = self.checker.get_applicable_index_info(source, info.key) {
+                parts.push(self.is_related_to(from.value, info.value));
+                continue;
+            }
+            if (self.relation == Relation::StrictSubtype
+                && !self.checker.fresh_object_literal_types.contains(&source))
+                || !self.object_type_has_inferable_index(source)
+            {
+                return Some(Ternary::NotRelated);
             }
             let names = self.checker.get_property_names_of_type(source)?;
             for name in &names {
-                let member = self.checker.get_type_of_property_of_type(source, name)?;
+                let key = self.checker.literal_type_of_property(source, name);
+                if !self.checker.is_applicable_index_type(key, info.key) {
+                    continue;
+                }
+                let mut member = self.checker.get_type_of_property_of_type(source, name)?;
+                member = self.checker.remove_missing_type(member);
+                let optional = if let Some(property) = self
+                    .checker
+                    .anonymous_properties
+                    .get(&source)
+                    .and_then(|(properties, _)| properties.iter().find(|p| p.name == *name))
+                {
+                    property.optional
+                } else {
+                    self.checker
+                        .get_property_of_type(source, name)
+                        .is_some_and(|symbol| self.checker.property_is_optional(symbol))
+                };
+                if !self.checker.exact_optional_property_types
+                    && !self.checker.type_of(member).flags.contains(TypeFlags::UNDEFINED)
+                    && info.key != self.checker.intrinsics.number
+                    && optional
+                {
+                    member = self
+                        .checker
+                        .get_type_with_facts(member, crate::flow::TypeFacts::NE_UNDEFINED);
+                }
                 parts.push(self.is_related_to(member, info.value));
+            }
+            for source_info in &source_infos {
+                if self.checker.is_applicable_index_type(source_info.key, info.key) {
+                    parts.push(self.is_related_to(source_info.value, info.value));
+                }
             }
         }
         Some(Ternary::all(parts))
+    }
+
+    /// isObjectTypeWithInferableIndex (relater.go:4624): interfaces and classes
+    /// require a declared index; object/type literals can infer one from members.
+    fn object_type_has_inferable_index(&self, id: TypeId) -> bool {
+        if self.checker.js_literal_types.contains(&id) {
+            return true;
+        }
+        let (TypeData::Named { members: Some(symbol), .. } | TypeData::Anonymous { symbol, .. }) =
+            self.checker.type_of(id).data
+        else {
+            return false;
+        };
+        let flags = self.checker.binder.symbols().get(symbol).flags;
+        flags.intersects(
+            tsr_binder::SymbolFlags::OBJECT_LITERAL
+                | tsr_binder::SymbolFlags::TYPE_LITERAL
+                | tsr_binder::SymbolFlags::ENUM
+                | tsr_binder::SymbolFlags::VALUE_MODULE,
+        ) && !flags.contains(tsr_binder::SymbolFlags::CLASS)
+            && !self.declares_call_or_construct(id)
     }
 
     fn signature_bearing(&self, id: TypeId) -> bool {
@@ -1819,83 +1858,27 @@ impl Relater<'_, '_, '_> {
             }
         }
         if self.has_members(source) && self.has_members(target) {
-            // Row 6 of `checker-notes-assign.md` §2, checked **before** the
-            // property walk rather than inside it: a signature-bearing pair is
-            // not decided at all, and letting it reach `properties_related_to`
-            // would produce a confident answer from a comparison that ignored
-            // the members that distinguish the two types.
-            // §848 narrows row 6 to what upstream's shape actually requires.
-            // `signaturesRelatedTo` (`relater.go:4441`) starts at
-            // `TernaryTrue` and every one of its branches iterates the
-            // **target's** signature list, so a target with no signatures is
-            // vacuously related on the signature axis and the pair is decided
-            // by `propertiesRelatedTo` alone. A signature-bearing SOURCE
-            // against a plain object target is therefore decidable, and
-            // refusing it was this port's own over-reach rather than row 6's.
-            //
-            // A signature-bearing TARGET still refuses: that is the real
-            // `signatureRelatedTo` this port does not have.
-            // §935: `signaturesRelatedTo` (`relater.go:4441`) for the one
-            // shape this port can decide — **both sides carrying exactly one
-            // CALL signature**. Row 6's refusal above is right that a
-            // signature-bearing target cannot be decided by the property walk
-            // alone; it is not right that nothing can decide it.
-            //
-            // Conservative on purpose, and each restriction is a missing
-            // ACCEPTANCE rather than a possible wrong answer:
-            //
-            // - **One signature each.** An overload set needs upstream's
-            //   "some source signature relates to each target signature" walk
-            //   with its `Ternary` bookkeeping.
-            // - **Equal parameter counts**, no rests, no generics. Upstream
-            //   relates shorter-to-longer through `getParameterCount`'s arity
-            //   rules; declining is a gap.
-            // - **Parameters related in BOTH directions.** Upstream is
-            //   contravariant under `strictFunctionTypes` and bivariant for
-            //   methods, and this port tracks neither. Requiring both is
-            //   stricter than either, so it can only decline where upstream
-            //   accepts — never accept where upstream declines. **Relaxing it
-            //   to contravariant-only measured ZERO change**, so the strict
-            //   form is kept: it costs nothing and cannot answer wrongly.
-            //
-            // Two of these restrictions were measured and are free. Admitting a
-            // SHORTER source parameter list (upstream's arity rule) also
-            // measured zero; it is kept because it is what upstream does, and
-            // the zero is recorded so the next reader does not re-derive it.
-            // - **Returns covariant**, which is upstream's rule outright.
-            //
-            // The properties walk still runs and both must agree, which is
-            // upstream's shape: `signaturesRelatedTo` and `propertiesRelatedTo`
-            // are conjuncts.
-            if self.signature_bearing(target) {
-                if let Some(signatures) = self.related_signatures(source, target) {
-                    let properties = self.properties_related_to(source, target);
-                    return Ternary::all(vec![signatures, properties]);
-                }
-                // §936: `indexSignaturesRelatedTo` (`relater.go`). §935 left this
-                // arm untouched and said so: `signature_bearing` counts INDEX
-                // signatures too, so a target declaring only `[k: string]: T`
-                // refused even though nothing about it needs
-                // `signatureRelatedTo`. The relater used index infos **nowhere**.
-                //
-                // Only when the target declares no call or construct signature,
-                // so §935's population and this one cannot overlap.
-                if !self.declares_call_or_construct(target)
-                    && let Some(indexes) = self.related_index_signatures(source, target)
-                {
-                    let properties = self.properties_related_to(source, target);
-                    return Ternary::all(vec![indexes, properties]);
-                }
-                reasons::note(reasons::Site::SignatureBearing);
-                // Unknown signature/index relations do not erase a definite
-                // missing required property. Native structured comparison
-                // requires every independent member axis to hold.
-                return Ternary::all([
-                    Ternary::Unknown,
-                    self.properties_related_to(source, target),
-                ]);
+            // structuredTypeRelatedToWorker (relater.go:3864): properties,
+            // call/construct signatures and indexes are independent conjuncts.
+            // Index infos can be synthesized by literals or mapped types, so
+            // inspecting only binder declarations misses a target requirement.
+            let properties = self.properties_related_to(source, target);
+            if properties == Ternary::NotRelated {
+                return properties;
             }
-            return self.properties_related_to(source, target);
+            let signatures = if self.declares_call_or_construct(target) {
+                self.related_signatures(source, target).unwrap_or_else(|| {
+                    reasons::note(reasons::Site::SignatureBearing);
+                    Ternary::Unknown
+                })
+            } else {
+                Ternary::Related
+            };
+            if signatures == Ternary::NotRelated {
+                return signatures;
+            }
+            let indexes = self.related_index_signatures(source, target).unwrap_or(Ternary::Unknown);
+            return Ternary::all([properties, signatures, indexes]);
         }
         // Reached only by a type whose *flags* say union or intersection while
         // its data says otherwise, which `is_related_to`'s gate lets through.

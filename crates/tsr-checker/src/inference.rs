@@ -3344,7 +3344,7 @@ impl Checker<'_, '_> {
                     .filter(|&ty| ty != self.intrinsics.never);
                 for name in names {
                     if let Some(limited) = limited {
-                        let key = self.reverse_mapped_property_key(source, &name);
+                        let key = self.literal_type_of_property(source, &name);
                         if !self.is_type_assignable_to(key, limited) {
                             continue;
                         }
@@ -3427,7 +3427,7 @@ impl Checker<'_, '_> {
 
     /// getLiteralTypeFromProperty for the known string/numeric property names
     /// used when a reverse mapped intersection constraint filters source keys.
-    fn reverse_mapped_property_key(&mut self, source: TypeId, name: &str) -> TypeId {
+    pub(crate) fn literal_type_of_property(&mut self, source: TypeId, name: &str) -> TypeId {
         use crate::flags::TypeFlags;
         let declaration = self
             .get_property_of_type(source, name)

@@ -574,7 +574,7 @@ impl<'a> Checker<'a, '_> {
 
     /// isApplicableIndexType (checker.go:19054). Unknown structural relations
     /// cannot prove applicability; numeric names retain the upstream exception.
-    fn is_applicable_index_type(&mut self, source: TypeId, target: TypeId) -> bool {
+    pub(crate) fn is_applicable_index_type(&mut self, source: TypeId, target: TypeId) -> bool {
         use crate::relater::{Relation, Ternary};
         if self.relate_ternary(source, target, Relation::Assignable) == Ternary::Related {
             return true;
