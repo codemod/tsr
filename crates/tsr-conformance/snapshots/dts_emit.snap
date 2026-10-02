@@ -2,11 +2,11 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 dts_emit Summary:
 What a pass means: the .d.ts text this port emits is byte-identical to upstream's, for every unit of a case that needs no inference — the emitter's own rate, over the population dts_reachable_target measures
-Passed         : 333/373 (89.28%)
-Failed         : 40
-Skipped        : 12071 (excluded from the denominator)
+Passed         : 335/372 (90.05%)
+Failed         : 37
+Skipped        : 12072 (excluded from the denominator)
 
-  635  skipped: a declaration in this case needs inference (see dts_reachable_target)
+  636  skipped: a declaration in this case needs inference (see dts_reachable_target)
   17  skipped: a unit of this case does not parse cleanly
   8325  skipped: the emit baseline has no emitted .d.ts section
   2477  skipped: upstream recorded no .js emit baseline
@@ -28,8 +28,6 @@ compiler/declarationEmitNoNonRequiredParens
   line 7: want `export declare const bar: Test[];`, got `export declare const bar: TestType[Extract<keyof TestType, string>][];`
 compiler/declarationEmitPrivatePromiseLikeInterface
   emitted Api.d.ts, upstream emitted no declaration file
-compiler/declarationEmitPrivateSymbolCausesVarDeclarationToBeEmitted
-  line 1: want `declare const _data: unique symbol;`, got `export declare class User {`
 compiler/declarationEmitScopeConsistency3
   line 1: want `export declare const g: (v: "outer") => () => "inner";`, got `export declare const g: any;`
 compiler/declarationEmitTypeParameterNameShadowedInternally
@@ -62,8 +60,6 @@ compiler/mappedTypeWithAsClauseAndLateBoundProperty2
   line 2: want `    [x: number]: number;`, got `    [K in keyof number[] as Exclude<K, "length">]: (number[])[K];`
 compiler/modulePreserve4
   line 1: want `export = _default;`, got `declare const _default: () => void;`
-compiler/paramterDestrcuturingDeclaration
-  line 2: want `    ({ p: name }: {`, got `    ({ p: name }: any): any;`
 compiler/referenceTypesPreferedToPathIfPossible
   line 1: want `export declare const thing: () => import("url").Url;`, got `export declare const thing: any;`
 compiler/typeReferenceDirectives13
@@ -78,8 +74,6 @@ conformance/assignmentToVoidZero1
   line 1: missing `export declare var y: 2;`
 conformance/contextuallyTypedStringLiteralsInJsxAttributes01
   line 9: want `declare const FooComponent: (props: {`, got `declare const FooComponent: any;`
-conformance/declarationEmitThisPredicatesWithPrivateName02
-  line 1: want `interface Foo {`, got `export declare const obj: {`
 conformance/declarationEmitWorkWithInlineComments
   line 5: want `    constructor(`, got `    constructor(isInternal1: string, isInternal2: string, isInternal3: string, isInternal4: string, isInternal5: string, isInternal6: string, isInternal7: string, notInternal1: string, notInternal2: string, notInternal3: string);`
 conformance/genericContextualTypes1

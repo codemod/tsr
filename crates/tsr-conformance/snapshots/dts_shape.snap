@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 dts_shape Summary:
 What a pass means: the declarations this port emits into a .d.ts — their kind, name and order, recursing into namespaces — match upstream's, ignoring types and formatting; judged on every case with declaration output, including the ones dts_emit cannot reach because they need inference
-Passed         : 858/1006 (85.29%)
-Failed         : 148
+Passed         : 868/1006 (86.28%)
+Failed         : 138
 Skipped        : 11438 (excluded from the denominator)
 
   11  skipped: a unit of this case does not parse cleanly
@@ -12,7 +12,7 @@ Skipped        : 11438 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   8  skipped: upstream's .d.ts baseline does not reparse
 
-First 100 of 148 failures:
+First 100 of 138 failures:
 compiler/amdLikeInputDeclarationEmit
   #0: missing `var ExtendedClass`
 compiler/caseInsensitiveFileSystemWithCapsImportTypeDeclarations
@@ -49,8 +49,6 @@ compiler/declarationEmitForModuleImportingModuleAugmentationRetainsImport
   #0: want `import`, got `class ParentThing`
 compiler/declarationEmitFunctionDuplicateNamespace
   #4: extra `namespace f`
-compiler/declarationEmitFunctionKeywordProp
-  the emitted .d.ts does not reparse
 compiler/declarationEmitInferredTypeAlias9
   #0: want `type Foo`, got `function returnSomeGlobalValue`
 compiler/declarationEmitLateBoundAssignments2
@@ -59,8 +57,6 @@ compiler/declarationEmitLocalClassHasRequiredDeclare
   #2: want `class X`, got `class A`
 compiler/declarationEmitMappedTypeDistributivityPreservesConstraints
   #0: want `type Fns`, got `var _default`
-compiler/declarationEmitMultipleComputedNamesSameDomain
-  #0: want `var x`, got `class Test`
 compiler/declarationEmitNoInvalidCommentReuse3
   #0: want `import`, got `var _`
 compiler/declarationEmitOfTypeofAliasedExport
@@ -77,10 +73,6 @@ compiler/declarationEmitPrivateNameCausesError
   #0: want `var IGNORE_EXTRA_VARIABLES`, got `function ignoreExtraVariables`
 compiler/declarationEmitPrivatePromiseLikeInterface
   emitted Api.d.ts, upstream emitted no declaration file
-compiler/declarationEmitPrivateSymbolCausesVarDeclarationEmit2
-  #0: want `import`, got `class C`
-compiler/declarationEmitPrivateSymbolCausesVarDeclarationToBeEmitted
-  #0: want `var _data`, got `class User`
 compiler/declarationEmitQualifiedAliasTypeArgument
   #0: want `import`, got `var fun`
 compiler/declarationEmitReexportedSymlinkReference
@@ -167,8 +159,6 @@ compiler/jsFileFunctionOverloads2
   #1: want `function getTypeName`, got `var identity`
 compiler/jsxDeclarationsWithEsModuleInteropNoCrash
   #0: want `import`, got `function Foo`
-compiler/lateBoundAssignmentCandidateJS2
-  #0: want `var prop`, got `class foo1`
 compiler/modulePreserve4
   #0: want `export=`, got `var _default`
 compiler/multiImportExport
@@ -203,8 +193,6 @@ compiler/typeReferenceDirectives9
   #1: want `import`, got `var cls`
 compiler/uniqueSymbolPropertyDeclarationEmit
   #0: want `import`, got `function foo`
-compiler/variableDeclarationDeclarationEmitUniqueSymbolPartialStatement
-  #0: want `var key`, got `class Foo`
 conformance/assignmentToVoidZero1
   #0: missing `var y`
 conformance/assignmentToVoidZero2
@@ -213,3 +201,15 @@ conformance/commonJSAliasedExport
   #0: want `export=`, got `var donkey`
 conformance/commonJSImportClassTypeReference
   #0: want `export{}`, got `var <pattern>`
+conformance/commonJSImportExportedClassExpression
+  #0: want `export{}`, got `var <pattern>`
+conformance/commonJSImportNestedClassTypeReference
+  #0: want `export{}`, got `var <pattern>`
+conformance/exportDefaultNamespace
+  #1: want `export=`, got `namespace someFunc`
+conformance/importTag16
+  #0: want `import`, got `function foo`
+conformance/importTag18
+  #0: want `import`, got `function foo`
+conformance/importTag19
+  #0: want `import`, got `function foo`

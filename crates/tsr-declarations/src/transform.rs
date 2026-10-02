@@ -95,6 +95,16 @@ pub(crate) struct Transformer<'a, 't, R> {
     result_has_external_module_indicator: bool,
     /// Source and synthesized binding names, for `_default` collision avoidance.
     used_names: HashSet<String>,
+    /// Every identifier text in the source file, which a generated temp name
+    /// must avoid (the printer's `isUniqueName` consults the file's
+    /// `Identifiers`).
+    file_identifiers: HashSet<String>,
+    /// The names a lookup from the file's top level finds: its own top-level
+    /// declarations and import bindings. The decidable part of
+    /// `EmitResolver.IsNameResolvable` at the source file.
+    file_scope_names: HashSet<String>,
+    /// The `tempFlags` counter of [`Self::fresh_temp_name`].
+    temp_name_count: u32,
     /// Whether declarations are nested under an ambient module/namespace.
     ambient_context: bool,
     /// Syntactically named property assignments attached to function-valued
@@ -139,6 +149,9 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
             result_has_scope_marker: false,
             result_has_external_module_indicator: false,
             used_names: HashSet::new(),
+            file_identifiers: HashSet::new(),
+            file_scope_names: HashSet::new(),
+            temp_name_count: 0,
             ambient_context: false,
             expando_members: HashMap::new(),
             type_aliases: HashMap::new(),
@@ -171,6 +184,9 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
             self.factory.flags_of(file.node_id).contains(NodeFlags::JAVASCRIPT_FILE);
         let is_module = is_external_module(file.statements) || self.options.force_module;
         reserve_statement_names(file.statements, &mut self.used_names);
+        self.file_identifiers = file_identifier_texts(file);
+        reserve_statement_names(file.statements, &mut self.file_scope_names);
+        reserve_import_names(file.statements, &mut self.file_scope_names);
         self.expando_members = collect_expando_members(file.statements, self.factory.nodes());
         self.collect_object_expandos(file.statements);
         self.namespace_imports = file
@@ -812,6 +828,20 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
         Some(vec![function, namespace])
     }
 
+    /// The namespace body `transformExpandoAssignment` (`transform.go:2719`)
+    /// accumulates for one host, member by member.
+    ///
+    /// Three of upstream's arms are reproduced here. An identifier on the right
+    /// is alias-like and becomes `export { right as name }`
+    /// (`transformBinaryExpressionToExportDeclaration`, `:1307`). A property
+    /// that is a non-contextual keyword cannot name a `var`, so it gets a
+    /// generated local and an `export { _a as null }` specifier (`:2782`); once
+    /// any specifier is present, every earlier member gains `export` so it stays
+    /// exported, and every later one is written with it. Upstream also takes a
+    /// generated local when the property is *resolvable* in scope
+    /// (`IsNameResolvable`, which consults the checker's scope chain and the
+    /// lib globals); that half is not decidable here and the property name is
+    /// used as-is, as it always was.
     fn create_expando_namespace(
         &mut self,
         name: &'a tsr_ast::Identifier<'a>,
@@ -819,41 +849,65 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
         span: Span,
         members: &[ExpandoMember<'a>],
     ) -> Statement<'a> {
-        let mut namespace_statements = Vec::with_capacity(members.len());
+        let mut namespace_statements: Vec<Statement<'a>> = Vec::with_capacity(members.len());
         for member in members {
             let Some(name) = member.name else { continue };
             let member_span = self.span_of(member.node_id);
-            let member_name = self.factory.identifier(name, member_span);
+            let export_name = self.factory.identifier(name, member_span);
+            if let Some(Expression::Identifier(right)) = member.initializer {
+                let property_name = (right.text != name).then_some(right);
+                namespace_statements.push(self.export_specifier_statement(
+                    property_name,
+                    export_name,
+                    member_span,
+                ));
+                continue;
+            }
+            let preexisting_export = namespace_statements
+                .iter()
+                .any(|statement| matches!(statement, Statement::ExportDeclaration(_)));
+            let local_name = if is_non_contextual_keyword(name) || self.is_name_resolvable(name) {
+                self.fresh_temp_name(member_span)
+            } else {
+                export_name
+            };
             let member_type = self.ensure_type(
                 None,
                 member.initializer.as_ref(),
                 Freshness::Widening,
                 member.node_id,
             );
-            let declaration = self.factory.alloc(
-                tsr_ast::VariableDeclaration::new(
-                    Some(tsr_ast::BindingName::Identifier(member_name)),
-                    None,
-                    member_type,
-                    None,
-                ),
-                SyntaxKind::VariableDeclaration,
+            let variable_modifiers: &'a [ModifierLike<'a>] =
+                if preexisting_export { self.export_modifiers(member_span) } else { &[] };
+            let needs_specifier = local_name.text != export_name.text;
+            if needs_specifier && !preexisting_export {
+                // "Add an `export` modifier to all existing expando members so
+                // they remain exported after the `export {}` is added."
+                for statement in &mut namespace_statements {
+                    if let Statement::VariableStatement(variable) = *statement {
+                        let exported = self.export_modifiers(member_span);
+                        *statement = Statement::VariableStatement(self.factory.alloc(
+                            tsr_ast::VariableStatement::new(exported, variable.declaration_list),
+                            SyntaxKind::VariableStatement,
+                            self.span_of(variable.node_id),
+                            NodeFlags::empty(),
+                        ));
+                    }
+                }
+            }
+            namespace_statements.push(self.namespace_variable(
+                variable_modifiers,
+                local_name,
+                member_type,
                 member_span,
-                NodeFlags::empty(),
-            );
-            let declarations = self.factory.slice(&[declaration]);
-            let list = self.factory.alloc(
-                tsr_ast::VariableDeclarationList::new(declarations),
-                SyntaxKind::VariableDeclarationList,
-                member_span,
-                NodeFlags::empty(),
-            );
-            namespace_statements.push(Statement::VariableStatement(self.factory.alloc(
-                tsr_ast::VariableStatement::new(&[], Some(list)),
-                SyntaxKind::VariableStatement,
-                member_span,
-                NodeFlags::empty(),
-            )));
+            ));
+            if needs_specifier {
+                namespace_statements.push(self.export_specifier_statement(
+                    Some(local_name),
+                    export_name,
+                    member_span,
+                ));
+            }
         }
         let namespace_statements = self.factory.slice(&namespace_statements);
         let block = self.factory.alloc(
@@ -875,6 +929,121 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
             span,
             NodeFlags::empty(),
         ))
+    }
+
+    /// `EmitResolver.IsNameResolvable` (`internal/checker/emitresolver.go:912`)
+    /// at the source file, for the names decidable without a `Program`: the
+    /// file's own top-level declarations and imports, and the two globals the
+    /// checker creates itself rather than reading from a lib (`undefined`,
+    /// `globalThis`). Lib globals (`name`, `length`, …) are not known here and
+    /// read as unresolvable.
+    fn is_name_resolvable(&self, name: &str) -> bool {
+        name == "undefined" || name == "globalThis" || self.file_scope_names.contains(name)
+    }
+
+    /// `export { property as name }`, or `export { name }` when the two agree.
+    fn export_specifier_statement(
+        &mut self,
+        property_name: Option<&'a tsr_ast::Identifier<'a>>,
+        name: &'a tsr_ast::Identifier<'a>,
+        span: Span,
+    ) -> Statement<'a> {
+        let specifier = self.factory.alloc(
+            tsr_ast::ExportSpecifier::new(
+                false,
+                property_name.map(tsr_ast::ModuleExportName::Identifier),
+                Some(tsr_ast::ModuleExportName::Identifier(name)),
+            ),
+            SyntaxKind::ExportSpecifier,
+            span,
+            NodeFlags::empty(),
+        );
+        let specifiers = self.factory.slice(&[specifier]);
+        let named = self.factory.alloc(
+            tsr_ast::NamedExports::new(specifiers),
+            SyntaxKind::NamedExports,
+            span,
+            NodeFlags::empty(),
+        );
+        Statement::ExportDeclaration(self.factory.alloc(
+            tsr_ast::ExportDeclaration::new(
+                &[],
+                false,
+                Some(tsr_ast::NamedExportBindings::NamedExports(named)),
+                None,
+                None,
+            ),
+            SyntaxKind::ExportDeclaration,
+            span,
+            NodeFlags::empty(),
+        ))
+    }
+
+    fn export_modifiers(&mut self, span: Span) -> &'a [ModifierLike<'a>] {
+        let created =
+            modifiers::create_modifiers_from_flags(&mut self.factory, ModifierFlags::EXPORT, span);
+        self.factory.slice(&created)
+    }
+
+    fn namespace_variable(
+        &mut self,
+        modifiers: &'a [ModifierLike<'a>],
+        name: &'a tsr_ast::Identifier<'a>,
+        r#type: Option<TypeNode<'a>>,
+        span: Span,
+    ) -> Statement<'a> {
+        let declaration = self.factory.alloc(
+            tsr_ast::VariableDeclaration::new(
+                Some(tsr_ast::BindingName::Identifier(name)),
+                None,
+                r#type,
+                None,
+            ),
+            SyntaxKind::VariableDeclaration,
+            span,
+            NodeFlags::empty(),
+        );
+        let declarations = self.factory.slice(&[declaration]);
+        let list = self.factory.alloc(
+            tsr_ast::VariableDeclarationList::new(declarations),
+            SyntaxKind::VariableDeclarationList,
+            span,
+            NodeFlags::empty(),
+        );
+        Statement::VariableStatement(self.factory.alloc(
+            tsr_ast::VariableStatement::new(modifiers, Some(list)),
+            SyntaxKind::VariableStatement,
+            span,
+            NodeFlags::empty(),
+        ))
+    }
+
+    /// A `NewGeneratedNameForNode` temp, spelled the way the printer's
+    /// `makeTempVariableName` (`internal/printer/namegenerator.go:258`) spells
+    /// it: `_a` … `_z` skipping `_i` and `_n`, then `_0`, `_1`, …, each the
+    /// first not already an identifier of the file or a name this transform
+    /// has synthesized. One counter serves the whole file, as one
+    /// `tempFlags` does for a declaration file's single name scope
+    /// (`declarationEmitFunctionKeywordProp`: `_a` in one namespace, `_b` in
+    /// the next).
+    fn fresh_temp_name(&mut self, span: Span) -> &'a tsr_ast::Identifier<'a> {
+        loop {
+            let count = self.temp_name_count;
+            self.temp_name_count += 1;
+            if count == 8 || count == 13 {
+                continue;
+            }
+            let candidate = if count < 26 {
+                format!("_{}", char::from(b'a' + u8::try_from(count).unwrap_or(0)))
+            } else {
+                format!("_{}", count - 26)
+            };
+            if !self.file_identifiers.contains(&candidate)
+                && self.used_names.insert(candidate.clone())
+            {
+                return self.factory.identifier(&candidate, span);
+            }
+        }
     }
 
     /// Ported from `transformVariableDeclaration` (`transform.go:835`).
@@ -2682,8 +2851,26 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
             };
             self.jsdoc_param_types.get(name.text).copied()
         });
-        let r#type =
-            self.ensure_type(written, None, Freshness::Widening, parameter.node_id).map(|r#type| {
+        // An unannotated binding pattern without an initializer has the type the
+        // pattern implies (`getTypeFromBindingPattern`, `checker.go:17904`):
+        // `({ p: name })` declares `{ p: any; }`.
+        let written = written.or_else(|| {
+            let Some(tsr_ast::BindingName::BindingPattern(pattern)) = parameter.name else {
+                return None;
+            };
+            if parameter.initializer.is_some() {
+                return None;
+            }
+            self.binding_pattern_type(pattern)
+        });
+        let r#type = self
+            .ensure_type(
+                written,
+                parameter.initializer.as_ref(),
+                Freshness::Widening,
+                parameter.node_id,
+            )
+            .map(|r#type| {
                 if parameter.question_token.is_some()
                     && modifiers::modifier_flags(parameter.modifiers)
                         .intersects(PARAMETER_PROPERTY_MODIFIER)
@@ -2707,6 +2894,195 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
             span,
             NodeFlags::empty(),
         )
+    }
+
+    /// Ported from `getTypeFromBindingPattern` and its two halves
+    /// (`checker.go:17904`, `:17921`, `:17957`), with `includePatternInType`
+    /// false — the declaration-type road.
+    ///
+    /// An element's type is its initializer's widened type, a nested pattern's
+    /// implied type, or `any`. An object element with an initializer is
+    /// optional; a rest element contributes `[x: string]: any`; a computed
+    /// name that is not a literal contributes nothing. An array pattern is a
+    /// tuple whose elements after the last required one are optional and whose
+    /// trailing rest is `...any[]`; an empty or rest-only array pattern is
+    /// `Iterable<any>` (`createIterableType(anyType)` at ES2015+, the target
+    /// every declaration baseline is emitted at). `None` when an initializer's
+    /// type needs inference — the caller then reports it like any other.
+    fn binding_pattern_type(
+        &mut self,
+        pattern: &'a tsr_ast::BindingPattern<'a>,
+    ) -> Option<TypeNode<'a>> {
+        let span = self.span_of(pattern.node_id);
+        let kind = pattern.node_id.map_or(pattern.kind.kind, |id| self.factory.nodes().kind(id));
+        if kind == SyntaxKind::ArrayBindingPattern {
+            let rest =
+                pattern.elements.last().filter(|element| element.dot_dot_dot_token.is_some());
+            if pattern.elements.is_empty() || (pattern.elements.len() == 1 && rest.is_some()) {
+                let any = self.factory.keyword_type(SyntaxKind::AnyKeyword, span);
+                let name = self.factory.identifier("Iterable", span);
+                let arguments = self.factory.slice(&[any]);
+                return Some(TypeNode::TypeReferenceNode(self.factory.alloc(
+                    tsr_ast::TypeReferenceNode::new(
+                        Some(tsr_ast::EntityName::Identifier(name)),
+                        arguments,
+                    ),
+                    SyntaxKind::TypeReference,
+                    span,
+                    NodeFlags::empty(),
+                )));
+            }
+            let min_length = pattern
+                .elements
+                .iter()
+                .rposition(|element| {
+                    element.dot_dot_dot_token.is_none()
+                        && element.name.is_some()
+                        && element.initializer.is_none()
+                })
+                .map_or(0, |index| index + 1);
+            let mut elements = Vec::with_capacity(pattern.elements.len());
+            for (index, element) in pattern.elements.iter().enumerate() {
+                let element_span = self.span_of(element.node_id);
+                let r#type = if element.name.is_none() {
+                    self.factory.keyword_type(SyntaxKind::AnyKeyword, element_span)
+                } else {
+                    self.binding_element_type(element)?
+                };
+                let r#type = if element.dot_dot_dot_token.is_some() {
+                    let array = TypeNode::ArrayTypeNode(self.factory.alloc(
+                        tsr_ast::ArrayTypeNode::new(Some(r#type)),
+                        SyntaxKind::ArrayType,
+                        element_span,
+                        NodeFlags::empty(),
+                    ));
+                    TypeNode::RestTypeNode(self.factory.alloc(
+                        tsr_ast::RestTypeNode::new(Some(array)),
+                        SyntaxKind::RestType,
+                        element_span,
+                        NodeFlags::empty(),
+                    ))
+                } else if index >= min_length {
+                    TypeNode::OptionalTypeNode(self.factory.alloc(
+                        tsr_ast::OptionalTypeNode::new(Some(r#type)),
+                        SyntaxKind::OptionalType,
+                        element_span,
+                        NodeFlags::empty(),
+                    ))
+                } else {
+                    r#type
+                };
+                elements.push(r#type);
+            }
+            let elements = self.factory.slice(&elements);
+            return Some(TypeNode::TupleTypeNode(self.factory.alloc(
+                tsr_ast::TupleTypeNode::new(elements),
+                SyntaxKind::TupleType,
+                span,
+                NodeFlags::empty(),
+            )));
+        }
+
+        let mut members = Vec::with_capacity(pattern.elements.len());
+        let mut string_index = None;
+        for element in pattern.elements {
+            let element_span = self.span_of(element.node_id);
+            if element.dot_dot_dot_token.is_some() {
+                string_index = Some(element_span);
+                continue;
+            }
+            let name = match element.property_name {
+                Some(tsr_ast::PropertyName::ComputedPropertyName(computed)) => {
+                    match computed.expression {
+                        // The implied member is a synthesized symbol, so the
+                        // node builder spells an identifier-shaped name bare.
+                        Some(Expression::StringLiteral(literal))
+                            if is_identifier_text(literal.text) =>
+                        {
+                            let span = self.span_of(literal.node_id);
+                            tsr_ast::PropertyName::Identifier(
+                                self.factory.identifier(literal.text, span),
+                            )
+                        }
+                        Some(Expression::StringLiteral(literal)) => {
+                            tsr_ast::PropertyName::StringLiteral(literal)
+                        }
+                        Some(Expression::NumericLiteral(literal)) => {
+                            tsr_ast::PropertyName::NumericLiteral(literal)
+                        }
+                        _ => continue,
+                    }
+                }
+                Some(name) => name,
+                None => match element.name {
+                    Some(tsr_ast::BindingName::Identifier(identifier)) => {
+                        tsr_ast::PropertyName::Identifier(identifier)
+                    }
+                    _ => continue,
+                },
+            };
+            let question = element
+                .initializer
+                .is_some()
+                .then(|| self.factory.token(SyntaxKind::QuestionToken, element_span));
+            let r#type = self.binding_element_type(element)?;
+            members.push(TypeElement::PropertySignatureDeclaration(self.factory.alloc(
+                tsr_ast::PropertySignatureDeclaration::new(&[], name, question, Some(r#type), None),
+                SyntaxKind::PropertySignature,
+                element_span,
+                NodeFlags::empty(),
+            )));
+        }
+        if let Some(index_span) = string_index {
+            let parameter_name = self.factory.identifier("x", index_span);
+            let string = self.factory.keyword_type(SyntaxKind::StringKeyword, index_span);
+            let parameter = self.factory.alloc(
+                ParameterDeclaration::new(
+                    &[],
+                    None,
+                    Some(tsr_ast::BindingName::Identifier(parameter_name)),
+                    None,
+                    Some(string),
+                    None,
+                ),
+                SyntaxKind::Parameter,
+                index_span,
+                NodeFlags::empty(),
+            );
+            let parameters = self.factory.slice(&[parameter]);
+            let any = self.factory.keyword_type(SyntaxKind::AnyKeyword, index_span);
+            members.push(TypeElement::IndexSignatureDeclaration(self.factory.alloc(
+                tsr_ast::IndexSignatureDeclaration::new(&[], parameters, Some(any), None, &[]),
+                SyntaxKind::IndexSignature,
+                index_span,
+                NodeFlags::empty(),
+            )));
+        }
+        let members = self.factory.slice(&members);
+        Some(TypeNode::TypeLiteralNode(self.factory.alloc(
+            tsr_ast::TypeLiteralNode::new(members),
+            SyntaxKind::TypeLiteral,
+            span,
+            NodeFlags::empty(),
+        )))
+    }
+
+    /// `getTypeFromBindingElement` (`checker.go:18006`), declaration road.
+    fn binding_element_type(
+        &mut self,
+        element: &'a tsr_ast::BindingElement<'a>,
+    ) -> Option<TypeNode<'a>> {
+        if let Some(initializer) = &element.initializer {
+            return self.resolver.create_type_of_declaration(
+                &mut self.factory,
+                Some(initializer),
+                Freshness::Widening,
+            );
+        }
+        if let Some(tsr_ast::BindingName::BindingPattern(pattern)) = element.name {
+            return self.binding_pattern_type(pattern);
+        }
+        Some(self.factory.keyword_type(SyntaxKind::AnyKeyword, self.span_of(element.node_id)))
     }
 
     fn strip_binding_initializers(
@@ -2973,6 +3349,29 @@ fn expando_assignment_name<'a>(
     }
 }
 
+/// `ast.IsNonContextualKeyword(scanner.StringToToken(text))`: a reserved or
+/// strict-mode reserved word, which cannot name a declaration.
+fn is_non_contextual_keyword(text: &str) -> bool {
+    tsr_scanner::keyword_kind(text)
+        .is_some_and(|kind| kind.is_keyword() && kind < SyntaxKind::FIRST_CONTEXTUAL_KEYWORD)
+}
+
+/// The texts of every identifier in the file, upstream's
+/// `SourceFile.Identifiers`.
+fn file_identifier_texts(file: &SourceFile<'_>) -> HashSet<String> {
+    struct Collect(HashSet<String>);
+    impl<'a> tsr_ast::Visit<'a> for Collect {
+        fn visit_identifier(&mut self, node: &'a tsr_ast::Identifier<'a>) {
+            self.0.insert(node.text.to_string());
+        }
+    }
+    let mut collect = Collect(HashSet::new());
+    for statement in file.statements {
+        tsr_ast::Visit::visit_node(&mut collect, tsr_ast::Node::from(*statement));
+    }
+    collect.0
+}
+
 fn is_identifier_text(text: &str) -> bool {
     let mut chars = text.chars();
     let Some(first) = chars.next() else { return false };
@@ -3005,6 +3404,31 @@ fn reserve_statement_names(statements: &[Statement<'_>], used: &mut HashSet<Stri
             for declaration in list.declarations {
                 reserve_binding_name(declaration.name, used);
             }
+        }
+    }
+}
+
+fn reserve_import_names(statements: &[Statement<'_>], used: &mut HashSet<String>) {
+    for statement in statements {
+        let Statement::ImportDeclaration(import) = statement else { continue };
+        let Some(clause) = import.import_clause else { continue };
+        if let Some(name) = clause.name {
+            used.insert(name.text.to_string());
+        }
+        match clause.named_bindings {
+            Some(tsr_ast::NamedImportBindings::NamespaceImport(namespace)) => {
+                if let Some(name) = namespace.name {
+                    used.insert(name.text.to_string());
+                }
+            }
+            Some(tsr_ast::NamedImportBindings::NamedImports(named)) => {
+                for element in named.elements {
+                    if let Some(name) = element.name {
+                        used.insert(name.text.to_string());
+                    }
+                }
+            }
+            None => {}
         }
     }
 }

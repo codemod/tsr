@@ -518,6 +518,54 @@ impl<'a> ReferenceCollector<'a> {
                     self.collect_initializer_types(inner);
                 }
             }
+            // An object literal's methods and accessors keep their written
+            // signatures in the emitted type literal, and its property values
+            // contribute their own shapes: `{ m(): this is Foo {…} }` emits
+            // `m(): this is Foo;` and needs `Foo`
+            // (`declarationEmitThisPredicatesWithPrivateName02`).
+            Expression::ObjectLiteralExpression(object) => {
+                use tsr_ast::ObjectLiteralElementLike as Member;
+                for property in object.properties {
+                    match property {
+                        Member::PropertyAssignment(assignment) => {
+                            if let Some(value) = &assignment.initializer {
+                                self.collect_initializer_types(value);
+                            }
+                        }
+                        Member::MethodDeclaration(method) => {
+                            let bound_len = self.bound_type_names.len();
+                            self.bound_type_names.extend(
+                                method
+                                    .type_parameters
+                                    .iter()
+                                    .filter_map(|parameter| parameter.name.map(|name| name.text)),
+                            );
+                            for parameter in method.type_parameters {
+                                self.visit_type_parameter_declaration(parameter);
+                            }
+                            for parameter in method.parameters {
+                                self.visit_parameter_declaration(parameter);
+                            }
+                            self.visit_type(method.r#type);
+                            self.bound_type_names.truncate(bound_len);
+                        }
+                        Member::GetAccessorDeclaration(accessor) => {
+                            self.visit_type(accessor.r#type);
+                        }
+                        Member::SetAccessorDeclaration(accessor) => {
+                            for parameter in accessor.parameters {
+                                self.visit_parameter_declaration(parameter);
+                            }
+                        }
+                        Member::ShorthandPropertyAssignment(_) | Member::SpreadAssignment(_) => {}
+                    }
+                }
+            }
+            Expression::ArrayLiteralExpression(array) => {
+                for element in array.elements {
+                    self.collect_initializer_types(element);
+                }
+            }
             _ => {}
         }
     }
@@ -594,6 +642,16 @@ impl<'a> Visit<'a> for ReferenceCollector<'a> {
     }
 
     fn visit_property_declaration(&mut self, node: &'a tsr_ast::PropertyDeclaration<'a>) {
+        // A computed name is restated in the `.d.ts` even when the member is
+        // private and its type is dropped (`private [_data];`), so the entity
+        // it names must be emitted too — upstream's `checkEntityNameVisibility`
+        // on the computed expression
+        // (`declarationEmitPrivateSymbolCausesVarDeclarationToBeEmitted`).
+        if let tsr_ast::PropertyName::ComputedPropertyName(computed) = &node.name
+            && let Some(expression) = &computed.expression
+        {
+            self.record_entity_expression(expression);
+        }
         self.visit_type(node.r#type);
         if node.r#type.is_none()
             && let Some(initializer) = &node.initializer

@@ -18,6 +18,8 @@ tsr-dts = { workspace = true }
 # (`Factory::parse_grafted_type`); the transform is otherwise parser-free.
 tsr-parser = { workspace = true }
 tsr-printer = { workspace = true }
+# `keyword_kind`, for `IsNonContextualKeyword` on expando property names.
+tsr-scanner = { workspace = true }
 rustc-hash = { workspace = true }
 
 [dev-dependencies]

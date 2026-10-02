@@ -370,6 +370,7 @@ dependencies = [
  "tsr-dts",
  "tsr-parser",
  "tsr-printer",
+ "tsr-scanner",
 ]
 
 [[package]]

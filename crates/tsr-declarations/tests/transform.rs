@@ -803,6 +803,72 @@ fn default_function_expandos_use_a_trailing_default_export() {
 }
 
 #[test]
+fn keyword_and_resolvable_expando_names_take_a_generated_local() {
+    // `transformExpandoAssignment` (`transform.go:2782`): a reserved word cannot
+    // name a `var`, so it is declared under a temp and re-exported; once a
+    // specifier exists, earlier members gain `export` and later ones carry it.
+    // The temp counter runs over the whole file and skips `_i`/`_n`
+    // (`declarationEmitFunctionKeywordProp`, `nullPropertyName`).
+    assert_emits(
+        "function foo() {}\nfoo.null = true;\nfunction baz() {}\nbaz.x = 1;\nbaz.class = true;\nbaz.normal = false;\nbaz.undefined = 2;\nbaz.foo = 3;",
+        "declare function foo(): void;\ndeclare namespace foo {\n    var _a: boolean;\n    export { _a as null };\n}\ndeclare function baz(): void;\ndeclare namespace baz {\n    export var x: number;\n    var _b: boolean;\n    export { _b as class };\n    export var normal: boolean;\n    export var _c: number;\n    export { _c as undefined };\n    export var _d: number;\n    export { _d as foo };\n}\n",
+    );
+}
+
+#[test]
+fn identifier_valued_expandos_are_export_specifiers() {
+    // `transformBinaryExpressionToExportDeclaration` (`transform.go:1307`)
+    // (`jsDeclarationsFunctionWithDefaultAssignedMember`).
+    assert_emits(
+        "function foo() {}\nfoo.foo = foo;\nfoo.default = foo;\nfoo.n = 1;",
+        "declare function foo(): void;\ndeclare namespace foo {\n    export { foo };\n    export { foo as default };\n    export var n: number;\n}\n",
+    );
+}
+
+#[test]
+fn private_computed_member_names_keep_their_entity_visible() {
+    // `declarationEmitPrivateSymbolCausesVarDeclarationToBeEmitted`: the private
+    // member drops its type but restates `[_data]`, so `_data` is emitted.
+    let text = emit(
+        "const _data: unique symbol = Symbol();\nexport class User {\n    private [_data]: any;\n}",
+    );
+    assert!(text.starts_with("declare const _data: unique symbol;\n"), "{text}");
+    assert!(text.contains("private [_data];"), "{text}");
+}
+
+#[test]
+fn object_literal_method_signatures_keep_their_references_visible() {
+    // `declarationEmitThisPredicatesWithPrivateName02`.
+    assert_emits(
+        "interface Foo { a: string; }\nexport const obj = {\n    m(): this is Foo { return true; }\n};",
+        "interface Foo {\n    a: string;\n}\nexport declare const obj: {\n    m(): this is Foo;\n};\nexport {};\n",
+    );
+}
+
+#[test]
+fn unannotated_binding_pattern_parameters_take_the_implied_type() {
+    // `getTypeFromBindingPattern` (`paramterDestrcuturingDeclaration`): object
+    // elements with defaults are optional, rests add a string index, array
+    // elements after the last required one are optional, and an empty or
+    // rest-only array pattern is `Iterable<any>`.
+    assert_emits(
+        "export interface C {\n    ({ p: name }): any;\n    ({ a: { b }, c = 1, [\"k\"]: k, ...r }, [d, , e = \"s\"], [], [...z]): void;\n}",
+        "export interface C {\n    ({ p: name }: {\n        p: any;\n    }): any;\n    ({ a: { b }, c, [\"k\"]: k, ...r }: {\n        a: {\n            b: any;\n        };\n        c?: number;\n        k: any;\n        [x: string]: any;\n    }, [d, , e]: [any, any?, string?], []: Iterable<any>, [...z]: Iterable<any>): void;\n}\n",
+    );
+}
+
+#[test]
+fn unannotated_initialized_parameters_take_the_initializer_type() {
+    // `ensureType` reads the parameter's declared type, which for `x = 1` is
+    // the widened initializer type; the emitter used to drop the initializer
+    // and write `any`.
+    assert_emits(
+        "export function f(x = 1, y = \"a\"): void {}",
+        "export declare function f(x?: number, y?: string): void;\n",
+    );
+}
+
+#[test]
 fn untyped_property_signatures_emit_as_any() {
     assert_emits(
         "declare global { interface Box { value; } }",

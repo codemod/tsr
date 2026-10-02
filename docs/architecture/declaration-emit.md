@@ -1,7 +1,10 @@
 # Declaration emit (`tsr-declarations`)
 
 **Status:** slice 4 of Phase 3.5 (`bd tsr-49v.6`), at **47.49%** on the byte-exact
-emit gate and **67.76%** on the structural one. This is the artifact the phase
+emit gate and **67.76%** on the structural one *when this document was written*.
+Those are historical; the live numbers are in [`STATUS.md`](../../STATUS.md) §1
+(at the 2026-10-02 expando/pattern landing: `dts_emit` 335/372, `dts_shape`
+868/1,006). This is the artifact the phase
 exists to ship: the first `.d.ts` this port has ever produced.
 
 **Upstream pin:** `vendor/typescript-go` @ `5b1047d10`.
@@ -248,6 +251,75 @@ The emitter is corrected here; `tsr_dts` is `bd tsr-49v.2.6`, because changing i
 moves `isolated_declarations` and `dts_reachable_target` and needs its own
 measurement. The test asserts the disagreement rather than papering over it, so
 fixing the analysis makes the test fail and say so.
+
+### An expando property that is a keyword cannot name a `var` (2026-10-02)
+
+`foo.null = true` emitted `declare namespace foo { var null: boolean; }`, which
+does not parse — three `dts_shape` cases (`declarationEmitFunctionKeywordProp`,
+`nullPropertyName`, `jsDeclarationsFunctionWithDefaultAssignedMember`) failed as
+"the emitted .d.ts does not reparse". `transformExpandoAssignment`
+(`transform.go:2719`) has three arms this port lacked, now transcribed in
+`create_expando_namespace`:
+
+- **An identifier on the right is alias-like.** `foo.default = foo` emits
+  `export { foo as default };` (`transformBinaryExpressionToExportDeclaration`,
+  `:1307`), not a `var` typed by inference.
+- **A non-contextual keyword, or a name resolvable from the file's top level,
+  takes a generated local** and an `export { _a as null }` specifier (`:2782`).
+  Once a specifier exists every *earlier* member gains `export` (they would
+  otherwise stop being exported) and every *later* one is written with it.
+- **The generated local is the printer's temp name**, `_a` … `_z` skipping `_i`
+  and `_n`, then `_0`, `_1`, … (`makeTempVariableName`,
+  `internal/printer/namegenerator.go:258`), avoiding every identifier in the file.
+  One counter serves the file: `declarationEmitFunctionKeywordProp` uses `_a` in
+  one namespace and `_b` in the next, which rules out a per-namespace counter.
+
+**The judgement call is `IsNameResolvable`.** Upstream resolves the property
+name from the source file with the checker's full scope chain, *including lib
+globals* — `nullPropertyName`'s `foo.undefined` takes `_21` because `undefined`
+resolves. This port answers it for what is decidable without a `Program`: the
+file's own top-level declarations and import bindings, plus the two globals the
+checker creates itself (`undefined`, `globalThis`). A lib global such as `name`
+or `length` reads as unresolvable and keeps the property name — the behaviour the
+port always had, so the approximation can only have narrowed. It would be wrong
+for an expando named after a lib global; the falsifier is a corpus case whose
+baseline shows `export { _a as name }` and this port printing `var name`.
+
+### A pattern parameter has the type the pattern implies (2026-10-02)
+
+An unannotated, uninitialized binding-pattern parameter emitted `any`. Its
+declared type is `getTypeFromBindingPattern` (`checker.go:17904`), which is pure
+syntax: an object element's type is its initializer's widened type, a nested
+pattern's implied type, or `any`; a defaulted element is optional; a rest element
+adds `[x: string]: any`; an array pattern is a tuple whose elements after the last
+required one are optional; an empty or rest-only array pattern is
+`Iterable<any>` (`createIterableType` at ES2015+). `binding_pattern_type`
+transcribes it (`paramterDestrcuturingDeclaration`, +1 `dts_emit`). In the same
+function the parameter's *initializer* now reaches `ensure_type`: `x = 1` emitted
+`x?: any` while `tsr_dts` (correctly) reported nothing, the analysis/emitter drift
+`tests/analysis_agreement.rs` exists to catch.
+
+### Two visibility edges the source pass missed (2026-10-02)
+
+The first, source-side visibility pass decides what the transform emits at all,
+so a reference it misses is a declaration that never reaches the second pass.
+Two were missing in `tsr_dts::visibility`:
+
+- **A private property's computed name.** `private [_data]: any` drops its type
+  but restates `[_data]`; the collector's property arm skipped the name, so
+  `const _data = Symbol()` was dropped. Upstream's `checkEntityNameVisibility` on
+  the computed expression keeps it. The `dts_emit`
+  case leaves the denominator rather than passing: with `_data` visible,
+  `tsr_dts` now reports `TS9010` on `const _data = Symbol('data')`, which is
+  what upstream's isolated-declarations analysis does too (the pseudochecker has
+  no `Symbol()` arm), so `dts_reachable_target` falls by one — a correction, not
+  a regression.
+- **An object literal's written method signatures.** `{ m(): this is Foo {…} }`
+  emits `m(): this is Foo;`, but `collect_initializer_types` only looked through
+  arrow and function expressions.
+
+Together the two edges move `dts_shape` 861 → 868 and `dts_emit` by one pass
+(`declarationEmitThisPredicatesWithPrivateName02`).
 
 ## Known approximations
 
