@@ -1645,6 +1645,29 @@ pub fn assertions_for_case_with_ids<'a>(
     (program, rendered, ids)
 }
 
+/// The checker the producer renders through: the program as module host, its
+/// JSDoc table, and its compiler options. **Probes that re-query a line must
+/// build theirs here**, or they answer under different options from the line
+/// they are explaining. `examples/depend.rs` built a bare
+/// `Checker::with_module_host` and 108 of its "gap" lines typed in the probe's
+/// checker at `7332f284` (`bd tsr-6.29`).
+#[must_use]
+pub fn configured_checker<'a>(
+    program: &'a tsr_compiler::Program<'a>,
+) -> tsr_checker::Checker<'a, 'a> {
+    let mut checker = tsr_checker::Checker::with_module_host(
+        program.binder(),
+        program.nodes(),
+        program.node_map(),
+        Some(program),
+    );
+    for file in program.root_and_referenced_files() {
+        checker.set_jsdoc(file.jsdoc().iter());
+    }
+    checker.apply_compiler_options(program.compiler_options());
+    checker
+}
+
 /// The body both entry points share, so they cannot drift apart.
 fn render_case(
     program: &tsr_compiler::Program<'_>,
@@ -1672,10 +1695,7 @@ fn render_case(
     // further down) are deliberately left host-less: they parse one file and
     // have no program, and they are the control that a call site without a host
     // is unchanged.
-    let mut checker = tsr_checker::Checker::with_module_host(bound, nodes, node_map, Some(program));
-    for file in program.root_and_referenced_files() {
-        checker.set_jsdoc(file.jsdoc().iter());
-    }
+    let mut checker = configured_checker(program);
     // `GetStrictOptionValue(strictNullChecks)` (`checker.go:919`) over the
     // case's directives: the explicit flag wins, `@strict` is the fallback.
     // **The default is `true`, measured off the baselines rather than
@@ -1713,7 +1733,8 @@ fn render_case(
     // against a partial implementation measures *the gap*, not the language, and
     // it has to be re-measured whenever the gap closes. An unfaithful default
     // that scores better is a marker for an unported rule somewhere else.
-    checker.apply_compiler_options(program.compiler_options());
+    //
+    // Both the JSDoc table and the options are applied in `configured_checker`.
 
     let mut ours = Vec::new();
     for expected_file in expected {

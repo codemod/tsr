@@ -239,3 +239,83 @@ a point. That is §4.4's conclusion arriving through yet another door.
   shape is *anonymous object* (1,926 of 2,383) and `TemplateExpression`'s is
   *primitive*/`string literal` (1,220 + 634 of 1,890) — both the shapes those
   rows' owners predict.
+
+## 9. `depend.rs`'s C1 and C4 repaired — `bd tsr-6.29`, 2026-10-02
+
+**The forcing constraint.** From the indexed-constraint checkpoint on, every
+fresh `depend` run printed hundreds of roots under C1 *"roots that do not gap
+(expect 0)"* — 584, 577, 575, then **493 at `7332f284`** — and C4 still quoted
+`STATUS.md`'s **127,736** gap lines from 63.66%, against a live walk of 3,494.
+The board's two construction controls failed or compared nothing, so STATUS
+marked the instrument unfit for scoring. The suspected cause was the mutable
+checker's evaluation order.
+
+**What the 493 were**, read out of the first instrumented run. Every one was a
+**depth-0** root: the line's own node, which the walk could not leave.
+
+- **390** were §826 admissions: the checker answered `error` and the producer
+  printed `any`. They are admitted by `type_id_at_location_tracking`'s flag, but
+  C1 re-tested every root with `gaps()`, which asks `== error` and sees `any`.
+  The control was testing a different predicate from the one that admitted the
+  line. This is a construction defect in the control, not in the walk.
+- **103** were lines the producer printed `error` but the probe's checker typed.
+  Only **6 of them** were evaluation order, shown by replaying the earlier lines'
+  queries into a fresh checker before asking again. The rest came from
+  configuration: `depend` built a bare `Checker::with_module_host`, while the
+  producer's checker also gets the program's JSDoc table and
+  `apply_compiler_options`. **Of the 39 example probes that build a checker
+  with a module host, 38 never apply the options; only `whichcase.rs` does**
+  (counted before this change). The gap-root boards were explaining lines
+  under options the lines were never computed with.
+
+**The repair.**
+
+1. C1 tests each root with **the predicate that put it on the chain**: a line's
+   own node by `line_gaps` (the §826 admission rule), a stepped-to node by
+   `gaps`. The result is **C1 = 0**.
+2. The probe builds its checker through **`types_producer::configured_checker`**,
+   newly extracted from `render_case`, so producer and probe cannot drift.
+   `verdictdump` is byte-identical across the extraction (`TOTAL 474,243 right
+   456,480 gap 2,693 wrong 15,070` both sides).
+3. A line the producer printed `error` that the configured probe checker does
+   not answer `error` for is bucketed as **C1b** and not walked. C1b is
+   **17**: 6 evaluation order (`contextualTypeCaching` 5, `promiseTry` 1) and
+   11 where a non-`error` type is printed as `error` by the producer's `render`
+   (module-name string literals, `esModuleInterop` default imports,
+   `umdGlobalConflict`).
+4. C4 compares the string-`error` admissions against the aligned `GAP` count from
+   `tsr_conformance::verdict`, the library computation behind `verdictdump` and
+   `scorepair`, run in the same build. **2,725 = 2,693 + 32**: the 32 are lines
+   whose expression contains ` : ` (conditionals). `verdict` splits at the first
+   ` : ` and scores those `WRONG`; `depend` strips the known expression and sees
+   `error`. Every `verdict` GAP row is among `depend`'s admissions, which was
+   checked by joining the two key sets: 0 rows missing.
+
+**Fresh, with this change on `7332f284`:** 3,514 lines walked (789 §826), C1 0,
+C1b 17, C2 209 cycles and 0 depth-cap hits (unchanged, so `cyclegap.rs`'s C2
+freeze still holds), C3 balanced at 3,514, C4 balanced. The +20 walked lines
+and +20 §826 admissions are the options change: under the producer's options,
+20 more `any` lines turn out to be a checker `error`. **Re-run after rebasing
+onto `0f5a9395`**, which brought in other sessions' checker landings: 3,385
+walked (728 §826), C1 0, C1b 17, C2 209/0, C3 balanced, and C4 balanced at
+2,657 = 2,626 + 31.
+
+**Alternatives taken seriously.**
+
+- *Narrow the admission to `== error`* so that C1's old predicate fits. Rejected:
+  that undoes §826 and blinds the board again to 789 lines where the checker
+  computed nothing.
+- *Walk C1b lines anyway.* Rejected: their "root" would be a node that does not
+  gap in the checker doing the walking. Whatever bucket they landed in, the board
+  would be reporting on a different compiler.
+- *Quote a fresher STATUS figure in C4.* Rejected: a quoted number goes stale
+  again in the first session that forgets it, and that is how C4 came to quote
+  127,736. The reference has to be computed by code outside this file.
+  Computing it costs a second corpus pass, about 3.5 minutes on four cores.
+
+**How I would know I was wrong.** C1 ≠ 0 on a later run means the walk and its
+control have parted again. C4 failing to balance means the selection has drifted
+from `verdict`. A C1b line whose replay *and* lone query both gap, or a C1b line
+that types identically under the producer's `render`, means the 6/11 split is
+mislabelled. The other 37 bare-checker probes are not repaired here; their
+answers carry the same configuration caveat until they are.

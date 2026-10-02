@@ -39,15 +39,40 @@
 //!
 //! - **C1, construction.** A root is a node that gaps and whose step either does
 //!   not exist or does not gap. So `roots that gap` must equal the whole
-//!   population: every walk terminates at a gapping node. Printed.
+//!   population: every walk terminates at a gapping node. Printed. **"Gaps" is
+//!   judged by the predicate that put the node on the chain**: a line's own node
+//!   by [`line_gaps`] (the admission rule, which since §826 includes a checker
+//!   `error` printed as `any`), a stepped-to node by [`gaps`]. Until `bd tsr-6.29`
+//!   C1 re-tested every root with [`gaps`] alone, so each §826 admission that
+//!   stopped at depth 0 reported as a construction failure — 390 of the 493 at
+//!   `7332f284`, and all 493 were depth-0 roots.
+//! - **C1b, the probe's checker disagrees with the producer's line.** A line
+//!   the producer printed `error` that this probe's checker does not answer
+//!   `error` for has no root here; it is counted in its own bucket and not
+//!   walked. Until `bd tsr-6.29` this probe built a bare
+//!   `Checker::with_module_host` — no JSDoc table, no compiler options — and
+//!   103 of the 493 were that alone (108 when tested at admission). Built
+//!   through `types_producer::configured_checker`, the producer's own
+//!   constructor, C1b reads **17 at `7332f284`**: 6 are evaluation order (the
+//!   line types in a fresh checker and gaps again after replaying the earlier
+//!   lines' queries — `contextualTypeCaching` 5, `promiseTry` 1) and 11 are a
+//!   non-`error` type the producer's `render` prints as `error` (module-name
+//!   string literals, `esModuleInterop` default imports, `umdGlobalConflict`).
 //! - **C2, construction.** The walk carries a `visited` set and a depth cap. A
 //!   chain that revisits a node is a **cycle**, which is a real shape here
 //!   (`var a = b; var b = a;`), and it is counted rather than silently truncated
 //!   — a cycle terminating at its entry point would otherwise be reported as a
 //!   root of whatever kind the walk happened to stop on.
 //! - **C3, arithmetic.** Every gap line lands in exactly one root bucket.
-//! - **C4, frozen.** The gap total is compared against `STATUS.md`'s published
-//!   figure, which no mutation of this file can move.
+//! - **C4, frozen.** The string-`error` admissions are compared against the
+//!   aligned `GAP` count from `tsr_conformance::verdict` — the `verdictdump` /
+//!   `scorepair` computation, run in the same build, which no mutation of this
+//!   file can move. They differ by exactly the lines whose expression itself
+//!   contains ` : ` (a conditional): `verdict` splits a line at its first ` : `,
+//!   so such a line's type column is the expression's tail and it scores
+//!   `WRONG`, while this probe strips the known expression and sees `error`.
+//!   Until `bd tsr-6.29` C4 quoted `STATUS.md`'s 127,736 from 63.66%, a
+//!   population ~37× the live one that nothing compared against.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
@@ -79,6 +104,33 @@ fn gaps<'a>(
         return checker.get_type_from_type_node(type_node) == error;
     }
     types_producer::type_id_at_location(checker, binder, nodes, map, id) == error
+}
+
+/// Does a *line's own node* gap, by the rule that admits it to the board — the
+/// checker answered `error`, whether or not the producer printed it as `any`
+/// (§826)? [`gaps`] is the narrower `== error` the walk steps on; C1 must test
+/// each root with the predicate that put it on the chain, or every §826
+/// admission that stops at depth 0 reads as a construction failure.
+fn line_gaps<'a>(
+    checker: &mut tsr_checker::Checker<'a, '_>,
+    binder: &tsr_binder::BindResult<'a>,
+    nodes: &NodeTable,
+    map: &NodeMap<'a>,
+    id: NodeId,
+) -> bool {
+    if map.get(id).is_some_and(|node| tsr_ast::TypeNode::try_from(node).is_ok()) {
+        return gaps(checker, binder, nodes, map, id);
+    }
+    let mut saw_error = false;
+    let answer = types_producer::type_id_at_location_tracking(
+        checker,
+        binder,
+        nodes,
+        map,
+        id,
+        &mut saw_error,
+    );
+    saw_error || answer == checker.intrinsics().error
 }
 
 /// §827: the edge a member name's chain should take when the RECEIVER is fine
@@ -616,6 +668,12 @@ struct Report {
     cycles: usize,
     too_deep: usize,
     c1_root_does_not_gap: usize,
+    /// C1b: lines the producer printed `error` that this probe's own checker
+    /// types. Bucketed, not walked.
+    c1b_order: usize,
+    /// C4: string-`error` admissions whose expression contains ` : `, which
+    /// `tsr_conformance::verdict` scores `WRONG`.
+    c4_colon_expression: usize,
 }
 
 impl Report {
@@ -625,6 +683,8 @@ impl Report {
         self.cycles += other.cycles;
         self.too_deep += other.too_deep;
         self.c1_root_does_not_gap += other.c1_root_does_not_gap;
+        self.c1b_order += other.c1b_order;
+        self.c4_colon_expression += other.c4_colon_expression;
         for (k, n) in &other.roots {
             *self.roots.entry(k.clone()).or_default() += n;
         }
@@ -665,7 +725,7 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<Report> {
     let nodes = program.nodes();
     let map = program.node_map();
     let bound = program.binder();
-    let mut checker = tsr_checker::Checker::with_module_host(bound, nodes, map, Some(&program));
+    let mut checker = types_producer::configured_checker(&program);
 
     let mut report = Report::default();
     for (index, expected_file) in expected.iter().enumerate() {
@@ -719,6 +779,28 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<Report> {
             report.gap += 1;
 
             let mut current = line_ids[position];
+            if got.type_string == "error" {
+                if got.text.contains(" : ") {
+                    report.c4_colon_expression += 1;
+                }
+                // C1b: the producer's checker printed `error`; does this one
+                // agree? See the module docs.
+                if !line_gaps(&mut checker, bound, nodes, map, current) {
+                    report.c1b_order += 1;
+                    let key = (
+                        format!("{:?}", nodes.kind(current)),
+                        "C1b: the probe's checker does not answer `error` here — not a root",
+                    );
+                    *report.roots.entry(key.clone()).or_default() += 1;
+                    *report
+                        .root_cases
+                        .entry(key)
+                        .or_default()
+                        .entry(case.name.clone())
+                        .or_default() += 1;
+                    continue;
+                }
+            }
             let mut visited: HashSet<NodeId> = HashSet::new();
             visited.insert(current);
             let mut depth = 0usize;
@@ -760,7 +842,13 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<Report> {
                 current = next;
             };
 
-            if !gaps(&mut checker, bound, nodes, map, current) {
+            // C1, by the predicate that put `current` on the chain.
+            let root_gaps = if depth == 0 {
+                line_gaps(&mut checker, bound, nodes, map, current)
+            } else {
+                gaps(&mut checker, bound, nodes, map, current)
+            };
+            if !root_gaps {
                 report.c1_root_does_not_gap += 1;
             }
             let is_declaration_name = nodes
@@ -845,6 +933,12 @@ fn main() {
     let corpus = Corpus::from_repo_root(&repo_root());
     assert!(corpus.is_available(), "corpus missing");
     let cases = corpus.discover().expect("cases");
+    // C4's reference figure, from the library computation `verdictdump` and
+    // `scorepair` print — a second corpus pass, deliberately not this file's.
+    let verdict_gap = tsr_conformance::verdict::verdict_rows(&[])
+        .iter()
+        .filter(|row| row.contains("\tGAP\t"))
+        .count();
     let report = cases
         .par_iter()
         .filter_map(measure)
@@ -909,10 +1003,27 @@ fn main() {
 
     println!("\n## Controls");
     println!(
-        "  C1 construction: roots that do not gap  {}  (expect 0)",
+        "  C1 construction: walked roots that do not gap by the predicate that chained them  {}  (expect 0)",
         report.c1_root_does_not_gap
+    );
+    println!(
+        "  C1b disagree:    producer-`error` lines the probe checker does not answer `error`  {}  (bucketed, not walked)",
+        report.c1b_order
     );
     println!("  C2 construction: cycles {}, depth-cap hits {}", report.cycles, report.too_deep);
     println!("  C3 arithmetic:   root buckets sum to {total}, gap lines walked {}", report.gap);
-    println!("  C4 frozen:       STATUS.md publishes ~127,736 gap lines at 63.66%");
+    let string_admissions = report.gap - report.error_behind_any;
+    let expected = verdict_gap + report.c4_colon_expression;
+    println!(
+        "  C4 frozen:       string-`error` admissions {string_admissions} = verdict GAP {verdict_gap} + ` : `-expression lines {}  {}",
+        report.c4_colon_expression,
+        if string_admissions == expected {
+            "(balances)".to_owned()
+        } else {
+            format!(
+                "(DOES NOT BALANCE by {} — the selection has drifted from `verdict`)",
+                string_admissions.abs_diff(expected)
+            )
+        }
+    );
 }
