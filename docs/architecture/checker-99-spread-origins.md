@@ -100,3 +100,39 @@ Release workspace gates pass 202 result blocks after the legacy expectation is
 corrected. Clippy, formatting and whitespace checks pass. The final source uses
 the shared member renderer; the committed-checkout verdict will verify that this
 simplification preserves the frozen candidate exactly.
+
+## Committed checkpoint
+
+At f2661fe5 the clean checkout passes both new tests and all three legacy spread
+tests. With its own build target it reproduces the frozen verdict byte-for-byte
+and matches the final source hash above. The final shared-renderer simplification
+therefore preserves every verdict. Coverage is 455,107/478,855 matches (95.04%)
+and 6,839/9,538 complete cases (71.70%), six more than the baseline. The snapshot
+comes from this checkout; 18,960 further matches are required for 99%.
+
+Depend reports 512 non-gapping roots, 214 cycles, zero depth-cap hits and 3,756
+walked gaps. C3 balances; C1/C4 remain stale under tsr-6.29, not current coverage
+proof. All 3,342 upstream references resolve.
+
+Two isolated mutations disable final declaration ordering and remove the syntactic
+key-domain guard. The first fails both new tests. The second fails selectedOnly
+because bar incorrectly leaks into Select<Props,"foo">. These are assertion
+failures, not compilation failures. Every mutated production source is restored
+byte-for-byte to the commit. The old extraction-only mutation ledger is explicitly
+historical now that final provenance sorting supplies a second ordering boundary.
+
+Evidence:
+- /tmp/tsr-99-origins-verified.tsv
+- /tmp/tsr-99-spread-origin-transitions4.txt
+- /tmp/tsr-99-origins-verified-tests.log
+- /tmp/tsr-99-origins-verified-legacy.log
+- /tmp/tsr-99-spread-origins-workspace2.log
+- /tmp/tsr-99-spread-origins-clippy2.log
+- /tmp/tsr-99-spread-origins-anchors2.log
+- /tmp/tsr-99-origins-verified-coverage.log
+- /tmp/tsr-99-origins-verified-depend.log
+- /tmp/tsr-99-origins-mutation-order.log
+- /tmp/tsr-99-origins-mutation-keys.log
+- /tmp/compound-engineering-501/ce-code-review/spread-origins/review.json
+
+The broader tsr-8 work remains in progress. No other suite is remeasured here.

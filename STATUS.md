@@ -24,23 +24,24 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-10-01
 
-Measured on **`8e234201`** in an isolated checkout: **455,064/478,855 assertions
-(95.03%)**, **6,833/9,538 complete cases (71.64%)**. The 99% target requires
-474,067 correct assertions; **19,003 remain**. Denominator and pinned oracle
-unchanged. Aligned verdicts: **474,243 total; 455,064 right; 2,912 gap; 16,267 wrong**.
+Measured on **`f2661fe5`** in an isolated checkout: **455,107/478,855 assertions
+(95.04%)**, **6,839/9,538 complete cases (71.70%)**. The 99% target requires
+474,067 correct assertions; **18,960 remain**. Denominator and pinned oracle
+unchanged. Aligned verdicts: **474,243 total; 455,107 right; 2,910 gap; 16,226 wrong**.
 Binder retains its verified **8,497/8,497 (100%)** result at aab165d8;
 other suites below retain historical measurements.
 
-This unit adds **101 matching assertions** and **10 complete cases**, with
-**zero RIGHT losses** relative to 4aad09e1: 93 WRONG→RIGHT and eight GAP→RIGHT.
-Two GAP→WRONG and 25 changed-wrong rows are recorded separately.
-[Literal targets and optional spreads](docs/architecture/checker-99-literal-targets-spreads.md)
-records actual-property requirements on literal targets, optional-right merges,
-partial object unions and native spread validity. Four native-controlled tests,
-201 release workspace result blocks, clippy, 3,342 anchors and the refreshed checker
-snapshot support this checkpoint. Committed verdict and source hash match the
-frozen candidate. Three isolated mutations fail the corresponding tests; sources
-are restored byte-for-byte. The 99% goal remains active.
+This unit adds **43 matching assertions** and **six complete cases**, with
+**zero RIGHT losses** relative to 8e234201: 41 WRONG→RIGHT and two GAP→RIGHT.
+There are no GAP→WRONG transitions; 13 changed-wrong rows remain tracked.
+[Spread declaration origins](docs/architecture/checker-99-spread-origins.md)
+records provenance through captured/instantiated/widened members, native ordering,
+indirect mapped modifiers and selected-key boundaries. Two new tests and three
+legacy spread tests pass in the clean checkout. All 202 release workspace result
+blocks, clippy, 3,342 anchors and the refreshed snapshot support this checkpoint.
+Committed verdict and source hash match the frozen candidate. Isolated ordering
+and selected-key mutations fail the corresponding tests; production sources are
+restored byte-for-byte. The 99% goal remains active.
 
 ### Previous whole-suite measurement — historical
 
@@ -1075,6 +1076,7 @@ Per-crate, by what the conformance suites actually assert — not by what exists
 
 | subsystem | state | evidence |
 |---|---|---|
+| spread member declarations | **provenance and native ordering survive semantic images** | f2661fe5: +43 matches, zero RIGHT losses, +6 complete cases; indirect mapped modifiers and selected-key boundaries; [evidence](docs/architecture/checker-99-spread-origins.md) |
 | literal targets and optional spreads | **native presence, merge and validity rules** | 8e234201: +101 matches, zero RIGHT losses, +10 complete cases; [evidence](docs/architecture/checker-99-literal-targets-spreads.md) |
 | structural index relations | **semantic indexes are independent requirements** | 4aad09e1: +17 matches, zero RIGHT losses, +1 complete case; [evidence](docs/architecture/checker-99-index-relations.md) |
 | object literal widening | **sibling contexts and literal candidate grouping** | bdc82dd5: +155 matches, zero RIGHT losses, +6 complete cases; [evidence](docs/architecture/checker-99-widening-context.md) |
@@ -1237,7 +1239,22 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-### Current priorities at `8e234201` — 2026-10-01
+### Current priorities at `f2661fe5` — 2026-10-01
+
+Continue toward 99% coverage: 18,960 matching assertions remain. Declaration
+provenance and indirect mapped modifiers gain 43 matches. The next tsr-8 work is
+the shared native getSpreadType fold: union distribution, generic-object flags
+and intersections, semantic extraction with indexes and class visibility, plus
+method/accessor and original optional-symbol serialization. Three changed-wrong
+rows retain generic mapped spread/rest expansion; ten retain method syntax.
+Do not special-case single-spread syntax: trailing properties and repeated spreads
+must use the same semantic fold. The native cross-product limit is 100,000.
+Shadowed parameter serialization/contextual/this/intersection consumers remain in
+tsr-6.38; alias members and adjusted facts in tsr-6.35 and tsr-6.34.
+Fresh depend: 512 non-gapping roots, 214 cycles, zero depth-cap hits and 3,756
+walked gaps. C3 balances; C1/C4 remain stale (tsr-6.29), not coverage evidence.
+
+### Previous priorities at `8e234201` — 2026-10-01
 
 Continue toward 99% coverage: 19,003 matching assertions remain. Literal target
 requirements and optional spreads gain 101 matches, including 16 in each
@@ -4080,6 +4097,17 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+### Spread declaration origins at `f2661fe5`
+
+An incomplete origin capture gained 38 but lost 95 RIGHT: 94 losses came from
+missing shorthand declaration origins and one from indirect Pick modifier origins.
+The first indirect-modifier implementation then lost seven RIGHT by incorrectly
+enumerating all modifier-source keys. The native syntactic-keyof distinction
+restores the selected key domain and contextual callbacks. Final result: +43 RIGHT,
+zero RIGHT losses, 13 changed-wrong rows tracked in tsr-8. A legacy unit test's
+replace-in-place ordering claim was checked against pinned tsgo and
+corrected to the native declaration order. See [evidence](docs/architecture/checker-99-spread-origins.md).
 
 ### Literal targets and optional spreads at `8e234201`
 
@@ -10149,6 +10177,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
+| 2026-10-01 | `f2661fe5` | **71.70%** | **6,839** | **455,107/478,855 assertions (95.04%).** +43 since 8e234201, zero RIGHT losses;41W→R,2G→R,13changedwrong. | Declaration provenance, spread order, indirect mapped modifiers and selected-key boundaries. Two new/three legacy tests;202workspaceblocks,clippy,3342anchors;isolated verdict/source match.18,960 remain to99%. |
 | 2026-10-01 | `8e234201` | **71.64%** | **6,833** | **455,064/478,855 assertions (95.03%).** +101 since 4aad09e1, zero RIGHT losses; 93W→R,8G→R,2G→W,25 changed wrong. | Literal target named properties, optional spread merges, partial unions and native operand validity. Four native tests; 201 workspace result blocks, clippy,3,342 anchors; isolated verdict/source match and refreshed snapshot. 19,003 remain to99%. |
 | 2026-10-01 | `4aad09e1` | **71.53%** | **6,823** | **454,963/478,855 assertions (95.01%).** +17 since bdc82dd5, zero RIGHT losses;15W→R,2G→R,no changed wrong. | Semantic index relations, inferred-index restrictions, key/optional handling, callable/index conjunction. Two native tests, workspace200 blocks, isolated index mutation; final clippy,3,336 anchors,isolated verdict/source match. 19,104 remain to99%. |
 | 2026-10-01 | `bdc82dd5` | **71.52%** | **6,822** | **454,946/478,855 assertions (95.01%).** +155 since bd41d1b0, zero RIGHT losses; 143W→R,12G→R,21 changed wrong. | Object-literal widening contexts and literal candidate grouping. Three native controls; workspace199 blocks, clippy,3,340 anchors; isolated verdict/source match. 19,121 remain to99%; tsr-6.40 tracks residuals. |

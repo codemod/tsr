@@ -6,6 +6,8 @@
 //! wrong, and both were chosen because a fixture that merely *works* passes
 //! either way.
 //!
+//! Historical mutation ledger (before final declaration-provenance sorting):
+//!
 //! | # | mutation | reddens |
 //! |---|---|---|
 //! | 1 | `upsert_member` becomes `members.push` | [`a_later_member_uses_its_own_declaration_order`] |
@@ -82,7 +84,10 @@ fn a_later_member_uses_its_own_declaration_order() {
 /// | alphabetical | `alpha, beta, delta, epsilon, gamma` — `delta` before `gamma` |
 /// | `FxHashMap` iteration | `epsilon, delta, alpha, gamma, beta` |
 ///
-/// Red under **mutation 2**, and red under a sort-by-name implementation too.
+/// The original single-sort implementation was red under mutation 2. Final
+/// provenance sorting now supplies a second ordering boundary; its isolated
+/// mutation is covered by tsr-conformance/tests/spread_origins.rs. This test
+/// continues to pin declaration order against a globally alphabetical result.
 #[test]
 fn spread_member_order_is_the_declaration_order() {
     assert_eq!(
