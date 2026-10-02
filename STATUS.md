@@ -24,14 +24,25 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-10-02
 
-Measured on **`44279dc`** (rebased on 5871239): **457,391/478,855 assertions
-(95.52%)**, **7,002/9,538 complete cases (73.41%)**. The 99% target requires
-474,067 correct assertions; **16,676 remain**. Denominator and pinned oracle
-unchanged. Aligned verdicts: **474,243 total; 457,391 right; 2,568 gap; 14,284
-wrong**. Binder retains its verified **8,497/8,497 (100%)** result at aab165d8;
-other suites below retain historical measurements.
+Measured on **`ac495d85`** (rebased on 6249bf79): **457,508/478,855 assertions
+(95.54%)**, **7,006/9,538 complete cases (73.45%)**. The 99% target requires
+474,067 correct assertions; **16,559 remain**. Denominator and pinned oracle
+unchanged. Aligned verdicts: **474,243 total; 457,508 right; 2,568 gap; 14,167
+wrong**. Diagnostics 2,784/5,488 at the same commit. Binder retains its verified
+**8,497/8,497 (100%)** result at aab165d8; other suites below retain historical
+measurements.
 
-This unit (tsr-6.34, flow narrowing) adds **35 matching assertions and two
+This unit (overloaded construct argument contexts, tsr-6.21) adds **117
+matching assertions** (all WRONG-to-RIGHT) with **zero RIGHT losses and zero
+GAP-to-WRONG** relative to a full baseline measured at 6249bf79; 28 already-WRONG
+rows change toward native but remain wrong (final-check literal retention).
+[Construct argument contexts](docs/architecture/checker-99-construct-argument-contexts.md)
+records the per-candidate contexts for `new Map([[k, v]])`-style overload sets
+and the measured call-road refusal (+130 with nine RIGHT losses in
+tupleTypeInference/genericFunctionInference1). Release workspace tests (219 result blocks),
+clippy, formatting and the section gate pass.
+
+The preceding unit, measured at 44279dc: (tsr-6.34, flow narrowing) adds **35 matching assertions and two
 complete cases** against a full baseline measured at 5871239 in a separate
 worktree: 32 WRONG-to-RIGHT, 3 GAP-to-RIGHT, **zero RIGHT losses, zero
 GAP-to-WRONG and zero changed already-WRONG rows** (full verdict diff). The
@@ -1283,7 +1294,17 @@ reporting, `for-of49`'s unnormalized `[string, ...[boolean]]` tuple-target
 spelling, and the residual spreadUnion2/spreadObjectOrFalsy/
 spreadExpressionContextualTypeWithNamespace rows.
 
-### Current priorities at `44279dc` — 2026-10-02
+### Current priorities at `ac495d85` — 2026-10-02 (call-site generic inference)
+
+Continue toward 99%: 16,559 matching assertions remain. Call-site generic
+inference (tsr-6.1/6.15/6.21/6.22): construct calls now re-type array-literal
+arguments per overload candidate. Remaining in that family: the same per-candidate
+contexts on the call road (blocked on check_generic_call_worker declining
+too-short tuples), final-check literal retention (`[string, true]`),
+promisePermutations2's mixed Promise/legacy unions, the Signature arm of
+instantiateContextualType and genericFunctionInference1's pipe rows.
+
+### Previous priorities at `44279dc` — 2026-10-02
 
 Continue toward 99%: 16,676 matching assertions remain. tsr-6.34 (flow
 narrowing): aliased callables now relate structurally to `Function`, and generic
@@ -11798,3 +11819,5 @@ that were true of a different population than the one they were quoted about.
 | 2026-10-02 | `1421c2f2` | **95.51%** | **7,000/9,538** | **Rest keys and Omit reads (tsr-8): +35 assertions (34 W-to-R, 1 G-to-R), +1 complete case(s) vs `7184f54a`, zero RIGHT losses, GAP-to-WRONG or changed WRONG rows.** 457,356/478,855, 2,571 aligned gaps, 14,316 wrong. Generic rest omit keys skip non-public members; `Omit<T, K>` reads follow keyof publicity and defer `T[P]`; `?`-only optionality. Converged with tsr-6.25's getRestType port (landed first). One new destructure test; 218 release blocks (at the fa90d3a4 rebase), clippy, anchors, sections. [Evidence](docs/architecture/checker-99-rest-types.md). 16,711 matches remain to 99%. |
 
 | 2026-10-02 | `44279dc` | **95.52%** | **7,002/9,538** | **tsr-6.34 flow narrowing: +35 assertions (32 W-to-R, 3 G-to-R), +2 complete cases, zero RIGHT losses, zero G-to-W, zero changed already-WRONG rows vs 5871239.** The relater's `has_members` admitted anonymous callables only by their print flag, so `L -> Function` was never compared and `typeof === "function"` answered `L & Function` (nonNullReferenceMatching 18, narrowingByTypeofInSwitch 8, strictBindCallApply1 2, multiSignatureTypeInference 2); `deferred_indexed_access` accepts a key of an intersection constituent (`NonNullable<T>[K]`: controlFlowGenericTypes 3, typeVariableTypeGuards 1, unknownControlFlow 1). Two regressions, each failing with its change reverted. diagnostics 2,784 (vs 2,782). [Evidence](docs/architecture/checker-99-flow-callables-and-intersection-keys.md) |
+
+| 2026-10-02 | `ac495d85` | **95.54%** | **7,006/9,538** | **Overloaded construct argument contexts (tsr-6.21): +117 assertions (117 W-to-R: 16 acceptSymbolAsWeakType, 14 setMethods, 12 dissallowSymbolAsWeakType, 49 for-of37–50, 30 iterableArrayPattern25–30, 5 objectFromEntries), zero RIGHT losses, zero G-to-W; 28 changed already-WRONG rows** against a full baseline at 6249bf79: 457,508/478,855. The NewExpression contextual arm reads the candidate under inference; the overload walk evicts array-literal arguments of `new` before each generic candidate. The call-road twin measured +130/−9 RIGHT and is refused until too-short tuple inference answers. [Record](docs/architecture/checker-99-construct-argument-contexts.md). |
