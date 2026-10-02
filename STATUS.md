@@ -90,13 +90,13 @@ had not.
 | `module_resolution` | 95/95 | 100.00% | — |
 | `file_loader` | 96/96 | 100.00% | — |
 | `printer_round_trip` | 11,805/11,806 | 99.99% | — |
-| `dts_emit` | 335/372 | 90.05% | at `f713c889` (dts rows re-measured 2026-10-02) |
-| `dts_shape` | 868/1,006 | 86.28% | at `f713c889` |
-| `isolated_declarations` | 13/15 | 86.67% | at `f713c889` |
+| `dts_emit` | 335/372 | 90.05% | at `217c356e` (dts rows re-measured 2026-10-02) |
+| `dts_shape` | 874/1,006 | 86.88% | at `217c356e` |
+| `isolated_declarations` | 13/15 | 86.67% | at `217c356e` |
 | **`checker_types`** | **6,375/9,538** | **66.84%** | **92.67%** (443,743/478,855) |
 | **`diagnostics`** | **2,632/5,488** | **47.96%** | — |
 | `parser_reachable_target` | 5,031/10,570 | 47.60% | — |
-| `dts_reachable_target` | 491/1,162 | 42.25% | at `f713c889`; −1 is a visibility correction, see §7 |
+| `dts_reachable_target` | 491/1,162 | 42.25% | at `217c356e`; −1 (from 492) is a visibility correction, see §7 |
 
 `scorepair`'s aligned view at the same commit, which is the denominator every
 transition matrix in §7 is quoted against:
@@ -1116,7 +1116,7 @@ Per-crate, by what the conformance suites actually assert — not by what exists
 | binder | **near done** | 99.15% at `8dcdc71`; `getMergedSymbol` redirect landed 2026-08-06 |
 | module resolution | **done** | 95/95, `file_loader` 96/96, [ADR-0041](docs/adr/0041-the-checker-asks-its-program-for-a-module.md) |
 | printer | **done** | 100% round-trip at `8dcdc71` |
-| declaration emit | **partial** | `dts_shape` 86.28%, `dts_emit` 90.05% at `f713c889`; checker-free `SyntacticResolver` only, [notes](docs/architecture/declaration-emit.md) |
+| declaration emit | **partial** | `dts_shape` 86.88%, `dts_emit` 90.05% at `217c356e`; checker-free `SyntacticResolver` only, [notes](docs/architecture/declaration-emit.md) |
 | **checker** | **95.20% of assertions** | 455,875/478,855 at `9afcc9f3`; §4 and §5 |
 | transformers | **not started** | |
 | **compiler driver / CLI** | **seam only** | three pieces, no binary. `tsr_vfs::OsFileSystem` (the real disk, `internal/vfs/osvfs`), `Checker::apply_compiler_options` ([ADR-0042](docs/adr/0042-checker-options-come-from-compiler-options.md)), and `tsr_diagnostics::format` (the plain `a.ts(1,1): error TS2304:` line and the `Found N errors` summary, byte-exact). **No command-line parser, no `tsc` binary, no emit, no pretty output** — see §4 |
@@ -11479,6 +11479,7 @@ holds only the numbers.
 | 2026-09-30 | `f6405d4d` | **68.48%** | **6,532** | **447,501/478,855 assertions (93.45%).** +87 correct since `18ce162e`: 75 W→R and 12 G→R, zero RIGHT losses or other status transitions. Ports generic tuple indexed-access deferral, numeric iteration projections, type parameter iteration constraints and tuple destructuring slices with readonly removal and optional/label preservation. Release workspace tests and clippy pass; 3,380 anchors resolve. Snapshot refreshed. [Evidence and limits](docs/architecture/checker-95-tuple-reads.md). 7,412 assertions remain; 95% goal active. |
 | 2026-09-30 | `ac8d33ed` | **68.59%** | **6,542** | **447,657/478,855 assertions (93.48%).** +156 correct since `f6405d4d`: 88 W→R and 68 G→R, zero RIGHT losses; 8 G→W remain in the deficit. Ports conditional-local infer binding/visibility, semantic infer identities, signature-less inference mappers and strict conditional variance, plus concrete rest tuple position inference. Unsupported targets defer. Release workspace tests/clippy pass; 3,380 anchors resolve; snapshot refreshed. Binder symbols 8,497/8,497 (100%). [Evidence and remaining work](docs/architecture/checker-95-conditional-infer.md). 7,256 assertions remain; goal active. |
 | 2026-10-02 | `f713c889` | — | — | **dts: `dts_shape` 858 → 868/1,006, `dts_emit` 333/373 → 335/372, `isolated_declarations` 13/15 unmoved, `dts_reachable_target` 492 → 491.** | Declaration-transform only; no checker code touched. `transformExpandoAssignment`'s keyword/resolvable-name arm (printer temp names `_a`…, `export { _a as null }`, export-modifier promotion) and its identifier-valued alias arm fixed three emitted `.d.ts` files that did not reparse; `getTypeFromBindingPattern` types unannotated pattern parameters and parameter initializers now reach `ensureType`; two source-visibility edges (private computed names, object-literal method signatures). The reachable −1 is `declarationEmitPrivateSymbolCausesVarDeclarationToBeEmitted`: `_data` is now visible, so `tsr_dts` reports `TS9010` on `const _data = Symbol()` as upstream's isolated analysis does. `IsNameResolvable` is answered for file-scope names plus `undefined`/`globalThis` only; lib globals stay unresolved. Release workspace tests, clippy, fmt pass. [Notes](docs/architecture/declaration-emit.md). |
+| 2026-10-02 | `217c356e` | — | — | **dts: `dts_shape` 868 → 874/1,006; `dts_emit` 335/372, `isolated_declarations` 13/15, `dts_reachable_target` 491/1,162 unmoved.** | Declaration-transform only. `FileScope` restates a reference that certainly resolves to a file-level class/function/non-const enum as `typeof Name`, `new C()` of a non-generic class as `C`, and such shorthands as `name: typeof name`; `tsr_dts::visibility` resolves the same value names in its fixpoint only when every declaration of the name restates as `typeof`. `transformExportAssignment`'s function-like arm (export first, then `declare function _default`). Expando namespaces attach to the first overload and need a named member. Refused in place: collecting a default-exported literal's computed keys measured −1 (`declarationEmitComputedNameConstEnumAlias` wants the enum member's value, which the builder cannot print). Release workspace tests (217 blocks), clippy, fmt pass. [Notes](docs/architecture/declaration-emit.md). |
 
 ## 8. Updating this file
 
