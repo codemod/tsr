@@ -119,3 +119,26 @@ fn a_concrete_index_still_resolves() {
         "string"
     );
 }
+
+/// `keyof (A & B)` is `keyof A | keyof B`, so a key of one intersection
+/// constituent keys the whole intersection. This is the non-null narrowed
+/// receiver of `typeVariableTypeGuards.types:284`
+/// (`>obj[key] : NonNullable<T>[K]`): without a lib `NonNullable` alias,
+/// native's fallback spelling of the receiver is `T & {}`.
+#[test]
+fn a_key_of_an_intersection_constituent_defers_over_the_intersection() {
+    assert_eq!(
+        type_of_first_local(
+            "function f<T, K extends keyof T>(x: T & {}, k: K) { const a = x[k]; }"
+        ),
+        "(T & {})[K]"
+    );
+    // The constituent must be the keyed operand itself: `U` is not a
+    // constituent of `T & {}`, so the different-object refusal still holds.
+    assert_eq!(
+        type_of_first_local(
+            "function f<T, U extends T, K extends keyof U>(x: T & {}, k: K) { const a = x[k]; }"
+        ),
+        "error"
+    );
+}

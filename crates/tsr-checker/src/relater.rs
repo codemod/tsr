@@ -887,12 +887,21 @@ impl Relater<'_, '_, '_> {
         if self.checker.type_of(id).flags.contains(TypeFlags::TYPE_PARAMETER) {
             return false;
         }
+        // An anonymous object type is structured whenever it carries call or
+        // construct signatures. `signature` records only the printed node kind
+        // (a bare FunctionTypeNode): an aliased function type such as
+        // `type L = (x: number) => string` prints as `L` and records `false`,
+        // yet upstream still compares it structurally — that is how
+        // `L -> Function` relates through the global Function members.
         self.checker.class_static_symbol(id).is_some()
-            || matches!(
-                &self.checker.type_of(id).data,
+            || match &self.checker.type_of(id).data {
                 TypeData::Named { members: Some(_), .. }
-                    | TypeData::Anonymous { signature: true, .. }
-            )
+                | TypeData::Anonymous { signature: true, .. } => true,
+                TypeData::Anonymous { .. } => {
+                    self.checker.signatures_of_type(id).is_some_and(|list| !list.is_empty())
+                }
+                _ => false,
+            }
     }
 
     fn is_pure_signature_type(&mut self, id: TypeId) -> bool {

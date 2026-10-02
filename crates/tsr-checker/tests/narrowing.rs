@@ -699,6 +699,27 @@ fn typeof_function_narrows_a_union_to_its_callable_member() {
     );
 }
 
+/// An ALIASED function type is still a structured callable. `type L` prints as
+/// `L`, so its `Anonymous` record says `signature: false` (the printed node
+/// kind), and the relater used that print flag as its "has members" test:
+/// `L -> Function` was never compared structurally, the strict-subtype branch
+/// of `narrowTypeByTypeFacts` (`flow.go`) missed, and the intersection arm
+/// answered `L & Function` where `narrowingByTypeofInSwitch.types` records `L`.
+/// The generic form (`X extends L`) relates through its constraint the same way.
+#[test]
+fn typeof_function_keeps_an_aliased_callable_without_an_intersection() {
+    assert_eq!(
+        type_of_last_expression(
+            "interface Function {}\n\
+             type L = (x: number) => string;\n\
+             type R = { x: string };\n\
+             declare var x: L | R;\n\
+             if (typeof x === \"function\") { x; }"
+        ),
+        "L"
+    );
+}
+
 /// The control, and it is the one that would have caught the original defect:
 /// with **no** `Function` in scope the decline is correct, so a fixture that
 /// only tests the narrowing cannot tell "declines when it should" from

@@ -804,8 +804,17 @@ impl Checker<'_, '_> {
         // Generic indexing is valid when the key constraint belongs to this
         // object. Preserve the deferred keyof operand identity; concrete key
         // constraints can instead be checked against the object's semantic keys.
+        // `keyof (A & B)` is `keyof A | keyof B` (getIndexType over an
+        // intersection), so a key of one intersection constituent keys the
+        // whole object: `obj[key]` with `obj: NonNullable<T>` (`T & {}`) and
+        // `key: K extends keyof T` defers to `NonNullable<T>[K]`.
         let keys_this_object = |checker: &Self, candidate: TypeId| {
-            checker.deferred_keyof_operands.get(&candidate) == Some(&object_type)
+            let Some(&operand) = checker.deferred_keyof_operands.get(&candidate) else {
+                return false;
+            };
+            operand == object_type
+                || matches!(&checker.store.get(object_type).data,
+                    TypeData::Intersection { types, .. } if types.contains(&operand))
         };
         let index_is_generic = if keys_this_object(self, index_type) {
             true
