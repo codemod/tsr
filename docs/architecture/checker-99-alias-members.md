@@ -121,3 +121,35 @@ Checker sources plus trace_case SHA-256:
 
 After metadata simplification, release workspace tests pass 196 result blocks;
 clippy with warnings denied, formatting, whitespace and 3,342 anchors pass.
+
+## Committed checkpoint
+
+At fe8f3a22, the isolated checkout's eight focused tests pass and its checker
+source hash matches. The full verdict is byte-identical to the final candidate:
+454,492 RIGHT, 2,963 GAP and 16,788 WRONG among 474,243 aligned assertions.
+Against all 478,855 expected assertions this is 94.91%. The 99% target still
+requires 19,575 additional correct assertions. Denominator and pinned oracle are
+unchanged; the overall goal remains active.
+
+Evidence:
+- /tmp/tsr-99-alias-members-verified.tsv
+- /tmp/tsr-99-alias-members-verified-transitions.txt
+- /tmp/tsr-99-alias-members-verified-tests.log
+- /tmp/tsr-99-alias-members-workspace-final.log
+- /tmp/tsr-99-alias-members-clippy.log
+- /tmp/tsr-99-alias-members-anchors.log
+- /tmp/tsr-99-alias-members-mutation.log
+- /tmp/tsr-99-alias-members-sourcehash.txt
+- /tmp/compound-engineering-501/ce-code-review/alias-members/review.json
+
+This unit is tracked in tsr-6.32; the residual consumers remain in tsr-6.35.
+
+The checker_types run at fe8f3a22 reports 6,808/9,538 complete cases (71.38%),
+five more than the baseline. Its snapshot is refreshed from the isolated checkout.
+Coverage output: /tmp/tsr-99-alias-members-coverage.log.
+
+The depend instrument exits 0 but retains stale controls: C1 reports 521
+nongapping roots, C2 reports 225 cycles and zero depth-cap hits, C3 balances
+3,830 walked gap lines, and C4 still quotes a historical checkpoint. These are
+not coverage evidence; tsr-6.29 remains open. Output:
+/tmp/tsr-99-alias-members-depend.log.

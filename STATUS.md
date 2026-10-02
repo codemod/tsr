@@ -24,22 +24,23 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-10-01
 
-Measured on **`4bdedb15`** in an isolated checkout: **454,396/478,855 assertions
-(94.89%)**, **6,803/9,538 complete cases (71.33%)**. The 99% target requires
-474,067 correct assertions; **19,671 remain**. Denominator and pinned oracle
-unchanged. Aligned verdicts: **474,243 total; 454,396 right; 3,016 gap; 16,831 wrong**.
+Measured on **`fe8f3a22`** in an isolated checkout: **454,492/478,855 assertions
+(94.91%)**, **6,808/9,538 complete cases (71.38%)**. The 99% target requires
+474,067 correct assertions; **19,575 remain**. Denominator and pinned oracle
+unchanged. Aligned verdicts: **474,243 total; 454,492 right; 2,963 gap; 16,788 wrong**.
 Binder retains its verified **8,497/8,497 (100%)** result at aab165d8;
 other suites below retain historical measurements.
 
-This unit adds **262 matching assertions**, with **zero RIGHT losses** relative
-to 29828bdf: 247 WRONG→RIGHT and 15 GAP→RIGHT. Two GAP→WRONG callback tuple
-assertions and one WRONG→GAP indexed read remain tracked in tsr-6.34.
-[Semantic adjusted facts](docs/architecture/checker-99-adjusted-facts.md) records
-native fact filtering, semantic non-null intersections and required flow consumers.
-Seven focused tests, native and isolated mutation controls, 195 release workspace
-result blocks, clippy, 3,343 anchors and the refreshed checker snapshot validate
-this checkpoint. The committed verdict is byte-identical to the candidate and
-source hashes agree. The goal remains unfinished; verified changes push to main.
+This unit adds **96 matching assertions**, with **zero RIGHT losses** relative
+to 4bdedb15: 56 WRONG→RIGHT and 40 GAP→RIGHT. Fourteen GAP→WRONG assertions
+and one WRONG→GAP member read remain tracked in tsr-6.35.
+[Instantiated literal members](docs/architecture/checker-99-alias-members.md)
+records semantic member capture, union-alias narrowing and re-instantiation.
+Four new native-controlled tests and four binding tests, an isolated mutation,
+196 release workspace result blocks, clippy, 3,342 anchors and the refreshed
+checker snapshot validate this checkpoint. The committed verdict is byte-identical
+to the candidate and source hashes agree. The goal remains unfinished; verified
+changes push to main.
 
 ### Previous whole-suite measurement — historical
 
@@ -1074,6 +1075,7 @@ Per-crate, by what the conformance suites actually assert — not by what exists
 
 | subsystem | state | evidence |
 |---|---|---|
+| alias literal members | **captured methods, accessors, computed properties, signatures and indexes** | fe8f3a22: +96 matches, zero RIGHT losses; native member substitution and union-alias flow; [evidence](docs/architecture/checker-99-alias-members.md) |
 | adjusted type facts | **semantic non-null intersections and native fact filtering** | 4bdedb15: +262 matches, zero RIGHT losses; seven native-controlled tests; [evidence](docs/architecture/checker-99-adjusted-facts.md) |
 | dependent bindings | **tuple indices and captured alias properties** | 29828bdf: +183 matches, zero RIGHT losses; four native-controlled tests; [evidence](docs/architecture/checker-99-dependent-bindings.md) |
 | scanner | **done** | 100% termination and clean-files |
@@ -1230,7 +1232,20 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-### Current priorities at `4bdedb15` — 2026-10-01
+### Current priorities at `fe8f3a22` — 2026-10-01
+
+Continue toward 99% coverage: 19,575 matching assertions remain. Generic alias
+literals now retain semantic methods, accessor reads, computed properties, call/
+construct signatures and indexes; subsequent instantiation maps those members.
+Union aliases participate in ordinary discriminant narrowing. Remaining member
+serialization, higher-order inference and computed-symbol identity are in
+tsr-6.35; adjusted-fact consumers remain in tsr-6.34. Constructor accessibility,
+mixin statics, full CheckMode, mapped/conditional inference and namespace
+serialization remain on the existing board. The refreshed mismatch inventory is
+/tmp/tsr-99-alias-members-ranked.txt; populations are ceilings, not conversion
+claims. Depend C1/C4 controls remain stale (tsr-6.29).
+
+### Previous priorities at `4bdedb15` — 2026-10-01
 
 Continue toward 99% coverage: 19,671 matching assertions remain. Generic non-null
 narrowing now carries semantic intersections, with native plain/adjusted fact
@@ -3994,6 +4009,23 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+### Alias literal members at `fe8f3a22`
+
+The verified unit gains 96 matches with zero RIGHT losses. Fourteen GAP→WRONG
+assertions remain in higher-order inference/name serialization, accessor and
+objectFromEntries consumers; one symbolProperty61 subscribe member changes from
+wrong to gap (tsr-6.35). The first capture candidate gained 22 but lost 96 RIGHT
+assertions: 94 were callable rendering and two were non-union mapped narrowing.
+Retaining literal member syntax and the existing non-union flow path removes
+those losses. Re-evaluating literal syntax under composed generic bindings then
+gained 81 but lost 49 RIGHT assertions through mapped/cloned parameter identity;
+that approach was replaced by native semantic member substitution. The former
+blanket alias-member refusal is removed. Unsupported builder forms, recursive
+presentation, divergent accessor serialization/write semantics and general
+computed-symbol identity remain explicit limits.
+See [controls and evidence](docs/architecture/checker-99-alias-members.md).
+
 
 ### Adjusted type facts at `4bdedb15`
 
@@ -9991,6 +10023,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
+| 2026-10-01 | `fe8f3a22` | **71.38%** | **6,808** | **454,492/478,855 assertions (94.91%).** +96 since 4bdedb15, zero RIGHT losses; 56W→R,40G→R,14G→W,1W→G. | Semantic literal members, union-alias narrowing and member-wise re-instantiation. Eight focused/native controls, isolated mutation, workspace196 blocks, clippy,3,342 anchors; committed isolated verdict byte-match and refreshed snapshot. [Evidence](docs/architecture/checker-99-alias-members.md). 19,575 remain to99%. |
 | 2026-10-01 | `4bdedb15` | **71.33%** | **6,803** | **454,396/478,855 assertions (94.89%).** +262 since 29828bdf, zero RIGHT losses; 247W→R,15G→R,2G→W,1W→G. | Semantic adjusted type facts, unknown recombination and instantiated generic predicates. Seven native-controlled tests, isolated mutation, workspace195 blocks, clippy,3,343 anchors; committed isolated verdict byte-match and refreshed snapshot. [Evidence](docs/architecture/checker-99-adjusted-facts.md). 19,671 remain to99%. |
 | 2026-10-01 | `29828bdf` | **71.23%** | **6,794** | **454,134/478,855 assertions (94.84%).** +183 since e8c208fc, zero RIGHT losses; 163W→R,20G→R,3G→W. | Array binding indices and instantiated property-only aliases in dependent flow. Four focused/native controls, isolated mutation, release workspace194 blocks, clippy,3,340 anchors; committed isolated verdict byte-match and refreshed snapshot. [Evidence](docs/architecture/checker-99-dependent-bindings.md). 19,933 remain to99%. |
 | 2026-10-01 | `e8c208fc` | **71.20%** | **6,791** | **453,951/478,855 assertions (94.80%).** +319 since 82ca5f80, zero RIGHT losses; 251W→R, 68G→R, 19G→W, 3W→G, 52 changed wrong. Native constructor intersections, ordering and shared resolution; late-bound and tuple inference with pair memoization. Seven focused tests, four updated test files, native/mutation controls; release workspace193 blocks, clippy,3,340 anchors; isolated committed-source measurement and snapshot. [Evidence](docs/architecture/checker-99-intersection-constructors.md). 20,116 remain to 99%. |

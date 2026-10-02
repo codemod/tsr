@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 6803/9538 (71.33%)
-Assertion lines: 454396/478855 (94.89%)  — a gradient, not a pass rate
-Failed         : 2735
+Passed         : 6808/9538 (71.38%)
+Assertion lines: 454492/478855 (94.91%)  — a gradient, not a pass rate
+Failed         : 2730
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -12,7 +12,7 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 2735 failures:
+First 100 of 2730 failures:
 compiler/ClassDeclaration26
   ClassDeclaration26.ts: 5 assertion(s), expected 6
 compiler/abstractClassInLocalScopeIsAbstract
@@ -172,7 +172,7 @@ compiler/awaitedTypeJQuery
 compiler/awaitedTypeNoLib
   awaitedTypeNoLib.ts: >result : Thenable<NotPromise<TResult>> — expected >result : Thenable<NotPromise<TResult>> | NotPromise<TResult>
 compiler/awaitedTypeStrictNull
-  awaitedTypeStrictNull.ts: >T1 : any — expected >T1 : number
+  awaitedTypeStrictNull.ts: >T2 : any — expected >T2 : number
 compiler/badArraySyntax
   badArraySyntax.ts: 34 assertion(s), expected 32
 compiler/badInferenceLowerPriorityThanGoodInference
