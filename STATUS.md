@@ -24,23 +24,24 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-10-02
 
-Measured on **`f557e254`** in an isolated checkout: **455,873/478,855 assertions
+Measured on **`9afcc9f3`** in an isolated checkout: **455,875/478,855 assertions
 (95.20%)**, **6,913/9,538 complete cases (72.48%)**. The 99% target requires
-474,067 correct assertions; **18,194 remain**. Denominator and pinned oracle
-unchanged. Aligned verdicts: **474,243 total; 455,873 right; 2,775 gap; 15,595 wrong**.
+474,067 correct assertions; **18,192 remain**. Denominator and pinned oracle
+unchanged. Aligned verdicts: **474,243 total; 455,875 right; 2,775 gap; 15,593 wrong**.
 Binder retains its verified **8,497/8,497 (100%)** result at aab165d8;
 other suites below retain historical measurements.
 
-This unit adds **35 matching assertions** and **one complete case**, with
-**zero RIGHT losses and zero new WRONG rows** relative to 0ba7ce80, all
-WRONG→RIGHT. Two already-WRONG rows change; §5 records them.
-[Dependent inference](docs/architecture/checker-99-dependent-inference.md)
-records candidate constraint resolution and native const signature source tuples,
-replacing the blanket readonly transform. Four tests pin 22 native outcomes.
-All 210 release workspace result blocks, clippy, formatting and 3,330 anchors pass
-in main and the isolated checkout. Committed verdict and source hash match the
-candidate. Five isolated mutations fail their intended assertions, and eight focused
-inference tests pass after restoration. The broader 99% goal and tsr-8 remain active.
+This unit adds **two matching assertions**, with **zero RIGHT losses and zero
+new WRONG rows** relative to f557e254, both WRONG→RIGHT. Complete cases are
+unchanged. [Contextual initializers](docs/architecture/checker-99-contextual-initializers.md)
+records native parameter widening and optional/default undefined comparison.
+Two tests pin 18 strict/non-strict outcomes. All 211 release workspace result
+blocks, clippy, formatting and 3,330 anchors pass in main and the isolated
+checkout. Committed verdict and source hash match the candidate. Five isolated
+mutations fail the intended assertions; both focused tests pass after restoration.
+The broader
+recursive contextual mapper experiment was rejected after 32 RIGHT losses; §5
+records its prerequisites. The broader 99% goal and tsr-8 remain active.
 
 ### Previous whole-suite measurement — historical
 
@@ -1075,6 +1076,7 @@ Per-crate, by what the conformance suites actually assert — not by what exists
 
 | subsystem | state | evidence |
 |---|---|---|
+| contextual parameter initializers | **native initializer widening and optional/default comparison** | 9afcc9f3: +2 matches, zero RIGHT losses/new WRONG rows; 18 native strict/non-strict outcomes; [evidence](docs/architecture/checker-99-contextual-initializers.md) |
 | dependent candidate inference | **recursive constraint mapping and const signature tuples** | f557e254: +35 matches, zero RIGHT losses/new WRONG rows, +1 complete case; 22 native controls; [evidence](docs/architecture/checker-99-dependent-inference.md) |
 | candidate-free inference | **recursive constraints and default backreferences** | 0ba7ce80: +88 matches, zero RIGHT losses/new WRONG rows, +12 complete cases; 22 native controls; [evidence](docs/architecture/checker-99-inference-defaults.md) |
 | declared computed members | **semantic literal keys and side-specific resolution** | 948a8f5b: +28 matches, zero RIGHT losses/adverse transitions, +4 complete cases; 18 native controls; [evidence](docs/architecture/checker-99-declared-computed-members.md) |
@@ -1099,7 +1101,7 @@ Per-crate, by what the conformance suites actually assert — not by what exists
 | module resolution | **done** | 95/95, `file_loader` 96/96, [ADR-0041](docs/adr/0041-the-checker-asks-its-program-for-a-module.md) |
 | printer | **done** | 100% round-trip at `8dcdc71` |
 | declaration emit | **partial** | `dts_shape` 85.32%, `dts_emit` 89.04% at `8dcdc71` |
-| **checker** | **95.10% of assertions** | 455,405/478,855 at `056e7e87`; §4 and §5 |
+| **checker** | **95.20% of assertions** | 455,875/478,855 at `9afcc9f3`; §4 and §5 |
 | transformers | **not started** | |
 | **compiler driver / CLI** | **seam only** | three pieces, no binary. `tsr_vfs::OsFileSystem` (the real disk, `internal/vfs/osvfs`), `Checker::apply_compiler_options` ([ADR-0042](docs/adr/0042-checker-options-come-from-compiler-options.md)), and `tsr_diagnostics::format` (the plain `a.ts(1,1): error TS2304:` line and the `Found N errors` summary, byte-exact). **No command-line parser, no `tsc` binary, no emit, no pretty output** — see §4 |
 | diagnostics | **started — 6.89%** | the check traversal (ADR-0040 (1) and (2)) plus three rules; §1 and `docs/architecture/checker-notes-diag2.md` |
@@ -1247,7 +1249,17 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-### Current priorities at `f557e254` — 2026-10-02
+### Current priorities at `9afcc9f3` — 2026-10-02
+
+Continue toward 99%: 18,192 matching assertions remain. Contextual parameter
+initializer widening is now ported. Recursive contextual constraint mapping
+still needs native fresh identities for retained generic method parameters and
+recursive mapped contextual constraints. The rejected broad experiment gains
+24 but loses 32 RIGHT rows and adds six WRONG rows from gaps. Optional tuple-rest
+initializer flow also still retains undefined where native narrows it away.
+Other remaining items from f557e254 stay on tsr-8.
+
+### Previous priorities at `f557e254` — 2026-10-02
 
 Continue toward 99%: 18,194 matching assertions remain. Final call inference now
 resolves dependent constraints for candidates as well as missing inferences.
@@ -4223,6 +4235,20 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+### Contextual mapper prerequisites at `9afcc9f3`
+
+The broader eager and lazy contextual-constraint mapper experiments each gain
+24 assertions but lose 32 RIGHT rows: 26 in chained generic methods, two in
+contextual initializer widening and four in recursive mapped contextual types.
+They also add six GAP→WRONG rows and change four already-WRONG rows. Both are
+rejected. Lazy requested-parameter resolution alone does not change the counts.
+Native instantiateSignatureEx clones retained own parameters; the port reuses
+identities that can collide with outer parameters. That mechanism must precede
+broad mapper integration. The isolated initializer prerequisite lands with two
+matches and no adverse transitions. An optional tuple-rest initializer control
+still retains undefined in the port; this pre-existing flow limitation remains
+on tsr-8. [Evidence](docs/architecture/checker-99-contextual-initializers.md).
 
 ### Dependent candidates and const signature sources at `f557e254`
 
@@ -10407,6 +10433,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
+| 2026-10-02 | `9afcc9f3` | **72.48%** | **6,913** | **455,875/478,855 assertions (95.20%).** +2 since f557e254, zero RIGHT losses/new WRONG rows; 2W→R. | Native contextual initializer widening and optional/default comparison. 18 native outcomes; 211 workspace blocks, clippy, 3330 anchors; isolated verdict/source match. Broad contextual mapper deferred after 32 RIGHT losses. 18,192 remain to 99%. |
 | 2026-10-02 | `f557e254` | **72.48%** | **6,913** | **455,873/478,855 assertions (95.20%).** +35 since 0ba7ce80, zero RIGHT losses/new WRONG rows; 35W→R, 2 changed WRONG. | Dependent candidate constraints and native const signature tuples; blanket readonly transform removed. 22 native outcomes; 210 workspace blocks, clippy, 3330 anchors; isolated verdict/source match. 18,194 remain to 99%. |
 | 2026-10-02 | `0ba7ce80` | **72.47%** | **6,912** | **455,838/478,855 assertions (95.19%).** +88 since 948a8f5b, zero RIGHT losses/new WRONG rows; 76W→R, 12G→R, 3 changed WRONG. | Candidate-free constraints, recursive mapper sentinels, default backreferences and definite argument rejection despite an unresolved receiver. 22 native outcomes; isolated verdict/source match; 18,229 remain to 99%. |
 | 2026-10-02 | `948a8f5b` | **72.34%** | **6,900** | **455,750/478,855 assertions (95.17%).** +28 since b51228ae, zero adverse transitions; 20W→R, 8G→R. | Declared computed semantic keys, static/instance resolution caches and accessor modifiers. 18 native outcomes; 208 workspace blocks, clippy, 3331 anchors; isolated verdict/source match. 18,317 remain to 99%. |

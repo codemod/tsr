@@ -61,3 +61,25 @@ rule. The simplification pass reused the existing this-parameter predicate and
 kept the widening/relation helpers; no additional state or framework was added.
 Receipt: /tmp/compound-engineering-501/ce-code-review/contextual-initializers/review.json.
 Frozen source hash: 78f63e82b79ec13fa9182547bb673e59e2a91b0ce7ad284a52770fc6c9806296.
+
+Committed verification at 9afcc9f3 in /tmp/tsr-99-contextual-initializer-verify
+matches the frozen source hash and candidate verdict byte-for-byte. Coverage:
+455,875/478,855 RIGHT (95.20%), 6,913/9,538 complete cases (72.48%). The 99% target
+still needs 18,192 matches. Aligned counts: 455,875 RIGHT, 2,775 GAP, 15,593 WRONG,
+474,243 total. All 211 release workspace result blocks, clippy, formatting and
+3,330 anchors pass. Fresh depend: 504 non-gapping roots, 210 cycles, zero depth
+caps and 3,591 walked gaps; C3 balances, C1/C4 remain stale (tsr-6.29). The snapshot
+is copied from the isolated checkout. Verdict:
+/tmp/tsr-99-contextual-initializer-verified.tsv; logs use the same prefix.
+
+Five isolated mutations compile and fail their intended assertions: disabling the
+adjustment fails widened; removing reverse assignability fails incompatible;
+ignoring initializer compatibility fails compatible; removing optional undefined
+fails optionalDefault; omitting the default-before-required declaration lookup
+fails beforeRequired. Each mutation restores its source in a finally block. The
+restored source hash matches the committed hash. Script and aggregate log:
+/tmp/tsr-99-contextual-initializer-mutations.py and -mutations.log; individual logs
+use -mutation-{disabled,reverse,compatible,optional,before_required}.log.
+
+Both focused tests pass after restoration:
+/tmp/tsr-99-contextual-initializer-restored-tests.log.
