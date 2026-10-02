@@ -244,7 +244,8 @@ pub mod reasons {
         NoMembersTable = 2,
         /// Row 4 — [`super::MAX_DEPTH`].
         DepthCap = 3,
-        /// Row 5 — a member type that is still a type parameter (`bd tsr-4qx`).
+        /// Historical row 5; retained histogram slot after semantic generic
+        /// member relations replaced the blanket refusal (`bd tsr-6.37`).
         GenericMember = 4,
         /// Row 6 — either side carries call, construct or index signatures.
         SignatureBearing = 5,
@@ -2074,23 +2075,10 @@ impl Relater<'_, '_, '_> {
     /// covariantly, which is upstream's rule for the assignable relation on
     /// non-method properties.
     ///
-    /// # What is missing answers `false`, never `true`
-    ///
-    /// - **Optionality is not read.** Upstream skips a target property whose
-    ///   source counterpart is absent when the target property is optional
-    ///   (`SymbolFlags::Optional`). Here a missing property is always a failure,
-    ///   so `{ x: string } -> { x: string, y?: number }` is a gap rather than a
-    ///   wrong `true`.
-    /// - **`readonly`, variance markers, private/protected identity, index
-    ///   signatures and call/construct signatures** are not compared at all.
-    ///   Each is a *missing rejection* — a source that differs only in one of
-    ///   them relates here and would not upstream. That is the one place this
-    ///   function can be too permissive, and it is bounded to those modifiers:
-    ///   the property *names* and *types* are fully checked.
-    /// - **A base type this port cannot follow** ([`Checker::base_symbols_of`]
-    ///   answering `None`) makes the whole comparison `false`, because a target
-    ///   whose inherited requirements cannot be enumerated must not be satisfied
-    ///   by checking only the ones that can.
+    /// Missing required properties reject when source members can be enumerated;
+    /// unfollowable members and protected-target checks remain Unknown. Privacy,
+    /// optionality and strict-subtype readonly checks precede comparison of the
+    /// resolved property types. Generic parameters use the ordinary relation.
     fn properties_related_to(&mut self, source: TypeId, target: TypeId) -> Ternary {
         let Some(names) = self.checker.get_property_names_of_type(target) else {
             // Row 1 of `checker-notes-assign.md` §2: the target's inherited
@@ -2110,7 +2098,7 @@ impl Relater<'_, '_, '_> {
             // not degrade to a gap, it promotes the next overload candidate and
             // yields a confident wrong type (`docs/conventions.md`, "A
             // conservative `false` is safe for one kind of consumer and unsafe
-            // for the other"). Answers identically today; `bd tsr-4qx`.
+            // for the other"). The member read applies the receiver mapper.
             //
             // `None` still means *no such property* — a property that exists
             // and does not type answers `Some(errorType)` — so the existence
@@ -2226,19 +2214,10 @@ impl Relater<'_, '_, '_> {
                 parts.push(Ternary::NotRelated);
                 continue;
             }
-            // Row 5 of `checker-notes-assign.md` §2 (`bd tsr-4qx`): the member
-            // read may be the *uninstantiated* declaration, so on a `C<number>`
-            // with a member declared `a: T` this comparison would run against
-            // `T` itself. A type parameter surviving into a property type is the
-            // observable signature of that, and it is not something to decide on.
-            let unresolved = TypeFlags::TYPE_PARAMETER;
-            if self.checker.type_of(target_type).flags.intersects(unresolved)
-                || self.checker.type_of(source_type).flags.intersects(unresolved)
-            {
-                reasons::note(reasons::Site::GenericMember);
-                parts.push(Ternary::Unknown);
-                continue;
-            }
+            // isPropertySymbolTypeRelated (relater.go:4334) relates the
+            // resolved member types, including parameters and their constraints.
+            // get_type_of_property_of_type has already applied receiver maps;
+            // a surviving parameter can be the intended semantic member type.
             parts.push(self.is_related_to(source_type, target_type));
         }
         Ternary::all(parts)

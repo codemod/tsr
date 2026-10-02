@@ -1348,12 +1348,7 @@ impl Checker<'_, '_> {
         }
         if let Some(property) = self.get_property_of_type(id, name) {
             let declared = self.get_type_of_symbol(property);
-            // §830: a GENERIC member keeps its own type parameters through the
-            // reference's substitution.
-            let shadowed = self.member_own_type_parameter_names(property);
-            let shadowed_refs = shadowed.iter().map(String::as_str).collect::<Vec<_>>();
-            let instantiated =
-                self.instantiate_for_reference_shadowed(id, declared, &shadowed_refs);
+            let instantiated = self.instantiate_for_reference(id, declared);
             // §92: a property the symbol road FINDS but cannot type may
             // still answer through the shape road (chain1's low reads — the
             // alias symbol's table hands back a symbol whose declared type
@@ -1421,33 +1416,21 @@ impl Checker<'_, '_> {
                     && let Some(property) = self.get_property_of_type(array, name)
                 {
                     let declared = self.get_type_of_symbol(property);
-                    let shadowed = self.member_own_type_parameter_names(property);
-                    let names: Vec<_> = shadowed.iter().map(String::as_str).collect();
-                    return Some(
-                        self.instantiate_for_reference_with_this(array, declared, &names, id),
-                    );
+                    return Some(self.instantiate_for_reference_with_this(array, declared, id));
                 }
             }
         }
         self.property_type_via_shape(id, name)
     }
 
-    /// §393's walk: the instantiated-base member road, cycle-guarded.
+    /// Resolve inherited members through each instantiated base, guarded by
+    /// symbol identity against cyclic heritage.
     fn generic_heritage_member(
         &mut self,
         id: TypeId,
         name: &str,
         visiting: &mut Vec<SymbolId>,
     ) -> Option<TypeId> {
-        self.generic_heritage_member_with_shadowed(id, name, visiting).map(|(ty, _)| ty)
-    }
-
-    fn generic_heritage_member_with_shadowed(
-        &mut self,
-        id: TypeId,
-        name: &str,
-        visiting: &mut Vec<SymbolId>,
-    ) -> Option<(TypeId, Vec<String>)> {
         let TypeData::Named { members: Some(owner), .. } = self.store.get(id).data else {
             return None;
         };
@@ -1487,20 +1470,7 @@ impl Checker<'_, '_> {
                     // mutually-generic bases.
                     if let Some(property) = self.get_property_of_type(base_type, name) {
                         let declared = self.get_type_of_symbol(property);
-                        // §830.2: the INHERITED half of §830. A generic method
-                        // reached through a generic BASE has the same two
-                        // parameter sets — `class D<T> extends B<T>` reading
-                        // `B<T>`'s `m<T>(x: T)` — and the base's arguments must
-                        // not be substituted into the method's own shadowing
-                        // name. The sibling site (the own-member road) is what
-                        // §830 fixed; this one had the identical shape.
-                        let shadowed = self.member_own_type_parameter_names(property);
-                        let shadowed_refs = shadowed.iter().map(String::as_str).collect::<Vec<_>>();
-                        let instantiated = self.instantiate_for_reference_shadowed(
-                            base_type,
-                            declared,
-                            &shadowed_refs,
-                        );
+                        let instantiated = self.instantiate_for_reference(base_type, declared);
                         if instantiated != self.intrinsics.error {
                             // §923: the SECOND substitution. The step above maps
                             // the base's parameters onto the heritage entry's
@@ -1518,26 +1488,19 @@ impl Checker<'_, '_> {
                             // non-generic reference maps nothing and the result
                             // is unchanged, so this cannot disturb the shapes
                             // that already worked.
-                            let composed = self.instantiate_for_reference_shadowed(
-                                id,
-                                instantiated,
-                                &shadowed_refs,
-                            );
+                            let composed = self.instantiate_for_reference(id, instantiated);
                             if composed != self.intrinsics.error {
-                                return Some((composed, shadowed));
+                                return Some(composed);
                             }
-                            return Some((instantiated, shadowed));
+                            return Some(instantiated);
                         }
                     }
-                    if let Some((member, shadowed)) =
-                        self.generic_heritage_member_with_shadowed(base_type, name, visiting)
-                    {
+                    if let Some(member) = self.generic_heritage_member(base_type, name, visiting) {
                         // Resolve inherited members under every enclosing
                         // reference mapper, including indirect generic bases.
-                        let names: Vec<_> = shadowed.iter().map(String::as_str).collect();
-                        let member = self.instantiate_for_reference_shadowed(id, member, &names);
+                        let member = self.instantiate_for_reference(id, member);
                         if member != self.intrinsics.error {
-                            return Some((member, shadowed));
+                            return Some(member);
                         }
                     }
                 }
@@ -1636,7 +1599,7 @@ impl Checker<'_, '_> {
     /// unchanged when the receiver is not an instantiated reference.
     ///
     /// The instantiation half of `getTypeOfPropertyOfType` reached through
-    /// upstream's `instantiateSymbol` (`checker.go:19676`) — upstream
+    /// upstream's `instantiateSymbol` (`checker.go:20753`) — upstream
     /// instantiates the *symbol* when members are resolved and the type falls
     /// out; this port has no instantiated symbols, so the same substitution is
     /// applied to the type at the one seam every consumer shares.
@@ -1649,37 +1612,13 @@ impl Checker<'_, '_> {
         receiver: TypeId,
         declared: TypeId,
     ) -> TypeId {
-        self.instantiate_for_reference_shadowed(receiver, declared, &[])
-    }
-
-    /// [`Self::instantiate_for_reference`] with the member's OWN type parameter
-    /// names excluded from the substitution — §830.
-    ///
-    /// A generic member of a generic class has two sets of parameters and only
-    /// the class's are bound by the reference. `C<Base, Derived>`'s `foo4<U
-    /// extends Derived2>(t: T, u: U) => T` must answer
-    /// `<U extends Derived2>(t: Base, u: U) => Base`: the class's `T` substitutes,
-    /// **`foo4`'s own `U` shadows the class's `U` and must survive**.
-    ///
-    /// Upstream never meets this because it instantiates the *symbol*
-    /// (`instantiateSymbol`, `checker.go:19676`) and a signature's own parameters
-    /// are not in the class's mapper. Here the substitution is name-based —
-    /// `mentions_type_parameter` falls back to a text scan — so a shadowing name
-    /// is substituted anyway unless it is removed, which is what `shadowed` does.
-    pub(crate) fn instantiate_for_reference_shadowed(
-        &mut self,
-        receiver: TypeId,
-        declared: TypeId,
-        shadowed: &[&str],
-    ) -> TypeId {
-        self.instantiate_for_reference_with_this(receiver, declared, shadowed, receiver)
+        self.instantiate_for_reference_with_this(receiver, declared, receiver)
     }
 
     fn instantiate_for_reference_with_this(
         &mut self,
         receiver: TypeId,
         declared: TypeId,
-        shadowed: &[&str],
         this_argument: TypeId,
     ) -> TypeId {
         let Some((symbol, arguments)) = self.type_reference_targets.get(&receiver).cloned() else {
@@ -1692,15 +1631,13 @@ impl Checker<'_, '_> {
         if parameters.len() != arguments.len() {
             return error;
         }
-        // The arity check is over the FULL lists, because it is a statement about
-        // the reference; the shadowed names are dropped only from the map.
+        // instantiateSymbol (checker.go:20753) retains the complete receiver
+        // mapper. A member's own same-named parameter has a distinct TypeId,
+        // so it survives while an outer parameter in the same return is mapped.
         let mut names: Vec<&str> = Vec::new();
         let mut types: Vec<TypeId> = Vec::new();
         let mut map: Vec<(TypeId, TypeId)> = Vec::new();
         for (index, (parameter, name)) in parameters.iter().enumerate() {
-            if shadowed.contains(&name.as_str()) {
-                continue;
-            }
             names.push(name.as_str());
             types.push(*parameter);
             map.push((*parameter, arguments[index]));
@@ -1719,51 +1656,11 @@ impl Checker<'_, '_> {
             types.push(this_type);
             map.push((this_type, this_argument));
         }
-        // Every class parameter shadowed: nothing of the reference reaches this
-        // member, and `declared` is already the answer.
+        // A reference without type parameters or a polymorphic this needs no map.
         if map.is_empty() {
             return declared;
         }
         self.instantiate_type(declared, &map, &types, &names)
-    }
-
-    /// §830: the names of a property's OWN type parameters, which shadow any
-    /// same-named parameter of the class the property is reached through.
-    fn member_own_type_parameter_names(&self, property: SymbolId) -> Vec<String> {
-        let Some(declaration) = self.binder.symbols().get(property).declarations.first().copied()
-        else {
-            return Vec::new();
-        };
-        let parameters = match self.node_map.get(declaration) {
-            Some(Node::MethodDeclaration(method)) => method.type_parameters,
-            Some(Node::MethodSignatureDeclaration(method)) => method.type_parameters,
-            // §830.1: a PROPERTY whose type is a generic function or constructor
-            // type has exactly the same two sets of parameters as a generic
-            // method — `foo: <T>(x: T) => T` on `C<T>` is `foo<T>(x: T): T`
-            // written the other way, and upstream's `instantiateSymbol` treats
-            // them identically because both end up as a signature carrying its
-            // own `typeParameters`. §830 read only the method spellings, so the
-            // property spellings kept substituting a shadowing name.
-            Some(Node::PropertySignatureDeclaration(property)) => match property.r#type {
-                Some(tsr_ast::TypeNode::FunctionTypeNode(signature)) => signature.type_parameters,
-                Some(tsr_ast::TypeNode::ConstructorTypeNode(signature)) => {
-                    signature.type_parameters
-                }
-                _ => return Vec::new(),
-            },
-            Some(Node::PropertyDeclaration(property)) => match property.r#type {
-                Some(tsr_ast::TypeNode::FunctionTypeNode(signature)) => signature.type_parameters,
-                Some(tsr_ast::TypeNode::ConstructorTypeNode(signature)) => {
-                    signature.type_parameters
-                }
-                _ => return Vec::new(),
-            },
-            _ => return Vec::new(),
-        };
-        parameters
-            .iter()
-            .filter_map(|parameter| parameter.name.map(|name| name.text.to_string()))
-            .collect()
     }
 
     /// Ported from `Checker.getPropertyOfTypeEx` (`checker.go:18899`) through
