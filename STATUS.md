@@ -48,6 +48,17 @@ workspace tests (220 result blocks), clippy, formatting, 3,358 anchors and
 unresolved IDs (tsr-10). The full Next.js project still lacks a completed run;
 recursive conditional/mapped evaluation is recorded on tsr-6.3.
 
+Real-project recheck at **12c84fd0** (same checker source), 2026-10-02:
+pinned tsgo completes the Next.js app in **3.514s with zero diagnostics**.
+TSR was stopped after **3m19s**, still CPU-bound under constructor signatures
+and recursive conditional/mapped resolution, without a completed diagnostic
+pass. Four targeted project subsets reproduce **13 false positives** in module
+meaning/provenance, JSON/JS imports and assertion comparability; the validator
+loop and encryption object are clean. This is a subset count, not a new
+full-project total. [CLI diagnosis](docs/architecture/checker-nextjs-cli-diagnosis.md)
+records both checkout SHAs, native controls and follow-ups tsr-6.44 through
+tsr-6.46. Coverage figures above are unchanged.
+
 ### Previous checker checkpoint — reduced finally paths
 
 Measured on **`04268474`**, based on 80ba5796: **457,525/478,855 assertions
