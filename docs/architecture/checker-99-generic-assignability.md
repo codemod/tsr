@@ -83,3 +83,27 @@ retained actionable findings; no independent or cross-model review is claimed
 under the user's no-delegation rule. Receipt:
 /tmp/compound-engineering-501/ce-code-review/generic-assignability/review.json.
 Frozen source hash: 1f9ae55328452b7bda1c2c1a929c15e80b876cddf1a4c3ddcc266e960de99caa.
+
+Committed verification at cd658415 in /tmp/tsr-99-primitive-verify matches the
+frozen source hash and candidate verdict byte-for-byte. Coverage is
+455,889/478,855 RIGHT (95.20%), 6,915/9,538 complete cases (72.50%), with 18,178
+matches still needed for 99%. Aligned counts: 455,889 RIGHT, 2,775 GAP,
+15,579 WRONG, 474,243 total. All 212 release workspace result blocks, clippy and
+3,330 anchors pass again. Fresh depend has 504 non-gapping roots, 210 cycles,
+zero depth caps and 3,591 walked gaps; C3 balances, C1/C4 remain stale (tsr-6.29).
+The snapshot is copied from the isolated checkout. Verdict:
+/tmp/tsr-99-primitive-verified.tsv; other logs use that prefix.
+
+Four isolated mutations compile and fail their intended assertions: excluding
+primitive rejection fails primitive_values_cannot_inhabit_an_arbitrary_type_parameter;
+excluding unknown rejection fails the constrained-unknown test; removing generic
+conditional deferral fails generic : Q<T>; removing composite propagation fails
+unionOperand : GenericUnion<T>. Each mutation restores its source in a finally
+block. The restored source hash matches the committed hash. Script and aggregate
+log: /tmp/tsr-99-primitive-mutations.py and -mutations.log; individual logs use
+-mutation-{primitive,unknown,deferral,composite}.log.
+
+After restoration, all 70 relation tests, the conformance control and formatting
+pass. Logs: /tmp/tsr-99-primitive-restored-relater.log and
+/tmp/tsr-99-primitive-restored-conformance.log. The isolated checkout is removed
+after preserving its snapshot and verification output.

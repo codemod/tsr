@@ -24,24 +24,25 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-10-02
 
-Measured on **`9afcc9f3`** in an isolated checkout: **455,875/478,855 assertions
-(95.20%)**, **6,913/9,538 complete cases (72.48%)**. The 99% target requires
-474,067 correct assertions; **18,192 remain**. Denominator and pinned oracle
-unchanged. Aligned verdicts: **474,243 total; 455,875 right; 2,775 gap; 15,593 wrong**.
+Measured on **`cd658415`** in an isolated checkout: **455,889/478,855 assertions
+(95.20%)**, **6,915/9,538 complete cases (72.50%)**. The 99% target requires
+474,067 correct assertions; **18,178 remain**. Denominator and pinned oracle
+unchanged. Aligned verdicts: **474,243 total; 455,889 right; 2,775 gap; 15,579 wrong**.
 Binder retains its verified **8,497/8,497 (100%)** result at aab165d8;
 other suites below retain historical measurements.
 
-This unit adds **two matching assertions**, with **zero RIGHT losses and zero
-new WRONG rows** relative to f557e254, both WRONG→RIGHT. Complete cases are
-unchanged. [Contextual initializers](docs/architecture/checker-99-contextual-initializers.md)
-records native parameter widening and optional/default undefined comparison.
-Two tests pin 18 strict/non-strict outcomes. All 211 release workspace result
-blocks, clippy, formatting and 3,330 anchors pass in main and the isolated
-checkout. Committed verdict and source hash match the candidate. Five isolated
-mutations fail the intended assertions; both focused tests pass after restoration.
-The broader
-recursive contextual mapper experiment was rejected after 32 RIGHT losses; §5
-records its prerequisites. The broader 99% goal and tsr-8 remain active.
+This unit adds **14 matching assertions and two complete cases**, with **zero
+RIGHT losses and zero new WRONG rows** relative to 9afcc9f3, all WRONG→RIGHT.
+Fourteen already-WRONG rows change and remain incorrect; they are recorded in §5.
+[Generic assignability](docs/architecture/checker-99-generic-assignability.md)
+records primitive/unknown rejection and generic conditional extends deferral.
+Three relation tests and 11 conformance assertions pin native outcomes. All 212
+release workspace result blocks, clippy, formatting and 3,330 anchors pass in main
+and the isolated checkout; committed verdict and source hash match the candidate.
+Four isolated mutations compile and fail their intended assertions; restored
+source hash matches the committed code, and focused tests pass after restoration.
+The broader fresh-signature/contextual-mapper experiments remain deferred after
+measured regressions. The 99% goal and tsr-8 remain active.
 
 ### Previous whole-suite measurement — historical
 
@@ -1076,6 +1077,7 @@ Per-crate, by what the conformance suites actually assert — not by what exists
 
 | subsystem | state | evidence |
 |---|---|---|
+| generic target assignability | **primitive/unknown rejection and deferred generic extends operands** | cd658415: +14 matches, +2 complete cases, zero RIGHT losses/new WRONG rows; 14 changed already-WRONG rows retained as limits; [evidence](docs/architecture/checker-99-generic-assignability.md) |
 | contextual parameter initializers | **native initializer widening and optional/default comparison** | 9afcc9f3: +2 matches, zero RIGHT losses/new WRONG rows; 18 native strict/non-strict outcomes; [evidence](docs/architecture/checker-99-contextual-initializers.md) |
 | dependent candidate inference | **recursive constraint mapping and const signature tuples** | f557e254: +35 matches, zero RIGHT losses/new WRONG rows, +1 complete case; 22 native controls; [evidence](docs/architecture/checker-99-dependent-inference.md) |
 | candidate-free inference | **recursive constraints and default backreferences** | 0ba7ce80: +88 matches, zero RIGHT losses/new WRONG rows, +12 complete cases; 22 native controls; [evidence](docs/architecture/checker-99-inference-defaults.md) |
@@ -1249,7 +1251,19 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-### Current priorities at `9afcc9f3` — 2026-10-02
+### Current priorities at `cd658415` — 2026-10-02
+
+Continue toward 99%: 18,178 matching assertions remain. Primitive/unknown
+assignability to a generic parameter now rejects definitely; generic conditional
+extends operands defer. Next: fresh retained signature identities with native
+constraint mappers, expanding recursion and its source/target flags, stable nested
+inference identities, recursive mapped conditional tuple elements, and permissive/
+restrictive conditional instantiation. Fourteen changed WRONG rows remain on
+tsr-8. Broader subtype rejection needs generic predicate-union reduction and
+non-null constraint inference before it can land. The fresh/contextual experiments
+and exact counterexamples are preserved in §5 and the architecture note.
+
+### Previous priorities at `9afcc9f3` — 2026-10-02
 
 Continue toward 99%: 18,192 matching assertions remain. Contextual parameter
 initializer widening is now ported. Recursive contextual constraint mapping
@@ -4235,6 +4249,29 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+### Generic assignability prerequisites at `cd658415`
+
+The accepted Assignable-only unit gains 14 with zero RIGHT losses/new WRONG
+rows, but changes 14 already-WRONG rows: four complicated indexed-access results
+become NewChannel<never>, four generic-function inference results become generic
+functions, two callback prints become aliases and four conditional Products
+change. They remain wrong; [details](docs/architecture/checker-99-generic-assignability.md).
+Extending primitive rejection to subtype relations gains 36 but loses 35 RIGHT
+rows without conditional deferral; deferral reduces the losses to two, with two
+new WRONG rows from gaps. Generic predicate-union reduction and non-null generic
+constraints remain prerequisites. Unknown-only rejection has no corpus movement,
+but recovers two chained-call regressions when fresh parameters are enabled.
+
+Fresh signature parameters plus recursion identities gain 35 but lose 13 RIGHT
+rows and add two GAP→WRONG rows (six other WRONG rows change). Combining them
+with the recursive contextual mapper gains 65 but loses 17 RIGHT rows, again
+with two GAP→WRONG and six changed WRONG rows. The identity prerequisite removes
+the old chained-callback collision losses; nested inference, async generator
+returns and recursive conditional types still regress. Recursion alone, including
+native source/target flags, gains two but adds two GAP→WRONG rows exposing deferred
+conditional tuple elements. These broader experiments are not included. Their
+sources, verdicts and native controls are recorded in the architecture note.
 
 ### Contextual mapper prerequisites at `9afcc9f3`
 
@@ -10433,6 +10470,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
+| 2026-10-02 | `cd658415` | **72.50%** | **6,915** | **455,889/478,855 assertions (95.20%).** +14 since 9afcc9f3, +2 cases, zero RIGHT losses/new WRONG rows; 14W→R and 14 changed W→W. | Native primitive/unknown generic assignability with conditional deferral. Three relation tests and 11 conformance assertions; 212 workspace blocks, clippy, 3330 anchors; isolated verdict/source match. Fresh-signature and subtype prerequisites measured and deferred. 18,178 remain to 99%. |
 | 2026-10-02 | `9afcc9f3` | **72.48%** | **6,913** | **455,875/478,855 assertions (95.20%).** +2 since f557e254, zero RIGHT losses/new WRONG rows; 2W→R. | Native contextual initializer widening and optional/default comparison. 18 native outcomes; 211 workspace blocks, clippy, 3330 anchors; isolated verdict/source match. Broad contextual mapper deferred after 32 RIGHT losses. 18,192 remain to 99%. |
 | 2026-10-02 | `f557e254` | **72.48%** | **6,913** | **455,873/478,855 assertions (95.20%).** +35 since 0ba7ce80, zero RIGHT losses/new WRONG rows; 35W→R, 2 changed WRONG. | Dependent candidate constraints and native const signature tuples; blanket readonly transform removed. 22 native outcomes; 210 workspace blocks, clippy, 3330 anchors; isolated verdict/source match. 18,194 remain to 99%. |
 | 2026-10-02 | `0ba7ce80` | **72.47%** | **6,912** | **455,838/478,855 assertions (95.19%).** +88 since 948a8f5b, zero RIGHT losses/new WRONG rows; 76W→R, 12G→R, 3 changed WRONG. | Candidate-free constraints, recursive mapper sentinels, default backreferences and definite argument rejection despite an unresolved receiver. 22 native outcomes; isolated verdict/source match; 18,229 remain to 99%. |
