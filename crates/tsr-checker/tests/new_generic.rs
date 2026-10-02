@@ -97,10 +97,9 @@ var b = { new<A>(x: A): C<A> { return new C<A>(x); } };";
     assert_eq!(type_of_declaration(property, "p"), "{ new: number; }");
 }
 
-/// The refused legs, each beside the ported one. If one starts answering, the
-/// leg has been built and its pair here must move.
+/// Inference and arity-error recovery use the shared generic signature path.
 #[test]
-fn the_refused_legs_stay_gaps() {
+fn inferred_arguments_and_arity_recovery() {
     // **This leg was BUILT by §162** (`checker-notes-narrow.md`) and its
     // pair moved exactly as this test's own doc comment requires. The
     // transcription: a ConstructorDeclaration's return type IS
@@ -115,13 +114,12 @@ var a = new C(1);
 var b = new C<number>(1);";
     assert_eq!(type_of_declaration(inferred, "a"), "C<number>");
     assert_eq!(type_of_declaration(inferred, "b"), "C<number>");
-    // An arity that differs from the class's type parameters: upstream errors
-    // the whole call (`checkTypeArguments`), and `fillMissingTypeArguments`'
-    // defaults are ported only for the no-candidate case (`bd tsr-1uz`).
+    // Native reports TS2558 for missing required type arguments, but fills the
+    // missing slot with unknown in the recovered constructor result.
     let arity = "class C<T, U> { x: T; }
 var a = new C<number>();
 var b = new C<number, string>();";
-    assert_eq!(type_of_declaration(arity, "a"), "error");
+    assert_eq!(type_of_declaration(arity, "a"), "C<number, unknown>");
     assert_eq!(type_of_declaration(arity, "b"), "C<number, string>");
     // A written type argument that itself gaps gaps the whole `new` —
     // `C<Unported>` is not `C<any>`, the tuple and array arms' rule.

@@ -28,9 +28,8 @@
 //! Every board in STATUS §4.-5 ranks wrong lines; these were honest gaps, so
 //! none of them showed this at all.
 //!
-//! Non-generic, single-signature only. An overload set here needs the selection
-//! §788 built for the interface road; a generic one needs inference. Both keep
-//! the gap.
+//! The shared constructor resolver now selects overloads and infers generic
+//! constructor types as well; the former generic refusal below is reopened.
 
 use tsr_ast::Statement;
 use tsr_checker::Checker;
@@ -98,12 +97,11 @@ fn parameter_shape_does_not_affect_the_answer() {
     assert_eq!(type_of_initialiser(source, "a"), "L");
 }
 
-/// The decline: a GENERIC constructor type needs inference, which this arm does
-/// not do, so it keeps the gap rather than answering the uninstantiated return.
+/// Native resolveNewExpression uses generic inference for constructor type nodes.
 #[test]
-fn a_generic_constructor_type_still_declines() {
+fn a_generic_constructor_type_infers_its_return() {
     let source = "interface L<T> { x: T }\n\
                   declare var C: new <T>(tag: T) => L<T>;\n\
                   const a = new C(\"x\");";
-    assert_ne!(type_of_initialiser(source, "a"), "L<string>");
+    assert_eq!(type_of_initialiser(source, "a"), "L<string>");
 }

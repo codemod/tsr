@@ -2464,83 +2464,10 @@ impl Checker<'_, '_> {
             && self.call_signatures_of_type(callee_type).is_some_and(|c| !c.is_empty())
     }
 
-    /// §948: the instance type one constructor-ish type constructs, for the
-    /// intersection arm of [`Checker::check_new_expression`]. `None` when the
-    /// constituent offers no construct signature this port can read.
-    fn construct_return_of(&mut self, id: TypeId) -> Option<TypeId> {
-        if let Some(signature) =
-            self.get_signature_of_named_type(id, crate::signatures::SignatureKind::Construct)
-        {
-            return Some(signature.r#type);
-        }
-        let TypeData::Anonymous { symbol, .. } = self.store.get(id).data else { return None };
-        // A CLASS's static side offers no signature to read when the class
-        // declares no constructor — the road below reaches its instance type
-        // through `get_declared_type_of_symbol`, which is what `new N()` with
-        // `N: typeof A` already does.
-        if self
-            .binder
-            .symbols()
-            .get(self.binder.merged_symbol(symbol))
-            .flags
-            .intersects(tsr_binder::SymbolFlags::CLASS)
-        {
-            let declared = self.get_declared_type_of_symbol(symbol);
-            return (declared != self.intrinsics.error).then_some(declared);
-        }
-        let signatures = self.get_signatures_of_symbol(symbol)?;
-        let constructs: Vec<_> = signatures
-            .into_iter()
-            .filter(|signature| {
-                signature.kind != crate::signatures::SignatureKind::Call
-                    && signature.type_parameters.is_empty()
-            })
-            .collect();
-        let [single] = constructs.as_slice() else { return None };
-        Some(single.r#type)
-    }
-
-    /// The type of `new C()`.
-    ///
-    /// Ported from `Checker.resolveNewExpression` (`checker.go:8575`), reduced to
-    /// the single shape whose answer does not need a construct signature.
-    ///
-    /// # Why this does not go through signatures at all
-    ///
-    /// Upstream takes the callee's apparent type, pulls its
-    /// `SignatureKindConstruct` signatures and runs `resolveCall` over them; the
-    /// result is that signature's return type. [`crate::signatures::Signature`]
-    /// **has no construct flag** — `signatures.rs` says so where it refuses to
-    /// fold `ConstructorTypeNode` into the function-type arm — so that route is
-    /// closed.
-    ///
-    /// It is closed but not needed for the common case, because of a fact about
-    /// classes rather than about signatures: a class's implicit construct
-    /// signature returns the class's *instance* type, and a constructor cannot
-    /// carry a return type annotation to make it return anything else. So for a
-    /// class callee the answer is `getDeclaredTypeOfSymbol` on the class symbol,
-    /// which this port already computes, and the signature is not on the path to
-    /// it. 160 baseline lines record `>new C() : C`.
-    ///
-    /// This is a **reduction, not a shortcut**: it answers exactly the cases
-    /// where the signature would have been redundant, and gaps every case where
-    /// the signature actually carries information.
-    ///
-    /// # What gaps, and why each one has to
-    ///
-    /// - **A generic class.** `new C<T>()` needs `inferTypeArguments`, and the
-    ///   uninstantiated instance type would print `C<T>` where upstream prints
-    ///   the inferred `C<number>`.
-    /// - **Explicit type arguments**, for the same reason, and matching
-    ///   [`Self::check_call_expression`]'s rule.
-    /// - **An abstract class.** Upstream reports and answers `errorType`
-    ///   (`checker.go:8620`), so this is upstream's own answer rather than a
-    ///   local gap.
-    /// - **Any non-class callee.** `new Date()` prints `Date` upstream, but it
-    ///   goes through a `DateConstructor` *interface* with a real construct
-    ///   signature member; there is nothing about it this port can shortcut, and
-    ///   48 baseline lines of `>new StringHashTable() : any` are a reminder that
-    ///   the non-class cases do not all answer the obvious thing.
+    /// Ported from Checker.resolveNewExpression (checker.go:8575).
+    /// Apparent construct signatures share overload selection and inference.
+    /// Unsupported signature sets retain the older class/named recovery paths;
+    /// constructor accessibility and complete error-call recovery remain unported.
     fn check_new_expression(&mut self, node: &tsr_ast::NewExpression<'_>) -> TypeId {
         use crate::calls::counters::{COUNTERS, bump};
 
@@ -2611,109 +2538,43 @@ impl Checker<'_, '_> {
         if self.new_target_lacks_a_construct_signature(callee_type) {
             return self.intrinsics.any;
         }
-        // The callee's type is the class's *static* side, which
-        // `getTypeOfFuncClassEnumModule` gives as an anonymous type carrying the
-        // class symbol. Reaching the symbol through the type rather than through
-        // the callee's syntax is what makes `new (C)()` and an aliased class
-        // work the same way.
-        // §948: `new` on an INTERSECTION of constructor types answers the
-        // INTERSECTION of the instance types.
-        //
-        // `declare const Mixed3: typeof M2 & typeof M1 & typeof C1;`
-        // `new Mixed3()` is `M2 & M1 & C1` upstream
-        // (`conformance/mixinClassesMembers`, which is where the board's mixin
-        // cluster actually lives — **not** in a class expression extending a type
-        // parameter, which is what §943.1 examined). We answered `error`.
-        //
-        // `getInstantiatedConstructSignatures` reaches each constituent's
-        // construct signature and the result carries every instance type;
-        // resolving each constituent through this same road and intersecting the
-        // returns is that, reduced to the shape this port can decide.
-        //
-        // Declines whole if any constituent has no construct signature, which
-        // keeps the gap rather than answering a smaller intersection.
-        if let TypeData::Intersection { types, .. } = &self.store.get(callee_type).data {
-            let constituents = types.clone();
-            let mut instances = Vec::with_capacity(constituents.len());
-            let mut every = !constituents.is_empty();
-            for constituent in constituents {
-                match self.construct_return_of(constituent) {
-                    Some(instance) if instance != error => instances.push(instance),
-                    _ => {
-                        every = false;
-                        break;
-                    }
-                }
-            }
-            if every && !instances.is_empty() {
-                let combined = self.get_intersection_type(&instances, None);
-                if combined != error {
-                    bump(&COUNTERS.new_resolved);
-                    return combined;
-                }
-            }
-        }
-        if matches!(self.store.get(callee_type).data, TypeData::Union { .. }) {
-            let Some(candidates) = self
-                .signatures_of_type_kind(callee_type, crate::signatures::SignatureKind::Construct)
-            else {
-                return error;
-            };
-            // resolveNewExpression rejects the whole constructor set when
-            // any signature is abstract, before overload selection.
+        // resolveNewExpression reads apparent constructor signatures for every
+        // callee shape. Class, interface, type-variable and composite targets
+        // share overload selection, inference and contextual argument checking.
+        if let Some(candidates) =
+            self.signatures_of_type_kind(callee_type, crate::signatures::SignatureKind::Construct)
+            && !candidates.is_empty()
+        {
             if candidates.iter().any(|signature| {
                 signature.kind == crate::signatures::SignatureKind::AbstractConstruct
                     || signature.union_contains_abstract
             }) {
                 return self.intrinsics.any;
             }
+            let candidates = self.reorder_construct_candidates(candidates);
             let selected = match candidates.as_slice() {
-                [] => None,
                 [single] => Some(single.clone()),
-                _ => self.choose_overload(
+                _ => self.choose_construct_overload(
                     &candidates,
                     node.arguments,
                     !node.type_arguments.is_empty(),
                     node.node_id,
                 ),
             };
-            let Some(signature) = selected else { return error };
-            if signature.type_parameters.is_empty() {
-                return signature.r#type;
-            }
-            return self.check_generic_call_with(&signature, node.node_id, node.arguments, None);
-        }
-        // resolveNewExpression selects a declared construct signature before
-        // filling its defaults. The existing overload walk decides supported
-        // sets; generic inference still sees the new expression's arguments,
-        // written type arguments and contextual return type.
-        if let Some(candidates) = self.signature_candidates_of_named_type(
-            callee_type,
-            crate::signatures::SignatureKind::Construct,
-        ) {
-            let selected = match candidates.as_slice() {
-                [] => None,
-                [single] => Some(single.clone()),
-                _ => self.choose_overload(
-                    &candidates,
-                    node.arguments,
-                    !node.type_arguments.is_empty(),
-                    node.node_id,
-                ),
-            };
-            if let Some(signature) = selected
-                && !signature.type_parameters.is_empty()
-            {
+            if let Some(signature) = selected {
+                if signature.type_parameters.is_empty() {
+                    if let Some(call) = node.node_id {
+                        self.resolved_call_signatures.insert(call, signature.clone());
+                    }
+                    bump(&COUNTERS.new_resolved);
+                    return signature.r#type;
+                }
                 let mut instantiated = None;
-                let contextual = node
-                    .arguments
-                    .iter()
-                    .any(|argument| self.is_context_sensitive_argument(argument));
                 let answer = self.check_generic_call_with(
                     &signature,
                     node.node_id,
                     node.arguments,
-                    contextual.then_some(&mut instantiated),
+                    Some(&mut instantiated),
                 );
                 if answer != error {
                     if let Some(call) = node.node_id
@@ -2721,7 +2582,7 @@ impl Checker<'_, '_> {
                     {
                         self.resolved_call_signatures.insert(call, signature);
                     }
-                    bump(&COUNTERS.new_resolved);
+                    bump(&COUNTERS.new_instantiated);
                     return answer;
                 }
             }

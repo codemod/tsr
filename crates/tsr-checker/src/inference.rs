@@ -2825,7 +2825,9 @@ impl Checker<'_, '_> {
         self.inference_priority = priority;
         let saved_observed = self.inference_observed_priority;
         self.inference_observed_priority = i32::from(InferencePriority::MAX_VALUE.bits());
+        let saved_pairs = std::mem::take(&mut self.inference_visited_pairs);
         self.infer_from_types_within(source, target, target, parameters, out, depth);
+        self.inference_visited_pairs = saved_pairs;
         self.inference_observed_priority = saved_observed;
         (self.inference_contravariant, self.inference_bivariant, self.inference_priority) = saved;
     }
@@ -3662,6 +3664,15 @@ impl Checker<'_, '_> {
         {
             return true;
         }
+        // Tuple references expose their element arguments just like named
+        // references. Iterable<readonly [K, V]> contains both K and V.
+        if let Some(elements) = self.inference_tuple_elements(id)
+            && elements.into_iter().any(|element| {
+                self.target_could_contain_parameter(element.r#type, parameters, visiting)
+            })
+        {
+            return true;
+        }
         // A UNION, likewise over its constituents.
         if let TypeData::Union { types, .. } = &self.store.get(id).data {
             let constituents = types.clone();
@@ -4177,9 +4188,42 @@ impl Checker<'_, '_> {
         if self.infer_to_mapped_type(source, target, parameters, out, depth) {
             return;
         }
+        // invokeOnce (inference.go:335) remembers both completed pairs and
+        // active circularities, preserving the best observed priority.
+        let key = (source, target);
+        if let Some(&priority) = self.inference_visited_pairs.get(&key) {
+            self.inference_observed_priority = self.inference_observed_priority.min(priority);
+            return;
+        }
+        self.inference_visited_pairs.insert(key, -1);
+        let saved_priority = self.inference_observed_priority;
+        self.inference_observed_priority = i32::from(InferencePriority::MAX_VALUE.bits());
+        self.infer_from_members(source, target, original, parameters, out, depth);
+        self.inference_visited_pairs.insert(key, self.inference_observed_priority);
+        self.inference_observed_priority = self.inference_observed_priority.min(saved_priority);
+    }
+
+    /// The structural member portion of inferFromObjectTypes (inference.go).
+    fn infer_from_members(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+        original: TypeId,
+        parameters: &[TypeId],
+        out: &mut Vec<InferenceInfo>,
+        depth: usize,
+    ) {
         let target_names =
             if self.target_could_contain_parameter(target, parameters, &mut Vec::new()) {
-                self.property_names_of(target)
+                // inferFromProperties includes late-bound members such as
+                // Symbol.iterator. The spelling-suggestion enumeration omits
+                // them and would lose inference through Iterable<T>.
+                let captured = self.property_names_of(target);
+                if self.anonymous_properties.contains_key(&target) {
+                    captured
+                } else {
+                    self.get_property_names_of_type(target).unwrap_or(captured)
+                }
             } else {
                 Vec::new()
             };

@@ -1492,6 +1492,24 @@ impl Checker<'_, '_> {
         }
     }
 
+    /// resolveNewExpression / resolveCall (checker.go:8575): construct
+    /// candidates are already in native reorderCandidates order, so the full
+    /// applicability walk can select specialized literal signatures directly.
+    pub(crate) fn choose_construct_overload(
+        &mut self,
+        candidates: &[Signature],
+        arguments: &[Expression<'_>],
+        has_type_arguments: bool,
+        call: Option<tsr_ast::NodeId>,
+    ) -> Option<Signature> {
+        if !has_type_arguments
+            && let Some(picked) = self.transcribed_generic_set_walk(candidates, arguments, call)
+        {
+            return Some(picked);
+        }
+        self.choose_overload(candidates, arguments, has_type_arguments, call)
+    }
+
     /// The first candidate every argument is assignable to, or `None`.
     ///
     /// Ported from `Checker.chooseOverload` (`checker.go:9025`), which walks the

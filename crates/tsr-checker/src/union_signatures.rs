@@ -89,10 +89,16 @@ impl Checker<'_, '_> {
         Some(result)
     }
 
-    /// resolveIntersectionTypeMembers / appendSignatures concatenates call
-    /// sets, retaining overloads whose return types differ.
-    pub(crate) fn intersection_call_signatures(&mut self, ty: TypeId) -> Option<Vec<Signature>> {
-        let key = (ty, true);
+    /// resolveIntersectionTypeMembers / findMixins / includeMixinType
+    /// (checker.go:21302). Ordinary constructors remain overloads; only mixin
+    /// constructors contribute intersections to their return types.
+    pub(crate) fn intersection_signatures(
+        &mut self,
+        ty: TypeId,
+        kind: SignatureKind,
+    ) -> Option<Vec<Signature>> {
+        let is_call = kind == SignatureKind::Call;
+        let key = (ty, is_call);
         if let Some(cached) = self.composite_signature_types.get(&key) {
             return cached.clone();
         }
@@ -101,9 +107,47 @@ impl Checker<'_, '_> {
         };
         self.composite_signature_types.insert(key, None);
         let result = (|| {
+            let lists = types
+                .iter()
+                .map(|&part| self.signatures_of_type_kind(part, kind))
+                .collect::<Option<Vec<_>>>()?;
+            let mut mixins: Vec<_> = lists
+                .iter()
+                .map(|signatures| !is_call && self.is_mixin_constructor_signatures(signatures))
+                .collect();
+            let constructor_count = lists.iter().filter(|list| !list.is_empty()).count();
+            let mixin_count = mixins.iter().filter(|&&mixin| mixin).count();
+            // An all-mixin intersection retains its first constructor as the
+            // signature receiving the other mixins' instance types.
+            if constructor_count > 0 && constructor_count == mixin_count {
+                let first = mixins.iter().position(|&mixin| mixin)?;
+                mixins[first] = false;
+            }
+            let has_mixins = mixins.iter().any(|&mixin| mixin);
             let mut result = Vec::new();
-            for part in types {
-                for signature in self.call_signatures_of_type(part)? {
+            for (index, signatures) in lists.iter().enumerate() {
+                if mixins[index] {
+                    continue;
+                }
+                for signature in signatures {
+                    let mut signature = signature.clone();
+                    if has_mixins {
+                        let returns: Vec<_> = lists
+                            .iter()
+                            .enumerate()
+                            .filter_map(|(i, list)| {
+                                if i == index {
+                                    Some(signature.r#type)
+                                } else if mixins[i] {
+                                    Some(list[0].r#type)
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect();
+                        signature.r#type = self.get_intersection_type(&returns, None);
+                        signature.written_return = None;
+                    }
                     if !result
                         .iter()
                         .any(|held| self.union_signature_matches(held, &signature, false, false, 0))
@@ -120,6 +164,17 @@ impl Checker<'_, '_> {
             self.composite_signature_types.remove(&key);
         }
         result
+    }
+
+    /// isMixinConstructorType (checker.go:17026): one nongeneric construct
+    /// signature with one rest parameter of type any or (readonly) any[].
+    fn is_mixin_constructor_signatures(&mut self, signatures: &[Signature]) -> bool {
+        let [signature] = signatures else { return false };
+        let [parameter] = signature.parameters.as_slice() else { return false };
+        signature.type_parameters.is_empty()
+            && parameter.rest
+            && (self.store.get(parameter.r#type).flags.contains(crate::flags::TypeFlags::ANY)
+                || self.signature_array_element(parameter.r#type) == Some(self.intrinsics.any))
     }
 
     /// resolveUnionTypeMembers caches both signature kinds and applies the

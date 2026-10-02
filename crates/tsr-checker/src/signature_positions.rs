@@ -228,12 +228,18 @@ impl Checker<'_, '_> {
         }
     }
 
-    /// Signature rest comparison uses `getElementTypeOfArrayType`, which
-    /// recognizes the global mutable Array target (`checker.go`).
-    fn signature_array_element(&mut self, t: TypeId) -> Option<TypeId> {
+    /// Ported from getElementTypeOfArrayType / isArrayType (checker.go:23513).
+    /// Both global array targets, mutable and readonly, expose their element.
+    pub(crate) fn signature_array_element(&mut self, t: TypeId) -> Option<TypeId> {
         let (target, arguments) = self.type_reference_targets.get(&t).cloned()?;
         let [element] = arguments.as_slice() else { return None };
-        let array = self.global_type_symbol("Array")?;
-        (self.binder.merged_symbol(target) == self.binder.merged_symbol(array)).then_some(*element)
+        ["Array", "ReadonlyArray"]
+            .into_iter()
+            .any(|name| {
+                self.global_type_symbol(name).is_some_and(|array| {
+                    self.binder.merged_symbol(target) == self.binder.merged_symbol(array)
+                })
+            })
+            .then_some(*element)
     }
 }

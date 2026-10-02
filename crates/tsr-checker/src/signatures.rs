@@ -641,6 +641,83 @@ impl<'a> Checker<'a, '_> {
         signatures
     }
 
+    /// Ported from reorderCandidates (checker.go:8957) for construct candidates.
+    /// Default class signatures carry a class node here, but no declaration
+    /// upstream; treat their parent and symbol as absent during ordering.
+    pub(crate) fn reorder_construct_candidates(
+        &self,
+        signatures: Vec<Signature>,
+    ) -> Vec<Signature> {
+        #[derive(Clone, Copy, PartialEq, Eq)]
+        enum DeclarationSymbol {
+            Bound(SymbolId),
+            Unbound(NodeId),
+        }
+        let mut result = Vec::with_capacity(signatures.len());
+        let mut last_parent = None;
+        let mut last_symbol = None;
+        let mut index = 0;
+        let mut cutoff = 0;
+        let mut specialized_count = 0;
+        for signature in signatures {
+            let declaration = signature.declaration;
+            let parts = self.signature_parts_of(declaration);
+            let (symbol, parent) = if parts.is_some() {
+                let parent = self.nodes.parent(declaration);
+                // The Rust binder does not allocate __new member symbols.
+                // Their owning type uniquely identifies that native symbol;
+                // constructor type nodes instead own individual symbols.
+                let owner = if matches!(
+                    self.node_map.get(declaration),
+                    Some(Node::ConstructSignatureDeclaration(_) | Node::ConstructorDeclaration(_))
+                ) {
+                    parent.unwrap_or(declaration)
+                } else {
+                    declaration
+                };
+                let symbol = self
+                    .binder
+                    .symbol_of(declaration)
+                    .or_else(|| self.binder.symbol_of(owner))
+                    .map_or(DeclarationSymbol::Unbound(owner), |symbol| {
+                        DeclarationSymbol::Bound(self.binder.merged_symbol(symbol))
+                    });
+                (Some(symbol), parent)
+            } else {
+                (None, None)
+            };
+            if last_symbol.is_none() || symbol == last_symbol {
+                if last_parent.is_some() && parent == last_parent {
+                    index += 1;
+                } else {
+                    last_parent = parent;
+                    index = cutoff;
+                }
+            } else {
+                index = result.len();
+                cutoff = result.len();
+                last_parent = parent;
+            }
+            last_symbol = symbol;
+            let specialized = parts.is_some_and(|parts| {
+                parts
+                    .parameters
+                    .iter()
+                    .any(|parameter| matches!(parameter.r#type, Some(TypeNode::LiteralTypeNode(_))))
+            });
+            let insertion = if specialized {
+                let insertion = specialized_count;
+                specialized_count += 1;
+                cutoff += 1;
+                insertion
+            } else {
+                index
+            };
+            result.insert(insertion, signature);
+        }
+        result
+    }
+
     /// getDefaultConstructSignatures (checker.go:20857). Retain inherited
     /// declarations for accessibility, substitute base arguments, and replace
     /// the return and type parameters with the derived class's own identities.

@@ -3053,37 +3053,30 @@ fn a_generic_function_alias_keeps_its_printed_name() {
     );
 }
 
-/// §948 — `new` on an INTERSECTION of constructor types answers the intersection
-/// of the instance types.
-///
-/// `declare const Mixed: typeof A & typeof B; new Mixed()` is `A & B` upstream
-/// and was `error` here. Found by chasing the board's "mixin" cluster and
-/// discovering it is **not** the class-expression mixin §943.1 examined —
-/// `mixinClassesMembers` writes `typeof M1 & typeof C1` and never uses
-/// `class extends B`.
+/// Ordinary class constructors remain overloads. Equal zero-argument lists
+/// select the last return; only any-rest mixin constructors intersect returns.
 #[test]
-fn new_on_an_intersection_of_constructors_intersects_the_instances() {
+fn new_on_an_intersection_of_ordinary_constructors_selects_the_last() {
     assert_eq!(
         type_of_declaration(
             "declare class A { a: number; }\ndeclare class B { b: string; }\n\
              declare const M: typeof A & typeof B;\nconst v = new M();",
             "v"
         ),
-        "A & B"
+        "B"
     );
 }
 
-/// The members of the result are reachable, which is what the corpus rows
-/// actually assert — 43 of §948's 67 were `GAP->RIGHT` on member reads.
+/// Member lookup uses the selected ordinary constructor's instance type.
 #[test]
-fn the_intersected_instance_carries_both_sides_members() {
+fn the_selected_constructor_instance_carries_its_members() {
     assert_eq!(
         type_of_declaration(
             "declare class A { a: number; }\ndeclare class B { b: string; }\n\
-             declare const M: typeof A & typeof B;\nconst v = new M().a;",
+             declare const M: typeof A & typeof B;\nconst v = new M().b;",
             "v"
         ),
-        "number"
+        "string"
     );
 }
 

@@ -1,9 +1,7 @@
 //! What `new C()` must get right.
 //!
-//! The interesting property is that this answers without ever building a
-//! construct signature — see `check_new_expression` for why that is a sound
-//! reduction for a class callee and nothing else. These tests pin both the case
-//! it answers and each case it refuses.
+//! Class construction uses shared construct signatures. These tests pin
+//! instance types, inference fallbacks and native error recovery.
 //!
 //! Expected strings come from `.types` baselines under
 //! `vendor/typescript-go/testdata/baselines/reference/submodule`: `>new C() : C`
@@ -95,11 +93,9 @@ fn explicit_type_arguments_instantiate_the_class() {
 }
 
 #[test]
-fn an_abstract_class_is_a_gap_which_is_also_upstreams_answer() {
-    // `Cannot_create_an_instance_of_an_abstract_class` — upstream reports and
-    // answers `errorType` (`checker.go:8620`), so this agrees with upstream
-    // rather than diverging from it.
-    assert_eq!(type_of_last("abstract class C {}\nconst x = new C();"), "error");
+fn an_abstract_class_uses_native_any_recovery() {
+    // resolveNewExpression reports TS2511; its error result prints as any.
+    assert_eq!(type_of_last("abstract class C {}\nconst x = new C();"), "any");
 }
 
 #[test]

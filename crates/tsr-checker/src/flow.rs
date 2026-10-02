@@ -2574,6 +2574,7 @@ impl Checker<'_, '_> {
         kind: crate::signatures::SignatureKind,
     ) -> Option<Vec<crate::signatures::Signature>> {
         let is_call = kind == crate::signatures::SignatureKind::Call;
+        let t = self.apparent_type(t);
         if self.intersection_has_never_discriminant(t) {
             return Some(Vec::new());
         }
@@ -2606,7 +2607,7 @@ impl Checker<'_, '_> {
             }
             TypeData::Named { .. } => self.signature_candidates_of_named_type(t, kind),
             TypeData::Union { .. } => self.resolved_union_signatures(t, kind),
-            TypeData::Intersection { .. } if is_call => self.intersection_call_signatures(t),
+            TypeData::Intersection { .. } => self.intersection_signatures(t, kind),
             _ => None,
         }
     }
