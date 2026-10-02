@@ -302,15 +302,7 @@ impl Checker<'_, '_> {
             let origin = held
                 .map_or_else(|| self.property_origin(source, &name), |property| property.origin);
             if let Some(symbol) = origin {
-                if self.binder.symbols().get(symbol).declarations.iter().any(|&declaration| {
-                    self.member_declaration_has_modifier(
-                        declaration,
-                        tsr_ast::SyntaxKind::PrivateKeyword,
-                    ) || self.member_declaration_has_modifier(
-                        declaration,
-                        tsr_ast::SyntaxKind::ProtectedKeyword,
-                    )
-                }) {
+                if self.is_non_public_member(symbol) {
                     skipped_private.push(name);
                     continue;
                 }
@@ -459,6 +451,17 @@ impl Checker<'_, '_> {
             }
         }
         Some(self.callable_property_name(symbol, fallback))
+    }
+
+    /// `getDeclarationModifierFlagsFromSymbol(prop) & (Private|Protected)`.
+    pub(crate) fn is_non_public_member(&self, symbol: SymbolId) -> bool {
+        self.binder.symbols().get(symbol).declarations.iter().any(|&declaration| {
+            self.member_declaration_has_modifier(declaration, tsr_ast::SyntaxKind::PrivateKeyword)
+                || self.member_declaration_has_modifier(
+                    declaration,
+                    tsr_ast::SyntaxKind::ProtectedKeyword,
+                )
+        })
     }
 
     /// isSpreadableProperty approximates own properties using declaration kind:

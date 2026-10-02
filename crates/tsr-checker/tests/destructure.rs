@@ -418,3 +418,25 @@ fn destructuring_a_catch_variable_gives_any() {
 fn destructuring_a_catch_variable_by_property_gives_any() {
     assert_eq!(type_of_binding("try { } catch ({ p }) { }", "p"), "any");
 }
+
+/// tsr-8: a class-instance rest keeps only spreadable public properties —
+/// private and protected members, class accessors and class methods are
+/// dropped — and its members stay readable (`destructuringUnspreadableIntoRest`
+/// records `>rest2 : { publicProp: string; }` and `rest2.publicProp : string`).
+/// A definite-assignment `!` is not the binder's Optional flag (`objectRest`
+/// records `removableRest : { remainder: string; }`).
+#[test]
+fn a_class_instance_rest_keeps_only_spreadable_public_properties() {
+    let source = "class A {
+    constructor(public p: string, private q: string, protected r: string) {}
+    get g(): number { return 1; }
+    set s(_v: number) {}
+    m() {}
+    d!: string;
+}
+declare var a: A;
+var { ...rest } = a;
+var { p: read } = rest;";
+    assert_eq!(type_of_binding(source, "rest"), "{ p: string; d: string; }");
+    assert_eq!(type_of_binding(source, "read"), "string");
+}

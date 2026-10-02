@@ -692,8 +692,9 @@ pub struct Checker<'a, 'n> {
         rustc_hash::FxHashMap<crate::types::TypeId, Vec<(String, crate::types::TypeId)>>,
     /// §800: the MEMBERS an object literal printed, keyed by its minted type.
     ///
-    /// `spread_members_of` can re-derive a member list from the `__object`
-    /// symbol, but each member's type comes back from `get_type_of_symbol` —
+    /// The (since removed, tsr-6.25) `spread_members_of` re-derived a member list
+    /// from the `__object` symbol, but each member's type came back from
+    /// `get_type_of_symbol` —
     /// the DECLARED, widened type. A literal in a const context retained its
     /// literal member types at print time and nothing else remembers them, so
     /// a re-mint through the symbol road silently widens

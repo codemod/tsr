@@ -812,16 +812,6 @@ impl Checker<'_, '_> {
         crate::check::has_modifier(modifiers, keyword)
     }
 
-    /// getRestType filters private/protected declarations before consulting
-    /// isSpreadableProperty. Spreads also need the private names to suppress
-    /// same-named left properties, so that visibility check stays separate.
-    fn is_rest_spreadable_property(&self, symbol: tsr_binder::SymbolId) -> bool {
-        !self.binder.symbols().get(symbol).declarations.iter().any(|&declaration| {
-            self.member_declaration_has_modifier(declaration, SyntaxKind::PrivateKeyword)
-                || self.member_declaration_has_modifier(declaration, SyntaxKind::ProtectedKeyword)
-        }) && self.is_spreadable_property(symbol)
-    }
-
     fn object_rest_type(
         &mut self,
         parent_type: TypeId,
@@ -871,10 +861,14 @@ impl Checker<'_, '_> {
             }
             // `unspreadableToRestKeys` (`:17806`-`:17818`): every property that
             // CANNOT be spread is omitted too — a method or accessor declared
-            // in a class, and a `private` or `protected` member. §775 measured
-            // what happens without this: `destructuringUnspreadableIntoRest`
-            // went 30 RIGHT→WRONG, because an omit list missing them is a
-            // confidently wrong type where the gap was honest.
+            // in a class. §775 measured what happens without this:
+            // `destructuringUnspreadableIntoRest` went 30 RIGHT→WRONG, because
+            // an omit list missing them is a confidently wrong type where the
+            // gap was honest. A `private` or `protected` member also fails the
+            // spreadable test, but its key is
+            // `getLiteralTypeFromProperty(prop, …, includeNonPublic=false)`,
+            // which is `never` for a non-public member — so it contributes
+            // nothing to the union (tsr-8, `checker-99-rest-types.md`).
             let apparent = self.apparent_type(parent_type);
             if let TypeData::Named { members: Some(owner), .. } = self.store.get(apparent).data {
                 let properties: Vec<(String, tsr_binder::SymbolId)> = self
@@ -887,7 +881,9 @@ impl Checker<'_, '_> {
                     .collect();
                 let mut unspreadable: Vec<String> = properties
                     .into_iter()
-                    .filter(|&(_, symbol)| !self.is_rest_spreadable_property(symbol))
+                    .filter(|&(_, symbol)| {
+                        !self.is_non_public_member(symbol) && !self.is_spreadable_property(symbol)
+                    })
                     .map(|(name, _)| name)
                     .collect();
                 unspreadable.sort();

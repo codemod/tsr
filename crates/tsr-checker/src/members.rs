@@ -1636,10 +1636,32 @@ impl Checker<'_, '_> {
             if removed.iter().any(|key| key == name) {
                 return None;
             }
+            // `Omit<T, K>` is `Pick<T, Exclude<keyof T, K>>`: a key exists
+            // only where `keyof T` has one, and getLiteralTypeFromProperty
+            // excludes private/protected members. For a generic `T` the
+            // resolved mapped member is the template `T[P]` with `P` fixed,
+            // which stays a deferred indexed access (`this["publicProp"]`,
+            // `destructuringUnspreadableIntoRest`).
+            let source = arguments[0];
+            let apparent = self.apparent_type(source);
+            if let Some(property) = self.get_property_of_type(apparent, name)
+                && self.is_non_public_member(property)
+            {
+                return None;
+            }
+            if self.store.get(source).flags.intersects(TypeFlags::TYPE_PARAMETER) {
+                self.get_property_of_type(apparent, name)?;
+                let key = self.store.intern_literal(
+                    TypeFlags::STRING_LITERAL,
+                    crate::types::TypeData::StringLiteral(name.to_string()),
+                    false,
+                );
+                return self.resolved_indexed_access_type(source, key, false);
+            }
             return self.get_type_of_property_with_this_argument(
-                arguments[0],
+                source,
                 name,
-                arguments[0],
+                source,
                 skip_object_function_augment,
             );
         }
@@ -2880,12 +2902,17 @@ impl Checker<'_, '_> {
     /// `SymbolFlags::OPTIONAL` (the `acdeed5` trap, which once collapsed
     /// optional-property else-branches to `never` through the flag).
     pub(crate) fn property_is_optional(&self, symbol: tsr_binder::SymbolId) -> bool {
+        // The binder sets SymbolFlagsOptional only for a `?` postfix; the
+        // definite-assignment `!` (`remainder!: string`) is required.
+        let question = |token: Option<&tsr_ast::Token<'_>>| {
+            token.is_some_and(|t| t.kind == tsr_ast::SyntaxKind::QuestionToken)
+        };
         self.binder.symbols().get(symbol).declarations.iter().any(|&declaration| {
             match self.node_map.get(declaration) {
-                Some(Node::PropertySignatureDeclaration(p)) => p.postfix_token.is_some(),
-                Some(Node::PropertyDeclaration(p)) => p.postfix_token.is_some(),
-                Some(Node::MethodSignatureDeclaration(m)) => m.postfix_token.is_some(),
-                Some(Node::MethodDeclaration(m)) => m.postfix_token.is_some(),
+                Some(Node::PropertySignatureDeclaration(p)) => question(p.postfix_token),
+                Some(Node::PropertyDeclaration(p)) => question(p.postfix_token),
+                Some(Node::MethodSignatureDeclaration(m)) => question(m.postfix_token),
+                Some(Node::MethodDeclaration(m)) => question(m.postfix_token),
                 _ => false,
             }
         })
