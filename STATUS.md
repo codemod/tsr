@@ -24,6 +24,32 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-10-02
 
+Measured on **`e6812e01`**, based on 5ca50fea: **457,593/478,855 assertions
+(95.56%)**, **7,019/9,538 complete cases (73.59%)**. The 99% target requires
+474,067 correct assertions; **16,474 remain**. Denominator and pinned oracle
+unchanged. Aligned verdicts: **474,243 total; 457,593 right; 2,566 gap; 14,084
+wrong**. Diagnostics **2,784/5,488**, unchanged. Binder retains its verified
+**8,497/8,497 (100%)** result at aab165d8; other suites below retain historical
+measurements.
+
+Assignment/comma conditions (tsr-8.6) add **68 matching assertions and 12
+complete cases**: 66 WRONG-to-RIGHT, 2 GAP-to-RIGHT, **zero RIGHT losses,
+zero GAP-to-WRONG**, and one changed already-WRONG row
+(narrowingTypeofDiscriminant, nullable part removed; mapped body still differs).
+Native reference candidate normalization, assignment/comma target matching
+and RHS-then-target truthiness remove the reproduced loop TS18047. The full
+candidate initially lost nine RIGHT assertions; preserving the port's JSDoc
+cast boundary and gating RHS errors on logical result reachability eliminates
+those losses (recorded in §5).
+[Assignment conditions](docs/architecture/checker-99-assignment-conditions.md)
+records the mechanisms, native declarations and regression controls. Release
+workspace tests (220 result blocks), clippy, formatting, 3,358 anchors and
+16,638 section citations pass. The issue-id gate retains 190 historical
+unresolved IDs (tsr-10). The full Next.js project still lacks a completed run;
+recursive conditional/mapped evaluation is recorded on tsr-6.3.
+
+### Previous checker checkpoint — reduced finally paths
+
 Measured on **`04268474`**, based on 80ba5796: **457,525/478,855 assertions
 (95.55%)**, **7,007/9,538 complete cases (73.46%)**. The 99% target requires
 474,067 correct assertions; **16,542 remain**. Denominator and pinned oracle
@@ -1318,7 +1344,18 @@ reporting, `for-of49`'s unnormalized `[string, ...[boolean]]` tuple-target
 spelling, and the residual spreadUnion2/spreadObjectOrFalsy/
 spreadExpressionContextualTypeWithNamespace rows.
 
-### Current priorities at `04268474` — 2026-10-02 (real-project flow controls)
+### Current priorities at `e6812e01` — 2026-10-02 (assignment conditions)
+
+Continue toward 99%: **16,474 matching assertions remain**. Assignment/comma
+conditions now follow native reference normalization and truthiness (tsr-8.6
+closed), including valid loop reads and the nullable/unrelated/reassigned
+controls. The full Next.js run remains blocked by recursive conditional/mapped
+evaluation performance (tsr-6.3); its earlier profile remains the next
+real-project instrument. narrowingTypeofDiscriminant's mapped-alias body still
+differs after removing its nullable constituent. Existing mapped-type and
+call-site inference priorities below remain open.
+
+### Previous priorities at `04268474` — 2026-10-02 (real-project flow controls)
 
 Continue toward 99%: **16,542 matching assertions remain**. Finally reductions
 now pass native flow-type and TS2454 controls (tsr-8.5). Assignment expressions
@@ -4519,6 +4556,23 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+### Assignment-condition composition at `5ca50fea` — corrected in `e6812e01`
+
+The first full native assignment/comma port gained 66 matching assertions
+(64 W-to-R, 2 G-to-R) but lost **nine RIGHT assertions**, net +57. Three losses
+were parenthesizedJSDocCastDoesNotNarrow: the port's JSDoc side-table cast needs
+the same assertion boundary as native's reparsed AsExpression. Six losses were
+containing expressions in typeGuardsInRightOperandOfOrOrOperator: more precise
+narrowing exposes a never receiver, and RHS error propagation ran before the
+logical-result reachability gate. The uncorrected composition was not landed.
+
+After preserving that assertion boundary and applying the native logical gate,
+the full port gains **68 matching assertions and 12 complete cases**, with zero
+RIGHT losses or G-to-W and one changed already-WRONG row. Keep both dependencies
+when reworking the matching helpers; reducing the port to avoid these paths
+would restore the missing native semantics.
+[Evidence](docs/architecture/checker-99-assignment-conditions.md).
 
 ### Predicate/intersection prerequisites — 2026-10-02
 
@@ -11857,3 +11911,5 @@ that were true of a different population than the one they were quoted about.
 | 2026-10-02 | `ac495d85` | **95.54%** | **7,006/9,538** | **Overloaded construct argument contexts (tsr-6.21): +117 assertions (117 W-to-R: 16 acceptSymbolAsWeakType, 14 setMethods, 12 dissallowSymbolAsWeakType, 49 for-of37–50, 30 iterableArrayPattern25–30, 5 objectFromEntries), zero RIGHT losses, zero G-to-W; 28 changed already-WRONG rows** against a full baseline at 6249bf79: 457,508/478,855. The NewExpression contextual arm reads the candidate under inference; the overload walk evicts array-literal arguments of `new` before each generic candidate. The call-road twin measured +130/−9 RIGHT and is refused until too-short tuple inference answers. [Record](docs/architecture/checker-99-construct-argument-contexts.md). |
 
 | 2026-10-02 | `04268474` | **95.55%** | **7,007/9,538** | **Reduced finally flow paths (tsr-8.5): +17 assertions, +1 complete case, all W-to-R in tryCatchFinallyControlFlow; zero RIGHT losses, GAP transitions or changed already-WRONG rows vs 80ba5796.** 457,525/478,855; aligned 457,525 right, 2,568 gap, 14,150 wrong. Per-query reductions select normal completion after finally and preserve exceptional/pending-return paths inside it. Four type tests and three diagnostic controls; 220 release workspace result blocks, clippy, fmt, anchors and sections pass. Diagnostics unchanged at 2,784/5,488. [Evidence](docs/architecture/checker-99-finally-flow.md). Assignment-in-condition narrowing remains tsr-8.6; current full-project recursive evaluation slowdown remains tsr-6.3. |
+
+| 2026-10-02 | `e6812e01` | **95.56%** | **7,019/9,538** | **Assignment/comma condition narrowing (tsr-8.6): +68 assertions (66 W-to-R, 2 G-to-R), +12 complete cases vs 5ca50fea, zero RIGHT losses or G-to-W; one changed already-WRONG row.** 457,593/478,855; aligned 457,593 right, 2,566 gap, 14,084 wrong. Native candidate normalization, assignment/comma target matching and RHS-then-target truthiness; JSDoc cast boundaries and short-circuit result gates eliminate the initial nine RIGHT losses. Nine narrowing tests, one logical-result test and four diagnostic controls; 220 release workspace result blocks, clippy, fmt, anchors and sections pass. Diagnostics unchanged at 2,784/5,488. [Evidence](docs/architecture/checker-99-assignment-conditions.md). 16,474 matches remain to 99%; recursive conditional/mapped project slowdown remains tsr-6.3. |

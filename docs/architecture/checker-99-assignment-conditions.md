@@ -100,3 +100,33 @@ the three normalization protocols remain separate because their semantics differ
 The full-project recursive conditional/mapped slowdown remains on tsr-6.3.
 This port removes the reproduced assignment-condition diagnostic; it does not
 establish that the entire Next.js project completes or satisfies the 99% goal.
+
+## Measured landing
+
+The checker committed at **e6812e01** matches **457,593/478,855 assertions
+(95.56%)**, **7,019/9,538 complete cases (73.59%)**. Relative to 5ca50fea,
+66 assertions move WRONG-to-RIGHT and 2 GAP-to-RIGHT, with zero RIGHT losses
+or GAP-to-WRONG. One already-WRONG narrowingTypeofDiscriminant row changes
+from WrappedStringOr<boolean> | null to WrappedStringOr<boolean>; native still
+wants its mapped structural body. The aligned 474,243 rows consist of 457,593
+RIGHT, 2,566 GAP and 14,084 WRONG. Diagnostics remain 2,784/5,488. The 99%
+target still requires 16,474 matching assertions.
+
+A fresh unfiltered verdict dump at e6812e01 is byte-identical to the final
+candidate. Evidence: /tmp/tsr-condition-before.tsv,
+/tmp/tsr-condition-e6812e01.tsv and /tmp/tsr-condition-e6812e01.log.
+The checker sources and trace_case.rs hash (sorted paths and contents) is
+264e97d6063aba530f0453c3367a1d49b2c72e74c9079af840130ad307646341.
+Native fixtures are /tmp/tsr-assignment-controls.ts,
+/tmp/tsr-cast-return.js, /tmp/tsr-cast-read.js and
+/tmp/tsr-unreachable-operators.ts. The original strict CLI reproduction is
+/tmp/tsr-real-flow-repro.ts, now silent in both compilers.
+
+Release workspace tests pass 220 result blocks; workspace clippy, formatting,
+3,358 anchor references and the section gate pass. Evidence is
+/tmp/tsr-condition-workspace-verified.log,
+/tmp/tsr-condition-clippy-verified.log and
+/tmp/tsr-condition-delivery-sections.log. The issue-id gate retains the 190
+historical unresolved identifiers tracked by tsr-10; tsr-8.6 resolves.
+The sequential review receipt is
+/tmp/compound-engineering-501/ce-code-review/assignment-conditions-1vmywzcm/review.json.
