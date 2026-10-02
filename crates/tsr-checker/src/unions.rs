@@ -1310,27 +1310,14 @@ impl Checker<'_, '_> {
 }
 
 impl crate::checker::Checker<'_, '_> {
-    /// A union reduced with `UnionReductionSubtype`, or `None` where the
-    /// reduction is not decidable — `checker-notes-assign.md` §9.
+    /// `removeSubtypes` (`checker.go:25937`), using strict-subtype relations.
+    /// Union-constrained parameters are compared with the union of the other
+    /// surviving constituents; other sources are compared pairwise. Unknown
+    /// relations decline the whole reduction. Class derivation and fresh-object
+    /// excess checks preserve the existing relation restrictions.
     ///
-    /// Upstream's `removeSubtypes` removes a constituent when
-    /// `isTypeRelatedTo(source, target, strictSubtypeRelation)` holds. This
-    /// port runs the same test through [`Ternary`] and **declines whole** on:
-    ///
-    /// - any pair reading [`Ternary::Unknown`] — the population whose wrong
-    ///   removals priced `tsr-eak`'s 1.03 refusal;
-    /// - ~~a `Related` pair of two class instances — upstream additionally
-    ///   requires `isTypeDerivedFrom` there … which is unported~~ — **§913:
-    ///   stale.** §357 ported that caveat; the loop below tests
-    ///   `heritage_chain_contains` before the relation and KEEPS an underived
-    ///   pair rather than declining the reduction;
-    /// - a type-parameter constituent — upstream tests it against the union
-    ///   of the *others* (the union-constraint branch), not pairwise.
-    ///
-    /// The key-property and `hasEmptyObject` branches upstream carries are
-    /// performance, not semantics: primitives are strict subtypes only of
-    /// empty object shapes, and the pairwise walk reaches those through the
-    /// ordinary relation.
+    /// See `docs/architecture/checker-99-parameter-reduction.md` for native
+    /// controls and the remaining representation limits.
     pub(crate) fn union_with_subtype_reduction(
         &mut self,
         types: &[crate::types::TypeId],
@@ -1343,12 +1330,6 @@ impl crate::checker::Checker<'_, '_> {
             // subtype pass could remove.
             _ => return Some(literal),
         };
-        if constituents
-            .iter()
-            .any(|&c| self.store.get(c).flags.contains(crate::flags::TypeFlags::TYPE_PARAMETER))
-        {
-            return None;
-        }
         // §513: constituents with IDENTICAL PRINTED TEXT are one type to
         // every consumer of this port — print-at-creation is the data model
         // (ADR-0003) — where upstream reaches the same collapse through
@@ -1359,16 +1340,12 @@ impl crate::checker::Checker<'_, '_> {
             let mut seen: Vec<String> = Vec::with_capacity(constituents.len());
             let mut distinct = Vec::with_capacity(constituents.len());
             for &constituent in &constituents {
-                // A `unique symbol` is distinct BY CONSTRUCTION under one
-                // spelling — `indirectUniqueSymbolDeclarationEmit` (a passing
-                // case) records `unique symbol | unique symbol`; the
-                // full-stop rule measured this exclusion in.
-                if self
-                    .store
-                    .get(constituent)
-                    .flags
-                    .contains(crate::flags::TypeFlags::UNIQUE_ES_SYMBOL)
-                {
+                // Unique symbols and parameters from different declarations
+                // remain distinct even when their displayed names coincide.
+                if self.store.get(constituent).flags.intersects(
+                    crate::flags::TypeFlags::UNIQUE_ES_SYMBOL
+                        | crate::flags::TypeFlags::TYPE_PARAMETER,
+                ) {
                     distinct.push(constituent);
                     continue;
                 }
@@ -1382,31 +1359,6 @@ impl crate::checker::Checker<'_, '_> {
         };
         if let [single] = constituents.as_slice() {
             return Some(*single);
-        }
-        // The first measurement fired the §9 bar's leg 2 at 46 and its named
-        // falsifier was exact: `properties_related_to`'s own doc says
-        // `readonly`, optionality and the other modifiers are "not compared
-        // at all … the one place this function can be too permissive", and
-        // this reduction is precisely the consumer that acts on the
-        // too-permissive `Related` — `{ a } | { readonly a }` removed a
-        // constituent upstream's directed relation keeps
-        // (`readonlyPropertySubtypeRelationDirected`, 36 of the 46; the
-        // relation learned READONLY in §14 and that clause is gone). Until
-        // the relation reads the remaining modifiers, a constituent carrying one — or
-        // carrying a generic instantiation (`NonNullable<T>` reduced to `T`)
-        // — declines the whole reduction, syntactically.
-        for &constituent in &constituents {
-            // §16 deleted the modifier decline's last clause: readonly (§14),
-            // optionality (§15) and privacy (§16) all live in the relation
-            // now, and a protected-target pair reads `Unknown` there — the
-            // gate below declines it as it declines every undecidable pair.
-            if let Some((_, arguments)) = self.type_reference_targets.get(&constituent)
-                && arguments.iter().any(|&a| {
-                    self.store.get(a).flags.contains(crate::flags::TypeFlags::TYPE_PARAMETER)
-                })
-            {
-                return None;
-            }
         }
         // §357: a PRIMITIVE constituent is never a removal candidate unless an
         // empty object type is present — upstream's gate at the top of the
@@ -1440,6 +1392,25 @@ impl crate::checker::Checker<'_, '_> {
             if !has_empty_object
                 && !self.store.get(source).flags.intersects(structured_or_instantiable)
             {
+                continue;
+            }
+            // removeSubtypes (checker.go:25959): a union-constrained
+            // parameter can inhabit the remaining union without inhabiting
+            // any one of its constituents individually.
+            if self.store.get(source).flags.contains(crate::flags::TypeFlags::TYPE_PARAMETER)
+                && self.base_constraint_of_type(source).is_some_and(|constraint| {
+                    self.store.get(constraint).flags.contains(crate::flags::TypeFlags::UNION)
+                })
+            {
+                let others: Vec<_> = kept.iter().copied().filter(|&ty| ty != source).collect();
+                let target = self.get_union_type(&others);
+                match self.relate_ternary(source, target, crate::relater::Relation::StrictSubtype) {
+                    Ternary::Related => {
+                        kept.remove(i);
+                    }
+                    Ternary::NotRelated => {}
+                    Ternary::Unknown => return None,
+                }
                 continue;
             }
             let mut remove = false;

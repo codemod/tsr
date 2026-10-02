@@ -2299,34 +2299,11 @@ impl Checker<'_, '_> {
         })
     }
 
-    /// Ported from `Checker.checkConditionalExpression` (`checker.go:10934`).
-    ///
-    /// # The union is built at the wrong reduction, so the safe cases are fenced
-    ///
-    /// Upstream builds the branch union at **`UnionReductionSubtype`**
-    /// (`checker.go:10940`), and this port only has `UnionReductionLiteral`
-    /// ([`Checker::get_union_type`]) because subtype reduction needs an
-    /// assignability question that does not exist here. The two reductions agree
-    /// on primitives and unit types — `bob ? 1 : 2` is `1 | 2` under both, and
-    /// `x ? 1 : n` is `number` under both, because literal reduction already
-    /// removes a literal whose base primitive is present.
-    ///
-    /// They part company on object types, where subtype reduction collapses a
-    /// constituent into a supertype it is assignable to. The baselines record
-    /// exactly that: `>true ? a : b : { Foo?: Base; }` is one object type, not the
-    /// two-member union this port would build. So an object-typed branch is a
-    /// **gap**, fenced by [`Self::is_subtype_reduction_free`], rather than a
-    /// plausible `A | B` that is wrong on every such line.
-    ///
-    /// The rejected alternative was to emit the union everywhere and accept the
-    /// object case as a known divergence. It wins the moment `relater.rs` can
-    /// answer assignability for object types, at which point the fence comes out
-    /// and real subtype reduction goes in — not before, because a union that
-    /// should have collapsed is a wrong line rather than a missing one.
-    ///
-    /// **How we would know this is wrong:** a baseline `>c ? a : b` line whose
-    /// printed type is a union of two primitives that this port gaps, or a
-    /// non-union answer where it prints a union.
+    /// `checkConditionalExpression` (`checker.go:10934`) checks both branches
+    /// and builds their union with subtype reduction. Identity, `any` and
+    /// primitive-only pairs can use literal reduction directly; all other
+    /// pairs require the semantic subtype reducer. An unported branch or an
+    /// undecidable reduction remains a gap.
     fn check_conditional_expression(
         &mut self,
         node: &tsr_ast::ConditionalExpression<'_>,
@@ -2359,43 +2336,8 @@ impl Checker<'_, '_> {
             self.get_regular_type_of_literal_type(branches[1]),
         ];
         let any = self.intrinsics.any;
-        // §133: a TYPE PARAMETER is never subtype-collapsed into a sibling
-        // in these baselines — `T | null`, `number | T`, `T | RegExp`,
-        // `T | { foo: number; }` all keep both constituents, INCLUDING a
-        // constrained `T extends number` beside bare `number`
-        // (subtypesOfTypeParameterWithConstraints2's wants). A pair with
-        // exactly ONE parameter side is reduction-free whole; TWO parameters
-        // keep the fence (the constraint-related pair is undecided).
-        // Iteration 2's split (subtypesOfTypeParameterWithConstraints2's
-        // wants): a CONSTRAINED parameter collapses into an OBJECT-ish
-        // sibling its constraint chain relates to (`T extends U extends
-        // Date` beside `new Date()` wants `Date`) but NEVER into a
-        // primitive/literal sibling (`T extends Number` beside `1` wants
-        // `number | T`); an UNCONSTRAINED parameter never collapses at all
-        // (`T | RegExp`, `T | { foo: number; }`). So: admit when the
-        // sibling is primitive-safe, or the parameter is unconstrained;
-        // a constrained parameter beside an object sibling stays fenced.
-        let parameter_union_safe = {
-            let sides: Vec<bool> = branches
-                .iter()
-                .map(|&branch| self.store.get(branch).flags.contains(TypeFlags::TYPE_PARAMETER))
-                .collect();
-            match (sides[0], sides[1]) {
-                (true, true) | (false, false) => false,
-                (parameter_first, _) => {
-                    let (parameter, sibling) = if parameter_first {
-                        (branches[0], branches[1])
-                    } else {
-                        (branches[1], branches[0])
-                    };
-                    self.is_subtype_reduction_free(sibling)
-                        || self.type_parameter_constraint(parameter).is_none()
-                }
-            }
-        };
         if regular[0] == regular[1]
             || branches.contains(&any)
-            || parameter_union_safe
             || branches.iter().all(|&branch| self.is_subtype_reduction_free(branch))
         {
             return self.get_union_type(&branches);
