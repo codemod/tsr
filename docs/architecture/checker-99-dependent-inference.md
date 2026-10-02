@@ -76,3 +76,26 @@ inference rows remain explicit limitations.
 Frozen checker/trace_case SHA-256:
 3bb89471563ab4503b4383d011b39c8dc1a9a6775a3cdaa8022c0979b68659e2.
 Review receipt: /tmp/compound-engineering-501/ce-code-review/dependent-inference/review.json.
+
+Committed verification at f557e254 in /tmp/tsr-99-dependent-inference-verify matches
+the candidate verdict byte-for-byte and the frozen source hash. Coverage is
+455,873/478,855 RIGHT (95.20%), 6,913/9,538 complete cases (72.48%), one more
+complete case. The 99% target still needs 18,194 matches. Aligned counts:
+455,873 RIGHT, 2,775 GAP, 15,595 WRONG, 474,243 total. All 210 release workspace
+result blocks, clippy, formatting and 3,330 anchors pass in the isolated checkout.
+Fresh depend: 504 non-gapping roots, 210 cycles, zero depth caps and 3,591 walked
+gaps; C3 balances, C1/C4 remain stale (tsr-6.29). The snapshot is copied from the
+isolated checkout. Verdict: /tmp/tsr-99-dependent-inference-verified.tsv; logs:
+/tmp/tsr-99-dependent-inference-verified-*.log.
+
+Five isolated mutations compile and fail the intended assertions: bypassing
+candidate constraints fails rejected; using the candidate-free sentinel for a
+recursive candidate fails recursive; limiting dependencies to earlier parameters
+fails before; always building mutable callback tuples fails ro; ignoring the
+mutable-array-like constraint test fails mut. Each mutation restores its source
+in a finally block, and the final hash equals the committed source hash. Script:
+/tmp/tsr-99-dependent-inference-mutations.py. Logs:
+/tmp/tsr-99-dependent-inference-mutation-{candidate,sentinel,dependency,readonly,mutable}.log.
+
+All eight focused dependent-inference and inference-default tests pass after
+restoration: /tmp/tsr-99-dependent-inference-restored-tests.log.

@@ -24,24 +24,23 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-10-02
 
-Measured on **`0ba7ce80`** in an isolated checkout: **455,838/478,855 assertions
-(95.19%)**, **6,912/9,538 complete cases (72.47%)**. The 99% target requires
-474,067 correct assertions; **18,229 remain**. Denominator and pinned oracle
-unchanged. Aligned verdicts: **474,243 total; 455,838 right; 2,775 gap; 15,630 wrong**.
+Measured on **`f557e254`** in an isolated checkout: **455,873/478,855 assertions
+(95.20%)**, **6,913/9,538 complete cases (72.48%)**. The 99% target requires
+474,067 correct assertions; **18,194 remain**. Denominator and pinned oracle
+unchanged. Aligned verdicts: **474,243 total; 455,873 right; 2,775 gap; 15,595 wrong**.
 Binder retains its verified **8,497/8,497 (100%)** result at aab165d8;
 other suites below retain historical measurements.
 
-This unit adds **88 matching assertions** and **12 complete cases**, with
-**zero RIGHT losses and zero new WRONG rows** relative to 948a8f5b:
-76 WRONG→RIGHT and 12 GAP→RIGHT. Three already-WRONG rows change; §5 records
-them. [Inference defaults](docs/architecture/checker-99-inference-defaults.md)
-records constraint resolution, recursive mapper sentinels, default backreferences
-and the overload applicability correction. Four pipeline tests pin 22 native
-outcomes. All 209 release workspace result blocks, clippy, formatting and 3,330
-anchors pass in main and the isolated checkout; committed coverage and source
-hash match the measured candidate. Five isolated mutations fail their intended
-assertions; all four focused tests pass after source restoration.
-The broader 99% goal and tsr-8 remain active.
+This unit adds **35 matching assertions** and **one complete case**, with
+**zero RIGHT losses and zero new WRONG rows** relative to 0ba7ce80, all
+WRONG→RIGHT. Two already-WRONG rows change; §5 records them.
+[Dependent inference](docs/architecture/checker-99-dependent-inference.md)
+records candidate constraint resolution and native const signature source tuples,
+replacing the blanket readonly transform. Four tests pin 22 native outcomes.
+All 210 release workspace result blocks, clippy, formatting and 3,330 anchors pass
+in main and the isolated checkout. Committed verdict and source hash match the
+candidate. Five isolated mutations fail their intended assertions, and eight focused
+inference tests pass after restoration. The broader 99% goal and tsr-8 remain active.
 
 ### Previous whole-suite measurement — historical
 
@@ -1076,6 +1075,7 @@ Per-crate, by what the conformance suites actually assert — not by what exists
 
 | subsystem | state | evidence |
 |---|---|---|
+| dependent candidate inference | **recursive constraint mapping and const signature tuples** | f557e254: +35 matches, zero RIGHT losses/new WRONG rows, +1 complete case; 22 native controls; [evidence](docs/architecture/checker-99-dependent-inference.md) |
 | candidate-free inference | **recursive constraints and default backreferences** | 0ba7ce80: +88 matches, zero RIGHT losses/new WRONG rows, +12 complete cases; 22 native controls; [evidence](docs/architecture/checker-99-inference-defaults.md) |
 | declared computed members | **semantic literal keys and side-specific resolution** | 948a8f5b: +28 matches, zero RIGHT losses/adverse transitions, +4 complete cases; 18 native controls; [evidence](docs/architecture/checker-99-declared-computed-members.md) |
 | enum/module value members | **exports, conditional reverse indexes and complete enum-run display** | b51228ae: +28 matches, zero RIGHT losses, +1 complete case; 14 native controls; [evidence](docs/architecture/checker-99-enum-static.md) |
@@ -1247,7 +1247,19 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-### Current priorities at `0ba7ce80` — 2026-10-02
+### Current priorities at `f557e254` — 2026-10-02
+
+Continue toward 99%: 18,194 matching assertions remain. Final call inference now
+resolves dependent constraints for candidates as well as missing inferences.
+Const signature parameter tuples use native mutability and preserve labels and
+element types; the blanket readonly image is removed. Next: integrate recursive
+constraint mapping into contextual fixing, structural/mapped reverse inference,
+contextual indexed inference (extractInferenceImprovement), and callback cycles.
+Conditional-rest subtyping, spread/property ordering, optional-symbol metadata
+and computed-name per-node circularity remain on tsr-8. The final +35 unit changes
+two already-WRONG rows, recorded in §5.
+
+### Previous priorities at `0ba7ce80` — 2026-10-02
 
 Continue toward 99%: 18,229 matching assertions remain. Candidate-free inference
 now resolves constraints recursively and applies native default backreferences.
@@ -4211,6 +4223,19 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+### Dependent candidates and const signature sources at `f557e254`
+
+Candidate constraints first gained 20 RIGHT rows with no RIGHT losses and changed
+four WRONG rows. Two changed const-callback results exposed the legacy blanket
+readonly transform: it discarded tuple labels and recursively changed element
+mutability, causing a mutable constraint to fall back to unknown[]. Replacing it
+with applyToParameterTypes' native source-tuple mutability rule gains 15 more
+matches. The final +35 checkpoint has zero RIGHT losses/new WRONG rows. Two
+extractInferenceImprovement rows change from any to string | number while native
+expects string; contextual indexed inference remains unfinished. Contextual-fixing
+callers retain the existing closed-constraint path and need the recursive mapper.
+[Evidence](docs/architecture/checker-99-dependent-inference.md).
 
 ### Candidate-free inference at `0ba7ce80`
 
@@ -10382,6 +10407,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
+| 2026-10-02 | `f557e254` | **72.48%** | **6,913** | **455,873/478,855 assertions (95.20%).** +35 since 0ba7ce80, zero RIGHT losses/new WRONG rows; 35W→R, 2 changed WRONG. | Dependent candidate constraints and native const signature tuples; blanket readonly transform removed. 22 native outcomes; 210 workspace blocks, clippy, 3330 anchors; isolated verdict/source match. 18,194 remain to 99%. |
 | 2026-10-02 | `0ba7ce80` | **72.47%** | **6,912** | **455,838/478,855 assertions (95.19%).** +88 since 948a8f5b, zero RIGHT losses/new WRONG rows; 76W→R, 12G→R, 3 changed WRONG. | Candidate-free constraints, recursive mapper sentinels, default backreferences and definite argument rejection despite an unresolved receiver. 22 native outcomes; isolated verdict/source match; 18,229 remain to 99%. |
 | 2026-10-02 | `948a8f5b` | **72.34%** | **6,900** | **455,750/478,855 assertions (95.17%).** +28 since b51228ae, zero adverse transitions; 20W→R, 8G→R. | Declared computed semantic keys, static/instance resolution caches and accessor modifiers. 18 native outcomes; 208 workspace blocks, clippy, 3331 anchors; isolated verdict/source match. 18,317 remain to 99%. |
 | 2026-10-02 | `b51228ae` | **72.30%** | **6,896** | **455,722/478,855 assertions (95.17%).** +28 since fd9b42be, zero RIGHT losses; 23W→R, 5G→R, 4G→W, 19 changed WRONG. | Enum/module exports, native reverse indexes and const access rejection, complete enum-run printing. 14 native outcomes; 207 workspace blocks, clippy, 3331 anchors; isolated verdict/source match. 18,345 remain to 99%. |
