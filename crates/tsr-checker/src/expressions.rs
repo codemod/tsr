@@ -1516,6 +1516,10 @@ impl Checker<'_, '_> {
     }
 
     pub(crate) fn check_this_expression(&mut self, node: NodeId) -> TypeId {
+        // tryGetThisTypeAtEx: an initializer uses class-this unless the
+        // containing function explicitly declares a this parameter.
+        let in_parameter_initializer =
+            self.is_in_parameter_initializer_before_containing_function(node);
         let mut current = self.nodes.parent(node);
         while let Some(id) = current {
             // getThisContainer skips object members when evaluating their
@@ -1539,11 +1543,12 @@ impl Checker<'_, '_> {
             // the written annotation. A method is function-like.
             //
             // Falling through when there is no `this` parameter is also
-            // upstream's: `getThisTypeOfSignature` answers `nil`,
-            // `getContextualThisParameterType` is unported and answers nothing
-            // here, and the class arm below is what runs next.
+            // upstream's: getThisTypeOfSignature answers nil, then the
+            // contextual signature/object/assignment routes precede the class.
+            // Resolved function and class receivers pass through native flow
+            // narrowing before they become the expression's type.
             if let Some(this_type) = self.this_parameter_type(id) {
-                return this_type;
+                return self.get_flow_type_of_reference(node, None, this_type);
             }
             // §928: **upstream's SECOND branch, which §912's comment named and
             // did not build.** `getContextualThisParameterType`
@@ -1567,11 +1572,16 @@ impl Checker<'_, '_> {
             // fallback on `noImplicitThis` (`checker.go:29119`); the contextual
             // signature's own `this` is an annotation the user wrote and is
             // read in every mode.
-            if let Some(this_type) = self.contextual_this_parameter_type(id) {
-                return this_type;
-            }
-            if let Some(this_type) = self.contextual_object_this_type(id) {
-                return this_type;
+            if !in_parameter_initializer {
+                if let Some(this_type) = self.contextual_this_parameter_type(id) {
+                    return self.get_flow_type_of_reference(node, None, this_type);
+                }
+                if let Some(this_type) = self.contextual_object_this_type(id) {
+                    return self.get_flow_type_of_reference(node, None, this_type);
+                }
+                if let Some(this_type) = self.contextual_assignment_this_type(id) {
+                    return self.get_flow_type_of_reference(node, None, this_type);
+                }
             }
             match self.nodes.kind(id) {
                 // An arrow function is transparent — it keeps the enclosing
@@ -1588,7 +1598,8 @@ impl Checker<'_, '_> {
                     // property VALUE of an object literal takes the
                     // literal-self mint too (`f: function() { return
                     // this.d; }` — the head case's residual 7), same gates.
-                    if self.nodes.kind(id) == SyntaxKind::FunctionExpression
+                    if !in_parameter_initializer
+                        && self.nodes.kind(id) == SyntaxKind::FunctionExpression
                         && let Some(assignment) = self.nodes.parent(id)
                         && self.nodes.kind(assignment) == SyntaxKind::PropertyAssignment
                         && let Some(literal) = self.nodes.parent(assignment)
@@ -1599,7 +1610,7 @@ impl Checker<'_, '_> {
                         && !self.literal_has_computed_member(literal)
                     {
                         if let Some(&cached) = self.literal_this_types.get(&literal) {
-                            return cached;
+                            return self.get_flow_type_of_reference(node, None, cached);
                         }
                         if let Some(symbol) = self.binder.symbol_of(literal) {
                             let minted = self.store.new_named(
@@ -1608,7 +1619,7 @@ impl Checker<'_, '_> {
                                 Some(symbol),
                             );
                             self.literal_this_types.insert(literal, minted);
-                            return minted;
+                            return self.get_flow_type_of_reference(node, None, minted);
                         }
                     }
                     return self.intrinsics.any;
@@ -1619,6 +1630,7 @@ impl Checker<'_, '_> {
                     if self.nodes.parent(id).is_some_and(|parent| {
                         self.nodes.kind(parent) == SyntaxKind::ObjectLiteralExpression
                             && self.no_implicit_this
+                            && !in_parameter_initializer
                             && self.has_no_contextual_type(parent)
                             && !self.in_js_file(parent)
                             && !self.literal_has_computed_member(parent)
@@ -1628,7 +1640,7 @@ impl Checker<'_, '_> {
                         return self.intrinsics.error;
                     };
                     if let Some(&cached) = self.literal_this_types.get(&literal) {
-                        return cached;
+                        return self.get_flow_type_of_reference(node, None, cached);
                     }
                     let Some(symbol) = self.binder.symbol_of(literal) else {
                         return self.intrinsics.any;
@@ -1639,7 +1651,7 @@ impl Checker<'_, '_> {
                         Some(symbol),
                     );
                     self.literal_this_types.insert(literal, minted);
-                    return minted;
+                    return self.get_flow_type_of_reference(node, None, minted);
                 }
                 // tryGetThisTypeAtEx stops at an object method/accessor even
                 // when neither an explicit nor contextual this type exists.
@@ -1700,10 +1712,11 @@ impl Checker<'_, '_> {
                         member = self.nodes.parent(m);
                     };
                     if static_container {
-                        return self.get_type_of_symbol(symbol);
+                        let this_type = self.get_type_of_symbol(symbol);
+                        return self.get_flow_type_of_reference(node, None, this_type);
                     }
                     if let Some(&cached) = self.this_types.get(&symbol) {
-                        return cached;
+                        return self.get_flow_type_of_reference(node, None, cached);
                     }
                     let this_type = self.store.new_named(
                         TypeFlags::TYPE_PARAMETER,
@@ -1711,7 +1724,7 @@ impl Checker<'_, '_> {
                         Some(symbol),
                     );
                     self.this_types.insert(symbol, this_type);
-                    return this_type;
+                    return self.get_flow_type_of_reference(node, None, this_type);
                 }
                 // **`getThisContainer` stops here, so the walk must too**
                 // (`checker.go:12225-12228`). A module or enum body is a
@@ -1780,17 +1793,6 @@ impl Checker<'_, '_> {
     /// reads the container's **first** parameter and asks whether it is named
     /// `this`; the grammar allows it nowhere else.
     ///
-    /// # An unannotated `this` parameter is deliberately not answered
-    ///
-    /// `function f(this) {}` would take its type from `getTypeOfSymbol`, which
-    /// answers the implicit `any` — and `docs/architecture/checker-notes-rank.md`
-    /// §6 records 21,685 gradient lines already banked on `any` with the computed
-    /// and the defaulted not yet separated. Adding to that column for a parameter
-    /// the source did not annotate is a claim, not a computation, so this returns
-    /// `None` and the line stays a gap. Three such parameters exist in the corpus
-    /// and `crates/tsr-conformance/examples/thisparam.rs` prints the count as a
-    /// control on the exclusion.
-    ///
     /// An **arrow function is not a `this` container** —
     /// `getThisContainer(node, includeArrowFunctions: false, …)`
     /// (`checker.go:12188`) — so it is absent from this match and stays
@@ -1809,12 +1811,19 @@ impl Checker<'_, '_> {
             Node::ConstructorDeclaration(node) => node.parameters,
             _ => return None,
         };
-        let first = parameters.first()?;
-        if !matches!(first.name, Some(tsr_ast::BindingName::Identifier(name)) if name.text == "this")
-        {
-            return None;
-        }
-        let annotation = first.r#type?;
+        let Some(first) = parameters.first().filter(|first| {
+            matches!(first.name, Some(tsr_ast::BindingName::Identifier(name)) if name.text == "this")
+        }) else {
+            return self.jsdoc_this_parameter_type(container);
+        };
+        let Some(annotation) = first.r#type else {
+            // assignContextualParameterTypes can fill an unannotated this
+            // slot before getThisTypeOfSignature reads it. Otherwise its
+            // implicit any still shadows the class/object receiver.
+            return Some(
+                self.contextual_this_parameter_type(container).unwrap_or(self.intrinsics.any),
+            );
+        };
         // **An annotation this port cannot resolve falls through rather than
         // answering `errorType`.** `explicitThis(this: this, m: number)` in
         // `conformance/looseThisTypeInFunctions` is the case: the annotation is a

@@ -1210,8 +1210,7 @@ impl Checker<'_, '_> {
         // SS163 (isTypeDerivedFrom's structural arms, relater.go:4964-4975,
         // transcribed): source union -> EVERY; target union -> SOME; source
         // intersection -> SOME - each Kleene-lifted (decidable-true /
-        // decidable-false / else None). The instantiable-constraint arm
-        // declines.
+        // decidable-false / else None). Source constraints follow below.
         if let TypeData::Union { types, .. } = &self.store.get(t).data {
             let constituents = types.clone();
             let mut all_true = true;
@@ -1248,6 +1247,21 @@ impl Checker<'_, '_> {
                 }
             }
             return if any_none { None } else { Some(false) };
+        }
+        // isTypeDerivedFrom follows a source's base constraint, but a type
+        // parameter target is not its constraint. In particular Derived does
+        // not derive from the polymorphic this parameter constrained to Base.
+        if flags.intersects(TypeFlags::INSTANTIABLE_NON_PRIMITIVE) {
+            let constraint = self.base_constraint_of_type(t).unwrap_or(self.intrinsics.unknown);
+            if constraint == t {
+                return None;
+            }
+            return self.is_derived_from_decidable(constraint, candidate);
+        }
+        if self.store.get(candidate).flags.contains(TypeFlags::TYPE_PARAMETER)
+            || flags.intersects(TypeFlags::ANY_OR_UNKNOWN)
+        {
+            return Some(false);
         }
         // isTypeDerivedFrom's empty-object and global Object arms (relater.go:4982).
         if self.is_empty_anonymous_object_type(candidate) {
@@ -1331,9 +1345,9 @@ impl Checker<'_, '_> {
 
     /// SS159: `getNarrowedTypeWorker`'s checkDerived flavor (flow.go:860-965,
     /// the SS158 transcription), over the DECIDABLE domain - `None` where any
-    /// rung is undecidable, and the caller keeps its old road. Slice 1 omits
-    /// the keyProperty fast-path, the instantiable-constraint leg, and the
-    /// all-never tail (each declines).
+    /// rung is undecidable, and the caller keeps its old road. Generic
+    /// constraints preserve their source identities through intersections;
+    /// the keyProperty lookup optimization is omitted.
     fn narrowed_type_worker_derived(
         &mut self,
         t: TypeId,
@@ -1381,14 +1395,31 @@ impl Checker<'_, '_> {
             // never - dropped.
         }
         if mapped.is_empty() {
-            // The worker's two remaining upstream legs are deliberately
-            // absent, each for a measured reason: the INSTANTIABLE-CONSTRAINT
-            // leg (flow.go:933-948, intersections for generic constituents
-            // related by constraint) was transcribed and measured +0 — no
-            // corpus row reaches it through this port's callers; and the
-            // KEY-PROPERTY fast path (flow.go:888-897) is a >=10-constituent
-            // lookup that picks the constituent the per-constituent map
-            // already finds, so it cannot change an answer.
+            // getNarrowedTypeWorker (flow.go:933): unrelated generic
+            // constituents can still overlap the candidate through their
+            // constraints. Preserve the generic identity in an intersection.
+            let constituents = match self.store.get(t).data.clone() {
+                TypeData::Union { types, .. } => types,
+                _ => vec![t],
+            };
+            for constituent in constituents {
+                if self.store.get(constituent).flags.intersects(TypeFlags::INSTANTIABLE) {
+                    let constraint = self.base_constraint_of_type(constituent);
+                    let related = match constraint {
+                        None => true,
+                        Some(constraint) => {
+                            self.is_derived_from_decidable(candidate, constraint)?
+                        }
+                    };
+                    if related {
+                        mapped.push(self.get_intersection_type(&[constituent, candidate], None));
+                    }
+                }
+            }
+        }
+        if mapped.is_empty() {
+            // The key-property fast path selects a constituent that the
+            // per-constituent map above already finds; it remains an optimization.
             //
             // SS173: the ALL-NEVER TAIL (flow.go:952-963, transcribed):
             // subtype(candidate, t) -> candidate; assignable(t, candidate)
@@ -4635,6 +4666,18 @@ impl Checker<'_, '_> {
                     return self.get_adjusted_type_with_facts(t, TypeFacts::NE_UNDEFINED_OR_NULL);
                 }
                 narrowed
+            }
+            // narrowType's ThisKeyword/SuperKeyword truthiness dispatch
+            // (flow.go:399). These keyword nodes have no discriminant property.
+            Node::KeywordExpression(keyword)
+                if matches!(keyword.kind, SyntaxKind::ThisKeyword | SyntaxKind::SuperKeyword) =>
+            {
+                if self.is_matching_reference(state, condition) {
+                    let facts = if assume_true { TypeFacts::TRUTHY } else { TypeFacts::FALSY };
+                    self.get_adjusted_type_with_facts(t, facts)
+                } else {
+                    t
+                }
             }
             // `if (x)`, `if (a.b)`, `while (o["k"])`: the reference itself as
             // the condition. Every form [`Checker::is_matching_reference`] can

@@ -9453,7 +9453,10 @@ impl Checker<'_, '_> {
     /// is upstream's sticky bit: once inside a **binding element's**
     /// initializer, reaching *any* enclosing parameter counts, because the
     /// destructuring pattern is itself part of the parameter's initialisation.
-    fn is_in_parameter_initializer_before_containing_function(&self, node: NodeId) -> bool {
+    pub(crate) fn is_in_parameter_initializer_before_containing_function(
+        &self,
+        node: NodeId,
+    ) -> bool {
         let mut node = node;
         let mut in_binding_initializer = false;
         while let Some(parent) = self.nodes.parent(node) {

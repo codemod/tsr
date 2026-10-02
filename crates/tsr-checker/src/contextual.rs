@@ -673,6 +673,57 @@ impl<'a> Checker<'a, '_> {
         Some(self.widen_object_literal_freshness(contextual))
     }
 
+    /// getContextualThisParameterType's assignment arm (checker.go).
+    /// The receiver of `obj.member = function () {}` supplies the contextual
+    /// this type when no signature or containing literal supplied one.
+    pub(crate) fn contextual_assignment_this_type(&mut self, function: NodeId) -> Option<TypeId> {
+        use tsr_ast::{Expression, Node, SyntaxKind};
+        if self.nodes.kind(function) != SyntaxKind::FunctionExpression
+            || !(self.no_implicit_this || self.in_js_file(function))
+        {
+            return None;
+        }
+        let mut parent = self.nodes.parent(function)?;
+        while self.nodes.kind(parent) == SyntaxKind::ParenthesizedExpression {
+            parent = self.nodes.parent(parent)?;
+        }
+        let Node::BinaryExpression(assignment) = self.node_map.get(parent)? else {
+            return None;
+        };
+        if assignment.operator_token.is_none_or(|token| !token.kind.is_assignment_operator()) {
+            return None;
+        }
+        let receiver = match assignment.left? {
+            Expression::PropertyAccessExpression(access) => access.expression?,
+            Expression::ElementAccessExpression(access) => access.expression?,
+            _ => return None,
+        };
+        // Native ignores the CommonJS module-exports symbol here: an exported
+        // constructor's instance receiver must not become the exports object.
+        // The binder gives MODULE_EXPORTS only to its CommonJS pseudo-locals;
+        // ordinary local variables named exports do not carry that flag.
+        if self.in_js_file(function)
+            && let Expression::Identifier(identifier) = receiver
+            && let Some(symbol) = self.binder.resolve_name(
+                self.nodes,
+                self.node_map,
+                identifier.node_id?,
+                identifier.text,
+                tsr_binder::SymbolFlags::VALUE,
+            )
+            && self
+                .binder
+                .symbols()
+                .get(symbol)
+                .flags
+                .contains(tsr_binder::SymbolFlags::MODULE_EXPORTS)
+        {
+            return None;
+        }
+        let receiver = self.check_expression(receiver);
+        Some(self.widen_object_literal_freshness(receiver))
+    }
+
     /// getThisTypeFromContextualType (checker.go): union the marker results,
     /// taking the first direct marker in each intersection constituent.
     fn this_type_from_contextual_type(

@@ -192,3 +192,191 @@ const value: (First & { a?: string; read(): number }) | (First & Second & { b?: 
         &["this.x : number", "this : { x: number; }"],
     );
 }
+
+#[test]
+fn assignment_receivers_cover_dot_element_and_parenthesized_functions() {
+    expect(
+        r"// @strict: true
+interface Dot { count: number; run(): number; }
+interface Indexed { label: string; run(): string; }
+declare const dot: Dot;
+declare const indexed: Indexed;
+dot.run = function() { return this.count; };
+indexed['run'] = ((function() { return this.label; }));
+interface Logical { enabled: boolean; run(): boolean; }
+declare const logical: Logical;
+logical.run ||= function() { return this.enabled; };
+",
+        &[
+            "this : Dot",
+            "this.count : number",
+            "this : Indexed",
+            "this.label : string",
+            "this : Logical",
+            "this.enabled : boolean",
+        ],
+    );
+}
+
+#[test]
+fn assignment_receiver_inference_preserves_explicit_and_lexical_this() {
+    expect(
+        r"// @strict: true
+interface Receiver { value: number; run(this: { label: string }): string; }
+declare const receiver: Receiver;
+receiver.run = function() { return this.label; };
+const lexical: { run(): unknown } = { run() { return 0; } };
+lexical.run = () => this;
+",
+        &["this.label : string", "this : { label: string; }", "this : typeof globalThis"],
+    );
+    expect(
+        r"// @strict: false
+interface Receiver { value: number; run(): number; }
+declare const receiver: Receiver;
+receiver.run = function() { const loose = this; return loose.value; };
+",
+        &["loose : any", "loose.value : any"],
+    );
+}
+
+#[test]
+fn javascript_assignment_receivers_distinguish_local_exports() {
+    expect(
+        r#"// @allowJs: true
+// @checkJs: true
+// @strict: false
+// @filename: assignment.js
+const object = { count: 1, run() { return 0; } };
+object.run = function() { return this.count; };
+const exports = { label: "ok", run() { return ""; } };
+exports.run = function() { return this.label; };
+"#,
+        &["this.count : number", "this.label : string"],
+    );
+    expect(
+        r"// @allowJs: true
+// @checkJs: true
+// @strict: false
+// @filename: commonjs.js
+exports.Point = function(x) { this.x = x; const instance = this; };
+",
+        &["instance : any"],
+    );
+}
+
+#[test]
+fn this_flow_narrows_discriminants_and_truthiness() {
+    expect(
+        r#"// @strict: true
+function discriminant(this: { kind: "left"; value: number } | { kind: "right"; value: string }) {
+    if (this.kind === "left") { const left = this; return left.value; }
+    const right = this;
+    return right.value;
+}
+function optional(this: { value: number } | undefined) {
+    if (this) { const present = this; return present.value; }
+    const absent = this;
+}
+"#,
+        &[
+            "left : { kind: \"left\"; value: number; }",
+            "right : { kind: \"right\"; value: string; }",
+            "present : { value: number; }",
+            "absent : undefined",
+        ],
+    );
+}
+
+#[test]
+fn this_flow_applies_assertion_predicates() {
+    expect(
+        r"// @strict: true
+declare function assertValue(value: unknown): asserts value is { value: number };
+function checked(this: unknown) {
+    assertValue(this);
+    const asserted = this;
+    return asserted.value;
+}
+",
+        &["asserted : { value: number; }", "asserted.value : number"],
+    );
+}
+
+#[test]
+fn instanceof_preserves_polymorphic_and_generic_receiver_identity() {
+    expect(
+        r"// @strict: true
+class Base {
+    inspect() {
+        if (this instanceof Derived) { const derived = this; return derived.own; }
+        return 0;
+    }
+}
+class Derived extends Base { own = 1; }
+function generic<T extends Base>(value: T) {
+    if (value instanceof Derived) { return value; }
+}
+",
+        &[
+            "derived : this & Derived",
+            "derived.own : number",
+            "generic : <T extends Base>(value: T) => (T & Derived) | undefined",
+        ],
+    );
+}
+
+#[test]
+fn parameter_initializers_skip_contextual_assignment_receivers() {
+    expect(
+        r"// @strict: true
+interface Target { value: number; run(value?: unknown): unknown; }
+declare const target: Target;
+target.run = function(initial = this) { const body = this; return body.value; };
+",
+        &["this : any", "body : Target", "body.value : number"],
+    );
+    expect(
+        r"// @strict: true
+class Defaulted { field = 1; run(value = this) { return value.field; } }
+class Explicit { run(this: { label: string }, annotated = this) { return annotated.label; } }
+",
+        &["value : this", "annotated : { label: string; }", "annotated.label : string"],
+    );
+}
+
+#[test]
+fn unannotated_this_uses_its_contextual_slot_or_implicit_any() {
+    expect(
+        r"// @strict: true
+let contextual: (this: { count: number }, value: number) => number;
+contextual = function(this, value) { const assigned = this; return assigned.count + value; };
+class Unannotated { run(this, implicit = this) { const inner = this; return inner; } }
+",
+        &["assigned : { count: number; }", "implicit : any", "inner : any"],
+    );
+}
+
+#[test]
+fn jsdoc_this_precedes_assignment_context_and_obeys_native_hosts() {
+    expect(
+        r#"// @allowJs: true
+// @checkJs: true
+// @strict: true
+// @filename: explicit.js
+const receiver = { label: "", run() { return 0; } };
+/** @this {{ count: number }} */
+receiver.run ??= function() { const annotated = this; return annotated.count; };
+/** @this {{ nested: string }} */
+const direct = function() { return this.nested; };
+/** @this {{ ignored: boolean }} */
+const wrapped = (function() { const lexicalHost = this; return lexicalHost; });
+"#,
+        &[
+            "annotated : { count: number; }",
+            "annotated.count : number",
+            "this.nested : string",
+            "lexicalHost : any",
+        ],
+    );
+}

@@ -1183,6 +1183,67 @@ impl<'a> Checker<'a, '_> {
         adjacent
     }
 
+    /// getFunctionLikeHost (parser/reparser.go): identify which declaration
+    /// receives a JSDoc signature tag. Parentheses are deliberately not skipped;
+    /// the pinned reparser only unwraps satisfies expressions here.
+    fn jsdoc_function_host(&self, host: NodeId) -> Option<NodeId> {
+        let mut function = match self.node_map.get(host)? {
+            Node::VariableStatement(statement) => {
+                statement.declaration_list?.declarations.first()?.initializer?.node_id()?
+            }
+            Node::PropertyAssignment(property) => property.initializer?.node_id()?,
+            Node::PropertyDeclaration(property) => property.initializer?.node_id()?,
+            Node::ExportAssignment(assignment) => assignment.expression?.node_id()?,
+            Node::ReturnStatement(statement) => statement.expression?.node_id()?,
+            Node::ExpressionStatement(statement) => {
+                let mut expression = statement.expression?.node_id()?;
+                while let Some(Node::BinaryExpression(assignment)) = self.node_map.get(expression) {
+                    if assignment
+                        .operator_token
+                        .is_none_or(|token| !token.kind.is_assignment_operator())
+                    {
+                        break;
+                    }
+                    expression = assignment.right?.node_id()?;
+                }
+                expression
+            }
+            _ => host,
+        };
+        while let Some(Node::SatisfiesExpression(expression)) = self.node_map.get(function) {
+            function = expression.expression?.node_id()?;
+        }
+        Some(function)
+    }
+
+    /// getThisTypeOfSignature for the explicit @this parameter inserted by
+    /// reparseHosted (parser/reparser.go). Read only the annotation: constructing
+    /// the full signature would re-enter the body currently typing its receiver.
+    pub(crate) fn jsdoc_this_parameter_type(&mut self, declaration: NodeId) -> Option<TypeId> {
+        if !self.in_js_file(declaration) {
+            return None;
+        }
+        let mut current = Some(declaration);
+        while let Some(host) = current {
+            if self.jsdoc_function_host(host) == Some(declaration)
+                && let Some(docs) = self.jsdoc_entries.get(&host)
+            {
+                for doc in *docs {
+                    for tag in doc.tags {
+                        if let tsr_ast::JSDocTag::JSDocThisTag(tag) = tag
+                            && let Some(annotation) = tag.type_expression
+                        {
+                            let ty = self.get_type_from_type_node(annotation);
+                            return (ty != self.intrinsics.error).then_some(ty);
+                        }
+                    }
+                }
+            }
+            current = self.nodes.parent(host);
+        }
+        None
+    }
+
     /// The signature a function-like declaration declares.
     ///
     /// Ported from `Checker.getSignatureFromDeclaration` (`checker.go:19836`)
@@ -1282,7 +1343,11 @@ impl<'a> Checker<'a, '_> {
                                 }
                                 // §110 slice 3: `@this {T}` supplies the
                                 // synthetic this-parameter's type.
-                                tsr_ast::JSDocTag::JSDocThisTag(tag) if this_tag.is_none() => {
+                                tsr_ast::JSDocTag::JSDocThisTag(tag)
+                                    if this_tag.is_none()
+                                        && self.jsdoc_function_host(*host_node)
+                                            == Some(declaration) =>
+                                {
                                     this_tag = tag.type_expression;
                                 }
                                 _ => {}
