@@ -24,22 +24,24 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-10-01
 
-Measured on **`bdc82dd5`** in an isolated checkout: **454,946/478,855 assertions
-(95.01%)**, **6,822/9,538 complete cases (71.52%)**. The 99% target requires
-474,067 correct assertions; **19,121 remain**. Denominator and pinned oracle
-unchanged. Aligned verdicts: **474,243 total; 454,946 right; 2,924 gap; 16,373 wrong**.
+Measured on **`4aad09e1`** in an isolated checkout: **454,963/478,855 assertions
+(95.01%)**, **6,823/9,538 complete cases (71.53%)**. The 99% target requires
+474,067 correct assertions; **19,104 remain**. Denominator and pinned oracle
+unchanged. Aligned verdicts: **474,243 total; 454,963 right; 2,922 gap; 16,358 wrong**.
 Binder retains its verified **8,497/8,497 (100%)** result at aab165d8;
 other suites below retain historical measurements.
 
-This unit adds **155 matching assertions** and **six complete cases**, with
-**zero RIGHT losses** relative to bd41d1b0: 143 WRONG→RIGHT and 12 GAP→RIGHT.
-No GAP→WRONG or WRONG→GAP transitions occur. Twenty-one changed wrong answers
-remain tracked in tsr-6.40. [Widening contexts](docs/architecture/checker-99-widening-context.md)
-records sibling normalization, nested contexts, spread exclusion, source-symbol
-ordering and literal inference candidate grouping. Three native-controlled tests, an isolated mutation that fails all three tests,
-199 release workspace result blocks, clippy, 3,340 anchors and the refreshed
-checker snapshot validate this checkpoint. Committed verdict and source hash
-match the frozen candidate. The 95% milestone is passed; the 99% goal remains active.
+This unit adds **17 matching assertions** and **one complete case**, with
+**zero RIGHT losses** relative to bdc82dd5: 15 WRONG→RIGHT and two GAP→RIGHT.
+No changed wrong, GAP→WRONG or WRONG→GAP transitions occur.
+[Structural index relations](docs/architecture/checker-99-index-relations.md)
+records semantic index conjunction, eligible inferred-index sources, key filtering,
+optional member semantics and mixed callable/index targets. Two native-controlled
+tests, 200 release workspace result blocks, final clippy, 3,336 anchors and the
+refreshed checker snapshot support this checkpoint. An isolated mutation forcing
+resolved index relations to Related fails both native controls. The final workspace
+run passes all 200 result blocks. Committed verdict and source hash match the frozen
+candidate. The 99% goal remains active.
 
 ### Previous whole-suite measurement — historical
 
@@ -1074,6 +1076,7 @@ Per-crate, by what the conformance suites actually assert — not by what exists
 
 | subsystem | state | evidence |
 |---|---|---|
+| structural index relations | **semantic indexes are independent requirements** | 4aad09e1: +17 matches, zero RIGHT losses, +1 complete case; [evidence](docs/architecture/checker-99-index-relations.md) |
 | object literal widening | **sibling contexts and literal candidate grouping** | bdc82dd5: +155 matches, zero RIGHT losses, +6 complete cases; [evidence](docs/architecture/checker-99-widening-context.md) |
 | generic properties and receivers | **semantic member comparison and complete identity maps** | bd41d1b0: +34 matches, zero RIGHT losses; recursive constraints and shadowed receiver controls; [evidence](docs/architecture/checker-99-generic-properties.md) |
 | constrained parameter unions | **native union-constraint subtype reduction** | b167f6ff: +265 matches, zero RIGHT losses; conditional expressions use shared semantic reducer; [evidence](docs/architecture/checker-99-parameter-reduction.md) |
@@ -1086,7 +1089,7 @@ Per-crate, by what the conformance suites actually assert — not by what exists
 | module resolution | **done** | 95/95, `file_loader` 96/96, [ADR-0041](docs/adr/0041-the-checker-asks-its-program-for-a-module.md) |
 | printer | **done** | 100% round-trip at `8dcdc71` |
 | declaration emit | **partial** | `dts_shape` 85.32%, `dts_emit` 89.04% at `8dcdc71` |
-| **checker** | **95.01% of assertions** | 454,946/478,855 at `bdc82dd5`; §4 and §5 |
+| **checker** | **95.01% of assertions** | 454,963/478,855 at `4aad09e1`; §4 and §5 |
 | transformers | **not started** | |
 | **compiler driver / CLI** | **seam only** | three pieces, no binary. `tsr_vfs::OsFileSystem` (the real disk, `internal/vfs/osvfs`), `Checker::apply_compiler_options` ([ADR-0042](docs/adr/0042-checker-options-come-from-compiler-options.md)), and `tsr_diagnostics::format` (the plain `a.ts(1,1): error TS2304:` line and the `Found N errors` summary, byte-exact). **No command-line parser, no `tsc` binary, no emit, no pretty output** — see §4 |
 | diagnostics | **started — 6.89%** | the check traversal (ADR-0040 (1) and (2)) plus three rules; §1 and `docs/architecture/checker-notes-diag2.md` |
@@ -1234,7 +1237,22 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-### Current priorities at `bdc82dd5` — 2026-10-01
+### Current priorities at `4aad09e1` — 2026-10-01
+
+Continue toward 99% coverage: 19,104 matching assertions remain. Structural index
+relations convert 11 assertions in narrowingMutualSubtypes and six in
+controlFlowFavorAssertedTypeThroughTypePredicate. The next concrete spread cause
+is unconditional overwrite of an existing property when the right-hand spread
+property is optional. Native getSpreadType merges those semantic types and keeps
+left optionality. Compatible indexed-array reduction, generic mapped templates,
+object-rest/reverse-mapped flags and tuple inference correlation remain in tsr-6.40.
+The compatible-array cause is now identified: native propertiesRelatedTo:4240
+requires actual source names on ObjectLiteral targets, even when they have indexes.
+Shadowed parameter serialization/contextual/this/intersection consumers remain in
+tsr-6.38; alias members and adjusted facts in tsr-6.35 and tsr-6.34. Depend C1/C4
+controls remain stale (tsr-6.29).
+
+### Previous priorities at `bdc82dd5` — 2026-10-01
 
 Continue toward 99% coverage: 19,121 matching assertions remain. Widening contexts
 convert 59 of objectLiteralNormalization's 72 previously wrong assertions, with
@@ -4047,6 +4065,16 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+### Structural index relations at `4aad09e1`
+
+Dispatch alone measures zero corpus change despite repairing the indexed literal
+native control. Native inferred-index source restrictions, key filtering, optional
+member semantics and the callable/index conjunction together gain 17 RIGHT with
+zero RIGHT losses and zero changed wrong answers. The compatible indexed-array
+control still reduces to one branch where native keeps two; its unresolved cause
+is retained in tsr-6.40. No fixture-name gate or displayed-text union repair is used.
+See [evidence](docs/architecture/checker-99-index-relations.md).
 
 ### Object-literal widening at `bdc82dd5`
 
@@ -10097,6 +10125,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
+| 2026-10-01 | `4aad09e1` | **71.53%** | **6,823** | **454,963/478,855 assertions (95.01%).** +17 since bdc82dd5, zero RIGHT losses;15W→R,2G→R,no changed wrong. | Semantic index relations, inferred-index restrictions, key/optional handling, callable/index conjunction. Two native tests, workspace200 blocks, isolated index mutation; final clippy,3,336 anchors,isolated verdict/source match. 19,104 remain to99%. |
 | 2026-10-01 | `bdc82dd5` | **71.52%** | **6,822** | **454,946/478,855 assertions (95.01%).** +155 since bd41d1b0, zero RIGHT losses; 143W→R,12G→R,21 changed wrong. | Object-literal widening contexts and literal candidate grouping. Three native controls; workspace199 blocks, clippy,3,340 anchors; isolated verdict/source match. 19,121 remain to99%; tsr-6.40 tracks residuals. |
 | 2026-10-01 | `bd41d1b0` | **71.46%** | **6,816** | **454,791/478,855 assertions (94.97%).** +34 since b167f6ff, zero RIGHT losses; 18W→R,16G→R,1 changed wrong. | Semantic generic property relations and complete receiver maps. Four native/focused tests, isolated mutation, workspace198 blocks, clippy,3,340 anchors; committed verdict byte-match and refreshed snapshot. [Evidence](docs/architecture/checker-99-generic-properties.md). 19,276 remain to99%. |
 | 2026-10-01 | `b167f6ff` | **71.45%** | **6,815** | **454,757/478,855 assertions (94.97%).** +265 since fe8f3a22, zero RIGHT losses; 254W→R,11G→R,16 changed wrong. | Native constrained-parameter subtype reduction and shared conditional path. Two native controls, isolated mutation, workspace197 blocks, clippy,3,341 anchors; committed isolated verdict byte-match and refreshed snapshot. [Evidence](docs/architecture/checker-99-parameter-reduction.md). 19,310 remain to99%. |

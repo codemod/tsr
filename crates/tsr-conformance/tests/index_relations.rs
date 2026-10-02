@@ -2,7 +2,7 @@
 use tsr_conformance::{TestCase, types_baseline::FileTypes, types_producer};
 
 fn expect(source: &str, wanted: &[&str]) {
-    let case = TestCase::parse("probe/widening_context", "probe.ts", source);
+    let case = TestCase::parse("probe/index_relations", "probe.ts", source);
     let expected: Vec<_> = case
         .files
         .iter()

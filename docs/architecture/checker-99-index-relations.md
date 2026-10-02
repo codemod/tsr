@@ -91,3 +91,45 @@ the final focused tests and full corpus verify that adjustment.
 
 Checker sources plus trace_case SHA-256:
 8f95a4b2ca2a439cd01acf66c5f429141d3f891379d2cd463f67329904dad19a
+
+## Committed checkpoint
+
+At 4aad09e1 the fresh checkout passes both focused tests, reproduces the frozen
+verdict byte-for-byte and matches its source hash. It uses a separate build target.
+Coverage is 454,963/478,855 correct assertions (95.01%) and 6,823/9,538 complete
+cases (71.53%), one more complete case than the baseline. The snapshot comes from
+that checkout. The active 99% target still needs 19,104 matches.
+
+Depend reports 512 non-gapping roots, 214 cycles, zero depth-cap hits and 3,774
+walked gaps. C3 balances; C1 and C4 remain stale (tsr-6.29), not current coverage
+proof. The test fixture's internal probe label is corrected in the evidence commit;
+source contents and expected assertions are unchanged, and the tests are rerun.
+
+Evidence:
+- /tmp/tsr-99-index-verified.tsv
+- /tmp/tsr-99-index-v2-transitions.txt
+- /tmp/tsr-99-index-verified-tests.log
+- /tmp/tsr-99-index-workspace-v3.log
+- /tmp/tsr-99-index-clippy-final.log
+- /tmp/tsr-99-index-anchors-final.log
+- /tmp/tsr-99-index-verified-coverage.log
+- /tmp/tsr-99-index-verified-depend.log
+- /tmp/compound-engineering-501/ce-code-review/index-relations/review.json
+
+The isolated mutation keeps index resolution but forces every resolved index
+relation to Related. Both focused tests fail, including the explicit-undefined
+negative control. The committed source is restored byte-for-byte before cleanup.
+Evidence: /tmp/tsr-99-index-mutation.log.
+
+Follow-up tracing resolves the compatible-array cause: native propertiesRelatedTo
+(relater.go:4240) requires every source property to exist as an actual property
+when the target carries ObjectLiteral. An index signature does not satisfy that
+requirement. The port lacks this target-side branch. A native probe confirms that
+an indexed literal preserves the compatible b:number branch, while an explicitly
+annotated {[x:string]:number} target reduces it. This property-relation rule is the
+next tracked part of tsr-6.40; it is separate from the semantic index conjunction.
+
+The final release workspace rerun also passes all 200 result blocks after the
+shortcut-order adjustment and probe-label correction. Its log is
+/tmp/tsr-99-index-workspace-final.log. The prior timing qualification is superseded
+by this exact-source final run.
