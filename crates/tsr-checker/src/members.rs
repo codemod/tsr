@@ -1166,6 +1166,9 @@ impl Checker<'_, '_> {
             })
             .cloned()
         {
+            // getTypeOfReverseMappedSymbol (inference.go:1145): a reverse
+            // mapped property type resolves its own members when read.
+            self.complete_reverse_mapped_type(property.r#type);
             return Some(if property.optional {
                 self.get_optional_type(property.r#type, true)
             } else {

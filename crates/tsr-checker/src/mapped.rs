@@ -18,6 +18,17 @@ pub(crate) struct MappedTypeInfo {
     pub(crate) homomorphic_symbol: Option<SymbolId>,
 }
 
+/// `ReverseMappedType` (types.go): the source, mapped target and constraint
+/// whose members resolveReverseMappedTypeMembers produces on first read.
+#[derive(Clone, Debug)]
+pub(crate) struct ReverseMappedInfo {
+    pub(crate) source: TypeId,
+    pub(crate) target: TypeId,
+    pub(crate) info: MappedTypeInfo,
+    pub(crate) operand: TypeId,
+    pub(crate) constraint: TypeId,
+}
+
 /// A deferred conditional retains the declaration and outer mapper, just as
 /// ConditionalRoot/getConditionalTypeInstantiation do in checker.go.
 #[derive(Clone, Debug)]
@@ -387,9 +398,11 @@ impl<'a> Checker<'a, '_> {
             return;
         };
         let Some(TypeNode::MappedTypeNode(mapped)) = alias.r#type else { return };
-        if alias.type_parameters.len() != arguments.len()
-            || !self.mapped_alias_in_progress.insert(symbol)
-        {
+        if alias.type_parameters.len() != arguments.len() {
+            return;
+        }
+        if !self.mapped_alias_in_progress.insert(symbol) {
+            self.deferred_mapped_aliases.insert(id, (symbol, arguments.to_vec()));
             return;
         }
         let frame = alias
@@ -405,9 +418,35 @@ impl<'a> Checker<'a, '_> {
         self.mapped_alias_in_progress.remove(&symbol);
     }
 
+    /// getConstraintTypeFromMappedType/getTemplateTypeFromMappedType
+    /// (checker.go:22697) resolve a mapped type's parts on first use. A self
+    /// reference created while its alias was being captured is captured here,
+    /// after the outer capture has finished.
+    pub(crate) fn ensure_mapped_type_info(&mut self, id: TypeId) {
+        if self.mapped_types.contains_key(&id) {
+            return;
+        }
+        if let Some((symbol, arguments)) = self.deferred_mapped_aliases.remove(&id) {
+            self.capture_mapped_alias(id, symbol, &arguments);
+        }
+    }
+
+    /// getTemplateTypeFromMappedType (checker.go:22697) adds optionality to
+    /// the written template when the mapped type includes `?`. The captured
+    /// `template` keeps the written type for member substitution, whose
+    /// optional flag carries that undefined separately.
+    pub(crate) fn mapped_template_type(&mut self, info: &MappedTypeInfo) -> TypeId {
+        if self.strict_null_checks && info.optionality == Some(true) {
+            self.get_optional_type(info.template, true)
+        } else {
+            info.template
+        }
+    }
+
     /// resolveMappedTypeMembers (checker.go:20894). Enumerate known property
     /// keys and capture their template substitutions before publishing members.
     pub(crate) fn resolve_mapped_type_members(&mut self, id: TypeId) {
+        self.complete_reverse_mapped_type(id);
         if !self.mapped_types.contains_key(&id)
             || self.anonymous_properties.contains_key(&id)
             || !self.mapped_members_in_progress.insert(id)

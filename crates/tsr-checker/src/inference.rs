@@ -3173,8 +3173,9 @@ impl Checker<'_, '_> {
         true
     }
 
-    /// inferReverseMappedTypeWorker (internal/checker/inference.go). Treat
-    /// the indexed access shared by the constraint/template as the variable.
+    /// inferReverseMappedType (internal/checker/inference.go:1066). Expanding
+    /// source and target stacks stop recursive reverse mappings, whose result
+    /// is then unknown.
     fn reverse_mapped_member_type(
         &mut self,
         source: TypeId,
@@ -3186,14 +3187,42 @@ impl Checker<'_, '_> {
         if let Some(&cached) = self.reverse_mapped_member_cache.get(&(source, target, constraint)) {
             return cached;
         }
-        self.reverse_mapped_member_cache
-            .insert((source, target, constraint), self.intrinsics.unknown);
+        self.reverse_mapped_source_stack.push(source);
+        self.reverse_mapped_target_stack.push(target);
+        let saved = self.reverse_expanding;
+        if self.is_deeply_nested_type(source, &self.reverse_mapped_source_stack, 2) {
+            self.reverse_expanding.0 = true;
+        }
+        if self.is_deeply_nested_type(target, &self.reverse_mapped_target_stack, 2) {
+            self.reverse_expanding.1 = true;
+        }
+        let inferred = if self.reverse_expanding == (true, true) {
+            self.intrinsics.unknown
+        } else {
+            self.reverse_mapped_member_type_worker(source, info, operand)
+        };
+        self.reverse_mapped_source_stack.pop();
+        self.reverse_mapped_target_stack.pop();
+        self.reverse_expanding = saved;
+        self.reverse_mapped_member_cache.insert((source, target, constraint), inferred);
+        inferred
+    }
+
+    /// inferReverseMappedTypeWorker (internal/checker/inference.go:1091). Treat
+    /// the indexed access shared by the constraint/template as the variable.
+    fn reverse_mapped_member_type_worker(
+        &mut self,
+        source: TypeId,
+        info: &crate::mapped::MappedTypeInfo,
+        operand: TypeId,
+    ) -> TypeId {
         let Some(parameter) = self.resolved_indexed_access_type(operand, info.parameter, false)
         else {
             return self.intrinsics.unknown;
         };
         let mut inferences = Vec::new();
-        self.infer_from_types(source, info.template, &[parameter], &mut inferences, 0);
+        let template = self.mapped_template_type(info);
+        self.infer_from_types(source, template, &[parameter], &mut inferences, 0);
         let inferred =
             if let Some(info) = inferences.iter().find(|info| info.type_parameter == parameter) {
                 if !info.candidates.is_empty() {
@@ -3207,9 +3236,7 @@ impl Checker<'_, '_> {
                 self.intrinsics.unknown
             };
         // inferReverseMappedTypeWorker ends with getWidenedType (inference.go:1096).
-        let inferred = self.widen_object_literal_freshness(inferred);
-        self.reverse_mapped_member_cache.insert((source, target, constraint), inferred);
-        inferred
+        self.widen_object_literal_freshness(inferred)
     }
 
     /// isPartiallyInferableType (inference.go). Non-inferable object images
@@ -3230,9 +3257,9 @@ impl Checker<'_, '_> {
         })
     }
 
-    /// createReverseMappedType/resolveReverseMappedTypeMembers (inference.go).
-    /// Source member identities remain available while captured reverse types
-    /// supply the semantic property reads, as for instantiated type literals.
+    /// createReverseMappedType (inference.go:1014). Arrays and tuples map
+    /// their elements immediately; other sources produce a reverse mapped
+    /// object whose members resolveReverseMappedTypeMembers reads on demand.
     fn reverse_homomorphic_mapped_type(
         &mut self,
         source: TypeId,
@@ -3245,6 +3272,11 @@ impl Checker<'_, '_> {
             return None;
         }
         if let Some(&cached) = self.reverse_mapped_cache.get(&(source, target, constraint)) {
+            if let Some(cached) = cached
+                && self.reverse_property_anonymous.last() != Some(&false)
+            {
+                self.complete_reverse_mapped_type(cached);
+            }
             return cached;
         }
         self.reverse_mapped_cache
@@ -3285,115 +3317,277 @@ impl Checker<'_, '_> {
             self.global_type_symbol(name)
                 .map(|array| self.create_type_reference(array, vec![element]))
         } else {
-            let names = self.property_names_of(source);
-            let index = self.get_index_infos_of_type(source).and_then(|infos| {
-                infos.into_iter().find(|info| info.key == self.intrinsics.string)
-            });
-            if names.is_empty() && index.is_none() {
+            let pending = crate::mapped::ReverseMappedInfo {
+                source,
+                target,
+                info: info.clone(),
+                operand,
+                constraint,
+            };
+            let (members, index) = self.reverse_mapped_member_plan(&pending);
+            if index.is_none() && self.property_names_of(source).is_empty() {
                 None
             } else {
-                let mut properties = Vec::new();
-                let mut rendered = Vec::new();
-                let parts = info.constraint_intersection.clone().or_else(|| {
-                    match &self.store.get(info.constraint).data {
-                        TypeData::Intersection { types, .. } => Some(types.clone()),
-                        _ => None,
-                    }
-                });
-                let limited = parts
-                    .map(|types| {
-                        let types: Vec<_> =
-                            types.into_iter().filter(|&ty| ty != constraint).collect();
-                        self.get_intersection_type(&types, None)
-                    })
-                    .filter(|&ty| ty != self.intrinsics.never);
-                for name in names {
-                    if let Some(limited) = limited {
-                        let key = self.literal_type_of_property(source, &name);
-                        if !self.is_type_assignable_to(key, limited) {
-                            continue;
-                        }
-                    }
-                    let Some(ty) = self.get_type_of_property_of_type(source, &name) else {
-                        continue;
-                    };
-                    let property = self.get_property_of_type(source, &name);
-                    let captured =
-                        self.anonymous_properties.get(&source).and_then(|(properties, _)| {
-                            properties.iter().find(|property| property.name == name)
-                        });
-                    let optional = info.optionality != Some(true)
-                        && captured.map_or_else(
-                            || property.is_some_and(|symbol| self.property_is_optional(symbol)),
-                            |property| property.optional,
-                        );
-                    let readonly = info.readonly != Some(true)
-                        && captured.map_or_else(
-                            || property.is_some_and(|symbol| self.is_readonly_property(symbol)),
-                            |property| property.readonly,
-                        );
-                    let printed_name = captured
-                        .map_or_else(|| name.clone(), |property| property.printed_name.clone());
-                    let origin = captured.and_then(|property| property.origin).or(property);
-                    let ty = self.reverse_mapped_member_type(ty, target, info, operand, constraint);
-                    let printed_type = self.type_to_string(ty);
-                    rendered.push(crate::objects::Member::Property {
-                        name: printed_name.clone(),
-                        optional,
-                        readonly,
-                        printed: printed_type.clone(),
-                    });
-                    properties.push(crate::objects::AnonymousProperty {
-                        accessor_write: None,
-                        method: false,
-                        origin,
-                        name,
-                        printed_name,
-                        printed_type,
-                        optional,
-                        readonly,
-                        r#type: ty,
-                    });
-                }
-                let reversed_index = index.map(|index| crate::index_signatures::IndexInfo {
-                    components: None,
-                    declaration: None,
-                    key: index.key,
-                    readonly: false,
-                    value: self.reverse_mapped_member_type(
-                        index.value,
-                        target,
-                        info,
-                        operand,
-                        constraint,
-                    ),
-                });
-                if let Some(index) = &reversed_index {
-                    rendered.push(crate::objects::Member::Index {
-                        readonly: false,
-                        name: "x".to_string(),
-                        key: "string".to_string(),
-                        value: self.type_to_string(index.value),
-                    });
-                }
+                let placeholder = Self::reverse_mapped_text(&members, index.as_ref(), None);
                 let owner = match self.store.get(source).data {
                     TypeData::Named { members, .. } => members,
                     _ => None,
                 };
                 let reversed = self.store.new_named(
                     crate::flags::TypeFlags::OBJECT,
-                    crate::objects::render_object_type(&rendered),
+                    placeholder.clone(),
                     owner,
                 );
-                self.anonymous_properties.insert(reversed, (properties, true));
-                if let Some(index) = reversed_index {
-                    self.object_literal_index_infos.insert(reversed, vec![index]);
+                self.reverse_placeholder_texts.insert(reversed, placeholder);
+                self.pending_reverse_mapped.insert(reversed, pending);
+                // The node builder prints a reverse mapping nested under a
+                // property of a non-anonymous source type as a placeholder
+                // (shouldUsePlaceholderForProperty, nodebuilderimpl.go:2302), so its
+                // members are resolved only when a consumer reads them.
+                if self.reverse_property_anonymous.last() != Some(&false) {
+                    self.complete_reverse_mapped_type(reversed);
                 }
                 Some(reversed)
             }
         };
         self.reverse_mapped_cache.insert((source, target, constraint), result);
         result
+    }
+
+    /// The property names, modifiers and source types that
+    /// resolveReverseMappedTypeMembers (inference.go:1099) gives a reverse
+    /// mapped object, after getLimitedConstraint filtering.
+    fn reverse_mapped_member_plan(
+        &mut self,
+        pending: &crate::mapped::ReverseMappedInfo,
+    ) -> (Vec<crate::objects::AnonymousProperty>, Option<crate::index_signatures::IndexInfo>) {
+        let source = pending.source;
+        let info = &pending.info;
+        let names = self.property_names_of(source);
+        let index = self
+            .get_index_infos_of_type(source)
+            .and_then(|infos| infos.into_iter().find(|info| info.key == self.intrinsics.string));
+        let parts = info.constraint_intersection.clone().or_else(|| {
+            match &self.store.get(info.constraint).data {
+                TypeData::Intersection { types, .. } => Some(types.clone()),
+                _ => None,
+            }
+        });
+        let limited = parts
+            .map(|types| {
+                // getIndexType caches one index type per operand, so a
+                // re-minted `keyof U` is still the reverse constraint.
+                let operand = self.deferred_keyof_operands.get(&pending.constraint).copied();
+                let types: Vec<_> = types
+                    .into_iter()
+                    .filter(|&ty| {
+                        ty != pending.constraint
+                            && (operand.is_none()
+                                || self.deferred_keyof_operands.get(&ty).copied() != operand)
+                    })
+                    .collect();
+                self.get_intersection_type(&types, None)
+            })
+            .filter(|&ty| ty != self.intrinsics.never);
+        let mut members = Vec::new();
+        for name in names {
+            if let Some(limited) = limited {
+                let key = self.literal_type_of_property(source, &name);
+                if !self.is_type_assignable_to(key, limited) {
+                    continue;
+                }
+            }
+            let Some(ty) = self.get_type_of_property_of_type(source, &name) else {
+                continue;
+            };
+            let property = self.get_property_of_type(source, &name);
+            let captured = self.anonymous_properties.get(&source).and_then(|(properties, _)| {
+                properties.iter().find(|property| property.name == name)
+            });
+            let optional = info.optionality != Some(true)
+                && captured.map_or_else(
+                    || property.is_some_and(|symbol| self.property_is_optional(symbol)),
+                    |property| property.optional,
+                );
+            let readonly = info.readonly != Some(true)
+                && captured.map_or_else(
+                    || property.is_some_and(|symbol| self.is_readonly_property(symbol)),
+                    |property| property.readonly,
+                );
+            let printed_name =
+                captured.map_or_else(|| name.clone(), |property| property.printed_name.clone());
+            let origin = captured.and_then(|property| property.origin).or(property);
+            members.push(crate::objects::AnonymousProperty {
+                accessor_write: None,
+                method: false,
+                origin,
+                name,
+                printed_name,
+                printed_type: String::new(),
+                optional,
+                readonly,
+                r#type: ty,
+            });
+        }
+        (members, index)
+    }
+
+    /// Render a reverse mapped object. Without resolved member types every
+    /// property prints the node builder's `any` placeholder.
+    fn reverse_mapped_text(
+        members: &[crate::objects::AnonymousProperty],
+        index: Option<&crate::index_signatures::IndexInfo>,
+        resolved: Option<&[String]>,
+    ) -> String {
+        let mut rendered: Vec<_> = members
+            .iter()
+            .enumerate()
+            .map(|(i, member)| crate::objects::Member::Property {
+                name: member.printed_name.clone(),
+                optional: member.optional,
+                readonly: member.readonly,
+                printed: resolved.map_or_else(|| "any".to_string(), |types| types[i].clone()),
+            })
+            .collect();
+        if index.is_some() {
+            rendered.push(crate::objects::Member::Index {
+                readonly: false,
+                name: "x".to_string(),
+                key: "string".to_string(),
+                value: resolved
+                    .and_then(|types| types.get(members.len()).cloned())
+                    .unwrap_or_else(|| "any".to_string()),
+            });
+        }
+        crate::objects::render_object_type(&rendered)
+    }
+
+    /// resolveReverseMappedTypeMembers and getTypeOfReverseMappedSymbol
+    /// (inference.go:1099,1145) for a pending reverse mapped object.
+    pub(crate) fn complete_reverse_mapped_type(&mut self, reversed: TypeId) {
+        let Some(pending) = self.pending_reverse_mapped.remove(&reversed) else { return };
+        let (mut members, index) = self.reverse_mapped_member_plan(&pending);
+        // A reverse mapping of `{[K in keyof T[K_1]]: T[K_1]}` is that of
+        // `{[K in keyof T]: T}` (replaceIndexedAccess, inference.go:1133).
+        let (target, info, operand, constraint) =
+            self.simplified_reverse_mapping(&pending).unwrap_or_else(|| {
+                (pending.target, pending.info.clone(), pending.operand, pending.constraint)
+            });
+        let mut texts = Vec::with_capacity(members.len() + 1);
+        for member in &mut members {
+            let anonymous = self.is_anonymous_object_type(member.r#type);
+            self.reverse_property_anonymous.push(anonymous);
+            let ty =
+                self.reverse_mapped_member_type(member.r#type, target, &info, operand, constraint);
+            self.reverse_property_anonymous.pop();
+            let text = match self.reverse_placeholder_texts.get(&ty) {
+                Some(placeholder) if !anonymous => placeholder.clone(),
+                _ => self.type_to_string(ty),
+            };
+            member.r#type = ty;
+            member.printed_type.clone_from(&text);
+            texts.push(text);
+        }
+        let reversed_index = index.map(|index| crate::index_signatures::IndexInfo {
+            components: None,
+            declaration: None,
+            key: index.key,
+            readonly: false,
+            value: self.reverse_mapped_member_type(
+                index.value,
+                pending.target,
+                &pending.info,
+                pending.operand,
+                pending.constraint,
+            ),
+        });
+        if let Some(index) = &reversed_index {
+            texts.push(self.type_to_string(index.value));
+        }
+        let text = Self::reverse_mapped_text(&members, reversed_index.as_ref(), Some(&texts));
+
+        let owner = match self.store.get(pending.source).data {
+            TypeData::Named { members, .. } => members,
+            _ => None,
+        };
+        let resolved = self.store.new_named(crate::flags::TypeFlags::OBJECT, text, owner);
+        self.store.complete_object(reversed, resolved);
+        self.anonymous_properties.insert(reversed, (members, true));
+        if let Some(index) = reversed_index {
+            self.object_literal_index_infos.insert(reversed, vec![index]);
+        }
+    }
+
+    /// resolveReverseMappedTypeMembers' replaceIndexedAccess simplification
+    /// (inference.go:1133): T[K] as the shared variable reverses like T.
+    fn simplified_reverse_mapping(
+        &mut self,
+        pending: &crate::mapped::ReverseMappedInfo,
+    ) -> Option<(TypeId, crate::mapped::MappedTypeInfo, TypeId, TypeId)> {
+        use crate::flags::TypeFlags;
+        let &(object, index, _) = self.deferred_indexed_access_types.get(&pending.operand)?;
+        if !self.store.get(object).flags.contains(TypeFlags::TYPE_PARAMETER)
+            || !self.store.get(index).flags.contains(TypeFlags::TYPE_PARAMETER)
+        {
+            return None;
+        }
+        let zero = self.store.intern_literal(
+            TypeFlags::NUMBER_LITERAL,
+            TypeData::NumberLiteral("0".to_string()),
+            false,
+        );
+        let wrapped = self.create_tuple_type(vec![object], false);
+        let target = self.instantiate_type(
+            pending.target,
+            &[(index, zero), (object, wrapped)],
+            &[index, object],
+            &[],
+        );
+        self.ensure_mapped_type_info(target);
+        let info = self.mapped_types.get(&target).cloned()?;
+        let constraint = self.resolved_keyof_type(object)?;
+        Some((target, info, object, constraint))
+    }
+
+    /// `ObjectFlagsAnonymous`: object literal, type literal and function types,
+    /// as opposed to interface, class and type reference instances.
+    fn is_anonymous_object_type(&self, ty: TypeId) -> bool {
+        // An alias instantiation keeps the object flags of its body.
+        if let Some(&(symbol, _)) = self.type_reference_targets.get(&ty) {
+            let symbol = self.binder.symbols().get(symbol);
+            return symbol.flags.contains(tsr_binder::SymbolFlags::TYPE_ALIAS)
+                && symbol.declarations.first().and_then(|&id| self.node_map.get(id)).is_some_and(
+                    |node| {
+                        matches!(node, tsr_ast::Node::TypeAliasDeclaration(alias)
+                        if matches!(
+                            alias.r#type,
+                            Some(
+                                tsr_ast::TypeNode::TypeLiteralNode(_)
+                                    | tsr_ast::TypeNode::FunctionTypeNode(_)
+                                    | tsr_ast::TypeNode::ConstructorTypeNode(_)
+                            )
+                        ))
+                    },
+                );
+        }
+        match self.store.get(ty).data {
+            TypeData::Anonymous { .. } => true,
+            TypeData::Named { members: Some(owner), .. } => {
+                !self.type_reference_targets.contains_key(&ty)
+                    && self.binder.symbols().get(self.binder.merged_symbol(owner)).flags.intersects(
+                        tsr_binder::SymbolFlags::TYPE_LITERAL
+                            | tsr_binder::SymbolFlags::OBJECT_LITERAL
+                            | tsr_binder::SymbolFlags::FUNCTION
+                            | tsr_binder::SymbolFlags::METHOD,
+                    )
+            }
+            TypeData::Named { members: None, .. } => {
+                self.anonymous_properties.contains_key(&ty)
+                    && !self.type_reference_targets.contains_key(&ty)
+                    && !self.mapped_types.contains_key(&ty)
+            }
+            _ => false,
+        }
     }
 
     /// getLiteralTypeFromProperty for the known string/numeric property names
@@ -3442,6 +3636,7 @@ impl Checker<'_, '_> {
         out: &mut Vec<InferenceInfo>,
         depth: usize,
     ) -> bool {
+        self.ensure_mapped_type_info(target);
         let Some(info) = self.mapped_types.get(&target).cloned() else { return false };
         // inferFromObjectTypes only reverses mappings without an as clause.
         if info.name_type.is_some() {
@@ -3562,14 +3757,8 @@ impl Checker<'_, '_> {
                 values.extend(indexes.into_iter().map(|index| index.value));
             }
             let values = self.get_union_type(&values);
-            self.infer_from_types_within(
-                values,
-                info.template,
-                info.template,
-                parameters,
-                out,
-                depth + 1,
-            );
+            let template = self.mapped_template_type(info);
+            self.infer_from_types_within(values, template, template, parameters, out, depth + 1);
             return true;
         }
         false

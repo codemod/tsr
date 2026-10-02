@@ -902,6 +902,11 @@ pub struct Checker<'a, 'n> {
     /// may replace the check parameter with its base constraint.
     pub(crate) conditional_constraint_branches: FxHashMap<TypeId, (TypeId, TypeId)>,
     pub(crate) mapped_alias_in_progress: rustc_hash::FxHashSet<SymbolId>,
+    /// Recursive mapped alias references met while their alias was being
+    /// captured. Upstream resolves a mapped type's parts lazily
+    /// (getConstraintTypeFromMappedType/getTemplateTypeFromMappedType), so a
+    /// self reference such as `Spec<T[P]>` inside `Spec<T>` still has them.
+    pub(crate) deferred_mapped_aliases: FxHashMap<TypeId, (SymbolId, Vec<TypeId>)>,
     pub(crate) mapped_members_in_progress: rustc_hash::FxHashSet<TypeId>,
     pub(crate) template_alias_in_progress: rustc_hash::FxHashSet<SymbolId>,
     pub(crate) template_literal_parts: FxHashMap<TypeId, crate::templates::TemplateLiteralParts>,
@@ -913,6 +918,18 @@ pub struct Checker<'a, 'n> {
         FxHashMap<crate::members::TypeParameterConstraintKey, Option<TypeId>>,
     pub(crate) reverse_mapped_cache: FxHashMap<(TypeId, TypeId, TypeId), Option<TypeId>>,
     pub(crate) reverse_mapped_member_cache: FxHashMap<(TypeId, TypeId, TypeId), TypeId>,
+    /// reverseMappedSourceStack/reverseMappedTargetStack and
+    /// reverseExpandingFlags (inference.go:1066).
+    pub(crate) reverse_mapped_source_stack: Vec<TypeId>,
+    pub(crate) reverse_mapped_target_stack: Vec<TypeId>,
+    pub(crate) reverse_expanding: (bool, bool),
+    /// Reverse mapped objects whose members have not been resolved yet.
+    pub(crate) pending_reverse_mapped: FxHashMap<TypeId, crate::mapped::ReverseMappedInfo>,
+    /// The `any`-placeholder rendering of each reverse mapped object.
+    pub(crate) reverse_placeholder_texts: FxHashMap<TypeId, String>,
+    /// Whether each reverse mapped property being resolved has an anonymous
+    /// source type (nodebuilderimpl.go shouldUsePlaceholderForProperty).
+    pub(crate) reverse_property_anonymous: Vec<bool>,
     pub(crate) tuple_element_lists: FxHashMap<TypeId, (Vec<TypeId>, bool)>,
     /// §79: interning for optional-element tuples, keyed on (member,
     /// optional) pairs so `[number, string?]` and `[number, string]` stay
@@ -1337,6 +1354,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             mapped_conditionals: FxHashMap::default(),
             conditional_constraint_branches: FxHashMap::default(),
             mapped_alias_in_progress: rustc_hash::FxHashSet::default(),
+            deferred_mapped_aliases: FxHashMap::default(),
             mapped_members_in_progress: rustc_hash::FxHashSet::default(),
             template_alias_in_progress: rustc_hash::FxHashSet::default(),
             template_literal_parts: FxHashMap::default(),
@@ -1347,6 +1365,12 @@ impl<'a, 'n> Checker<'a, 'n> {
             type_parameter_constraint_cache: FxHashMap::default(),
             reverse_mapped_cache: FxHashMap::default(),
             reverse_mapped_member_cache: FxHashMap::default(),
+            reverse_mapped_source_stack: Vec::new(),
+            reverse_mapped_target_stack: Vec::new(),
+            reverse_expanding: (false, false),
+            pending_reverse_mapped: FxHashMap::default(),
+            reverse_placeholder_texts: FxHashMap::default(),
+            reverse_property_anonymous: Vec::new(),
             tuple_element_lists: FxHashMap::default(),
             optional_tuple_types: FxHashMap::default(),
             tuple_optional_masks: FxHashMap::default(),

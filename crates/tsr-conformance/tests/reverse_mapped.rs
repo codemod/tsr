@@ -56,3 +56,51 @@ const namedTemplate: [string, number] = extractNew({ primitive: "" }, { primitiv
         assert!(lines.iter().any(|line| line == wanted), "missing {wanted}: {lines:?}");
     }
 }
+
+/// Recursive reverse mappings, optional templates and the node builder's
+/// nested-placeholder rule, each answer checked against pinned tsgo output.
+#[test]
+fn recursive_reverse_mappings_resolve_members_on_demand() {
+    let source = r#"// @strict: true
+// @target: es2015
+type Func<T> = (...args: any[]) => T;
+type Spec<T> = { [P in keyof T]: Func<T[P]> | Spec<T[P]> };
+declare function applySpec<T>(obj: Spec<T>): (...args: any[]) => T;
+export const spec = applySpec({ sum: (a: any) => 3, nested: { mul: (b: any) => "n" } });
+export const deeper = applySpec({ foo: { bar: { baz: (x: any) => true } } });
+declare function validate<T>(obj: { [P in keyof T]?: T[P] }): T;
+type Foo = { a?: number; readonly b: string };
+declare const foo: Foo;
+export const validated = validate(foo);
+interface Link { next: Link }
+type Deep<T> = { [K in keyof T]: Deep<T[K]> };
+declare function undeep<T>(deep: Deep<T>): T;
+declare const link: Link;
+export const cyclic = undeep(link);
+export const cyclicNext = cyclic.next;
+export const cyclicDeeper = cyclic.next.next.next;
+type Reducer<S> = (state: S) => S;
+declare function combine<S>(reducers: { [K in keyof S]: Reducer<S[K]> }): Reducer<S>;
+declare const count: Reducer<number>;
+export const combined = combine({ inner: combine({ count }) });
+"#;
+    let case = TestCase::parse("probe/reverse-recursive", "reverse-recursive.ts", source);
+    let expected: Vec<_> = case
+        .files
+        .iter()
+        .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
+        .collect();
+    let assertions = types_producer::assertions_for_case(&case, &expected, false);
+    let lines: Vec<_> = assertions.iter().flatten().map(types_producer::Assertion::line).collect();
+    for wanted in [
+        "spec : (...args: any[]) => { sum: number; nested: { mul: string; }; }",
+        "deeper : (...args: any[]) => { foo: { bar: { baz: boolean; }; }; }",
+        "validated : { a: number; readonly b: string; }",
+        "cyclic : { next: { next: any; }; }",
+        "cyclicNext : { next: { next: any; }; }",
+        "cyclicDeeper : { next: { next: any; }; }",
+        "combined : Reducer<{ inner: { count: number; }; }>",
+    ] {
+        assert!(lines.iter().any(|line| line == wanted), "missing {wanted}: {lines:?}");
+    }
+}

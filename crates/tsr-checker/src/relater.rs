@@ -464,6 +464,11 @@ impl Checker<'_, '_> {
         if let Some(info) = self.mapped_conditionals.get(&ty) {
             return RecursionIdentity::Node(info.declaration);
         }
+        // getRecursionIdentity tracks a mapped type by its symbol, which every
+        // instantiation of one mapped type node shares.
+        if let Some(info) = self.mapped_types.get(&ty) {
+            return RecursionIdentity::Node(info.declaration);
+        }
         if let Some(&(mut object, _, _)) = self.deferred_indexed_access_types.get(&ty) {
             let mut visited = vec![ty];
             while let Some(&(next, _, _)) = self.deferred_indexed_access_types.get(&object) {
