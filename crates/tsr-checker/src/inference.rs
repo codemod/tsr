@@ -4272,8 +4272,12 @@ impl Checker<'_, '_> {
             {
                 let source_infos = self.get_index_infos_of_type(source).unwrap_or_default();
                 let inferable = self.is_object_type_with_inferable_index(source);
-                let source_names =
-                    if inferable { self.property_names_of(source) } else { Vec::new() };
+                let source_names = if inferable {
+                    self.get_property_names_of_type(source)
+                        .unwrap_or_else(|| self.property_names_of(source))
+                } else {
+                    Vec::new()
+                };
                 let saved = self.inference_priority;
                 if self.mapped_types.contains_key(&source)
                     && self.mapped_types.contains_key(&target)

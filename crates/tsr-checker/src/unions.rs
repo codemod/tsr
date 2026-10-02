@@ -682,7 +682,48 @@ impl Checker<'_, '_> {
             return types[0];
         }
         let named = symbol.map(|id| (id, self.binder.symbols().get(id).name.to_string()));
-        let built = create_union(&mut self.store, extra_flags, types.clone(), named);
+        // formatUnionTypes (printer.go): a complete run of enum literals prints
+        // as its enum, including fresh literals and enums inside larger unions.
+        // Keep the original constituents so printing does not change freshness.
+        let mut displayed = Vec::new();
+        let mut index = 0;
+        while index < types.len() {
+            let current = types[index];
+            let complete_enum = self
+                .enum_member_owners
+                .get(&current)
+                .and_then(|owner| self.declared_types.get(owner))
+                .copied()
+                .and_then(|declared| {
+                    let TypeData::Union { types: members, .. } = &self.store.get(declared).data
+                    else {
+                        return None;
+                    };
+                    let members = members.clone();
+                    let end = index + members.len();
+                    if end <= types.len()
+                        && types[index..end].iter().zip(&members).all(|(&actual, &expected)| {
+                            self.get_regular_type_of_literal_type(actual)
+                                == self.get_regular_type_of_literal_type(expected)
+                        })
+                    {
+                        Some((declared, end))
+                    } else {
+                        None
+                    }
+                });
+            if let Some((declared, end)) = complete_enum {
+                displayed.push(declared);
+                index = end;
+            } else {
+                displayed.push(current);
+                index += 1;
+            }
+        }
+        let text =
+            (displayed != types).then(|| format_union_types(&self.store, &displayed).join(" | "));
+        let built =
+            create_union_with_text(&mut self.store, extra_flags, types.clone(), named, text);
         // §58: named unions register their member set for the flow-join
         // identity consult.
         if symbol.is_some() {

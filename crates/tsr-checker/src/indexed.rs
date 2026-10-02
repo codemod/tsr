@@ -58,13 +58,10 @@ impl Checker<'_, '_> {
     ///
     /// Ported from `Checker.checkElementAccessExpression` (`checker.go:8146`).
     ///
-    /// Upstream's `checkNonNullExpression` on the receiver, the widening for an
-    /// assignment target and the `const` enum diagnostic are absent: each
-    /// either reports (`bd tsr-5e7.6`) or needs machinery this port does not
-    /// have, and **none of them changes the type** for the shapes answered
-    /// here. The `for…in` numeric special case — which DOES change the type —
-    /// was ported at §477 (`is_for_in_variable_for_numeric_property_names`),
-    /// and the readonly write answer at §473.
+    /// Const-enum accesses require string-literal-like syntax before index
+    /// lookup; invalid syntax has the native error recovery type (`any`).
+    /// The `for…in` numeric special case was ported at §477 and the readonly
+    /// write answer at §473.
     pub fn check_element_access_expression(
         &mut self,
         node: &ElementAccessExpression<'_>,
@@ -243,6 +240,18 @@ impl Checker<'_, '_> {
         let error = self.intrinsics.error;
         let _ = node;
         let index_type = self.check_expression(index);
+        // checkElementAccessExpression (checker.go): this syntactic rejection
+        // precedes the enum's otherwise valid numeric reverse index.
+        if let TypeData::Anonymous { symbol, .. } = self.type_of(object_type).data
+            && self.binder.symbols().get(symbol).flags.contains(tsr_binder::SymbolFlags::CONST_ENUM)
+            && !matches!(
+                index,
+                tsr_ast::Expression::StringLiteral(_)
+                    | tsr_ast::Expression::NoSubstitutionTemplateLiteral(_)
+            )
+        {
+            return self.intrinsics.any;
+        }
         // §477: `isForInVariableForNumericPropertyNames` (`checker.go:8161`)
         // — an index that is the FOR-IN VARIABLE of a loop over an object
         // with only a NUMERIC index signature reads as `number`, though the

@@ -2299,7 +2299,17 @@ impl Checker<'_, '_> {
                 .collect_static_property_names(symbol, &mut names, &mut Vec::new())
                 .then_some(names);
         }
-        if let TypeData::Anonymous { symbol, signature: true, .. } = self.type_of(id).data {
+        // resolveAnonymousTypeMembers: function, enum and module values expose
+        // exports. Class statics were handled above; instance members stay separate.
+        if let TypeData::Anonymous { symbol, signature, .. } = self.type_of(id).data
+            && (signature
+                || self
+                    .binder
+                    .symbols()
+                    .get(symbol)
+                    .flags
+                    .intersects(SymbolFlags::ENUM | SymbolFlags::VALUE_MODULE))
+        {
             let mut names: Vec<_> = self
                 .binder
                 .symbols()

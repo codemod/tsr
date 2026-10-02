@@ -104,45 +104,32 @@ impl<'a> Checker<'a, '_> {
             }
             _ => {}
         }
-        // §262. An ENUM's object type is `TypeData::Anonymous`, not `Named`, so
-        // it returned empty here before the collector was ever asked — proven
-        // by probe: `index_infos_of_symbol` is invoked ZERO times on
-        // `compiler/indexIntoEnum`. §261 synthesised the signature in the
-        // collector and measured a clean `+0` for exactly that reason; the
-        // repair is routing, and the synthesis is its second half.
-        //
-        // Upstream's enum object carries an implicit numeric index signature
-        // returning `string` — the REVERSE MAPPING, where `E[0]` is the member
-        // NAME rather than a member.
-        //
-        //     namespace M { enum E { } var x = E[0]; }
-        //     >E[0] : string
-        //
-        // Handled HERE rather than by widening the `Named`/`Anonymous` split,
-        // which the type model keeps apart on purpose: `Named.members` is where
-        // `getPropertyOfType` looks, and `Anonymous.symbol` carries the
-        // declarations a call reads signatures from. Routing every anonymous
-        // type into the members collector would make `typeof C` offer a class's
-        // INSTANCE members, which is the wrong answer rather than a missing one
-        // (see `TypeData`'s note on why the two fields are separate).
-        //
-        // `CONST_ENUM` is excluded: it has no runtime object, so upstream mints
-        // no reverse mapping for it.
+        // resolveAnonymousTypeMembers (checker.go): enum values have a reverse
+        // numeric index only for an enum type or a number-like exported member.
+        // String-only enums have no reverse mapping. This includes const enums
+        // even when a separate diagnostic rejects their use as runtime values.
         if let TypeData::Anonymous { symbol, .. } = self.store.get(id).data
-            && self
-                .binder
-                .symbols()
-                .get(symbol)
-                .flags
-                .intersects(tsr_binder::SymbolFlags::REGULAR_ENUM)
+            && self.binder.symbols().get(symbol).flags.intersects(tsr_binder::SymbolFlags::ENUM)
         {
-            return Some(vec![IndexInfo {
-                components: None,
-                declaration: None,
-                key: self.intrinsics.number,
-                value: self.intrinsics.string,
-                readonly: true,
-            }]);
+            let declared = self.get_declared_type_of_symbol(symbol);
+            let members: Vec<_> =
+                self.binder.symbols().get(symbol).exports.values().copied().collect();
+            let has_reverse_index = self.type_of(declared).flags.contains(TypeFlags::ENUM)
+                || members.into_iter().any(|member| {
+                    let value = self.get_type_of_symbol(member);
+                    self.type_of(value).flags.intersects(TypeFlags::NUMBER_LIKE)
+                });
+            return Some(if has_reverse_index {
+                vec![IndexInfo {
+                    components: None,
+                    declaration: None,
+                    key: self.intrinsics.number,
+                    value: self.intrinsics.string,
+                    readonly: true,
+                }]
+            } else {
+                Vec::new()
+            });
         }
         // §539: an OBJECT LITERAL's index signature is minted at check time
         // and lives in a side table, because the literal's `__object` symbol

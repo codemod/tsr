@@ -219,3 +219,59 @@ async function myFunc(): Promise<void> {
         ],
     );
 }
+
+#[test]
+fn enum_static_members() {
+    // Native declarations: /tmp/tsr-99-enum-static-native. Invalid const-enum
+    // value/access expressions report TS2475/TS2476 and still emit types.
+    expect(
+        r"// @strict: true
+// @target: esnext
+declare function strings<T>(value: {[key:string]:T}):T;
+declare function numbers<T>(value: {[key:number]:T}):T;
+enum Numeric { A, B }
+enum Text { A='a', B='b' }
+enum Mixed { A=0, B='b' }
+const enum Constant { A, B }
+enum Empty {}
+export const numericString = strings(Numeric);
+export const textString = strings(Text);
+export const mixedString = strings(Mixed);
+export const numericNumber = numbers(Numeric);
+export const textNumber = numbers(Text);
+export const mixedNumber = numbers(Mixed);
+export const constantNumber = numbers(Constant);
+export const emptyNumber = numbers(Empty);
+export const copiedText = {...Text};
+export const copiedNumeric = {...Numeric};
+
+namespace Space { export const x=1; export let y=''; export interface Hidden {} }
+export const copiedSpace = {...Space};
+export const spaceValues = strings(Space);
+export let partial: Numeric.A | string;
+export let complete: Numeric.A | Numeric.B | null;
+export let nested: Text | number;
+export const allowed = Constant['A'];
+export const template = Constant[`B`];
+export const reverse = Constant[0];
+const key = 'A';
+export const indirect = Constant[key];
+",
+        &[
+            "numericString : string | Numeric",
+            "textString : Text",
+            "mixedString : string | Mixed.A",
+            "numericNumber : string",
+            "mixedNumber : string",
+            "constantNumber : string",
+            "emptyNumber : string",
+            "copiedText : { A: Text.A; B: Text.B; }",
+            "copiedNumeric : { [x: number]: string; A: Numeric.A; B: Numeric.B; }",
+            "copiedSpace : { x: 1; y: string; }",
+            "allowed : Constant.A",
+            "template : Constant.B",
+            "reverse : any",
+            "indirect : any",
+        ],
+    );
+}
