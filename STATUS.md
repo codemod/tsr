@@ -24,24 +24,26 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-10-02
 
-Measured on **`241e2d60`** (rebased on 5bf6c57c): **456,915/478,855 assertions
-(95.42%)**, **6,985/9,538 complete cases (73.23%)**. The 99% target requires
-474,067 correct assertions; **17,152 remain**. Denominator and pinned oracle
-unchanged. Aligned verdicts: **474,243 total; 456,915 right; 2,605 gap; 14,723 wrong**.
-Binder retains its verified **8,497/8,497 (100%)** result at aab165d8;
-other suites below retain historical measurements.
+Measured on **`4da26276`** (rebased on 6c230ca2): **456,949/478,855 assertions
+(95.43%)**, **6,986/9,538 complete cases (73.24%)**. The 99% target
+requires 474,067 correct assertions; **17,118 remain**. Denominator and
+pinned oracle unchanged. Aligned verdicts: **474,243 total; 456,949 right;
+2,606 gap; 14,688 wrong**. Binder retains its verified **8,497/8,497
+(100%)** result at aab165d8; other suites below retain historical measurements.
 
-This unit (index signatures, tsr-6.25) adds **151 matching assertions and 14
-complete cases**, with **zero RIGHT losses, zero GAP-to-WRONG and no changed
-WRONG rows** relative to a full-run baseline measured at 5bf6c57c (130 W→R,
-21 G→R). [Object rest index infos](docs/architecture/checker-99-rest-index-infos.md)
-records getRestType's index infos, union distribution and TS2700 validity,
-unchecked index reads in object binding elements, intersection spread
-properties and nested assignment-target tuples. Three added regressions;
-all 217 release workspace result blocks, clippy, formatting, 3,329 anchors and
-the section gate pass. The issue-id gate still reports the historical IDs
-missing from the available registry (tsr-10).
-The 99% goal and tsr-8 remain active.
+This unit (conditional alias chains, tsr-6.3/tsr-6.23) adds **34 matching assertions (all WRONG-to-RIGHT) and one complete case**
+relative to a full baseline measured at 6c230ca2, with **zero RIGHT losses and
+zero GAP-to-WRONG**; one WRONG-to-GAP.
+[Conditional alias chains](docs/architecture/checker-99-conditional-chains.md)
+records alias-of-conditional-alias evaluation with default fill and native alias
+naming, getConditionalType's permissive/restrictive definite outcomes for a
+generic extends type, and literal-key names for mapped alias references.
+Four regressions in conditional_alias_chains pin pinned-tsgo declaration output.
+The previous unit's rest index-info record (241e2d60, tsr-6.25) remains in §7; the later dts commits b8fc7176/36290758 touch only declaration emit. All 218 release workspace result blocks, clippy, formatting, 3,324
+anchors and 16,616 section citations pass; issue-ids reports the same 191
+historical IDs as its base (tsr-10). Non-generic conditional evaluation,
+recursive relations and the tsr-9 inference/reduction mechanisms remain
+incomplete. The 99% goal and tsr-8 remain active.
 
 ### Previous whole-suite measurement — historical
 
@@ -1256,6 +1258,15 @@ rendering `any` for `errorType` (ADR-0038).
 ---
 
 ## 4. What is next — the scored board
+
+### Conditional chains note at `4da26276` — 2026-10-02 (tsr-6.3/tsr-6.23)
+
+Generic aliases whose body references a conditional alias now evaluate, and a
+generic extends type takes native permissive/restrictive definite outcomes.
+Next in this family: evaluate non-generic conditional type nodes
+(getTypeFromConditionalTypeNode); about 76 non-RIGHT rows print a conditional's
+written text where the baseline wants its branch. Mapped-alias references still
+enumerate only literal keys; reporting them unenumerable measured 22 RIGHT losses.
 
 ### Current priorities at `241e2d60` — 2026-10-02 (index signatures, tsr-6.25)
 
@@ -11690,3 +11701,5 @@ that were true of a different population than the one they were quoted about.
 | 2026-10-02 | `8197bdcf` | **95.38%** | **6,971/9,538** | **Predicate narrowing and intersection members: +275 assertions (217 W-to-R, 58 G-to-R), +18 complete cases, zero RIGHT losses; nine G-to-W tracked in tsr-9 and 44 changed already-WRONG rows.** Isolated full verdict matches frozen candidate: 456,755/478,855, 2,626 aligned gaps, 14,862 wrong. Five new tests bring contextual_this_objects to 24. [Evidence](docs/architecture/checker-99-predicate-intersections.md); tsr-8 remains active with 17,312 matches to 99%. |
 
 | 2026-10-02 | `552f16f3` | **95.39%** | **6,971/9,538** | **Return-mapper literal contexts (tsr-6.22): +9 assertions (9 W-to-R), +0 complete cases, zero RIGHT losses, zero G-to-W, zero changed already-WRONG rows** against a full baseline at bb2d3a59: 456,764/478,855. Arguments regularize when they are literals of the return-mapper-instantiated parameter type (checkExpressionWithContextualType); outer return mappers are cached on first use (createOuterReturnMapper). The uncached first draft lost one RIGHT row (inferFromGenericFunctionReturnTypes3 makeFoo(Enum.A)). [Record](docs/architecture/checker-99-return-mapper-literals.md). |
+
+| 2026-10-02 | `4da26276` | **95.43%** | **6,986/9,538** | **Conditional alias chains (tsr-6.3/tsr-6.23): 34 matching assertions (all WRONG-to-RIGHT) and one complete case, zero RIGHT losses or GAP-to-WRONG; one W-to-G.** Rebased on 6c230ca2 and scored against a full baseline measured there: 456,949/478,855, 2,606 aligned gaps, 14,688 wrong. Alias-of-conditional chains with default fill and native alias naming; permissive/restrictive definite outcomes; Record literal-key names. The unenumerable-alias alternative measured 22 R-to-W and is recorded. Four regressions; 218 release workspace blocks, clippy, formatting, 3,324 anchors and section citations pass. [Evidence](docs/architecture/checker-99-conditional-chains.md). |
