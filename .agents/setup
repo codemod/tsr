@@ -74,6 +74,10 @@ prebuild() {
   cargo fetch --locked
   cargo build --workspace --all-targets --locked
   cargo clippy --workspace --all-targets --locked
+  # The conformance gates (scorepair, verdictdump, coverage) run in release;
+  # warming it here keeps every orb from paying a cold release checker build.
+  cargo build --release --locked -p tsr-conformance \
+    --bin coverage --example scorepair --example verdictdump
 }
 
 step "rust toolchain" install_rust
