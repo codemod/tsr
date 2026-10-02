@@ -699,6 +699,12 @@ impl Checker<'_, '_> {
             }
             return self.create_tuple_type(elements, false);
         }
+        let checked = self.check_array_literal_value(node);
+        self.create_array_literal_type(checked)
+    }
+
+    fn check_array_literal_value(&mut self, node: &ArrayLiteralExpression<'_>) -> TypeId {
+        let error = self.intrinsics.error;
         // `checkArrayLiteral` keeps array-like spread operands as variadic
         // tuple arguments. Normalization expands tuples and retains generic
         // operands; outside tuple context they contribute operand[number].

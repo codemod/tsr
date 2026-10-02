@@ -2161,16 +2161,17 @@ impl Checker<'_, '_> {
     }
 
     /// getCovariantInference (internal/checker/inference.go), shared by final
-    /// type-argument resolution and a contextual fixing mapper. Object/array
-    /// literal candidate normalization and full widening remain separate ports.
+    /// type-argument resolution and a contextual fixing mapper. Literal candidates
+    /// are combined before selecting and widening their common supertype.
     fn inferred_covariant_type(
         &mut self,
         info: &InferenceInfo,
         signature: &Signature,
         position: usize,
     ) -> Option<TypeId> {
+        let candidates = self.union_object_and_array_literal_candidates(&info.candidates)?;
         let never = self.intrinsics.never;
-        let has_other = info.candidates.iter().any(|&candidate| candidate != never);
+        let has_other = candidates.iter().any(|&candidate| candidate != never);
         let primitive_constraint = self.parameter_has_primitive_constraint(signature, position)
             || signature.type_parameters.get(position).is_some_and(|parameter| parameter.is_const);
         let widen_literals = !primitive_constraint
@@ -2178,8 +2179,8 @@ impl Checker<'_, '_> {
             && (info.is_fixed
                 || !self
                     .is_type_parameter_at_top_level_in_return_type(signature, info.type_parameter));
-        let mut base = Vec::with_capacity(info.candidates.len());
-        for &candidate in &info.candidates {
+        let mut base = Vec::with_capacity(candidates.len());
+        for &candidate in &candidates {
             if has_other && candidate == never {
                 continue;
             }

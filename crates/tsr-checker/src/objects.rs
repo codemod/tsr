@@ -301,6 +301,9 @@ impl Checker<'_, '_> {
         };
         let regular = self.store.new_named(self.store.get(id).flags, text, members);
         self.regular_object_literal_types.insert(id, regular);
+        if let Some(&spread) = self.object_literal_spread_flags.get(&id) {
+            self.object_literal_spread_flags.insert(regular, spread);
+        }
         if let Some(members) = self.object_literal_members.get(&id).cloned() {
             self.object_literal_members.insert(regular, members);
         }
@@ -344,22 +347,10 @@ impl Checker<'_, '_> {
         regular
     }
 
-    /// The object-freshness part of getWidenedTypeWithContext
-    /// (checker.go:18359), including its union/intersection descent.
+    /// getWidenedTypeWithContext (checker.go:18359), including sibling and
+    /// nested-property normalization for object literals.
     pub(crate) fn widen_object_literal_freshness(&mut self, id: TypeId) -> TypeId {
-        match self.store.get(id).data.clone() {
-            TypeData::Union { types, .. } => {
-                let widened: Vec<_> =
-                    types.iter().map(|&ty| self.widen_object_literal_freshness(ty)).collect();
-                if widened == types { id } else { self.get_union_type(&widened) }
-            }
-            TypeData::Intersection { types, .. } => {
-                let widened: Vec<_> =
-                    types.iter().map(|&ty| self.widen_object_literal_freshness(ty)).collect();
-                if widened == types { id } else { self.get_intersection_type(&widened, None) }
-            }
-            _ => self.get_regular_type_of_object_literal(id),
-        }
+        self.widen_type_with_context(id, None, &mut Vec::new())
     }
 
     /// Ported from `Checker.checkObjectLiteral` (`checker.go:13144`).
@@ -1895,6 +1886,12 @@ impl Checker<'_, '_> {
         // §453: `ObjectFlagsFreshLiteral` — see the side table's doc on
         // `Checker::fresh_object_literal_types`.
         self.fresh_object_literal_types.insert(minted);
+        self.object_literal_spread_flags.insert(
+            minted,
+            node.properties.iter().any(|property| {
+                matches!(property, tsr_ast::ObjectLiteralElementLike::SpreadAssignment(_))
+            }),
+        );
         // §800: the members AS PRINTED, so a re-mint does not have to go back
         // through the symbol road and widen what this literal retained.
         self.object_literal_members.insert(minted, members.clone());

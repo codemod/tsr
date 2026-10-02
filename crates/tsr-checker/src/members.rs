@@ -2290,6 +2290,9 @@ impl Checker<'_, '_> {
     /// The `None`-on-an-unfollowable-base rule is [`Checker::base_symbols_of`]'s
     /// and is why the walk cannot silently under-report a requirement.
     pub(crate) fn get_property_names_of_type(&mut self, id: TypeId) -> Option<Vec<String>> {
+        if let Some((properties, true)) = self.anonymous_properties.get(&id) {
+            return Some(properties.iter().map(|property| property.name.clone()).collect());
+        }
         if let Some(symbol) = self.class_static_symbol(id) {
             let mut names = vec!["prototype".to_owned()];
             return self
@@ -2731,18 +2734,10 @@ impl Checker<'_, '_> {
         })
     }
 
-    /// Whether a type is an **object-literal** type — the source shape that
-    /// relaxes `requireOptionalProperties` in the subtype relations
-    /// (`checker-notes-assign.md` §15). The test is the symbol's declaration
-    /// kind, which is how the type was built (`check_object_literal`).
-    pub(crate) fn is_object_literal_type(&self, id: crate::types::TypeId) -> bool {
-        let symbol = match &self.store.get(id).data {
-            crate::types::TypeData::Anonymous { symbol, .. } => *symbol,
-            _ => return false,
-        };
-        self.binder.symbols().get(symbol).declarations.iter().any(|&declaration| {
-            self.nodes.kind(declaration) == tsr_ast::SyntaxKind::ObjectLiteralExpression
-        })
+    /// isObjectLiteralType (utilities.go): the semantic `ObjectLiteral` flag,
+    /// retained by regularization and removed by widening.
+    pub(crate) fn is_object_literal_type(&self, id: TypeId) -> bool {
+        self.object_literal_spread_flags.contains_key(&id)
     }
 }
 

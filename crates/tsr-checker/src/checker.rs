@@ -618,6 +618,14 @@ pub struct Checker<'a, 'n> {
     pub(crate) fresh_object_literal_types: rustc_hash::FxHashSet<crate::types::TypeId>,
     /// getRegularTypeOfObjectLiteral (checker.go:28159), memoized per fresh type.
     pub(crate) regular_object_literal_types: FxHashMap<TypeId, TypeId>,
+    /// `ObjectFlagsObjectLiteral` and `ContainsSpread`, retained by regularization.
+    pub(crate) object_literal_spread_flags: FxHashMap<TypeId, bool>,
+    /// createArrayLiteralType clones references without marking their shared target.
+    pub(crate) array_literal_images: FxHashMap<TypeId, TypeId>,
+    pub(crate) array_literal_bases: FxHashMap<TypeId, TypeId>,
+    /// getWidenedType's root cache and getUndefinedProperty's name cache.
+    pub(crate) widened_object_types: FxHashMap<TypeId, TypeId>,
+    pub(crate) widening_undefined_properties: FxHashMap<String, crate::widening::WideningProperty>,
     /// The index signature an **object literal** minted, keyed by the type id.
     ///
     /// §539. `check_object_literal` builds a computed-name literal's index
@@ -1238,6 +1246,11 @@ impl<'a, 'n> Checker<'a, 'n> {
             js_literal_types: rustc_hash::FxHashSet::default(),
             fresh_object_literal_types: rustc_hash::FxHashSet::default(),
             regular_object_literal_types: FxHashMap::default(),
+            object_literal_spread_flags: FxHashMap::default(),
+            array_literal_images: FxHashMap::default(),
+            array_literal_bases: FxHashMap::default(),
+            widened_object_types: FxHashMap::default(),
+            widening_undefined_properties: FxHashMap::default(),
             object_literal_members: rustc_hash::FxHashMap::default(),
             anonymous_properties: rustc_hash::FxHashMap::from_iter([
                 (intrinsics.empty_object, (Vec::new(), true)),
@@ -3021,7 +3034,7 @@ impl<'a, 'n> Checker<'a, 'n> {
     ///
     /// Upstream's nil arms (`:369-375`) have no counterpart — a [`SymbolId`] is
     /// always a symbol here.
-    fn compare_symbols(&self, a: SymbolId, b: SymbolId) -> std::cmp::Ordering {
+    pub(crate) fn compare_symbols(&self, a: SymbolId, b: SymbolId) -> std::cmp::Ordering {
         if a == b {
             return std::cmp::Ordering::Equal;
         }

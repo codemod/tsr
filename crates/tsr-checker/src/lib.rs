@@ -168,6 +168,7 @@ mod union_signatures;
 pub mod unions;
 pub mod unused;
 mod variances;
+mod widening;
 
 pub use checker::Checker;
 pub use flags::TypeFlags;

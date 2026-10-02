@@ -172,9 +172,9 @@ fn a_nested_array_literal_is_typed_by_the_same_rule() {
 }
 
 #[test]
-fn an_array_literal_is_the_same_type_as_the_annotation_would_give() {
-    // The payoff of the result being a real `Array` reference rather than a
-    // lookalike: the inferred type and the written one are one type.
+fn array_literal_identity_is_separate_from_the_canonical_annotation() {
+    // Native createArrayLiteralType clones the reference to carry literal flags.
+    // It retains the same target and arguments as the annotated array.
     let source = "const a = [1];\nvar b: number[];";
     let arena = Arena::new();
     let mut nodes = NodeTable::new();
@@ -217,7 +217,11 @@ fn an_array_literal_is_the_same_type_as_the_annotation_would_give() {
             .and_then(|d| d.r#type)
             .expect("an annotation"),
     );
-    assert_eq!(inferred, written, "`[1]` and `number[]` must be one type");
+    assert_ne!(inferred, written, "literal flags must not mark the canonical reference");
+    assert_eq!(checker.type_reference_target(inferred), checker.type_reference_target(written));
+    assert_eq!(checker.type_to_string(inferred), "number[]");
+    assert!(checker.is_type_assignable_to(inferred, written));
+    assert!(checker.is_type_assignable_to(written, inferred));
 }
 
 #[test]
