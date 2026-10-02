@@ -904,7 +904,6 @@ impl Checker<'_, '_> {
             }
         }
         let mut inferred_type_parameters = Vec::new();
-        let mut const_source_parameters = Vec::new();
         for (index, parameter) in signature.parameters.iter().enumerate() {
             // §939: a REST parameter takes EVERY argument from its position on,
             // each inferred against the rest's ELEMENT type.
@@ -921,31 +920,8 @@ impl Checker<'_, '_> {
             // over a TUPLE is §86's positional expansion and keeps its own road.
             if parameter.rest {
                 let Some(element) = rest_element(self, parameter) else {
-                    use crate::flags::TypeFlags;
-                    // getSpreadArgumentType (checker.go:29500–29568): tuple
-                    // rests use element contexts, other rests indexed contexts.
-                    // Const/primitive contexts retain regular literals; other
-                    // contexts widen them. Construct mutability before inference.
-                    let in_const_context = self.is_const_type_variable(parameter.r#type, 0);
-                    if in_const_context {
-                        if self
-                            .store
-                            .get(parameter.r#type)
-                            .flags
-                            .contains(TypeFlags::TYPE_PARAMETER)
-                        {
-                            const_source_parameters.push(parameter.r#type);
-                        } else if let Some((elements, _)) =
-                            self.variadic_tuple_elements.get(&parameter.r#type)
-                        {
-                            const_source_parameters.extend(
-                                elements
-                                    .iter()
-                                    .filter(|element| element.spread)
-                                    .map(|element| element.r#type),
-                            );
-                        }
-                    }
+                    // getSpreadArgumentType constructs const literal source
+                    // views, including mutability, before collecting candidates.
                     let Some(spread) = self.inference_spread_argument_type(
                         arguments,
                         &argument_types,
@@ -989,39 +965,12 @@ impl Checker<'_, '_> {
                 continue;
             }
             let Some(&argument_expression) = arguments.get(index) else { continue };
-            let mut callback_expression = argument_expression;
-            while let Expression::ParenthesizedExpression(node) = callback_expression {
-                let Some(inner) = node.expression else { break };
-                callback_expression = inner;
-            }
-            if signature.type_parameters.iter().any(|p| p.is_const)
-                && matches!(
-                    callback_expression,
-                    Expression::ArrowFunction(_) | Expression::FunctionExpression(_)
-                )
-                && let Some(callbacks) = self.call_signatures_of_type(parameter.r#type)
-                && let [callback] = callbacks.as_slice()
-            {
-                self.collect_const_callback_source_parameters(
-                    callback.r#type,
-                    &mut const_source_parameters,
-                );
-            }
             if self.is_context_sensitive_argument(&argument_expression) {
                 deferred.push(index);
                 continue;
             }
             let Some(&argument) = argument_types.get(index) else { continue };
             let argument = if signature.type_parameters.iter().any(|parameter| parameter.is_const) {
-                if self
-                    .store
-                    .get(parameter.r#type)
-                    .flags
-                    .contains(crate::flags::TypeFlags::TYPE_PARAMETER)
-                    && self.is_const_type_variable(parameter.r#type, 0)
-                {
-                    const_source_parameters.push(parameter.r#type);
-                }
                 self.const_literal_inference_source(
                     argument_expression,
                     argument,
@@ -1640,14 +1589,14 @@ impl Checker<'_, '_> {
                 }
             }
         }
-        let mut map = Vec::with_capacity(parameters.len());
+        let mut candidates = Vec::with_capacity(parameters.len());
         for (position, &type_parameter) in parameters.iter().enumerate() {
             let mut candidate = None;
             if let Some(info) = infos.iter().find(|info| info.type_parameter == type_parameter)
                 && (info.has_candidates() || info.fixed_type.is_some())
             {
                 let Some(resolved) =
-                    self.inferred_type_from_info(info, signature, position, &infos)
+                    self.unconstrained_inferred_type_from_info(info, signature, position, &infos)
                 else {
                     return decline;
                 };
@@ -1673,24 +1622,8 @@ impl Checker<'_, '_> {
             {
                 return decline;
             }
-            // Direct/rest const variables and direct callback returns consume
-            // source views collected before inference, including mutability and
-            // literal AST origins. Other indirect candidates still use the
-            // legacy readonly fallback until their source mapper is ported.
-            let candidate = match candidate {
-                Some(inferred)
-                    if !const_source_parameters.contains(&type_parameter)
-                        && signature
-                            .type_parameters
-                            .get(position)
-                            .is_some_and(|parameter| parameter.is_const) =>
-                {
-                    Some(self.readonly_tuple_image(inferred))
-                }
-                other => other,
-            };
             match candidate {
-                Some(inferred) if inferred != error => map.push((type_parameter, inferred)),
+                Some(inferred) if inferred != error => candidates.push((type_parameter, inferred)),
                 Some(_) => return decline,
                 None => {
                     // Structural inference is still incomplete. Keep its existing
@@ -1741,14 +1674,16 @@ impl Checker<'_, '_> {
                 }
             }
         }
-        // Resolve candidate-free parameters through the non-fixing mapper only
-        // after every collected candidate is available to dependent constraints.
+        // Resolve constraints through the non-fixing mapper after collecting all
+        // candidates. Its provisional entries break dependent-constraint cycles.
+        let mut map = Vec::with_capacity(parameters.len());
         let any_default = call.is_some_and(|id| self.in_js_file(id));
         for position in 0..parameters.len() {
-            if self.resolve_missing_inference(
-                signature,
+            if self.resolve_inference_with_constraints(
+                (signature, &infos),
                 position,
                 &parameters,
+                &candidates,
                 &mut map,
                 any_default,
             ) == error
@@ -1832,30 +1767,36 @@ impl Checker<'_, '_> {
         self.propagate_return_type_parameters(returned, &inferred_type_parameters)
     }
 
-    /// The candidate-free leg of `getInferredType` and `newBackreferenceMapper`
+    /// The non-fixing resolution in `getInferredType` and `newBackreferenceMapper`
     /// (`internal/checker/inference.go`, `internal/checker/mapper.go`). The map
     /// also stores provisional results so recursive constraints see the native
-    /// unknown/any fallback rather than re-entering inference indefinitely.
-    fn resolve_missing_inference(
+    /// candidate/default/fallback rather than re-entering inference indefinitely.
+    fn resolve_inference_with_constraints(
         &mut self,
-        signature: &Signature,
+        context: (&Signature, &[InferenceInfo]),
         position: usize,
         parameters: &[TypeId],
+        candidates: &[(TypeId, TypeId)],
         map: &mut Vec<(TypeId, TypeId)>,
         any_default: bool,
     ) -> TypeId {
         use crate::relater::{Relation, Ternary};
+        let (signature, infos) = context;
         let parameter = parameters[position];
         if let Some(&(_, inferred)) = map.iter().find(|&&(source, _)| source == parameter) {
             return inferred;
         }
         let fallback = if any_default { self.intrinsics.any } else { self.intrinsics.unknown };
         let slot = map.len();
-        map.push((parameter, fallback));
+        let candidate =
+            candidates.iter().find(|&&(source, _)| source == parameter).map(|&(_, t)| t);
+        let mut inferred = candidate.unwrap_or(fallback);
+        map.push((parameter, inferred));
         let names: Vec<_> = signature.type_parameters.iter().map(|p| p.name.as_str()).collect();
         let declaration = &signature.type_parameters[position];
-        let mut inferred = fallback;
-        if let Some(default) = declaration.default {
+        if candidate.is_none()
+            && let Some(default) = declaration.default
+        {
             // Defaults resolve earlier parameters through the non-fixing mapper;
             // self/forward references always map to unknown, even in JS files.
             let mut default_map = Vec::with_capacity(parameters.len());
@@ -1863,7 +1804,14 @@ impl Checker<'_, '_> {
                 let image = if index < position
                     && self.mentions_type_parameter(default, &[source], &[names[index]])
                 {
-                    self.resolve_missing_inference(signature, index, parameters, map, any_default)
+                    self.resolve_inference_with_constraints(
+                        context,
+                        index,
+                        parameters,
+                        candidates,
+                        map,
+                        any_default,
+                    )
                 } else {
                     self.intrinsics.unknown
                 };
@@ -1882,10 +1830,11 @@ impl Checker<'_, '_> {
         if let Some(constraint) = declaration.constraint {
             for (index, &source) in parameters.iter().enumerate() {
                 if self.mentions_type_parameter(constraint, &[source], &[names[index]])
-                    && self.resolve_missing_inference(
-                        signature,
+                    && self.resolve_inference_with_constraints(
+                        context,
                         index,
                         parameters,
+                        candidates,
                         map,
                         any_default,
                     ) == self.intrinsics.error
@@ -1899,7 +1848,12 @@ impl Checker<'_, '_> {
                 map[slot].1 = constraint;
                 return constraint;
             }
-            if declaration.default.is_none()
+            if candidate.is_some()
+                && let Some(info) = infos.iter().find(|info| info.type_parameter == parameter)
+            {
+                inferred = self
+                    .inferred_type_with_constraint(info, signature, position, inferred, constraint);
+            } else if declaration.default.is_none()
                 || self.relate_ternary(inferred, constraint, Relation::Assignable)
                     == Ternary::NotRelated
             {
@@ -1954,7 +1908,6 @@ impl Checker<'_, '_> {
         position: usize,
         infos: &[InferenceInfo],
     ) -> Option<TypeId> {
-        use crate::relater::{Relation, Ternary};
         let inferred =
             self.unconstrained_inferred_type_from_info(info, signature, position, infos)?;
         let Some(constraint) = signature.type_parameters.get(position).and_then(|p| p.constraint)
@@ -1963,13 +1916,27 @@ impl Checker<'_, '_> {
         };
         let owned = self.type_parameter_types(signature)?;
         let names: Vec<_> = signature.type_parameters.iter().map(|p| p.name.as_str()).collect();
-        // Dependent constraints need the context's non-fixing mapper. Keep
-        // them on the existing resolution road until that mapper is complete.
-        if self.mentions_type_parameter(constraint, &owned, &names)
-            || self.relate_ternary(inferred, constraint, Relation::Assignable)
-                != Ternary::NotRelated
-        {
+        // Contextual fixing callers retain their existing closed-constraint path.
+        // Final call resolution supplies the recursive mapper for dependent ones.
+        if self.mentions_type_parameter(constraint, &owned, &names) {
             return Some(inferred);
+        }
+        Some(self.inferred_type_with_constraint(info, signature, position, inferred, constraint))
+    }
+
+    /// getInferredType's constraint filter and alternate-variance fallback.
+    /// The caller supplies a constraint instantiated by its inference mapper.
+    fn inferred_type_with_constraint(
+        &mut self,
+        info: &InferenceInfo,
+        signature: &Signature,
+        position: usize,
+        inferred: TypeId,
+        constraint: TypeId,
+    ) -> TypeId {
+        use crate::relater::{Relation, Ternary};
+        if self.relate_ternary(inferred, constraint, Relation::Assignable) != Ternary::NotRelated {
+            return inferred;
         }
         // getInferredType (internal/checker/inference.go) filters pure return
         // speculation against the constraint before considering a fallback.
@@ -1985,7 +1952,7 @@ impl Checker<'_, '_> {
                 })
                 .collect();
             if !filtered.is_empty() {
-                return Some(self.get_union_type(&filtered));
+                return self.get_union_type(&filtered);
             }
         }
         let covariant = (!info.candidates.is_empty())
@@ -1995,13 +1962,11 @@ impl Checker<'_, '_> {
             .then(|| self.inferred_contravariant_type(info))
             .flatten();
         let fallback = if covariant == Some(inferred) { contravariant } else { covariant };
-        Some(
-            fallback
-                .filter(|&t| {
-                    self.relate_ternary(t, constraint, Relation::Assignable) != Ternary::NotRelated
-                })
-                .unwrap_or(constraint),
-        )
+        fallback
+            .filter(|&t| {
+                self.relate_ternary(t, constraint, Relation::Assignable) != Ternary::NotRelated
+            })
+            .unwrap_or(constraint)
     }
 
     fn unconstrained_inferred_type_from_info(
@@ -3785,64 +3750,6 @@ impl Checker<'_, '_> {
         pair.contains(&array) && pair.contains(&readonly)
     }
 
-    /// `id` with every tuple in it — itself and its elements, recursively —
-    /// re-minted readonly. §798.
-    ///
-    /// `getWidenedType` over a const type variable makes the inferred tuple
-    /// readonly ALL THE WAY DOWN: `f(['a', ['b', 'c']])` is
-    /// `readonly ["a", readonly ["b", "c"]]`. A non-tuple is returned
-    /// unchanged, which is what keeps `f("b")` at `"b"`.
-    fn readonly_tuple_image(&mut self, id: TypeId) -> TypeId {
-        if let Some((elements, _)) = self.tuple_element_lists.get(&id).cloned() {
-            let mapped: Vec<TypeId> =
-                elements.into_iter().map(|element| self.readonly_tuple_image(element)).collect();
-            return self.create_tuple_type(mapped, true);
-        }
-        // §799: the OBJECT arm. `f({ a: 1 })` on `<const T>(x: T)` is
-        // `{ readonly a: 1; }` — the same `getWidenedType` over the const type
-        // variable that makes a tuple readonly marks an object's members
-        // readonly.
-        //
-        // FLAT only. `Member::Property` carries its type as printed TEXT, so a
-        // nested object cannot be re-minted from here the way a nested tuple
-        // can (tuple elements are `TypeId`s). A member list carrying anything
-        // but properties — a signature, an index — declines whole rather than
-        // marking half of it.
-        let crate::types::TypeData::Named { members: Some(owner), .. } = self.store.get(id).data
-        else {
-            return id;
-        };
-        // §800: the literal's OWN members first. `spread_members_of` re-derives
-        // them from the `__object` symbol, where each type comes back widened —
-        // which is why §799 landed `{ readonly a: number; }` for a literal that
-        // had correctly printed `{ a: 1; }`.
-        let members = if let Some(members) = self.object_literal_members.get(&id).cloned() {
-            members
-        } else if let Some(members) = self.spread_members_of(id) {
-            members
-        } else {
-            return id;
-        };
-        if members.is_empty()
-            || !members
-                .iter()
-                .all(|member| matches!(member, crate::objects::Member::Property { .. }))
-        {
-            return id;
-        }
-        let readonly: Vec<crate::objects::Member> = members
-            .into_iter()
-            .map(|member| match member {
-                crate::objects::Member::Property { name, optional, printed, .. } => {
-                    crate::objects::Member::Property { name, optional, readonly: true, printed }
-                }
-                other => other,
-            })
-            .collect();
-        let text = crate::objects::render_object_type(&readonly);
-        self.store.new_named(crate::flags::TypeFlags::OBJECT, text, Some(owner))
-    }
-
     /// `inferFromMatchingTypes` and `inferToMultipleTypes` (inference.go), for
     /// an intersection with one naked inference variable and no nested ones.
     /// An identical source constituent is removed before inference; consuming
@@ -4692,7 +4599,11 @@ impl Checker<'_, '_> {
             {
                 parameter.r#type
             } else {
-                self.normalize_variadic_tuple(source_elements[paired..].to_vec(), false)
+                // applyToParameterTypes chooses readonly on the source rest
+                // tuple itself, preserving labels and the types of its elements.
+                let readonly = self.is_const_type_variable(target_rest, 0)
+                    && !self.const_context_is_mutable_array_like(target_rest);
+                self.normalize_variadic_tuple(source_elements[paired..].to_vec(), readonly)
             };
             self.infer_from_types_within(
                 source_slice,

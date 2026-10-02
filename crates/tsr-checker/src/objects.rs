@@ -778,7 +778,7 @@ impl Checker<'_, '_> {
         // folded into `const_context`, which means "readonly regular members"
         // at seven sites below and only the regular-members half applies here;
         // conflating them measured 4 RIGHT→WRONG. The readonly is applied at
-        // the inference site by `Checker::readonly_tuple_image`'s object arm.
+        // the literal source-view builder before inference collects candidates.
         let const_parameter_context =
             node.node_id.is_some_and(|id| self.literal_in_const_type_variable_context(id));
         let const_context = node.node_id.is_some_and(|id| self.is_const_context(id));
