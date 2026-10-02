@@ -24,24 +24,23 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-10-02
 
-Measured on **`b51228ae`** in an isolated checkout: **455,722/478,855 assertions
-(95.17%)**, **6,896/9,538 complete cases (72.30%)**. The 99% target requires
-474,067 correct assertions; **18,345 remain**. Denominator and pinned oracle
-unchanged. Aligned verdicts: **474,243 total; 455,722 right; 2,795 gap; 15,726 wrong**.
+Measured on **`948a8f5b`** in an isolated checkout: **455,750/478,855 assertions
+(95.17%)**, **6,900/9,538 complete cases (72.34%)**. The 99% target requires
+474,067 correct assertions; **18,317 remain**. Denominator and pinned oracle
+unchanged. Aligned verdicts: **474,243 total; 455,750 right; 2,787 gap; 15,706 wrong**.
 Binder retains its verified **8,497/8,497 (100%)** result at aab165d8;
 other suites below retain historical measurements.
 
-This unit adds **28 matching assertions** and **one complete case**, with
-**zero RIGHT losses** relative to fd9b42be: 23 WRONG→RIGHT and five GAP→RIGHT.
-Four GAP→WRONG and 19 changed WRONG retain namespace display and inference gaps.
-[Enum and module values](docs/architecture/checker-99-enum-static.md) records
-export enumeration, reverse-index selection, const-enum access rejection and
-complete enum-run printing without changing freshness. The new pipeline test
-pins 14 native outcomes. All 207 release workspace result blocks, clippy,
-formatting and 3,331 anchors pass. The committed verdict and source hash match
-the frozen candidate. Four isolated mutations fail their intended assertions,
-and restored sources match the committed hash. The broader 99% goal and tsr-8
-remain active.
+This unit adds **28 matching assertions** and **four complete cases**, with
+**zero RIGHT losses and zero adverse transitions** relative to b51228ae:
+20 WRONG→RIGHT and eight GAP→RIGHT. [Declared computed members](docs/architecture/checker-99-declared-computed-members.md)
+records semantic literal keys, separate static/instance resolution caches and
+accessor modifier handling. Three pipeline tests pin 18 native outcomes,
+including cross-file enum-key spreads and computed accessor/overload separation.
+All 208 release workspace result blocks, clippy, formatting and 3,331 anchors
+pass. The committed verdict and source hash match the candidate. Four isolated
+mutations fail the intended assertions; restored sources match the committed
+hash. The broader 99% goal and tsr-8 remain active.
 
 ### Previous whole-suite measurement — historical
 
@@ -1076,6 +1075,7 @@ Per-crate, by what the conformance suites actually assert — not by what exists
 
 | subsystem | state | evidence |
 |---|---|---|
+| declared computed members | **semantic literal keys and side-specific resolution** | 948a8f5b: +28 matches, zero RIGHT losses/adverse transitions, +4 complete cases; 18 native controls; [evidence](docs/architecture/checker-99-declared-computed-members.md) |
 | enum/module value members | **exports, conditional reverse indexes and complete enum-run display** | b51228ae: +28 matches, zero RIGHT losses, +1 complete case; 14 native controls; [evidence](docs/architecture/checker-99-enum-static.md) |
 | enum literal semantics | **native value flags, nominal owners and direct single-value identity** | fd9b42be: +289 matches, zero RIGHT losses, +24 complete cases; computed keys, truthiness, overload syntax, index inference and generic argument contexts; [evidence](docs/architecture/checker-99-enum-literals.md) |
 | computed object indexes | **checked property-array filtering across all three key kinds** | 056e7e87: +59 matches, zero RIGHT losses, +10 complete cases; component visibility, duplicate methods and keyof alias constraints; [evidence](docs/architecture/checker-99-computed-indexes.md) |
@@ -1245,7 +1245,18 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-### Current priorities at `b51228ae` — 2026-10-02
+### Current priorities at `948a8f5b` — 2026-10-02
+
+Continue toward 99%: 18,317 matching assertions remain. Nonlocal enum-key
+interface spreads now resolve, and computed member lookup uses raw literal
+values while printing preserves syntax. Static and instance accessors resolve
+separately. Next: per-node circular computed-name resolution, constructor-spread
+prototype serialization, namespace qualification/method serialization, no-candidate
+and mapped reverse inference, generic Omit bodies and optional-symbol metadata.
+The +28 checkpoint has zero adverse transitions; native negative probes remain
+recorded in §5. tsr-8 remains active.
+
+### Previous priorities at `b51228ae` — 2026-10-02
 
 Continue toward 99%: 18,345 matching assertions remain. Enum/module exports now
 reach spreads and index inference, with native reverse-index and const-access
@@ -4186,6 +4197,17 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+### Declared computed members at `948a8f5b`
+
+Both measured candidates gain 28 RIGHT rows with zero adverse transitions, but
+a native control distinguishes them: omitting accessor kinds from the modifier
+reader makes an instance accessor read string instead of number. The corrected
+reader preserves static/instance separation. Two negative probes remain:
+constructor spreads print an extra synthetic prototype, and a class key referring
+to its own computed static property admits a member native circular resolution
+rejects. The owner/side cache is not complete per-node computed-name resolution.
+[Evidence](docs/architecture/checker-99-declared-computed-members.md).
 
 ### Enum/module values at `b51228ae`
 
@@ -10332,6 +10354,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
+| 2026-10-02 | `948a8f5b` | **72.34%** | **6,900** | **455,750/478,855 assertions (95.17%).** +28 since b51228ae, zero adverse transitions; 20W→R, 8G→R. | Declared computed semantic keys, static/instance resolution caches and accessor modifiers. 18 native outcomes; 208 workspace blocks, clippy, 3331 anchors; isolated verdict/source match. 18,317 remain to 99%. |
 | 2026-10-02 | `b51228ae` | **72.30%** | **6,896** | **455,722/478,855 assertions (95.17%).** +28 since fd9b42be, zero RIGHT losses; 23W→R, 5G→R, 4G→W, 19 changed WRONG. | Enum/module exports, native reverse indexes and const access rejection, complete enum-run printing. 14 native outcomes; 207 workspace blocks, clippy, 3331 anchors; isolated verdict/source match. 18,345 remain to 99%. |
 | 2026-10-02 | `fd9b42be` | **72.29%** | **6,895** | **455,694/478,855 assertions (95.16%).** +289 since 056e7e87, zero RIGHT losses; 236W→R, 53G→R, 3G→W, 17 changed WRONG, 1W→G. | Enum literal values/owners, key lookup, truthiness, overload syntax, index inference and generic argument contexts. 49 native outcomes; 207 workspace blocks, clippy, 3331 anchors; isolated verdict/source match. 18,373 remain to 99%. |
 | 2026-10-02 | `056e7e87` | **72.04%** | **6,871** | **455,405/478,855 assertions (95.10%).** +59 since 4e964b97, zero RIGHT losses; 50W→R, 9G→R, 1G→W, 28 changed WRONG. | Complete computed index filtering, visibility, duplicate methods and keyof alias constraints. 40 native outcomes; 206 workspace blocks, clippy, 3335 anchors; isolated verdict/source match. 18,662 remain to 99%. |

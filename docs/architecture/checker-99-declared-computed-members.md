@@ -71,3 +71,25 @@ e3b8495f3dc19abf3863fdfe18e7afae4cf98914bf78a7bcac57522f7f2f455a.
 Candidate verdict: /tmp/tsr-99-declared-keys-candidate2.tsv. Changes after that
 run are comments and test literal delimiters only; committed verification follows.
 Review receipt: /tmp/compound-engineering-501/ce-code-review/declared-computed-members/review.json.
+
+Committed verification at 948a8f5b in /tmp/tsr-99-declared-keys-verify matches
+the candidate verdict byte-for-byte and the frozen source hash. Coverage is
+455,750/478,855 RIGHT (95.17%), 6,900/9,538 complete cases (72.34%), four more
+complete cases. The 99% target still needs 18,317 matches. Aligned counts:
+455,750 RIGHT, 2,787 GAP, 15,706 WRONG, 474,243 total. All 208 workspace result
+blocks, clippy, formatting and 3,331 anchors pass in that checkout. Fresh depend:
+505 non-gapping roots, 210 cycles, zero depth caps and 3,604 walked gaps; C3
+balances, C1/C4 remain stale (tsr-6.29). The snapshot is copied from the isolated
+checkout. Verdict: /tmp/tsr-99-declared-keys-verified.tsv; logs:
+/tmp/tsr-99-declared-keys-verified-*.log.
+
+Four isolated mutations compile and fail the intended assertions. Returning
+printed keys fails quoted; restricting lookup to bracketed names fails bare;
+sharing one cache between instance/static sides fails staticRead; omitting
+accessor modifier kinds fails instanceRead. Every mutation restores its source
+in a finally block; the final hash equals the committed source hash. Script:
+/tmp/tsr-99-declared-keys-mutations.py. Logs:
+/tmp/tsr-99-declared-keys-mutation-{keys,lookup,cache,accessors}.log.
+
+All three focused tests pass after restoration:
+/tmp/tsr-99-declared-keys-restored-tests.log.
