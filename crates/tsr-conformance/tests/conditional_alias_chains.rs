@@ -123,3 +123,47 @@ type T3 = { 0?: string } extends { 0?: string | undefined } ? true : false;
         &["T1 : false", "T3 : true"],
     );
 }
+
+#[test]
+fn an_invalid_forward_default_fills_with_the_error_type() {
+    // fillMissingTypeArguments maps unfilled positions to errorType before
+    // instantiating each default (TS2744); upstream prints it as `any`.
+    expect(
+        r"// @strict: true
+declare const x: any;
+interface i05<T = T> { a: T; }
+const i05c00 = (<i05>x).a;
+interface i06<T = U, U = T> { a: [T, U]; }
+const i06c00 = (<i06>x).a;
+const i06c01 = (<i06<number>>x).a;
+interface i08<T, U = V, V = number> { a: [T, U, V]; }
+const i08c00 = (<i08<string>>x).a;
+",
+        &[
+            "(<i05>x) : i05<any>",
+            "i06c00 : [any, any]",
+            "(<i06>x) : i06<any, any>",
+            "i06c01 : [number, number]",
+            "i08c00 : [string, any, number]",
+        ],
+    );
+}
+
+#[test]
+fn a_recursive_defaulted_alias_still_terminates() {
+    // infiniteConstraints: `Conv<T, U = T>` refers to itself through a
+    // partial reference whose default names an earlier parameter.
+    expect(
+        r"// @strict: true
+export type Prepend<Elm, T extends unknown[]> =
+  T extends unknown ?
+  ((arg: Elm, ...rest: T) => void) extends ((...args: infer T2) => void) ? T2 :
+  never :
+  never;
+export type ExactExtract<T, U> = T extends U ? U extends T ? T : never : never;
+type Conv<T, U = T> =
+  { 0: [T]; 1: Prepend<T, Conv<ExactExtract<U, T>>>;}[U extends T ? 0 : 1];
+",
+        &["Conv : Conv<T, U>"],
+    );
+}

@@ -3731,14 +3731,44 @@ impl<'a> Checker<'a, '_> {
             let types: Vec<TypeId> = parameter_types.iter().map(|&(t, _)| t).collect();
             let names: Vec<String> = parameter_types.iter().map(|(_, n)| n.clone()).collect();
             let declarations = self.local_type_parameters_of(symbol);
-            for declaration in &declarations[arguments.len()..parameters] {
+            // fillMissingTypeArguments (checker.go:21954) first maps every
+            // unfilled position to errorType, so a default naming a later (or
+            // its own) parameter is an invalid forward reference that becomes
+            // errorType rather than escaping as a free parameter (TS2744 is
+            // the diagnostic). Upstream prints that errorType as `any`; this
+            // port's `error` is its gap marker (ADR-0038), so the definite
+            // outcome uses `any` instead.
+            //
+            // Only a default whose declared type mentions its own or a later
+            // parameter takes that road. Every other default keeps the
+            // historical substitution, which resolves the default inside any
+            // enclosing alias frame and refuses an unmapped parameter: that
+            // refusal is what currently stops the eager expansion of
+            // recursive defaulted aliases (`Conv<T, U = T>` in
+            // infiniteConstraints), which upstream defers instead.
+            let written = arguments.len();
+            for (index, declaration) in
+                declarations.iter().enumerate().take(parameters).skip(written)
+            {
                 let Some(default) = declaration.default_type else { return error };
-                let resolved = self.get_type_from_type_node(default);
-                if resolved == error {
+                let frames = std::mem::take(&mut self.alias_evaluation_bindings);
+                let declared = self.get_type_from_type_node(default);
+                self.alias_evaluation_bindings = frames;
+                if declared == error {
                     return error;
                 }
-                let map: Vec<(TypeId, TypeId)> =
-                    types.iter().copied().zip(arguments.iter().copied()).collect();
+                let forward = self.mentions_type_parameter(declared, &types[index..], &[]);
+                let (resolved, map) = if forward {
+                    let mut filled = arguments.clone();
+                    filled.resize(parameters, self.intrinsics.any);
+                    (declared, types.iter().copied().zip(filled).collect::<Vec<_>>())
+                } else {
+                    let resolved = self.get_type_from_type_node(default);
+                    if resolved == error {
+                        return error;
+                    }
+                    (resolved, types.iter().copied().zip(arguments.iter().copied()).collect())
+                };
                 let name_refs: Vec<&str> = names.iter().map(String::as_str).collect();
                 let instantiated = self.instantiate_type(resolved, &map, &types, &name_refs);
                 if instantiated == error {

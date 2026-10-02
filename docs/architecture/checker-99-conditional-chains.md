@@ -170,6 +170,56 @@ member types lazily and prints `PrismaClient`. The rows were `error` before only
 because the alias body never evaluated. Reopening condition: deferred member
 type resolution for class members read during an alias's own resolution.
 
+## Invalid forward defaults (`bd tsr-6.23`)
+
+`fillMissingTypeArguments` (`checker.go:21954`) sets every unfilled position
+to `errorType` before instantiating any default, so a default that names its
+own or a later parameter (`interface i05<T = T>`, `interface i06<T = U, U = T>`;
+TS2744) resolves to `errorType`, which prints `any`: `(<i06>x).a` is
+`[any, any]` and `i08<string>` over `<T, U = V, V = number>` is
+`i08<string, any, number>`. The port's partial/bare reference fill mapped only
+the filled prefix, so such a default kept an unmapped parameter and the whole
+reference became a gap.
+
+The reference fill now detects a default whose *declared* type (resolved
+outside any alias frame, as `getDefaultFromTypeParameter` reads it) mentions its
+own or a later parameter and instantiates it with every unfilled position
+mapped to `any`. `any` stands in for `errorType` because this port's `error`
+is its gap marker (ADR-0038); upstream's outcome here is definite.
+
+### Rejected: the uniform upstream mapper
+
+Mapping every unfilled position for every default — the literal transcription —
+exhausted memory in `infiniteConstraints`. Its `type Conv<T, U = T>` refers to
+itself through `Conv<ExactExtract<U, T>>`. The port resolves a default inside
+the enclosing alias frame and evaluates indexed-access alias bodies eagerly; the
+historical prefix-only map refused the resulting unmapped parameter, and that
+refusal is what stopped the expansion. With the full mapper each level doubled
+the printed reference (18 → 71 → 332 → 2,091 → 31,627 → 2,056,874 characters)
+until allocation failed. Upstream defers `Conv`'s generic indexed access
+instead. Defaults that reference only earlier parameters therefore keep the
+historical road; reopening condition: deferred indexed-access alias bodies, at
+which point the uniform mapper and frame-free default resolution can replace
+both roads.
+
+Measured against `cec7cef5`: +10 WRONG→RIGHT assertions
+(`genericDefaults` 7, `typeArgumentDefaultUsesConstraintOnCircularDefault` 2,
+`subclassThisTypeAssignable01` 1), zero RIGHT losses, no new GAP→WRONG.
+
+## Refused: non-generic mapped types in the relater's structural arm
+
+`Extract<Options, { [P in "k"]: "a" | "b" }>` stays unevaluated because the
+relater's `has_members` admits no mapped type, so `{ k: "a" }` against a
+non-generic mapped target is undecided. Admitting non-generic mapped types (and
+resolving mapped members before enumerating names) measured **+11 WRONG→RIGHT
+against 3 RIGHT→WRONG** in `contextualTypeFunctionObjectPropertyIntersection`.
+The losses are not in the relation: the decided Subtype answer lets
+`calls.rs`'s overload subtype pass accept the first `createSlice` overload,
+and that pass does not complete context-sensitive arguments, so `f(a)` loses
+its contextual `string`. Reopening condition: the overload subtype pass handling
+context-sensitive arguments as the assignable pass does (call-site inference
+unit).
+
 ## Remaining in this family
 
 - About 25 non-RIGHT rows still print a conditional where the baseline wants
