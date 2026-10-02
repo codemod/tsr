@@ -49,12 +49,35 @@ use tsr_diagnostics::Diagnostic;
 /// `.errors.txt` baselines list them in.
 #[must_use]
 pub fn analyze<'a>(file: &'a SourceFile<'a>, nodes: &NodeTable) -> Vec<Diagnostic> {
+    analyze_with_options(file, nodes, AnalysisOptions::default())
+}
+
+/// The compiler options the analysis reads.
+#[derive(Debug, Clone, Copy)]
+pub struct AnalysisOptions {
+    /// `strictNullChecks`, on by default as in typescript-go.
+    pub strict_null_checks: bool,
+}
+
+impl Default for AnalysisOptions {
+    fn default() -> Self {
+        Self { strict_null_checks: true }
+    }
+}
+
+/// [`analyze`] with explicit compiler options.
+#[must_use]
+pub fn analyze_with_options<'a>(
+    file: &'a SourceFile<'a>,
+    nodes: &NodeTable,
+    options: AnalysisOptions,
+) -> Vec<Diagnostic> {
     let javascript = file
         .node_id
         .is_some_and(|id| nodes.flags(id).contains(tsr_ast::NodeFlags::JAVASCRIPT_FILE));
     let commonjs = visibility::is_commonjs_module(file, javascript);
     let visible = visibility::visible_declarations(file, commonjs);
-    let mut diagnostics = rules::check(file, nodes, &visible, commonjs);
+    let mut diagnostics = rules::check(file, nodes, &visible, commonjs, options.strict_null_checks);
     diagnostics.sort_by_key(|d| (d.span.start, d.message.code()));
     diagnostics
 }

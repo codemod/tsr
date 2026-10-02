@@ -948,10 +948,8 @@ impl Checker<'_, '_> {
         let Some((properties, _)) = self.spread_properties(source, false) else {
             return error;
         };
-        let properties: Vec<_> = properties
-            .into_iter()
-            .filter(|property| !bound.contains(&property.name))
-            .collect();
+        let properties: Vec<_> =
+            properties.into_iter().filter(|property| !bound.contains(&property.name)).collect();
         let Some(indexes) = self.get_index_infos_of_type(source) else {
             return error;
         };

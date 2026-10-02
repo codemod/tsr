@@ -234,3 +234,22 @@ fn a_declaration_reached_only_from_an_initialiser_is_not_emitted() {
     let source = "function helper() { return 1; }\nexport const a: number = helper();\n";
     assert!(codes(source).is_empty());
 }
+
+#[test]
+fn an_asserted_reference_before_a_required_parameter_cannot_add_undefined() {
+    // `isolatedDeclarationsAddUndefined`'s `file2.ts(4,27)`: TS9025 at the
+    // parameter. A literal default can take `| undefined`; `as T` cannot.
+    let source = "type T = number\nexport function foo(p = (ip = 10, v: number): void => {}): void {}\nexport function foo2(p = (ip = 10 as T, v: number): void => {}): void {}";
+    assert_eq!(diagnostics(source), vec![(9025, 3, 27)]);
+    // Without strict null checks nothing needs adding.
+    let parsed = tsr_parser::ParsedFile::parse(source.to_string());
+    let loose = parsed.with_ast(|file| {
+        tsr_dts::analyze_with_options(
+            file,
+            parsed.nodes(),
+            tsr_dts::AnalysisOptions { strict_null_checks: false },
+        )
+        .len()
+    });
+    assert_eq!(loose, 0);
+}

@@ -36,7 +36,7 @@
 //! - **Known divergences.** A `.errors.txt.diff` says typescript-go and TypeScript
 //!   already disagree here, so neither is a clean expectation.
 
-use tsr_dts::analyze;
+use tsr_dts::analyze_with_options;
 
 use crate::{
     CaseEntry,
@@ -103,7 +103,11 @@ impl Suite for IsolatedDeclarations {
         let mut actual = Vec::new();
         for unit in &test.files {
             let parsed = tsr_parser::ParsedFile::parse(unit.content.clone());
-            let reported = parsed.with_ast(|source_file| analyze(source_file, parsed.nodes()));
+            let options = tsr_dts::AnalysisOptions {
+                strict_null_checks: crate::dts_emit_suite::strict_null_checks(&test),
+            };
+            let reported = parsed
+                .with_ast(|source_file| analyze_with_options(source_file, parsed.nodes(), options));
             for diagnostic in reported {
                 let (line, character) = line_and_character(&unit.content, diagnostic.span.start);
                 actual.push(BaselineDiagnostic {

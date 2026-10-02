@@ -55,8 +55,10 @@ pub fn check<'a>(
     nodes: &NodeTable,
     visible: &Visible,
     commonjs: bool,
+    strict_null_checks: bool,
 ) -> Vec<Diagnostic> {
-    let mut checker = Checker { nodes, out: Vec::new(), in_parameter_default: false };
+    let mut checker =
+        Checker { nodes, out: Vec::new(), in_parameter_default: false, strict_null_checks };
     for statement in file.statements {
         if visible.contains(statement.node_id()) {
             checker.statement(statement);
@@ -71,6 +73,9 @@ pub fn check<'a>(
 struct Checker<'t> {
     nodes: &'t NodeTable,
     out: Vec<Diagnostic>,
+    /// `strictNullChecks`, which decides whether an initialized parameter
+    /// before a required one must spell `| undefined` (`TS9025`).
+    strict_null_checks: bool,
     /// Whether the expression being judged is (inside) a parameter default.
     ///
     /// This is the only position in which a function expression's missing return
@@ -593,8 +598,39 @@ impl Checker<'_> {
     }
 
     fn parameters(&mut self, parameters: &[&ParameterDeclaration<'_>]) {
-        for parameter in parameters {
+        // `lastRequiredParamIndex` (`internal/pseudochecker/lookup.go`): one past
+        // the last parameter with no `?`, initializer or `...`.
+        let last_required = parameters
+            .iter()
+            .rposition(|parameter| {
+                parameter.dot_dot_dot_token.is_none()
+                    && parameter.initializer.is_none()
+                    && parameter.question_token.is_none()
+            })
+            .map_or(0, |index| index + 1);
+        for (index, parameter) in parameters.iter().enumerate() {
             if parameter.r#type.is_some() {
+                continue;
+            }
+            // `typeFromParameterWorker`: under strict null checks an
+            // initialized identifier parameter followed by a required one must
+            // emit `| undefined`, and `addUndefinedIfDefinitelyRequired` cannot
+            // add it to a written type node that could already contain
+            // `undefined` — a reference, an indexed access, a query, …
+            // (`typeNodeCouldReferToUndefined`). The checker then requires
+            // adding it, so the parameter reports `TS9025` at itself
+            // (`createParameterError`; `isolatedDeclarationsAddUndefined`:
+            // `ip = 10 as T` before `v: number`).
+            if self.strict_null_checks
+                && index + 1 < last_required
+                && matches!(parameter.name, Some(tsr_ast::BindingName::Identifier(_)))
+                && parameter.initializer.as_ref().is_some_and(asserted_type_could_be_undefined)
+            {
+                let span = self.span(parameter.node_id);
+                self.report(
+                    &messages::DECLARATION_EMIT_FOR_THIS_PARAMETER_REQUIRES_IMPLICITLY_ADDING_UNDEFINED_TO_ITS_TYPE_THIS_IS_NOT_SUPPORTED_WITH_ISOLATEDDECLARATIONS,
+                    span,
+                );
                 continue;
             }
             // A parameter anchors its diagnostic at the initialiser when it has
@@ -1056,6 +1092,52 @@ impl Ctx {
     /// The context a binding establishes. `is_const` is `const`/`readonly`.
     const fn binding(is_const: bool) -> Self {
         Self { fresh: is_const, asserted: false }
+    }
+}
+
+/// Whether an initializer's pseudo type is a written type node that
+/// `typeNodeCouldReferToUndefined` (`internal/pseudochecker/lookup.go`) says
+/// may already contain `undefined`: `x as T` / `<T>x` with `T` a reference,
+/// indexed access, type query, import type, type operator, conditional, or a
+/// union/intersection with such a member.
+fn asserted_type_could_be_undefined(initializer: &Expression<'_>) -> bool {
+    let written = match initializer {
+        Expression::AsExpression(as_expression)
+            if !is_const_assertion(as_expression.r#type.as_ref()) =>
+        {
+            as_expression.r#type
+        }
+        Expression::TypeAssertion(assertion) => assertion.r#type,
+        Expression::ParenthesizedExpression(inner) => {
+            return inner.expression.as_ref().is_some_and(asserted_type_could_be_undefined);
+        }
+        _ => None,
+    };
+    written.is_some_and(|node| type_node_could_refer_to_undefined(&node))
+}
+
+/// `typeNodeCouldReferToUndefined` (`internal/pseudochecker/lookup.go`).
+fn type_node_could_refer_to_undefined(node: &tsr_ast::TypeNode<'_>) -> bool {
+    use tsr_ast::TypeNode as T;
+    match node {
+        T::ParenthesizedTypeNode(inner) => {
+            inner.r#type.as_ref().is_some_and(type_node_could_refer_to_undefined)
+        }
+        T::TypeReferenceNode(_)
+        | T::IndexedAccessTypeNode(_)
+        | T::TypeQueryNode(_)
+        | T::OptionalTypeNode(_)
+        | T::RestTypeNode(_)
+        | T::ImportTypeNode(_)
+        | T::ConditionalTypeNode(_)
+        | T::TypeOperatorNode(_)
+        | T::TypePredicateNode(_) => true,
+        T::UnionTypeNode(union) => union.types.iter().any(type_node_could_refer_to_undefined),
+        T::IntersectionTypeNode(intersection) => {
+            intersection.types.iter().any(type_node_could_refer_to_undefined)
+        }
+        T::KeywordTypeNode(keyword) => keyword.kind == SyntaxKind::UndefinedKeyword,
+        _ => false,
     }
 }
 

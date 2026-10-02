@@ -231,7 +231,11 @@ pub fn emit_with_references_and_options<'a>(
     references: &[DeclarationReference],
     options: DeclarationEmitOptions<'a>,
 ) -> DeclarationEmit {
-    let diagnostics = tsr_dts::analyze(file, nodes);
+    let diagnostics = tsr_dts::analyze_with_options(
+        file,
+        nodes,
+        tsr_dts::AnalysisOptions { strict_null_checks: options.strict_null_checks },
+    );
     let javascript = file
         .node_id
         .is_some_and(|id| nodes.flags(id).contains(tsr_ast::NodeFlags::JAVASCRIPT_FILE));

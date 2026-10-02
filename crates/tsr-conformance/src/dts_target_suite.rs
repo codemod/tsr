@@ -125,7 +125,11 @@ impl Suite for DtsReachableTarget {
                 continue;
             }
             let parsed = ParsedFile::parse_with_script_kind(unit.content.clone(), kind);
-            let reported = parsed.with_ast(|file| tsr_dts::analyze(file, parsed.nodes()));
+            let options = tsr_dts::AnalysisOptions {
+                strict_null_checks: crate::dts_emit_suite::strict_null_checks(&parsed_case),
+            };
+            let reported = parsed
+                .with_ast(|file| tsr_dts::analyze_with_options(file, parsed.nodes(), options));
             codes.extend(reported.into_iter().map(|d| d.message.code()));
         }
 

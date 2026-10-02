@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 isolated_declarations Summary:
 What a pass means: the TS9xxx diagnostics of a case that sets @isolatedDeclarations, compared by code and position against upstream's .errors.txt
-Passed         : 13/15 (86.67%)
-Failed         : 2
+Passed         : 14/15 (93.33%)
+Failed         : 1
 Skipped        : 12429 (excluded from the denominator)
 
   12423  skipped: not an @isolatedDeclarations case
@@ -12,5 +12,3 @@ Skipped        : 12429 (excluded from the denominator)
 
 compiler/isolatedDeclarationErrorsAugmentation
   1 of 2 expected: 1 missing [parent.ts(1,1): TS9026]
-compiler/isolatedDeclarationsAddUndefined
-  0 of 1 expected: 1 missing [file2.ts(4,27): TS9025]

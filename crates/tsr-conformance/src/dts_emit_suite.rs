@@ -575,13 +575,18 @@ pub(crate) fn declaration_emit_options<'a>(
             .options
             .get("removecomments")
             .is_some_and(|value| value.eq_ignore_ascii_case("true")),
-        strict_null_checks: case
-            .options
-            .get("strictnullchecks")
-            .or_else(|| case.options.get("strict"))
-            .is_none_or(|value| value.eq_ignore_ascii_case("true")),
+        strict_null_checks: strict_null_checks(case),
         source_map_url: None,
     }
+}
+
+/// The case's effective `strictNullChecks`: its own directive, else
+/// `strict`, else typescript-go's default of on.
+pub(crate) fn strict_null_checks(case: &crate::TestCase) -> bool {
+    case.options
+        .get("strictnullchecks")
+        .or_else(|| case.options.get("strict"))
+        .is_none_or(|value| value.eq_ignore_ascii_case("true"))
 }
 
 #[cfg(test)]

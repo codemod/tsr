@@ -1,7 +1,9 @@
 # `isolatedDeclarations` analysis (`tsr-dts`)
 
 **Status:** slice 1 of Phase 3.5 (`bd tsr-49v.2`), converged at **13/15** with no
-false positives. The printer landed in slice 3 (`bd tsr-49v.4`) and the `.d.ts`
+false positives; **14/15** since 2026-10-02 (`TS9025`, below). The remaining miss
+is `TS9026`, which needs another file's module augmentation and is out of reach
+of a per-file analysis. The printer landed in slice 3 (`bd tsr-49v.4`) and the `.d.ts`
 text in slice 4 — see [declaration-emit.md](declaration-emit.md).
 
 **Upstream pin:** `vendor/typescript-go` @ `5b1047d10`.
@@ -134,6 +136,38 @@ matched nothing, and every `as const` was silently read as an ordinary `as T` �
 *explicitly stated* type, so nothing inside one was ever examined. It failed
 silently in the safe-looking direction and was caught by a unit test, not by the
 corpus. Both spellings are matched now.
+
+### `TS9025` needs `strictNullChecks`, so the analysis now takes options (2026-10-02)
+
+`isolatedDeclarationsAddUndefined` expects `TS9025` at `file2.ts(4,27)`: in
+`(ip = 10 as T, v: number) => …`, `ip` precedes a required parameter, so under
+strict null checks its `.d.ts` type must read `T | undefined`. The pseudochecker's
+`addUndefinedIfDefinitelyRequired` (`internal/pseudochecker/lookup.go`) refuses to
+add `undefined` to a written type node that could already contain it — a
+reference, indexed access, query, import type, type operator, conditional, or a
+union/intersection with such a member (`typeNodeCouldReferToUndefined`) — and
+`createParameterError` then reports `TS9025` at the parameter instead of an
+expression error at the initializer. The literal sibling `ip = 10` is fine:
+`number | undefined` is writable. The rule is transcribed for that definite shape
+only (an unannotated identifier parameter whose initializer is `x as T`/`<T>x`);
+the annotated variant, where upstream defers to a later semantic mismatch, is not
+claimed.
+
+The rule is the analysis's first dependence on a compiler option, so
+`tsr_dts::analyze_with_options` takes `AnalysisOptions { strict_null_checks }`
+(default on, typescript-go's default), and the three suites and the emitter pass
+the case's effective value.
+
+### `CommonJS` exports are judged like exported initializers (2026-10-02)
+
+JavaScript is outside upstream's isolated-declarations mode, so this has no
+upstream rule; it exists to keep `dts_reachable_target` and `dts_emit`'s
+denominator honest once the emitter restates `CommonJS` exports (see
+[declaration-emit.md](declaration-emit.md)). A file that
+`visibility::is_commonjs_module` calls `CommonJS` is a module whose exports are
+its assignments; a `module.exports = right` whose right side is not apparent
+reports `TS9037`, an `exports.x = right` reports `TS9010`, and an
+`Object.defineProperty(exports, …)` always reports `TS9010`.
 
 ## The oracle, and what it can and cannot see
 
