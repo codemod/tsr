@@ -1220,6 +1220,34 @@ impl Checker<'_, '_> {
             // to the type-id tiebreak below, which is this port's creation
             // order and not upstream's.
             .then_with(|| self.compare_type_symbols(left, right))
+            // compareTypeMappers orders instantiations of the same anonymous
+            // member by their mapped types. Equal source lists identify the
+            // flat mapper shape retained by instantiate_signature_type.
+            .then_with(|| {
+                let (
+                    TypeData::Anonymous { symbol: left_symbol, .. },
+                    TypeData::Anonymous { symbol: right_symbol, .. },
+                ) = (&left.data, &right.data)
+                else {
+                    return Ordering::Equal;
+                };
+                if left_symbol != right_symbol {
+                    return Ordering::Equal;
+                }
+                match (
+                    self.instantiated_signature_mappers.get(&a),
+                    self.instantiated_signature_mappers.get(&b),
+                ) {
+                    (Some(left), Some(right))
+                        if left.iter().map(|pair| pair.0).eq(right.iter().map(|pair| pair.0)) =>
+                    {
+                        let left: Vec<_> = left.iter().map(|pair| pair.1).collect();
+                        let right: Vec<_> = right.iter().map(|pair| pair.1).collect();
+                        self.compare_type_lists(&left, &right)
+                    }
+                    _ => Ordering::Equal,
+                }
+            })
             // `compareTupleTypes` (`utilities.go`), reached in upstream's
             // object-kind switch when both references target tuples: readonly
             // tuples after plain ones, then **ascending arity**

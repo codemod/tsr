@@ -166,6 +166,10 @@ pub struct Signature {
     /// parameter types to distinguish an instantiated generic parameter from
     /// a written function parameter.
     pub target: Option<std::sync::Arc<Signature>>,
+    /// Whether a union composite contains an abstract constructor. Native's
+    /// `someSignature` inspects composite members independently of the cloned
+    /// signature's own flags (checker.go:8710).
+    pub union_contains_abstract: bool,
     /// Call, construct, or abstract construct — see [`SignatureKind`].
     pub kind: SignatureKind,
     /// Type parameters, in source order.
@@ -396,6 +400,7 @@ impl<'a> Checker<'a, '_> {
         let signature = Signature {
             declaration,
             target: None,
+            union_contains_abstract: false,
             kind: SignatureKind::Call,
             type_parameters: Vec::new(),
             this_parameter: None,
@@ -792,6 +797,7 @@ impl<'a> Checker<'a, '_> {
         Some(vec![Signature {
             declaration,
             target: None,
+            union_contains_abstract: false,
             kind,
             type_parameters,
             this_parameter: None,
@@ -1376,6 +1382,7 @@ impl<'a> Checker<'a, '_> {
         Some(Signature {
             declaration,
             target: None,
+            union_contains_abstract: false,
             kind: self.signature_kind_of(declaration),
             type_parameters,
             this_parameter,

@@ -955,6 +955,12 @@ pub struct Checker<'a, 'n> {
     /// symbol would answer the uninstantiated return type — a wrong line. The
     /// resolver tests [`Checker::is_instantiated_signature_type`] and gaps.
     pub(crate) instantiated_signatures: FxHashMap<(TypeId, Vec<(TypeId, TypeId)>), TypeId>,
+    /// Instantiated anonymous types retain their mapper for native array-member
+    /// union fallback (getArrayMemberCallSignatures, checker.go).
+    pub(crate) instantiated_signature_mappers: FxHashMap<TypeId, Vec<(TypeId, TypeId)>>,
+    /// Resolved union call/construct and intersection call lists; None marks active resolution.
+    pub(crate) composite_signature_types:
+        FxHashMap<(TypeId, bool), Option<Vec<crate::signatures::Signature>>>,
     /// The values of [`Checker::instantiated_signatures`], for the O(1)
     /// membership test the call resolver makes.
     pub(crate) minted_signature_types: rustc_hash::FxHashSet<TypeId>,
@@ -1299,6 +1305,8 @@ impl<'a, 'n> Checker<'a, 'n> {
             signature_types: FxHashMap::default(),
             class_construct_signatures: FxHashMap::default(),
             instantiated_signatures: FxHashMap::default(),
+            instantiated_signature_mappers: FxHashMap::default(),
+            composite_signature_types: FxHashMap::default(),
             minted_signature_types: rustc_hash::FxHashSet::default(),
             contextual_prefers_uninstantiated: false,
             uninstantiated_context_node: None,

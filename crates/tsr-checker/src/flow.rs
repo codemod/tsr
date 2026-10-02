@@ -2557,9 +2557,8 @@ impl Checker<'_, '_> {
         annotated && self.store.get(signature.r#type).flags.contains(TypeFlags::NEVER)
     }
 
-    /// `getSignaturesOfType(t, SignatureKindCall)` over the two shapes this
-    /// port keeps signatures in: an anonymous function type reads its
-    /// symbol's declarations, a named type its interface members.
+    /// `getSignaturesOfType(t, SignatureKindCall)` reads declared, instantiated
+    /// and composite call lists through the shared kind-specific resolver.
     pub(crate) fn call_signatures_of_type(
         &mut self,
         t: TypeId,
@@ -2609,6 +2608,8 @@ impl Checker<'_, '_> {
                     .map(|signature| self.instantiate_signature_for_reference(t, signature))
                     .collect()
             }
+            TypeData::Union { .. } => self.resolved_union_signatures(t, kind),
+            TypeData::Intersection { .. } if is_call => self.intersection_call_signatures(t),
             _ => None,
         }
     }

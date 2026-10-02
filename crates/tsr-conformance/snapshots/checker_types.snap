@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 6723/9538 (70.49%)
-Assertion lines: 452875/478855 (94.57%)  — a gradient, not a pass rate
-Failed         : 2815
+Passed         : 6740/9538 (70.66%)
+Assertion lines: 453337/478855 (94.67%)  — a gradient, not a pass rate
+Failed         : 2798
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -12,15 +12,13 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 2815 failures:
-compiler/2dArrays
-  2dArrays.ts: >function (val) { return val.isSunk; } : error — expected >function (val) { return val.isSunk; } : (val: Ship) => boolean
+First 100 of 2798 failures:
 compiler/ClassDeclaration26
   ClassDeclaration26.ts: 5 assertion(s), expected 6
 compiler/abstractClassInLocalScopeIsAbstract
   abstractClassInLocalScopeIsAbstract.ts: >new A() : any — expected >new A() : A
 compiler/abstractClassUnionInstantiation
-  abstractClassUnionInstantiation.ts: >new cls3() : any — expected >new cls3() : ConcreteA | ConcreteB
+  abstractClassUnionInstantiation.ts: >[ConcreteA, ConcreteB].map(cls => new cls()) : (ConcreteA | ConcreteB)[] — expected >[ConcreteA, ConcreteB].map(cls => new cls()) : ConcreteA[]
 compiler/acceptSymbolAsWeakType
   acceptSymbolAsWeakType.ts: >wm : WeakMap<WeakKey, symbol | boolean> — expected >wm : WeakMap<symbol, boolean>
 compiler/accessorBodyInTypeContext
@@ -109,16 +107,12 @@ compiler/argumentsUsedInClassFieldInitializerOrStaticInitializationBlock
   argumentsUsedInClassFieldInitializerOrStaticInitializationBlock.ts: >a : any — expected >a : (x?: any) => void
 compiler/arrayBindingPatternOmittedExpressions
   arrayBindingPatternOmittedExpressions.ts: >f : any — expected >f : ([, a, , b, , , , s, , ,]?: string[]) => void
-compiler/arrayConcat2
-  arrayConcat2.ts: >a.concat("hello", 'world') : error — expected >a.concat("hello", 'world') : string[]
 compiler/arrayDestructuringInSwitch1
   arrayDestructuringInSwitch1.ts: >expression : ["and", ...Expression[]] | ["not", Expression] — expected >expression : BooleanLogicExpression
 compiler/arrayDestructuringInSwitch2
   arrayDestructuringInSwitch2.ts: >n : any — expected >n : never
 compiler/arrayFakeFlatNoCrashInferenceDeclarations
   arrayFakeFlatNoCrashInferenceDeclarations.ts: >BadFlatArray : BadFlatArray<Arr, Depth> — expected >BadFlatArray : { done: Arr; recur: Arr extends ReadonlyArray<infer InnerArr> ? BadFlatArray<InnerArr, [-1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20][Depth]> : Arr; }[Depth extends -1 ? "done" : "recur"]
-compiler/arrayFilter
-  arrayFilter.ts: >foo.filter(x => x.name) : error — expected >foo.filter(x => x.name) : ({ name: string; } | { name: null; })[]
 compiler/arrayFlatMap
   arrayFlatMap.ts: >array.flatMap((): ReadonlyArray<number> => []) : error — expected >array.flatMap((): ReadonlyArray<number> => []) : number[]
 compiler/arrayFlatNoCrashInference
@@ -192,7 +186,7 @@ compiler/baseConstraintOfDecorator
 compiler/baseExpressionTypeParameters
   baseExpressionTypeParameters.ts: >base<T>() : typeof Base — expected >base<T>() : base.Base
 compiler/bestChoiceType
-  bestChoiceType.ts: >(''.match(/ /) || []).map(s => s.toLowerCase()) : error — expected >(''.match(/ /) || []).map(s => s.toLowerCase()) : string[]
+  bestChoiceType.ts: >(''.match(/ /) || []) : never[] | RegExpMatchArray — expected >(''.match(/ /) || []) : RegExpMatchArray | []
 compiler/bestCommonTypeWithContextualTyping
   bestCommonTypeWithContextualTyping.ts: >e : never — expected >e : Ellement
 compiler/bigintArbirtraryIdentifier
@@ -213,3 +207,9 @@ compiler/booleanLiteralsContextuallyTypedFromUnion
   booleanLiteralsContextuallyTypedFromUnion.tsx: >optionalBool : boolean — expected >optionalBool : true
 compiler/builtinIterator
   builtinIterator.ts: >iterator : any — expected >iterator : IteratorObject<number, undefined, unknown>
+compiler/cachedContextualTypes
+  cachedContextualTypes.ts: >createInstance(MenuWorkbenchToolBar, {    toolbarOptions: {        foo(bar) { return bar; }    }}) : unknown — expected >createInstance(MenuWorkbenchToolBar, {    toolbarOptions: {        foo(bar) { return bar; }    }}) : MenuWorkbenchToolBar
+compiler/callExpressionWithTypeParameterConstrainedToOuterTypeParameter
+  callExpressionWithTypeParameterConstrainedToOuterTypeParameter.ts: >y : any — expected >y : ""
+compiler/callOfConditionalTypeWithConcreteBranches
+  callOfConditionalTypeWithConcreteBranches.ts: >arg(10) : error — expected >arg(10) : void

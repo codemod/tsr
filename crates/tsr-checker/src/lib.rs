@@ -164,6 +164,7 @@ pub mod truthiness;
 mod tuples;
 pub mod type_argument_arity;
 pub mod types;
+mod union_signatures;
 pub mod unions;
 pub mod unused;
 mod variances;

@@ -2655,18 +2655,17 @@ fn a_union_callee_unions_the_returns_of_matching_signatures() {
     );
 }
 
-/// The regression leg, and the one `unionTypeCallSignatures` names as an error:
-/// constituents whose PARAMETERS differ have no matching signature in every
-/// list, so the union offers no call signature at all.
+/// getUnionSignatures' second pass intersects parameter domains. An invalid
+/// argument is diagnosed, but the call still returns the combined result.
 #[test]
-fn a_union_callee_with_differing_parameters_offers_no_signature() {
+fn a_union_callee_with_differing_parameters_combines_its_signature() {
     assert_eq!(
         type_of_declaration(
             "type F1 = (a: number) => number;\ntype F2 = (a: string) => boolean;\n\
              declare var u: F1 | F2;\nconst r = u(10);",
             "r"
         ),
-        "error"
+        "number | boolean"
     );
 }
 

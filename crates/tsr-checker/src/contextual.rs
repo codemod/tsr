@@ -252,6 +252,7 @@ impl<'a> Checker<'a, '_> {
                 let signature = Signature {
                     declaration: function,
                     target: None,
+                    union_contains_abstract: false,
                     kind: crate::signatures::SignatureKind::Call,
                     type_parameters: Vec::new(),
                     this_parameter: None,
@@ -2023,7 +2024,10 @@ impl<'a> Checker<'a, '_> {
         // type arguments have already been applied to this type. Unresolved
         // named types still require the contextual overload/intersection path.
         if !self.signature_types.contains_key(&id)
-            && !matches!(self.store.get(id).data, TypeData::Anonymous { .. })
+            && !matches!(
+                self.store.get(id).data,
+                TypeData::Anonymous { .. } | TypeData::Union { .. }
+            )
         {
             return None;
         }

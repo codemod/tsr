@@ -205,10 +205,8 @@ export const differentResult = different.apply(value => { throw value; });
             "matchedResult : \"first\" | \"second\"",
         ],
     );
-    // Native combines the differing callback domains in its second pass and
-    // returns "first" | "other". That pass is unported here. Keep the gap:
-    // ignoring the nested return would incorrectly admit a first-pass match.
-    expect(&lines, &["differentResult : error"]);
+    // Differing nested returns require the second, parameter-intersection pass.
+    expect(&lines, &["differentResult : \"first\" | \"other\""]);
 }
 
 #[test]

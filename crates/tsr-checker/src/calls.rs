@@ -564,7 +564,8 @@ impl Checker<'_, '_> {
             bump(&COUNTERS.untyped_call);
             return self.intrinsics.any;
         }
-        let resolved = self.resolve_call_signature_with_type_arguments(
+        let resolved = self.resolve_call_signature_at(
+            node.node_id,
             callee_type,
             Some(node.arguments),
             !node.type_arguments.is_empty(),
@@ -1091,7 +1092,7 @@ impl Checker<'_, '_> {
                     })
                     .collect();
                 if shifted.len() == candidates.len() {
-                    self.choose_overload(&shifted, &substitutions, false).and_then(|picked| {
+                    self.choose_overload(&shifted, &substitutions, false, None).and_then(|picked| {
                         candidates
                             .iter()
                             .find(|candidate| candidate.declaration == picked.declaration)
@@ -1244,6 +1245,16 @@ impl Checker<'_, '_> {
         arguments: Option<&[Expression<'_>]>,
         has_type_arguments: bool,
     ) -> Option<Signature> {
+        self.resolve_call_signature_at(None, callee, arguments, has_type_arguments)
+    }
+
+    fn resolve_call_signature_at(
+        &mut self,
+        call: Option<tsr_ast::NodeId>,
+        callee: TypeId,
+        arguments: Option<&[Expression<'_>]>,
+        has_type_arguments: bool,
+    ) -> Option<Signature> {
         // Counting is restricted to the call-expression path: a tagged template
         // passes no argument list, and folding its callees into the same buckets
         // would leave the funnel's denominator counting two different questions.
@@ -1262,55 +1273,12 @@ impl Checker<'_, '_> {
         } else {
             callee
         };
-        // §439: a UNION callee whose every constituent resolves a single
-        // call signature with ONE agreed return answers that return —
-        // upstream builds union signatures; the agreeing-return slice needs
-        // no selection ('fUnion(\"\") : void', `unionTypeCallSignatures3/5`).
-        //
-        // # §931 tried to widen this to a UNION of the returns, and it is refused
-        //
-        // `getUnionSignatures` (`checker.go:9560`) does not require the returns
-        // to agree: when the signature sets are identical *ignoring return
-        // types* it keeps the set and gives each result a union of the returns,
-        // so `{ (a: number): number } | { (a: number): Date }` called with `10`
-        // is `number | Date`. §927's `signatures_identical` minus its return
-        // check is the right predicate, and it was added
-        // (`signatures_identical_ignoring_return`).
-        //
-        // **Measured: 6 `WRONG->RIGHT` against 26 `RIGHT->WRONG`**
-        // (`unionTypeCallSignatures4` 12, `mismatchedExplicitTypeParameter`
-        // `AndArgumentType` 4, `functionCallOnConstrainedTypeVariable` 2).
-        // Reverted — **and the predicate is deleted with it.** Keeping a
-        // correct-but-unreachable helper "for later" is the liability §929
-        // named when it declined to keep its own zero-measuring copy; the
-        // three lines cost less to rewrite than a dead function costs to keep
-        // trusting. It was `signatures_identical` with the return comparison
-        // dropped.
-        //
-        // **Why the shortcut is not the mechanism.** This arm asks each
-        // constituent to resolve a signature *independently*, then unions what
-        // comes back. Upstream builds the union type's OWN signature list first
-        // and then runs one overload resolution over it, with argument
-        // assignability deciding which member applies. Those differ the moment
-        // two constituents would select *different* overloads for the same
-        // argument list — the arm then unions two returns upstream never
-        // combines, and the regressed rows print `any` where upstream prints a
-        // real type.
-        //
-        // An `any`-returning-constituent guard was tried against the adverse
-        // rows and changed **nothing**, which is the tell: the `any` is not
-        // coming from the union at all, it is the synthetic signature being the
-        // wrong signature.
-        //
-        // Reopening condition: `getUnionSignatures` proper — the union's own
-        // signature list, then the existing overload road over it. Not a wider
-        // return rule.
-        if let TypeData::Union { types, .. } = &self.store.get(callee).data {
-            let constituents = types.clone();
-            // §931.1: `getUnionSignatures`' first pass, ahead of §439's
-            // agreeing-return slice, which it subsumes — a single agreed return
-            // is `returns.len() == 1` in the build below.
-            if let Some(union_signatures) = self.union_call_signatures(&constituents) {
+        // getUnionSignatures builds the union's own list before overload
+        // resolution; selecting a constituent independently loses its domains.
+        if matches!(self.store.get(callee).data, TypeData::Union { .. }) {
+            if let Some(union_signatures) =
+                self.signatures_of_type_kind(callee, SignatureKind::Call)
+            {
                 if let [single] = union_signatures.as_slice() {
                     if counted {
                         bump(&COUNTERS.single_candidate);
@@ -1319,53 +1287,12 @@ impl Checker<'_, '_> {
                 }
                 if let Some(arguments) = arguments
                     && let Some(chosen) =
-                        self.choose_overload(&union_signatures, arguments, has_type_arguments)
+                        self.choose_overload(&union_signatures, arguments, has_type_arguments, call)
                 {
                     if counted {
                         bump(&COUNTERS.single_candidate);
                     }
                     return Some(chosen);
-                }
-            }
-            let mut agreed: Option<TypeId> = None;
-            let mut ok = !constituents.is_empty();
-            for constituent in constituents {
-                let Some(signature) = self.resolve_call_signature(constituent, None) else {
-                    ok = false;
-                    break;
-                };
-                if !signature.type_parameters.is_empty() {
-                    ok = false;
-                    break;
-                }
-                match agreed {
-                    None => agreed = Some(signature.r#type),
-                    Some(t) if t == signature.r#type => {}
-                    Some(_) => {
-                        ok = false;
-                        break;
-                    }
-                }
-            }
-            if ok
-                && let Some(answer) = agreed
-                && answer != self.intrinsics.error
-            {
-                if counted {
-                    bump(&COUNTERS.single_candidate);
-                }
-                // The synthetic union signature: the first constituent's
-                // shape with the agreed return — only the return is consumed
-                // downstream.
-                if let Some(first) = {
-                    let TypeData::Union { types, .. } = &self.store.get(callee).data else {
-                        unreachable!()
-                    };
-                    types.first().copied()
-                } && let Some(mut signature) = self.resolve_call_signature(first, None)
-                {
-                    signature.r#type = answer;
-                    return Some(signature);
                 }
             }
             return None;
@@ -1404,7 +1331,7 @@ impl Checker<'_, '_> {
             if !from_type.is_empty()
                 && let Some(arguments) = arguments
                 && let Some(chosen) =
-                    self.choose_overload(&from_type, arguments, has_type_arguments)
+                    self.choose_overload(&from_type, arguments, has_type_arguments, call)
             {
                 return Some(chosen);
             }
@@ -1479,7 +1406,7 @@ impl Checker<'_, '_> {
             // decide still declines.
             if let Some(arguments) = arguments
                 && let Some(signature) =
-                    self.choose_overload(&signatures, arguments, has_type_arguments)
+                    self.choose_overload(&signatures, arguments, has_type_arguments, call)
             {
                 return Some(signature);
             }
@@ -1566,196 +1493,9 @@ impl Checker<'_, '_> {
                 if counted {
                     bump(&COUNTERS.overload_sets);
                 }
-                self.choose_overload(candidates, arguments, has_type_arguments)
+                self.choose_overload(candidates, arguments, has_type_arguments, call)
             }
         }
-    }
-
-    /// `getUnionSignatures` (`checker.go:21112`), **first pass only** — §931.1.
-    ///
-    /// For each signature in each constituent's list, require a match *in every
-    /// other list* (`findMatchingSignatures`, `relater.go:2119`) and, when more
-    /// than one matched, give the result a **union of the returns**
-    /// (`createUnionSignature`). A signature already represented in the result
-    /// is skipped, which is upstream's `findMatchingSignature` guard.
-    ///
-    /// **This is what §931 got wrong.** §931 asked each constituent to resolve a
-    /// signature *independently for the call's arguments* and unioned whatever
-    /// came back — which combines returns upstream never combines, because
-    /// nothing checked that the two constituents had agreed on the same
-    /// signature *shape*. It measured 6 `WRONG->RIGHT` against 26
-    /// `RIGHT->WRONG`. The match-in-every-list requirement is the difference.
-    ///
-    /// # Not ported
-    ///
-    /// - **The second pass** (`checker.go:21153`): when no signature subsumes
-    ///   the others and overloads live in at most one constituent, upstream
-    ///   builds a single combined signature by *intersecting* parameter types
-    ///   (`combineUnionOrIntersectionMemberSignatures`). That needs parameter
-    ///   intersection and is a separate port; declining leaves the gap that is
-    ///   already there.
-    /// - **Generic signatures.** Upstream requires an exact match including
-    ///   return types and only from the first list; `signatures_identical`
-    ///   declines generic candidates. Other overloads can still match in every
-    ///   list, as in upstream's per-candidate first pass.
-    /// - **`thisParameter` intersection** (`checker.go:21137`). The shape's own
-    ///   `this` is kept.
-    fn union_call_signatures(&mut self, constituents: &[TypeId]) -> Option<Vec<Signature>> {
-        if constituents.len() < 2 {
-            return None;
-        }
-        let mut lists: Vec<Vec<Signature>> = Vec::with_capacity(constituents.len());
-        for &constituent in constituents {
-            // `call_signatures_of_type` (`flow.rs`) covers the anonymous and
-            // named routes; an INSTANTIATED signature type keeps its list in
-            // `signature_types` and is read here, the `bd tsr-1uz` seam the
-            // callee road below takes for the same reason.
-            // Predicate-bearing candidates are skipped below. Upstream's
-            // union signature carries a COMPOSITE predicate over the members
-            // (`getUnionOrIntersectionTypePredicate`, `relater.go:2049`), which
-            // `docs/architecture/checker-notes-typepred.md` §1 records as
-            // unported; keeping the shape's own predicate instead measured
-            // 1 `RIGHT->WRONG` (`typePredicatesInUnion3:0:38`, `unknown` ->
-            // `string`) because the narrowing road then trusted one member's
-            // predicate for the whole union.
-            // §932: the type's own signatures first — `getSignaturesOfType`'s
-            // order — which is where both an INSTANTIATED signature type and
-            // §10.15's single-signature collapse keep theirs. Without this a
-            // union of two `{ (a: number): T }` literals could not be built at
-            // all, which is the limit §931.1 recorded as "a type literal's call
-            // signature is unrecoverable from its type".
-            let from_type: Vec<Signature> = self
-                .signature_types
-                .get(&constituent)
-                .cloned()
-                .unwrap_or_default()
-                .into_iter()
-                .filter(|signature| signature.kind == SignatureKind::Call)
-                .collect();
-            let list = if from_type.is_empty() {
-                self.call_signatures_of_type(constituent)?
-            } else {
-                from_type
-            };
-            if list.is_empty() {
-                return None;
-            }
-            lists.push(list);
-        }
-        let mut result: Vec<Signature> = Vec::new();
-        for index in 0..lists.len() {
-            for position in 0..lists[index].len() {
-                let signature = lists[index][position].clone();
-                // findMatchingSignatures considers each candidate separately.
-                // Unsupported generic/composite-predicate candidates do not
-                // prevent matching another ordinary overload in every list.
-                if !signature.type_parameters.is_empty() || signature.predicate.is_some() {
-                    continue;
-                }
-                if result.iter().any(|held| self.signatures_match_ignoring_return(held, &signature))
-                {
-                    continue;
-                }
-                let mut matched: Vec<Signature> = Vec::with_capacity(lists.len());
-                let mut every = true;
-                for (other, list) in lists.iter().enumerate() {
-                    if other == index {
-                        matched.push(signature.clone());
-                        continue;
-                    }
-                    if let Some(found) = list
-                        .iter()
-                        .find(|held| self.signatures_match_ignoring_return(held, &signature))
-                    {
-                        matched.push(found.clone());
-                    } else {
-                        every = false;
-                        break;
-                    }
-                }
-                if !every {
-                    continue;
-                }
-                let mut returns: Vec<TypeId> = Vec::new();
-                for candidate in &matched {
-                    if !returns.contains(&candidate.r#type) {
-                        returns.push(candidate.r#type);
-                    }
-                }
-                let mut combined = signature;
-                if returns.len() > 1 {
-                    combined.r#type = self.get_union_type(&returns);
-                }
-                result.push(combined);
-            }
-        }
-        (!result.is_empty()).then_some(result)
-    }
-
-    /// The exact, nongeneric leg of `compareSignaturesIdentical`
-    /// (`relater.go:2167`). Callback images can have different `TypeIds` even
-    /// when their instantiated parameter/return types agree.
-    fn signatures_match_ignoring_return(&self, left: &Signature, right: &Signature) -> bool {
-        self.signature_shapes_identical(left, right, 0)
-    }
-
-    fn signature_shapes_identical(
-        &self,
-        left: &Signature,
-        right: &Signature,
-        depth: usize,
-    ) -> bool {
-        if left.kind != right.kind
-            || !left.type_parameters.is_empty()
-            || !right.type_parameters.is_empty()
-            || left.predicate.is_some()
-            || right.predicate.is_some()
-            || left.parameters.len() != right.parameters.len()
-        {
-            return false;
-        }
-        let same_this = match (&left.this_parameter, &right.this_parameter) {
-            (None, None) => true,
-            (Some(a), Some(b)) => self.callback_types_identical(a.r#type, b.r#type, depth),
-            _ => false,
-        };
-        same_this
-            && left.parameters.iter().zip(&right.parameters).all(|(a, b)| {
-                a.optional == b.optional
-                    && a.rest == b.rest
-                    && self.callback_types_identical(a.r#type, b.r#type, depth)
-            })
-    }
-
-    /// A restricted `compareTypesIdentical`: interned types and pure function
-    /// types with nongeneric signatures. Object members, generic alpha-renaming,
-    /// predicates and recursive structural identity remain outside this slice.
-    /// In particular, bidirectional assignability is not an identity test.
-    fn callback_types_identical(&self, left: TypeId, right: TypeId, depth: usize) -> bool {
-        if left == right {
-            return true;
-        }
-        if depth >= 32 {
-            return false;
-        }
-        for ty in [left, right] {
-            if !matches!(self.store.get(ty).data, TypeData::Anonymous { signature: true, .. })
-                || self.anonymous_properties.get(&ty).is_some_and(|(props, _)| !props.is_empty())
-            {
-                return false;
-            }
-        }
-        let (Some(left), Some(right)) =
-            (self.signature_types.get(&left), self.signature_types.get(&right))
-        else {
-            return false;
-        };
-        !left.is_empty()
-            && left.len() == right.len()
-            && left.iter().zip(right).all(|(a, b)| {
-                self.signature_shapes_identical(a, b, depth + 1)
-                    && self.callback_types_identical(a.r#type, b.r#type, depth + 1)
-            })
     }
 
     /// The first candidate every argument is assignable to, or `None`.
@@ -1793,7 +1533,11 @@ impl Checker<'_, '_> {
         candidates: &[Signature],
         arguments: &[Expression<'_>],
         has_type_arguments: bool,
+        call: Option<tsr_ast::NodeId>,
     ) -> Option<Signature> {
+        if candidates.is_empty() {
+            return None;
+        }
         // callres2 slice 1: `hasCorrectArity` is upstream's FIRST pass
         // (checker.go:9107, inside chooseOverload's loop) and it runs here
         // BEFORE every reduction below - a SINGLE arity-survivor needs no
@@ -1899,7 +1643,7 @@ impl Checker<'_, '_> {
                             .iter()
                             .any(|argument| self.is_context_sensitive_argument(argument))
                         && let Some(picked) =
-                            self.transcribed_generic_set_walk(candidates, arguments)
+                            self.transcribed_generic_set_walk(candidates, arguments, call)
                     {
                         return Some(picked);
                     }
@@ -1924,6 +1668,11 @@ impl Checker<'_, '_> {
                 return Some((*single).clone());
             }
         }
+        if !has_type_arguments
+            && candidates.iter().any(|candidate| candidate.parameters.iter().any(|p| p.rest))
+        {
+            return self.transcribed_generic_set_walk(candidates, arguments, call);
+        }
         // §273: these rejections used to judge the SET; upstream judges
         // candidates in ORDER — `chooseOverload` (`checker.go:9425`) walks and
         // the first success wins — so a CLEAN PREFIX, every candidate before
@@ -1942,7 +1691,7 @@ impl Checker<'_, '_> {
             // relater can, and refuses everywhere else, so a former gap either
             // converts or stays a gap.
             if !has_type_arguments
-                && let Some(picked) = self.transcribed_generic_set_walk(candidates, arguments)
+                && let Some(picked) = self.transcribed_generic_set_walk(candidates, arguments, call)
             {
                 bump(&COUNTERS.selected);
                 return Some(picked);
@@ -1990,7 +1739,7 @@ impl Checker<'_, '_> {
             // §487: the whole prefix rejected pass one (or a pair was
             // undecidable); upstream now consults the generic/rest tail — run
             // the transcribed loop over the FULL set before conceding.
-            if let Some(picked) = self.transcribed_generic_set_walk(full_set, arguments) {
+            if let Some(picked) = self.transcribed_generic_set_walk(full_set, arguments, call) {
                 bump(&COUNTERS.selected);
                 return Some(picked);
             }
@@ -2597,6 +2346,7 @@ impl Checker<'_, '_> {
         &mut self,
         candidates: &[Signature],
         arguments: &[Expression<'_>],
+        call: Option<tsr_ast::NodeId>,
     ) -> Option<Signature> {
         let mut stack: Vec<_> = arguments
             .iter()
@@ -2619,7 +2369,7 @@ impl Checker<'_, '_> {
                 tsr_ast::for_each_child_id(node, |child| stack.push(child));
             }
         }
-        let result = self.transcribed_generic_set_walk_worker(candidates, arguments);
+        let result = self.transcribed_generic_set_walk_worker(candidates, arguments, call);
         if result.is_none() {
             for (id, ty, signature, symbol) in cached {
                 self.node_types.remove(&id);
@@ -2645,11 +2395,12 @@ impl Checker<'_, '_> {
         &mut self,
         candidates: &[Signature],
         arguments: &[Expression<'_>],
+        call: Option<tsr_ast::NodeId>,
     ) -> Option<Signature> {
         if arguments.iter().any(|a| matches!(a, Expression::SpreadElement(_))) {
             return None;
         }
-        let call = self.call_for_overload_arguments(arguments);
+        let call = call.or_else(|| self.call_for_overload_arguments(arguments));
         let contextual = arguments.iter().any(|a| self.is_context_sensitive_argument(a));
         if contextual && call.is_none() {
             return None;
@@ -2673,7 +2424,7 @@ impl Checker<'_, '_> {
             return None;
         }
         for relation in [Relation::Subtype, Relation::Assignable] {
-            match self.overload_pass(candidates, arguments, &argument_types, relation) {
+            match self.overload_pass(candidates, arguments, &argument_types, relation, call) {
                 OverloadPass::Picked(signature) => return Some(*signature),
                 OverloadPass::AllRejected => {}
                 OverloadPass::Undecidable => return None,
@@ -2683,6 +2434,11 @@ impl Checker<'_, '_> {
         // in the set → `pickLongestCandidateSignature` (`:9510`):
         // `getLongestCandidateIndex` (`:9545`) is the first candidate whose
         // parameter count covers the arguments or has a rest, else the longest.
+        if candidates.len() > 1
+            && candidates.iter().all(|candidate| candidate.type_parameters.is_empty())
+        {
+            return self.union_signature_for_overload_failure(candidates);
+        }
         let best_index = self.longest_candidate_index(candidates, arguments.len());
         let best = &candidates[best_index];
         if best.type_parameters.is_empty() {
@@ -2742,12 +2498,13 @@ impl Checker<'_, '_> {
         arguments: &[Expression<'_>],
         argument_types: &[TypeId],
         relation: Relation,
+        call: Option<tsr_ast::NodeId>,
     ) -> OverloadPass {
         for candidate in candidates {
             if !self.overload_has_correct_arity(candidate, argument_types.len()) {
                 continue;
             }
-            let call = self.call_for_overload_arguments(arguments);
+            let call = call.or_else(|| self.call_for_overload_arguments(arguments));
             let contextual =
                 arguments.iter().any(|argument| self.is_context_sensitive_argument(argument));
             if contextual {

@@ -1735,7 +1735,14 @@ impl Checker<'_, '_> {
                                 parameter.r#type,
                                 &[type_parameter],
                                 &[name],
-                            )
+                            ) && !argument_types.get(index).is_some_and(|&source| {
+                                self.predicate_only_inference_has_no_source(
+                                    source,
+                                    parameter.r#type,
+                                    type_parameter,
+                                    name,
+                                )
+                            })
                         });
                     if structural_source_supplied
                         && !infos
@@ -1860,6 +1867,41 @@ impl Checker<'_, '_> {
         }
         let returned = self.instantiate_type(returned, &map, &parameters, &names);
         self.propagate_return_type_parameters(returned, &inferred_type_parameters)
+    }
+
+    /// inferFromSignatures falls back to ordinary return types when predicates
+    /// do not match. A parameter mentioned only in the target predicate then
+    /// has no inference source, rather than an unsupported structural source.
+    fn predicate_only_inference_has_no_source(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+        parameter: TypeId,
+        name: &str,
+    ) -> bool {
+        let (Some(source), Some(target)) = (
+            self.signature_types.get(&source).cloned(),
+            self.signature_types.get(&target).cloned(),
+        ) else {
+            return false;
+        };
+        let ([source], [target]) = (source.as_slice(), target.as_slice()) else { return false };
+        if target.predicate.is_none()
+            || !source.type_parameters.is_empty()
+            || !target.type_parameters.is_empty()
+        {
+            return false;
+        }
+        let (_, returned) = source.inference_return_types(target);
+        !self.mentions_type_parameter(returned, &[parameter], &[name])
+            && !target
+                .parameters
+                .iter()
+                .any(|p| self.mentions_type_parameter(p.r#type, &[parameter], &[name]))
+            && !target
+                .this_parameter
+                .as_ref()
+                .is_some_and(|p| self.mentions_type_parameter(p.r#type, &[parameter], &[name]))
     }
 
     /// Ported from `getInferredType` (`internal/checker/inference.go`), selecting
@@ -5010,6 +5052,17 @@ impl Checker<'_, '_> {
         // Recorded in `signature_types` too, so an instantiated signature can
         // be instantiated again — `C<T>` inside `D<U>` reaches that.
         self.signature_types.insert(minted, instantiated);
+        let mapper = if let Some(previous) = self.instantiated_signature_mappers.get(&id).cloned() {
+            previous
+                .into_iter()
+                .map(|(source, image)| {
+                    (source, self.instantiate_type(image, map, parameters, names))
+                })
+                .collect()
+        } else {
+            map.to_vec()
+        };
+        self.instantiated_signature_mappers.insert(minted, mapper);
         self.instantiated_signatures.insert(key, minted);
         self.minted_signature_types.insert(minted);
         minted

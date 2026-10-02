@@ -2621,6 +2621,36 @@ impl Checker<'_, '_> {
                 }
             }
         }
+        if matches!(self.store.get(callee_type).data, TypeData::Union { .. }) {
+            let Some(candidates) = self
+                .signatures_of_type_kind(callee_type, crate::signatures::SignatureKind::Construct)
+            else {
+                return error;
+            };
+            // resolveNewExpression rejects the whole constructor set when
+            // any signature is abstract, before overload selection.
+            if candidates.iter().any(|signature| {
+                signature.kind == crate::signatures::SignatureKind::AbstractConstruct
+                    || signature.union_contains_abstract
+            }) {
+                return self.intrinsics.any;
+            }
+            let selected = match candidates.as_slice() {
+                [] => None,
+                [single] => Some(single.clone()),
+                _ => self.choose_overload(
+                    &candidates,
+                    node.arguments,
+                    !node.type_arguments.is_empty(),
+                    node.node_id,
+                ),
+            };
+            let Some(signature) = selected else { return error };
+            if signature.type_parameters.is_empty() {
+                return signature.r#type;
+            }
+            return self.check_generic_call_with(&signature, node.node_id, node.arguments, None);
+        }
         // resolveNewExpression selects a declared construct signature before
         // filling its defaults. The existing overload walk decides supported
         // sets; generic inference still sees the new expression's arguments,
@@ -2636,6 +2666,7 @@ impl Checker<'_, '_> {
                     &candidates,
                     node.arguments,
                     !node.type_arguments.is_empty(),
+                    node.node_id,
                 ),
             };
             if let Some(signature) = selected
