@@ -1117,6 +1117,18 @@ impl<'a> Checker<'a, '_> {
                             new_expression.arguments.len(),
                         );
                     }
+                    if let Some(context) = self
+                        .active_inference_contexts
+                        .get(&call)
+                        .filter(|context| context.inferential)
+                        .cloned()
+                    {
+                        return self.contextual_argument_type(
+                            &context.signature,
+                            index,
+                            new_expression.arguments.len(),
+                        );
+                    }
                     if let Some(signature) = self
                         .call_inference_signatures
                         .get(&call)
@@ -1128,6 +1140,38 @@ impl<'a> Checker<'a, '_> {
                             index,
                             new_expression.arguments.len(),
                         );
+                    }
+                    // getContextualTypeForArgument resolves a NewExpression
+                    // exactly as a CallExpression (checker.go); a single
+                    // generic construct signature supplies its parameter type
+                    // through the same fixing rules as the call road.
+                    if let Some(callee) = new_expression.expression
+                        && self.resolving_signature_calls.insert(call)
+                    {
+                        let callee_type = self.check_expression(callee);
+                        let contextual = match self
+                            .signatures_of_type_kind(
+                                callee_type,
+                                crate::signatures::SignatureKind::Construct,
+                            )
+                            .as_deref()
+                        {
+                            Some([single]) if !single.type_parameters.is_empty() => {
+                                let single = single.clone();
+                                Some(self.single_generic_candidate_argument_type(
+                                    &single,
+                                    Some(call),
+                                    new_expression.arguments,
+                                    new_expression.type_arguments,
+                                    index,
+                                ))
+                            }
+                            _ => None,
+                        };
+                        self.resolving_signature_calls.remove(&call);
+                        if let Some(contextual) = contextual {
+                            return contextual;
+                        }
                     }
                 }
                 if !new_expression.type_arguments.is_empty() {
@@ -2205,85 +2249,13 @@ impl<'a> Checker<'a, '_> {
             && !single.type_parameters.is_empty()
         {
             let single = single.clone();
-            let parameter_type =
-                self.contextual_argument_type(&single, index, call.arguments.len())?;
-            // §946: upstream's PASS ONE — the parameter type as WRITTEN, before
-            // the fixing mapper below replaces this signature's type parameters
-            // with `unknown`. Only the freshness query asks for it, and it asks
-            // through `contextual_prefers_uninstantiated`.
-            if self.contextual_prefers_uninstantiated
-                || (call.type_arguments.is_empty()
-                    && self
-                        .mapped_types
-                        .get(&parameter_type)
-                        .is_some_and(|info| info.name_type.is_none()))
-                || self
-                    .uninstantiated_context_node
-                    .is_some_and(|node| call.arguments[index].node_id() == Some(node))
-            {
-                return Some(parameter_type);
-            }
-            // The third rung (the ladder test's final flip): upstream's
-            // FIXING mapper — a context consumed with no inference
-            // candidates fixes its type parameters to `unknown`
-            // (`getInferredType`'s final leg, `inference.go:1317`). This
-            // road fires only when NO memo exists, i.e. no pass-1
-            // candidates were collected for this call, so the fill is
-            // total: `someGenerics6(n => n, ...)` wants
-            // `(n: unknown) => unknown`, not the adopted `(n: A) => A`.
-            // §134 returnMapper guard, per-parameter: a call in CONTEXTUAL
-            // position has a return-position inference source (upstream's
-            // returnMapper), which sources exactly the parameters that
-            // APPEAR in the return type — those stay adopted
-            // (genericContextualTypes1's compose/pipe shapes); the rest
-            // fix to `unknown` even there
-            // (contextualTypingTwoInstancesOfSameTypeParameter).
-            let contextual_call = call
-                .node_id
-                .is_some_and(|call_id| self.get_contextual_type_of_call(call_id).is_some());
-            let Some(type_parameter_ids) = self.type_parameter_types(&single) else {
-                return Some(parameter_type);
-            };
-            let names: Vec<&str> = single.type_parameters.iter().map(|p| p.name.as_str()).collect();
-            let unknown = self.intrinsics.unknown;
-            let returned = single.r#type;
-            // §834: a WRITTEN type argument is not a fill. The `unknown` below is
-            // upstream's FIXING mapper, for a context with no inference
-            // candidates — but `someGenerics6<number>(n => n)` has `A` decided by
-            // the programmer, and upstream instantiates the signature from the
-            // written arguments before any argument is checked. So each position
-            // takes its written argument where one exists and `unknown` only
-            // where none does.
-            let written: Vec<TypeId> = call
-                .type_arguments
-                .iter()
-                .map(|argument| self.get_type_from_type_node(*argument))
-                .collect();
-            let error = self.intrinsics.error;
-            let map: Vec<(TypeId, TypeId)> = type_parameter_ids
-                .iter()
-                .enumerate()
-                .filter(|&(position, &t)| {
-                    // A written argument overrides the return-mapper guard: that
-                    // guard exists to keep an INFERRED parameter adopted, and
-                    // there is nothing to infer at a position the source fixed.
-                    written.get(position).is_some_and(|&a| a != error)
-                        || !(contextual_call
-                            && self.mentions_type_parameter(returned, &[t], &[names[position]]))
-                })
-                .map(|(position, &t)| match written.get(position) {
-                    Some(&argument) if argument != error => (t, argument),
-                    _ => (t, unknown),
-                })
-                .collect();
-            if map.is_empty() {
-                return Some(parameter_type);
-            }
-            let image = self.instantiate_type(parameter_type, &map, &type_parameter_ids, &names);
-            if image != self.intrinsics.error {
-                return Some(image);
-            }
-            return Some(parameter_type);
+            return self.single_generic_candidate_argument_type(
+                &single,
+                call.node_id,
+                call.arguments,
+                call.type_arguments,
+                index,
+            );
         }
         // §70 (`checker-notes-narrow.md`): OVERLOADED/GENERIC callees whose
         // every candidate AGREES on the parameter's type at this index — the
@@ -2366,6 +2338,95 @@ impl<'a> Checker<'a, '_> {
             }
         }
         false
+    }
+
+    /// Iteration 4 arm (a) of [`Checker::contextual_type_for_argument`],
+    /// shared by call and construct signatures: getContextualTypeForArgument
+    /// (checker.go) reads the resolving signature for both `CallExpression` and
+    /// `NewExpression`, so a single generic candidate supplies its parameter
+    /// type, fixed to `unknown` where no inference can reach it.
+    fn single_generic_candidate_argument_type(
+        &mut self,
+        single: &Signature,
+        call_id: Option<NodeId>,
+        arguments: &'a [Expression<'a>],
+        type_arguments: &'a [tsr_ast::TypeNode<'a>],
+        index: usize,
+    ) -> Option<TypeId> {
+        let parameter_type = self.contextual_argument_type(single, index, arguments.len())?;
+        // §946: upstream's PASS ONE — the parameter type as WRITTEN, before
+        // the fixing mapper below replaces this signature's type parameters
+        // with `unknown`. Only the freshness query asks for it, and it asks
+        // through `contextual_prefers_uninstantiated`.
+        if self.contextual_prefers_uninstantiated
+            || (type_arguments.is_empty()
+                && self
+                    .mapped_types
+                    .get(&parameter_type)
+                    .is_some_and(|info| info.name_type.is_none()))
+            || self
+                .uninstantiated_context_node
+                .is_some_and(|node| arguments[index].node_id() == Some(node))
+        {
+            return Some(parameter_type);
+        }
+        // The third rung (the ladder test's final flip): upstream's
+        // FIXING mapper — a context consumed with no inference
+        // candidates fixes its type parameters to `unknown`
+        // (`getInferredType`'s final leg, `inference.go:1317`). This
+        // road fires only when NO memo exists, i.e. no pass-1
+        // candidates were collected for this call, so the fill is
+        // total: `someGenerics6(n => n, ...)` wants
+        // `(n: unknown) => unknown`, not the adopted `(n: A) => A`.
+        // §134 returnMapper guard, per-parameter: a call in CONTEXTUAL
+        // position has a return-position inference source (upstream's
+        // returnMapper), which sources exactly the parameters that
+        // APPEAR in the return type — those stay adopted
+        // (genericContextualTypes1's compose/pipe shapes); the rest
+        // fix to `unknown` even there
+        // (contextualTypingTwoInstancesOfSameTypeParameter).
+        let contextual_call =
+            call_id.is_some_and(|call_id| self.get_contextual_type_of_call(call_id).is_some());
+        let Some(type_parameter_ids) = self.type_parameter_types(single) else {
+            return Some(parameter_type);
+        };
+        let names: Vec<&str> = single.type_parameters.iter().map(|p| p.name.as_str()).collect();
+        let unknown = self.intrinsics.unknown;
+        let returned = single.r#type;
+        // §834: a WRITTEN type argument is not a fill. The `unknown` below is
+        // upstream's FIXING mapper, for a context with no inference
+        // candidates — but `someGenerics6<number>(n => n)` has `A` decided by
+        // the programmer, and upstream instantiates the signature from the
+        // written arguments before any argument is checked. So each position
+        // takes its written argument where one exists and `unknown` only
+        // where none does.
+        let written: Vec<TypeId> =
+            type_arguments.iter().map(|argument| self.get_type_from_type_node(*argument)).collect();
+        let error = self.intrinsics.error;
+        let map: Vec<(TypeId, TypeId)> = type_parameter_ids
+            .iter()
+            .enumerate()
+            .filter(|&(position, &t)| {
+                // A written argument overrides the return-mapper guard: that
+                // guard exists to keep an INFERRED parameter adopted, and
+                // there is nothing to infer at a position the source fixed.
+                written.get(position).is_some_and(|&a| a != error)
+                    || !(contextual_call
+                        && self.mentions_type_parameter(returned, &[t], &[names[position]]))
+            })
+            .map(|(position, &t)| match written.get(position) {
+                Some(&argument) if argument != error => (t, argument),
+                _ => (t, unknown),
+            })
+            .collect();
+        if map.is_empty() {
+            return Some(parameter_type);
+        }
+        let image = self.instantiate_type(parameter_type, &map, &type_parameter_ids, &names);
+        if image != self.intrinsics.error {
+            return Some(image);
+        }
+        Some(parameter_type)
     }
 
     pub(crate) fn single_call_signature(&mut self, id: TypeId) -> Option<Signature> {

@@ -185,3 +185,31 @@ export async function assigned() {
     let wanted = "new Promise(resolve=>resolve({count:1})) : Promise<{ count: number; }>";
     assert_eq!(lines.iter().filter(|line| line.as_str() == wanted).count(), 3, "{lines:?}");
 }
+
+/// Pinned tsgo 5b1047d1: a single generic construct signature supplies the
+/// tuple context of a non-context-sensitive array argument, as the call road
+/// does (getContextualTypeForArgument treats `NewExpression` like a call).
+#[test]
+fn single_generic_construct_signatures_supply_argument_contexts() {
+    let source = r#"// @strict: true
+// @target: es2015
+declare class C<T> { constructor(x: [T, string]); }
+export const c = new C([1, "a"]);
+interface CC { new <T>(x: [T, string]): C<T>; }
+declare const cc: CC;
+export const c2 = new cc([1, "a"]);
+declare class DMap<K, V> { constructor(entries?: readonly (readonly [K, V])[] | null); }
+export const d = new DMap([["1", 2]]);
+"#;
+    let case = TestCase::parse("probe/construct-contexts", "construct-contexts.ts", source);
+    let expected: Vec<_> = case
+        .files
+        .iter()
+        .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
+        .collect();
+    let assertions = types_producer::assertions_for_case(&case, &expected, false);
+    let lines: Vec<_> = assertions.iter().flatten().map(types_producer::Assertion::line).collect();
+    for wanted in ["c : C<number>", "c2 : C<number>", "d : DMap<string, number>"] {
+        assert!(lines.iter().any(|line| line == wanted), "missing {wanted}: {lines:?}");
+    }
+}
