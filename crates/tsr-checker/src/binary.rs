@@ -456,7 +456,7 @@ impl Checker<'_, '_> {
         coalescing: bool,
     ) -> TypeId {
         let error = self.intrinsics.error;
-        if self.is_error(left) || self.is_error(right) {
+        if self.is_error(left) {
             return error;
         }
         // The non-strict half of every `Base*Facts` aggregate
@@ -480,6 +480,9 @@ impl Checker<'_, '_> {
             }
         } else if !facts.contains(TypeFacts::FALSY) {
             return left;
+        }
+        if self.is_error(right) {
+            return error;
         }
         let filtered = if coalescing {
             self.get_non_nullable_type(left)
@@ -542,13 +545,16 @@ impl Checker<'_, '_> {
     }
 
     fn check_logical_and(&mut self, left: TypeId, right: TypeId) -> TypeId {
-        if self.is_error(left) || self.is_error(right) {
+        if self.is_error(left) {
             return self.intrinsics.error;
         }
         if !self.get_type_facts(left).contains(TypeFacts::TRUTHY) {
             // The left operand can never be truthy, so the right is never
             // evaluated and the result is the left type unchanged.
             return left;
+        }
+        if self.is_error(right) {
+            return self.intrinsics.error;
         }
         // §54 (`checker-notes-narrow.md`): the falsy SOURCE splits on
         // strictness (`checker.go:12500`) — non-strict extracts from the

@@ -3706,6 +3706,9 @@ impl Checker<'_, '_> {
         if node == state.reference {
             return true;
         }
+        if let Some(inner) = self.matching_reference_target(node) {
+            return self.is_matching_reference(state, inner);
+        }
         match state.symbol {
             // An identifier reference. The binder records an assignment's flow
             // node against the *target* node, which for `x = 1` is the
@@ -3803,9 +3806,9 @@ impl Checker<'_, '_> {
     /// An **element access with an identifier argument** matches when both
     /// arguments resolve to one symbol that is a constant or an unassigned
     /// parameter/mutable local (`flow.go:1629`; the unassigned half landed with
-    /// `checker-99-union-key-access.md`). Not ported: `super`; `MetaProperty`;
-    /// and the comma and assignment unwrapping on the target side. Each
-    /// answers `false`, which costs a narrowing and never invents one.
+    /// `checker-99-union-key-access.md`). Assignment/comma targets are unwrapped
+    /// before source matching. Not ported: `super` and `MetaProperty`; both
+    /// answer `false`, which costs a narrowing and never invents one.
     ///
     /// # Why `false` is the safe default here, unlike everywhere else
     ///
@@ -3843,24 +3846,22 @@ impl Checker<'_, '_> {
         // it — not symmetric, and not tidied.
         let strip_source = |checker: &Self, id: NodeId| -> Option<NodeId> {
             match checker.node_map.get(id)? {
-                Node::ParenthesizedExpression(node) => node.expression.and_then(|e| e.node_id()),
+                Node::ParenthesizedExpression(node) if !checker.is_jsdoc_type_assertion(id) => {
+                    node.expression.and_then(|e| e.node_id())
+                }
                 Node::NonNullExpression(node) => node.expression.and_then(|e| e.node_id()),
                 Node::SatisfiesExpression(node) => node.expression.and_then(|e| e.node_id()),
                 _ => None,
             }
         };
-        let strip_target = |checker: &Self, id: NodeId| -> Option<NodeId> {
-            match checker.node_map.get(id)? {
-                Node::ParenthesizedExpression(node) => node.expression.and_then(|e| e.node_id()),
-                Node::NonNullExpression(node) => node.expression.and_then(|e| e.node_id()),
-                _ => None,
-            }
-        };
+        // Native applies the target switch before the source switch. In
+        // particular `(x = rhs)` and `(effect(), x)` match x on both the
+        // identifier and structural-access roads (flow.go:1597).
+        if let Some(inner) = self.matching_reference_target(target) {
+            return self.references_match(source, inner);
+        }
         if let Some(inner) = strip_source(self, source) {
             return self.references_match(inner, target);
-        }
-        if let Some(inner) = strip_target(self, target) {
-            return self.references_match(source, inner);
         }
 
         match (self.node_map.get(source), self.node_map.get(target)) {
@@ -3998,6 +3999,75 @@ impl Checker<'_, '_> {
                     .is_some_and(|candidate| candidate == resolved)
             }
             _ => false,
+        }
+    }
+
+    /// Native ast.IsJSDocTypeAssertion detects a reparsed `AsExpression` inside
+    /// parentheses (ast/utilities.go:759). Our parser stores its type in the
+    /// side table instead. Look there first to avoid a root walk for ordinary
+    /// parentheses in this flow hot path.
+    fn is_jsdoc_type_assertion(&self, node: NodeId) -> bool {
+        self.nodes.kind(node) == SyntaxKind::ParenthesizedExpression
+            && self.jsdoc_cast_annotation(node).is_some()
+            && self.in_js_file(node)
+    }
+
+    /// The target-side wrapper switch of `isMatchingReference`
+    /// (flow.go:1598). Unlike getReferenceCandidate, all compound assignments
+    /// match their left reference, and non-null wrappers are transparent.
+    fn matching_reference_target(&self, node: NodeId) -> Option<NodeId> {
+        match self.node_map.get(node)? {
+            Node::ParenthesizedExpression(inner) => {
+                // Native reparses a JS @type cast as an AsExpression inside
+                // the parentheses (ast/utilities.go:759). This port keeps its
+                // type in the side table; preserve that assertion boundary.
+                if self.is_jsdoc_type_assertion(node) { None } else { inner.expression?.node_id() }
+            }
+            Node::NonNullExpression(inner) => inner.expression?.node_id(),
+            Node::BinaryExpression(binary) => {
+                let operator = binary.operator_token?.kind;
+                if operator == SyntaxKind::CommaToken {
+                    binary.right?.node_id()
+                } else if operator.is_assignment_operator()
+                    && is_left_hand_side_expression(binary.left?)
+                {
+                    binary.left?.node_id()
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    }
+
+    /// `getReferenceCandidate` (flow.go:1861): normalize the value/reference
+    /// operands used by equality, typeof, instanceof and in guards. Ordinary
+    /// arithmetic compound assignments and non-null wrappers stay intact.
+    fn get_reference_candidate(&self, mut node: NodeId) -> NodeId {
+        loop {
+            let next = match self.node_map.get(node) {
+                Some(Node::ParenthesizedExpression(inner)) => {
+                    if self.is_jsdoc_type_assertion(node) {
+                        return node;
+                    }
+                    inner.expression
+                }
+                Some(Node::BinaryExpression(binary)) => match binary.operator_token.map(|t| t.kind)
+                {
+                    Some(
+                        SyntaxKind::EqualsToken
+                        | SyntaxKind::BarBarEqualsToken
+                        | SyntaxKind::AmpersandAmpersandEqualsToken
+                        | SyntaxKind::QuestionQuestionEqualsToken,
+                    ) => binary.left,
+                    Some(SyntaxKind::CommaToken) => binary.right,
+                    _ => None,
+                },
+                _ => None,
+            }
+            .and_then(|expr| expr.node_id());
+            let Some(next) = next else { return node };
+            node = next;
         }
     }
 
@@ -4599,6 +4669,46 @@ impl Checker<'_, '_> {
         if narrowed == expanded { t } else { narrowed }
     }
 
+    /// `narrowTypeByTruthiness` (flow.go:428): matching reference first,
+    /// optional-chain facts next, then the discriminant property transform.
+    fn narrow_type_by_truthiness(
+        &mut self,
+        state: &FlowState,
+        t: TypeId,
+        expr: NodeId,
+        assume_true: bool,
+    ) -> TypeId {
+        if self.is_matching_reference(state, expr) {
+            let facts = if assume_true { TypeFacts::TRUTHY } else { TypeFacts::FALSY };
+            return self.get_adjusted_type_with_facts(t, facts);
+        }
+        // §51.4 (`checker-notes-narrow.md`): `if (o?.foo)` — under
+        // strictNullChecks the true branch narrows the chain base
+        // NE_UNDEFINED_OR_NULL, and FALLS THROUGH to the
+        // discriminant filter (`flow.go:432`'s ordering).
+        let t = if self.strict_null_checks
+            && assume_true
+            && self.optional_chain_contains_reference(state, expr)
+        {
+            self.get_adjusted_type_with_facts(t, TypeFacts::NE_UNDEFINED_OR_NULL)
+        } else {
+            t
+        };
+        // `flow.go:434`: `if (s.done)` — the discriminant road,
+        // `getDiscriminantPropertyAccess` + `narrowTypeByDiscriminant`
+        // with the truthy/falsy facts as the member transform. §750
+        // swapped this in for §51.3's inline
+        // `filter_union_by_member_truthiness` (kept for the §84
+        // sibling arm below).
+        if let Some(access) = self.get_discriminant_property_access(state, expr, t) {
+            let facts = if assume_true { TypeFacts::TRUTHY } else { TypeFacts::FALSY };
+            return self.narrow_type_by_discriminant(t, access, |checker, prop| {
+                checker.get_type_with_facts(prop, facts)
+            });
+        }
+        t
+    }
+
     fn narrow_type_worker(
         &mut self,
         state: &mut FlowState,
@@ -4661,40 +4771,13 @@ impl Checker<'_, '_> {
             Node::Identifier(_)
             | Node::PropertyAccessExpression(_)
             | Node::ElementAccessExpression(_) => {
-                if self.is_matching_reference(state, condition) {
-                    let facts = if assume_true { TypeFacts::TRUTHY } else { TypeFacts::FALSY };
-                    return self.get_adjusted_type_with_facts(t, facts);
-                }
-                // §51.4 (`checker-notes-narrow.md`): `if (o?.foo)` — under
-                // strictNullChecks the true branch narrows the chain base
-                // NE_UNDEFINED_OR_NULL, and FALLS THROUGH to the
-                // discriminant filter (`flow.go:432`'s ordering).
-                let t = if self.strict_null_checks
-                    && assume_true
-                    && self.optional_chain_contains_reference(state, condition)
-                {
-                    self.get_adjusted_type_with_facts(t, TypeFacts::NE_UNDEFINED_OR_NULL)
-                } else {
-                    t
-                };
-                // `flow.go:434`: `if (s.done)` — the discriminant road,
-                // `getDiscriminantPropertyAccess` + `narrowTypeByDiscriminant`
-                // with the truthy/falsy facts as the member transform. §750
-                // swapped this in for §51.3's inline
-                // `filter_union_by_member_truthiness` (kept for the §84
-                // sibling arm below).
-                if let Some(access) = self.get_discriminant_property_access(state, condition, t) {
-                    let facts = if assume_true { TypeFacts::TRUTHY } else { TypeFacts::FALSY };
-                    return self.narrow_type_by_discriminant(t, access, |checker, prop| {
-                        checker.get_type_with_facts(prop, facts)
-                    });
-                }
                 // §82 (`checker-notes-narrow.md`): the ALIASED CONDITION —
                 // `const isFoo = obj.kind === 'foo'; if (isFoo)` narrows as
                 // the condition itself would (`narrowType`'s identifier arm,
                 // `flow.go`: a CONST variable's initializer is inlined, depth
                 // capped at 5 exactly as upstream's `inlineLevel`).
                 if let Node::Identifier(identifier) = node
+                    && !self.is_matching_reference(state, condition)
                     && self.alias_inline_level < 5
                     && self.is_constant_reference(state.reference)
                     && let Some(symbol) = self.binder.resolve_name(
@@ -4716,12 +4799,17 @@ impl Checker<'_, '_> {
                     self.alias_inline_level -= 1;
                     return narrowed;
                 }
-                t
+                self.narrow_type_by_truthiness(state, t, condition, assume_true)
             }
-            Node::ParenthesizedExpression(inner) => inner
-                .expression
-                .and_then(|e| e.node_id())
-                .map_or(t, |id| self.narrow_type(state, t, id, assume_true)),
+            Node::ParenthesizedExpression(inner) => {
+                if self.is_jsdoc_type_assertion(condition) {
+                    return t;
+                }
+                inner
+                    .expression
+                    .and_then(|e| e.node_id())
+                    .map_or(t, |id| self.narrow_type(state, t, id, assume_true))
+            }
             // `if (!x)`, which upstream reaches by flipping the assumption
             // rather than by a separate rule.
             Node::PrefixUnaryExpression(unary)
@@ -4741,6 +4829,27 @@ impl Checker<'_, '_> {
                 else {
                     return t;
                 };
+                // `narrowTypeByBinaryExpression` (flow.go:469): assignments
+                // first narrow by the RHS condition, then by the truthiness of
+                // the assigned reference. Commas inherit the RHS condition.
+                if matches!(
+                    operator.kind,
+                    SyntaxKind::EqualsToken
+                        | SyntaxKind::BarBarEqualsToken
+                        | SyntaxKind::AmpersandAmpersandEqualsToken
+                        | SyntaxKind::QuestionQuestionEqualsToken
+                ) {
+                    let (Some(left), Some(right)) = (left.node_id(), right.node_id()) else {
+                        return t;
+                    };
+                    let narrowed = self.narrow_type(state, t, right, assume_true);
+                    return self.narrow_type_by_truthiness(state, narrowed, left, assume_true);
+                }
+                if operator.kind == SyntaxKind::CommaToken {
+                    return right
+                        .node_id()
+                        .map_or(t, |right| self.narrow_type(state, t, right, assume_true));
+                }
                 // `"p" in x` — `narrowTypeByInKeyword` (`flow.go:1001`),
                 // known-property half; `checker-notes-narrow.md` §6.1. The
                 // name must be a written string literal (upstream reads it
@@ -4752,6 +4861,7 @@ impl Checker<'_, '_> {
                     else {
                         return t;
                     };
+                    let right_node = self.get_reference_candidate(right_node);
                     if let Some(Node::StringLiteral(literal)) = self.node_map.get(left_node)
                         && self.is_matching_reference(state, right_node)
                     {
@@ -4766,6 +4876,7 @@ impl Checker<'_, '_> {
                 // declines whole rather than guessing.
                 if operator.kind == SyntaxKind::InstanceOfKeyword {
                     let Some(left_id) = left.node_id() else { return t };
+                    let left_id = self.get_reference_candidate(left_id);
                     if !self.is_matching_reference(state, left_id) {
                         // `flow.go:814` (§749): `o?.x instanceof C` proves
                         // the chain BASE non-null on the true branch.
@@ -5053,6 +5164,8 @@ impl Checker<'_, '_> {
                 let (Some(left), Some(right)) = (left.node_id(), right.node_id()) else {
                     return t;
                 };
+                let left = self.get_reference_candidate(left);
+                let right = self.get_reference_candidate(right);
                 // `typeof x === "…"` before the value-equality path, which is
                 // upstream's dispatch order in `narrowTypeByBinaryExpression`
                 // (`flow.go:500` region): a `TypeOfExpression` on either side
@@ -5076,6 +5189,7 @@ impl Checker<'_, '_> {
                     let Some(target) = typeof_expr.expression.and_then(|e| e.node_id()) else {
                         return t;
                     };
+                    let target = self.get_reference_candidate(target);
                     let negated = matches!(
                         operator.kind,
                         SyntaxKind::ExclamationEqualsToken
@@ -7890,5 +8004,52 @@ fn accessed_property_name(node: Node<'_>) -> Option<String> {
             _ => None,
         },
         _ => None,
+    }
+}
+
+/// `ast.IsLeftHandSideExpression` (ast/utilities.go:391), used by
+/// isMatchingReference's assignment target arm even for recovered syntax.
+fn is_left_hand_side_expression(expression: tsr_ast::Expression<'_>) -> bool {
+    use tsr_ast::Expression;
+    match expression {
+        Expression::PartiallyEmittedExpression(inner) => {
+            inner.expression.is_some_and(is_left_hand_side_expression)
+        }
+        Expression::KeywordExpression(keyword) => matches!(
+            keyword.kind,
+            SyntaxKind::FalseKeyword
+                | SyntaxKind::NullKeyword
+                | SyntaxKind::ThisKeyword
+                | SyntaxKind::TrueKeyword
+                | SyntaxKind::SuperKeyword
+                | SyntaxKind::ImportKeyword
+        ),
+        _ => matches!(
+            expression,
+            Expression::PropertyAccessExpression(_)
+                | Expression::ElementAccessExpression(_)
+                | Expression::NewExpression(_)
+                | Expression::CallExpression(_)
+                | Expression::JsxElement(_)
+                | Expression::JsxSelfClosingElement(_)
+                | Expression::JsxFragment(_)
+                | Expression::TaggedTemplateExpression(_)
+                | Expression::ArrayLiteralExpression(_)
+                | Expression::ParenthesizedExpression(_)
+                | Expression::ObjectLiteralExpression(_)
+                | Expression::ClassExpression(_)
+                | Expression::FunctionExpression(_)
+                | Expression::Identifier(_)
+                | Expression::PrivateIdentifier(_)
+                | Expression::RegularExpressionLiteral(_)
+                | Expression::NumericLiteral(_)
+                | Expression::BigIntLiteral(_)
+                | Expression::StringLiteral(_)
+                | Expression::NoSubstitutionTemplateLiteral(_)
+                | Expression::TemplateExpression(_)
+                | Expression::NonNullExpression(_)
+                | Expression::ExpressionWithTypeArguments(_)
+                | Expression::MetaProperty(_)
+        ),
     }
 }

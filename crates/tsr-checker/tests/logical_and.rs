@@ -105,6 +105,17 @@ fn a_never_truthy_left_operand_is_the_answer_on_its_own() {
     assert_eq!(type_of_initialiser_at(source, 2), "undefined");
 }
 
+#[test]
+fn an_unreachable_rhs_error_does_not_replace_the_logical_result() {
+    for (source, expected) in [
+        ("let result = false && (1 + {});", "false"),
+        ("let result = 'value' || (1 + {});", "\"value\""),
+        ("let result = 1 ?? (1 + {});", "1"),
+    ] {
+        assert_eq!(type_of_initialiser_at(source, 0), expected, "source: {source}");
+    }
+}
+
 /// The union arm added to `get_type_facts` for this caller. `undefined | null`
 /// is a union whose every constituent is falsy, so the gate must see `FALSY`
 /// alone — and before that arm existed a union fell to the `_ => both` default

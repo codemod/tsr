@@ -144,6 +144,60 @@ const LIB: (&str, &str) =
 const TYPE_IMPORT: &str = "import type { Base, Variant } from \"./lib\";\n";
 
 #[test]
+fn an_assignment_condition_makes_the_loop_receiver_non_null() {
+    assert_eq!(
+        codes(&[(
+            "/a.ts",
+            "declare function next(): { length: number } | null;
+             let match: { length: number } | null;
+             while ((match = next()) !== null) { match.length; }"
+        )]),
+        Vec::<String>::new()
+    );
+}
+
+#[test]
+fn an_assignment_condition_does_not_protect_the_null_branch() {
+    assert_eq!(
+        codes(&[(
+            "/a.ts",
+            "declare function next(): { length: number } | null;
+             let match: { length: number } | null;
+             if ((match = next()) === null) { match.length; }"
+        )]),
+        vec!["TS18047".to_string()]
+    );
+}
+
+#[test]
+fn an_assignment_condition_does_not_narrow_another_receiver() {
+    assert_eq!(
+        codes(&[(
+            "/a.ts",
+            "declare function next(): { length: number } | null;
+             function f(other: { length: number } | null) {
+                 let match: { length: number } | null;
+                 if ((match = next()) !== null) { other.length; }
+             }"
+        )]),
+        vec!["TS18047".to_string()]
+    );
+}
+
+#[test]
+fn reassigning_a_guarded_receiver_still_reports_null() {
+    assert_eq!(
+        codes(&[(
+            "/a.ts",
+            "declare function next(): { length: number } | null;
+             let match: { length: number } | null;
+             if ((match = next()) !== null) { match = null; match.length; }"
+        )]),
+        vec!["TS18047".to_string()]
+    );
+}
+
+#[test]
 fn an_interfaces_extends_over_a_type_only_import_is_silent() {
     // The shape every `cva`-styled React component is written in:
     // `interface P extends VariantProps<typeof variants>` over an

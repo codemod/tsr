@@ -18,20 +18,36 @@ use tsr_core::Arena;
 /// question is about. `types.rs`'s helper types the first *initialiser*, which
 /// cannot reach a reference at all.
 fn type_of_last_expression(source: &str) -> String {
+    type_of_last_expression_in_file(source, "test.ts")
+}
+
+fn type_of_last_expression_in_file(source: &str, name: &str) -> String {
     let arena = Arena::new();
-    let parsed = tsr_parser::parse(&arena, source);
+    let mut parsed =
+        tsr_parser::parse_with_options(&arena, source, tsr_parser::ParseOptions::for_file(name));
     assert!(
         parsed.diagnostics.is_empty(),
         "fixture must parse: {:?}",
         parsed.diagnostics.iter().map(tsr_diagnostics::Diagnostic::text).collect::<Vec<_>>()
     );
-    let bound = tsr_binder::bind(
+    // Match the compiler loader: a JS parse dialect does not stamp its root.
+    if std::path::Path::new(name).extension().is_some_and(|ext| ext.eq_ignore_ascii_case("js")) {
+        parsed.nodes.add_flags(
+            parsed.source_file.node_id.expect("a parsed file has an id"),
+            tsr_ast::NodeFlags::JAVASCRIPT_FILE,
+        );
+    }
+    let jsdoc: Vec<_> = parsed.jsdoc.iter().collect();
+    let bound = tsr_binder::bind_into_with_jsdoc(
+        tsr_binder::BindResult::empty(),
         &arena,
         parsed.source_file,
         &parsed.nodes,
-        tsr_binder::FileInfo { name: "test.ts", text: source },
+        tsr_binder::FileInfo { name, text: source },
+        &jsdoc,
     );
     let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+    checker.set_jsdoc(parsed.jsdoc.iter());
     // §740: the auto road (`let x;` → evolving `undefined`/assigned types)
     // exists only under `noImplicitAny` (`checker.go:16697`), and the flow
     // predicate now reads the flag. These fixtures pin auto behaviour, so
@@ -66,6 +82,9 @@ fn last_expression_statement<'a>(statements: &[Statement<'a>]) -> Option<tsr_ast
                     found = last_expression_statement(std::slice::from_ref(&branch)).or(found);
                 }
             }
+            Statement::WhileStatement(node) => {
+                found = last_expression_statement(std::slice::from_ref(&node.statement)).or(found);
+            }
             // §758: a function body, so a fixture can introduce a TYPE
             // PARAMETER — which needs a generic signature and therefore
             // cannot be written at the top level.
@@ -97,6 +116,170 @@ fn last_expression_statement<'a>(statements: &[Statement<'a>]) -> Option<tsr_ast
         }
     }
     found
+}
+
+#[test]
+fn assignment_conditions_match_the_assigned_reference_in_both_operand_orders() {
+    for condition in
+        ["((x = next())) !== null", "null !== (x = next())", "(touch(), x = next()) !== null"]
+    {
+        assert_eq!(
+            type_of_last_expression(&format!(
+                "declare function next(): string | null;
+                 declare function touch(): void;
+                 let x: string | null; if ({condition}) {{ x; }}"
+            )),
+            "string",
+            "condition: {condition}"
+        );
+    }
+}
+
+#[test]
+fn assignment_conditions_keep_the_null_branch_and_leave_other_references_alone() {
+    assert_eq!(
+        type_of_last_expression(
+            "declare function next(): string | null;
+             let x: string | null; if ((x = next()) === null) { x; }"
+        ),
+        "null"
+    );
+    assert_eq!(
+        type_of_last_expression(
+            "declare function next(): string | null;
+             function f(y: string | null) {
+                 let x: string | null; if ((x = next()) !== null) { y; }
+             }"
+        ),
+        "string | null"
+    );
+}
+
+#[test]
+fn assignment_conditions_apply_truthiness_and_rhs_guards() {
+    assert_eq!(
+        type_of_last_expression(
+            "declare function next(): string | null;
+             let x: string | null; if (x = next()) { x; }"
+        ),
+        "string"
+    );
+    assert_eq!(
+        type_of_last_expression(
+            "function f(y: string | number) {
+                 let flag: boolean; if (flag = typeof y === 'string') { y; }
+             }"
+        ),
+        "string"
+    );
+    assert_eq!(
+        type_of_last_expression(
+            "function f(x: 'a' | null) { if (!(x = null as 'a' | null)) { x; } }"
+        ),
+        "null"
+    );
+}
+
+#[test]
+fn assignment_conditions_narrow_logical_assignment_results() {
+    for operator in ["||=", "&&=", "??="] {
+        assert_eq!(
+            type_of_last_expression(&format!(
+                "function f(x: 'a' | null, y: 'a' | null) {{
+                    if (x {operator} y) {{ x; }}
+                 }}"
+            )),
+            "\"a\"",
+            "operator: {operator}"
+        );
+    }
+}
+
+#[test]
+fn assignment_conditions_normalize_discriminant_accesses() {
+    assert_eq!(
+        type_of_last_expression(
+            "function f(x: {kind: 'a'; a: number} | {kind: 'b'; b: number}) {
+                 if ((x.kind = x.kind) === 'a') { x; }
+             }"
+        ),
+        "{ kind: 'a'; a: number; }"
+    );
+}
+
+#[test]
+fn assignment_conditions_match_access_references_and_predicate_arguments() {
+    assert_eq!(
+        type_of_last_expression(
+            "declare function next(): string | null;
+             function f(obj: { value: string | null }) {
+                 if ((obj.value = next()) !== null) { obj.value; }
+             }"
+        ),
+        "string"
+    );
+    assert_eq!(
+        type_of_last_expression(
+            "declare function next(): string | number;
+             declare function isString(value: string | number): value is string;
+             let x: string | number; if (isString((x = next()))) { x; }"
+        ),
+        "string"
+    );
+}
+
+#[test]
+fn comma_conditions_inherit_rhs_guards() {
+    assert_eq!(
+        type_of_last_expression(
+            "declare function touch(): void;
+             function f(y: string | number) {
+                 if ((touch(), typeof y === 'string')) { y; }
+             }"
+        ),
+        "string"
+    );
+}
+
+#[test]
+fn a_jsdoc_cast_stops_reference_matching_through_parentheses() {
+    assert_eq!(
+        type_of_last_expression_in_file(
+            "let value = ''; switch (/** @type {'foo' | 'bar'} */ (value)) {
+                 case 'foo': value; break;
+             }",
+            "test.js"
+        ),
+        "string"
+    );
+    assert_eq!(
+        type_of_last_expression_in_file(
+            "let value = ''; switch ((value)) { case 'foo': value; break; }",
+            "test.js"
+        ),
+        "\"foo\""
+    );
+    assert_eq!(
+        type_of_last_expression_in_file(
+            "/** @param {{value: number | null}} obj */
+             function f(obj) {
+                 if (obj.value) { (/** @type {{value: number | null}} */ (obj)).value; }
+             }",
+            "test.js"
+        ),
+        "number | null"
+    );
+}
+
+#[test]
+fn assignment_conditions_narrow_loop_body_reads() {
+    assert_eq!(
+        type_of_last_expression(
+            "declare function next(): string | null;
+             let x: string | null; while ((x = next()) !== null) { x; }"
+        ),
+        "string"
+    );
 }
 
 #[test]
