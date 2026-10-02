@@ -276,6 +276,9 @@ fn a_member_that_cannot_name_a_property_leaves_the_literal_empty() {
     assert_eq!(type_of_first_initialiser_allowing_parse_errors("var o = { #foo() {} };"), "{}");
 }
 
+// Component expectations corrected against pinned native declaration emit in
+// /tmp/tsr-99-index-unit-controls.ts. The semantic indexes previously printed
+// synthesized signatures because component serialization was not yet ported.
 /// The control that keeps §201 honest: a name type that CAN key a property must
 /// not vanish. Without it, "drop every computed member" also passes the test
 /// above.
@@ -295,11 +298,11 @@ fn a_member_that_cannot_name_a_property_leaves_the_literal_empty() {
 fn a_string_like_computed_name_becomes_an_index_signature_rather_than_vanishing() {
     assert_eq!(
         type_of_initialiser_at("declare const k: string;\nvar v = { [k]: 1 };", 1),
-        "{ [x: string]: number; }"
+        "{ [k]: number; }"
     );
     assert_eq!(
         type_of_initialiser_at("declare const n: number;\nvar v = { [n]: 1 };", 1),
-        "{ [x: number]: number; }"
+        "{ [n]: number; }"
     );
     // And a LITERAL-typed name is late-bound: a real member whose printing is
     // unported, so it is still a gap and must not be swept into a signature.
@@ -326,66 +329,47 @@ fn a_string_like_computed_name_becomes_an_index_signature_rather_than_vanishing(
 fn a_computed_name_that_can_key_a_property_makes_an_index_signature() {
     assert_eq!(
         type_of_initialiser_at("declare const k: number;\nvar v = { [k]: 1 };", 1),
-        "{ [x: number]: number; }"
+        "{ [k]: number; }"
     );
     assert_eq!(
         type_of_initialiser_at("declare const k: string;\nvar v = { [k]: 1 };", 1),
-        "{ [x: string]: number; }"
+        "{ [k]: number; }"
     );
     // An `any` name takes the NUMBER arm, not the string one.
     assert_eq!(
         type_of_initialiser_at("declare const k: any;\nvar v = { [k]: 1 };", 1),
-        "{ [x: number]: number; }"
+        "{ [k]: number; }"
     );
 }
 
-/// The value is the union of the contributors, not the first of them.
+/// Components retain their individual declaration types. The pipeline tests
+/// separately verify that indexing returns the union of all contributors.
 #[test]
-fn the_index_value_unions_every_contributing_member() {
+fn index_components_retain_every_contributing_declaration() {
     assert_eq!(
         type_of_initialiser_at(
             "declare const j: number;\ndeclare const k: number;\nvar v = { [j]: 1, [k]: \"s\" };",
             2
         ),
-        "{ [x: number]: string | number; }"
+        "{ [j]: number; [k]: string; }"
     );
 }
 
-/// The two shapes slice 1 deliberately still gaps, and they are controls rather
-/// than decoration: a literal mixing NAMED and computed members needs
-/// `getObjectLiteralIndexInfo`'s name filter, and one mixing KEY KINDS needs
-/// upstream's string/number/symbol emission order. Guessing either prints a
-/// plausible wrong line.
+/// Mixed index kinds filter the complete property array. String indexes also
+/// contain number components, so the numeric component displays twice.
 #[test]
-fn a_mixed_literal_still_gaps() {
+fn a_mixed_literal_keeps_components_in_index_order() {
     assert_eq!(
-        // **Came due at §551.** Upstream does not decline a mixed literal:
-        // `getObjectLiteralIndexInfo` (`checker.go:19721`) filters
-        // `propertiesArray` by whether each property's name suits the key, and
-        // for a NUMBER key that is the numerically-named members only — so `a`
-        // stays a PROPERTY and contributes nothing to the index value. §206's
-        // stated reason (*"no numeric-name predicate for a written name"*) was
-        // stale: `printing::normalise_number` normalises written numeric names
-        // a few lines from the mint. The STRING-key half and mixed key kinds
-        // still decline, each for its own recorded reason.
-        // §593 CORRECTED the ORDER in this expectation, which was written by
-        // hand and put the index last. An anonymous object prints its index
-        // signatures **before** its properties whatever the source order:
-        // `computedPropertyNames49_ES5` writes `{ p1: 10, get [1 + 1]() {…}, …
-        // p2: 20 }` — `p1` first — and its baseline records
-        // `{ [x: number]: any; p1: number; readonly foo: number; p2: number; }`.
-        // `get_type_from_type_literal` had the group order right all along
-        // (`signatures, indexes, properties`); the object-literal road pushed
-        // the index onto the end, and this assertion pinned that.
+        // Named nonnumeric properties do not contribute to the number index.
         type_of_initialiser_at("declare const k: number;\nvar v = { a: 1, [k]: 2 };", 1),
-        "{ [x: number]: number; a: number; }"
+        "{ [k]: number; a: number; }"
     );
     assert_eq!(
         type_of_initialiser_at(
             "declare const j: number;\ndeclare const k: string;\nvar v = { [j]: 1, [k]: 2 };",
             2
         ),
-        "error"
+        "{ [j]: number; [k]: number; [j]: number; }"
     );
 }
 

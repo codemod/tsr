@@ -65,6 +65,20 @@ impl Checker<'_, '_> {
         (!self.is_error(constraint)).then_some(constraint)
     }
 
+    /// A retained keyof alias reference has `IndexType` semantics even though its
+    /// written-reference representation carries OBJECT until its body is read.
+    fn is_keyof_alias_reference(&self, ty: TypeId) -> bool {
+        self.type_reference_targets.get(&ty).is_some_and(|(symbol, _)| {
+            self.binder.symbols().get(*symbol).declarations.iter().any(|&declaration| {
+                matches!(self.node_map.get(declaration),
+                    Some(tsr_ast::Node::TypeAliasDeclaration(alias))
+                        if matches!(alias.r#type,
+                            Some(tsr_ast::TypeNode::TypeOperatorNode(operator))
+                                if operator.operator.kind == tsr_ast::SyntaxKind::KeyOfKeyword))
+            })
+        })
+    }
+
     fn has_base_constraint_shape(&self, ty: TypeId) -> bool {
         self.store.get(ty).flags.intersects(
             TypeFlags::TYPE_PARAMETER
@@ -77,6 +91,7 @@ impl Checker<'_, '_> {
                 | TypeFlags::TEMPLATE_LITERAL
                 | TypeFlags::STRING_MAPPING,
         ) || self.deferred_keyof_operands.contains_key(&ty)
+            || self.is_keyof_alias_reference(ty)
     }
 
     /// getBaseConstraintOfType/getResolvedBaseConstraint. This port's node
@@ -119,6 +134,15 @@ impl Checker<'_, '_> {
     }
 
     fn compute_base_constraint(&mut self, ty: TypeId) -> Option<TypeId> {
+        // Native aliases already have their body's semantic identity. Resolve
+        // this port's retained reference before following its base constraint.
+        if self.is_keyof_alias_reference(ty)
+            && let Some((symbol, arguments)) = self.type_reference_targets.get(&ty).cloned()
+            && let Some(body) = self.evaluate_alias_body(symbol, &arguments)
+            && body != ty
+        {
+            return self.next_base_constraint(body);
+        }
         if self.store.get(ty).flags.contains(TypeFlags::TYPE_PARAMETER) {
             let constraint = self.type_parameter_constraint(ty)?;
             return self.next_base_constraint(constraint);

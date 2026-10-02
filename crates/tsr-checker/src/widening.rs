@@ -236,7 +236,9 @@ impl Checker<'_, '_> {
             let member = members
                 .iter()
                 .find(|member| match member {
-                    Member::Property { name, .. } => name == &property.printed_name,
+                    Member::Property { name, .. } | Member::Method { name, .. } => {
+                        name == &property.printed_name
+                    }
                     Member::Signature { printed } => {
                         printed.starts_with(&format!("{}(", property.printed_name))
                             || printed.starts_with(&format!("{}<", property.printed_name))
@@ -252,7 +254,9 @@ impl Checker<'_, '_> {
 
     fn widening_member_has_name(member: &Member, property: &AnonymousProperty) -> bool {
         match member {
-            Member::Property { name, .. } => *name == property.printed_name,
+            Member::Property { name, .. } | Member::Method { name, .. } => {
+                *name == property.printed_name
+            }
             Member::Signature { printed } => {
                 let quoted = crate::printing::quote(&property.name);
                 [&property.printed_name, &property.name, &quoted].iter().any(|name| {

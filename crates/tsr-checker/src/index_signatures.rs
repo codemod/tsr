@@ -35,6 +35,7 @@ use tsr_binder::SymbolId;
 
 use crate::{
     checker::Checker,
+    flags::TypeFlags,
     types::{TypeData, TypeId},
 };
 
@@ -488,12 +489,22 @@ impl<'a> Checker<'a, '_> {
                 let tsr_ast::PropertyName::ComputedPropertyName(computed) = name else {
                     return None;
                 };
-                let Some((name, named)) = self.late_bound_symbol_member_name(computed) else {
+                let expression = computed.expression?;
+                let Some(name) = crate::objects::entity_name_expression_text(&expression) else {
                     return Some(vec![self.index_info_member(info)]);
                 };
-                if named {
+                if !self.computed_entity_name_is_visible(expression) {
+                    return Some(vec![self.index_info_member(info)]);
+                }
+                let key = self.check_expression(expression);
+                if self.store.get(key).flags.intersects(
+                    TypeFlags::STRING_LITERAL
+                        | TypeFlags::NUMBER_LITERAL
+                        | TypeFlags::UNIQUE_ES_SYMBOL,
+                ) {
                     continue;
                 }
+                let name = format!("[{name}]");
                 let symbol = self.binder.symbol_of(declaration)?;
                 let value = self.get_type_of_symbol(symbol);
                 if value == self.intrinsics.error {
@@ -509,6 +520,159 @@ impl<'a> Checker<'a, '_> {
             return Some(members);
         }
         Some(vec![self.index_info_member(info)])
+    }
+
+    /// isEntityNameVisible / hasVisibleDeclarations (emitresolver.go:340, 389).
+    /// Only the first identifier is resolved; subsequent property names do not
+    /// create a separate visibility requirement. Printing does not mark aliases.
+    fn computed_entity_name_is_visible(&self, mut expression: tsr_ast::Expression<'_>) -> bool {
+        use tsr_ast::Expression;
+        loop {
+            match expression {
+                Expression::PropertyAccessExpression(access) => {
+                    let Some(left) = access.expression else { return false };
+                    expression = left;
+                }
+                Expression::Identifier(identifier) => {
+                    let Some(location) = identifier.node_id else { return false };
+                    let Some(symbol) = self.binder.resolve_name(
+                        self.nodes,
+                        self.node_map,
+                        location,
+                        identifier.text,
+                        tsr_binder::SymbolFlags::VALUE | tsr_binder::SymbolFlags::NAMESPACE,
+                    ) else {
+                        return false;
+                    };
+                    return self.binder.symbols().get(symbol).declarations.iter().all(
+                        |&declaration| {
+                            self.emit_declaration_is_visible(declaration)
+                                || self.emit_declaration_can_be_named(declaration, symbol)
+                        },
+                    );
+                }
+                _ => return false,
+            }
+        }
+    }
+
+    fn emit_has_modifier(&self, node: tsr_ast::NodeId, kind: tsr_ast::SyntaxKind) -> bool {
+        self.node_map
+            .get(node)
+            .and_then(crate::check::modifiers_of)
+            .is_some_and(|modifiers| crate::check::has_modifier(modifiers, kind))
+    }
+
+    /// determineIfDeclarationIsVisible (emitresolver.go:131). A parameter's
+    /// visibility follows its declaration; a function-local variable does not.
+    fn emit_declaration_is_visible(&self, node: tsr_ast::NodeId) -> bool {
+        use tsr_ast::SyntaxKind as K;
+        let parent = self.nodes.parent(node);
+        let parent_visible =
+            || parent.is_some_and(|parent| self.emit_declaration_is_visible(parent));
+        match self.nodes.kind(node) {
+            K::SourceFile | K::NamespaceExportDeclaration | K::TypeParameter => true,
+            K::BindingElement => parent.and_then(|parent| self.nodes.parent(parent))
+                .is_some_and(|root| self.emit_declaration_is_visible(root)),
+            K::VariableDeclaration | K::ModuleDeclaration | K::ClassDeclaration
+            | K::InterfaceDeclaration | K::TypeAliasDeclaration | K::FunctionDeclaration
+            | K::EnumDeclaration | K::ImportEqualsDeclaration => {
+                let mut statement = node;
+                if self.nodes.kind(node) == K::VariableDeclaration {
+                    let Some(list) = parent else { return false };
+                    let Some(container) = self.nodes.parent(list) else { return false };
+                    statement = container;
+                }
+                let Some(container) = self.nodes.parent(statement) else { return false };
+                let exported = self.emit_has_modifier(statement, K::ExportKeyword);
+                let ambient = self.nodes.kind(container) != K::SourceFile
+                    && self.nodes.kind(node) != K::ImportEqualsDeclaration
+                    && std::iter::once(container).chain(self.nodes.ancestors(container)).any(|ancestor| {
+                        self.is_ambient_module_declaration(ancestor)
+                            || self.emit_has_modifier(ancestor, K::DeclareKeyword)
+                    });
+                if exported || ambient {
+                    self.emit_declaration_is_visible(container)
+                } else {
+                    matches!(self.node_map.get(container), Some(Node::SourceFile(file))
+                        if !tsr_binder::is_external_module(file))
+                }
+            }
+            K::PropertyDeclaration | K::PropertySignature | K::GetAccessor | K::SetAccessor
+            | K::MethodDeclaration | K::MethodSignature => {
+                !self.emit_has_modifier(node, K::PrivateKeyword)
+                    && !self.emit_has_modifier(node, K::ProtectedKeyword) && parent_visible()
+            }
+            K::Constructor | K::ConstructSignature | K::CallSignature | K::IndexSignature
+            | K::Parameter | K::ModuleBlock | K::FunctionType | K::ConstructorType
+            | K::TypeLiteral | K::TypeReference | K::ArrayType | K::TupleType
+            | K::UnionType | K::IntersectionType | K::ParenthesizedType | K::NamedTupleMember => parent_visible(),
+            K::ExportSpecifier => parent.and_then(|parent| self.nodes.parent(parent))
+                .is_some_and(|export| matches!(self.node_map.get(export),
+                    Some(Node::ExportDeclaration(declaration)) if declaration.module_specifier.is_none())),
+            _ => false,
+        }
+    }
+
+    /// hasVisibleDeclarations' aliases-to-make-visible paths, without mutation.
+    fn emit_declaration_can_be_named(&self, node: tsr_ast::NodeId, symbol: SymbolId) -> bool {
+        use tsr_ast::SyntaxKind as K;
+        let mut declaration = node;
+        if self.nodes.kind(declaration) == K::BindingElement {
+            if !self.binder.symbols().get(symbol).flags.intersects(
+                tsr_binder::SymbolFlags::BLOCK_SCOPED_VARIABLE | tsr_binder::SymbolFlags::ALIAS,
+            ) {
+                return false;
+            }
+            while matches!(
+                self.nodes.kind(declaration),
+                K::BindingElement | K::ObjectBindingPattern | K::ArrayBindingPattern
+            ) {
+                let Some(parent) = self.nodes.parent(declaration) else { return false };
+                declaration = parent;
+            }
+            if self.nodes.kind(declaration) == K::Parameter {
+                return false;
+            }
+        }
+        // getAnyImportSyntax walks from named/default/namespace import bindings.
+        while matches!(
+            self.nodes.kind(declaration),
+            K::ImportSpecifier | K::NamedImports | K::ImportClause | K::NamespaceImport
+        ) {
+            let Some(parent) = self.nodes.parent(declaration) else { return false };
+            declaration = parent;
+        }
+        if self.nodes.kind(declaration) == K::VariableDeclaration {
+            let Some(statement) =
+                self.nodes.parent(declaration).and_then(|list| self.nodes.parent(list))
+            else {
+                return false;
+            };
+            if self.nodes.kind(statement) != K::VariableStatement {
+                return false;
+            }
+            declaration = statement;
+        }
+        if !matches!(
+            self.nodes.kind(declaration),
+            K::ImportDeclaration
+                | K::ImportEqualsDeclaration
+                | K::VariableStatement
+                | K::ClassDeclaration
+                | K::FunctionDeclaration
+                | K::ModuleDeclaration
+                | K::TypeAliasDeclaration
+                | K::InterfaceDeclaration
+                | K::EnumDeclaration
+        ) {
+            return false;
+        }
+        !self.emit_has_modifier(declaration, K::ExportKeyword)
+            && self
+                .nodes
+                .parent(declaration)
+                .is_some_and(|parent| self.emit_declaration_is_visible(parent))
     }
 
     /// indexInfoToIndexSignatureDeclarationHelper: copies retain the original

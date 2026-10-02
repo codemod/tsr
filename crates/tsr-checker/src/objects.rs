@@ -71,7 +71,7 @@ pub(crate) struct AnonymousProperty {
 
 /// One rendered member of a structural object type.
 ///
-/// **Three shapes, not one with optional fields.** A property has a name and a
+/// A property has a name and a
 /// type printed as `name: T`; a call signature has **no name at all** and a
 /// method prints `m(): void` rather than `m: () => void`; an index signature has
 /// a bracketed *parameter* and a key type. Those are different spellings of
@@ -100,6 +100,8 @@ pub(crate) enum Member {
         /// The entire member text, without its trailing `;`.
         printed: String,
     },
+    /// A named method retains its key for object-literal duplicate replacement.
+    Method { name: String, printed: String },
     /// `[k: string]: number`, `readonly [k: number]: T`.
     ///
     /// A third shape rather than a `Property` with a decorated name: it has no
@@ -160,7 +162,9 @@ pub(crate) fn render_object_type(members: &[Member]) -> String {
                 printed.push_str(ty);
             }
             // A signature member is already whole: no name, no `: ` separator.
-            Member::Signature { printed: text } => printed.push_str(text),
+            Member::Signature { printed: text } | Member::Method { printed: text, .. } => {
+                printed.push_str(text);
+            }
             Member::Index { readonly, name, key, value } => {
                 if *readonly {
                     printed.push_str("readonly ");
@@ -283,15 +287,28 @@ enum PropertyValue<'a> {
 
 /// SS307: what a computed member name contributes to an object literal.
 pub(crate) enum ComputedNameKey {
-    /// The name is LATE-BOUND (a string/number literal, a unique symbol, or a
-    /// union of them names a real member, unported) or unreadable - the
-    /// caller gaps the literal.
+    /// A string/number literal or unique symbol supplies a named member.
     LateBound,
-    /// The name keys nothing (SS201) - the member contributes nothing, and
-    /// the caller skips it.
+    /// Invalid key: no named member or new index, but its value can still
+    /// contribute to an index requested by another member.
     Nothing,
     /// The member contributes an index signature of this key kind.
     Index(&'static str),
+}
+
+/// Entity-name expression spelling used by computed member serialization.
+pub(crate) fn entity_name_expression_text(expression: &tsr_ast::Expression<'_>) -> Option<String> {
+    match expression {
+        tsr_ast::Expression::Identifier(identifier) => Some(identifier.text.to_string()),
+        tsr_ast::Expression::PropertyAccessExpression(access) => {
+            let base = entity_name_expression_text(access.expression.as_ref()?)?;
+            let Some(tsr_ast::MemberName::Identifier(name)) = access.name else {
+                return None;
+            };
+            Some(format!("{base}.{}", name.text))
+        }
+        _ => None,
+    }
 }
 
 impl Checker<'_, '_> {
@@ -431,19 +448,6 @@ impl Checker<'_, '_> {
         &mut self,
         computed: &tsr_ast::ComputedPropertyName<'_>,
     ) -> Option<(String, bool)> {
-        fn chain_text(expression: &tsr_ast::Expression<'_>) -> Option<String> {
-            match expression {
-                tsr_ast::Expression::Identifier(identifier) => Some(identifier.text.to_string()),
-                tsr_ast::Expression::PropertyAccessExpression(access) => {
-                    let base = chain_text(access.expression.as_ref()?)?;
-                    let Some(tsr_ast::MemberName::Identifier(name)) = access.name else {
-                        return None;
-                    };
-                    Some(format!("{base}.{}", name.text))
-                }
-                _ => None,
-            }
-        }
         let expression = computed.expression?;
         let name_type = self.check_expression(expression);
         // SS331 widened UNIQUE to SYMBOL-LIKE: the discriminator between the
@@ -510,7 +514,7 @@ impl Checker<'_, '_> {
         if !flags.intersects(TypeFlags::ES_SYMBOL_LIKE) {
             return None;
         }
-        let text = chain_text(&expression)?;
+        let text = entity_name_expression_text(&expression)?;
         Some((format!("[{text}]"), flags.intersects(TypeFlags::UNIQUE_ES_SYMBOL)))
     }
 
@@ -544,53 +548,21 @@ impl Checker<'_, '_> {
         ) {
             return ComputedNameKey::LateBound;
         }
-        // SS331: a symbol-typed ENTITY name late-binds even when the symbol
-        // is not unique - see `late_bound_symbol_member_name`'s note on
-        // `symbolProperty2` vs `symbolProperty4`. The chain test keeps the
-        // inline `[Symbol()]` on the index route below.
-        if flags.intersects(TypeFlags::ES_SYMBOL_LIKE)
-            && matches!(
-                expression,
-                tsr_ast::Expression::Identifier(_)
-                    | tsr_ast::Expression::PropertyAccessExpression(_)
-            )
-        {
-            return ComputedNameKey::LateBound;
+        let name_type = self.base_constraint_of_type(name_type).unwrap_or(name_type);
+        let allowed = self.get_union_type(&[
+            self.intrinsics.string,
+            self.intrinsics.number,
+            self.intrinsics.es_symbol,
+        ]);
+        if !self.is_type_assignable_to(name_type, allowed) {
+            return ComputedNameKey::Nothing;
         }
-        // A UNION whose constituents are usable as property names is
-        // late-bound too - `Math.random() > 0.5 ? "f1" : "f2"` names a member
-        // upstream prints as the WRITTEN `[fieldName]`
-        // (`compiler/declarationEmitSimpleComputedNames1`), unported. A
-        // boolean name is also a union - of `true | false`, which name
-        // nothing - and keeps contributing nothing (SS201's
-        // `{ [0 in []]: true }` control).
-        if flags.intersects(TypeFlags::UNION)
-            && let crate::types::TypeData::Union { types, .. } = &self.store.get(name_type).data
-            && types.iter().any(|&member| {
-                self.store.get(member).flags.intersects(
-                    TypeFlags::STRING_LITERAL
-                        | TypeFlags::NUMBER_LITERAL
-                        | TypeFlags::UNIQUE_ES_SYMBOL,
-                )
-            })
-        {
-            return ComputedNameKey::LateBound;
-        }
-        if flags.intersects(TypeFlags::NUMBER_LIKE | TypeFlags::ANY) {
+        if self.is_type_assignable_to(name_type, self.intrinsics.number) {
             ComputedNameKey::Index("number")
-        } else if flags.intersects(TypeFlags::ES_SYMBOL_LIKE) {
+        } else if self.is_type_assignable_to(name_type, self.intrinsics.es_symbol) {
             ComputedNameKey::Index("symbol")
-        } else if flags.intersects(TypeFlags::STRING_LIKE) {
-            ComputedNameKey::Index("string")
-        } else if flags.intersects(TypeFlags::TYPE_PARAMETER) {
-            // §652. `{ [t]: 0 }` where `t: T` contributes a STRING index rather
-            // than nothing: upstream prints `{ [x: string]: number; }` for both
-            // an unconstrained `T` and a `U extends string`
-            // (`computedPropertyNames51_ES5`/`_ES6`, `computedPropertyNames8_ES6`).
-            // Dropping the property instead printed `{}`.
-            ComputedNameKey::Index("string")
         } else {
-            ComputedNameKey::Nothing
+            ComputedNameKey::Index("string")
         }
     }
 
@@ -829,6 +801,7 @@ impl Checker<'_, '_> {
         let mut members = Vec::with_capacity(node.properties.len());
         let mut typed_properties: Vec<AnonymousProperty> = Vec::new();
         let mut capture_complete = true;
+        let mut checked_members = Vec::new();
         let property_only = node.properties.iter().all(|property| {
             matches!(
                 property,
@@ -838,14 +811,6 @@ impl Checker<'_, '_> {
             )
         });
 
-        // §206: the index-signature half §201 left as a gap. A computed name
-        // whose type IS string-, number- or symbol-like contributes an INDEX
-        // SIGNATURE rather than a member (`checker.go:13195-13205`), whose
-        // value type is the union of the contributing members' types
-        // (`getObjectLiteralIndexInfo`, `:19721`).
-        let mut index_values: Vec<(&'static str, TypeId)> = Vec::new();
-        // §539 — see the push below and `Checker::object_literal_index_infos`.
-        let mut minted_index_info: Option<crate::index_signatures::IndexInfo> = None;
         // SS325: late-bound ACCESSOR members merge by name - a get/set pair
         // is one property (the getter's type wins the display), a getter
         // without a setter is `readonly` (`symbolDeclarationEmit10`,
@@ -853,7 +818,7 @@ impl Checker<'_, '_> {
         // separate rows (`symbolProperty1`'s triple).
         let mut accessor_members: Vec<(String, usize)> = Vec::new();
         for property in node.properties {
-            let mut pending_index_key: Option<&'static str> = None;
+            let mut unnamed = false;
             // §365: `hasDefaultValue(memberDecl)` (checker.go:13248) — a
             // property assignment whose value is an `=` binary, or a
             // shorthand carrying an object-assignment initializer.
@@ -966,6 +931,7 @@ impl Checker<'_, '_> {
                             property,
                             const_context,
                             &mut typed_properties,
+                            &mut checked_members,
                         );
                         continue;
                     }
@@ -976,7 +942,7 @@ impl Checker<'_, '_> {
                     // the method's own function type - the same road that
                     // already prints the member's `.types` line.
                     if let tsr_ast::PropertyName::ComputedPropertyName(computed) = method.name {
-                        let key = match self.computed_member_index_key(computed) {
+                        match self.computed_member_index_key(computed) {
                             ComputedNameKey::LateBound => {
                                 // SS323: a UNIQUE late-bound METHOD keeps the
                                 // method spelling - `{ [Symbol.hasInstance]
@@ -995,7 +961,7 @@ impl Checker<'_, '_> {
                                         "{name}{}",
                                         signature_member_text(self, &signature)
                                     );
-                                    members.push(Member::Signature { printed });
+                                    upsert_member(&mut members, Member::Method { name, printed });
                                 } else {
                                     let printed = self.signature_to_string(&signature);
                                     members.push(Member::Property {
@@ -1009,22 +975,17 @@ impl Checker<'_, '_> {
                                     property,
                                     const_context,
                                     &mut typed_properties,
+                                    &mut checked_members,
                                 );
                                 continue;
                             }
-                            ComputedNameKey::Nothing => continue,
-                            ComputedNameKey::Index(key) => key,
-                        };
-                        let Some(symbol) = self.binder.symbol_of(id) else { return error };
-                        let member_type = self.get_type_of_symbol(symbol);
-                        if member_type == error {
-                            return error;
+                            ComputedNameKey::Nothing | ComputedNameKey::Index(_) => {}
                         }
-                        index_values.push((key, member_type));
                         capture_complete &= self.capture_checked_object_member(
                             property,
                             const_context,
                             &mut typed_properties,
+                            &mut checked_members,
                         );
                         continue;
                     }
@@ -1082,6 +1043,7 @@ impl Checker<'_, '_> {
                             property,
                             const_context,
                             &mut typed_properties,
+                            &mut checked_members,
                         );
                         continue;
                     }
@@ -1099,11 +1061,12 @@ impl Checker<'_, '_> {
                     } else {
                         format!("{name}{member_text}")
                     };
-                    upsert_member(&mut members, Member::Signature { printed });
+                    upsert_member(&mut members, Member::Method { name: name.to_owned(), printed });
                     capture_complete &= self.capture_checked_object_member(
                         property,
                         const_context,
                         &mut typed_properties,
+                        &mut checked_members,
                     );
                     continue;
                 }
@@ -1173,6 +1136,7 @@ impl Checker<'_, '_> {
                                     property,
                                     const_context,
                                     &mut typed_properties,
+                                    &mut checked_members,
                                 );
                                 continue;
                             }
@@ -1191,6 +1155,7 @@ impl Checker<'_, '_> {
                             property,
                             const_context,
                             &mut typed_properties,
+                            &mut checked_members,
                         );
                         continue;
                     }
@@ -1199,7 +1164,7 @@ impl Checker<'_, '_> {
                         return error;
                     };
                     let Some(id) = accessor.node_id else { return error };
-                    let key = match self.computed_member_index_key(computed) {
+                    match self.computed_member_index_key(computed) {
                         // SS325: a late-bound GETTER prints as a property of
                         // its return type - the third `[s]: number` row of
                         // `symbolProperty1`'s literal.
@@ -1225,6 +1190,7 @@ impl Checker<'_, '_> {
                                     property,
                                     const_context,
                                     &mut typed_properties,
+                                    &mut checked_members,
                                 );
                                 continue;
                             }
@@ -1260,20 +1226,17 @@ impl Checker<'_, '_> {
                                 property,
                                 const_context,
                                 &mut typed_properties,
+                                &mut checked_members,
                             );
                             continue;
                         }
-                        ComputedNameKey::Nothing => continue,
-                        ComputedNameKey::Index(key) => key,
-                    };
-                    let Some(signature) = self.get_signature_from_declaration(id) else {
-                        return error;
-                    };
-                    index_values.push((key, signature.r#type));
+                        ComputedNameKey::Nothing | ComputedNameKey::Index(_) => {}
+                    }
                     capture_complete &= self.capture_checked_object_member(
                         property,
                         const_context,
                         &mut typed_properties,
+                        &mut checked_members,
                     );
                     continue;
                 }
@@ -1327,6 +1290,7 @@ impl Checker<'_, '_> {
                                     property,
                                     const_context,
                                     &mut typed_properties,
+                                    &mut checked_members,
                                 );
                                 continue;
                             }
@@ -1345,6 +1309,7 @@ impl Checker<'_, '_> {
                             property,
                             const_context,
                             &mut typed_properties,
+                            &mut checked_members,
                         );
                         continue;
                     }
@@ -1353,7 +1318,7 @@ impl Checker<'_, '_> {
                         return error;
                     };
                     let Some(id) = accessor.node_id else { return error };
-                    let key = match self.computed_member_index_key(computed) {
+                    match self.computed_member_index_key(computed) {
                         // SS325: the setter half - a property of its first
                         // parameter's type, `any` when unannotated, the same
                         // value rule the index route uses.
@@ -1371,6 +1336,7 @@ impl Checker<'_, '_> {
                                     property,
                                     const_context,
                                     &mut typed_properties,
+                                    &mut checked_members,
                                 );
                                 continue;
                             }
@@ -1395,24 +1361,17 @@ impl Checker<'_, '_> {
                                 property,
                                 const_context,
                                 &mut typed_properties,
+                                &mut checked_members,
                             );
                             continue;
                         }
-                        ComputedNameKey::Nothing => continue,
-                        ComputedNameKey::Index(key) => key,
-                    };
-                    let Some(signature) = self.get_signature_from_declaration(id) else {
-                        return error;
-                    };
-                    let member_type = signature
-                        .parameters
-                        .first()
-                        .map_or(self.intrinsics.any, |parameter| parameter.r#type);
-                    index_values.push((key, member_type));
+                        ComputedNameKey::Nothing | ComputedNameKey::Index(_) => {}
+                    }
                     capture_complete &= self.capture_checked_object_member(
                         property,
                         const_context,
                         &mut typed_properties,
+                        &mut checked_members,
                     );
                     continue;
                 }
@@ -1521,9 +1480,8 @@ impl Checker<'_, '_> {
                         }
                         // SS201: a name that cannot key anything contributes
                         // nothing at all - not a member and not a signature.
-                        ComputedNameKey::Nothing => continue,
-                        ComputedNameKey::Index(key) => {
-                            pending_index_key = Some(key);
+                        ComputedNameKey::Nothing | ComputedNameKey::Index(_) => {
+                            unnamed = true;
                             String::new()
                         }
                     }
@@ -1691,8 +1649,12 @@ impl Checker<'_, '_> {
                 // §735 — see [`Checker::member_text_at`].
                 _ => self.member_text_at(member_type, node.node_id),
             };
-            if let Some(key) = pending_index_key {
-                index_values.push((key, member_type));
+            if let Some(id) = property.node_id() {
+                checked_members.push((id, member_type));
+            } else {
+                capture_complete = false;
+            }
+            if unnamed {
                 continue;
             }
             // SS329 corrects SS323's push rule: `symbolProperty1`'s three
@@ -1747,146 +1709,16 @@ impl Checker<'_, '_> {
                 },
             );
         }
-        if !index_values.is_empty() {
-            // **Slice 1: every member is a computed name of one key kind.**
-            // Upstream's `getObjectLiteralIndexInfo` (`checker.go:19721`)
-            // filters `propertiesArray` by whether each property's name suits
-            // the key — numeric-named for a number key, symbol-named for a
-            // symbol key, everything-but-symbol for a string key — and this
-            // port has no numeric-name predicate for a *written* name. With no
-            // named members present there is nothing to filter, so the union is
-            // simply every contributor's type and the two agree by
-            // construction. A literal mixing named and computed members keeps
-            // gapping, and so does one mixing key kinds: upstream emits one
-            // index info per kind, in string/number/symbol order, and getting
-            // that order wrong prints a plausible wrong line. §206.
-            // §551: the NUMBER-key slice of upstream's filter.
-            // `getObjectLiteralIndexInfo` (`checker.go:19721`) does not decline
-            // a mixed literal — it filters `propertiesArray` by whether each
-            // property's name suits the key, and for a NUMBER key that is the
-            // numerically-named members only. So
-            // `{ x: 1, [k]: 2 }` with `k: number` is
-            // `{ x: number; [x: number]: number; }`: `x` stays a PROPERTY and
-            // contributes nothing to the index value.
-            //
-            // The decline's stated reason was *"this port has no numeric-name
-            // predicate for a written name"*. It does: a written numeric name
-            // is normalised through `printing::normalise_number` at the mint
-            // above, so a member whose name is all digits is exactly the
-            // numeric case. When NO named member is numeric the filter removes
-            // nothing and the two agree by construction — which is the slice
-            // taken here.
-            //
-            // Still declining, each for its own reason:
-            //
-            // - **A numerically-named member beside a number key.** It joins
-            //   the index value union, and the union's ORDER against upstream's
-            //   is unverified. A wrong order prints a plausible wrong line.
-            // - **A STRING key beside named members.** Upstream's filter keeps
-            //   everything but symbol-named properties, so every named member
-            //   contributes to the value union — a different computation, not
-            //   this one.
-            //
-            //   **§859 measured it, and the refusal stands.** The account of
-            //   upstream above is exactly right — `getObjectLiteralIndexInfo`
-            //   (`checker.go:19721`) unions `getTypeOfSymbol` over every
-            //   non-symbol-named property — but the population is **tens of
-            //   lines**: a corpus query for wanted object types carrying both
-            //   an index signature and a named member returns 131 non-RIGHT
-            //   lines across 46 cases, of which only **18 are gaps** and most
-            //   of those are *declared* object types rather than the object
-            //   LITERALS this guard governs.
-            //
-            //   And it is not free. `Member` holds printed strings, not
-            //   `TypeId`s, so supplying upstream's union means threading a
-            //   parallel `(name, TypeId)` list through the eight-plus
-            //   `members.push`/`upsert_member` sites in this function. A
-            //   medium refactor of a delicate function for tens of lines is
-            //   the wrong trade.
-            //
-            //   **Reopen only with a re-run of that query**, and note that
-            //   `computedPropertyNames10_ES6` — the case that surfaced this —
-            //   also needs the mixed-key-kinds half below, so it will not fall
-            //   to this half alone.
-            // - **Mixed key kinds**, unchanged below: upstream emits one index
-            //   info per kind in string/number/symbol order and getting that
-            //   order wrong prints a plausible wrong line.
-            let numeric_named = members.iter().any(|member| match member {
-                Member::Property { name, .. } => {
-                    !name.is_empty() && name.bytes().all(|b| b.is_ascii_digit())
-                }
-                _ => true,
-            });
-            if !members.is_empty() && (index_values[0].0 != "number" || numeric_named) {
-                return error;
-            }
-            let key = index_values[0].0;
-            if index_values.iter().any(|(k, _)| *k != key) {
-                return error;
-            }
-            let values: Vec<_> = index_values.iter().map(|(_, value)| *value).collect();
-            let Some(value) = self.object_literal_index_value(&values) else {
-                return error;
-            };
-            // The parameter name is upstream's synthesized `x` — a real index
-            // signature prints the name its declaration wrote, but this one has
-            // no declaration (`newIndexInfo(..., declaration: nil, ...)`).
-            // §593: BEFORE the properties, not after them. Upstream's node
-            // builder emits an anonymous object's index signatures ahead of its
-            // properties — `{ [x: number]: any; p1: number; … }`
-            // (`computedPropertyNames49_ES5`/`50`, ES5 and ES6 halves) — and
-            // `get_type_from_type_literal` (`declared.rs`) already orders its
-            // own three groups `signatures, indexes, properties`. This road
-            // pushed the index onto the END, so the two spellings of one rule
-            // disagreed and this one printed the index last.
-            //
-            // Inserted before the first PROPERTY rather than at index 0, which
-            // keeps it behind any call/construct signature exactly as the
-            // TypeLiteral road's group order does.
-            let first_property = members
-                .iter()
-                .position(|member| matches!(member, Member::Property { .. }))
-                .unwrap_or(members.len());
-            members.insert(
-                first_property,
-                Member::Index {
-                    readonly: const_context,
-                    name: "x".to_string(),
-                    key: key.to_string(),
-                    value: self.member_text_at(value, node.node_id),
-                },
-            );
-            // §539: the same info, kept so the LOOKUP can consult it. Until
-            // now this signature existed only in the printed text — the type
-            // is a `Named` over the binder's `__object` symbol and
-            // `get_index_infos_of_type` recovers infos from a symbol's
-            // DECLARATIONS, which an object literal has none of. So
-            // `{ [this.bar()]: 1 }` printed `{ [x: number]: number; }` and
-            // `{ [this.bar()]: 1 }[0]` answered `errorType`.
-            //
-            // Symbol indexes are collected with their component declarations
-            // below, so copied indexes can retain native computed-name syntax.
-            minted_index_info = match key {
-                "number" => Some(crate::index_signatures::IndexInfo {
-                    components: None,
-                    declaration: None,
-                    key: self.intrinsics.number,
-                    value,
-                    readonly: const_context,
-                }),
-                "string" => Some(crate::index_signatures::IndexInfo {
-                    components: None,
-                    declaration: None,
-                    key: self.intrinsics.string,
-                    value,
-                    readonly: const_context,
-                }),
-                _ => None,
-            };
-        }
-        let Some(symbol_indexes) = self.object_literal_symbol_indexes(node, const_context) else {
+        let Some(indexes) = self.object_literal_indexes(&checked_members, const_context) else {
             return error;
         };
+        let mut index_members = Vec::new();
+        for index in &indexes {
+            let Some(rendered) = self.index_info_members(index) else {
+                return error;
+            };
+            index_members.extend(rendered);
+        }
         // getNamedMembers (checker.go:22047) sorts by the originating
         // declaration, including replaced and merged spread properties.
         if property_only && typed_properties.len() == members.len() {
@@ -1898,6 +1730,8 @@ impl Checker<'_, '_> {
             });
             members = crate::callable_expandos::property_members(&typed_properties);
         }
+        index_members.extend(members);
+        let members = index_members;
         let printed = render_object_type(&members);
         // The binder gives an object literal its own `__object` symbol, whose
         // members table is where a property access on this type looks — the same
@@ -1934,78 +1768,94 @@ impl Checker<'_, '_> {
         self.object_literal_members.insert(minted, members.clone());
         // §539: keyed by the minted type id, so the element-access lookup
         // reaches the signature this literal prints.
-        let mut indexes: Vec<_> = minted_index_info.into_iter().collect();
-        indexes.extend(symbol_indexes);
         self.object_literal_index_infos.insert(minted, indexes);
         minted
     }
 
-    /// getObjectLiteralIndexInfo (checker.go:19721): symbol components are
-    /// distinct declarations, including repeated names, outside propertiesTable.
-    fn object_literal_symbol_indexes(
+    /// getObjectLiteralIndexInfo (checker.go:19721): filter the complete
+    /// propertiesArray independently for each requested primitive key kind.
+    fn object_literal_indexes(
         &mut self,
-        node: &ObjectLiteralExpression<'_>,
+        checked_members: &[(tsr_ast::NodeId, TypeId)],
         readonly: bool,
     ) -> Option<Vec<crate::index_signatures::IndexInfo>> {
-        let mut components = Vec::new();
-        let mut values = Vec::new();
-        let mut has_computed_symbol = false;
-        for member in node.properties {
-            let name = match member {
-                tsr_ast::ObjectLiteralElementLike::PropertyAssignment(node) => node.name,
-                tsr_ast::ObjectLiteralElementLike::MethodDeclaration(node) => node.name,
-                tsr_ast::ObjectLiteralElementLike::GetAccessorDeclaration(node) => node.name,
-                tsr_ast::ObjectLiteralElementLike::SetAccessorDeclaration(node) => node.name,
-                _ => continue,
+        let mut needed = [false; 3];
+        let mut properties = Vec::with_capacity(checked_members.len());
+        for &(declaration, value) in checked_members {
+            let name = match self.node_map.get(declaration)? {
+                tsr_ast::Node::PropertyAssignment(node) => node.name,
+                tsr_ast::Node::ShorthandPropertyAssignment(node) => node.name,
+                tsr_ast::Node::MethodDeclaration(node) => node.name,
+                tsr_ast::Node::GetAccessorDeclaration(node) => node.name,
+                tsr_ast::Node::SetAccessorDeclaration(node) => node.name,
+                _ => return None,
             };
-            let tsr_ast::PropertyName::ComputedPropertyName(computed) = name else { continue };
-            let key = self.check_expression(computed.expression?);
-            let flags = self.store.get(key).flags;
-            if !flags.intersects(TypeFlags::ES_SYMBOL_LIKE) {
+            let (symbol, numeric, component) =
+                if let tsr_ast::PropertyName::ComputedPropertyName(computed) = name {
+                    let key = self.check_expression(computed.expression?);
+                    match self.computed_member_index_key(computed) {
+                        ComputedNameKey::Index("string") => needed[0] = true,
+                        ComputedNameKey::Index("number") => needed[1] = true,
+                        ComputedNameKey::Index("symbol") => needed[2] = true,
+                        _ => {}
+                    }
+                    let flags = self.store.get(key).flags;
+                    let symbol = flags.intersects(TypeFlags::ES_SYMBOL)
+                        || self.is_type_assignable_to(key, self.intrinsics.es_symbol);
+                    let numeric = flags.intersects(TypeFlags::NUMBER_LIKE)
+                        || self.is_type_assignable_to(key, self.intrinsics.number);
+                    (symbol, numeric, Some(declaration))
+                } else {
+                    let numeric = property_name_text(&name)
+                        .is_some_and(crate::index_signatures::is_numeric_literal_name);
+                    (false, numeric, None)
+                };
+            properties.push((symbol, numeric, component, value));
+        }
+        let mut indexes = Vec::new();
+        for (kind, needed) in needed.into_iter().enumerate() {
+            if !needed {
                 continue;
             }
-            has_computed_symbol |= !flags.intersects(TypeFlags::UNIQUE_ES_SYMBOL);
-            let declaration = member.node_id()?;
-            let symbol = self.binder.symbol_of(declaration)?;
-            let value = self.get_type_of_symbol(symbol);
-            if value == self.intrinsics.error {
-                return None;
+            let mut values = Vec::new();
+            let mut components = Vec::new();
+            for &(symbol, numeric, component, value) in &properties {
+                if match kind {
+                    0 => !symbol,
+                    1 => numeric,
+                    _ => symbol,
+                } {
+                    values.push(value);
+                    components.extend(component);
+                }
             }
-            components.push(declaration);
-            values.push(value);
+            let value = if values.is_empty() {
+                self.intrinsics.undefined
+            } else {
+                self.object_literal_index_value(&values)?
+            };
+            let components = if components.is_empty() {
+                None
+            } else {
+                let id = crate::index_signatures::IndexComponentsId(self.index_components.len());
+                self.index_components.push(components);
+                Some(id)
+            };
+            indexes.push(crate::index_signatures::IndexInfo {
+                components,
+                declaration: None,
+                key: [self.intrinsics.string, self.intrinsics.number, self.intrinsics.es_symbol]
+                    [kind],
+                value,
+                readonly,
+            });
         }
-        if !has_computed_symbol {
-            return Some(Vec::new());
-        }
-        let value = self.object_literal_index_value(&values)?;
-        let components_id = crate::index_signatures::IndexComponentsId(self.index_components.len());
-        self.index_components.push(components);
-        Some(vec![crate::index_signatures::IndexInfo {
-            components: Some(components_id),
-            declaration: None,
-            key: self.intrinsics.es_symbol,
-            value,
-            readonly,
-        }])
+        Some(indexes)
     }
 
     /// getObjectLiteralIndexInfo unions component values with subtype reduction.
     fn object_literal_index_value(&mut self, values: &[TypeId]) -> Option<TypeId> {
-        let (callable, plain): (Vec<_>, Vec<_>) = values
-            .iter()
-            .copied()
-            .partition(|candidate| self.signature_types.contains_key(candidate));
-        let mut kept = if plain.len() > 1 {
-            let reduced = self.union_with_subtype_reduction(&plain)?;
-            match &self.store.get(reduced).data {
-                TypeData::Union { types, .. } => types.clone(),
-                _ => vec![reduced],
-            }
-        } else {
-            plain
-        };
-        kept.extend(callable);
-        Some(self.get_union_type(&kept))
+        self.union_with_subtype_reduction(values)
     }
 
     /// Retain the already-checked method/accessor value beside ordinary batch
@@ -2016,6 +1866,7 @@ impl Checker<'_, '_> {
         member: &tsr_ast::ObjectLiteralElementLike<'_>,
         readonly: bool,
         properties: &mut Vec<AnonymousProperty>,
+        checked_members: &mut Vec<(tsr_ast::NodeId, TypeId)>,
     ) -> bool {
         let (name, method) = match member {
             tsr_ast::ObjectLiteralElementLike::MethodDeclaration(node) => (node.name, true),
@@ -2029,6 +1880,26 @@ impl Checker<'_, '_> {
         let Some(symbol) = member.node_id().and_then(|id| self.binder.symbol_of(id)) else {
             return false;
         };
+        let Some(id) = member.node_id() else {
+            return false;
+        };
+        // checkObjectLiteralMethod creates a transient property with this
+        // declaration's checked type, independently of duplicate binder names.
+        let value = if method {
+            let Some(signature) = self.get_signature_from_declaration(id) else {
+                return false;
+            };
+            let printed = self.signature_to_string(&signature);
+            let value = self.store.new_anonymous(TypeFlags::OBJECT, printed, symbol, true);
+            self.signature_types.insert(value, vec![signature]);
+            value
+        } else {
+            self.get_type_of_symbol(symbol)
+        };
+        if value == self.intrinsics.error {
+            return false;
+        }
+        checked_members.push((id, value));
         let (name, printed_name) =
             if let tsr_ast::PropertyName::ComputedPropertyName(computed) = name {
                 match self.computed_member_index_key(computed) {
@@ -2049,10 +1920,6 @@ impl Checker<'_, '_> {
                 let printed = self.callable_property_name(symbol, &key);
                 (key, printed)
             };
-        let value = self.get_type_of_symbol(symbol);
-        if value == self.intrinsics.error {
-            return false;
-        }
         let property = AnonymousProperty {
             accessor_write: self.accessor_write_parameter(symbol),
             origin: Some(symbol),
@@ -2463,13 +2330,18 @@ fn expression_is_a_type_assertion(expression: tsr_ast::Expression<'_>) -> bool {
 /// `{ a: string; b: number; }`. A `push` would print `a` twice, which is not a
 /// type upstream can produce.
 ///
-/// Only `Property` members carry names, so only they can collide; a signature
-/// or index member is always appended.
+/// Named properties and methods replace the previous value in insertion order.
+/// Call, construct, accessor and index signatures have no replaceable key here.
 fn upsert_member(members: &mut Vec<Member>, member: Member) {
-    if let Member::Property { name, .. } = &member
-        && let Some(existing) = members.iter_mut().find(
-            |held| matches!(held, Member::Property { name: held_name, .. } if held_name == name),
-        )
+    let name = match &member {
+        Member::Property { name, .. } | Member::Method { name, .. } => Some(name),
+        _ => None,
+    };
+    if let Some(name) = name
+        && let Some(existing) = members.iter_mut().find(|held| match held {
+            Member::Property { name: held, .. } | Member::Method { name: held, .. } => held == name,
+            _ => false,
+        })
     {
         *existing = member;
         return;
