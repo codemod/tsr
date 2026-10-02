@@ -24,26 +24,27 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-10-02
 
-Measured on **`7ef88ba8`** in an isolated checkout: **455,928/478,855 assertions
-(95.21%)**, **6,917/9,538 complete cases (72.52%)**. The 99% target requires
-474,067 correct assertions; **18,139 remain**. Denominator and pinned oracle
-unchanged. Aligned verdicts: **474,243 total; 455,928 right; 2,768 gap; 15,547 wrong**.
+Measured on **`3d546aa9`** in an isolated checkout: **456,001/478,855 assertions
+(95.23%)**, **6,923/9,538 complete cases (72.58%)**. The 99% target requires
+474,067 correct assertions; **18,066 remain**. Denominator and pinned oracle
+unchanged. Aligned verdicts: **474,243 total; 456,001 right; 2,743 gap; 15,499 wrong**.
 Binder retains its verified **8,497/8,497 (100%)** result at aab165d8;
 other suites below retain historical measurements.
 
-This unit adds **39 matching assertions and two complete cases**, with **zero
-RIGHT losses and zero GAP-to-WRONG rows** relative to cd658415: 32 WRONG-to-RIGHT
-and seven GAP-to-RIGHT. Six already-WRONG rows change and remain incorrect.
-[Fresh signatures](docs/architecture/checker-99-fresh-signatures.md) records fresh
-parameter identities and constraint mappers, recursion guards, same-origin erasure,
-canonical targets, computed-any indexes, silentNever yield contexts and deferred
-conditional roots. Eight regression tests pin the dependencies. All 213 release
+This unit adds **73 matching assertions and six complete cases**, with **zero
+RIGHT losses and zero GAP-to-WRONG rows** relative to 7ef88ba8: 48 WRONG-to-RIGHT
+and 25 GAP-to-RIGHT. Sixty-two already-WRONG rows change and remain incorrect.
+[Contextual mappers](docs/architecture/checker-99-contextual-mappers.md) records
+recursive constraint/default resolution, preserved object templates, signature
+mapping, unfixed identities, contextual this, non-inferrable early signatures and
+callback arity recovery. Nine regression tests pin the dependencies. All 214 release
 workspace result blocks, clippy, formatting and 3,329 anchors pass; committed
-verdict and source hash match the candidate. Fresh depend has 503 non-gapping
-roots, 210 cycles, zero depth caps and 3,583 walked gaps; C3 balances while C1/C4
-remain stale (tsr-6.29). The broader recursive contextual mapper remains deferred.
-Seven isolated mutations compile and fail their intended assertions; restored
-source hash matches the committed code. The 99% goal and tsr-8 remain active.
+verdict and source hash match the candidate. Fresh depend has 499 non-gapping
+roots, 210 cycles, zero depth caps and 3,554 walked gaps; C3 balances while C1/C4
+remain stale (tsr-6.29). Native live context state and nested reverse-mapping fix
+order remain incomplete. Nine isolated mutations fail their intended assertions;
+two narrower constraint mutations survive and are recorded as test-attribution
+limits. Restored source hashes match the commit. The 99% goal and tsr-8 remain active.
 
 ### Previous whole-suite measurement — historical
 
@@ -1078,6 +1079,7 @@ Per-crate, by what the conformance suites actually assert — not by what exists
 
 | subsystem | state | evidence |
 |---|---|---|
+| contextual inference mappers | **recursive constraints, preserved templates and mapped callback signatures** | 3d546aa9: +73 matches, +6 complete cases, zero RIGHT losses/new WRONG rows; nine regression tests; [evidence](docs/architecture/checker-99-contextual-mappers.md) |
 | retained generic signatures | **fresh identities, lazy constraints and native comparison prerequisites** | 7ef88ba8: +39 matches, +2 complete cases, zero RIGHT losses/new WRONG rows; eight regression tests; [evidence](docs/architecture/checker-99-fresh-signatures.md) |
 | generic target assignability | **primitive/unknown rejection and deferred generic extends operands** | cd658415: +14 matches, +2 complete cases, zero RIGHT losses/new WRONG rows; 14 changed already-WRONG rows retained as limits; [evidence](docs/architecture/checker-99-generic-assignability.md) |
 | contextual parameter initializers | **native initializer widening and optional/default comparison** | 9afcc9f3: +2 matches, zero RIGHT losses/new WRONG rows; 18 native strict/non-strict outcomes; [evidence](docs/architecture/checker-99-contextual-initializers.md) |
@@ -1253,7 +1255,19 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-### Current priorities at `7ef88ba8` — 2026-10-02
+### Current priorities at `3d546aa9` — 2026-10-02
+
+Continue toward 99%: 18,066 matching assertions remain. Recursive contextual
+constraint mapping now lands with fresh signature identities and its measured
+dependencies. Next investigate native live mapper invalidation and nested reverse
+inference: 62 already-WRONG rows change but remain wrong in reverseMappedPartiallyInferableTypes,
+intraExpressionInferences and const mapped callback metadata. Invalid Promise.try
+callback printing still misses U[0], though the call now recovers Promise<unknown>.
+Native anonymous/tuple/homomorphic-mapped recursion origins, complete relation
+caching, permissive/restrictive conditional instantiation and generic-name display
+remain incomplete. tsr-8 retains these and the optional-undefined flatMap residue.
+
+### Previous priorities at `7ef88ba8` — 2026-10-02
 
 Continue toward 99%: 18,139 matching assertions remain. Fresh retained signature
 identities and their measured prerequisites now land without regressions. Revisit
@@ -4262,6 +4276,20 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+### Contextual mapper dependencies at `3d546aa9`
+
+The accepted unit gains 73 with zero RIGHT losses and zero GAP-to-WRONG. Recursive
+mapping alone gained 30 but lost four mapped5 rows through early object-template
+instantiation. The first signature-mapping draft gained 54 but lost 57 RIGHT rows
+and introduced seven GAP-to-WRONG. Apparent member reads, contextual this, unfixed
+identity entries, const queries, filtered key serving and callable intersections
+recover those losses. The later draft gained 70 but introduced four GAP-to-WRONG;
+non-inferrable early signatures and callback arity recovery remove all four.
+All 62 remaining changed WRONG rows remain explicitly incorrect. These measurements
+supersede the broader contextual-mapper refusal at the preceding checkpoint;
+the earlier numbers below remain evidence for their earlier trees.
+[Evidence and limitations](docs/architecture/checker-99-contextual-mappers.md).
 
 ### Fresh signature dependencies at `7ef88ba8`
 
@@ -11472,3 +11500,5 @@ that were true of a different population than the one they were quoted about.
 | 2026-09-29 | `591e34a` | **66.84%** | **6,375** | **§958 — the all-rests tuple reduction: BUILT, +13 net against 10 `RIGHT->WRONG`, REFUSED and reverted (docs only).** §957 named `[...string[], ...number[]]` as the next tuple item and said it needed element flags. **It does not — it is a REDUCTION — and the reduction is correct**: a tuple made only of rests over array-likes IS an array of the union (`createNormalizedTupleType`), so `[...boolean[]]` is `boolean[]` (11 rows in `genericRestParameters2`), `[...string[], ...Array<number>]` is `(string \| number)[]` (V16–V18), `[...any]` is `any[]`. It also composed with §956's naming rule exactly as intended — `type T03 = [...string[]]` still prints `T03` while `V16` prints the structure, differing only in §956's reference test. **+9 `GAP->RIGHT` +14 `WRONG->RIGHT` against 10 `RIGHT->WRONG`**, `right` 443,743 → 443,756 (net +13), every transition in `genericRestParameters2` — and **the 10 losses are ONE row at ten reference sites**: `>f12 : (a: number, b: string, ...x: [...boolean[]]) => void` became `...x: boolean[]`. **Those were right FOR THE RIGHT REASON**, so no right-by-coincidence override is available and §620 stands. **The finding, worth more than the 13 lines: this port has NO SEAM between a tuple's TYPE and its SPELLING.** Upstream holds both at once — the type is `boolean[]` and the node builder reuses the written node at an annotation (f11's rest has a FIXED element and expands positionally; f12's is all-rests and keeps its spelling) — whereas here **the print-only mint is the carrier of both**, its text being the spelling and its identity the type, so reducing it necessarily takes the spelling with it. ***Two fixes were attempted and neither moved the score by a single line, because both aimed at the wrong mechanism***: registering the text in `qualified_written_text` at the reduction site, then adding a direct all-rests arm to `written_annotation_text`. A parameter's `written_text` is `None` on this road — `parameter_of` never populates it from an annotation — and the spelling had been reaching the printer through `render()` of the mint's own text all along. *I diagnosed "the written-text channel is not firing" twice when the channel was never involved.* **Reopening condition is real work, not a tweak**: give a tuple a spelling separate from its identity (a `written_spelling` table, or `parameter_of` populating `written_text` for tuple annotations); then the type becomes the array, the annotation keeps its spelling, and the 20 wins come with no losses. **Same shape as §947.2's lesson — resolve the type, do not move what the reference prints — and the THIRD time this session it has decided an entry** (§947.2, §953, §958); §953 had `written_annotation_text` to hang the spelling on and this road does not. **One correction it forced on §956, applied there**: that naming test read `!variadic_tuple_nodes.contains_key(&structural)`, a correct proxy only while a rest-bearing body had two outcomes — the reduction adds a third, and the right question is `tuple_element_lists.contains_key(&structural)`. |
 
 | 2026-10-02 | `7ef88ba8` | **95.21%** | **6,917/9,538** | **Fresh retained generic signatures and comparison prerequisites: +39 assertions (+32 W-to-R, +7 G-to-R), +2 complete cases, zero RIGHT losses/new WRONG rows.** Isolated full verdict matches candidate byte-for-byte: 455,928/478,855; 2,768 aligned gaps and 15,547 wrong. Eight regression tests, all 213 release workspace blocks, clippy and 3,329 anchors pass. Six changed already-WRONG flatMap rows retain optional-undefined residue. Fresh depend: 503 non-gapping roots, 210 cycles, zero depth caps, 3,583 walked gaps; C3 balances, C1/C4 stale (tsr-6.29). [Evidence](docs/architecture/checker-99-fresh-signatures.md); tsr-8 remains active with 18,139 matches to 99%. |
+
+| 2026-10-02 | `3d546aa9` | **95.23%** | **6,923/9,538** | **Recursive contextual inference mappers: +73 assertions (+48 W-to-R, +25 G-to-R), +6 complete cases, zero RIGHT losses/new WRONG rows.** Isolated full verdict matches candidate byte-for-byte: 456,001/478,855; 2,743 aligned gaps and 15,499 wrong. Nine regression tests, all 214 release workspace blocks, clippy and 3,329 anchors pass. Sixty-two changed already-WRONG rows retain nested reverse-mapping and const metadata residue. Fresh depend: 499 non-gapping roots, 210 cycles, zero depth caps, 3,554 walked gaps; C3 balances, C1/C4 stale (tsr-6.29). [Evidence](docs/architecture/checker-99-contextual-mappers.md); tsr-8 remains active with 18,066 matches to 99%. |

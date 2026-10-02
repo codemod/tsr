@@ -104,3 +104,48 @@ strengthened repeated mapped assertions. The implementation reuses the existing
 constraint resolver, contextual intersection collector and overload-recovery path;
 no behavior-preserving production simplification was needed. Committed-checkout
 verification and isolated mutation results will be recorded below after they run.
+
+Committed verification at 3d546aa9 in /tmp/tsr-99-context-verify matches the full
+candidate verdict byte-for-byte. Source hash:
+1a3165837c4736d25892fe613231d463c9e6292db62f13304830a2fea8da9180.
+Coverage is 456,001/478,855 RIGHT (95.23%) and 6,923/9,538 complete cases (72.58%),
+leaving 18,066 matches to 99%. All 214 release workspace result blocks, clippy
+and 3,329 anchors pass in both checkouts. Fresh depend has 499 non-gapping roots,
+210 cycles, zero depth caps and 3,554 walked gaps; C3 balances and C1/C4 remain
+stale (tsr-6.29). The committed coverage snapshot comes from this isolated run.
+The primary-thread review receipt is
+/tmp/compound-engineering-501/ce-code-review/contextual-mappers/review.json.
+
+Nine isolated mutations compile and fail their intended assertions: signature
+mapping (contextual this), missing partial-map identities (nested never callback),
+object-template preservation (all seven mapped contexts), const query guards,
+intrinsic-object empty signatures, return-only signature parameter exclusion,
+callback arity recovery, this dispatch and filtered-key serving. Each mutation
+restores its file; final source hashes equal the committed hash. The const guards
+were rerun with separate uniquely anchored replacements for the signature wrapper
+and contextual member helper. Scripts/logs use /tmp/tsr-99-context-mutations.py,
+/tmp/tsr-99-context-mutations-tail.log and
+/tmp/tsr-99-context-mutations-signature.py (with .log sibling); individual logs use
+/tmp/tsr-99-context-mutation-{name}.log.
+
+Two narrower recursive-constraint mutations survived the dependent-constraint
+test: restoring the old inferred_type_from_info helper, and bypassing constraint
+instantiation inside the resolver. Other mapper paths still supply these contexts.
+Neither is claimed as an isolated falsifier of recursion. Likewise, bypassing
+signature mapping survived the initializer test; contextual this is the assertion
+that actually fails. These results qualify the test attribution, not the full
+73-match committed corpus delta.
+
+A complete baseline counterfactual replaces all six changed production files with
+3f184ca8 while keeping the new tests: five tests fail and four pass. The failures
+cover dependent constraints, contextual initializers, mapped contexts, higher-order
+rest inference and invalid-call recovery. The script restores the committed hash
+in a finally block. This verifies that the tests distinguish the complete change
+from the old compiler even where narrower mutations can be compensated by other
+mapper paths. Script and logs: /tmp/tsr-99-context-baseline-tests.py and
+/tmp/tsr-99-context-baseline-tests-summary.log.
+
+The restored committed compiler passes all nine tests again. Running that test
+binary with the corpus absent produces explicit skip notices and nine passing
+tests; no compile-time fixture inclusion is required. Logs use
+/tmp/tsr-99-context-restored-tests.log and /tmp/tsr-99-context-absent-corpus.log.
