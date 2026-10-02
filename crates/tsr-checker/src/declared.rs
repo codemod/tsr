@@ -6406,7 +6406,12 @@ impl<'a> Checker<'a, '_> {
                 if complete {
                     self.instantiation_depth += 1;
                     self.alias_evaluation_bindings.push(frame);
-                    let evaluated = self.get_type_from_type_node(body);
+                    // Recursive aliases (`ramdaToolsNoInfinite2`) nest here up
+                    // to the 100-level guard, ~27 KiB of debug stack per level:
+                    // more than a default 2 MiB thread has. Grow on demand
+                    // (ADR-0030) rather than depend on the caller's stack.
+                    let evaluated =
+                        tsr_core::stack::ensure_sufficient(|| self.get_type_from_type_node(body));
                     self.alias_evaluation_bindings.pop();
                     self.instantiation_depth -= 1;
                     if evaluated != error {
