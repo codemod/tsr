@@ -717,6 +717,15 @@ impl Relater<'_, '_, '_> {
         {
             return Ternary::NotRelated;
         }
+        // A primitive or unknown source is not assignable to an arbitrary
+        // target parameter (structuredTypeRelatedToWorker, relater.go). The
+        // simple relation above already handles any/never and loose nullability.
+        if t.contains(TypeFlags::TYPE_PARAMETER)
+            && s.intersects(TypeFlags::PRIMITIVE | TypeFlags::UNKNOWN)
+            && matches!(self.relation, Relation::Assignable)
+        {
+            return Ternary::NotRelated;
+        }
         // A concrete object cannot inhabit an arbitrary target parameter.
         // Generic mapped types have a separate target-parameter relation
         // (relater.go:3423), which remains outside this arm.

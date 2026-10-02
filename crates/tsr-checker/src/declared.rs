@@ -5876,7 +5876,13 @@ impl<'a> Checker<'a, '_> {
                 // So the decline belongs on the SUBSTITUTED check being a union
                 // or `never`, not on the node — and that is a different build
                 // with its own measurement. The 2 stay as stated residue.
-                if extends != error && !self.mentions_any_type_parameter(check, 2) {
+                // getConditionalType first excludes deferred extends operands;
+                // a definite ordinary relation to a generic target cannot pick
+                // a branch that must remain open for later instantiations.
+                if extends != error
+                    && !self.conditional_extends_is_generic(extends)
+                    && !self.mentions_any_type_parameter(check, 2)
+                {
                     let extends_is_any_or_unknown = self
                         .store
                         .get(extends)
@@ -5937,6 +5943,21 @@ impl<'a> Checker<'a, '_> {
             }
         }
         result
+    }
+
+    /// getGenericObjectFlags/isDeferredType (checker.go): unions and
+    /// intersections inherit generic flags from their constituents. Structured
+    /// references containing a parameter are not generic by that fact alone.
+    fn conditional_extends_is_generic(&self, id: TypeId) -> bool {
+        if let crate::types::TypeData::Union { types, .. }
+        | crate::types::TypeData::Intersection { types, .. } = &self.store.get(id).data
+        {
+            return types.iter().any(|&part| self.conditional_extends_is_generic(part));
+        }
+        self.store
+            .get(id)
+            .flags
+            .intersects(TypeFlags::INSTANTIABLE_NON_PRIMITIVE | TypeFlags::INDEX)
     }
 
     fn distributive_conditional_parameter(&self, mut node: TypeNode<'a>) -> Option<SymbolId> {

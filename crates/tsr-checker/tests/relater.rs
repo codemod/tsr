@@ -29,6 +29,106 @@ use tsr_checker::{Checker, TypeId};
 use tsr_core::Arena;
 
 #[test]
+fn primitive_values_cannot_inhabit_an_arbitrary_type_parameter() {
+    use tsr_checker::relater::{Relation, Ternary};
+    for strict in [false, true] {
+        for source in [
+            "string",
+            "number",
+            "boolean",
+            "bigint",
+            "symbol",
+            "\"literal\"",
+            "42",
+            "true",
+            "1n",
+            "null",
+            "undefined",
+            "void",
+        ] {
+            with_checker(
+                &format!("function f<T>(source:{source}, target:T) {{}}"),
+                |checker, statements| {
+                    checker.set_strict_null_checks(strict);
+                    let Statement::FunctionDeclaration(function) = statements[0] else {
+                        panic!("function")
+                    };
+                    let from =
+                        checker.get_type_from_type_node(function.parameters[0].r#type.unwrap());
+                    let to =
+                        checker.get_type_from_type_node(function.parameters[1].r#type.unwrap());
+                    let expected = if !strict && matches!(source, "null" | "undefined") {
+                        Ternary::Related
+                    } else {
+                        Ternary::NotRelated
+                    };
+                    assert_eq!(
+                        checker.relate_ternary(from, to, Relation::Assignable),
+                        expected,
+                        "{source}, strict={strict}"
+                    );
+                },
+            );
+        }
+    }
+}
+
+#[test]
+fn unknown_does_not_inhabit_a_parameter_even_when_it_satisfies_the_constraint() {
+    use tsr_checker::relater::{Relation, Ternary};
+    for strict in [false, true] {
+        for bound in ["", " extends string", " extends unknown", " extends any", " extends never"] {
+            with_checker(
+                &format!("function f<T{bound}>(source:unknown, target:T) {{}}"),
+                |checker, statements| {
+                    checker.set_strict_null_checks(strict);
+                    let Statement::FunctionDeclaration(function) = statements[0] else {
+                        panic!("function")
+                    };
+                    let from =
+                        checker.get_type_from_type_node(function.parameters[0].r#type.unwrap());
+                    let to =
+                        checker.get_type_from_type_node(function.parameters[1].r#type.unwrap());
+                    assert_eq!(
+                        checker.relate_ternary(from, to, Relation::Assignable),
+                        Ternary::NotRelated
+                    );
+                    assert_eq!(
+                        checker.relate_ternary(to, from, Relation::Assignable),
+                        Ternary::Related
+                    );
+                    assert_eq!(
+                        checker.relate_ternary(from, to, Relation::Comparable),
+                        Ternary::Related
+                    );
+                },
+            );
+        }
+    }
+}
+
+#[test]
+fn any_and_never_keep_their_type_parameter_assignability() {
+    use tsr_checker::relater::{Relation, Ternary};
+    for source in ["any", "never"] {
+        with_checker(
+            &format!("function f<T>(source:{source}, target:T) {{}}"),
+            |checker, statements| {
+                let Statement::FunctionDeclaration(function) = statements[0] else {
+                    panic!("function")
+                };
+                let from = checker.get_type_from_type_node(function.parameters[0].r#type.unwrap());
+                let to = checker.get_type_from_type_node(function.parameters[1].r#type.unwrap());
+                assert_eq!(
+                    checker.relate_ternary(from, to, Relation::Assignable),
+                    Ternary::Related
+                );
+            },
+        );
+    }
+}
+
+#[test]
 fn subtype_follows_parameter_constraints_and_rejects_the_reverse() {
     use tsr_checker::relater::{Relation, Ternary};
     with_checker("function f<T, U extends T>(x:T, y:U) {}", |checker, statements| {
