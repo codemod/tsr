@@ -24,23 +24,24 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-10-01
 
-Measured on **`39082049`** in an isolated checkout: **455,237/478,855 assertions
-(95.07%)**, **6,852/9,538 complete cases (71.84%)**. The 99% target requires
-474,067 correct assertions; **18,830 remain**. Denominator and pinned oracle
-unchanged. Aligned verdicts: **474,243 total; 455,237 right; 2,879 gap; 16,127 wrong**.
+Measured on **`be4e7f41`** in an isolated checkout: **455,326/478,855 assertions
+(95.09%)**, **6,858/9,538 complete cases (71.90%)**. The 99% target requires
+474,067 correct assertions; **18,741 remain**. Denominator and pinned oracle
+unchanged. Aligned verdicts: **474,243 total; 455,326 right; 2,875 gap; 16,042 wrong**.
 Binder retains its verified **8,497/8,497 (100%)** result at aab165d8;
 other suites below retain historical measurements.
 
-This unit adds **130 matching assertions** and **13 complete cases**, with
-**zero RIGHT losses** relative to f2661fe5: 99 WRONG→RIGHT and 31 GAP→RIGHT.
-Three GAP→WRONG, three WRONG→GAP and seven changed-wrong rows remain tracked.
-[Type-level spread folding](docs/architecture/checker-99-spread-folds.md) records
-ordinary property batches, union distribution, generic intersections, repeated
-and trailing overrides, and explicit mixed-member/index limitations. Two new
-pipeline tests cover eleven native outcomes. All 203 release workspace result
-blocks, clippy, 3,342 anchors and the refreshed snapshot support this checkpoint.
-Committed verdict and source hash match the frozen candidate. The broader 99%
-goal and tsr-8 remain active.
+This unit adds **89 matching assertions** and **six complete cases**, with
+**zero RIGHT losses** relative to 39082049: 88 WRONG→RIGHT and one GAP→RIGHT.
+Three GAP→WRONG and two changed-wrong rows remain tracked.
+[Semantic spread members](docs/architecture/checker-99-spread-members.md) records
+method-symbol reuse, instantiated source members, class/private suppression,
+set-only accessors, index provenance, common-key merging and computed batches.
+Eighteen native outcomes pass in the clean checkout. All 204 release workspace
+result blocks, clippy, 3,341 anchors and the refreshed snapshot support this
+checkpoint. Committed verdict and source hash match the frozen candidate. Three
+isolated method/index/private-suppression mutations fail the expected assertions;
+production sources are restored byte-for-byte. The 99% goal and tsr-8 remain active.
 
 ### Previous whole-suite measurement — historical
 
@@ -1075,6 +1076,7 @@ Per-crate, by what the conformance suites actually assert — not by what exists
 
 | subsystem | state | evidence |
 |---|---|---|
+| spread members and indexes | **semantic members and native declaration provenance** | be4e7f41: +89 matches, zero RIGHT losses, +6 complete cases; method flags, class visibility, set-only accessors, computed batches and copied/merged index names; [evidence](docs/architecture/checker-99-spread-members.md) |
 | spread type fold | **ordinary batches distribute unions and preserve generic intersections** | 39082049: +130 matches, zero RIGHT losses, +13 complete cases; shared repeated/trailing fold; mixed members and index provenance remain; [evidence](docs/architecture/checker-99-spread-folds.md) |
 | spread member declarations | **provenance and native ordering survive semantic images** | f2661fe5: +43 matches, zero RIGHT losses, +6 complete cases; indirect mapped modifiers and selected-key boundaries; [evidence](docs/architecture/checker-99-spread-origins.md) |
 | literal targets and optional spreads | **native presence, merge and validity rules** | 8e234201: +101 matches, zero RIGHT losses, +10 complete cases; [evidence](docs/architecture/checker-99-literal-targets-spreads.md) |
@@ -1239,7 +1241,24 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-### Current priorities at `39082049` — 2026-10-01
+### Current priorities at `be4e7f41` — 2026-10-01
+
+Continue toward 99% coverage: 18,741 matching assertions remain. Semantic source
+members, method flags, class visibility, set-only accessors and index provenance
+gain 89 matches with no RIGHT losses. Computed property batches now use the shared
+fold. Next capture every method/accessor written directly in a literal batch so
+the legacy flat collector can be removed. AnonymousProperty now carries Method;
+ordinary batch capture still excludes mixed literal members. Retain source-order
+checking, resolved value types, accessor pairing and last-write declaration origins.
+Unresolved generic Omit aliases must not be interpreted as empty binder tables;
+resolve their semantic mapped bodies. Symbol-index construction and original
+optional-symbol serialization remain. Three exposed wrong rows retain JS contextual
+named-key inference; two changed-wrong rows retain array optional-parameter/mapped
+member displays. All remain in tsr-8; the corpus denominator is unchanged.
+Fresh depend: 512 non-gapping roots, 214 cycles, zero depth-cap hits and 3,712
+walked gaps. C3 balances; C1/C4 remain stale (tsr-6.29), not coverage evidence.
+
+### Previous priorities at `39082049` — 2026-10-01
 
 Continue toward 99% coverage: 18,830 matching assertions remain. The ordinary
 property-batch getSpreadType fold gains 130 matches with no RIGHT losses. Next
@@ -4115,6 +4134,15 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+### Semantic spread members at `be4e7f41`
+
+The first candidate gained 85 RIGHT with no RIGHT losses, but quoted computed
+symbol names and treated unresolved alias member tables as empty. Declaration-name
+resolution and cycle-guarded alias-body resolution restore those boundaries. Final
++89 RIGHT has zero losses, three GAP→WRONG and two changed-wrong array displays.
+Generic Omit remains an explicit unresolved alias, not a successful empty object.
+See [evidence](docs/architecture/checker-99-spread-members.md).
 
 ### Spread fold at `39082049`
 
@@ -10204,6 +10232,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
+| 2026-10-01 | `be4e7f41` | **71.90%** | **6,858** | **455,326/478,855 assertions (95.09%).** +89 since 39082049, zero RIGHT losses;88W→R,1G→R,3G→W,2changedwrong. | Semantic spread members, method flags, class visibility, set-only accessors and index provenance/common keys. Eighteen native outcomes;204workspaceblocks,clippy,3341anchors;isolated verdict/source match.18,741 remain to99%. |
 | 2026-10-01 | `39082049` | **71.84%** | **6,852** | **455,237/478,855 assertions (95.07%).** +130 since f2661fe5, zero RIGHT losses;99W→R,31G→R,3G→W,3W→G,7changedwrong. | Whole-type spread fold for ordinary batches, union distribution and generic intersections; repeated/trailing overrides. Eleven native outcomes;203workspaceblocks,clippy,3342anchors;isolated verdict/source match.18,830 remain to99%. |
 | 2026-10-01 | `f2661fe5` | **71.70%** | **6,839** | **455,107/478,855 assertions (95.04%).** +43 since 8e234201, zero RIGHT losses;41W→R,2G→R,13changedwrong. | Declaration provenance, spread order, indirect mapped modifiers and selected-key boundaries. Two new/three legacy tests;202workspaceblocks,clippy,3342anchors;isolated verdict/source match.18,960 remain to99%. |
 | 2026-10-01 | `8e234201` | **71.64%** | **6,833** | **455,064/478,855 assertions (95.03%).** +101 since 4aad09e1, zero RIGHT losses; 93W→R,8G→R,2G→W,25 changed wrong. | Literal target named properties, optional spread merges, partial unions and native operand validity. Four native tests; 201 workspace result blocks, clippy,3,342 anchors; isolated verdict/source match and refreshed snapshot. 19,003 remain to99%. |

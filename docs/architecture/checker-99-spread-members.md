@@ -74,11 +74,45 @@ The full denominator remains 478,855; 18,741 matches remain before 99%.
 
 All 204 release workspace result blocks pass. Clippy caught an exhaustive-match
 style issue and a string assignment allocation; both are corrected without changing
-semantics. The committed checkout will verify the final source against the frozen
-candidate, rerun the gates, and supply the coverage snapshot and mutation evidence.
+semantics. The committed-checkout results below verify the final source against
+the frozen candidate and supply fresh gates, the snapshot and mutation evidence.
 Sequential primary-thread review covers native control flow, provenance copies,
 visibility suppression, semantic type lookup, tests and project standards; no
 independent or cross-model review is claimed. No broader completeness claim is made
 for mixed literal batches, unresolved aliases or symbol-index construction.
 
 Checker sources plus trace_case SHA-256: 58040dac941c386561152c9ad71bad9f5166079600c18b06ce9dfad06be4323c
+
+## Committed checkpoint
+
+The isolated checkout at be4e7f41 reproduces the frozen verdict byte-for-byte and
+matches the source hash above. Coverage is 455,326/478,855 matching assertions
+(95.09%) and 6,858/9,538 complete cases (71.90%), six more complete cases than the
+baseline. The snapshot comes from this checkout; 18,741 matches remain before 99%.
+
+All 204 release workspace result blocks, clippy, formatting, whitespace checks and
+3,341 upstream references pass. Depend reports 512 non-gapping roots, 214 cycles,
+zero depth-cap hits and 3,712 walked gaps. C3 balances; C1/C4 remain stale under
+tsr-6.29 and are not current coverage proof.
+
+Three isolated mutations erase method rendering, discard the index declaration
+name, and disable private-name suppression respectively. Each fails the new test's
+expected assertion: instance, one and privateCollision. These are assertion
+failures, not compilation failures. All mutated production sources are restored
+byte-for-byte to the committed hash before the final focused run.
+
+Evidence:
+- /tmp/tsr-99-members-verified.tsv
+- /tmp/tsr-99-spread-members2-delta.txt
+- /tmp/tsr-99-members-verified-workspace.log
+- /tmp/tsr-99-members-verified-clippy.log
+- /tmp/tsr-99-members-verified-anchors.log
+- /tmp/tsr-99-members-verified-coverage.log
+- /tmp/tsr-99-members-verified-depend.log
+- /tmp/tsr-99-members-mutation-method.log
+- /tmp/tsr-99-members-mutation-index.log
+- /tmp/tsr-99-members-mutation-private.log
+- /tmp/tsr-99-members-restored-tests.log
+- /tmp/compound-engineering-501/ce-code-review/spread-members/review.json
+
+The broader tsr-8 work and 99% goal remain active. No other suite is remeasured.
