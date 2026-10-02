@@ -14,6 +14,7 @@ pub(crate) struct MappedTypeInfo {
     pub(crate) optionality: Option<bool>,
     pub(crate) readonly: Option<bool>,
     pub(crate) modifiers_source: Option<TypeId>,
+    pub(crate) keyof_constraint: bool,
     pub(crate) homomorphic_symbol: Option<SymbolId>,
 }
 
@@ -49,7 +50,9 @@ impl<'a> Checker<'a, '_> {
         // The node builder preserves the top-level keyof operator even
         // when resolving its operand would produce a concrete key union.
         let constraint =
-            if let Some(source) = info.modifiers_source {
+            if let Some(source) = info.modifiers_source
+                && info.keyof_constraint
+            {
                 let text = self.type_to_string(source);
                 if self.store.get(source).flags.intersects(
                     crate::flags::TypeFlags::UNION | crate::flags::TypeFlags::INTERSECTION,
@@ -284,6 +287,7 @@ impl<'a> Checker<'a, '_> {
             modifiers_source = Some(operand);
             self.resolved_keyof_type(operand).unwrap_or(self.intrinsics.error)
         } else {
+            modifiers_source = self.indirect_mapped_modifiers_source(constraint);
             self.mapped_constraint_type(constraint)
         };
         self.mapped_template_depth += 1;
@@ -307,8 +311,33 @@ impl<'a> Checker<'a, '_> {
             optionality: node.question_token.map(|token| token.kind != SyntaxKind::MinusToken),
             readonly: node.readonly_token.map(|token| token.kind != SyntaxKind::MinusToken),
             modifiers_source,
+            keyof_constraint: matches!(parameter.constraint, Some(TypeNode::TypeOperatorNode(operator))
+                if operator.operator.kind == SyntaxKind::KeyOfKeyword),
             homomorphic_symbol,
         })
+    }
+
+    /// getModifiersTypeFromMappedType (checker.go:28127): a declared key
+    /// parameter can inherit `keyof T`. Resolve that declaration before applying
+    /// the active alias mapper, so a concrete key union cannot erase T's identity.
+    fn indirect_mapped_modifiers_source(&mut self, constraint: TypeNode<'a>) -> Option<TypeId> {
+        let bindings = std::mem::take(&mut self.alias_evaluation_bindings);
+        let declared = self.mapped_constraint_type(constraint);
+        let extended = self.type_parameter_constraint(declared).unwrap_or(declared);
+        let operand = self.deferred_keyof_operands.get(&extended).copied();
+        self.alias_evaluation_bindings = bindings;
+        let operand = operand?;
+        let bindings: rustc_hash::FxHashMap<_, _> = self
+            .alias_evaluation_bindings
+            .iter()
+            .flat_map(|frame| frame.iter().map(|(&symbol, &ty)| (symbol, ty)))
+            .collect();
+        let map: Vec<_> = bindings
+            .into_iter()
+            .map(|(symbol, ty)| (self.get_declared_type_of_symbol(symbol), ty))
+            .collect();
+        let parameters: Vec<_> = map.iter().map(|&(parameter, _)| parameter).collect();
+        Some(self.instantiate_type(operand, &map, &parameters, &[]))
     }
 
     /// Resolve key operators semantically under a mapped type's mapper.
@@ -419,12 +448,13 @@ impl<'a> Checker<'a, '_> {
         use crate::{flags::TypeFlags, types::TypeData};
         let mut keys = Vec::new();
         if info.name_type.is_some()
+            && info.keyof_constraint
             && modifiers.is_some()
             && self.signature_parameter_type_is_generic(info.constraint)
         {
             return None;
         }
-        if let Some(source) = modifiers {
+        if let Some(source) = modifiers.filter(|_| info.keyof_constraint) {
             if self.store.get(source).flags.contains(TypeFlags::TYPE_PARAMETER) {
                 return None;
             }
@@ -518,6 +548,8 @@ impl<'a> Checker<'a, '_> {
                 }
             }
         }
+        let link_declarations =
+            info.name_type.is_none_or(|name| self.is_type_assignable_to(name, info.parameter));
         // Recursive references observe the empty table, as upstream's upfront
         // setStructuredTypeMembers does. Types are published after substitution.
         self.anonymous_properties.insert(id, (Vec::new(), true));
@@ -600,6 +632,9 @@ impl<'a> Checker<'a, '_> {
             } else {
                 captured.map_or_else(|| name.clone(), |property| property.printed_name.clone())
             };
+            let origin = link_declarations
+                .then(|| captured.and_then(|property| property.origin).or(source_property))
+                .flatten();
             let mut value = self.instantiate_type(
                 info.template,
                 &[(info.parameter, key)],
@@ -612,6 +647,7 @@ impl<'a> Checker<'a, '_> {
                 value = self.get_type_with_facts(value, crate::flow::TypeFacts::NE_UNDEFINED);
             }
             properties.push(crate::objects::AnonymousProperty {
+                origin,
                 name,
                 printed_name,
                 printed_type: self.type_to_string(value),

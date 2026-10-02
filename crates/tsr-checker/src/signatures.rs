@@ -447,6 +447,7 @@ impl<'a> Checker<'a, '_> {
                     non_inferrable |= self.non_inferrable_types.contains(&ty);
                     let printed = self.type_to_string(ty);
                     let property = crate::objects::AnonymousProperty {
+                        origin: assignment.node_id.and_then(|id| self.binder.symbol_of(id)),
                         name: name.text.to_string(),
                         printed_name: name.text.to_string(),
                         printed_type: printed.clone(),

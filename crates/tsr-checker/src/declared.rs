@@ -1866,6 +1866,7 @@ impl<'a> Checker<'a, '_> {
                     );
                     self.signature_types.insert(method_type, overloads);
                     let property = crate::objects::AnonymousProperty {
+                        origin: Some(symbol),
                         name: key,
                         printed_name,
                         printed_type,
@@ -1983,6 +1984,7 @@ impl<'a> Checker<'a, '_> {
                 };
                 let printed = spelled.unwrap_or_else(|| self.type_to_string(member_type));
                 typed_properties.push(crate::objects::AnonymousProperty {
+                    origin: member.node_id().and_then(|id| self.binder.symbol_of(id)),
                     name: accessor_name.text.to_string(),
                     printed_name: accessor_name.text.to_string(),
                     printed_type: printed.clone(),
@@ -2138,6 +2140,7 @@ impl<'a> Checker<'a, '_> {
             };
             if let Some(symbol) = property.node_id.and_then(|id| self.binder.symbol_of(id)) {
                 typed_properties.push(crate::objects::AnonymousProperty {
+                    origin: Some(symbol),
                     name: self.type_literal_member_key(property.name, symbol, &name),
                     printed_name: name.clone(),
                     printed_type: printed.clone(),

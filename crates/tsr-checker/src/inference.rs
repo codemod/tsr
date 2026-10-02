@@ -3369,6 +3369,7 @@ impl Checker<'_, '_> {
                         );
                     let printed_name = captured
                         .map_or_else(|| name.clone(), |property| property.printed_name.clone());
+                    let origin = captured.and_then(|property| property.origin).or(property);
                     let ty = self.reverse_mapped_member_type(ty, target, info, operand, constraint);
                     let printed_type = self.type_to_string(ty);
                     rendered.push(crate::objects::Member::Property {
@@ -3378,6 +3379,7 @@ impl Checker<'_, '_> {
                         printed: printed_type.clone(),
                     });
                     properties.push(crate::objects::AnonymousProperty {
+                        origin,
                         name,
                         printed_name,
                         printed_type,

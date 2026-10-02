@@ -206,7 +206,7 @@ impl Checker<'_, '_> {
         );
         let mut result = Vec::with_capacity(names.len());
         for name in names {
-            let symbol = self.get_property_of_type(id, &name);
+            let symbol = self.property_origin(id, &name);
             let property = stored
                 .as_ref()
                 .and_then(|properties| properties.iter().find(|property| property.name == name))
@@ -216,6 +216,7 @@ impl Checker<'_, '_> {
                         .get_type_of_property_of_type(id, &name)
                         .unwrap_or(self.intrinsics.error);
                     AnonymousProperty {
+                        origin: symbol,
                         name: name.clone(),
                         printed_name: name.clone(),
                         printed_type: self.type_to_string(ty),

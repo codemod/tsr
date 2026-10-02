@@ -8,7 +8,7 @@
 //!
 //! | # | mutation | reddens |
 //! |---|---|---|
-//! | 1 | `upsert_member` becomes `members.push` | [`a_later_member_replaces_an_earlier_one_in_place`] |
+//! | 1 | `upsert_member` becomes `members.push` | [`a_later_member_uses_its_own_declaration_order`] |
 //! | 2 | `spread_members_of` iterates the symbol table instead of sorting by declaration position | [`spread_member_order_is_the_declaration_order`] — non-deterministically |
 //! | 3 | `spread_members_of` returns `Some(vec![])` instead of `None` for a non-object source | [`a_spread_of_something_this_port_cannot_compute_gaps`] |
 
@@ -42,25 +42,21 @@ fn type_of(source: &str, name: &str) -> String {
     panic!("`{name}` is declared nowhere");
 }
 
-/// **Position from the first occurrence, type from the last.**
+/// The last required declaration supplies both the type and ordering origin.
+/// Pinned tsgo 5b1047d10 emits `b, a` for the first case and `a, b` for the
+/// second. The original test incorrectly asserted replace-in-place ordering;
+/// see docs/architecture/checker-99-spread-origins.md.
 ///
-/// This is the assertion a `push` cannot satisfy: pushing prints `a` twice,
-/// which is not a type upstream can produce, and appending-after-removal would
-/// print `{ b: number; a: string; }` with `a` in the wrong place. Only
-/// replace-in-place gives upstream's answer.
-///
-/// Red under **mutation 1**.
+/// Red under **mutation 1**, and under disabling final declaration ordering.
 #[test]
-fn a_later_member_replaces_an_earlier_one_in_place() {
+fn a_later_member_uses_its_own_declaration_order() {
     assert_eq!(
         type_of("const o = { a: 1, b: 2 };\nconst s = { ...o, a: \"x\" };", "s"),
-        "{ a: string; b: number; }",
-        "`a` keeps the spread's position and takes the later type"
+        "{ b: number; a: string; }",
+        "the later `a` declaration follows the source's `b`"
     );
-    // The mirror, and it is what makes the first assertion about *ordering*
-    // rather than about spreading: with the override written first, `a` is
-    // still first, so a passing implementation cannot be one that simply
-    // appends overrides.
+    // In the mirror the spread's original declaration wins, so `a` precedes
+    // `b`. Always appending overwritten members cannot satisfy both cases.
     assert_eq!(
         type_of("const o = { a: 1, b: 2 };\nconst s = { a: \"x\", ...o };", "s"),
         "{ a: number; b: number; }",

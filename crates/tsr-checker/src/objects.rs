@@ -53,6 +53,9 @@ use crate::{
 /// `instantiateAnonymousType` and `instantiateSymbol` (checker.go).
 #[derive(Clone)]
 pub(crate) struct AnonymousProperty {
+    /// First declaration provenance used by getNamedMembers/compareSymbols.
+    /// A merged optional spread keeps the left origin, independently of its type.
+    pub(crate) origin: Option<SymbolId>,
     pub(crate) name: String,
     pub(crate) printed_name: String,
     pub(crate) printed_type: String,
@@ -319,6 +322,7 @@ impl Checker<'_, '_> {
                     let ty = self.get_type_of_property_of_type(id, &name)?;
                     let symbol = self.get_property_of_type(id, &name);
                     Some(AnonymousProperty {
+                        origin: symbol,
                         printed_name: name.clone(),
                         printed_type: self.type_to_string(ty),
                         name,
@@ -940,6 +944,7 @@ impl Checker<'_, '_> {
                                 && value != error
                             {
                                 let mut property = AnonymousProperty {
+                                    origin: self.property_origin(source, &semantic_name),
                                     name: semantic_name,
                                     printed_name: name.clone(),
                                     printed_type: printed.clone(),
@@ -958,6 +963,7 @@ impl Checker<'_, '_> {
                                     if property.optional {
                                         let left_type = left.r#type;
                                         property.optional = left.optional;
+                                        property.origin = left.origin;
                                         let left_present =
                                             self.remove_missing_or_undefined_type(left_type);
                                         let right_present =
@@ -1668,12 +1674,9 @@ impl Checker<'_, '_> {
             if let Some(symbol) = property_node_id.and_then(|id| self.binder.symbol_of(id)) {
                 self.symbol_types.entry(symbol).or_insert(member_type);
             }
-            // **`upsert`, not `push`.** A later member of the same name
-            // replaces an earlier one *in the earlier one's position*, which is
-            // upstream's spread ordering: `{ ...{ a: 1, b: 2 }, a: "x" }` is
-            // `{ a: string; b: number; }`, with `a` still first. Plain
-            // literals go through the same call because `{ a: 1, ...o }` has to
-            // let `o`'s `a` win, and a `push` here would print `a` twice.
+            // Upsert prevents duplicate members while collecting the literal.
+            // Final ordering uses surviving declaration provenance below:
+            // `{ ...{ a: 1, b: 2 }, a: "x" }` prints `{ b: number; a: string; }`.
             let printed = match (const_context, &value) {
                 // SS109: the carried shape is DIRECTLY a single-quoted
                 // string literal - it prints single-quoted inside the
@@ -1706,6 +1709,7 @@ impl Checker<'_, '_> {
                     .or_else(|| property_name_text(&name_node).map(str::to_string));
                 if let Some(semantic_name) = semantic_name {
                     let property = AnonymousProperty {
+                        origin: property.node_id().and_then(|id| self.binder.symbol_of(id)),
                         name: semantic_name,
                         printed_name: name.clone(),
                         printed_type: printed.clone(),
@@ -1898,6 +1902,17 @@ impl Checker<'_, '_> {
                 _ => None,
             };
         }
+        // getNamedMembers (checker.go:22047) sorts by the originating
+        // declaration, including replaced and merged spread properties.
+        if property_only && typed_properties.len() == members.len() {
+            typed_properties.sort_by(|left, right| match (left.origin, right.origin) {
+                (Some(left), Some(right)) => self.compare_symbols(left, right),
+                (Some(_), None) => std::cmp::Ordering::Less,
+                (None, Some(_)) => std::cmp::Ordering::Greater,
+                _ => left.name.cmp(&right.name),
+            });
+            members = crate::callable_expandos::property_members(&typed_properties);
+        }
         let printed = render_object_type(&members);
         // The binder gives an object literal its own `__object` symbol, whose
         // members table is where a property access on this type looks — the same
@@ -1938,6 +1953,17 @@ impl Checker<'_, '_> {
             self.object_literal_index_infos.insert(minted, vec![info]);
         }
         minted
+    }
+
+    /// Declaration provenance survives synthetic spread and instantiation images.
+    /// Native getSpreadSymbol/getSpreadType copy the original Declarations list.
+    pub(crate) fn property_origin(&mut self, source: TypeId, name: &str) -> Option<SymbolId> {
+        if let Some((properties, _)) = self.anonymous_properties.get(&source)
+            && let Some(property) = properties.iter().find(|property| property.name == name)
+        {
+            return property.origin;
+        }
+        self.get_property_of_type(source, name)
     }
 
     /// Ported from `Checker.isValidSpreadType` (`checker.go:13504`).
@@ -2027,6 +2053,7 @@ impl Checker<'_, '_> {
             let displayed = self.remove_missing_type(value);
             let printed = self.type_to_string(displayed);
             properties.push(AnonymousProperty {
+                origin: self.property_origin(first, &semantic_name),
                 name: semantic_name,
                 printed_name: name.clone(),
                 printed_type: printed.clone(),
@@ -2084,6 +2111,7 @@ impl Checker<'_, '_> {
     /// the map. Members are therefore sorted by their declaration's source
     /// position, which is the order upstream prints.
     pub(crate) fn spread_members_of(&mut self, source: TypeId) -> Option<Vec<Member>> {
+        self.resolve_mapped_type_members(source);
         let error = self.intrinsics.error;
         if source == error {
             return None;
