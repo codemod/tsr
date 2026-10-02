@@ -155,6 +155,7 @@ mod rest_parameter_type;
 mod signature_positions;
 pub mod signatures;
 mod spread_overrides;
+mod spreads;
 pub mod strict_mode;
 mod string_mapping;
 pub mod symbols;

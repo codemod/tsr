@@ -764,6 +764,34 @@ impl Checker<'_, '_> {
     }
 
     pub(crate) fn check_object_literal(&mut self, node: &ObjectLiteralExpression<'_>) -> TypeId {
+        let has_spread = node.properties.iter().any(|property| {
+            matches!(property, tsr_ast::ObjectLiteralElementLike::SpreadAssignment(_))
+        });
+        // The typed property batches are complete on this path. Methods and
+        // accessor pairs still use the original member collector until their
+        // synthetic symbol flags can be retained by AnonymousProperty. Computed
+        // batches also need index declaration provenance before they can fold.
+        let property_only = node.properties.iter().all(|property| {
+            matches!(
+                property,
+                tsr_ast::ObjectLiteralElementLike::PropertyAssignment(assignment)
+                    if !matches!(assignment.name, tsr_ast::PropertyName::ComputedPropertyName(_))
+            ) || matches!(
+                property,
+                tsr_ast::ObjectLiteralElementLike::ShorthandPropertyAssignment(_)
+                    | tsr_ast::ObjectLiteralElementLike::SpreadAssignment(_)
+            )
+        });
+        if has_spread && property_only {
+            return self.check_object_spread_literal(node);
+        }
+        self.check_object_literal_members(node)
+    }
+
+    pub(crate) fn check_object_literal_members(
+        &mut self,
+        node: &ObjectLiteralExpression<'_>,
+    ) -> TypeId {
         let error = self.intrinsics.error;
         // §105 slice 2a (`checker-notes-narrow.md`): a literal in a const
         // context (`isConstContext`, `checker.go:13615`) answers readonly
@@ -1969,7 +1997,7 @@ impl Checker<'_, '_> {
     /// Ported from `Checker.isValidSpreadType` (`checker.go:13504`).
     /// Filter definitely falsy alternatives only after resolving base constraints;
     /// a primitive that can be truthy still makes the operand invalid.
-    fn is_valid_spread_type(&mut self, source: TypeId) -> bool {
+    pub(crate) fn is_valid_spread_type(&mut self, source: TypeId) -> bool {
         let constrained = if let TypeData::Union { types, .. } = self.store.get(source).data.clone()
         {
             let types: Vec<_> = types
@@ -2000,7 +2028,10 @@ impl Checker<'_, '_> {
     /// Ported from `Checker.tryMergeUnionOfObjectTypeAndEmptyObject`
     /// (`checker.go:13530`). A union with one nonempty object spreads as a
     /// partial object. Multiple nonempty alternatives still need distribution.
-    fn try_merge_union_of_object_type_and_empty_object(&mut self, source: TypeId) -> TypeId {
+    pub(crate) fn try_merge_union_of_object_type_and_empty_object(
+        &mut self,
+        source: TypeId,
+    ) -> TypeId {
         let TypeData::Union { types, .. } = self.store.get(source).data.clone() else {
             return source;
         };
