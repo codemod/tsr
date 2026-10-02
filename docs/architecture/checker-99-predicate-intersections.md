@@ -108,13 +108,13 @@ tests, clippy, formatting and 3,317 upstream anchors. Aligned verdict evidence i
 conformance/src/trace_case.rs):
 b9c9055f07bdf2970ec8384efafa2b3db644b5f0fefe359163b3bbe875ab9bef.
 Only comment/dead-local cleanup followed that verdict. The isolated committed
-verdict at 85ce61f6 matches it byte-for-byte, and the production source hash
+verdict at 8197bdcf matches it byte-for-byte, and the production source hash
 matches the main checkout. Review receipt:
 /tmp/compound-engineering-501/ce-code-review/predicate-intersections/review.json.
 
 ## Isolated committed verification
 
-Commit 85ce61f6 reproduces 456,755/478,855 matching assertions (95.38%),
+Commit 8197bdcf reproduces 456,755/478,855 matching assertions (95.38%),
 with 6,971/9,538 complete cases (73.09%): 275 additional assertions and 18 cases.
 The target of 474,067 matches leaves 17,312 to 99%. All 217 isolated release
 workspace result blocks, clippy, formatting and 3,317 upstream anchors pass.
@@ -131,5 +131,15 @@ In the isolated checkout, restoring all eight changed production files to
 20 passing controls. A narrower mutation switches only Symbol.hasInstance
 narrowing from derivation to structural predicates; it fails the fifth added
 test, retaining Point3D on the true branch and dropping it on the false branch.
-Restoring 85ce61f6 restores all 24 passing tests and the original production
+Restoring 8197bdcf restores all 24 passing tests and the original production
 source hash. Logs use /tmp/tsr-99-predicate-mutation and -restored-tests prefixes.
+
+The delivery rebase changed the code commit from 85ce61f6 to 8197bdcf. Remote
+commits 7332f284/ec3e07d2 add setup and citation-check tooling; the checker and
+conformance source hash is unchanged. Isolated logs name the pre-rebase commit.
+
+Post-rebase validation passes all 27 xtask tests, workspace clippy, and the new
+section-citation check (16,615 citations, zero dangling). The separate issue-id
+gate fails on 190 historical IDs absent from the available 50-record registry;
+the newly cited tsr-9 exists. This is recorded in tsr-10, not presented as a pass
+or repaired by deleting citations. Evidence: /tmp/tsr-99-predicate-issue-ids.log.

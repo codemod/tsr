@@ -24,7 +24,7 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-10-02
 
-Measured on **`85ce61f6`**: **456,755/478,855 assertions (95.38%)**,
+Measured on **`8197bdcf`**: **456,755/478,855 assertions (95.38%)**,
 **6,971/9,538 complete cases (73.09%)**. The 99% target requires 474,067
 correct assertions; **17,312 remain**. Denominator and pinned oracle unchanged.
 Aligned verdicts: **474,243 total; 456,755 right; 2,626 gap; 14,862 wrong**.
@@ -41,7 +41,10 @@ receivers, intersection member combination and mapped source reads.
 Five added regressions bring contextual_this_objects to 24 tests.
 The isolated committed full verdict and production source hash match the frozen
 candidate. Both checkouts pass all 217 release workspace result blocks,
-clippy, formatting and 3,317 upstream anchors.
+clippy, formatting and 3,317 upstream anchors. After rebasing unchanged checker
+source onto newer main, all 27 xtask tests and 16,615 section citations pass.
+The issue-id gate reports 190 historical IDs missing from the available registry
+(tsr-10); the new tsr-9 citation resolves.
 Context-free object receivers, full signature-links completion, recursive
 relations and the tsr-9 inference/reduction mechanisms remain incomplete.
 Fresh depend: 459 non-gapping roots, 209 cycles, zero depth caps, 3,371 walked
@@ -1262,7 +1265,7 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-### Current priorities at `85ce61f6` — 2026-10-02
+### Current priorities at `8197bdcf` — 2026-10-02
 
 Continue toward 99%: 17,312 matching assertions remain. Predicate and instanceof
 narrowing now share native candidate mapping, generic intersections and false
@@ -4362,7 +4365,7 @@ version of bare `any`.
 
 ### Predicate/intersection prerequisites — 2026-10-02
 
-At `85ce61f6`, the retained native mechanisms add 275 matches without RIGHT
+At `8197bdcf`, the retained native mechanisms add 275 matches without RIGHT
 losses, but expose nine GAP-to-WRONG rows: seven reverseMappedIntersectionInference2
 and two nonNullParameterExtendingStringAssignableToString. Track their missing
 inference/reduction work in tsr-9. An accessibility-to-any draft lost 240 RIGHT
@@ -11666,4 +11669,4 @@ that were true of a different population than the one they were quoted about.
 
 | 2026-10-02 | `2671c87c` | **95.33%** | **6,953/9,538** | **Receiver flow and assignment contexts: +49 assertions (45 W-to-R, 4 G-to-R), +3 complete cases, zero RIGHT losses or GAP-to-WRONG; one changed already-WRONG row.** Isolated full verdict equals frozen candidate byte-for-byte: 456,480/478,855, 2,693 aligned gaps, 15,070 wrong. Nine added regressions; all 217 release workspace blocks, clippy, formatting and 3,320 anchors pass in both checkouts. Fresh depend: 493 non-gapping roots, 209 cycles, zero depth caps, 3,494 walked gaps; C3 balances, C1/C4 stale (tsr-6.29). [Evidence](docs/architecture/checker-99-receiver-flow.md); tsr-8 remains active with 17,587 matches to 99%. |
 
-| 2026-10-02 | `85ce61f6` | **95.38%** | **6,971/9,538** | **Predicate narrowing and intersection members: +275 assertions (217 W-to-R, 58 G-to-R), +18 complete cases, zero RIGHT losses; nine G-to-W tracked in tsr-9 and 44 changed already-WRONG rows.** Isolated full verdict matches frozen candidate: 456,755/478,855, 2,626 aligned gaps, 14,862 wrong. Five new tests bring contextual_this_objects to 24. [Evidence](docs/architecture/checker-99-predicate-intersections.md); tsr-8 remains active with 17,312 matches to 99%. |
+| 2026-10-02 | `8197bdcf` | **95.38%** | **6,971/9,538** | **Predicate narrowing and intersection members: +275 assertions (217 W-to-R, 58 G-to-R), +18 complete cases, zero RIGHT losses; nine G-to-W tracked in tsr-9 and 44 changed already-WRONG rows.** Isolated full verdict matches frozen candidate: 456,755/478,855, 2,626 aligned gaps, 14,862 wrong. Five new tests bring contextual_this_objects to 24. [Evidence](docs/architecture/checker-99-predicate-intersections.md); tsr-8 remains active with 17,312 matches to 99%. |
