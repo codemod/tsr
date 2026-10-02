@@ -83,3 +83,34 @@ needed; conditional expressions use the shared reduction path.
 
 Checker sources plus trace_case SHA-256:
 27bede7b204ef72f52a384e38ddedc1c291e10b629b8b0a923a25fbbd3f0b7e9
+
+## Committed checkpoint
+
+At b167f6ff, the isolated checkout's focused tests pass and its checker source
+hash matches. Its verdict is byte-identical to the frozen candidate. The
+checker_types run reports 6,815/9,538 complete cases (71.45%), seven more than
+the baseline. The snapshot is refreshed from that checkout. Assertion coverage
+is 454,757/478,855 (94.97%); the 99% goal remains active with 19,310 still required.
+
+Evidence:
+- /tmp/tsr-99-parameter-reduction-verified.tsv
+- /tmp/tsr-99-parameter-reduction-final-transitions.txt
+- /tmp/tsr-99-parameter-reduction-verified-tests.log
+- /tmp/tsr-99-parameter-reduction-workspace.log
+- /tmp/tsr-99-parameter-reduction-clippy-final.log
+- /tmp/tsr-99-parameter-reduction-anchors.log
+- /tmp/tsr-99-parameter-reduction-mutation.log
+- /tmp/tsr-99-parameter-reduction-sourcehash.txt
+- /tmp/tsr-99-parameter-reduction-coverage.log
+- /tmp/compound-engineering-501/ce-code-review/parameter-reduction/review.json
+
+The recursive anonymous constraint's Unknown result was localized during review
+to properties_related_to's historical GenericMember refusal: it rejects even
+identical type-parameter property identities before relation comparison. This is
+follow-up evidence for tsr-6.37, not a change included in b167f6ff.
+
+Depend completes but its historical controls remain stale: 521 non-gapping roots,
+222 cycles, zero depth-cap hits and 3,813 walked gaps. C3 balances; C4 still cites
+the old 63.66% checkpoint. These do not validate current coverage and remain
+tracked in tsr-6.29. The verdict and checker_types measurements above are the
+current evidence.

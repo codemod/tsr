@@ -24,23 +24,22 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-10-01
 
-Measured on **`fe8f3a22`** in an isolated checkout: **454,492/478,855 assertions
-(94.91%)**, **6,808/9,538 complete cases (71.38%)**. The 99% target requires
-474,067 correct assertions; **19,575 remain**. Denominator and pinned oracle
-unchanged. Aligned verdicts: **474,243 total; 454,492 right; 2,963 gap; 16,788 wrong**.
+Measured on **`b167f6ff`** in an isolated checkout: **454,757/478,855 assertions
+(94.97%)**, **6,815/9,538 complete cases (71.45%)**. The 99% target requires
+474,067 correct assertions; **19,310 remain**. Denominator and pinned oracle
+unchanged. Aligned verdicts: **474,243 total; 454,757 right; 2,952 gap; 16,534 wrong**.
 Binder retains its verified **8,497/8,497 (100%)** result at aab165d8;
 other suites below retain historical measurements.
 
-This unit adds **96 matching assertions**, with **zero RIGHT losses** relative
-to 4bdedb15: 56 WRONG→RIGHT and 40 GAP→RIGHT. Fourteen GAP→WRONG assertions
-and one WRONG→GAP member read remain tracked in tsr-6.35.
-[Instantiated literal members](docs/architecture/checker-99-alias-members.md)
-records semantic member capture, union-alias narrowing and re-instantiation.
-Four new native-controlled tests and four binding tests, an isolated mutation,
-196 release workspace result blocks, clippy, 3,342 anchors and the refreshed
-checker snapshot validate this checkpoint. The committed verdict is byte-identical
-to the candidate and source hashes agree. The goal remains unfinished; verified
-changes push to main.
+This unit adds **265 matching assertions**, with **zero RIGHT losses** relative
+to fe8f3a22: 254 WRONG→RIGHT and 11 GAP→RIGHT. No GAP→WRONG or WRONG→GAP
+transitions occur. Sixteen changed wrong answers remain tracked in tsr-6.37.
+[Constrained parameter reduction](docs/architecture/checker-99-parameter-reduction.md)
+records the native union-constraint branch and removal of historical bypasses.
+Two native-controlled tests, an isolated mutation, 197 release workspace result
+blocks, clippy, 3,341 anchors and the refreshed checker snapshot validate this
+checkpoint. The committed verdict is byte-identical to the candidate and source
+hashes agree. The goal remains unfinished; verified changes push to main.
 
 ### Previous whole-suite measurement — historical
 
@@ -1075,6 +1074,7 @@ Per-crate, by what the conformance suites actually assert — not by what exists
 
 | subsystem | state | evidence |
 |---|---|---|
+| constrained parameter unions | **native union-constraint subtype reduction** | b167f6ff: +265 matches, zero RIGHT losses; conditional expressions use shared semantic reducer; [evidence](docs/architecture/checker-99-parameter-reduction.md) |
 | alias literal members | **captured methods, accessors, computed properties, signatures and indexes** | fe8f3a22: +96 matches, zero RIGHT losses; native member substitution and union-alias flow; [evidence](docs/architecture/checker-99-alias-members.md) |
 | adjusted type facts | **semantic non-null intersections and native fact filtering** | 4bdedb15: +262 matches, zero RIGHT losses; seven native-controlled tests; [evidence](docs/architecture/checker-99-adjusted-facts.md) |
 | dependent bindings | **tuple indices and captured alias properties** | 29828bdf: +183 matches, zero RIGHT losses; four native-controlled tests; [evidence](docs/architecture/checker-99-dependent-bindings.md) |
@@ -1084,7 +1084,7 @@ Per-crate, by what the conformance suites actually assert — not by what exists
 | module resolution | **done** | 95/95, `file_loader` 96/96, [ADR-0041](docs/adr/0041-the-checker-asks-its-program-for-a-module.md) |
 | printer | **done** | 100% round-trip at `8dcdc71` |
 | declaration emit | **partial** | `dts_shape` 85.32%, `dts_emit` 89.04% at `8dcdc71` |
-| **checker** | **94.80% of assertions** | 453,951/478,855 at `e8c208fc`; §4 and §5 |
+| **checker** | **94.97% of assertions** | 454,757/478,855 at `b167f6ff`; §4 and §5 |
 | transformers | **not started** | |
 | **compiler driver / CLI** | **seam only** | three pieces, no binary. `tsr_vfs::OsFileSystem` (the real disk, `internal/vfs/osvfs`), `Checker::apply_compiler_options` ([ADR-0042](docs/adr/0042-checker-options-come-from-compiler-options.md)), and `tsr_diagnostics::format` (the plain `a.ts(1,1): error TS2304:` line and the `Found N errors` summary, byte-exact). **No command-line parser, no `tsc` binary, no emit, no pretty output** — see §4 |
 | diagnostics | **started — 6.89%** | the check traversal (ADR-0040 (1) and (2)) plus three rules; §1 and `docs/architecture/checker-notes-diag2.md` |
@@ -1232,7 +1232,19 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-### Current priorities at `fe8f3a22` — 2026-10-01
+### Current priorities at `b167f6ff` — 2026-10-01
+
+Continue toward 99% coverage: 19,310 matching assertions remain. Constrained
+parameters now reduce through native strict-subtype rules, including comparison
+against all other survivors for union constraints. The next identified boundary
+is the GenericMember refusal in properties_related_to: even equal parameter
+identities are rejected. Recursive constraint relations, receiver substitution
+and shadowed parameter naming are tracked in tsr-6.37. Alias member consumers
+remain in tsr-6.35, adjusted facts in tsr-6.34. Refreshed mismatch inventory:
+/tmp/tsr-99-parameter-reduction-ranked.txt. Populations are ceilings, not claimed
+conversions. Depend C1/C4 controls remain stale (tsr-6.29).
+
+### Previous priorities at `fe8f3a22` — 2026-10-01
 
 Continue toward 99% coverage: 19,575 matching assertions remain. Generic alias
 literals now retain semantic methods, accessor reads, computed properties, call/
@@ -4009,6 +4021,19 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+### Constrained parameter reduction at `b167f6ff`
+
+The verified unit gains 265 matches with no RIGHT losses or GAP→WRONG/Wrong→GAP
+transitions. Sixteen changed wrong answers remain: twelve shadowed parameter
+serialization, two contextual branch types and two polymorphic this results.
+Native boundary probes still expose recursive anonymous constraint relations and
+outer-parameter leakage after shadowed generic receiver substitution (tsr-6.37).
+The legacy equal-text shortcut remains for non-parameter structural types;
+parameters and unique symbols are excluded. Unknown relations still refuse the
+whole subtype reduction. No claim of complete native relation parity is made.
+See [native controls and measurement](docs/architecture/checker-99-parameter-reduction.md).
+
 
 ### Alias literal members at `fe8f3a22`
 
@@ -10023,6 +10048,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
+| 2026-10-01 | `b167f6ff` | **71.45%** | **6,815** | **454,757/478,855 assertions (94.97%).** +265 since fe8f3a22, zero RIGHT losses; 254W→R,11G→R,16 changed wrong. | Native constrained-parameter subtype reduction and shared conditional path. Two native controls, isolated mutation, workspace197 blocks, clippy,3,341 anchors; committed isolated verdict byte-match and refreshed snapshot. [Evidence](docs/architecture/checker-99-parameter-reduction.md). 19,310 remain to99%. |
 | 2026-10-01 | `fe8f3a22` | **71.38%** | **6,808** | **454,492/478,855 assertions (94.91%).** +96 since 4bdedb15, zero RIGHT losses; 56W→R,40G→R,14G→W,1W→G. | Semantic literal members, union-alias narrowing and member-wise re-instantiation. Eight focused/native controls, isolated mutation, workspace196 blocks, clippy,3,342 anchors; committed isolated verdict byte-match and refreshed snapshot. [Evidence](docs/architecture/checker-99-alias-members.md). 19,575 remain to99%. |
 | 2026-10-01 | `4bdedb15` | **71.33%** | **6,803** | **454,396/478,855 assertions (94.89%).** +262 since 29828bdf, zero RIGHT losses; 247W→R,15G→R,2G→W,1W→G. | Semantic adjusted type facts, unknown recombination and instantiated generic predicates. Seven native-controlled tests, isolated mutation, workspace195 blocks, clippy,3,343 anchors; committed isolated verdict byte-match and refreshed snapshot. [Evidence](docs/architecture/checker-99-adjusted-facts.md). 19,671 remain to99%. |
 | 2026-10-01 | `29828bdf` | **71.23%** | **6,794** | **454,134/478,855 assertions (94.84%).** +183 since e8c208fc, zero RIGHT losses; 163W→R,20G→R,3G→W. | Array binding indices and instantiated property-only aliases in dependent flow. Four focused/native controls, isolated mutation, release workspace194 blocks, clippy,3,340 anchors; committed isolated verdict byte-match and refreshed snapshot. [Evidence](docs/architecture/checker-99-dependent-bindings.md). 19,933 remain to99%. |
