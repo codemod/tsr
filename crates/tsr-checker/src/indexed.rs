@@ -363,6 +363,81 @@ impl Checker<'_, '_> {
                 }
             }
         }
+        let writing = node.node_id.is_some_and(|id| {
+            self.assignment_target_kind(id) != crate::expressions::AssignmentTargetKind::None
+        });
+        // checkElementAccessExpression (`checker.go:8148`) widens the receiver
+        // of an assignment target or a called method; a widened object literal
+        // has lost ObjectFlagsObjectLiteral.
+        let widened = writing || node.node_id.is_some_and(|id| self.is_method_access_for_call(id));
+        // `getIndexedAccessTypeOrUndefined` (`checker.go:26975`): a union key
+        // other than `boolean` reads each constituent through
+        // `getPropertyTypeForIndexType`; one miss fails the whole access, and
+        // the reads combine as a literal-reduced union, or an intersection in
+        // a write position. Generic keys and objects defer first.
+        if let TypeData::Union { types, .. } = self.store.get(index_type).data.clone()
+            && !self.store.get(index_type).flags.contains(crate::flags::TypeFlags::BOOLEAN)
+            && !self.indexed_access_index_is_generic(index_type)
+            && !self.indexed_access_object_is_generic(object_type)
+        {
+            let mut values = Vec::with_capacity(types.len());
+            for key in types {
+                let value = self.element_access_for_index_type(
+                    object_type,
+                    key,
+                    include_undefined,
+                    widened,
+                );
+                if value == error {
+                    return error;
+                }
+                // formatUnionTypes compares enum members by their regular
+                // types when collapsing the complete enum (printer.go).
+                values.push(if self.enum_member_owners.contains_key(&value) {
+                    self.get_regular_type_of_literal_type(value)
+                } else {
+                    value
+                });
+            }
+            return if writing {
+                self.get_intersection_type(&values, None)
+            } else {
+                self.get_union_type(&values)
+            };
+        }
+        self.element_access_for_index_type(object_type, index_type, include_undefined, widened)
+    }
+
+    /// `isMethodAccessForCall` (`checker.go:11466`): the access, through any
+    /// parentheses, is the callee of a call or `new` expression.
+    fn is_method_access_for_call(&self, mut node: tsr_ast::NodeId) -> bool {
+        while let Some(parent) = self.nodes.parent(node)
+            && self.nodes.kind(parent) == tsr_ast::SyntaxKind::ParenthesizedExpression
+        {
+            node = parent;
+        }
+        let Some(parent) = self.nodes.parent(node) else { return false };
+        match self.node_map.get(parent) {
+            Some(tsr_ast::Node::CallExpression(call)) => {
+                call.expression.and_then(|e| e.node_id()) == Some(node)
+            }
+            Some(tsr_ast::Node::NewExpression(new)) => {
+                new.expression.and_then(|e| e.node_id()) == Some(node)
+            }
+            _ => false,
+        }
+    }
+
+    /// `getPropertyTypeForIndexType` (`checker.go:27002`) for one
+    /// non-union key of an element access expression.
+    fn element_access_for_index_type(
+        &mut self,
+        object_type: TypeId,
+        index_type: TypeId,
+        include_undefined: bool,
+        widened: bool,
+    ) -> TypeId {
+        let error = self.intrinsics.error;
         let Some(name) = self.property_name_from_index(index_type) else {
             // Higher-order accesses defer before applicable index signatures
             // are considered (getIndexedAccessTypeOrUndefined). A constraint
@@ -406,7 +481,9 @@ impl Checker<'_, '_> {
             {
                 return found;
             }
-            return error;
+            return self
+                .object_literal_index_fallback(object_type, index_type, widened)
+                .unwrap_or(error);
         };
         // Through [`Checker::get_type_of_property_of_type`] rather than
         // `get_property_of_type` + `get_type_of_symbol`, because the symbol
@@ -496,7 +573,38 @@ impl Checker<'_, '_> {
         if !self.no_implicit_any && self.js_literal_types.contains(&object_type) {
             return self.intrinsics.any;
         }
-        error
+        self.object_literal_index_fallback(object_type, index_type, widened).unwrap_or(error)
+    }
+
+    /// `getPropertyTypeForIndexType`'s object-literal arm (`checker.go:27134`),
+    /// reached by an element access expression whose key found neither a
+    /// property nor an index signature: under `noImplicitAny` a literal key
+    /// reads `undefined`; a `string` or `number` key reads the union of every
+    /// property's type with `undefined`. Other keys keep the miss.
+    fn object_literal_index_fallback(
+        &mut self,
+        object_type: TypeId,
+        index_type: TypeId,
+        widened: bool,
+    ) -> Option<TypeId> {
+        use crate::flags::TypeFlags;
+        let apparent = self.apparent_type(object_type);
+        if widened || !self.is_object_literal_type(apparent) {
+            return None;
+        }
+        let flags = self.store.get(index_type).flags;
+        if self.no_implicit_any
+            && flags.intersects(TypeFlags::STRING_LITERAL | TypeFlags::NUMBER_LITERAL)
+        {
+            return Some(self.intrinsics.undefined);
+        }
+        if !flags.intersects(TypeFlags::STRING | TypeFlags::NUMBER) {
+            return None;
+        }
+        let (properties, _) = self.anonymous_properties.get(&apparent)?;
+        let mut types: Vec<TypeId> = properties.iter().map(|property| property.r#type).collect();
+        types.push(self.intrinsics.undefined);
+        Some(self.get_union_type(&types))
     }
 
     /// `getIndexedAccessTypeOrUndefined` (checker.go), without an expression

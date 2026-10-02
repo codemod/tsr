@@ -3561,6 +3561,24 @@ impl Checker<'_, '_> {
         }
         let Node::ElementAccessExpression(access) = node else { return None };
         let argument = access.argument_expression?;
+        // `tryGetElementAccessExpressionName` (`flow.go:1743`): beyond a
+        // literal-like argument, only an entity name resolving to a CONSTANT
+        // variable or an enum member names a property
+        // (`tryGetNameFromEntityNameExpression`). A parameter narrowed to a
+        // literal does not: `key = "a"; obj[key]` is not `obj.a`.
+        if !matches!(
+            argument,
+            tsr_ast::Expression::StringLiteral(_)
+                | tsr_ast::Expression::NumericLiteral(_)
+                | tsr_ast::Expression::NoSubstitutionTemplateLiteral(_)
+        ) {
+            let symbol = self.entity_name_expression_value_symbol(argument)?;
+            if !(self.is_constant_variable(symbol)
+                || self.binder.symbols().get(symbol).flags.contains(SymbolFlags::ENUM_MEMBER))
+            {
+                return None;
+            }
+        }
         let key = self.check_expression(argument);
         match &self.store.get(key).data {
             // A numeric literal key names the same member as its text —
@@ -3569,6 +3587,35 @@ impl Checker<'_, '_> {
             TypeData::StringLiteral(text) | TypeData::NumberLiteral(text) => Some(text.clone()),
             _ => None,
         }
+    }
+
+    /// `resolveEntityName(node, SymbolFlagsValue, ignoreErrors)` for an
+    /// entity-name expression: an identifier, or a dotted chain of them whose
+    /// right names resolve through the merged exports of the left. Aliases
+    /// are followed; anything else answers `None`.
+    fn entity_name_expression_value_symbol(
+        &mut self,
+        expression: tsr_ast::Expression<'_>,
+    ) -> Option<SymbolId> {
+        let symbol = match expression {
+            tsr_ast::Expression::Identifier(identifier) => self.binder.resolve_name(
+                self.nodes,
+                self.node_map,
+                identifier.node_id?,
+                identifier.text,
+                SymbolFlags::VALUE,
+            )?,
+            tsr_ast::Expression::PropertyAccessExpression(access) => {
+                let left = self.entity_name_expression_value_symbol(access.expression?)?;
+                let Some(tsr_ast::MemberName::Identifier(name)) = access.name else {
+                    return None;
+                };
+                let left = self.binder.merged_symbol(left);
+                *self.binder.symbols().get(left).exports.get(name.text)?
+            }
+            _ => return None,
+        };
+        Some(self.resolve_alias_fully(symbol))
     }
 
     /// `isEvolvingArrayOperationTarget` (`flow.go:1542`): the receiver of
@@ -3728,12 +3775,12 @@ impl Checker<'_, '_> {
     /// a recursively matching receiver**, which is upstream's rule character
     /// for character.
     ///
-    /// Not ported, each because deciding it needs something this port does not
-    /// have: an **element access with a non-literal argument**
-    /// (`a[i]` matches `a[i]` only when `i` is a constant or an unassigned
-    /// local, which needs `isSymbolAssigned`); `super`; `MetaProperty`; and the
-    /// comma and assignment unwrapping on the target side. Each answers
-    /// `false`, which costs a narrowing and never invents one.
+    /// An **element access with an identifier argument** matches when both
+    /// arguments resolve to one symbol that is a constant or an unassigned
+    /// parameter/mutable local (`flow.go:1629`; the unassigned half landed with
+    /// `checker-99-union-key-access.md`). Not ported: `super`; `MetaProperty`;
+    /// and the comma and assignment unwrapping on the target side. Each
+    /// answers `false`, which costs a narrowing and never invents one.
     ///
     /// # Why `false` is the safe default here, unlike everywhere else
     ///
@@ -3874,14 +3921,19 @@ impl Checker<'_, '_> {
                                 identifier.text,
                                 SymbolFlags::VALUE,
                             )?;
-                            let declaration =
-                                checker.binder.symbols().get(symbol).value_declaration?;
-                            let list = checker.nodes.parent(declaration)?;
-                            checker
-                                .nodes
-                                .flags(list)
-                                .intersects(tsr_ast::NodeFlags::CONST)
-                                .then_some(symbol)
+                            // The full predicate (`flow.go:1629`):
+                            // `isConstantVariable(symbol) ||
+                            // isParameterOrMutableLocalVariable(symbol) &&
+                            // !isSymbolAssigned(symbol)` — `obj[key]` with an
+                            // unassigned parameter `key` is one reference.
+                            if checker.is_constant_variable(symbol) {
+                                return Some(symbol);
+                            }
+                            if !checker.is_parameter_or_mutable_local_variable(symbol) {
+                                return None;
+                            }
+                            checker.ensure_assignments_marked(symbol);
+                            (!checker.last_assignment_pos.contains_key(&symbol)).then_some(symbol)
                         };
                         let left_argument = argument(self, &left);
                         left_argument.is_some() && left_argument == argument(self, &right)
