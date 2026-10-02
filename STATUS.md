@@ -24,37 +24,24 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-10-02
 
-Measured on **`211366eb`** (rebased on fa90d3a4): **457,162/478,855 assertions
-(95.47%)**, **6,994/9,538 complete cases (73.33%)**. The 99% target requires
-474,067 correct assertions; **16,905 remain**. Denominator and pinned oracle
-unchanged. Aligned verdicts: **474,243 total; 457,162 right; 2,588 gap; 14,493
-wrong**. Diagnostics 2,782/5,488 at the same commit. Binder retains its verified
-**8,497/8,497 (100%)** result at aab165d8; other suites below retain historical
-measurements.
+Measured on **`69d64026`** (rebased on 91439f0b): **457,226/478,855 assertions
+(95.48%)**, **6,998/9,538 complete cases (73.37%)**. The 99% target requires
+474,067 correct assertions; **16,841 remain**. Denominator and pinned oracle
+unchanged. Aligned verdicts: **474,243 total; 457,226 right; 2,572 gap; 14,445 wrong**.
+Binder retains its verified **8,497/8,497 (100%)** result at aab165d8;
+other suites below retain historical measurements.
 
-This unit (generic construct-signature argument contexts, tsr-6.21) adds **45
-matching assertions** (41 WRONG-to-RIGHT, 4 GAP-to-RIGHT) with **zero RIGHT
-losses and zero GAP-to-WRONG** relative to a full baseline measured at fa90d3a4;
-two already-WRONG destructuringParameterProperties3 rows change but remain
-wrong. [Construct argument contexts](docs/architecture/checker-99-construct-argument-contexts.md)
-records the shared single-generic-candidate argument context for calls and
-`new`. Release workspace tests (218 result blocks), clippy, formatting and the
-section gate pass. Correction: the agreeing-overloads checkpoint (4ff9d349) was
-measured at its pre-rebase twin b1900137, whose checker tree differs only by a
-rustfmt-only destructure.rs change.
-
-The preceding unit, measured at e68ea2ed: (non-generic conditional nodes, tsr-6.3) adds **59 matching assertions (49 WRONG-to-RIGHT, 10 GAP-to-RIGHT) and seven complete cases** relative to
-a full baseline measured at ab1bbead, with **zero RIGHT losses**; four GAP-to-WRONG in circularConstructorWithReturn (lazy class member types during alias resolution, recorded).
-[Conditional alias chains](docs/architecture/checker-99-conditional-chains.md)
-records getTypeFromConditionalTypeNode evaluation outside alias frames, written
-conditional annotation reuse, `extends never` relation for non-literal checks
-and exactOptionalPropertyTypes missing-type removal in property relations.
-Six regressions in conditional_alias_chains pin pinned-tsgo declaration output.
-The preceding unit (agreeing generic overloads, tsr-6.1, measured at b1900137: +109 assertions, +1 complete case, zero RIGHT losses) remains recorded in §7; later commits 9a14a090–c0951dfd touch only declaration emit and add one unused parser entry point. The diagnostics snapshot moves 2,781 → 2,782. All release workspace result blocks, clippy, formatting, 3,324 anchors
-and section citations pass; issue-ids reports the same 191 historical IDs as its
-base (tsr-10). Distributive constraints of generic checks, recursive relations
-and the tsr-9 inference/reduction mechanisms remain incomplete. The 99% goal and
-tsr-8 remain active.
+This unit (indexed access, tsr-6.30/6.25) adds **64 matching assertions and 4
+complete cases** (50 W→R, 14 G→R) with **zero RIGHT losses** relative to a
+full-run baseline measured at 91439f0b. Two GAP-to-WRONG rows in
+partialOfLargeAPIIsAbleToBeWorkedWith print a union-key write intersection in
+the order of `keyof`'s string-literal keys, where native uses number literals
+for numeric names. [Union-key element access](docs/architecture/checker-99-union-key-access.md)
+records union-key distribution, the fresh object-literal key arm with receiver
+widening, identifier-key reference matching and the constant-key name gate.
+Three added regressions; all 218 release workspace result blocks, clippy,
+formatting, 3,349 anchors and the section gate pass.
+The 99% goal and tsr-8 remain active.
 
 ### Previous whole-suite measurement — historical
 
@@ -1281,7 +1268,17 @@ four GAP-to-WRONG rows need lazy class member types during an alias's own
 resolution. Mapped-alias references still enumerate only literal keys;
 reporting them unenumerable measured 22 RIGHT losses.
 
-### Current priorities at `211366eb` — 2026-10-02 (call-site generic inference)
+### Current priorities at `69d64026` — 2026-10-02 (indexed access, tsr-6.30)
+
+Continue toward 99%: 16,841 matching assertions remain. Union keys now
+distribute over element access and `obj[key]` narrows through unassigned
+identifier keys. Next in the indexed-access family: carry numeric-literal
+property names as number-literal keys through `keys_of`/`literal_key_union`
+(the two partialOfLargeAPIIsAbleToBeWorkedWith GAP-to-WRONG rows), write types
+for union-key writes, and the remaining keyofAndIndexedAccessErrors and
+indexSignatures1 rows.
+
+### Previous priorities at `211366eb` — 2026-10-02 (call-site generic inference)
 
 Continue toward 99%: 16,905 matching assertions remain. Call-site generic
 inference (tsr-6.1/6.15/6.21/6.22): agreeing overload returns select by
@@ -11543,6 +11540,7 @@ holds only the numbers.
 | 2026-10-02 | `36290758` | — | — | **dts: `dts_shape` 877 → 892/1,006, `dts_emit` 338/375 → 342/375, `dts_reachable_target` 494/1,162 and `isolated_declarations` 13/15 unmoved.** | `CommonJS` declaration emit. The module kind is syntactic (`CommonJSModuleIndicator`: `require`, `module.exports =`, `exports.x =`, `Object.defineProperty(exports, …)`), not a `Program` fact as the transform's docs had claimed — corrected in place. A `CommonJS` file is a module whose exports are its assignments; `module.exports = right` leads the file; `exports.x` members follow `transformCommonJSExportWorker`'s non-class arms and wrap in the synthesized `export =` namespace. `tsr_dts::rules` treats `CommonJS` export right sides as exported initializers (no upstream rule exists: JS is outside isolated declarations), which kept the `dts_emit` denominator at 375 where the emitter-only draft had grown it to 386 with ten `any` failures. No case lost in either suite (full failure-list diff). Still absent: the class-expression arm, `require` → `import =`, multiple-`export =` merging. Release workspace tests, clippy, fmt, anchors pass. [Notes](docs/architecture/declaration-emit.md). |
 | 2026-10-02 | `6443fd74` | — | — | **dts: `isolated_declarations` 13 → 14/15; `dts_reachable_target` 494 → 493/1,162; `dts_emit` 342/375 and `dts_shape` 892/1,006 unmoved.** | `TS9025` (`typeFromParameterWorker` / `addUndefinedIfDefinitelyRequired`): under strict null checks, an initialized parameter before a required one whose initializer is `x as T` with a type node that could already contain `undefined` reports at the parameter. First analysis rule that reads a compiler option: `tsr_dts::analyze_with_options(AnalysisOptions { strict_null_checks })`, default on as in typescript-go, threaded through the three dts suites and the emitter. The reachable −1 is `isolatedDeclarationsAddUndefined`, which upstream reports. The last `isolated_declarations` miss is `TS9026` (another file's augmentation), out of per-file reach. Release workspace tests, clippy, fmt pass. [Notes](docs/architecture/isolated-declarations.md). |
 | 2026-10-02 | `9a14a090` | — | — | **dts: `dts_shape` 892 → 897/1,006; `dts_emit` 342/375, `isolated_declarations` 14/15, `dts_reachable_target` 493/1,162 unmoved.** | JSDoc `@import` tags emit as the `import type` declarations upstream's reparser makes of them (`importTag5`, `importTag16`, `importTag18`–`20`), recovered from comment text and parsed by a new `tsr_parser::parse_standalone_statement` past the end of the source; a script keeps one only when an emitted declaration names it. No case lost (full failure-list diff). Release workspace tests, clippy, fmt pass. [Notes](docs/architecture/declaration-emit.md). |
+| 2026-10-02 | `69d64026` | **73.37%** | **6,998** | **457,226/478,855 assertions (95.48%).** +64 vs full-run baseline at 91439f0b, +4 cases; 50 W→R, 14 G→R, zero RIGHT losses; 2 G→W (numeric `keyof` key order). | **Indexed access (tsr-6.30): union-key element access and identifier-key references.** Element access distributes getPropertyTypeForIndexType over non-boolean union keys; unwidened fresh object literals answer the string/number and noImplicitAny literal-key arm (assignment/call receivers widen first — omitting that lost 6 RIGHT rows); isMatchingReference matches `obj[key]` for unassigned parameter/local keys; tryGetElementAccessExpressionName requires a constant or enum-member key. Pinned tsgo controls; release workspace 218 blocks, clippy, fmt, 3,349 anchors pass. [Evidence](docs/architecture/checker-99-union-key-access.md). |
 
 ## 8. Updating this file
 
