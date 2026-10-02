@@ -107,6 +107,29 @@ tests, clippy, formatting and 3,317 upstream anchors. Aligned verdict evidence i
 474,243 rows. Final source hash (sorted checker/src/*.rs paths and bytes, then
 conformance/src/trace_case.rs):
 b9c9055f07bdf2970ec8384efafa2b3db644b5f0fefe359163b3bbe875ab9bef.
-Only comment/dead-local cleanup followed that verdict; the committed tree will
-be checked independently against it before delivery. Review receipt:
+Only comment/dead-local cleanup followed that verdict. The isolated committed
+verdict at 85ce61f6 matches it byte-for-byte, and the production source hash
+matches the main checkout. Review receipt:
 /tmp/compound-engineering-501/ce-code-review/predicate-intersections/review.json.
+
+## Isolated committed verification
+
+Commit 85ce61f6 reproduces 456,755/478,855 matching assertions (95.38%),
+with 6,971/9,538 complete cases (73.09%): 275 additional assertions and 18 cases.
+The target of 474,067 matches leaves 17,312 to 99%. All 217 isolated release
+workspace result blocks, clippy, formatting and 3,317 upstream anchors pass.
+Logs use the /tmp/tsr-99-predicate-verified prefix.
+
+Fresh depend reports 459 non-gapping roots, 209 cycles, zero depth caps and
+3,371 walked gaps. C3 balances; C1/C4 remain stale under tsr-6.29. This instrument
+is not evidence that all remaining gaps or wrong answers have valid roots.
+
+## Mutation checks
+
+In the isolated checkout, restoring all eight changed production files to
+9cdd1038 while retaining the new tests produces four assertion failures and
+20 passing controls. A narrower mutation switches only Symbol.hasInstance
+narrowing from derivation to structural predicates; it fails the fifth added
+test, retaining Point3D on the true branch and dropping it on the false branch.
+Restoring 85ce61f6 restores all 24 passing tests and the original production
+source hash. Logs use /tmp/tsr-99-predicate-mutation and -restored-tests prefixes.

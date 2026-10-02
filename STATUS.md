@@ -24,27 +24,28 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-10-02
 
-Measured on **`2671c87c`** in an isolated checkout: **456,480/478,855 assertions
-(95.33%)**, **6,953/9,538 complete cases (72.90%)**. The 99% target requires
-474,067 correct assertions; **17,587 remain**. Denominator and pinned oracle
-unchanged. Aligned verdicts: **474,243 total; 456,480 right; 2,693 gap; 15,070 wrong**.
+Measured on **`85ce61f6`**: **456,755/478,855 assertions (95.38%)**,
+**6,971/9,538 complete cases (73.09%)**. The 99% target requires 474,067
+correct assertions; **17,312 remain**. Denominator and pinned oracle unchanged.
+Aligned verdicts: **474,243 total; 456,755 right; 2,626 gap; 14,862 wrong**.
 Binder retains its verified **8,497/8,497 (100%)** result at aab165d8;
 other suites below retain historical measurements.
 
-This unit adds **49 matching assertions and three complete cases**, with **zero
-RIGHT losses and zero GAP-to-WRONG** relative to 08ea67e3/3de17368; one
-already-WRONG row changes but remains wrong. [Receiver flow and assignment
-contexts](docs/architecture/checker-99-receiver-flow.md) records native flow
-narrowing, generic constraint intersections, assigned function receivers,
-parameter-initializer boundaries and explicit JSDoc host precedence.
-Nine added regressions bring contextual_this_objects to 19 tests.
-The isolated committed verdict matches the frozen candidate byte-for-byte.
-All 217 release workspace result blocks, clippy, formatting and 3,320 upstream
-anchors pass in both checkouts.
-Fresh depend has 493 non-gapping roots, 209 cycles, zero depth caps and 3,494
-walked gaps; C3 balances while C1/C4 remain stale (tsr-6.29). Generic predicate
-narrowing, context-free object receivers, full signature-links completion and
-class computed-name query/diagnostic distinctions remain incomplete.
+This unit adds **275 matching assertions and 18 complete cases**, with **zero
+RIGHT losses**, relative to 2671c87c/9cdd1038. There are **nine GAP-to-WRONG**
+transitions (seven reverse-mapped intersection inference, two generic-union
+constraint reduction), tracked in tsr-9, and 44 changed already-WRONG rows.
+[Predicate narrowing and intersection members](docs/architecture/checker-99-predicate-intersections.md)
+records the native predicate/derived worker, generic identities, assertion
+receivers, intersection member combination and mapped source reads.
+Five added regressions bring contextual_this_objects to 24 tests.
+The isolated committed full verdict and production source hash match the frozen
+candidate. Both checkouts pass all 217 release workspace result blocks,
+clippy, formatting and 3,317 upstream anchors.
+Context-free object receivers, full signature-links completion, recursive
+relations and the tsr-9 inference/reduction mechanisms remain incomplete.
+Fresh depend: 459 non-gapping roots, 209 cycles, zero depth caps, 3,371 walked
+gaps. C3 balances; C1/C4 remain stale (tsr-6.29).
 The 99% goal and tsr-8 remain active.
 
 ### Previous whole-suite measurement — historical
@@ -1261,7 +1262,21 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-### Current priorities at `2671c87c` — 2026-10-02
+### Current priorities at `85ce61f6` — 2026-10-02
+
+Continue toward 99%: 17,312 matching assertions remain. Predicate and instanceof
+narrowing now share native candidate mapping, generic intersections and false
+branch filtering. Assertion receivers and discriminants use the same path.
+Prioritize tsr-9: seven newly exposed wrong rows in reverse-mapped intersection
+inference and two in generic-union constraint reduction. These are recorded
+adverse transitions, not baseline changes. Context-free object receivers still
+require deferred signature/member completion; preserve the measured refusal of
+eager recursive literal checking. Keep JS constructors, full signature links,
+lazy per-variable inference fixing, const-array/spread check-mode threading and
+recursive/conditional relations on tsr-8's board. The 14,862 already-WRONG rows
+remain the larger population; gap-root counts do not estimate their conversion.
+
+### Previous priorities at `2671c87c` — 2026-10-02
 
 Continue toward 99%: 17,587 matching assertions remain. Receiver flow and generic
 instanceof intersections now follow native; assertionTypePredicates1 still erases
@@ -4344,6 +4359,19 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+### Predicate/intersection prerequisites — 2026-10-02
+
+At `85ce61f6`, the retained native mechanisms add 275 matches without RIGHT
+losses, but expose nine GAP-to-WRONG rows: seven reverseMappedIntersectionInference2
+and two nonNullParameterExtendingStringAssignableToString. Track their missing
+inference/reduction work in tsr-9. An accessibility-to-any draft lost 240 RIGHT
+rows and was reverted; diagnostics must not replace readable property types.
+An augmentation draft was aborted after a stack sample showed repeated recursive
+lookup. Propagating the skip-augmentation flag through aliases/Omit fixes that
+path. Its incomplete output is not counted as coverage evidence.
+[Evidence](docs/architecture/checker-99-predicate-intersections.md).
+
 
 ### Receiver-flow drafts at `2671c87c`
 
@@ -11637,3 +11665,5 @@ that were true of a different population than the one they were quoted about.
 | 2026-10-02 | `08ea67e3` | **95.32%** | **6,950/9,538** | **Polymorphic and contextual object receivers: +41 assertions, +4 complete cases, zero RIGHT losses or GAP-to-WRONG; 37 changed already-WRONG rows.** Isolated full verdict equals frozen candidate byte-for-byte: 456,431/478,855, 2,697 aligned gaps, 15,115 wrong. Ten direct regressions; all 217 release workspace blocks, clippy, formatting and 3,320 anchors pass in both checkouts. Fresh depend: 495 non-gapping roots, 209 cycles, zero depth caps, 3,500 walked gaps; C3 balances, C1/C4 stale (tsr-6.29). [Evidence](docs/architecture/checker-99-polymorphic-this.md); tsr-8 remains active with 17,636 matches to 99%. |
 
 | 2026-10-02 | `2671c87c` | **95.33%** | **6,953/9,538** | **Receiver flow and assignment contexts: +49 assertions (45 W-to-R, 4 G-to-R), +3 complete cases, zero RIGHT losses or GAP-to-WRONG; one changed already-WRONG row.** Isolated full verdict equals frozen candidate byte-for-byte: 456,480/478,855, 2,693 aligned gaps, 15,070 wrong. Nine added regressions; all 217 release workspace blocks, clippy, formatting and 3,320 anchors pass in both checkouts. Fresh depend: 493 non-gapping roots, 209 cycles, zero depth caps, 3,494 walked gaps; C3 balances, C1/C4 stale (tsr-6.29). [Evidence](docs/architecture/checker-99-receiver-flow.md); tsr-8 remains active with 17,587 matches to 99%. |
+
+| 2026-10-02 | `85ce61f6` | **95.38%** | **6,971/9,538** | **Predicate narrowing and intersection members: +275 assertions (217 W-to-R, 58 G-to-R), +18 complete cases, zero RIGHT losses; nine G-to-W tracked in tsr-9 and 44 changed already-WRONG rows.** Isolated full verdict matches frozen candidate: 456,755/478,855, 2,626 aligned gaps, 14,862 wrong. Five new tests bring contextual_this_objects to 24. [Evidence](docs/architecture/checker-99-predicate-intersections.md); tsr-8 remains active with 17,312 matches to 99%. |
