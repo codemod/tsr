@@ -17,7 +17,7 @@ and removed by widening, not the displayed index spelling.
 
 The port adds the native target-side named-member check, using complete property
 name enumeration. Unresolved names remain Unknown. This is tracked in tsr-6.40;
-full corpus measurement and native controls follow.
+the completed controls and measurements are recorded below.
 
 ## Optional spread merge
 
@@ -95,3 +95,38 @@ in exact mode, loss of required left presence, acceptance of a truthy primitive
 spread, or reduction of the computed indexed-literal control falsifies the
 corresponding claim. These checks precede the code commit; its isolated measurement
 and deliberate mutations are recorded below once completed.
+
+## Committed checkpoint
+
+At 8e234201 the isolated checkout passes all four focused tests, reproduces the
+frozen verdict byte-for-byte and matches the source hash above. Its separate
+build target prevents a main-checkout executable from supplying the measurement.
+The full result is 455,064/478,855 correct assertions (95.03%) and 6,833/9,538
+complete cases (71.64%), ten more complete cases than 4aad09e1. The refreshed
+snapshot comes from that checkout. The 99% goal still needs 19,003 matches.
+
+Fresh depend reports 512 non-gapping roots, 214 cycles, zero depth-cap hits and
+3,758 walked gaps. C3 balances; C1/C4 are stale under tsr-6.29 and are not used
+as current coverage proof.
+
+Three separate isolated mutations disable the target-property check, optional
+collision merge and operand validity. The literal test, both optional tests and
+the invalid-union test respectively fail with assertion mismatches, not build
+failures. All mutated sources are restored byte-for-byte to the committed source.
+
+Evidence:
+- /tmp/tsr-99-spread-verified.tsv
+- /tmp/tsr-99-spread-transitions2.txt
+- /tmp/tsr-99-spread-verified-tests.log
+- /tmp/tsr-99-spread-workspace.log
+- /tmp/tsr-99-spread-clippy.log
+- /tmp/tsr-99-spread-anchors.log
+- /tmp/tsr-99-spread-verified-coverage.log
+- /tmp/tsr-99-spread-verified-depend.log
+- /tmp/tsr-99-spread-mutation-literal.log
+- /tmp/tsr-99-spread-mutation-optional.log
+- /tmp/tsr-99-spread-mutation-validity.log
+- /tmp/compound-engineering-501/ce-code-review/literal-target-spreads/review.json
+
+The implemented core of tsr-6.40 is complete; tsr-8 retains the explicit remaining
+spread and inference work. No other suite is remeasured by this checkpoint.

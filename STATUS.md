@@ -24,24 +24,23 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-10-01
 
-Measured on **`4aad09e1`** in an isolated checkout: **454,963/478,855 assertions
-(95.01%)**, **6,823/9,538 complete cases (71.53%)**. The 99% target requires
-474,067 correct assertions; **19,104 remain**. Denominator and pinned oracle
-unchanged. Aligned verdicts: **474,243 total; 454,963 right; 2,922 gap; 16,358 wrong**.
+Measured on **`8e234201`** in an isolated checkout: **455,064/478,855 assertions
+(95.03%)**, **6,833/9,538 complete cases (71.64%)**. The 99% target requires
+474,067 correct assertions; **19,003 remain**. Denominator and pinned oracle
+unchanged. Aligned verdicts: **474,243 total; 455,064 right; 2,912 gap; 16,267 wrong**.
 Binder retains its verified **8,497/8,497 (100%)** result at aab165d8;
 other suites below retain historical measurements.
 
-This unit adds **17 matching assertions** and **one complete case**, with
-**zero RIGHT losses** relative to bdc82dd5: 15 WRONG→RIGHT and two GAP→RIGHT.
-No changed wrong, GAP→WRONG or WRONG→GAP transitions occur.
-[Structural index relations](docs/architecture/checker-99-index-relations.md)
-records semantic index conjunction, eligible inferred-index sources, key filtering,
-optional member semantics and mixed callable/index targets. Two native-controlled
-tests, 200 release workspace result blocks, final clippy, 3,336 anchors and the
-refreshed checker snapshot support this checkpoint. An isolated mutation forcing
-resolved index relations to Related fails both native controls. The final workspace
-run passes all 200 result blocks. Committed verdict and source hash match the frozen
-candidate. The 99% goal remains active.
+This unit adds **101 matching assertions** and **10 complete cases**, with
+**zero RIGHT losses** relative to 4aad09e1: 93 WRONG→RIGHT and eight GAP→RIGHT.
+Two GAP→WRONG and 25 changed-wrong rows are recorded separately.
+[Literal targets and optional spreads](docs/architecture/checker-99-literal-targets-spreads.md)
+records actual-property requirements on literal targets, optional-right merges,
+partial object unions and native spread validity. Four native-controlled tests,
+201 release workspace result blocks, clippy, 3,342 anchors and the refreshed checker
+snapshot support this checkpoint. Committed verdict and source hash match the
+frozen candidate. Three isolated mutations fail the corresponding tests; sources
+are restored byte-for-byte. The 99% goal remains active.
 
 ### Previous whole-suite measurement — historical
 
@@ -1076,6 +1075,7 @@ Per-crate, by what the conformance suites actually assert — not by what exists
 
 | subsystem | state | evidence |
 |---|---|---|
+| literal targets and optional spreads | **native presence, merge and validity rules** | 8e234201: +101 matches, zero RIGHT losses, +10 complete cases; [evidence](docs/architecture/checker-99-literal-targets-spreads.md) |
 | structural index relations | **semantic indexes are independent requirements** | 4aad09e1: +17 matches, zero RIGHT losses, +1 complete case; [evidence](docs/architecture/checker-99-index-relations.md) |
 | object literal widening | **sibling contexts and literal candidate grouping** | bdc82dd5: +155 matches, zero RIGHT losses, +6 complete cases; [evidence](docs/architecture/checker-99-widening-context.md) |
 | generic properties and receivers | **semantic member comparison and complete identity maps** | bd41d1b0: +34 matches, zero RIGHT losses; recursive constraints and shadowed receiver controls; [evidence](docs/architecture/checker-99-generic-properties.md) |
@@ -1237,7 +1237,22 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-### Current priorities at `4aad09e1` — 2026-10-01
+### Current priorities at `8e234201` — 2026-10-01
+
+Continue toward 99% coverage: 19,003 matching assertions remain. Literal target
+requirements and optional spreads gain 101 matches, including 16 in each
+spreadDuplicate variant. tsr-6.40's implemented core moves off the board;
+tsr-8 tracks union distribution, declaration-based property order, reused optional
+symbol display, generic sources, index infos and complete semantic member capture.
+Native getNamedMembers sorts by source declaration, so preserving provenance is
+required; sorting rendered property text would not implement that rule.
+ObjectAssignLikeNonUnionResult and setMethods tuple correlation remain there too.
+Shadowed parameter serialization/contextual/this/intersection consumers remain in
+tsr-6.38; alias members and adjusted facts in tsr-6.35 and tsr-6.34.
+Fresh depend: 512 non-gapping roots, 214 cycles, zero depth-cap hits and 3,758
+walked gaps. C3 balances; C1/C4 remain stale (tsr-6.29), not coverage evidence.
+
+### Previous priorities at `4aad09e1` — 2026-10-01
 
 Continue toward 99% coverage: 19,104 matching assertions remain. Structural index
 relations convert 11 assertions in narrowingMutualSubtypes and six in
@@ -4065,6 +4080,15 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+### Literal targets and optional spreads at `8e234201`
+
+The first partial-union spread candidate omitted native operand validation and
+lost ten RIGHT assertions on invalid primitive or null/undefined spreads. That
+candidate was refused; isValidSpreadType restores all ten. The accepted result
+gains 101 RIGHT with zero losses; two GAP→WRONG and 25 changed-wrong rows remain
+in tsr-8. Full spread union distribution, declaration ordering and original-symbol
+display are still unported. See [evidence](docs/architecture/checker-99-literal-targets-spreads.md).
 
 ### Structural index relations at `4aad09e1`
 
@@ -10125,6 +10149,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
+| 2026-10-01 | `8e234201` | **71.64%** | **6,833** | **455,064/478,855 assertions (95.03%).** +101 since 4aad09e1, zero RIGHT losses; 93W→R,8G→R,2G→W,25 changed wrong. | Literal target named properties, optional spread merges, partial unions and native operand validity. Four native tests; 201 workspace result blocks, clippy,3,342 anchors; isolated verdict/source match and refreshed snapshot. 19,003 remain to99%. |
 | 2026-10-01 | `4aad09e1` | **71.53%** | **6,823** | **454,963/478,855 assertions (95.01%).** +17 since bdc82dd5, zero RIGHT losses;15W→R,2G→R,no changed wrong. | Semantic index relations, inferred-index restrictions, key/optional handling, callable/index conjunction. Two native tests, workspace200 blocks, isolated index mutation; final clippy,3,336 anchors,isolated verdict/source match. 19,104 remain to99%. |
 | 2026-10-01 | `bdc82dd5` | **71.52%** | **6,822** | **454,946/478,855 assertions (95.01%).** +155 since bd41d1b0, zero RIGHT losses; 143W→R,12G→R,21 changed wrong. | Object-literal widening contexts and literal candidate grouping. Three native controls; workspace199 blocks, clippy,3,340 anchors; isolated verdict/source match. 19,121 remain to99%; tsr-6.40 tracks residuals. |
 | 2026-10-01 | `bd41d1b0` | **71.46%** | **6,816** | **454,791/478,855 assertions (94.97%).** +34 since b167f6ff, zero RIGHT losses; 18W→R,16G→R,1 changed wrong. | Semantic generic property relations and complete receiver maps. Four native/focused tests, isolated mutation, workspace198 blocks, clippy,3,340 anchors; committed verdict byte-match and refreshed snapshot. [Evidence](docs/architecture/checker-99-generic-properties.md). 19,276 remain to99%. |
