@@ -86,3 +86,40 @@ Frozen candidate /tmp/tsr-99-batches-final.tsv: 455,346 RIGHT, 2,869 GAP and
 and six GAP-to-RIGHT; zero RIGHT losses and no adverse transitions. The full
 478,855 denominator is unchanged. All 205 release workspace result blocks pass.
 Source SHA-256 (checker sources plus trace_case): 469a6977a575227ca494a11b12295358963de342a3186a5fa54bd646dc4db1be .
+
+## Committed checkpoint
+
+The isolated checkout at 4e964b97595284be50c104403d95168ee7c1be7c reproduces the
+frozen candidate byte-for-byte and matches its production-source hash. Coverage
+is 455,346/478,855 matching assertions (95.09%) and 6,861/9,538 complete cases
+(71.93%), three more complete cases than the baseline. 18,721 matches remain
+before 99%. The committed snapshot is copied from this checkout.
+
+All 205 release workspace result blocks, clippy, formatting, whitespace checks
+and 3,338 upstream references pass. Depend reports 517 non-gapping roots, 214
+cycles, zero depth-cap hits and 3,706 walked gaps. C3 balances; C1/C4 remain stale
+under tsr-6.29 and are not current coverage proof.
+
+Evidence:
+- /tmp/tsr-99-batches-final-delta.txt
+- /tmp/tsr-99-batches-verified.tsv
+- /tmp/tsr-99-batches-verified-workspace.log
+- /tmp/tsr-99-batches-verified-clippy.log
+- /tmp/tsr-99-batches-verified-anchors.log
+- /tmp/tsr-99-batches-verified-coverage.log
+- /tmp/tsr-99-batches-verified-depend.log
+- /tmp/compound-engineering-501/ce-code-review/spread-batches/review.json
+
+Four isolated mutations remove accessor-write capture, component serialization,
+instantiated index storage and semantic computed-name identity. Each fails the
+expected assertion: pairAfter, componentCopy, indexCopy and overwritten,
+respectively. The index-storage mutation also changes indexRead to error; its
+first assertion failure is the earlier copied object. These are assertion failures,
+not compilation failures. Production sources are restored byte-for-byte to the
+committed hash and all four focused tests pass afterward.
+
+Mutation logs: /tmp/tsr-99-batches-mutation-accessor.log,
+/tmp/tsr-99-batches-mutation-components.log,
+/tmp/tsr-99-batches-mutation-index-instantiation.log,
+/tmp/tsr-99-batches-mutation-computed-key.log.
+Restored verification: /tmp/tsr-99-batches-restored-tests.log.
