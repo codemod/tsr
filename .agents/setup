@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+# Prepares a fresh Amp orb for this repository. Runs once per fresh orb (or on
+# top of a stale snapshot), so every step must be idempotent and cheap when the
+# work is already done. See https://ampcode.com/docs/orbs.
+set -euo pipefail
+
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+
+BD_VERSION="1.3.1"
+
+step() {
+  local name="$1"
+  shift
+  local start=$SECONDS
+  echo "==> ${name}"
+  "$@"
+  echo "<== ${name} ($((SECONDS - start))s)"
+}
+
+install_rust() {
+  if ! command -v rustup >/dev/null 2>&1 && [ ! -x "$HOME/.cargo/bin/rustup" ]; then
+    curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs |
+      sh -s -- -y --profile minimal --default-toolchain none --no-modify-path
+  fi
+  # rustup's installer cannot update this running script's environment.
+  export PATH="$HOME/.cargo/bin:$PATH"
+  # Installs the channel and components pinned in rust-toolchain.toml; a no-op
+  # when they are already present.
+  rustup toolchain install
+  rustc --version
+}
+
+persist_path() {
+  # Login shells (Amp, supervised services) need cargo and ~/.local/bin on PATH.
+  local marker="# tsr orb toolchain"
+  if ! grep -Fqx "$marker" "$HOME/.bash_profile" 2>/dev/null; then
+    cat >>"$HOME/.bash_profile" <<'EOF'
+
+# tsr orb toolchain
+case ":$PATH:" in *":$HOME/.cargo/bin:"*) ;; *) export PATH="$HOME/.cargo/bin:$PATH" ;; esac
+case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) export PATH="$HOME/.local/bin:$PATH" ;; esac
+EOF
+  fi
+}
+
+init_submodules() {
+  # Recursive: the conformance corpus lives in the TypeScript submodule inside
+  # typescript-go. Shallow: nothing reads the submodules' history.
+  git submodule sync --recursive --quiet
+  git submodule update --init --recursive --depth 1 --jobs 4
+}
+
+install_bd() {
+  mkdir -p "$HOME/.local/bin"
+  if [ "$("$HOME/.local/bin/bd" version 2>/dev/null | awk '{print $3}')" != "$BD_VERSION" ]; then
+    local tmp
+    tmp="$(mktemp -d)"
+    curl -fsSL -o "$tmp/bd.tgz" \
+      "https://github.com/gastownhall/beads/releases/download/v${BD_VERSION}/beads_${BD_VERSION}_linux_amd64.tar.gz"
+    tar xzf "$tmp/bd.tgz" -C "$tmp" bd
+    install -m 0755 "$tmp/bd" "$HOME/.local/bin/bd"
+    rm -rf "$tmp"
+  fi
+  export PATH="$HOME/.local/bin:$PATH"
+  chmod 700 .beads  # bd warns on group/world-readable .beads
+  # Creates the embedded Dolt database from the tracked JSONL on a fresh clone;
+  # validates and leaves an existing database alone.
+  bd bootstrap --yes --quiet
+}
+
+prebuild() {
+  # Warm target/ so the snapshot carries compiled dependencies and the first
+  # build, clippy and test run in a thread are incremental.
+  cargo fetch --locked
+  cargo build --workspace --all-targets --locked
+  cargo clippy --workspace --all-targets --locked
+}
+
+step "rust toolchain" install_rust
+step "login shell PATH" persist_path
+step "git submodules" init_submodules
+step "beads (bd)" install_bd
+step "cargo prebuild" prebuild

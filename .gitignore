@@ -14,3 +14,9 @@ perf-summary.md
 
 # Local Compound Engineering optimization state.
 /.context/
+
+# bd lock file written next to .beads/.
+.beads.gate.lock
+
+# Amp orb portal registrations.
+.amp/portals/*
