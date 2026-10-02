@@ -1524,8 +1524,7 @@ impl Checker<'_, '_> {
             // Wiring them one at a time would have been four more §945s; asking
             // the dispatch that already knows is one line and covers the arms it
             // grows later for free.
-            if let Some(contextual) = self.get_contextual_type(method)
-                && let Some(signature) = self.contextual_signature_of_type(contextual)
+            if let Some(signature) = self.contextual_signature(method)
                 && let Some(this_parameter) = signature.this_parameter
             {
                 return Some(this_parameter.r#type);

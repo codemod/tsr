@@ -403,6 +403,11 @@ pub struct Checker<'a, 'n> {
         tsr_ast::NodeId,
         (Vec<(crate::types::TypeId, crate::types::TypeId)>, Vec<crate::types::TypeId>, Vec<String>),
     >,
+    /// assignContextualParameterTypes reads the call's mapper at the signature,
+    /// after contextual object templates have supplied their member shape.
+    #[allow(clippy::type_complexity)]
+    pub(crate) contextual_signature_mappers:
+        FxHashMap<NodeId, (Vec<(TypeId, TypeId)>, Vec<TypeId>, Vec<String>)>,
     /// §52's operand memo — upstream's `getTypeOfExpression` is CACHED, and
     /// without the cache every equality re-types its operand, each typing
     /// re-entering other references' walks: exponential on condition
@@ -1211,6 +1216,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             contextual_return_in_flight: rustc_hash::FxHashSet::default(),
             contextual_return_depth: 0,
             intra_expression_member_maps: rustc_hash::FxHashMap::default(),
+            contextual_signature_mappers: FxHashMap::default(),
             narrow_value_types: rustc_hash::FxHashMap::default(),
             union_origin: rustc_hash::FxHashMap::default(),
             enum_value_types: rustc_hash::FxHashMap::default(),

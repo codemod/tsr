@@ -253,6 +253,7 @@ impl<'a> Checker<'a, '_> {
                     declaration: function,
                     target: None,
                     union_contains_abstract: false,
+                    non_inferrable: false,
                     kind: crate::signatures::SignatureKind::Call,
                     type_parameters: Vec::new(),
                     this_parameter: None,
@@ -475,6 +476,59 @@ impl<'a> Checker<'a, '_> {
     /// `getContextualSignature` (checker.go). The outer `None` is an
     /// unresolved port path; `Absent` is upstream's computed nil result.
     pub(crate) fn contextual_signature_result(
+        &mut self,
+        function: NodeId,
+    ) -> Option<ContextualSignature> {
+        let result = self.contextual_signature_result_worker(function)?;
+        if self.contextual_prefers_uninstantiated {
+            return Some(result);
+        }
+        let ContextualSignature::Present(signature) = result else { return Some(result) };
+        let mut parent = self.nodes.parent(function);
+        while let Some(node) = parent {
+            if let Some((map, parameters, names)) =
+                self.contextual_signature_mappers.get(&node).cloned()
+            {
+                let names: Vec<_> = names.iter().map(String::as_str).collect();
+                return self
+                    .instantiate_signature(*signature, &map, &parameters, &names)
+                    .map(|signature| ContextualSignature::Present(Box::new(signature)));
+            }
+            parent = self.nodes.parent(node);
+        }
+        Some(ContextualSignature::Present(signature))
+    }
+
+    /// instantiateContextualType (checker.go) keeps object templates intact
+    /// while resolving an instantiable contextual operand through the mapper.
+    fn instantiate_contextual_inference_type(&mut self, ty: TypeId, node: NodeId) -> TypeId {
+        if self.contextual_prefers_uninstantiated {
+            return ty;
+        }
+        let mut parent = self.nodes.parent(node);
+        while let Some(node) = parent {
+            if let Some((map, parameters, names)) =
+                self.contextual_signature_mappers.get(&node).cloned()
+            {
+                let names: Vec<_> = names.iter().map(String::as_str).collect();
+                let image = self.instantiate_instantiable_types(ty, &map, &parameters, &names);
+                return if self
+                    .store
+                    .get(image)
+                    .flags
+                    .intersects(crate::flags::TypeFlags::ANY | crate::flags::TypeFlags::UNKNOWN)
+                {
+                    ty
+                } else {
+                    image
+                };
+            }
+            parent = self.nodes.parent(node);
+        }
+        ty
+    }
+
+    fn contextual_signature_result_worker(
         &mut self,
         function: NodeId,
     ) -> Option<ContextualSignature> {
@@ -1614,6 +1668,7 @@ impl<'a> Checker<'a, '_> {
         // was never made. Same call, same reason, as the initialiser guard above.
         let object_literal = self.nodes.parent(element)?;
         let contextual = self.get_contextual_type(object_literal)?;
+        let contextual = self.instantiate_contextual_inference_type(contextual, object_literal);
         // `getTypeOfPropertyOfContextualTypeEx` (`checker.go:29932`). Upstream
         // maps over a union here.
         //
@@ -1631,6 +1686,8 @@ impl<'a> Checker<'a, '_> {
             self.generic_mapped_contextual_property_type(contextual, &name)
         {
             mapped
+        } else if matches!(self.store.get(contextual).data, TypeData::Intersection { .. }) {
+            self.contextual_property_type(contextual, &name)?
         } else {
             match self.get_property_of_type(contextual, &name) {
                 Some(property) => self.get_type_of_symbol(property),

@@ -2594,6 +2594,11 @@ impl Checker<'_, '_> {
     ) -> Option<Vec<crate::signatures::Signature>> {
         let is_call = kind == crate::signatures::SignatureKind::Call;
         let t = self.apparent_type(t);
+        // getSignaturesOfType resolves the intrinsic object type to an empty
+        // member table; it does not make an intersected callable unresolved.
+        if self.store.get(t).flags.contains(TypeFlags::NON_PRIMITIVE) {
+            return Some(Vec::new());
+        }
         if self.intersection_has_never_discriminant(t) {
             return Some(Vec::new());
         }

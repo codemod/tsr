@@ -170,6 +170,8 @@ pub struct Signature {
     /// `someSignature` inspects composite members independently of the cloned
     /// signature's own flags (checker.go:8710).
     pub union_contains_abstract: bool,
+    /// `SignatureFlagsIsNonInferrable`: infer only the return of a skipped callback.
+    pub non_inferrable: bool,
     /// Call, construct, or abstract construct — see [`SignatureKind`].
     pub kind: SignatureKind,
     /// Type parameters, in source order.
@@ -401,6 +403,7 @@ impl<'a> Checker<'a, '_> {
             declaration,
             target: None,
             union_contains_abstract: false,
+            non_inferrable: true,
             kind: SignatureKind::Call,
             type_parameters: Vec::new(),
             this_parameter: None,
@@ -412,6 +415,7 @@ impl<'a> Checker<'a, '_> {
         let text = self.signature_to_string(&signature);
         let id = self.store.new_named(crate::flags::TypeFlags::OBJECT, text, None);
         self.signature_types.insert(id, vec![signature]);
+        self.non_inferrable_types.insert(id);
         self.anonymous_properties.insert(id, (Vec::new(), true));
         Some(id)
     }
@@ -873,6 +877,7 @@ impl<'a> Checker<'a, '_> {
             declaration,
             target: None,
             union_contains_abstract: false,
+            non_inferrable: false,
             kind,
             type_parameters,
             this_parameter: None,
@@ -1388,6 +1393,7 @@ impl<'a> Checker<'a, '_> {
             declaration,
             target: None,
             union_contains_abstract: false,
+            non_inferrable: false,
             kind: self.signature_kind_of(declaration),
             type_parameters,
             this_parameter,

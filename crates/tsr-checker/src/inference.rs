@@ -72,6 +72,16 @@ bitflags::bitflags! {
     }
 }
 
+bitflags::bitflags! {
+    /// InferenceContext fallback modes (internal/checker/checker.go).
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+    pub(crate) struct InferenceFlags: u8 {
+        const NONE = 0;
+        const NO_DEFAULT = 1 << 0;
+        const ANY_DEFAULT = 1 << 1;
+    }
+}
+
 /// A snapshot of the active `InferenceContext` used by an inner call's
 /// `cloneInferenceContext(..., NoDefault)` (internal/checker/checker.go).
 #[derive(Clone, Debug)]
@@ -79,6 +89,7 @@ pub(crate) struct InferenceContextSnapshot {
     pub(crate) signature: Signature,
     pub(crate) inferences: Vec<InferenceInfo>,
     pub(crate) return_inferences: Vec<InferenceInfo>,
+    pub(crate) flags: InferenceFlags,
 }
 
 /// cloneTypeParameter / instantiateSignatureEx (internal/checker/checker.go).
@@ -265,6 +276,11 @@ impl Checker<'_, '_> {
                     signature: signature.clone(),
                     inferences: Vec::new(),
                     return_inferences: Vec::new(),
+                    flags: if self.in_js_file(call) {
+                        InferenceFlags::ANY_DEFAULT
+                    } else {
+                        InferenceFlags::NONE
+                    },
                 },
             )
         });
@@ -1029,6 +1045,7 @@ impl Checker<'_, '_> {
             let owns_memo = !self.call_inference_signatures.contains_key(&call_id);
             if owns_memo {
                 self.call_inference_signatures.insert(call_id, signature.clone());
+                self.contextual_signature_mappers.remove(&call_id);
             }
             // inferTypeArguments first checks the argument with
             // SkipContextSensitive: retain object data while callbacks are
@@ -1266,37 +1283,19 @@ impl Checker<'_, '_> {
                                 // The non-fixing mapper still resolves every read
                                 // through getInferredType. Missing candidates use
                                 // their fallback, then remain open for later sites.
-                                let mut map = Vec::new();
-                                for (position, &parameter) in parameters.iter().enumerate() {
-                                    let inferred = merged
-                                        .iter()
-                                        .find(|info| {
-                                            info.type_parameter == parameter
-                                                && (info.has_candidates()
-                                                    || info.fixed_type.is_some())
-                                        })
-                                        .map(|info| {
-                                            self.inferred_type_from_info(
-                                                info, signature, position, &merged,
-                                            )
-                                            .unwrap_or(error)
-                                        });
-                                    let inferred = inferred.unwrap_or_else(|| {
-                                        let declaration = &signature.type_parameters[position];
-                                        declaration.default.or(declaration.constraint).map_or(
-                                            self.intrinsics.unknown,
-                                            |fallback| {
-                                                self.instantiate_type(
-                                                    fallback,
-                                                    &map,
-                                                    &parameters,
-                                                    &names,
-                                                )
-                                            },
-                                        )
-                                    });
-                                    map.push((parameter, inferred));
-                                }
+                                let flags = if self.in_js_file(call_id) {
+                                    InferenceFlags::ANY_DEFAULT
+                                } else {
+                                    InferenceFlags::NONE
+                                };
+                                let Some(map) = self.resolved_inference_map(
+                                    &merged,
+                                    signature,
+                                    &parameters,
+                                    flags,
+                                ) else {
+                                    return decline;
+                                };
                                 for info in merged.iter_mut().filter(|info| info.is_fixed) {
                                     info.fixed_type = map
                                         .iter()
@@ -1368,12 +1367,32 @@ impl Checker<'_, '_> {
                         partial.push(entry);
                     }
                 }
+                let flags = if self.in_js_file(call_id) {
+                    InferenceFlags::ANY_DEFAULT
+                } else {
+                    InferenceFlags::NONE
+                };
+                let candidates = partial.clone();
+                let mut fallback_map = partial.clone();
                 for (position, &type_parameter) in parameters.iter().enumerate() {
                     if !partial.iter().any(|&(tp, _)| tp == type_parameter)
-                        && let Some(constraint) =
-                            signature.type_parameters.get(position).and_then(|tp| tp.constraint)
+                        && signature.type_parameters[position]
+                            .default
+                            .or(signature.type_parameters[position].constraint)
+                            .is_some()
                     {
-                        partial.push((type_parameter, constraint));
+                        let fallback = self.resolve_inference_with_constraints(
+                            (signature, &infos),
+                            position,
+                            &parameters,
+                            &candidates,
+                            &mut fallback_map,
+                            flags,
+                        );
+                        if fallback == error {
+                            return decline;
+                        }
+                        partial.push((type_parameter, fallback));
                     }
                 }
                 // The FIXING mapper's final leg (`getInferredType`,
@@ -1495,20 +1514,22 @@ impl Checker<'_, '_> {
                 }
                 let mut memo = signature.clone();
                 for parameter in &mut memo.parameters {
-                    // instantiateContextualType does not instantiate mapped
-                    // object contexts. Their key-specific templates are read
-                    // before the member mapper fixes the referenced variables.
-                    // An as clause disables reverse inference; its context
-                    // uses candidates already collected from the other arguments.
-                    if self
+                    // Key remapping does not participate in reverse inference;
+                    // its served keys use candidates from preceding arguments.
+                    let image = if self
                         .mapped_types
                         .get(&parameter.r#type)
-                        .is_some_and(|info| info.name_type.is_none())
+                        .is_some_and(|info| info.name_type.is_some())
                     {
-                        continue;
-                    }
-                    let image =
-                        self.instantiate_type(parameter.r#type, &partial, &parameters, &names);
+                        self.instantiate_type(parameter.r#type, &partial, &parameters, &names)
+                    } else {
+                        self.instantiate_instantiable_types(
+                            parameter.r#type,
+                            &partial,
+                            &parameters,
+                            &names,
+                        )
+                    };
 
                     // With the fill the map is TOTAL and the image always
                     // serves; without it (contextual-position call) the SS75
@@ -1522,6 +1543,23 @@ impl Checker<'_, '_> {
                 }
                 if owns_memo {
                     self.call_inference_signatures.insert(call_id, memo);
+                    // Contextual return inference can leave an outer variable
+                    // unfixed. A missing image retains that identity; it is not
+                    // an unsuccessful type computation.
+                    let mut contextual_map = partial.clone();
+                    for &parameter in &parameters {
+                        if !contextual_map.iter().any(|&(source, _)| source == parameter) {
+                            contextual_map.push((parameter, parameter));
+                        }
+                    }
+                    self.contextual_signature_mappers.insert(
+                        call_id,
+                        (
+                            contextual_map,
+                            parameters.clone(),
+                            names.iter().map(ToString::to_string).collect(),
+                        ),
+                    );
                     if !inferred_type_parameters.is_empty() || !return_mapper.is_empty() {
                         self.higher_order_context_calls.insert(call_id);
                     }
@@ -1686,8 +1724,15 @@ impl Checker<'_, '_> {
         }
         // Resolve constraints through the non-fixing mapper after collecting all
         // candidates. Its provisional entries break dependent-constraint cycles.
-        let mut map = Vec::with_capacity(parameters.len());
-        let any_default = call.is_some_and(|id| self.in_js_file(id));
+        let mut map: Vec<_> = infos
+            .iter()
+            .filter_map(|info| info.fixed_type.map(|t| (info.type_parameter, t)))
+            .collect();
+        let flags = if call.is_some_and(|id| self.in_js_file(id)) {
+            InferenceFlags::ANY_DEFAULT
+        } else {
+            InferenceFlags::NONE
+        };
         for position in 0..parameters.len() {
             if self.resolve_inference_with_constraints(
                 (signature, &infos),
@@ -1695,7 +1740,7 @@ impl Checker<'_, '_> {
                 &parameters,
                 &candidates,
                 &mut map,
-                any_default,
+                flags,
             ) == error
             {
                 return decline;
@@ -1708,10 +1753,9 @@ impl Checker<'_, '_> {
         if !skip_context_sensitive
             && (arguments.iter().any(|argument| self.is_context_sensitive_argument(argument))
                 || argument_types.iter().any(|argument| self.signature_types.get(argument).is_some_and(|signatures| matches!(signatures.as_slice(), [signature] if !signature.type_parameters.is_empty()))))
-            && !signature.parameters.iter().any(|parameter| parameter.rest)
         {
             let failed =
-                argument_types.iter().zip(&signature.parameters).any(|(&argument, parameter)| {
+                argument_types.iter().zip(signature.parameters.iter().take_while(|p| !p.rest)).any(|(&argument, parameter)| {
                     let image = self.instantiate_type(parameter.r#type, &map, &parameters, &names);
                     argument != error
                         && image != error
@@ -1788,7 +1832,7 @@ impl Checker<'_, '_> {
         parameters: &[TypeId],
         candidates: &[(TypeId, TypeId)],
         map: &mut Vec<(TypeId, TypeId)>,
-        any_default: bool,
+        flags: InferenceFlags,
     ) -> TypeId {
         use crate::relater::{Relation, Ternary};
         let (signature, infos) = context;
@@ -1796,15 +1840,42 @@ impl Checker<'_, '_> {
         if let Some(&(_, inferred)) = map.iter().find(|&&(source, _)| source == parameter) {
             return inferred;
         }
-        let fallback = if any_default { self.intrinsics.any } else { self.intrinsics.unknown };
+        let info = infos.iter().find(|info| info.type_parameter == parameter);
+        if let Some(fixed) = info.and_then(|info| info.fixed_type) {
+            map.push((parameter, fixed));
+            return fixed;
+        }
+        let candidate = if let Some(&(_, candidate)) =
+            candidates.iter().find(|&&(source, _)| source == parameter)
+        {
+            Some(candidate)
+        } else if let Some(info) = info.filter(|info| info.has_candidates()) {
+            let inferred = self
+                .unconstrained_inferred_type_from_info(info, signature, position, infos)
+                .unwrap_or(self.intrinsics.error);
+            if inferred == self.intrinsics.error {
+                map.push((parameter, inferred));
+                return inferred;
+            }
+            Some(inferred)
+        } else {
+            None
+        };
+        let no_default = flags.contains(InferenceFlags::NO_DEFAULT);
+        let fallback = if no_default {
+            self.get_silent_never_type()
+        } else if flags.contains(InferenceFlags::ANY_DEFAULT) {
+            self.intrinsics.any
+        } else {
+            self.intrinsics.unknown
+        };
         let slot = map.len();
-        let candidate =
-            candidates.iter().find(|&&(source, _)| source == parameter).map(|&(_, t)| t);
         let mut inferred = candidate.unwrap_or(fallback);
         map.push((parameter, inferred));
         let names: Vec<_> = signature.type_parameters.iter().map(|p| p.name.as_str()).collect();
         let declaration = &signature.type_parameters[position];
         if candidate.is_none()
+            && !no_default
             && let Some(default) = declaration.default
         {
             // Defaults resolve earlier parameters through the non-fixing mapper;
@@ -1815,12 +1886,7 @@ impl Checker<'_, '_> {
                     && self.mentions_type_parameter(default, &[source], &[names[index]])
                 {
                     self.resolve_inference_with_constraints(
-                        context,
-                        index,
-                        parameters,
-                        candidates,
-                        map,
-                        any_default,
+                        context, index, parameters, candidates, map, flags,
                     )
                 } else {
                     self.intrinsics.unknown
@@ -1841,12 +1907,7 @@ impl Checker<'_, '_> {
             for (index, &source) in parameters.iter().enumerate() {
                 if self.mentions_type_parameter(constraint, &[source], &[names[index]])
                     && self.resolve_inference_with_constraints(
-                        context,
-                        index,
-                        parameters,
-                        candidates,
-                        map,
-                        any_default,
+                        context, index, parameters, candidates, map, flags,
                     ) == self.intrinsics.error
                 {
                     map[slot].1 = self.intrinsics.error;
@@ -1863,7 +1924,7 @@ impl Checker<'_, '_> {
             {
                 inferred = self
                     .inferred_type_with_constraint(info, signature, position, inferred, constraint);
-            } else if declaration.default.is_none()
+            } else if (!no_default && declaration.default.is_none())
                 || self.relate_ternary(inferred, constraint, Relation::Assignable)
                     == Ternary::NotRelated
             {
@@ -1918,20 +1979,84 @@ impl Checker<'_, '_> {
         position: usize,
         infos: &[InferenceInfo],
     ) -> Option<TypeId> {
-        let inferred =
-            self.unconstrained_inferred_type_from_info(info, signature, position, infos)?;
-        let Some(constraint) = signature.type_parameters.get(position).and_then(|p| p.constraint)
-        else {
-            return Some(inferred);
-        };
-        let owned = self.type_parameter_types(signature)?;
-        let names: Vec<_> = signature.type_parameters.iter().map(|p| p.name.as_str()).collect();
-        // Contextual fixing callers retain their existing closed-constraint path.
-        // Final call resolution supplies the recursive mapper for dependent ones.
-        if self.mentions_type_parameter(constraint, &owned, &names) {
-            return Some(inferred);
+        let parameters = self.type_parameter_types(signature)?;
+        let mut context = infos.to_vec();
+        if let Some(existing) =
+            context.iter_mut().find(|existing| existing.type_parameter == info.type_parameter)
+        {
+            *existing = info.clone();
+        } else {
+            context.push(info.clone());
         }
-        Some(self.inferred_type_with_constraint(info, signature, position, inferred, constraint))
+        let inferred = self.resolve_inference_with_constraints(
+            (signature, &context),
+            position,
+            &parameters,
+            &[],
+            &mut Vec::new(),
+            InferenceFlags::NONE,
+        );
+        (inferred != self.intrinsics.error).then_some(inferred)
+    }
+
+    /// instantiateInstantiableTypes (internal/checker/checker.go). Object
+    /// templates retain their parameters until a contextual member is read.
+    pub(crate) fn instantiate_instantiable_types(
+        &mut self,
+        ty: TypeId,
+        map: &[(TypeId, TypeId)],
+        parameters: &[TypeId],
+        names: &[&str],
+    ) -> TypeId {
+        if self.store.get(ty).flags.intersects(crate::flags::TypeFlags::INSTANTIABLE) {
+            return self.instantiate_type(ty, map, parameters, names);
+        }
+        match self.store.get(ty).data.clone() {
+            TypeData::Union { types, .. } => {
+                let types: Vec<_> = types
+                    .into_iter()
+                    .map(|ty| self.instantiate_instantiable_types(ty, map, parameters, names))
+                    .collect();
+                self.get_union_type_without_reduction(&types)
+            }
+            TypeData::Intersection { types, .. } => {
+                let types: Vec<_> = types
+                    .into_iter()
+                    .map(|ty| self.instantiate_instantiable_types(ty, map, parameters, names))
+                    .collect();
+                self.get_intersection_type(&types, None)
+            }
+            _ => ty,
+        }
+    }
+
+    /// getInferredTypes/getMapperFromContext (internal/checker/inference.go).
+    /// Fixed results are cache entries; other candidates resolve with the same
+    /// recursive constraint/default mapper used by final call inference.
+    fn resolved_inference_map(
+        &mut self,
+        infos: &[InferenceInfo],
+        signature: &Signature,
+        parameters: &[TypeId],
+        flags: InferenceFlags,
+    ) -> Option<Vec<(TypeId, TypeId)>> {
+        let mut map = Vec::new();
+        let mut ordered = Vec::with_capacity(parameters.len());
+        for (position, &parameter) in parameters.iter().enumerate() {
+            let inferred = self.resolve_inference_with_constraints(
+                (signature, infos),
+                position,
+                parameters,
+                &[],
+                &mut map,
+                flags,
+            );
+            if inferred == self.intrinsics.error {
+                return None;
+            }
+            ordered.push((parameter, inferred));
+        }
+        Some(ordered)
     }
 
     /// getInferredType's constraint filter and alternate-variance fallback.
@@ -2064,37 +2189,26 @@ impl Checker<'_, '_> {
         let Some(parameters) = self.type_parameter_types(&context.signature) else { return t };
         let names: Vec<_> =
             context.signature.type_parameters.iter().map(|p| p.name.as_str()).collect();
-        let silent = self.get_silent_never_type();
-        let mut map = Vec::new();
-        for (position, &parameter) in parameters.iter().enumerate() {
-            let source_infos = if !no_default
-                && context.return_inferences.iter().any(|info| info.type_parameter == parameter)
-            {
-                &context.return_inferences
-            } else {
-                &context.inferences
-            };
-            let image = source_infos
-                .iter()
-                .find(|info| info.type_parameter == parameter)
-                .filter(|info| info.has_candidates() || info.fixed_type.is_some())
-                .and_then(|info| {
-                    self.inferred_type_from_info(info, &context.signature, position, source_infos)
-                })
-                .unwrap_or_else(|| {
-                    if no_default {
-                        silent
-                    } else {
-                        let declaration = &context.signature.type_parameters[position];
-                        let fallback = declaration
-                            .default
-                            .or(declaration.constraint)
-                            .unwrap_or(self.intrinsics.unknown);
-                        self.instantiate_type(fallback, &map, &parameters, &names)
-                    }
-                });
-            map.push((parameter, image));
-        }
+        let selected: Vec<_> = parameters
+            .iter()
+            .filter_map(|&parameter| {
+                let source_infos = if !no_default
+                    && context.return_inferences.iter().any(|info| info.type_parameter == parameter)
+                {
+                    &context.return_inferences
+                } else {
+                    &context.inferences
+                };
+                source_infos.iter().find(|info| info.type_parameter == parameter).cloned()
+            })
+            .collect();
+        let flags = context.flags
+            | if no_default { InferenceFlags::NO_DEFAULT } else { InferenceFlags::NONE };
+        let Some(map) =
+            self.resolved_inference_map(&selected, &context.signature, &parameters, flags)
+        else {
+            return self.intrinsics.error;
+        };
         self.instantiate_type(t, &map, &parameters, &names)
     }
 
@@ -2249,6 +2363,12 @@ impl Checker<'_, '_> {
             return false;
         };
         let ([source], [target]) = (sources.as_slice(), targets.as_slice()) else { return false };
+        let source_required = source.parameters.iter().filter(|p| !p.optional && !p.rest).count();
+        let target_parameters = self.signature_tuple_arguments(target);
+        if !target_parameters.iter().any(|p| p.spread) && source_required > target_parameters.len()
+        {
+            return true;
+        }
         if !source.type_parameters.is_empty() && target.type_parameters.is_empty() {
             return self.compare_signature_ternary(source, target) == Some(Ternary::NotRelated);
         }
@@ -4371,7 +4491,9 @@ impl Checker<'_, '_> {
                 else {
                     continue;
                 };
-                self.infer_from_signature_parameters(&s, &t, original, parameters, out, depth);
+                if !s.non_inferrable {
+                    self.infer_from_signature_parameters(&s, &t, original, parameters, out, depth);
+                }
                 let (source_return, target_return) = s.inference_return_types(&t);
                 self.infer_from_types_within(
                     source_return,
