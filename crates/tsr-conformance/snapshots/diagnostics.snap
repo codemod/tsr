@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics Summary:
 What a pass means: every diagnostic in upstream's .errors.txt reproduced exactly — same file, line, column and code, no more and no fewer — for cases that expect at least one; scanner, parser and binder only, with no checker (bd tsr-4sc)
-Passed         : 2782/5488 (50.69%)
-Failed         : 2706
+Passed         : 2784/5488 (50.73%)
+Failed         : 2704
 Skipped        : 6956 (excluded from the denominator)
 
   793  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -11,7 +11,7 @@ Skipped        : 6956 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   464  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 2706 failures:
+First 100 of 2704 failures:
 compiler/ClassDeclaration26
   2 unexpected (first TS1005 at ClassDeclaration26.ts(2,22)), 5 missing
 compiler/TransportStream
@@ -116,8 +116,6 @@ compiler/assignmentCompatBug5
   1 unexpected (first TS2345 at assignmentCompatBug5.ts(5,6)), 2 missing
 compiler/assignmentCompatFunctionsWithOptionalArgs
   2 missing (first TS2322 at assignmentCompatFunctionsWithOptionalArgs.ts(4,17))
-compiler/assignmentCompatWithOverloads
-  1 missing (first TS2322 at assignmentCompatWithOverloads.ts(21,1))
 compiler/assignmentCompatability11
   1 unexpected (first TS2322 at assignmentCompatability11.ts(2,141)), 0 missing
 compiler/assignmentCompatability12
@@ -212,3 +210,5 @@ compiler/augmentExportEquals7
   1 missing (first TS2649 at /node_modules/@types/lib-extender/index.d.ts(2,16))
 compiler/augmentedTypesClass2a
   2 missing (first TS2813 at augmentedTypesClass2a.ts(2,7))
+compiler/augmentedTypesFunction
+  4 missing (first TS2814 at augmentedTypesFunction.ts(13,10))

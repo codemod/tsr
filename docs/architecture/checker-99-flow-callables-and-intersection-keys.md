@@ -1,7 +1,7 @@
 # Aliased callables in narrowing and intersection keys in deferred reads
 
 Pinned tsgo: 5b1047d10d32e7d5b446be4de56b126ff42f82bb.
-Baseline 13929e3 (code 8197bdcf): 456,755/478,855 matching assertions (95.38%).
+Baseline 5871239: 457,356/478,855 matching assertions (95.51%).
 Unit: bd tsr-6.34 (adjusted-fact consumers and generic indexed reads).
 
 ## 1. `L & Function` was a relater gate reading a print flag
@@ -70,8 +70,8 @@ lib-less spelling.
 
 ## 3. Measurement
 
-Full scorepair against a baseline measured at origin/main 13929e3 in a separate
-worktree (own target directory): **+35 assertions (32 WRONG-to-RIGHT, 3
+Full scorepair against a baseline measured at origin/main in a separate
+worktree (own target directory) at 5871239, candidate 44279dc: **+35 assertions (32 WRONG-to-RIGHT, 3
 GAP-to-RIGHT), zero RIGHT losses, zero GAP-to-WRONG, zero changed already-WRONG
 rows** (a full verdict TSV diff, not only the class matrix). Rows:
 nonNullReferenceMatching 18, narrowingByTypeofInSwitch 8,

@@ -24,28 +24,28 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-10-02
 
-Measured on **`1421c2f2`** (tsr-8 rest keys and `Omit` reads, rebased onto
-`7184f54a`): **457,356/478,855 assertions (95.51%)**, **7,000/9,538 complete
-cases (73.39%)**. The 99% target requires 474,067 correct assertions;
-**16,711 remain**. Denominator and pinned oracle unchanged. Aligned verdicts:
-**474,243 total; 457,356 right; 2,571 gap; 14,316 wrong**. Binder retains its
-verified **8,497/8,497 (100%)** result at aab165d8; other suites below retain
-historical measurements.
+Measured on **`44279dc`** (rebased on 5871239): **457,391/478,855 assertions
+(95.52%)**, **7,002/9,538 complete cases (73.41%)**. The 99% target requires
+474,067 correct assertions; **16,676 remain**. Denominator and pinned oracle
+unchanged. Aligned verdicts: **474,243 total; 457,391 right; 2,568 gap; 14,284
+wrong**. Binder retains its verified **8,497/8,497 (100%)** result at aab165d8;
+other suites below retain historical measurements.
 
-This unit (tsr-8) adds **35 matching assertions (34 W→R, 1 G→R) and
-1 complete case(s)** relative to a full baseline measured in a separate
-worktree at `7184f54a` (457,321; 6,999 cases), with **zero RIGHT losses,
-zero GAP-to-WRONG and no changed WRONG rows**.
-[Rest keys and Omit reads](docs/architecture/checker-99-rest-types.md)
-records non-public members leaving generic rest omit keys, `Omit<T, K>` reads
-following keyof publicity with deferred `T[P]`, and `?`-only property
-optionality; it converged with tsr-6.25's getRestType port, which landed first.
-`destructuringUnspreadableIntoRest` is fully RIGHT. One added regression; all
-218 release workspace result blocks passed on the identical unit at the
-`fa90d3a4` rebase; clippy, formatting, anchors and the section gate pass here;
-only checker_types moves (other snapshots were byte-identical to a baseline
-coverage run at `6aeac608`). The issue-id gate still reports the historical
-registry gap (tsr-10). The previous checkpoint (`8ed14e53`) is recorded in §7.
+This unit (tsr-6.34, flow narrowing) adds **35 matching assertions and two
+complete cases** against a full baseline measured at 5871239 in a separate
+worktree: 32 WRONG-to-RIGHT, 3 GAP-to-RIGHT, **zero RIGHT losses, zero
+GAP-to-WRONG and zero changed already-WRONG rows** (full verdict diff). The
+relater's structured gate read a print flag, so aliased callables
+(`type L = ...`) never related to `Function` and `typeof x === "function"`
+answered `L & Function`; a generic key of an intersection constituent now
+defers (`NonNullable<T>[K]`).
+[Aliased callables and intersection keys](docs/architecture/checker-99-flow-callables-and-intersection-keys.md)
+records both. diagnostics: 2,784/5,488 vs 2,782 at 5871239. Earlier units
+(1421c2f and before) remain in §7. Release workspace tests (218 result
+blocks), clippy, 3,341 anchors and 16,630 section citations pass for the same
+diff at 6ce3081 (before rebasing over later checker landings); rustfmt is clean
+for this unit's files, but `cargo fmt --check` flags destructure.rs from
+241e2d60 on main (untouched).
 The 99% goal and tsr-8 remain active.
 
 ### Previous whole-suite measurement — historical
@@ -1283,7 +1283,17 @@ reporting, `for-of49`'s unnormalized `[string, ...[boolean]]` tuple-target
 spelling, and the residual spreadUnion2/spreadObjectOrFalsy/
 spreadExpressionContextualTypeWithNamespace rows.
 
-### Current priorities at `8ed14e53` — 2026-10-02
+### Current priorities at `44279dc` — 2026-10-02
+
+Continue toward 99%: 16,676 matching assertions remain. tsr-6.34 (flow
+narrowing): aliased callables now relate structurally to `Function`, and generic
+keys of intersection constituents defer. Remaining in that unit:
+narrowingByTypeofInSwitch union-order rows (`R | L`), the `object | Function`
+default-clause rows (the lib `Function` interface lacks isFunctionObjectType's
+`bind`+subtype half, so it keeps ObjectStrictFacts), non-strict fact aggregates
+and general subtype reduction. The 8ed14e53 priorities below stand.
+
+### Previous priorities at `8ed14e53` — 2026-10-02
 
 Continue toward 99%: 16,746 matching assertions remain. Type-parameter naming
 (tsr-6.38) now allocates declared parameter names at the print site and keys
@@ -11786,3 +11796,5 @@ that were true of a different population than the one they were quoted about.
 | 2026-10-02 | `8ed14e53` | **95.50%** | **6,999/9,538** | **Shadowed type-parameter names (tsr-6.38): +55 assertions (55 W-to-R), +1 complete case, zero RIGHT losses, zero GAP transitions; 16 changed already-WRONG rows** against a full baseline at 5206b571: 457,321/478,855. Generic qualified references are cached by argument ids (createTypeReferenceEx), so a class `R` and an overload's `R` no longer share `Promise.Thenable<R>` (46 bluebirdStaticThis rows); declared type parameters take their site name (typeParameterToName). The site rule alone lost two RIGHT rows (contextualSignatureInstantiation2) to a concise-body contextual-typing defect; fixing that lost one (conditionalTypes1) to alias-of-conditional genericity; both fixed. [Record](docs/architecture/checker-99-shadowed-names.md). |
 
 | 2026-10-02 | `1421c2f2` | **95.51%** | **7,000/9,538** | **Rest keys and Omit reads (tsr-8): +35 assertions (34 W-to-R, 1 G-to-R), +1 complete case(s) vs `7184f54a`, zero RIGHT losses, GAP-to-WRONG or changed WRONG rows.** 457,356/478,855, 2,571 aligned gaps, 14,316 wrong. Generic rest omit keys skip non-public members; `Omit<T, K>` reads follow keyof publicity and defer `T[P]`; `?`-only optionality. Converged with tsr-6.25's getRestType port (landed first). One new destructure test; 218 release blocks (at the fa90d3a4 rebase), clippy, anchors, sections. [Evidence](docs/architecture/checker-99-rest-types.md). 16,711 matches remain to 99%. |
+
+| 2026-10-02 | `44279dc` | **95.52%** | **7,002/9,538** | **tsr-6.34 flow narrowing: +35 assertions (32 W-to-R, 3 G-to-R), +2 complete cases, zero RIGHT losses, zero G-to-W, zero changed already-WRONG rows vs 5871239.** The relater's `has_members` admitted anonymous callables only by their print flag, so `L -> Function` was never compared and `typeof === "function"` answered `L & Function` (nonNullReferenceMatching 18, narrowingByTypeofInSwitch 8, strictBindCallApply1 2, multiSignatureTypeInference 2); `deferred_indexed_access` accepts a key of an intersection constituent (`NonNullable<T>[K]`: controlFlowGenericTypes 3, typeVariableTypeGuards 1, unknownControlFlow 1). Two regressions, each failing with its change reverted. diagnostics 2,784 (vs 2,782). [Evidence](docs/architecture/checker-99-flow-callables-and-intersection-keys.md) |
