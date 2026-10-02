@@ -98,3 +98,37 @@ All 216 release workspace result blocks pass. All 14 contextual_mappers tests
 pass after adding the return-lifetime regression. Release clippy, formatting and
 3,320 upstream anchors pass. Review is sequential in the primary thread under
 the repository's user override; no independent reviewer is claimed.
+
+## Committed verification
+
+Commit 270ada6b in /tmp/tsr-99-this-verify reproduces the frozen verdict
+byte-for-byte (/tmp/tsr-99-this-verified.tsv). Coverage reports
+456,390/478,855 assertions (95.31%) and 6,946/9,538 complete cases (72.82%):
+68 more matching assertions and one additional complete case. The 99% target
+still needs 17,677 matches. All 216 release workspace result blocks, clippy,
+formatting and 3,320 anchors pass in the isolated checkout.
+
+Fresh depend reports 495 non-gapping roots, 209 cycles, zero depth caps and
+3,500 walked gaps. C3 balances; C1/C4 remain stale under tsr-6.29.
+The four changed already-WRONG polymorphic-this rows remain on tsr-8.
+
+In the isolated checkout, restoring the old body-CONTAINS_THIS assignment gate
+fails contextual_this_is_assigned_for_untyped_parameters_without_body_this.
+Removing completed this-slot capture fails
+completed_method_signature_keeps_its_fixed_context. These are behavioral
+counterchecks through the ordinary conformance pipeline, with no production
+entry point added for tests. Logs: /tmp/tsr-99-this-mutation-guard.log and
+/tmp/tsr-99-this-mutation-slot.log.
+
+Replacing all six changed production files with fc4577a9 fails the two new
+assignment/completed-slot tests; the other 12 pass, including the computed-name,
+ordering and return-lifetime preservation controls. The first overflowing draft
+and rejected whole-signature draft independently exercise the latter regression
+risks. Baseline log: /tmp/tsr-99-this-mutation-baseline.log.
+
+After restoring the committed production hash, all 14 contextual_mappers tests
+pass again. With the isolated vendor link temporarily absent, all 20 fixture
+consults explicitly print the existing submodule-skip message; the test harness
+therefore does not assert corpus behavior in that configuration. The vendor link
+was restored. Review receipt:
+/tmp/compound-engineering-501/ce-code-review/contextual-this/review.json.
