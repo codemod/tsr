@@ -80,3 +80,32 @@ instantiateSignatureEx also clones retained parameters; this port's existing
 signature representation and its serialization limits are unchanged by restoring
 the complete receiver mapper. Remaining names/contextual/this and intersection
 rendering are tracked in tsr-6.38.
+
+## Committed checkpoint
+
+At bd41d1b0, the isolated checkout's four focused tests pass and its checker
+source hash matches. Its verdict is byte-identical to the frozen candidate:
+454,791 RIGHT, 2,936 GAP and 16,516 WRONG among 474,243 aligned assertions.
+The checker_types run reports 6,816/9,538 complete cases (71.46%), one more than
+the baseline. Its snapshot is refreshed from the isolated checkout. Against all
+478,855 expected assertions this is 94.97%; 19,276 remain to the 99% target.
+
+Evidence:
+- /tmp/tsr-99-generic-properties-verified.tsv
+- /tmp/tsr-99-generic-properties-v2-transitions.txt
+- /tmp/tsr-99-generic-properties-verified-tests.log
+- /tmp/tsr-99-generic-properties-workspace.log
+- /tmp/tsr-99-generic-properties-clippy-final.log
+- /tmp/tsr-99-generic-properties-anchors-final.log
+- /tmp/tsr-99-generic-properties-mutation.log
+- /tmp/tsr-99-generic-properties-sourcehash.txt
+- /tmp/tsr-99-generic-properties-coverage.log
+- /tmp/compound-engineering-501/ce-code-review/generic-properties/review.json
+
+The remaining names/contextual/this/intersection consumers move to tsr-6.38.
+The next identified widening-context gap is tracked in tsr-6.39; its fixture's
+72 wrong assertions are an investigation population, not promised conversions.
+
+Depend completes with 521 non-gapping roots, 222 cycles, zero depth-cap hits and
+3,797 walked gaps. C3 balances; C1 and the historical C4 checkpoint remain stale
+(tsr-6.29). These controls are not used to validate current coverage.
