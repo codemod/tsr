@@ -1224,3 +1224,48 @@ fn jsdoc_types_javascript_accessors() {
     assert!(text.contains("get path(): string;"), "{text}");
     assert!(text.contains("set path(path: URL | string);"), "{text}");
 }
+
+#[test]
+fn file_level_values_restate_as_typeof_and_new_as_the_class() {
+    // `declarationEmitLocalClassHasRequiredDeclare`, `declarationEmitDefaultExport7`,
+    // `declarationEmitMappedTypeDistributivityPreservesConstraints`: a reference
+    // that certainly resolves to a file-level class, function or enum is that
+    // symbol's own type, and `new C()` of a non-generic class is `C`. The
+    // referenced declarations become visible.
+    assert_emits(
+        "class X {}\nfunction fn() {}\nclass A {}\nexport class B { static X = X; }\nexport const o = { fn };\nexport default new A();",
+        "declare class X {\n}\ndeclare function fn(): void;\ndeclare class A {\n}\nexport declare class B {\n    static X: typeof X;\n}\nexport declare const o: {\n    fn: typeof fn;\n};\ndeclare const _default: A;\nexport default _default;\n",
+    );
+    // A variable of the same name, a generic class, and a reference inside a
+    // namespace body all decline.
+    let text = emit(
+        "class G<T> {}\nexport const g = new G();\nexport namespace N { class X {} export const x = X; }",
+    );
+    assert!(text.contains("export declare const g: any;"), "{text}");
+    assert!(text.contains("const x: any;"), "{text}");
+}
+
+#[test]
+fn expando_namespaces_attach_to_the_first_overload_and_need_a_named_member() {
+    // `declarationEmitFunctionDuplicateNamespace`,
+    // `declarationEmitLateBoundAssignments2`.
+    assert_emits(
+        "export function f(a: 0): 0;\nexport function f(a: 1): 1;\nexport function f(a: 0 | 1) { return a; }\nf.x = 2;\nexport function g() {}\ng[77] = 0;",
+        "export declare function f(a: 0): 0;\nexport declare namespace f {\n    var x: number;\n}\nexport declare function f(a: 1): 1;\nexport declare function g(): void;\n",
+    );
+}
+
+#[test]
+fn exported_function_expressions_become_function_declarations() {
+    // `transformExportAssignment` (`transform.go:1235`): `modulePreserve4`,
+    // `declarationEmitExportAliasVisibiilityMarking`. The export comes first and
+    // the promoted declaration's parameter types keep their imports visible.
+    assert_emits(
+        "export = function() {};",
+        "export = _default;\ndeclare function _default(): void;\n",
+    );
+    assert_emits(
+        "import { Suit } from './Types';\nexport default (suit: Suit): string => '';",
+        "import { Suit } from './Types';\nexport default _default;\ndeclare function _default(suit: Suit): string;\n",
+    );
+}

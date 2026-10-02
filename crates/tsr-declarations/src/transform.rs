@@ -60,8 +60,9 @@ use crate::{
 #[derive(Clone, Copy)]
 struct ExpandoMember<'a> {
     /// The declaration-space name when the computed key can be represented as
-    /// an identifier. A late-bound assignment still creates the function's
-    /// namespace when this is `None`, but contributes no namespace member.
+    /// an identifier. `None` contributes no member, and a host whose members
+    /// are all `None` gets no namespace at all (`transform.go:2760` returns
+    /// before `transformExpandoHost`).
     name: Option<&'a str>,
     initializer: Option<Expression<'a>>,
     node_id: Option<tsr_ast::NodeId>,
@@ -110,6 +111,9 @@ pub(crate) struct Transformer<'a, 't, R> {
     /// Syntactically named property assignments attached to function-valued
     /// variables, grouped by their host binding.
     expando_members: HashMap<String, Vec<ExpandoMember<'a>>>,
+    /// Function names whose declaration has already been visited, so only
+    /// the first of an overload set hosts the expando namespace.
+    expando_hosts: HashSet<String>,
     /// Non-generic top-level aliases whose written target can be followed
     /// without checker inference.
     type_aliases: HashMap<String, TypeNode<'a>>,
@@ -154,6 +158,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
             temp_name_count: 0,
             ambient_context: false,
             expando_members: HashMap::new(),
+            expando_hosts: HashSet::new(),
             type_aliases: HashMap::new(),
             options,
             javascript_file: false,
@@ -433,6 +438,27 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
         }
 
         let span = self.span_of(node.node_id);
+        // `transformExportAssignment` (`transform.go:1235`): a function or arrow
+        // expression is promoted to a function declaration named for the export,
+        // and the export assignment comes first (`modulePreserve4`:
+        // `export = function() {}` emits `export = _default;` then
+        // `declare function _default(): void;`).
+        if let Some(function) = node.expression.as_ref().and_then(skip_parentheses_to_function) {
+            let name = self.fresh_default_export_name(span);
+            let export = Statement::ExportAssignment(self.factory.alloc(
+                tsr_ast::ExportAssignment::new(
+                    &[],
+                    node.is_export_equals,
+                    None,
+                    Some(Expression::Identifier(name)),
+                ),
+                SyntaxKind::ExportAssignment,
+                span,
+                NodeFlags::empty(),
+            ));
+            let declaration = self.function_like_to_declaration(function, name, span);
+            return vec![export, declaration];
+        }
         let name = self.fresh_default_export_name(span);
         // A literal keeps its value as the synthesized const's initializer —
         // `export default 0` emits `declare const _default = 0;` — and only a
@@ -483,6 +509,63 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
             NodeFlags::empty(),
         ));
         vec![variable, export]
+    }
+
+    /// `transformFunctionLikeToDeclaration` (`transform.go:1281`) without a
+    /// full signature: the expression's own type parameters and parameters,
+    /// and its return type — written, or what the syntactic resolver can say
+    /// about the expression, or `any` with the inference recorded.
+    fn function_like_to_declaration(
+        &mut self,
+        function: Expression<'a>,
+        name: &'a tsr_ast::Identifier<'a>,
+        span: Span,
+    ) -> Statement<'a> {
+        let (type_parameters, parameters, written, node_id) = match function {
+            Expression::ArrowFunction(arrow) => {
+                (arrow.type_parameters, arrow.parameters, arrow.r#type, arrow.node_id)
+            }
+            Expression::FunctionExpression(function) => {
+                (function.type_parameters, function.parameters, function.r#type, function.node_id)
+            }
+            _ => unreachable!("skip_parentheses_to_function returns function-likes only"),
+        };
+        let parameters = self.update_param_list(parameters, false, node_id);
+        let return_type = written.or_else(|| {
+            match self.resolver.create_type_of_declaration(
+                &mut self.factory,
+                Some(&function),
+                Freshness::Widening,
+            ) {
+                Some(TypeNode::FunctionTypeNode(function_type)) => function_type.r#type,
+                _ => None,
+            }
+        });
+        let return_type = return_type.or_else(|| {
+            self.inference_required.push(span);
+            Some(self.factory.keyword_type(SyntaxKind::AnyKeyword, span))
+        });
+        let modifiers: &'a [ModifierLike<'a>] = if self.needs_declare {
+            let declare = self.factory.modifier(SyntaxKind::DeclareKeyword, span);
+            self.factory.slice(&[declare])
+        } else {
+            &[]
+        };
+        Statement::FunctionDeclaration(self.factory.alloc(
+            tsr_ast::FunctionDeclaration::new(
+                modifiers,
+                None,
+                Some(name),
+                type_parameters,
+                parameters,
+                return_type,
+                None,
+                None,
+            ),
+            SyntaxKind::FunctionDeclaration,
+            span,
+            NodeFlags::empty(),
+        ))
     }
 
     fn fresh_default_export_name(&mut self, span: Span) -> &'a tsr_ast::Identifier<'a> {
@@ -551,8 +634,23 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
             }
             Statement::FunctionDeclaration(node) => {
                 // `transformFunctionDeclaration` (`:1805`).
-                let expando_members =
-                    node.name.and_then(|name| self.expando_members.get(name.text).cloned());
+                // The namespace attaches to the symbol's *value declaration*
+                // (`GetReferencedValueDeclaration`, `transform.go:2732`), which
+                // for an overload set is the first signature; later overloads
+                // get none (`declarationEmitFunctionDuplicateNamespace`).
+                // Expando assignments are collected from the file's top level,
+                // where their host resolves, so only a top-level function hosts.
+                let expando_members = node
+                    .name
+                    .filter(|name| {
+                        parent_is_file && self.expando_hosts.insert(name.text.to_string())
+                    })
+                    .and_then(|name| self.expando_members.get(name.text).cloned())
+                    // An assignment whose property is not identifier text returns
+                    // before `transformExpandoHost` (`transform.go:2760`), so a
+                    // host with only such members stays a plain function
+                    // (`declarationEmitLateBoundAssignments2`: `decl3[77] = 0`).
+                    .filter(|members| members.iter().any(|member| member.name.is_some()));
                 let rewrites_default = expando_members.is_some()
                     && has_modifier(node.modifiers, SyntaxKind::DefaultKeyword);
                 let modifiers = if rewrites_default {
@@ -3370,6 +3468,20 @@ fn file_identifier_texts(file: &SourceFile<'_>) -> HashSet<String> {
         tsr_ast::Visit::visit_node(&mut collect, tsr_ast::Node::from(*statement));
     }
     collect.0
+}
+
+/// `ast.SkipOuterExpressions(expression, OEKExpressionTypePassthrough)` down to
+/// a function or arrow expression, when that is what it wraps. Only the
+/// parenthesis arm is reproduced; assignment and comma operands are not
+/// export-assignment shapes this transform meets.
+fn skip_parentheses_to_function<'a>(expression: &Expression<'a>) -> Option<Expression<'a>> {
+    match expression {
+        Expression::ParenthesizedExpression(inner) => {
+            skip_parentheses_to_function(inner.expression.as_ref()?)
+        }
+        Expression::ArrowFunction(_) | Expression::FunctionExpression(_) => Some(*expression),
+        _ => None,
+    }
 }
 
 fn is_identifier_text(text: &str) -> bool {

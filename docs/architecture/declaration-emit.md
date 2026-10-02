@@ -3,8 +3,8 @@
 **Status:** slice 4 of Phase 3.5 (`bd tsr-49v.6`), at **47.49%** on the byte-exact
 emit gate and **67.76%** on the structural one *when this document was written*.
 Those are historical; the live numbers are in [`STATUS.md`](../../STATUS.md) §1
-(at the 2026-10-02 expando/pattern landing: `dts_emit` 335/372, `dts_shape`
-868/1,006). This is the artifact the phase
+(at the second 2026-10-02 landing: `dts_emit` 335/372, `dts_shape`
+874/1,006). This is the artifact the phase
 exists to ship: the first `.d.ts` this port has ever produced.
 
 **Upstream pin:** `vendor/typescript-go` @ `5b1047d10`.
@@ -320,6 +320,56 @@ Two were missing in `tsr_dts::visibility`:
 
 Together the two edges move `dts_shape` 861 → 868 and `dts_emit` by one pass
 (`declarationEmitThisPredicatesWithPrivateName02`).
+
+### A reference to a file-level class, function or enum is `typeof` it (2026-10-02)
+
+The checker's type for a value reference to a class, function or (non-const)
+enum is that symbol's own anonymous type, which the node builder prints as
+`typeof Name` when the name is accessible; `new C()` of a non-generic class is
+the class's declared type, printed `C`. Both are decidable without a checker *when
+the resolution is certain*, and `FileScope` now answers them under the same
+discipline as the existing annotation copy:
+
+- the name's every file-level declaration is a class, function or non-const enum
+  (a namespace may merge in); a variable, import or const enum of the same name
+  drops it, because then the value's type is not the symbol's own;
+- nothing between the reference and the source file binds values — only
+  expression wrappers, object/array literals, variable declarations, an export
+  assignment and a *top-level* class's property initializer qualify. A namespace
+  body, a function or a class expression declines;
+- `new` declines for a generic class (its type arguments are inferred from the
+  constructor call) and for written type arguments.
+
+The same reference has to keep the declaration *visible*, so
+`tsr_dts::visibility` collects identifier, `new` callee and shorthand-property
+initializers as **value names** and resolves them in the fixpoint only when every
+declaration of the name restates as `typeof` — a variable named `C` contributes
+its type, not its name. Shorthand properties (`export default { fn }` →
+`{ fn: typeof fn; }`) use the same arm; any other shorthand still refuses, as
+`TS9016` says it must. Upstream's isolated-declarations analysis reports all of
+these, so they move `dts_shape` (and the bytes of cases outside the reachable
+set), not `dts_emit`.
+
+A default-exported object literal's *computed keys* are deliberately not
+collected for visibility: `declarationEmitComputedNameConstEnumAlias` exports
+`{ [EnumExample.TEST]: {} }`, upstream prints the member's value (`TEST: {}`) and
+drops the import, and this builder restates the key — collecting it measured one
+case lost for the one it was meant to win.
+
+### Smaller transcriptions in the same landing
+
+- **An expando namespace attaches to the value declaration.** For an overload set
+  that is the first signature; later overloads host nothing
+  (`declarationEmitFunctionDuplicateNamespace`). A host whose members are all
+  non-identifier keys (`decl3[77] = 0`) gets no namespace, because
+  `transformExpandoAssignment` returns before `transformExpandoHost`
+  (`transform.go:2760`).
+- **`export =`/`export default` of a function or arrow expression** is promoted to
+  `declare function _default(…)` after the export assignment
+  (`transformExportAssignment`, `transform.go:1235`). The return type is the
+  written one, else what the syntactic resolver infers for the expression, else
+  `any` with the inference recorded. The class-expression arm of the same function
+  is not ported.
 
 ## Known approximations
 

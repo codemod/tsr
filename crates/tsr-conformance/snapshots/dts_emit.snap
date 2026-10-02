@@ -19,7 +19,7 @@ compiler/amdLikeInputDeclarationEmit
 compiler/declarationEmitDuplicateParameterDestructuring
   line 1: want `export declare const fn1: ({ prop: a, prop: b }: {`, got `export declare const fn1: any;`
 compiler/declarationEmitExportAliasVisibiilityMarking
-  line 1: want `import { Suit, Rank } from './Types';`, got `declare const _default: any;`
+  line 3: want `declare function _default(suit: Suit, rank: Rank): {`, got `declare function _default(suit: Suit, rank: Rank): any;`
 compiler/declarationEmitInlinedDistributiveConditional
   line 1: want `export declare const dropPrivateProps1: <Obj>(obj: Obj) => { [K in import("./internal").PublicKeys1<keyof Obj>]: Obj[K]; };`, got `export declare const dropPrivateProps1: any;`
 compiler/declarationEmitNameConflicts2
@@ -59,7 +59,7 @@ compiler/mappedTypeGenericInstantiationPreservesHomomorphism
 compiler/mappedTypeWithAsClauseAndLateBoundProperty2
   line 2: want `    [x: number]: number;`, got `    [K in keyof number[] as Exclude<K, "length">]: (number[])[K];`
 compiler/modulePreserve4
-  line 1: want `export = _default;`, got `declare const _default: () => void;`
+  line 1: missing `declare const _default: 0;`
 compiler/referenceTypesPreferedToPathIfPossible
   line 1: want `export declare const thing: () => import("url").Url;`, got `export declare const thing: any;`
 compiler/typeReferenceDirectives13

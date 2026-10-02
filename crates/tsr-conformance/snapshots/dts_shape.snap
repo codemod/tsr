@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 dts_shape Summary:
 What a pass means: the declarations this port emits into a .d.ts — their kind, name and order, recursing into namespaces — match upstream's, ignoring types and formatting; judged on every case with declaration output, including the ones dts_emit cannot reach because they need inference
-Passed         : 868/1006 (86.28%)
-Failed         : 138
+Passed         : 874/1006 (86.88%)
+Failed         : 132
 Skipped        : 11438 (excluded from the denominator)
 
   11  skipped: a unit of this case does not parse cleanly
@@ -12,7 +12,7 @@ Skipped        : 11438 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   8  skipped: upstream's .d.ts baseline does not reparse
 
-First 100 of 138 failures:
+First 100 of 132 failures:
 compiler/amdLikeInputDeclarationEmit
   #0: missing `var ExtendedClass`
 compiler/caseInsensitiveFileSystemWithCapsImportTypeDeclarations
@@ -31,32 +31,20 @@ compiler/declarationEmitBundlerConditions
   #0: want `import`, got `function makeC`
 compiler/declarationEmitClassMemberWithComputedPropertyName
   #0: want `var k1`, got `var t1`
-compiler/declarationEmitDefaultExport7
-  #0: want `class A`, got `var _default`
 compiler/declarationEmitDefaultExportWithStaticAssignment
   #0: want `import`, got `function Example`
 compiler/declarationEmitDestructuringPrivacyError
   #1: want `  class c`, got `  var <pattern>`
 compiler/declarationEmitEnumReferenceViaImportEquals
   #0: want `import`, got `class Test`
-compiler/declarationEmitExportAliasVisibiilityMarking
-  #0: want `import`, got `var _default`
 compiler/declarationEmitExpressionInExtends3
   #1: want `class LocalClass`, got `interface ExportedInterface`
 compiler/declarationEmitForDefaultExportClassExtendingExpression01
   #0: want `interface Greeter`, got `class <anonymous>`
 compiler/declarationEmitForModuleImportingModuleAugmentationRetainsImport
   #0: want `import`, got `class ParentThing`
-compiler/declarationEmitFunctionDuplicateNamespace
-  #4: extra `namespace f`
 compiler/declarationEmitInferredTypeAlias9
   #0: want `type Foo`, got `function returnSomeGlobalValue`
-compiler/declarationEmitLateBoundAssignments2
-  #7: want `function decl4`, got `namespace decl3`
-compiler/declarationEmitLocalClassHasRequiredDeclare
-  #2: want `class X`, got `class A`
-compiler/declarationEmitMappedTypeDistributivityPreservesConstraints
-  #0: want `type Fns`, got `var _default`
 compiler/declarationEmitNoInvalidCommentReuse3
   #0: want `import`, got `var _`
 compiler/declarationEmitOfTypeofAliasedExport
@@ -160,7 +148,7 @@ compiler/jsFileFunctionOverloads2
 compiler/jsxDeclarationsWithEsModuleInteropNoCrash
   #0: want `import`, got `function Foo`
 compiler/modulePreserve4
-  #0: want `export=`, got `var _default`
+  #0: missing `var _default`
 compiler/multiImportExport
   #0: want `import= Adder`, got `var Math`
 compiler/nodeModuleReexportFromDottedPath
@@ -213,3 +201,15 @@ conformance/importTag18
   #0: want `import`, got `function foo`
 conformance/importTag19
   #0: want `import`, got `function foo`
+conformance/importTag20
+  #0: want `import`, got `function foo`
+conformance/importTag5
+  #0: want `import`, got `function f`
+conformance/jsDeclarationsClassMethod
+  #4: missing `namespace C2`
+conformance/jsDeclarationsClassStatic2
+  #2: want `namespace Foo`, got `export{}`
+conformance/jsDeclarationsCommonjsRelativePath
+  #0: want `var _exports`, got `class Thing`
+conformance/jsDeclarationsExportDefinePropertyEmit
+  #0: want `var a`, got `function d`

@@ -162,7 +162,15 @@ pub fn visible_module_members<'a>(statements: &'a [Statement<'a>]) -> Visible {
     while let Some(statement) = queue.pop() {
         let mut collector = ReferenceCollector::default();
         collector.visit_node(tsr_ast::Node::from(*statement));
-        for name in collector.names {
+        let restated_values = collector.value_names.into_iter().filter(|name| {
+            by_name.get(name).is_some_and(|targets| {
+                targets.iter().all(|target| restates_as_typeof(target))
+                    && targets
+                        .iter()
+                        .any(|target| !matches!(target, Statement::ModuleDeclaration(_)))
+            })
+        });
+        for name in collector.names.into_iter().chain(restated_values) {
             if let Some(targets) = by_name.get(name) {
                 names.insert(name.to_string());
                 for target in targets {
@@ -340,6 +348,12 @@ fn module_export_name<'a>(name: &tsr_ast::ModuleExportName<'a>) -> Option<&'a st
 #[derive(Default)]
 struct ReferenceCollector<'a> {
     names: Vec<&'a str>,
+    /// Names an initializer uses as a *value* whose emitted type restates
+    /// them: `x = C` emits `typeof C` and `new C()` emits `C` when `C` is a
+    /// class, function or enum. Resolved against the declarations in the
+    /// fixpoint, because a variable of the same name contributes its type, not
+    /// its name.
+    value_names: Vec<&'a str>,
     bound_type_names: Vec<&'a str>,
 }
 
@@ -416,6 +430,17 @@ impl<'a> ReferenceCollector<'a> {
                 if let Some(inner) = &parenthesized.expression {
                     self.record_default_export_expression(inner);
                 }
+            }
+            // `export default { fn }` emits the literal's shape, so the written
+            // signatures and value references inside it are restated. Its
+            // computed keys are deliberately not collected: an entity key that
+            // names an enum member prints as the member's value upstream
+            // (`declarationEmitComputedNameConstEnumAlias` emits `TEST: {}`
+            // and drops the import), which this builder cannot yet do.
+            Expression::ObjectLiteralExpression(_)
+            | Expression::ArrowFunction(_)
+            | Expression::FunctionExpression(_) => {
+                self.collect_initializer_types(expression);
             }
             other => self.record_entity_expression(other),
         }
@@ -518,6 +543,19 @@ impl<'a> ReferenceCollector<'a> {
                     self.collect_initializer_types(inner);
                 }
             }
+            Expression::Identifier(identifier) => {
+                if !self.bound_type_names.contains(&identifier.text) {
+                    self.value_names.push(identifier.text);
+                }
+            }
+            Expression::NewExpression(new_expression) => {
+                if new_expression.type_arguments.is_empty()
+                    && let Some(Expression::Identifier(callee)) = &new_expression.expression
+                    && !self.bound_type_names.contains(&callee.text)
+                {
+                    self.value_names.push(callee.text);
+                }
+            }
             // An object literal's methods and accessors keep their written
             // signatures in the emitted type literal, and its property values
             // contribute their own shapes: `{ m(): this is Foo {…} }` emits
@@ -557,7 +595,14 @@ impl<'a> ReferenceCollector<'a> {
                                 self.visit_parameter_declaration(parameter);
                             }
                         }
-                        Member::ShorthandPropertyAssignment(_) | Member::SpreadAssignment(_) => {}
+                        Member::ShorthandPropertyAssignment(shorthand) => {
+                            if let tsr_ast::PropertyName::Identifier(name) = shorthand.name
+                                && !self.bound_type_names.contains(&name.text)
+                            {
+                                self.value_names.push(name.text);
+                            }
+                        }
+                        Member::SpreadAssignment(_) => {}
                     }
                 }
             }
@@ -708,6 +753,21 @@ impl<'a> Visit<'a> for ReferenceCollector<'a> {
         if let Some(expression) = &node.expression {
             self.record_default_export_expression(expression);
         }
+    }
+}
+
+/// Whether a declaration's value is the symbol's own anonymous type, which an
+/// emitted reference restates as `typeof Name`: a class, a function, a
+/// non-const enum, or a namespace merged with one of them.
+fn restates_as_typeof(statement: &Statement<'_>) -> bool {
+    match statement {
+        Statement::ClassDeclaration(_)
+        | Statement::FunctionDeclaration(_)
+        | Statement::ModuleDeclaration(_) => true,
+        Statement::EnumDeclaration(enumeration) => !enumeration.modifiers.iter().any(|modifier| {
+            matches!(modifier, ModifierLike::Token(token) if token.kind == SyntaxKind::ConstKeyword)
+        }),
+        _ => false,
     }
 }
 

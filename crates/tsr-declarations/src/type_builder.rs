@@ -61,6 +61,21 @@ use crate::{Freshness, factory::Factory};
 #[derive(Debug, Default)]
 pub(crate) struct FileScope<'a> {
     annotations: rustc_hash::FxHashMap<&'a str, TypeNode<'a>>,
+    /// File-level names whose every declaration is a class, function or
+    /// non-const enum (namespaces may merge in): referenced as a value, the
+    /// checker's type is the symbol's own anonymous type, which the node
+    /// builder prints `typeof Name`. The flag records a generic class, whose
+    /// `new` needs inferred type arguments.
+    typeof_values: rustc_hash::FxHashMap<&'a str, ValueKind>,
+}
+
+/// What a [`FileScope::typeof_values`] name declares.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ValueKind {
+    /// A class; `true` when it declares type parameters.
+    Class(bool),
+    /// A function or enum: `typeof` only, never constructed here.
+    Other,
 }
 
 impl<'a> FileScope<'a> {
@@ -98,12 +113,174 @@ impl<'a> FileScope<'a> {
         for name in duplicates {
             annotations.remove(name);
         }
-        Self { annotations }
+        Self { annotations, typeof_values: typeof_values(file.statements) }
+    }
+
+    /// `typeof Name` for a reference that certainly resolves to a file-level
+    /// class, function or enum (`declarationEmitLocalClassHasRequiredDeclare`:
+    /// `static X = X` emits `static X: typeof X`).
+    fn type_query(
+        &self,
+        factory: &mut Factory<'a, '_>,
+        identifier: &'a tsr_ast::Identifier<'a>,
+        span: Span,
+    ) -> Option<TypeNode<'a>> {
+        self.typeof_values.get(identifier.text)?;
+        if !resolves_at_file_scope(factory, identifier.node_id) {
+            return None;
+        }
+        Some(TypeNode::TypeQueryNode(factory.alloc(
+            tsr_ast::TypeQueryNode::new(Some(tsr_ast::EntityName::Identifier(identifier)), &[]),
+            SyntaxKind::TypeQuery,
+            span,
+            NodeFlags::empty(),
+        )))
+    }
+
+    /// The instance type of `new C()` for a certainly-resolved, non-generic
+    /// file-level class: the class's declared type, printed by name
+    /// (`declarationEmitDefaultExport7`: `export default new A()` emits
+    /// `declare const _default: A`). A generic class needs its type arguments
+    /// inferred from the constructor call and declines.
+    fn constructed_instance(
+        &self,
+        factory: &mut Factory<'a, '_>,
+        new_expression: &tsr_ast::NewExpression<'a>,
+        span: Span,
+    ) -> Option<TypeNode<'a>> {
+        let Some(Expression::Identifier(callee)) = new_expression.expression else { return None };
+        if !new_expression.type_arguments.is_empty()
+            || self.typeof_values.get(callee.text) != Some(&ValueKind::Class(false))
+            || !resolves_at_file_scope(factory, callee.node_id)
+        {
+            return None;
+        }
+        Some(TypeNode::TypeReferenceNode(factory.alloc(
+            TypeReferenceNode::new(Some(tsr_ast::EntityName::Identifier(callee)), &[]),
+            SyntaxKind::TypeReference,
+            span,
+            NodeFlags::empty(),
+        )))
     }
 
     fn annotation(&self, name: &str) -> Option<TypeNode<'a>> {
         self.annotations.get(name).copied()
     }
+}
+
+/// The file-level names [`FileScope::type_query`] may answer for. A name that
+/// is also a variable, an import or a const enum is dropped: its value type is
+/// not the symbol's own.
+fn typeof_values<'a>(
+    statements: &'a [tsr_ast::Statement<'a>],
+) -> rustc_hash::FxHashMap<&'a str, ValueKind> {
+    use tsr_ast::Statement;
+    let mut kinds = rustc_hash::FxHashMap::default();
+    let mut excluded: Vec<&'a str> = Vec::new();
+    for statement in statements {
+        match statement {
+            Statement::ClassDeclaration(class) => {
+                if let Some(name) = class.name {
+                    kinds.insert(name.text, ValueKind::Class(!class.type_parameters.is_empty()));
+                }
+            }
+            Statement::FunctionDeclaration(function) => {
+                if let Some(name) = function.name {
+                    kinds.entry(name.text).or_insert(ValueKind::Other);
+                }
+            }
+            Statement::EnumDeclaration(enumeration) => {
+                if let Some(name) = enumeration.name {
+                    let is_const = enumeration.modifiers.iter().any(|modifier| {
+                        matches!(modifier, ModifierLike::Token(token) if token.kind == SyntaxKind::ConstKeyword)
+                    });
+                    if is_const {
+                        excluded.push(name.text);
+                    } else {
+                        kinds.entry(name.text).or_insert(ValueKind::Other);
+                    }
+                }
+            }
+            Statement::VariableStatement(variable) => {
+                if let Some(list) = variable.declaration_list {
+                    for declaration in list.declarations {
+                        collect_binding_names(declaration.name.as_ref(), &mut excluded);
+                    }
+                }
+            }
+            Statement::ImportEqualsDeclaration(import) => {
+                excluded.extend(import.name.map(|name| name.text));
+            }
+            Statement::ImportDeclaration(import) => {
+                let Some(clause) = import.import_clause else { continue };
+                excluded.extend(clause.name.map(|name| name.text));
+                match clause.named_bindings {
+                    Some(tsr_ast::NamedImportBindings::NamespaceImport(namespace)) => {
+                        excluded.extend(namespace.name.map(|name| name.text));
+                    }
+                    Some(tsr_ast::NamedImportBindings::NamedImports(named)) => {
+                        excluded.extend(
+                            named
+                                .elements
+                                .iter()
+                                .filter_map(|element| element.name.map(|name| name.text)),
+                        );
+                    }
+                    None => {}
+                }
+            }
+            _ => {}
+        }
+    }
+    for name in excluded {
+        kinds.remove(name);
+    }
+    kinds
+}
+
+fn collect_binding_names<'a>(name: Option<&tsr_ast::BindingName<'a>>, out: &mut Vec<&'a str>) {
+    match name {
+        Some(tsr_ast::BindingName::Identifier(identifier)) => out.push(identifier.text),
+        Some(tsr_ast::BindingName::BindingPattern(pattern)) => {
+            for element in pattern.elements {
+                collect_binding_names(element.name.as_ref(), out);
+            }
+        }
+        None => {}
+    }
+}
+
+/// Whether nothing between the reference and the source file can bind a
+/// value name: only expression and declaration wrappers that introduce no
+/// bindings, and a top-level class's property initializer (a class body binds
+/// no values; the class's own name is the file-level one). A namespace body,
+/// a function, a class expression or anything unexpected declines.
+fn resolves_at_file_scope(factory: &Factory<'_, '_>, node_id: Option<tsr_ast::NodeId>) -> bool {
+    let nodes = factory.nodes();
+    let mut current = node_id;
+    while let Some(id) = current {
+        let Some(parent_id) = nodes.parent(id) else { return false };
+        match nodes.kind(parent_id) {
+            SyntaxKind::SourceFile => return true,
+            SyntaxKind::VariableDeclaration
+            | SyntaxKind::VariableDeclarationList
+            | SyntaxKind::VariableStatement
+            | SyntaxKind::ParenthesizedExpression
+            | SyntaxKind::AsExpression
+            | SyntaxKind::SatisfiesExpression
+            | SyntaxKind::NewExpression
+            | SyntaxKind::PropertyAssignment
+            | SyntaxKind::ShorthandPropertyAssignment
+            | SyntaxKind::ObjectLiteralExpression
+            | SyntaxKind::ArrayLiteralExpression
+            | SyntaxKind::ExportAssignment
+            | SyntaxKind::PropertyDeclaration
+            | SyntaxKind::ClassDeclaration => {}
+            _ => return false,
+        }
+        current = Some(parent_id);
+    }
+    false
 }
 
 /// Whether a `typeof` query appears anywhere in the type.
@@ -342,6 +519,10 @@ pub(crate) fn type_of_expression<'a>(
                 span,
             )
         }
+        Expression::Identifier(identifier) => scope.type_query(factory, identifier, span),
+        Expression::NewExpression(new_expression) => {
+            scope.constructed_instance(factory, new_expression, span)
+        }
         Expression::FunctionExpression(function) => {
             let inferred = empty_function_body_return_type(factory, function.body.as_ref(), span);
             function_type(
@@ -529,10 +710,19 @@ fn object_literal_type<'a>(
                     ))
                 }
             }
-            // Shorthand (`TS9016`) and spread (`TS9015`) are reported by the
-            // analysis, so refusing here keeps the two in agreement rather than
-            // inventing a shape.
-            _ => return None,
+            // A shorthand naming a file-level class, function or enum is
+            // `name: typeof name` — the reference's type, which is decidable
+            // (`declarationEmitMappedTypeDistributivityPreservesConstraints`:
+            // `export default { fn }` emits `{ fn: typeof fn; }`). Any other
+            // shorthand (`TS9016`) and every spread (`TS9015`) need inference;
+            // refusing keeps the builder and the analysis in agreement.
+            Member::ShorthandPropertyAssignment(shorthand) => {
+                let tsr_ast::PropertyName::Identifier(name) = shorthand.name else { return None };
+                let member_span = factory.span_of(shorthand.node_id);
+                let r#type = scope.type_query(factory, name, member_span)?;
+                property_signature(factory, shorthand.name, Some(r#type), freshness, member_span)
+            }
+            Member::SpreadAssignment(_) => return None,
         };
         members.push(member);
     }
