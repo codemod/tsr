@@ -6633,6 +6633,11 @@ impl<'a> Checker<'a, '_> {
             return Some(self.get_union_type(&keys));
         }
         let apparent = self.apparent_type(target);
+        // resolveReverseMappedTypeMembers (inference.go:1099) copies a source
+        // property's declarations and nameType but not its valueDeclaration,
+        // so getLiteralTypeFromProperty spells a written numeric name as its
+        // string name. Computed names keep their name types.
+        let reverse_mapped = self.reverse_placeholder_texts.contains_key(&apparent);
         let names = self.resolved_keyof_property_names(apparent)?;
         let mut keys = Vec::with_capacity(names.len());
         for name in names {
@@ -6666,13 +6671,15 @@ impl<'a> Checker<'a, '_> {
             }
             let key = match property_name {
                 Some(tsr_ast::PropertyName::PrivateIdentifier(_)) => continue,
-                Some(tsr_ast::PropertyName::NumericLiteral(literal)) => self.store.intern_literal(
-                    TypeFlags::NUMBER_LITERAL,
-                    crate::types::TypeData::NumberLiteral(crate::printing::normalise_number(
-                        literal.text,
-                    )),
-                    false,
-                ),
+                Some(tsr_ast::PropertyName::NumericLiteral(literal)) if !reverse_mapped => {
+                    self.store.intern_literal(
+                        TypeFlags::NUMBER_LITERAL,
+                        crate::types::TypeData::NumberLiteral(crate::printing::normalise_number(
+                            literal.text,
+                        )),
+                        false,
+                    )
+                }
                 Some(tsr_ast::PropertyName::ComputedPropertyName(computed)) => {
                     let expression = computed.expression?;
                     let t = self.check_expression(expression);

@@ -104,3 +104,25 @@ export const combined = combine({ inner: combine({ count }) });
         assert!(lines.iter().any(|line| line == wanted), "missing {wanted}: {lines:?}");
     }
 }
+
+/// `getLiteralTypeFromProperty` (`inference.go`) retains the written-name
+/// provenance of reverse mapped properties: numeric syntax is a string key in
+/// `keyof` inference, distinct from the ordinary `keyof { 1: T }` number key.
+#[test]
+fn reverse_mapped_key_inference_preserves_numeric_name_origins() {
+    let source = r#"// @strict: true
+type BoxPick<T, K extends keyof T> = { [P in K]: { value: T[P] } };
+declare function numeric<T, K extends keyof T>(value: BoxPick<T, K>): [T, K];
+export const written = numeric({ 1: { value: 1 }, "2": { value: "x" } });
+"#;
+    let case = TestCase::parse("probe/reverse-numeric-keys", "reverse-numeric-keys.ts", source);
+    let expected: Vec<_> = case
+        .files
+        .iter()
+        .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
+        .collect();
+    let assertions = types_producer::assertions_for_case(&case, &expected, false);
+    let lines: Vec<_> = assertions.iter().flatten().map(types_producer::Assertion::line).collect();
+    let wanted = "written : [{ 1: number; \"2\": string; }, \"1\" | \"2\"]";
+    assert!(lines.iter().any(|line| line == wanted), "missing {wanted}: {lines:?}");
+}

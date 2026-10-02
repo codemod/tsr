@@ -36,10 +36,18 @@ members. The filtered extra property intentionally produces tsgo TS2353 while it
 emitted declaration retains only a:number. Release workspace tests and clippy with
 warnings denied pass; 3,379 anchors resolve; snapshot refreshed; whitespace passes.
 
-A separate numeric/quoted-key declaration probe still differs: the draft retains a
-numeric literal in K and orders reverse members differently from tsgo. tsr-6.10
-tracks contextual key/name-type provenance; that probe is not claimed as a passing
-control. Partially inferable source flags, expanding reverse recursion, full member
+A numeric/quoted-key declaration probe now matches pinned tsgo: reversing
+`{ 1: { value: number }, "2": { value: string } }` through `Pick<T, K>` infers
+`K` as the string-literal union `"1" | "2"`, while the reconstructed `T` keeps
+the numeric member syntax. `resolveReverseMappedTypeMembers` copies declarations
+and name types but not `valueDeclaration`; consequently `resolved_keyof_type`
+must treat a numeric declaration on a reverse mapped object as its copied string
+name instead of re-deriving an ordinary numeric `keyof` key. A focused control
+in `reverse_mapped.rs` distinguishes those answers. Ordinary `keyof { 1: T }`
+continues to produce the number literal `1`. This closes tsr-6.10's written
+numeric/quoted-key mismatch; computed-key inference remains outside this unit.
+
+Partially inferable source flags, expanding reverse recursion, full member
 widening and contextual nested indexed-access simplification remain incomplete.
 The original intersection origin is retained on mapped metadata; general union
 origin provenance across arbitrary alias transformations remains incomplete.
