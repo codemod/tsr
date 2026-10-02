@@ -24,24 +24,23 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-10-01
 
-Measured on **`f2661fe5`** in an isolated checkout: **455,107/478,855 assertions
-(95.04%)**, **6,839/9,538 complete cases (71.70%)**. The 99% target requires
-474,067 correct assertions; **18,960 remain**. Denominator and pinned oracle
-unchanged. Aligned verdicts: **474,243 total; 455,107 right; 2,910 gap; 16,226 wrong**.
+Measured on **`39082049`** in an isolated checkout: **455,237/478,855 assertions
+(95.07%)**, **6,852/9,538 complete cases (71.84%)**. The 99% target requires
+474,067 correct assertions; **18,830 remain**. Denominator and pinned oracle
+unchanged. Aligned verdicts: **474,243 total; 455,237 right; 2,879 gap; 16,127 wrong**.
 Binder retains its verified **8,497/8,497 (100%)** result at aab165d8;
 other suites below retain historical measurements.
 
-This unit adds **43 matching assertions** and **six complete cases**, with
-**zero RIGHT losses** relative to 8e234201: 41 WRONG→RIGHT and two GAP→RIGHT.
-There are no GAP→WRONG transitions; 13 changed-wrong rows remain tracked.
-[Spread declaration origins](docs/architecture/checker-99-spread-origins.md)
-records provenance through captured/instantiated/widened members, native ordering,
-indirect mapped modifiers and selected-key boundaries. Two new tests and three
-legacy spread tests pass in the clean checkout. All 202 release workspace result
+This unit adds **130 matching assertions** and **13 complete cases**, with
+**zero RIGHT losses** relative to f2661fe5: 99 WRONG→RIGHT and 31 GAP→RIGHT.
+Three GAP→WRONG, three WRONG→GAP and seven changed-wrong rows remain tracked.
+[Type-level spread folding](docs/architecture/checker-99-spread-folds.md) records
+ordinary property batches, union distribution, generic intersections, repeated
+and trailing overrides, and explicit mixed-member/index limitations. Two new
+pipeline tests cover eleven native outcomes. All 203 release workspace result
 blocks, clippy, 3,342 anchors and the refreshed snapshot support this checkpoint.
-Committed verdict and source hash match the frozen candidate. Isolated ordering
-and selected-key mutations fail the corresponding tests; production sources are
-restored byte-for-byte. The 99% goal remains active.
+Committed verdict and source hash match the frozen candidate. The broader 99%
+goal and tsr-8 remain active.
 
 ### Previous whole-suite measurement — historical
 
@@ -1076,6 +1075,7 @@ Per-crate, by what the conformance suites actually assert — not by what exists
 
 | subsystem | state | evidence |
 |---|---|---|
+| spread type fold | **ordinary batches distribute unions and preserve generic intersections** | 39082049: +130 matches, zero RIGHT losses, +13 complete cases; shared repeated/trailing fold; mixed members and index provenance remain; [evidence](docs/architecture/checker-99-spread-folds.md) |
 | spread member declarations | **provenance and native ordering survive semantic images** | f2661fe5: +43 matches, zero RIGHT losses, +6 complete cases; indirect mapped modifiers and selected-key boundaries; [evidence](docs/architecture/checker-99-spread-origins.md) |
 | literal targets and optional spreads | **native presence, merge and validity rules** | 8e234201: +101 matches, zero RIGHT losses, +10 complete cases; [evidence](docs/architecture/checker-99-literal-targets-spreads.md) |
 | structural index relations | **semantic indexes are independent requirements** | 4aad09e1: +17 matches, zero RIGHT losses, +1 complete case; [evidence](docs/architecture/checker-99-index-relations.md) |
@@ -1239,7 +1239,25 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-### Current priorities at `f2661fe5` — 2026-10-01
+### Current priorities at `39082049` — 2026-10-01
+
+Continue toward 99% coverage: 18,830 matching assertions remain. The ordinary
+property-batch getSpreadType fold gains 130 matches with no RIGHT losses. Next
+integrate complete semantic members, method/accessor symbol flags and index
+provenance so computed/mixed batches can use the same fold. Native index merging
+retains only common keys after the first source; a reused index retains its
+parameter declaration name, while a merged index synthesizes x. Class visibility,
+set-only accessors, instantiated sources and full structural-empty normalization
+remain in tsr-8, alongside original optional-symbol serialization.
+Three exposed wrong answers concern generic-empty reduction, JS index objects and
+nested-rest tuple inference; seven changed-wrong rows and three WRONG→GAP rows
+are documented. Do not replace generic identity with eager member expansion.
+Shadowed parameter serialization/contextual/this/intersection consumers remain in
+tsr-6.38; alias members and adjusted facts in tsr-6.35 and tsr-6.34.
+Fresh depend: 512 non-gapping roots, 214 cycles, zero depth-cap hits and 3,725
+walked gaps. C3 balances; C1/C4 remain stale (tsr-6.29), not coverage evidence.
+
+### Previous priorities at `f2661fe5` — 2026-10-01
 
 Continue toward 99% coverage: 18,960 matching assertions remain. Declaration
 provenance and indirect mapped modifiers gain 43 matches. The next tsr-8 work is
@@ -4097,6 +4115,15 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+### Spread fold at `39082049`
+
+Routing computed property batches through incomplete typed/index data gained 130
+RIGHT but lost two in useBeforeDeclaration_propertyAssignment. Those batches
+retain the existing collector until index provenance is ported. Final +130 has
+zero RIGHT losses; three GAP→WRONG, three WRONG→GAP and seven changed-wrong rows
+remain explicit. A focused optional-merge test rejected missing optional markers
+on captured declarations. Full committed evidence: [spread folds](docs/architecture/checker-99-spread-folds.md).
 
 ### Spread declaration origins at `f2661fe5`
 
@@ -10177,6 +10204,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
+| 2026-10-01 | `39082049` | **71.84%** | **6,852** | **455,237/478,855 assertions (95.07%).** +130 since f2661fe5, zero RIGHT losses;99W→R,31G→R,3G→W,3W→G,7changedwrong. | Whole-type spread fold for ordinary batches, union distribution and generic intersections; repeated/trailing overrides. Eleven native outcomes;203workspaceblocks,clippy,3342anchors;isolated verdict/source match.18,830 remain to99%. |
 | 2026-10-01 | `f2661fe5` | **71.70%** | **6,839** | **455,107/478,855 assertions (95.04%).** +43 since 8e234201, zero RIGHT losses;41W→R,2G→R,13changedwrong. | Declaration provenance, spread order, indirect mapped modifiers and selected-key boundaries. Two new/three legacy tests;202workspaceblocks,clippy,3342anchors;isolated verdict/source match.18,960 remain to99%. |
 | 2026-10-01 | `8e234201` | **71.64%** | **6,833** | **455,064/478,855 assertions (95.03%).** +101 since 4aad09e1, zero RIGHT losses; 93W→R,8G→R,2G→W,25 changed wrong. | Literal target named properties, optional spread merges, partial unions and native operand validity. Four native tests; 201 workspace result blocks, clippy,3,342 anchors; isolated verdict/source match and refreshed snapshot. 19,003 remain to99%. |
 | 2026-10-01 | `4aad09e1` | **71.53%** | **6,823** | **454,963/478,855 assertions (95.01%).** +17 since bdc82dd5, zero RIGHT losses;15W→R,2G→R,no changed wrong. | Semantic index relations, inferred-index restrictions, key/optional handling, callable/index conjunction. Two native tests, workspace200 blocks, isolated index mutation; final clippy,3,336 anchors,isolated verdict/source match. 19,104 remain to99%. |

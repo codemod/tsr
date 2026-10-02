@@ -81,5 +81,37 @@ remaining mixed-member path is still live; removing it would change behavior.
 
 Final checker sources plus trace_case SHA-256: 7dd422e9a2b8ac0db60a1da77891b8af15c1ba2d14697d4d3e96ffe0af9ca870
 
-Committed-checkout measurements, mutation results and final gates follow in the
-evidence update. The broader 99% goal and tsr-8 remain active.
+## Committed checkpoint
+
+The isolated checkout at 39082049 reproduces the frozen candidate byte-for-byte,
+including the final normalization/guard ordering correction. Its source hash
+matches the final hash above. Coverage is 455,237/478,855 matching assertions
+(95.07%) and 6,852/9,538 complete cases (71.84%), thirteen more complete cases
+than f2661fe5. The snapshot was copied from this checkout. 18,830 matches remain
+before the 99% target; the goal and tsr-8 remain active.
+
+All 203 release workspace result blocks pass at the final commit. Clippy,
+formatting, whitespace and all 3,342 upstream anchors pass. Depend reports 512
+non-gapping roots, 214 cycles, no depth-cap hits and 3,725 walked gaps. C3 balances;
+C1/C4 retain the known stale-instrument limitation tracked by tsr-6.29.
+
+Two isolated mutations at c448058a reject union distribution and disable merging
+the concrete tail of a generic intersection. The corresponding new tests fail on
+their expected assertions, not on compilation. Each source is restored byte-for-byte
+before moving the checkout to 39082049. The final workspace run passes those same
+tests after the normalization-order correction. The size-limit threshold itself
+is source-reviewed; the tests exercise small cross-products, not the 100,000 limit.
+
+Evidence:
+- /tmp/tsr-99-fold-final-verified.tsv
+- /tmp/tsr-99-spread-fold2-delta.txt
+- /tmp/tsr-99-fold-final-workspace.log
+- /tmp/tsr-99-fold-final-clippy.log
+- /tmp/tsr-99-fold-final-anchors.log
+- /tmp/tsr-99-fold-final-coverage.log
+- /tmp/tsr-99-fold-final-depend.log
+- /tmp/tsr-99-fold-mutation-union.log
+- /tmp/tsr-99-fold-mutation-tail.log
+- /tmp/compound-engineering-501/ce-code-review/spread-folds/review.json
+
+No other suite is remeasured here.
