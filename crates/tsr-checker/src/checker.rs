@@ -961,6 +961,9 @@ pub struct Checker<'a, 'n> {
     /// Resolved union call/construct and intersection call lists; None marks active resolution.
     pub(crate) composite_signature_types:
         FxHashMap<(TypeId, bool), Option<Vec<crate::signatures::Signature>>>,
+    /// getReducedType's discriminant-conflict result, computed before reading
+    /// intersection signatures without changing written annotation identity.
+    pub(crate) never_intersection_types: FxHashMap<TypeId, bool>,
     /// The values of [`Checker::instantiated_signatures`], for the O(1)
     /// membership test the call resolver makes.
     pub(crate) minted_signature_types: rustc_hash::FxHashSet<TypeId>,
@@ -1307,6 +1310,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             instantiated_signatures: FxHashMap::default(),
             instantiated_signature_mappers: FxHashMap::default(),
             composite_signature_types: FxHashMap::default(),
+            never_intersection_types: FxHashMap::default(),
             minted_signature_types: rustc_hash::FxHashSet::default(),
             contextual_prefers_uninstantiated: false,
             uninstantiated_context_node: None,

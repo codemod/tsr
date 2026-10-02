@@ -2574,6 +2574,9 @@ impl Checker<'_, '_> {
         kind: crate::signatures::SignatureKind,
     ) -> Option<Vec<crate::signatures::Signature>> {
         let is_call = kind == crate::signatures::SignatureKind::Call;
+        if self.intersection_has_never_discriminant(t) {
+            return Some(Vec::new());
+        }
         if let Some(signatures) = self.signature_types.get(&t) {
             return Some(
                 signatures
@@ -2601,13 +2604,7 @@ impl Checker<'_, '_> {
                         .collect(),
                 )
             }
-            TypeData::Named { .. } => {
-                let signatures = self.signature_candidates_of_named_type(t, kind)?;
-                signatures
-                    .into_iter()
-                    .map(|signature| self.instantiate_signature_for_reference(t, signature))
-                    .collect()
-            }
+            TypeData::Named { .. } => self.signature_candidates_of_named_type(t, kind),
             TypeData::Union { .. } => self.resolved_union_signatures(t, kind),
             TypeData::Intersection { .. } if is_call => self.intersection_call_signatures(t),
             _ => None,
@@ -6021,6 +6018,63 @@ impl Checker<'_, '_> {
             }
         }
         first.is_some() && non_uniform && has_literal
+    }
+
+    /// getReducedType / isDiscriminantWithNeverType (checker.go:21819).
+    /// A required property must have nonuniform types, a literal constituent,
+    /// no already-never constituent, and an intersection reducing to never.
+    /// Keep this reduced view separate from the written intersection identity.
+    fn intersection_has_never_discriminant(&mut self, ty: TypeId) -> bool {
+        let TypeData::Intersection { types, .. } = self.store.get(ty).data.clone() else {
+            return false;
+        };
+        if let Some(&reduced) = self.never_intersection_types.get(&ty) {
+            return reduced;
+        }
+        self.never_intersection_types.insert(ty, false);
+        let mut parts = Vec::new();
+        let mut names = Vec::new();
+        for part in types {
+            let Some(part_names) = self.get_property_names_of_type(part) else { return false };
+            for name in &part_names {
+                if !names.contains(name) {
+                    names.push(name.clone());
+                }
+            }
+            parts.push((part, part_names));
+        }
+        'property: for name in names {
+            let mut values = Vec::new();
+            let mut optional = true;
+            let mut literal = false;
+            for (part, names) in &parts {
+                let part = *part;
+                if !names.contains(&name) {
+                    continue;
+                }
+                let Some(property) = self.get_property_of_type(part, &name) else {
+                    continue 'property;
+                };
+                let Some(value) = self.get_type_of_property_of_type(part, &name) else {
+                    continue 'property;
+                };
+                if self.is_error(value) || self.store.get(value).flags.contains(TypeFlags::NEVER) {
+                    continue 'property;
+                }
+                optional &= self.property_is_optional(property);
+                literal |= self.is_literal_type(value);
+                values.push(value);
+            }
+            if !optional
+                && literal
+                && values.windows(2).any(|pair| pair[0] != pair[1])
+                && self.get_intersection_type(&values, None) == self.intrinsics.never
+            {
+                self.never_intersection_types.insert(ty, true);
+                return true;
+            }
+        }
+        false
     }
 
     /// `isLiteralType` (`checker.go:25393`).

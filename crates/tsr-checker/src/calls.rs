@@ -1314,14 +1314,8 @@ impl Checker<'_, '_> {
             // **Third instance of §932's split** — two roads reach the same pair
             // of types and only one reads the table. §932 wired the anonymous
             // branch and §932.1 the contextual one; this is the named branch.
-            let from_type: Vec<Signature> = self
-                .signature_types
-                .get(&callee)
-                .cloned()
-                .unwrap_or_default()
-                .into_iter()
-                .filter(|signature| signature.kind == SignatureKind::Call)
-                .collect();
+            let from_type =
+                self.signatures_of_type_kind(callee, SignatureKind::Call).unwrap_or_default();
             if let [single] = from_type.as_slice() {
                 if counted {
                     bump(&COUNTERS.single_candidate);
@@ -1537,6 +1531,16 @@ impl Checker<'_, '_> {
     ) -> Option<Signature> {
         if candidates.is_empty() {
             return None;
+        }
+        // Non-generic context-sensitive calls use the candidate walk so the
+        // callback is first checked under an applicable candidate, before a
+        // later candidate can ask for its already assigned parameter types.
+        if !has_type_arguments
+            && candidates.iter().all(|candidate| candidate.type_parameters.is_empty())
+            && arguments.iter().any(|argument| self.is_context_sensitive_argument(argument))
+            && let Some(picked) = self.transcribed_generic_set_walk(candidates, arguments, call)
+        {
+            return Some(picked);
         }
         // callres2 slice 1: `hasCorrectArity` is upstream's FIRST pass
         // (checker.go:9107, inside chooseOverload's loop) and it runs here
@@ -2336,9 +2340,10 @@ impl Checker<'_, '_> {
     /// upstream's overload failure, which still answers a candidate:
     /// `pickLongestCandidateSignature` (`checker.go:9510`).
     ///
-    /// Context-sensitive arguments are checked under each candidate with fresh
-    /// expression caches. An unsupported walk restores their previous caches
-    /// so the existing recovery path cannot observe a rejected candidate.
+    /// Nongeneric candidates retain the first checked callback context across
+    /// later candidates and both relations. Generic inference still uses fresh
+    /// speculative caches. An unsupported walk restores previous caches so the
+    /// recovery path cannot observe a rejected candidate.
     /// Receiver types and effective array/tuple rest positions participate in
     /// applicability. Spreads, written type arguments, unresolved non-array
     /// rests, undecidable inference and unknown relations remain unsupported.
@@ -2423,8 +2428,16 @@ impl Checker<'_, '_> {
         }) {
             return None;
         }
+        let mut checked_contexts = vec![None; arguments.len()];
         for relation in [Relation::Subtype, Relation::Assignable] {
-            match self.overload_pass(candidates, arguments, &argument_types, relation, call) {
+            match self.overload_pass(
+                candidates,
+                arguments,
+                &argument_types,
+                relation,
+                call,
+                &mut checked_contexts,
+            ) {
                 OverloadPass::Picked(signature) => return Some(*signature),
                 OverloadPass::AllRejected => {}
                 OverloadPass::Undecidable => return None,
@@ -2499,8 +2512,11 @@ impl Checker<'_, '_> {
         argument_types: &[TypeId],
         relation: Relation,
         call: Option<tsr_ast::NodeId>,
+        checked_contexts: &mut [Option<TypeId>],
     ) -> OverloadPass {
-        for candidate in candidates {
+        let retain_context =
+            candidates.iter().all(|candidate| candidate.type_parameters.is_empty());
+        'candidate: for candidate in candidates {
             if !self.overload_has_correct_arity(candidate, argument_types.len()) {
                 continue;
             }
@@ -2508,8 +2524,9 @@ impl Checker<'_, '_> {
             let contextual =
                 arguments.iter().any(|argument| self.is_context_sensitive_argument(argument));
             if contextual {
-                for argument in arguments {
+                for (index, argument) in arguments.iter().enumerate() {
                     if self.is_context_sensitive_argument(argument)
+                        && (!retain_context || checked_contexts[index].is_none())
                         && let Some(id) = argument.node_id()
                     {
                         self.evict_subtree(id);
@@ -2581,6 +2598,32 @@ impl Checker<'_, '_> {
                 })
                 .collect();
             let contextual = contextual_arguments.iter().any(|&needed| needed);
+            // SkipContextSensitive: reject a candidate from ordinary arguments
+            // before assigning callback parameter types. Generic inference has
+            // its own staged checks; this retained context is the non-generic
+            // NodeCheckFlagsContextChecked path (checker.go:10155).
+            if retain_context && contextual && checked_contexts.iter().all(Option::is_none) {
+                for (index, &argument) in argument_types.iter().enumerate() {
+                    let argument = if self.is_context_sensitive_argument(&arguments[index]) {
+                        let Some(skipped) =
+                            self.context_free_object_inference_type(arguments[index])
+                        else {
+                            return OverloadPass::Undecidable;
+                        };
+                        skipped
+                    } else if contextual_arguments[index] {
+                        // A tuple-context array is checked under its candidate.
+                        continue;
+                    } else {
+                        argument
+                    };
+                    match self.relate_ternary(argument, parameter_types[index], relation) {
+                        Ternary::NotRelated => continue 'candidate,
+                        Ternary::Unknown => return OverloadPass::Undecidable,
+                        Ternary::Related => {}
+                    }
+                }
+            }
             let mut checked_arguments = argument_types.to_vec();
             if contextual {
                 let Some(call) = call else { return OverloadPass::Undecidable };
@@ -2590,10 +2633,18 @@ impl Checker<'_, '_> {
                 self.call_inference_signatures.insert(call, concrete.clone());
                 for (index, argument) in arguments.iter().enumerate() {
                     if contextual_arguments[index] {
+                        if retain_context && let Some(checked) = checked_contexts[index] {
+                            checked_arguments[index] = checked;
+                            continue;
+                        }
                         if let Some(id) = argument.node_id() {
                             self.evict_subtree(id);
                         }
-                        checked_arguments[index] = self.check_expression(*argument);
+                        let checked = self.check_expression(*argument);
+                        checked_arguments[index] = checked;
+                        if retain_context {
+                            checked_contexts[index] = Some(checked);
+                        }
                     }
                 }
                 self.call_inference_signatures.remove(&call);

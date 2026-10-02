@@ -257,16 +257,14 @@ fn differing_returns_across_the_heritage_boundary_pick_the_derived_first() {
     );
 }
 
-/// The restrictions, each an upstream mechanism this port lacks rather than a
-/// guess: a base written with TYPE ARGUMENTS declines, because the signatures
-/// would need instantiating — the same refusal `base_symbols_of` makes for
-/// members. Without this control, widening the heritage arm looks free.
+/// resolveObjectTypeMembers applies a heritage mapper to inherited signatures.
+/// Pinned tsgo declares x: string; this formerly asserted the unported gap.
 #[test]
-fn an_instantiated_base_still_declines() {
+fn an_instantiated_base_substitutes_its_return() {
     assert_eq!(
         type_of_last(
             "interface A<T> { (): T }\ninterface B extends A<string> { }\ndeclare var b: B;\nconst x = b();"
         ),
-        "error"
+        "string"
     );
 }

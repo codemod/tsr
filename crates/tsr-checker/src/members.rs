@@ -1463,9 +1463,6 @@ impl Checker<'_, '_> {
                     continue;
                 }
                 for entry in clause.types {
-                    if entry.type_arguments.is_empty() {
-                        continue;
-                    }
                     let Some(base) = self.base_symbol_of_heritage_entry(entry, false) else {
                         continue;
                     };
@@ -1473,7 +1470,7 @@ impl Checker<'_, '_> {
                         continue;
                     }
                     let Some(base_type) =
-                        self.base_type_of_heritage_entry(base, entry.type_arguments)
+                        self.instantiated_heritage_base(base, entry.type_arguments, entry.node_id)
                     else {
                         continue;
                     };
@@ -2658,16 +2655,12 @@ impl Checker<'_, '_> {
         if refuse_type_arguments && !entry.type_arguments.is_empty() {
             return None;
         }
-        let Some(tsr_ast::Expression::Identifier(name)) = entry.expression else {
+        let symbol = self.heritage_entity_symbol(entry.expression?, SymbolFlags::TYPE)?;
+        // A symbol-only member walk cannot apply either explicit arguments or
+        // omitted defaults. Route generic bases through their instantiated type.
+        if refuse_type_arguments && !self.local_type_parameters_of(symbol).is_empty() {
             return None;
-        };
-        let symbol = self.binder.resolve_name(
-            self.nodes,
-            self.node_map,
-            name.node_id?,
-            name.text,
-            SymbolFlags::TYPE,
-        )?;
+        }
         // Only a class or an interface has a members table to inherit from. A
         // type alias or a type parameter resolving here is a gap, not an empty
         // base: upstream would have expanded the alias.
@@ -2677,6 +2670,35 @@ impl Checker<'_, '_> {
             .flags
             .intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE)
             .then_some(symbol)
+    }
+
+    /// resolveEntityName for the expression-shaped names in heritage clauses.
+    /// Intermediate namespaces and imported aliases are resolved before exports.
+    fn heritage_entity_symbol(
+        &mut self,
+        expression: tsr_ast::Expression<'_>,
+        meaning: SymbolFlags,
+    ) -> Option<SymbolId> {
+        let symbol = match expression {
+            tsr_ast::Expression::Identifier(name) => self.binder.resolve_name(
+                self.nodes,
+                self.node_map,
+                name.node_id?,
+                name.text,
+                meaning | SymbolFlags::ALIAS,
+            )?,
+            tsr_ast::Expression::PropertyAccessExpression(access) => {
+                let owner =
+                    self.heritage_entity_symbol(access.expression?, SymbolFlags::NAMESPACE)?;
+                let tsr_ast::MemberName::Identifier(name) = access.name? else { return None };
+                *self.binder.symbols().get(owner).exports.get(name.text)?
+            }
+            _ => return None,
+        };
+        let symbol = self.qualified_alias_target(symbol).unwrap_or(symbol);
+        let symbol = self.resolve_alias_fully(symbol);
+        let symbol = self.binder.merged_symbol(symbol);
+        self.binder.symbols().get(symbol).flags.intersects(meaning).then_some(symbol)
     }
 
     /// `Checker.symbolIsValueEx` (`checker.go:22095`), **both halves**:

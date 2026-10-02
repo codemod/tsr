@@ -1938,11 +1938,9 @@ impl Checker<'_, '_> {
     /// - **An object-literal container.** Upstream assumes `any` there
     ///   (`checker.go:7917`), and `checker-notes-rank.md` §6 forbids banking on
     ///   `any`.
-    /// - **A base this port cannot resolve.** `base_symbols_of`
-    ///   (`crate::members`) resolves the heritage name in `SymbolFlags::TYPE`
-    ///   meaning and answers `None` for `class C extends someExpression()` and
-    ///   for a generic instantiation. Upstream prints `any` for many of those and
-    ///   this gaps instead.
+    /// - **A base this port cannot resolve.** Expression-valued heritage and
+    ///   aliases requiring expansion remain unsupported. Named generic bases
+    ///   apply explicit arguments and defaults before member lookup.
     /// - **`extends null`**, whose answer is the null-widening type
     ///   (`checker.go:7930`).
     pub(crate) fn check_super_expression(&mut self, node: NodeId) -> TypeId {
@@ -2045,7 +2043,7 @@ impl Checker<'_, '_> {
             }
             return error;
         };
-        let Some(symbol) = self.binder.symbol_of(class) else { return error };
+
         // §202. The **static** side, which is what `super(...)` and a `super`
         // inside a static member want, differs from the instance side twice
         // over, and both differences are `getBaseConstructorTypeOfClass`
@@ -2054,10 +2052,8 @@ impl Checker<'_, '_> {
         //
         // 1. **Type arguments are irrelevant.** `B` is `typeof B` whatever
         //    follows it in angle brackets, so `class D extends B<any>`'s
-        //    `super()` is `typeof B`. The instance side really does depend on
-        //    them and this port cannot instantiate one, so it keeps refusing —
-        //    the refusal is passed as a parameter rather than baked into the
-        //    shared helper, so the second caller does not inherit the first's.
+        //    `super()` is `typeof B`. The instance side applies those arguments
+        //    to the class or reads an instantiated constructor's return.
         // 2. **Only the CLASS's own heritage counts.** `base_symbols_of` walks
         //    every declaration of the symbol, which for a class merged with an
         //    interface includes the interface's `extends`. Upstream never looks
@@ -2065,21 +2061,21 @@ impl Checker<'_, '_> {
         //    `class Foo { constructor() { super() } }` is an error and `any`,
         //    not `ArrayConstructor`. That case was the single loss on §202's
         //    first measurement and is why this arm reads the node.
+        let clauses = match self.node_map.get(class) {
+            Some(Node::ClassDeclaration(node)) => node.heritage_clauses,
+            Some(Node::ClassExpression(node)) => node.heritage_clauses,
+            _ => return error,
+        };
+        let mut extends = clauses
+            .iter()
+            .filter(|clause| clause.token.kind == SyntaxKind::ExtendsKeyword)
+            .flat_map(|clause| clause.types.iter());
+        // Exactly one `extends` entry, which is the grammar for a class.
+        let (Some(entry), None) = (extends.next(), extends.next()) else { return error };
+        let Some(base) = self.base_symbol_of_heritage_entry(entry, false) else {
+            return error;
+        };
         if is_static || is_call {
-            let clauses = match self.node_map.get(class) {
-                Some(Node::ClassDeclaration(node)) => node.heritage_clauses,
-                Some(Node::ClassExpression(node)) => node.heritage_clauses,
-                _ => return error,
-            };
-            let mut extends = clauses
-                .iter()
-                .filter(|clause| clause.token.kind == SyntaxKind::ExtendsKeyword)
-                .flat_map(|clause| clause.types.iter());
-            // Exactly one `extends` entry, which is the grammar for a class.
-            let (Some(entry), None) = (extends.next(), extends.next()) else { return error };
-            let Some(base) = self.base_symbol_of_heritage_entry(entry, false) else {
-                return error;
-            };
             // Type arguments are irrelevant to the static side only when they
             // are *legal*. A wrong ARITY makes the whole base type an error
             // upstream — `getTypeFromClassOrInterfaceReference` reports and
@@ -2105,12 +2101,51 @@ impl Checker<'_, '_> {
             }
             return self.get_type_of_symbol(base);
         }
-        let Some(bases) = self.base_symbols_of(symbol) else { return error };
-        // Exactly one `extends` entry, which is the grammar for a class. Zero is
-        // a base-less class — upstream's own error — and more than one cannot
-        // arise; both gap rather than guessing which base `super` means.
-        let [base] = bases[..] else { return error };
-        self.get_declared_type_of_symbol(base)
+        // resolveBaseTypesOfClass (checker.go:19220): actual classes apply
+        // heritage arguments directly; class-like values use the first
+        // constructor with the matching type-argument arity.
+        if self.binder.symbols().get(base).flags.contains(SymbolFlags::CLASS) {
+            return self
+                .instantiated_heritage_base(base, entry.type_arguments, entry.node_id)
+                .unwrap_or(error);
+        }
+        let constructor = self.get_type_of_symbol(base);
+        let Some(signatures) =
+            self.signatures_of_type_kind(constructor, crate::signatures::SignatureKind::Construct)
+        else {
+            return error;
+        };
+        let count = entry.type_arguments.len();
+        for signature in signatures {
+            let minimum = signature
+                .type_parameters
+                .iter()
+                .rposition(|p| p.default.is_none())
+                .map_or(0, |index| index + 1);
+            if count < minimum || count > signature.type_parameters.len() {
+                continue;
+            }
+            if signature.type_parameters.is_empty() {
+                return signature.r#type;
+            }
+            let Some(parameters) = self.type_parameter_types(&signature) else { return error };
+            let names: Vec<_> = signature.type_parameters.iter().map(|p| p.name.as_str()).collect();
+            let mut arguments: Vec<_> = entry
+                .type_arguments
+                .iter()
+                .map(|&argument| self.get_type_from_type_node(argument))
+                .collect();
+            arguments.resize(parameters.len(), error);
+            for index in count..parameters.len() {
+                let Some(default) = signature.type_parameters[index].default else { return error };
+                let map: Vec<_> =
+                    parameters.iter().copied().zip(arguments.iter().copied()).collect();
+                arguments[index] = self.instantiate_type(default, &map, &parameters, &names);
+            }
+            let map: Vec<_> = parameters.iter().copied().zip(arguments).collect();
+            return self.instantiate_type(signature.r#type, &map, &parameters, &names);
+        }
+        error
     }
 
     /// How many type parameters a class or interface symbol declares.
@@ -2424,11 +2459,8 @@ impl Checker<'_, '_> {
         {
             return false;
         }
-        self.signature_candidates_of_named_type(
-            callee_type,
-            crate::signatures::SignatureKind::Construct,
-        )
-        .is_none_or(|candidates| candidates.is_empty())
+        self.signatures_of_type_kind(callee_type, crate::signatures::SignatureKind::Construct)
+            .is_some_and(|candidates| candidates.is_empty())
             && self.call_signatures_of_type(callee_type).is_some_and(|c| !c.is_empty())
     }
 

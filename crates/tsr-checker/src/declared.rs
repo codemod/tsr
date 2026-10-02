@@ -21,6 +21,65 @@ pub(crate) struct TypeLiteralKey {
 }
 
 impl<'a> Checker<'a, '_> {
+    /// getTypeFromClassOrInterfaceReference / fillMissingTypeArguments for a
+    /// heritage member lookup. Defaults see the arguments already supplied.
+    pub(crate) fn instantiated_heritage_base(
+        &mut self,
+        base: SymbolId,
+        written_arguments: &[TypeNode<'a>],
+        location: Option<NodeId>,
+    ) -> Option<TypeId> {
+        let is_js = location.is_some_and(|node| self.in_js_file(node));
+        let declarations = self.local_type_parameters_of(base);
+        if declarations.is_empty() {
+            return written_arguments.is_empty().then(|| self.get_declared_type_of_symbol(base));
+        }
+        let minimum = declarations
+            .iter()
+            .rposition(|p| p.default_type.is_none())
+            .map_or(0, |index| index + 1);
+        if written_arguments.len() > declarations.len()
+            || (!is_js && written_arguments.len() < minimum)
+        {
+            return None;
+        }
+        let parameter_types = self.local_type_parameter_types_of(base)?;
+        let ids: Vec<_> = parameter_types.iter().map(|&(id, _)| id).collect();
+        let names: Vec<_> = parameter_types.iter().map(|(_, name)| name.as_str()).collect();
+        let mut arguments: Vec<_> =
+            written_arguments.iter().map(|&node| self.get_type_from_type_node(node)).collect();
+        let written_count = arguments.len();
+        // Native fills unresolved slots before instantiating any default so
+        // an invalid forward reference cannot escape as a free parameter.
+        arguments.resize(declarations.len(), self.intrinsics.error);
+        for (index, declaration) in declarations.iter().enumerate().skip(written_count) {
+            let mut default = match declaration.default_type {
+                Some(node) => self.get_type_from_type_node(node),
+                None => {
+                    if is_js {
+                        self.intrinsics.any
+                    } else {
+                        self.intrinsics.unknown
+                    }
+                }
+            };
+            // fillMissingTypeArguments uses implicit any for unknown/empty
+            // object defaults in JavaScript heritage references.
+            if is_js
+                && (default == self.intrinsics.unknown
+                    || self.is_empty_anonymous_object_type(default))
+            {
+                default = self.intrinsics.any;
+            }
+            let map: Vec<_> = ids.iter().copied().zip(arguments.iter().copied()).collect();
+            arguments[index] = self.instantiate_type(default, &map, &ids, &names);
+        }
+        if arguments.iter().any(|&argument| self.is_error(argument)) {
+            return None;
+        }
+        Some(self.create_type_reference(base, arguments))
+    }
+
     /// The instantiated base type an `extends` heritage entry names — the
     /// checker half of the `React.Component<Prop, {}>` row. §226.
     ///

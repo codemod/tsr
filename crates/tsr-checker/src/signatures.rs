@@ -808,11 +808,8 @@ impl<'a> Checker<'a, '_> {
         }])
     }
 
-    /// §74's raw candidate list: every construct/call signature a named
-    /// type's interface declarations carry, GENERICS INCLUDED, or `None`
-    /// for shapes `get_signature_of_named_type` also declines (no member
-    /// symbol, a heritage clause). Unbuildable overloads are skipped, as
-    /// there.
+    /// Type-owned call/construct candidates, including inherited signatures.
+    /// Apply the receiver's mapper after each base's heritage mapper.
     pub(crate) fn signature_candidates_of_named_type(
         &mut self,
         callee: TypeId,
@@ -823,39 +820,28 @@ impl<'a> Checker<'a, '_> {
         else {
             return None;
         };
-        self.signature_candidates_of_interface_symbol(symbol, kind, 0)
+        let signatures =
+            self.signature_candidates_of_interface_symbol(symbol, kind, &mut Vec::new())?;
+        signatures
+            .into_iter()
+            .map(|signature| self.instantiate_signature_for_reference(callee, signature))
+            .collect()
     }
 
-    /// Every call/construct signature an interface symbol carries — **its own
-    /// members and its bases'** — with an inheritance depth so a cyclic
-    /// `extends` cannot spin.
-    ///
-    /// `extends` used to decline outright, at BOTH of this function's callers,
-    /// which is a refusal whose scope was wider than its reason:
-    /// `resolveDeclaredMembers` (`checker.go:18410`'s interface arm) unions the
-    /// declared signatures with the inherited ones, so declining the whole set
-    /// means `interface I7 extends I6 {}` over `interface I6 { (): void }`
-    /// cannot be called at all. `compiler/interfaceDeclaration1` records
-    /// `>v1() : void`.
-    ///
-    /// Narrow, and each restriction is upstream machinery this port lacks
-    /// rather than a guess: a base written with **type arguments** declines,
-    /// because the signatures would need instantiating (the same refusal
-    /// `base_symbols_of` makes for members, §202); a base that is not a
-    /// resolvable interface declines; depth is capped, a cyclic `extends`
-    /// being upstream's own error and this walk having no resolution stack.
-    ///
-    /// §215.
+    /// resolveObjectTypeMembers: declared signatures precede inherited ones.
+    /// Each base is instantiated before its signatures enter the derived set.
+    /// A symbol stack rejects cycles without truncating valid deep inheritance.
     fn signature_candidates_of_interface_symbol(
         &mut self,
         symbol: SymbolId,
         kind: SignatureKind,
-        depth: u32,
+        visiting: &mut Vec<SymbolId>,
     ) -> Option<Vec<Signature>> {
-        const MAX_HERITAGE_DEPTH: u32 = 8;
-        if depth > MAX_HERITAGE_DEPTH {
+        let symbol = self.binder.merged_symbol(symbol);
+        if visiting.contains(&symbol) {
             return None;
         }
+        visiting.push(symbol);
         let declarations: Vec<NodeId> =
             self.binder.symbols().get(symbol).declarations.iter().copied().collect();
         let mut elements: Vec<NodeId> = Vec::new();
@@ -889,12 +875,17 @@ impl<'a> Checker<'a, '_> {
                     continue;
                 }
                 for entry in clause.types {
-                    let base = self.base_symbol_of_heritage_entry(entry, true)?;
-                    inherited.extend(self.signature_candidates_of_interface_symbol(
-                        base,
-                        kind,
-                        depth + 1,
-                    )?);
+                    let base = self.base_symbol_of_heritage_entry(entry, false)?;
+                    let base_type =
+                        self.instantiated_heritage_base(base, entry.type_arguments, entry.node_id)?;
+                    // resolveObjectTypeMembers reads each instantiated base's
+                    // signatures before the derived receiver mapper is applied.
+                    for signature in
+                        self.signature_candidates_of_interface_symbol(base, kind, visiting)?
+                    {
+                        inherited
+                            .push(self.instantiate_signature_for_reference(base_type, signature)?);
+                    }
                 }
             }
             for member in interface.members {
@@ -919,80 +910,19 @@ impl<'a> Checker<'a, '_> {
         // Own members first, then the bases' — upstream appends the inherited
         // set after the declared one.
         candidates.extend(inherited);
+        visiting.pop();
         Some(candidates)
     }
 
-    /// The single call or construct signature a type that prints as a **name**
-    /// declares, or `None`.
-    ///
-    /// Ported from `Checker.getSignaturesOfType` (`checker.go:18959`) over the
-    /// interface arm of `resolveStructuredTypeMembers` (`checker.go:18410`),
-    /// reduced to the sets that need no selection to answer.
-    ///
-    /// # Why this exists beside [`Checker::get_signatures_of_symbol`]
-    ///
-    /// That one reads a **symbol's declarations**, which is right for a
-    /// function and empty for an interface: `interface DateConstructor` is not
-    /// a signature-shaped declaration. Its signatures live in its *members*,
-    /// and reaching them is the whole of `bd tsr-4sa`. The natural citation for
-    /// the item — `bd tsr-qk9`, "`signature_parts_of` has no arm for
-    /// `CallSignatureDeclaration`" — has been false since that arm landed;
-    /// `docs/architecture/checker-notes-namedcallee.md` §1 records the
-    /// correction.
-    ///
-    /// # What it declines, and why each refusal is cheaper than the answer
-    ///
-    /// Every branch below is a **gap** where upstream has an answer this port
-    /// cannot reproduce. Each was measured with its cost *and* its benefit by
-    /// `examples/namedcallee.rs`; the numbers are in
-    /// `docs/architecture/checker-notes-namedcallee.md` §4.
-    ///
-    /// - **A heritage clause** (27 lines refused, 20 of them convertible).
-    ///   Upstream folds the base types' signatures in, so the direct members
-    ///   are only part of the candidate set and a lone survivor here may be one
-    ///   arm of an inherited overload. Answering off a knowingly incomplete set
-    ///   is a wrong rule rather than a bad trade, which is why this refusal is
-    ///   kept at a net cost of thirteen lines.
-    /// - **A generic candidate** (926 lines). That is `inferTypes`, the largest
-    ///   gate in `callgate.rs`'s own split.
-    /// - **Candidates that disagree about the return type** (48 lines). That is
-    ///   overload selection by assignability, which this port has over
-    ///   primitives only. Candidates that *agree* need no selection —
-    ///   `DateConstructor`'s four construct signatures all return `Date` — so
-    ///   they answer.
-    /// - **A return that is a type parameter** (3 lines). On an instantiated
-    ///   callee it would have to be substituted, and `bd tsr-4qx`'s seam
-    ///   instantiates properties rather than signatures.
-    /// - **A return whose name would need a namespace qualifier** (75 lines) —
-    ///   `Intl.NumberFormat` where this prints `NumberFormat`. `STATUS.md` §5's
-    ///   standing refusal (`bd tsr-93f`, 2.7 wrong per right) reached through a
-    ///   new door.
+    /// Legacy return-agreement recovery for named types. The full candidate
+    /// path performs overload resolution; this helper only answers sets whose
+    /// returns agree after applying defaults to fully defaulted generics.
     pub(crate) fn get_signature_of_named_type(
         &mut self,
         callee: TypeId,
         kind: SignatureKind,
     ) -> Option<Signature> {
-        let crate::types::TypeData::Named { members: Some(symbol), .. } =
-            self.store.get(callee).data
-        else {
-            return None;
-        };
-        // §215: the heritage refusal used to sit here too, and THIS is the copy
-        // on the call path — `calls.rs:910` reaches a callee's signatures
-        // through this function, not through
-        // `signature_candidates_of_named_type`. Widening only the other one
-        // moved the board by ZERO, which is conventions corollary 17 catching
-        // its own author: the same wrong assumption specialised in two
-        // functions, and the grep not run. Both now share one `extends` walk.
-        //
-        // An unbuildable overload no longer kills the set — the all-equal
-        // return check below still gates the KEPT candidates, and a skipped
-        // overload with a DIFFERENT return would have to disagree with a built
-        // sibling to matter, which the typed-array interfaces' uniform returns
-        // make measurable (`checker-notes-narrow.md` §44's queued trace). That
-        // skip now happens inside the shared walk, where the declarations are
-        // read.
-        let declared = self.signature_candidates_of_interface_symbol(symbol, kind, 0)?;
+        let declared = self.signature_candidates_of_named_type(callee, kind)?;
         let mut candidates: Vec<Signature> = Vec::new();
         for mut signature in declared {
             if !signature.type_parameters.is_empty() {

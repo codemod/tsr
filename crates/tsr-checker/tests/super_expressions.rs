@@ -65,16 +65,15 @@ fn super_in_a_constructor_ignores_the_bases_type_arguments() {
     );
 }
 
-/// The instance side still refuses, because there the arguments really do
-/// decide the answer. Without this the test above passes for a checker that
-/// dropped the refusal everywhere.
+/// checkSuperExpression reads the instantiated base on the instance side;
+/// the static/call control above still reads the constructor value.
 #[test]
-fn super_as_a_receiver_still_refuses_an_instantiated_base() {
+fn super_as_a_receiver_uses_the_instantiated_base() {
     assert_eq!(
         type_of_super(
             "declare class B<T> { m(): void }\nclass D extends B<any> { n() { super.m(); } }"
         ),
-        "error"
+        "B<any>"
     );
 }
 

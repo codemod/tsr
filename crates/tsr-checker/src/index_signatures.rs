@@ -382,11 +382,8 @@ impl<'a> Checker<'a, '_> {
                 }
                 for entry in clause.types {
                     let base = self.base_symbol_of_heritage_entry(entry, false)?;
-                    let base_type = if entry.type_arguments.is_empty() {
-                        self.get_declared_type_of_symbol(base)
-                    } else {
-                        self.base_type_of_heritage_entry(base, entry.type_arguments)?
-                    };
+                    let base_type =
+                        self.instantiated_heritage_base(base, entry.type_arguments, entry.node_id)?;
                     for inherited in self.index_infos_of_symbol(base, false, visiting)? {
                         // Own indexes and earlier bases win for the same key.
                         if !infos.iter().any(|own| own.key == inherited.key) {
