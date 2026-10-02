@@ -582,7 +582,12 @@ impl<'a> Checker<'a, '_> {
                         existing.value = self.get_union_type(&[existing.value, value]);
                         existing.readonly |= readonly;
                     } else {
-                        indexes.push(crate::index_signatures::IndexInfo { key, value, readonly });
+                        indexes.push(crate::index_signatures::IndexInfo {
+                            declaration: None,
+                            key,
+                            value,
+                            readonly,
+                        });
                     }
                 }
                 continue;
@@ -647,6 +652,7 @@ impl<'a> Checker<'a, '_> {
                 value = self.get_type_with_facts(value, crate::flow::TypeFacts::NE_UNDEFINED);
             }
             properties.push(crate::objects::AnonymousProperty {
+                method: false,
                 origin,
                 name,
                 printed_name,

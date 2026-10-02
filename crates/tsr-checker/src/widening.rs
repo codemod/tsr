@@ -216,6 +216,13 @@ impl Checker<'_, '_> {
                         .get_type_of_property_of_type(id, &name)
                         .unwrap_or(self.intrinsics.error);
                     AnonymousProperty {
+                        method: symbol.is_some_and(|symbol| {
+                            self.binder
+                                .symbols()
+                                .get(symbol)
+                                .flags
+                                .contains(tsr_binder::SymbolFlags::METHOD)
+                        }),
                         origin: symbol,
                         name: name.clone(),
                         printed_name: name.clone(),

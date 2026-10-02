@@ -41,9 +41,11 @@ use crate::{
 /// One index signature, reduced to what a lookup needs.
 ///
 /// Upstream's `IndexInfo` (`types.go`), retaining the key, value and readonly
-/// flag. Declaration provenance and general index-write diagnostics are absent.
+/// flag and declaration provenance. General index-write diagnostics are absent.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct IndexInfo {
+    /// Source index declaration, retained by copies and cleared by synthesized merges.
+    pub declaration: Option<tsr_ast::NodeId>,
     /// `keyType` — a valid primitive, pattern or nongeneric intersection key.
     pub key: TypeId,
     /// `valueType`, what an applicable access yields.
@@ -87,6 +89,7 @@ impl<'a> Checker<'a, '_> {
                             info.value =
                                 self.get_intersection_type(&[info.value, next.value], None);
                             info.readonly &= next.readonly;
+                            info.declaration = None;
                         } else {
                             infos.push(next);
                         }
@@ -129,6 +132,7 @@ impl<'a> Checker<'a, '_> {
                 .intersects(tsr_binder::SymbolFlags::REGULAR_ENUM)
         {
             return Some(vec![IndexInfo {
+                declaration: None,
                 key: self.intrinsics.number,
                 value: self.intrinsics.string,
                 readonly: true,
@@ -191,6 +195,7 @@ impl<'a> Checker<'a, '_> {
             infos
                 .into_iter()
                 .map(|info| IndexInfo {
+                    declaration: info.declaration,
                     key: info.key,
                     value: self.instantiate_for_reference(id, info.value),
                     readonly: info.readonly,
@@ -201,7 +206,7 @@ impl<'a> Checker<'a, '_> {
 
     /// `getUnionIndexInfos` (internal/checker/checker.go): only keys present
     /// in every constituent survive; their value types are unioned.
-    fn union_index_infos(&mut self, types: &[TypeId]) -> Option<Vec<IndexInfo>> {
+    pub(crate) fn union_index_infos(&mut self, types: &[TypeId]) -> Option<Vec<IndexInfo>> {
         let mut constituents = Vec::with_capacity(types.len());
         for &ty in types {
             constituents.push(self.get_index_infos_of_type(ty)?);
@@ -220,6 +225,7 @@ impl<'a> Checker<'a, '_> {
                     infos.iter().any(|candidate| candidate.key == info.key && candidate.readonly)
                 });
                 result.push(IndexInfo {
+                    declaration: None,
                     key: info.key,
                     value: self.get_union_type(&values),
                     readonly,
@@ -388,6 +394,7 @@ impl<'a> Checker<'a, '_> {
                         // Own indexes and earlier bases win for the same key.
                         if !infos.iter().any(|own| own.key == inherited.key) {
                             infos.push(IndexInfo {
+                                declaration: inherited.declaration,
                                 key: inherited.key,
                                 value: self.instantiate_for_reference(base_type, inherited.value),
                                 readonly: inherited.readonly,
@@ -423,6 +430,7 @@ impl<'a> Checker<'a, '_> {
         keys.into_iter()
             .filter(|&key| self.is_valid_index_key_type(key))
             .map(|key| IndexInfo {
+                declaration: signature.node_id,
                 key,
                 value,
                 readonly: signature.modifiers.iter().any(|modifier| {
@@ -449,6 +457,29 @@ impl<'a> Checker<'a, '_> {
                 && types.iter().any(|&key| self.is_valid_index_key_type(key));
         }
         false
+    }
+
+    /// indexInfoToIndexSignatureDeclarationHelper: copies retain the original
+    /// parameter name; synthesized index infos use the native fallback `x`.
+    pub(crate) fn index_info_member(&self, info: &IndexInfo) -> crate::objects::Member {
+        let name = info
+            .declaration
+            .and_then(|id| match self.node_map.get(id) {
+                Some(Node::IndexSignatureDeclaration(declaration)) => {
+                    match declaration.parameters.first()?.name? {
+                        tsr_ast::BindingName::Identifier(name) => Some(name.text),
+                        tsr_ast::BindingName::BindingPattern(_) => None,
+                    }
+                }
+                _ => None,
+            })
+            .unwrap_or("x");
+        crate::objects::Member::Index {
+            name: name.to_owned(),
+            readonly: info.readonly,
+            key: self.type_to_string(info.key),
+            value: self.type_to_string(info.value),
+        }
     }
 
     /// One `[k: K]: V` member rendered for printing, or `None` when it is a gap.
@@ -532,7 +563,7 @@ impl<'a> Checker<'a, '_> {
         }
         let record = self.binder.global("Record")?;
         (self.binder.merged_symbol(target) == self.binder.merged_symbol(record))
-            .then_some(IndexInfo { key, value: arguments[1], readonly: false })
+            .then_some(IndexInfo { declaration: None, key, value: arguments[1], readonly: false })
     }
 
     /// findApplicableIndexInfo: string is the fallback when no other key
@@ -562,6 +593,7 @@ impl<'a> Checker<'a, '_> {
             }
             [info] => Some(*info),
             _ => Some(IndexInfo {
+                declaration: None,
                 key: self.intrinsics.unknown,
                 value: self.get_intersection_type(
                     &applicable.iter().map(|info| info.value).collect::<Vec<_>>(),

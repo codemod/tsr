@@ -1,10 +1,11 @@
 //! Type-level object spread fold, ported from checker.go:13283–13496.
 use tsr_ast::{ObjectLiteralElementLike, ObjectLiteralExpression};
-use tsr_binder::SymbolId;
+use tsr_binder::{SymbolFlags, SymbolId};
 
 use crate::{
     Checker,
     flags::TypeFlags,
+    index_signatures::IndexInfo,
     objects::{AnonymousProperty, Member, render_object_type},
     types::{TypeData, TypeId},
 };
@@ -48,7 +49,7 @@ impl Checker<'_, '_> {
             result = self.get_spread_type(result, right, owner, readonly);
         }
         if result == self.intrinsics.empty_object {
-            result = self.mint_spread_properties(Vec::new(), owner);
+            result = self.mint_spread_properties(Vec::new(), Vec::new(), owner);
         }
         if node.node_id.is_some_and(|id| self.in_js_file(id)) {
             let parts = match self.store.get(result).data.clone() {
@@ -149,9 +150,28 @@ impl Checker<'_, '_> {
             }
             return self.get_intersection_type(&[left, right], None);
         }
-        let Some(mut properties) = self.spread_properties(right, readonly) else { return error };
-        let Some(left_properties) = self.spread_properties(left, readonly) else { return error };
+        let Some(resolved_left) = self.resolved_spread_source(left) else { return error };
+        let Some(resolved_right) = self.resolved_spread_source(right) else { return error };
+        let indexes = if left == self.intrinsics.empty_object {
+            self.get_index_infos_of_type(resolved_right)
+        } else {
+            self.union_index_infos(&[resolved_left, resolved_right])
+        };
+        let Some(mut indexes) = indexes else { return error };
+        for index in &mut indexes {
+            index.readonly = readonly;
+        }
+        let Some((mut properties, skipped_private)) = self.spread_properties(right, readonly)
+        else {
+            return error;
+        };
+        let Some((left_properties, _)) = self.spread_properties(left, readonly) else {
+            return error;
+        };
         for left_property in left_properties {
+            if skipped_private.contains(&left_property.name) {
+                continue;
+            }
             if let Some(right_property) =
                 properties.iter_mut().find(|p| p.name == left_property.name)
             {
@@ -174,6 +194,7 @@ impl Checker<'_, '_> {
                     right_property.r#type = value;
                     // A collision creates a new property symbol without Readonly.
                     right_property.readonly = false;
+                    right_property.method = false;
                     let displayed = self.remove_missing_type(value);
                     right_property.printed_type = self.type_to_string(displayed);
                 }
@@ -181,12 +202,13 @@ impl Checker<'_, '_> {
                 properties.push(left_property);
             }
         }
-        self.mint_spread_properties(properties, owner)
+        self.mint_spread_properties(properties, indexes, owner)
     }
 
     fn mint_spread_properties(
         &mut self,
         mut properties: Vec<AnonymousProperty>,
+        indexes: Vec<IndexInfo>,
         owner: Option<SymbolId>,
     ) -> TypeId {
         properties.sort_by(|left, right| match (left.origin, right.origin) {
@@ -195,8 +217,14 @@ impl Checker<'_, '_> {
             (None, Some(_)) => std::cmp::Ordering::Greater,
             _ => left.name.cmp(&right.name),
         });
-        let members = crate::callable_expandos::property_members(&properties);
+        let mut members: Vec<_> =
+            indexes.iter().map(|index| self.index_info_member(index)).collect();
+        let Some(property_members) = self.spread_property_members(&properties) else {
+            return self.intrinsics.error;
+        };
+        members.extend(property_members);
         let result = self.store.new_named(TypeFlags::OBJECT, render_object_type(&members), owner);
+        self.object_literal_index_infos.insert(result, indexes);
         self.anonymous_properties.insert(result, (properties, true));
         self.object_literal_members.insert(result, members);
         self.object_literal_spread_flags.insert(result, true);
@@ -204,53 +232,200 @@ impl Checker<'_, '_> {
         result
     }
 
-    /// Complete typed batches bypass the literal's binder table: the latter
-    /// includes declarations from every batch of this same object literal.
-    fn spread_properties(
+    /// Complete batches bypass the enclosing literal's binder table, which also
+    /// contains declarations outside the current batch. Other sources resolve
+    /// semantic property types through the reference/heritage instantiation seam.
+    pub(crate) fn spread_properties(
         &mut self,
         source: TypeId,
         readonly: bool,
-    ) -> Option<Vec<AnonymousProperty>> {
+    ) -> Option<(Vec<AnonymousProperty>, Vec<String>)> {
         if source == self.intrinsics.empty_object
             || self.store.get(source).flags.intersects(TypeFlags::NULLABLE)
         {
-            return Some(Vec::new());
+            return Some((Vec::new(), Vec::new()));
         }
+        let source = self.resolved_spread_source(source)?;
         self.resolve_mapped_type_members(source);
-        // Index declaration provenance and method symbol flags are not yet
-        // carried by this representation. Keep those incomplete sources gapped.
-        if !self.get_index_infos_of_type(source)?.is_empty() {
-            return None;
-        }
-        if let Some((properties, _)) = self.anonymous_properties.get(&source) {
-            let mut properties = properties.clone();
-            for property in &mut properties {
-                property.readonly = readonly;
-                // Captured declarations store the written value type. A symbol
-                // read includes its optional marker before merging spread values.
-                if property.optional && self.strict_null_checks {
-                    property.r#type = self.get_optional_type(property.r#type, true);
+        let captured =
+            self.anonymous_properties.get(&source).map(|(properties, _)| properties.clone());
+        let names = if let Some(properties) = &captured {
+            properties.iter().map(|property| property.name.clone()).collect()
+        } else {
+            self.get_property_names_of_type(source)?
+        };
+        let mut properties = Vec::new();
+        let mut skipped_private = Vec::new();
+        for name in names {
+            let held = captured
+                .as_ref()
+                .and_then(|properties| properties.iter().find(|property| property.name == name));
+            let origin = held
+                .map_or_else(|| self.property_origin(source, &name), |property| property.origin);
+            if let Some(symbol) = origin {
+                if self.binder.symbols().get(symbol).declarations.iter().any(|&declaration| {
+                    self.member_declaration_has_modifier(
+                        declaration,
+                        tsr_ast::SyntaxKind::PrivateKeyword,
+                    ) || self.member_declaration_has_modifier(
+                        declaration,
+                        tsr_ast::SyntaxKind::ProtectedKeyword,
+                    )
+                }) {
+                    skipped_private.push(name);
+                    continue;
+                }
+                if !self.is_spreadable_property(symbol) {
+                    continue;
                 }
             }
-            return Some(properties);
-        }
-        let members = self.spread_members_of(source)?;
-        members
-            .into_iter()
-            .map(|member| {
-                let Member::Property { name, optional, printed, .. } = member else { return None };
+            let flags = origin
+                .map_or(SymbolFlags::empty(), |symbol| self.binder.symbols().get(symbol).flags);
+            let set_only = flags.contains(SymbolFlags::SET_ACCESSOR)
+                && !flags.contains(SymbolFlags::GET_ACCESSOR);
+            let mut property = if let Some(property) = held {
+                property.clone()
+            } else {
                 let value = self.get_type_of_property_of_type(source, &name)?;
-                (value != self.intrinsics.error).then(|| AnonymousProperty {
-                    origin: self.property_origin(source, &name),
-                    name: name.clone(),
-                    printed_name: name,
-                    printed_type: printed,
-                    optional,
-                    readonly,
+                if value == self.intrinsics.error {
+                    return None;
+                }
+                let displayed = self.remove_missing_type(value);
+                AnonymousProperty {
+                    method: flags.contains(SymbolFlags::METHOD),
+                    origin,
+                    printed_name: self.spread_property_name(origin?, &name)?,
+                    printed_type: self.type_to_string(displayed),
+                    optional: origin.is_some_and(|symbol| self.property_is_optional(symbol)),
+                    readonly: origin.is_some_and(|symbol| self.is_readonly_symbol(symbol)),
+                    name,
                     r#type: value,
-                })
-            })
-            .collect()
+                }
+            };
+            // getSpreadSymbol reuses a method symbol only if readonly agrees.
+            if property.readonly != readonly || set_only {
+                property.method = false;
+            }
+            property.readonly = readonly;
+            if set_only {
+                property.r#type = self.intrinsics.undefined;
+                "undefined".clone_into(&mut property.printed_type);
+            } else if property.optional && self.strict_null_checks {
+                property.r#type = self.get_optional_type(property.r#type, true);
+            }
+            properties.push(property);
+        }
+        Some((properties, skipped_private))
+    }
+
+    /// Alias symbols have no value members of their own. Resolve their body
+    /// before enumerating members, while retaining the original alias identity
+    /// on the generic spread/intersection path.
+    pub(crate) fn resolved_spread_source(&mut self, mut source: TypeId) -> Option<TypeId> {
+        let mut visited = Vec::new();
+        while !self.mapped_types.contains_key(&source)
+            && !self.anonymous_properties.contains_key(&source)
+        {
+            if visited.contains(&source) {
+                return None;
+            }
+            visited.push(source);
+            let Some((symbol, arguments)) = self.type_reference_targets.get(&source).cloned()
+            else {
+                break;
+            };
+            if !self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_ALIAS) {
+                break;
+            }
+            source = self.evaluate_alias_body(symbol, &arguments)?;
+            if source == self.intrinsics.error {
+                return None;
+            }
+        }
+        Some(source)
+    }
+
+    fn spread_property_name(&mut self, symbol: SymbolId, fallback: &str) -> Option<String> {
+        for id in self.binder.symbols().get(symbol).declarations.clone() {
+            let name = match self.node_map.get(id) {
+                Some(tsr_ast::Node::PropertyDeclaration(node)) => Some(node.name),
+                Some(tsr_ast::Node::PropertySignatureDeclaration(node)) => Some(node.name),
+                Some(tsr_ast::Node::PropertyAssignment(node)) => Some(node.name),
+                Some(tsr_ast::Node::MethodDeclaration(node)) => Some(node.name),
+                Some(tsr_ast::Node::MethodSignatureDeclaration(node)) => Some(node.name),
+                Some(tsr_ast::Node::GetAccessorDeclaration(node)) => Some(node.name),
+                Some(tsr_ast::Node::SetAccessorDeclaration(node)) => Some(node.name),
+                _ => None,
+            };
+            if let Some(tsr_ast::PropertyName::ComputedPropertyName(computed)) = name {
+                return self.late_bound_symbol_member_name(computed).map(|(name, _)| name);
+            }
+        }
+        Some(self.callable_property_name(symbol, fallback))
+    }
+
+    /// isSpreadableProperty approximates own properties using declaration kind:
+    /// class methods/accessors and private identifier members are not copied.
+    pub(crate) fn is_spreadable_property(&self, symbol: SymbolId) -> bool {
+        let symbol = self.binder.symbols().get(symbol);
+        let class_member = symbol.declarations.iter().any(|&id| {
+            self.nodes.parent(id).and_then(|parent| self.node_map.get(parent)).is_some_and(
+                |parent| {
+                    matches!(
+                        parent,
+                        tsr_ast::Node::ClassDeclaration(_) | tsr_ast::Node::ClassExpression(_)
+                    )
+                },
+            )
+        });
+        let private_identifier = symbol.declarations.iter().any(|&id| {
+            matches!(self.node_map.get(id), Some(tsr_ast::Node::PropertyDeclaration(property))
+                if matches!(property.name, tsr_ast::PropertyName::PrivateIdentifier(_)))
+        });
+        (!private_identifier
+            && !symbol.flags.intersects(
+                SymbolFlags::METHOD | SymbolFlags::GET_ACCESSOR | SymbolFlags::SET_ACCESSOR,
+            ))
+            || !class_member
+    }
+
+    fn spread_property_members(&mut self, properties: &[AnonymousProperty]) -> Option<Vec<Member>> {
+        let mut members = Vec::new();
+        for property in properties {
+            if !property.method {
+                members.extend(crate::callable_expandos::property_members(std::slice::from_ref(
+                    property,
+                )));
+                continue;
+            }
+            let value = self.remove_missing_or_undefined_type(property.r#type);
+            let signatures = if let Some(signatures) = self.signature_types.get(&value) {
+                signatures.clone()
+            } else {
+                match self.store.get(value).data {
+                    TypeData::Anonymous { symbol, .. } => self.get_signatures_of_symbol(symbol)?,
+                    _ => self.signature_candidates_of_named_type(
+                        value,
+                        crate::signatures::SignatureKind::Call,
+                    )?,
+                }
+            };
+            if signatures.is_empty() {
+                return None;
+            }
+            let name =
+                if property.printed_name == "new" { "\"new\"" } else { &property.printed_name };
+            for signature in signatures {
+                members.push(Member::Signature {
+                    printed: format!(
+                        "{name}{}{}",
+                        if property.optional { "?" } else { "" },
+                        crate::objects::signature_member_text(self, &signature)
+                    ),
+                });
+            }
+        }
+        Some(members)
     }
 
     /// getGenericObjectFlags: object/index genericity are separate flags.
@@ -259,6 +434,13 @@ impl Checker<'_, '_> {
             return (false, false);
         }
         visited.push(ty);
+        if let Some(resolved) = self.resolved_spread_source(ty)
+            && resolved != ty
+        {
+            let result = self.spread_generic_flags(resolved, visited);
+            visited.pop();
+            return result;
+        }
         let flags = self.store.get(ty).flags;
         let result = if let TypeData::Union { types, .. } | TypeData::Intersection { types, .. } =
             self.store.get(ty).data.clone()
@@ -270,14 +452,8 @@ impl Checker<'_, '_> {
         } else {
             let mut object = flags.intersects(TypeFlags::INSTANTIABLE_NON_PRIMITIVE);
             let index = flags.intersects(TypeFlags::INSTANTIABLE_NON_PRIMITIVE | TypeFlags::INDEX)
-                || self.template_literal_parts.get(&ty).cloned().is_some_and(|parts| {
-                    parts.types.iter().any(|&part| self.spread_generic_flags(part, visited).1)
-                })
-                || self
-                    .string_mapping_types
-                    .get(&ty)
-                    .copied()
-                    .is_some_and(|(_, part)| self.spread_generic_flags(part, visited).1);
+                || (flags.intersects(TypeFlags::TEMPLATE_LITERAL | TypeFlags::STRING_MAPPING)
+                    && !self.is_pattern_template(ty));
             if let Some(mapped) = self.mapped_types.get(&ty).cloned() {
                 object |= self.spread_generic_flags(mapped.constraint, visited).1;
                 if let Some(name) = mapped.name_type {

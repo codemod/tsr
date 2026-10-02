@@ -3379,6 +3379,7 @@ impl Checker<'_, '_> {
                         printed: printed_type.clone(),
                     });
                     properties.push(crate::objects::AnonymousProperty {
+                        method: false,
                         origin,
                         name,
                         printed_name,
@@ -3389,6 +3390,7 @@ impl Checker<'_, '_> {
                     });
                 }
                 let reversed_index = index.map(|index| crate::index_signatures::IndexInfo {
+                    declaration: None,
                     key: index.key,
                     readonly: false,
                     value: self.reverse_mapped_member_type(

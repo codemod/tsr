@@ -785,7 +785,7 @@ impl Checker<'_, '_> {
     /// because a constructor PARAMETER PROPERTY (`constructor(private x: T)`)
     /// is how the corpus's private members are most often declared —
     /// `destructuringUnspreadableIntoRest` declares all five that way.
-    fn member_declaration_has_modifier(&self, id: NodeId, keyword: SyntaxKind) -> bool {
+    pub(crate) fn member_declaration_has_modifier(&self, id: NodeId, keyword: SyntaxKind) -> bool {
         let modifiers = match self.node_map.get(id) {
             Some(Node::PropertyDeclaration(node)) => node.modifiers,
             Some(Node::MethodDeclaration(node)) => node.modifiers,
@@ -797,43 +797,14 @@ impl Checker<'_, '_> {
         crate::check::has_modifier(modifiers, keyword)
     }
 
-    /// `isSpreadableProperty` (`checker.go:17830`) together with
-    /// `getRestType`'s own private/protected test (`:17808`). §776.
-    ///
-    /// A property is spreadable into a rest element unless it is declared with
-    /// a private identifier, or is a METHOD/ACCESSOR declared in a class, or
-    /// carries `private` or `protected`. Upstream keeps the last of those at
-    /// the call site rather than in `isSpreadableProperty`; the two are joined
-    /// here because every caller wants both and separating them invites a
-    /// caller that checks one.
-    fn is_spreadable_property(&self, symbol: tsr_binder::SymbolId) -> bool {
-        let data = self.binder.symbols().get(symbol);
-        let declarations: Vec<NodeId> = data.declarations.iter().copied().collect();
-        let flags = data.flags;
-        for &declaration in &declarations {
-            if self.member_declaration_has_modifier(declaration, SyntaxKind::PrivateKeyword)
+    /// getRestType filters private/protected declarations before consulting
+    /// isSpreadableProperty. Spreads also need the private names to suppress
+    /// same-named left properties, so that visibility check stays separate.
+    fn is_rest_spreadable_property(&self, symbol: tsr_binder::SymbolId) -> bool {
+        !self.binder.symbols().get(symbol).declarations.iter().any(|&declaration| {
+            self.member_declaration_has_modifier(declaration, SyntaxKind::PrivateKeyword)
                 || self.member_declaration_has_modifier(declaration, SyntaxKind::ProtectedKeyword)
-            {
-                return false;
-            }
-        }
-        if !flags.intersects(
-            tsr_binder::SymbolFlags::METHOD
-                | tsr_binder::SymbolFlags::GET_ACCESSOR
-                | tsr_binder::SymbolFlags::SET_ACCESSOR,
-        ) {
-            return true;
-        }
-        // `!some(declarations, d => IsClassLike(d.Parent))` — a method on an
-        // OBJECT TYPE spreads; a method on a CLASS does not.
-        !declarations.iter().any(|&declaration| {
-            self.nodes.parent(declaration).is_some_and(|parent| {
-                matches!(
-                    self.nodes.kind(parent),
-                    SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression
-                )
-            })
-        })
+        }) && self.is_spreadable_property(symbol)
     }
 
     fn object_rest_type(
@@ -901,7 +872,7 @@ impl Checker<'_, '_> {
                     .collect();
                 let mut unspreadable: Vec<String> = properties
                     .into_iter()
-                    .filter(|&(_, symbol)| !self.is_spreadable_property(symbol))
+                    .filter(|&(_, symbol)| !self.is_rest_spreadable_property(symbol))
                     .map(|(name, _)| name)
                     .collect();
                 unspreadable.sort();

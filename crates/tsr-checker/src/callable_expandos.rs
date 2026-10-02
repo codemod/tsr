@@ -42,6 +42,7 @@ impl Checker<'_, '_> {
             }
             let printed_name = self.callable_property_name(member, &name);
             members.push(AnonymousProperty {
+                method: false,
                 origin: Some(member),
                 name,
                 printed_name,
@@ -57,7 +58,7 @@ impl Checker<'_, '_> {
     /// `getPropertyNameNodeForSymbol` / `classifyPropertyName`
     /// (internal/checker/nodebuilderimpl.go): numeric names retain the
     /// distinction between string-named and numeric declarations.
-    fn callable_property_name(&self, symbol: SymbolId, name: &str) -> String {
+    pub(crate) fn callable_property_name(&self, symbol: SymbolId, name: &str) -> String {
         if crate::objects::is_identifier_text(name) {
             return name.to_owned();
         }

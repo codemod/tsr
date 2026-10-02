@@ -49,10 +49,13 @@ use crate::{
     types::{TypeData, TypeId},
 };
 
-/// A property-only anonymous object's member types, retained for
+/// An anonymous object's typed properties and method flags, retained for
 /// `instantiateAnonymousType` and `instantiateSymbol` (checker.go).
 #[derive(Clone)]
 pub(crate) struct AnonymousProperty {
+    /// Native Method flag; provenance alone cannot distinguish a copied method
+    /// from a synthesized property originating at that method's declaration.
+    pub(crate) method: bool,
     /// First declaration provenance used by getNamedMembers/compareSymbols.
     /// A merged optional spread keeps the left origin, independently of its type.
     pub(crate) origin: Option<SymbolId>,
@@ -322,6 +325,9 @@ impl Checker<'_, '_> {
                     let ty = self.get_type_of_property_of_type(id, &name)?;
                     let symbol = self.get_property_of_type(id, &name);
                     Some(AnonymousProperty {
+                        method: symbol.is_some_and(|symbol| {
+                            self.binder.symbols().get(symbol).flags.contains(SymbolFlags::METHOD)
+                        }),
                         origin: symbol,
                         printed_name: name.clone(),
                         printed_type: self.type_to_string(ty),
@@ -769,16 +775,12 @@ impl Checker<'_, '_> {
         });
         // The typed property batches are complete on this path. Methods and
         // accessor pairs still use the original member collector until their
-        // synthetic symbol flags can be retained by AnonymousProperty. Computed
-        // batches also need index declaration provenance before they can fold.
+        // synthetic symbol flags are captured for every member of a batch.
         let property_only = node.properties.iter().all(|property| {
             matches!(
                 property,
-                tsr_ast::ObjectLiteralElementLike::PropertyAssignment(assignment)
-                    if !matches!(assignment.name, tsr_ast::PropertyName::ComputedPropertyName(_))
-            ) || matches!(
-                property,
-                tsr_ast::ObjectLiteralElementLike::ShorthandPropertyAssignment(_)
+                tsr_ast::ObjectLiteralElementLike::PropertyAssignment(_)
+                    | tsr_ast::ObjectLiteralElementLike::ShorthandPropertyAssignment(_)
                     | tsr_ast::ObjectLiteralElementLike::SpreadAssignment(_)
             )
         });
@@ -972,6 +974,7 @@ impl Checker<'_, '_> {
                                 && value != error
                             {
                                 let mut property = AnonymousProperty {
+                                    method: false,
                                     origin: self.property_origin(source, &semantic_name),
                                     name: semantic_name,
                                     printed_name: name.clone(),
@@ -1737,6 +1740,7 @@ impl Checker<'_, '_> {
                     .or_else(|| property_name_text(&name_node).map(str::to_string));
                 if let Some(semantic_name) = semantic_name {
                     let property = AnonymousProperty {
+                        method: false,
                         origin: property.node_id().and_then(|id| self.binder.symbol_of(id)),
                         name: semantic_name,
                         printed_name: name.clone(),
@@ -1918,11 +1922,13 @@ impl Checker<'_, '_> {
             // gap rather than become a confident wrong value.
             minted_index_info = match key {
                 "number" => Some(crate::index_signatures::IndexInfo {
+                    declaration: None,
                     key: self.intrinsics.number,
                     value,
                     readonly: const_context,
                 }),
                 "string" => Some(crate::index_signatures::IndexInfo {
+                    declaration: None,
                     key: self.intrinsics.string,
                     value,
                     readonly: const_context,
@@ -1947,7 +1953,11 @@ impl Checker<'_, '_> {
         // arrangement `get_type_from_type_literal` relies on for `__type`.
         let symbol = node.node_id.and_then(|id| self.binder.symbol_of(id));
         let minted = self.store.new_named(TypeFlags::OBJECT, printed, symbol);
-        if property_only && typed_properties.len() == members.len() {
+        if property_only
+            && typed_properties.len()
+                + members.iter().filter(|member| matches!(member, Member::Index { .. })).count()
+                == members.len()
+        {
             // Spread properties have no binder symbol on this literal. Use
             // their resolved semantic types for member lookup (getSpreadType).
             let synthetic = node.properties.iter().any(|property| {
@@ -2027,7 +2037,8 @@ impl Checker<'_, '_> {
 
     /// Ported from `Checker.tryMergeUnionOfObjectTypeAndEmptyObject`
     /// (`checker.go:13530`). A union with one nonempty object spreads as a
-    /// partial object. Multiple nonempty alternatives still need distribution.
+    /// partial object. Multiple nonempty alternatives are left for getSpreadType
+    /// to distribute.
     pub(crate) fn try_merge_union_of_object_type_and_empty_object(
         &mut self,
         source: TypeId,
@@ -2059,46 +2070,21 @@ impl Checker<'_, '_> {
         let Some(first) = nonempty else {
             return empty.unwrap_or(self.intrinsics.empty_object);
         };
-        let Some(members) = self.spread_members_of(first) else { return source };
-        let Some(infos) = self.get_index_infos_of_type(first) else { return source };
-        // The current spread-member representation cannot carry index infos.
-        if !infos.is_empty() {
-            return source;
+        let Some((mut properties, _)) = self.spread_properties(first, false) else { return source };
+        let Some(resolved) = self.resolved_spread_source(first) else { return source };
+        let Some(infos) = self.get_index_infos_of_type(resolved) else { return source };
+        let mut partial_members: Vec<_> =
+            infos.iter().map(|info| self.index_info_member(info)).collect();
+        for property in &mut properties {
+            property.method = false;
+            property.optional = true;
+            if self.strict_null_checks {
+                property.r#type = self.get_optional_type(property.r#type, true);
+            }
+            let displayed = self.remove_missing_type(property.r#type);
+            property.printed_type = self.type_to_string(displayed);
         }
-        let mut properties = Vec::with_capacity(members.len());
-        let mut partial_members = Vec::with_capacity(members.len());
-        for member in members {
-            let Member::Property { name, .. } = member else { return source };
-            let semantic_name = self
-                .anonymous_properties
-                .get(&first)
-                .and_then(|(properties, _)| {
-                    properties.iter().find(|property| property.printed_name == name)
-                })
-                .map_or_else(|| name.clone(), |property| property.name.clone());
-            let Some(value) = self.get_type_of_property_of_type(first, &semantic_name) else {
-                return source;
-            };
-            let value =
-                if self.strict_null_checks { self.get_optional_type(value, true) } else { value };
-            let displayed = self.remove_missing_type(value);
-            let printed = self.type_to_string(displayed);
-            properties.push(AnonymousProperty {
-                origin: self.property_origin(first, &semantic_name),
-                name: semantic_name,
-                printed_name: name.clone(),
-                printed_type: printed.clone(),
-                optional: true,
-                readonly: false,
-                r#type: value,
-            });
-            partial_members.push(Member::Property {
-                name,
-                optional: true,
-                readonly: false,
-                printed,
-            });
-        }
+        partial_members.extend(crate::callable_expandos::property_members(&properties));
         let owner = match self.store.get(first).data {
             TypeData::Named { members, .. } => members,
             _ => None,
@@ -2106,6 +2092,7 @@ impl Checker<'_, '_> {
         let result =
             self.store.new_named(TypeFlags::OBJECT, render_object_type(&partial_members), owner);
         self.anonymous_properties.insert(result, (properties, true));
+        self.object_literal_index_infos.insert(result, infos);
         self.object_literal_members.insert(result, partial_members);
         self.object_literal_spread_flags.insert(result, false);
         result
