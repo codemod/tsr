@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 dts_shape Summary:
 What a pass means: the declarations this port emits into a .d.ts — their kind, name and order, recursing into namespaces — match upstream's, ignoring types and formatting; judged on every case with declaration output, including the ones dts_emit cannot reach because they need inference
-Passed         : 892/1006 (88.67%)
-Failed         : 114
+Passed         : 897/1006 (89.17%)
+Failed         : 109
 Skipped        : 11438 (excluded from the denominator)
 
   11  skipped: a unit of this case does not parse cleanly
@@ -12,7 +12,7 @@ Skipped        : 11438 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   8  skipped: upstream's .d.ts baseline does not reparse
 
-First 100 of 114 failures:
+First 100 of 109 failures:
 compiler/amdLikeInputDeclarationEmit
   #0: want `var ExtendedClass`, got `export=`
 compiler/caseInsensitiveFileSystemWithCapsImportTypeDeclarations
@@ -177,16 +177,6 @@ conformance/commonJSImportExportedClassExpression
   #0: want `class K`, got `var K`
 conformance/exportDefaultNamespace
   #1: want `export=`, got `namespace someFunc`
-conformance/importTag16
-  #0: want `import`, got `function foo`
-conformance/importTag18
-  #0: want `import`, got `function foo`
-conformance/importTag19
-  #0: want `import`, got `function foo`
-conformance/importTag20
-  #0: want `import`, got `function foo`
-conformance/importTag5
-  #0: want `import`, got `function f`
 conformance/jsDeclarationsClassMethod
   #4: missing `namespace C2`
 conformance/jsDeclarationsClassStatic2
@@ -213,3 +203,13 @@ conformance/jsDeclarationsReferenceToClassInstanceCrossFile
   #2: missing `class Rectangle`
 conformance/jsDeclarationsTypeAliases
   #3: want `function doTheThing`, got `class ExportedThing`
+conformance/jsDeclarationsTypedefAndImportTypes
+  #3: missing `class Wrap`
+conformance/jsDeclarationsTypedefFunction
+  #0: want `type ResolveRejectMap`, got `var id`
+conformance/jsDeclarationsTypedefPropertyAndExportAssignment
+  #3: missing `type TaskGroup`
+conformance/moduleExportAliasElementAccessExpression
+  the emitted .d.ts does not reparse
+conformance/moduleExportDuplicateAlias
+  #1: missing `function a`

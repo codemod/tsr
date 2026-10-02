@@ -68,6 +68,12 @@ impl<'a, 't> Factory<'a, 't> {
         tsr_parser::parse_standalone_type(self.arena, source, self.nodes)
     }
 
+    /// Parse a positioned statement text into this factory's own tables, the
+    /// statement counterpart of [`Self::parse_grafted_type`].
+    pub fn parse_grafted_statement(&mut self, source: &'a str) -> Option<tsr_ast::Statement<'a>> {
+        tsr_parser::parse_standalone_statement(self.arena, source, self.nodes)
+    }
+
     /// The span of an existing node, or an empty one if it was never registered.
     #[must_use]
     pub fn span_of(&self, id: Option<tsr_ast::NodeId>) -> Span {

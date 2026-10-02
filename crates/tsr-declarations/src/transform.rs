@@ -258,6 +258,9 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
             }
         }
         statements.extend(aliases.map(|(_, alias)| alias));
+        if !is_module {
+            statements = retain_referenced_jsdoc_imports(statements);
+        }
 
         // `transformSourceFile` collects the `CommonJS` `module.exports =`
         // assignment before visiting anything (the last one wins) and
@@ -2320,6 +2323,10 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
             } else {
                 Span::new(0, 0)
             };
+            if let Some(import) = self.jsdoc_import_declaration(comment, end) {
+                result.push((start, import));
+                continue;
+            }
             if let Some(range) = jsdoc_braced_range(comment, "typedef") {
                 let after = &comment[range.1 + 1..];
                 let name_start = range.1 + 1 + (after.len() - after.trim_start().len());
@@ -2358,6 +2365,58 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
             }
         }
         result
+    }
+
+    /// A JSDoc `@import Clause from "m"` tag as the `import type` declaration
+    /// upstream's reparser makes of it (`reparser.go`, `JSImportDeclaration`;
+    /// `importTag16`–`importTag20`). The tag text is undecorated (`*` margins
+    /// dropped, lines joined) and parsed as a statement past the end of the
+    /// source, so no span of it can claim a source comment; the declaration is
+    /// then re-spanned at the end of its comment, which therefore replays as
+    /// its leading trivia. Whether it survives is decided once the file's
+    /// output is known ([`retain_referenced_jsdoc_imports`]).
+    fn jsdoc_import_declaration(&mut self, comment: &'a str, end: usize) -> Option<Statement<'a>> {
+        let source = self.options.source_text?;
+        let at = comment.find("@import")?;
+        let rest = &comment[at + "@import".len()..];
+        if !rest.starts_with(char::is_whitespace) {
+            return None;
+        }
+        let rest = rest.strip_suffix("*/").unwrap_or(rest);
+        let mut text = String::new();
+        for line in rest.lines() {
+            let line = line.trim();
+            let line = line.strip_prefix('*').unwrap_or(line).trim();
+            if line.starts_with('@') {
+                break;
+            }
+            if !text.is_empty() && !line.is_empty() {
+                text.push(' ');
+            }
+            text.push_str(line);
+        }
+        let text = text.trim();
+        if text.is_empty() {
+            return None;
+        }
+        let padded = format!("{}import type {text};", " ".repeat(source.len() + 1));
+        let padded = self.factory.alloc_str(&padded);
+        let Statement::ImportDeclaration(parsed) = self.factory.parse_grafted_statement(padded)?
+        else {
+            return None;
+        };
+        let position = u32::try_from(end).unwrap_or(0);
+        Some(Statement::ImportDeclaration(self.factory.alloc(
+            tsr_ast::ImportDeclaration::new(
+                parsed.modifiers,
+                parsed.import_clause,
+                parsed.module_specifier,
+                parsed.attributes,
+            ),
+            SyntaxKind::ImportDeclaration,
+            Span::new(position, position),
+            NodeFlags::empty(),
+        )))
     }
 
     fn jsdoc_alias(
@@ -3739,6 +3798,59 @@ fn file_identifier_texts(file: &SourceFile<'_>) -> HashSet<String> {
         tsr_ast::Visit::visit_node(&mut collect, tsr_ast::Node::from(*statement));
     }
     collect.0
+}
+
+/// Drop a synthesized JSDoc `import type` that nothing in the output names.
+///
+/// In a module the second visibility pass already does this; a script has no
+/// such pass, and upstream's `transformImportDeclaration` elides an import no
+/// emitted declaration references whatever the file's kind. Name-based, like
+/// the rest of the visibility approximation.
+fn retain_referenced_jsdoc_imports(statements: Vec<Statement<'_>>) -> Vec<Statement<'_>> {
+    struct Names<'a>(HashSet<&'a str>);
+    impl<'a> tsr_ast::Visit<'a> for Names<'a> {
+        fn visit_identifier(&mut self, node: &'a tsr_ast::Identifier<'a>) {
+            self.0.insert(node.text);
+        }
+    }
+    let is_synthesized_import = |statement: &Statement<'_>| {
+        matches!(statement, Statement::ImportDeclaration(import)
+            if import.import_clause.is_some_and(|clause| clause.phase_modifier.is_some()))
+    };
+    if !statements.iter().any(is_synthesized_import) {
+        return statements;
+    }
+    let mut referenced = Names(HashSet::new());
+    for statement in statements.iter().filter(|statement| !is_synthesized_import(statement)) {
+        tsr_ast::Visit::visit_node(&mut referenced, tsr_ast::Node::from(*statement));
+    }
+    statements
+        .into_iter()
+        .filter(|statement| {
+            let Statement::ImportDeclaration(import) = statement else { return true };
+            if !is_synthesized_import(statement) {
+                return true;
+            }
+            let Some(clause) = import.import_clause else { return true };
+            let mut bound = Vec::new();
+            bound.extend(clause.name.map(|name| name.text));
+            match clause.named_bindings {
+                Some(tsr_ast::NamedImportBindings::NamespaceImport(namespace)) => {
+                    bound.extend(namespace.name.map(|name| name.text));
+                }
+                Some(tsr_ast::NamedImportBindings::NamedImports(named)) => {
+                    bound.extend(
+                        named
+                            .elements
+                            .iter()
+                            .filter_map(|element| element.name.map(|name| name.text)),
+                    );
+                }
+                None => {}
+            }
+            bound.iter().any(|name| referenced.0.contains(name))
+        })
+        .collect()
 }
 
 /// One `exports.name = right` a `CommonJS` file exports.

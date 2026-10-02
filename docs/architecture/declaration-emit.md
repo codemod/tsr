@@ -3,8 +3,8 @@
 **Status:** slice 4 of Phase 3.5 (`bd tsr-49v.6`), at **47.49%** on the byte-exact
 emit gate and **67.76%** on the structural one *when this document was written*.
 Those are historical; the live numbers are in [`STATUS.md`](../../STATUS.md) §1
-(at the fourth 2026-10-02 landing: `dts_emit` 342/375, `dts_shape`
-892/1,006). This is the artifact the phase
+(at the sixth 2026-10-02 landing: `dts_emit` 342/375, `dts_shape`
+897/1,006). This is the artifact the phase
 exists to ship: the first `.d.ts` this port has ever produced.
 
 **Upstream pin:** `vendor/typescript-go` @ `5b1047d10`.
@@ -443,6 +443,31 @@ either suite.
 Still absent: `exports.K = class K {}` (the class-expression arm with its
 `_ns` isolation namespace), `require` → `import x = require(…)`, and the
 multiple-`export =` merge at `transform.go:360`.
+
+### A JSDoc `@import` tag is an `import type` declaration (2026-10-02)
+
+Upstream's reparser turns `/** @import { Foo } from "./a" */` into a synthetic
+`JSImportDeclaration`, which declaration emit prints as
+`import type { Foo } from "./a";` after the comment when an emitted type names it
+(`importTag5`, `importTag16`, `importTag18`–`importTag20`). This port has no
+reparser, and the transform does not see the parser's JSDoc table, so the tag is
+recovered from the comment text the way `@typedef` aliases already are: the tag
+body is undecorated (`*` margins dropped, lines joined until the next tag),
+prefixed with `import type` and parsed by a new
+`tsr_parser::parse_standalone_statement` (the statement twin of
+`parse_standalone_type`) **past the end of the source**, so none of its spans can
+claim a source comment. The declaration is re-spanned zero-width at the end of
+its comment, which then replays as its leading trivia. A module's second
+visibility pass drops an unreferenced one; a script has no such pass, so
+`retain_referenced_jsdoc_imports` keeps it only when an emitted statement names
+one of its bindings. Five `dts_shape` cases move (892 → 897).
+
+The text route is the judgement call. Threading the parser's `JSDocTable` into
+`tsr_declarations::emit` would read the real `JSDocImportTag` node instead, at the
+cost of changing every emit entry point and every suite; with one consumer, the
+text route is the smaller change. It would be wrong for an `@import` whose clause
+the undecorating join mangles — e.g. a string specifier spanning lines — and the
+falsifier is such a case printing a different clause than its baseline.
 
 ## Known approximations
 

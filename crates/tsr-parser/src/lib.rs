@@ -213,6 +213,32 @@ pub fn parse_standalone_type<'a>(
     (diagnostics.is_empty() && consumed).then_some(r#type)
 }
 
+/// Parse one positioned statement into an existing node table — the statement
+/// counterpart of [`parse_standalone_type`], for declaration emit's
+/// reconstruction of a JSDoc `@import` tag as the `import type` declaration
+/// upstream's reparser makes of it (`reparser.go`'s `JSImportDeclaration`).
+/// `None` unless the text is exactly one statement and parses cleanly.
+pub fn parse_standalone_statement<'a>(
+    arena: &'a Arena,
+    source: &'a str,
+    nodes: &mut tsr_ast::NodeTable,
+) -> Option<tsr_ast::Statement<'a>> {
+    let options =
+        ParseOptions { script_kind: ScriptKind::TypeScript, jsdoc: false, ..Default::default() };
+    let first_node = nodes.len();
+    let mut parser =
+        Parser::with_tables(arena, source, options, std::mem::take(nodes), tsr_ast::NodeMap::new());
+    let statement = parser.parse_statement();
+    let consumed = parser.at(tsr_ast::SyntaxKind::EndOfFile);
+    let (diagnostics, mut node_table, _, _) = parser.finish();
+    for index in first_node..node_table.len() {
+        let id = tsr_ast::NodeId::new(u32::try_from(index).expect("node count exceeds u32"));
+        node_table.add_flags(id, tsr_ast::NodeFlags::REPARSED);
+    }
+    *nodes = node_table;
+    if diagnostics.is_empty() && consumed { statement } else { None }
+}
+
 /// One file parsed into a program's shared tables, by [`parse_into`].
 ///
 /// Everything [`ParsedSourceFile`] carries except the two tables, which the

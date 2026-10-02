@@ -1316,3 +1316,16 @@ fn commonjs_files_are_modules_whose_exports_are_their_assignments() {
 fn emit_javascript_trimmed(source: &str) -> String {
     emit_javascript(source).trim_end().to_string()
 }
+
+#[test]
+fn jsdoc_import_tags_become_import_type_declarations_when_referenced() {
+    // `importTag16`/`importTag20`/`importTag5`: the reparser's
+    // `JSImportDeclaration`, emitted after its comment; an unreferenced tag
+    // emits nothing.
+    assert_eq!(
+        emit_javascript_trimmed(
+            "/**\n * @import\n * { Foo\n * } from './a'\n */\n\n/**\n * @param {Foo} a\n */\nfunction f(a) {}\n/** @import { Bar } from \"./b\" */\n"
+        ),
+        "/**\n * @import\n * { Foo\n * } from './a'\n */\nimport type { Foo } from './a';\n/**\n * @param {Foo} a\n */\ndeclare function f(a: Foo): void;"
+    );
+}
