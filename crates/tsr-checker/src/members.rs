@@ -902,7 +902,6 @@ impl Checker<'_, '_> {
         {
             return Some(self.get_declared_type_of_symbol(symbol));
         }
-        let symbol = *self.type_parameter_symbols.get(&id)?;
         // getConstraintOfTypeParameter keeps a resolved constraint identity.
         // This port evaluates nodes under alias binding frames, so the cache
         // also retains the effective mapper rather than sharing substitutions.
@@ -917,6 +916,23 @@ impl Checker<'_, '_> {
         if let Some(&constraint) = self.type_parameter_constraint_cache.get(&key) {
             return constraint;
         }
+        if let Some(instance) = self.instantiated_type_parameters.get(&id).cloned() {
+            self.type_parameter_constraint_cache.insert(key.clone(), None);
+            let constraint =
+                self.type_parameter_constraint(instance.target).and_then(|constraint| {
+                    let names: Vec<_> = instance.names.iter().map(String::as_str).collect();
+                    let image = self.instantiate_type(
+                        constraint,
+                        &instance.map,
+                        &instance.parameters,
+                        &names,
+                    );
+                    (image != self.intrinsics.error).then_some(image)
+                });
+            self.type_parameter_constraint_cache.insert(key, constraint);
+            return constraint;
+        }
+        let symbol = *self.type_parameter_symbols.get(&id)?;
         // getConstraintDeclaration searches all merged declarations; an infer
         // parameter can have its constraint on a later occurrence.
         let constraint_node =

@@ -81,6 +81,16 @@ pub(crate) struct InferenceContextSnapshot {
     pub(crate) return_inferences: Vec<InferenceInfo>,
 }
 
+/// cloneTypeParameter / instantiateSignatureEx (internal/checker/checker.go).
+/// A fresh parameter retains its target and the composed constraint mapper.
+#[derive(Clone, Debug)]
+pub(crate) struct InstantiatedTypeParameter {
+    pub(crate) target: TypeId,
+    pub(crate) map: Vec<(TypeId, TypeId)>,
+    pub(crate) parameters: Vec<TypeId>,
+    pub(crate) names: Vec<String>,
+}
+
 impl Checker<'_, '_> {
     /// The signature-less inference context used by getConditionalType.
     /// getTypeFromInference preserves candidates rather than applying the
@@ -2054,14 +2064,7 @@ impl Checker<'_, '_> {
         let Some(parameters) = self.type_parameter_types(&context.signature) else { return t };
         let names: Vec<_> =
             context.signature.type_parameters.iter().map(|p| p.name.as_str()).collect();
-        let silent = if let Some(silent) = self.silent_never_type {
-            silent
-        } else {
-            let silent =
-                self.store.new_named(crate::flags::TypeFlags::NEVER, "never".to_owned(), None);
-            self.silent_never_type = Some(silent);
-            silent
-        };
+        let silent = self.get_silent_never_type();
         let mut map = Vec::new();
         for (position, &parameter) in parameters.iter().enumerate() {
             let source_infos = if !no_default
@@ -2093,6 +2096,16 @@ impl Checker<'_, '_> {
             map.push((parameter, image));
         }
         self.instantiate_type(t, &map, &parameters, &names)
+    }
+
+    /// Native silentNeverType marks an absent inference, distinct from never.
+    pub(crate) fn get_silent_never_type(&mut self) -> TypeId {
+        if let Some(silent) = self.silent_never_type {
+            return silent;
+        }
+        let silent = self.store.new_named(crate::flags::TypeFlags::NEVER, "never".to_owned(), None);
+        self.silent_never_type = Some(silent);
+        silent
     }
 
     /// `ObjectFlagsNonInferrableType` propagation through instantiated type
@@ -2579,6 +2592,29 @@ impl Checker<'_, '_> {
         true
     }
 
+    /// getCanonicalSignature / createCanonicalSignature (checker.go). Reuse
+    /// original unconstrained identities when comparing generic signatures.
+    pub(crate) fn canonical_signature(&mut self, mut signature: Signature) -> Option<Signature> {
+        if signature.type_parameters.is_empty() {
+            return Some(signature);
+        }
+        let parameters = self.type_parameter_types(&signature)?;
+        let owned_names: Vec<_> =
+            signature.type_parameters.iter().map(|p| p.name.clone()).collect();
+        let names: Vec<_> = owned_names.iter().map(String::as_str).collect();
+        let mut map = Vec::with_capacity(parameters.len());
+        for &parameter in &parameters {
+            let target = self.instantiated_type_parameters.get(&parameter).map(|p| p.target);
+            let image = match target {
+                Some(target) if self.type_parameter_constraint(target).is_none() => target,
+                _ => parameter,
+            };
+            map.push((parameter, image));
+        }
+        signature.type_parameters.clear();
+        self.instantiate_signature(signature, &map, &parameters, &names)
+    }
+
     /// `instantiateSignatureInContextOf` without an outer inference context,
     /// used by `compareSignaturesRelated`. Inputs have ordinary priority;
     /// return types supply lower-priority candidates for remaining parameters.
@@ -2833,8 +2869,14 @@ impl Checker<'_, '_> {
         let saved_observed = self.inference_observed_priority;
         self.inference_observed_priority = i32::from(InferencePriority::MAX_VALUE.bits());
         let saved_pairs = std::mem::take(&mut self.inference_visited_pairs);
+        let saved_source = std::mem::take(&mut self.inference_source_stack);
+        let saved_target = std::mem::take(&mut self.inference_target_stack);
+        let saved_expanding = std::mem::take(&mut self.inference_expanding);
         self.infer_from_types_within(source, target, target, parameters, out, depth);
         self.inference_visited_pairs = saved_pairs;
+        self.inference_source_stack = saved_source;
+        self.inference_target_stack = saved_target;
+        self.inference_expanding = saved_expanding;
         self.inference_observed_priority = saved_observed;
         (self.inference_contravariant, self.inference_bivariant, self.inference_priority) = saved;
     }
@@ -3888,10 +3930,9 @@ impl Checker<'_, '_> {
         out: &mut Vec<InferenceInfo>,
         depth: usize,
     ) {
-        // Not a stack guard: a recursive generic type
-        // (`interface List<T> { next: List<List<T>> }`) can nest a reference
-        // arbitrarily, and `instantiate_type`'s own limit sits on the other
-        // side of the walk. Sixteen is far past anything the corpus reaches.
+        // Retain the port's outer recursion cap for inference paths that do
+        // not yet go through invokeOnce. Structural member inference also
+        // applies the native recursion-identity guard below.
         if depth > 16 {
             self.inference_observed_priority = -1;
             return;
@@ -4153,7 +4194,21 @@ impl Checker<'_, '_> {
         self.inference_visited_pairs.insert(key, -1);
         let saved_priority = self.inference_observed_priority;
         self.inference_observed_priority = i32::from(InferencePriority::MAX_VALUE.bits());
-        self.infer_from_members(source, target, original, parameters, out, depth);
+        let saved_expanding = self.inference_expanding;
+        self.inference_source_stack.push(source);
+        self.inference_target_stack.push(target);
+        self.inference_expanding.0 |=
+            self.is_deeply_nested_type(source, &self.inference_source_stack, 2);
+        self.inference_expanding.1 |=
+            self.is_deeply_nested_type(target, &self.inference_target_stack, 2);
+        if self.inference_expanding == (true, true) {
+            self.inference_observed_priority = -1;
+        } else {
+            self.infer_from_members(source, target, original, parameters, out, depth);
+        }
+        self.inference_source_stack.pop();
+        self.inference_target_stack.pop();
+        self.inference_expanding = saved_expanding;
         self.inference_visited_pairs.insert(key, self.inference_observed_priority);
         self.inference_observed_priority = self.inference_observed_priority.min(saved_priority);
     }
@@ -4877,7 +4932,11 @@ impl Checker<'_, '_> {
             {
                 let instantiated: Option<Vec<_>> = signatures
                     .into_iter()
-                    .map(|signature| self.instantiate_signature(signature, map, parameters, names))
+                    .map(|signature| {
+                        self.instantiate_signature_with_fresh_parameters(
+                            signature, map, parameters, names,
+                        )
+                    })
                     .collect();
                 if let Some(signatures) = instantiated {
                     self.signature_types.insert(rebuilt, signatures);
@@ -5060,7 +5119,9 @@ impl Checker<'_, '_> {
         let signatures = self.signature_types.get(&id).cloned().unwrap_or_default();
         let mut instantiated = Vec::with_capacity(signatures.len());
         for signature in signatures {
-            let Some(image) = self.instantiate_signature(signature, map, parameters, names) else {
+            let Some(image) =
+                self.instantiate_signature_with_fresh_parameters(signature, map, parameters, names)
+            else {
                 return error;
             };
             instantiated.push(image);
@@ -5380,20 +5441,58 @@ impl Checker<'_, '_> {
         if parameters.len() != arguments.len() {
             return None;
         }
-        let own: Vec<_> = signature.type_parameters.iter().map(|p| p.name.clone()).collect();
-        let map: Vec<_> = parameters
-            .iter()
-            .zip(arguments)
-            .filter_map(|((id, name), argument)| (!own.contains(name)).then_some((*id, argument)))
-            .collect();
-        let ids: Vec<_> =
-            parameters.iter().filter(|(_, name)| !own.contains(name)).map(|(id, _)| *id).collect();
-        let names: Vec<_> = parameters
-            .iter()
-            .filter(|(_, name)| !own.contains(name))
-            .map(|(_, name)| name.as_str())
-            .collect();
-        self.instantiate_signature(signature, &map, &ids, &names)
+        let map: Vec<_> =
+            parameters.iter().zip(arguments).map(|((id, _), argument)| (*id, argument)).collect();
+        let ids: Vec<_> = parameters.iter().map(|(id, _)| *id).collect();
+        let names: Vec<_> = parameters.iter().map(|(_, name)| name.as_str()).collect();
+        self.instantiate_signature_with_fresh_parameters(signature, &map, &ids, &names)
+    }
+
+    /// instantiateSignatureEx with retained type parameters (checker.go).
+    /// Own parameters map to fresh identities before applying the outer map.
+    pub(crate) fn instantiate_signature_with_fresh_parameters(
+        &mut self,
+        mut signature: Signature,
+        map: &[(TypeId, TypeId)],
+        parameters: &[TypeId],
+        names: &[&str],
+    ) -> Option<Signature> {
+        if signature.type_parameters.is_empty() {
+            return self.instantiate_signature(signature, map, parameters, names);
+        }
+        let own = self.type_parameter_types(&signature)?;
+        let mut combined = Vec::with_capacity(own.len() + map.len());
+        let mut sources = own.clone();
+        let mut source_names: Vec<_> =
+            signature.type_parameters.iter().map(|p| p.name.clone()).collect();
+        for (parameter, &original) in signature.type_parameters.iter_mut().zip(&own) {
+            let fresh = self.store.new_named(
+                crate::flags::TypeFlags::TYPE_PARAMETER,
+                parameter.name.clone(),
+                None,
+            );
+            if let Some(&symbol) = self.type_parameter_symbols.get(&original) {
+                self.type_parameter_symbols.insert(fresh, symbol);
+            }
+            parameter.resolved_type = Some(original);
+            combined.push((original, fresh));
+        }
+        combined.extend_from_slice(map);
+        sources.extend_from_slice(parameters);
+        source_names.extend(names.iter().map(|name| (*name).to_owned()));
+        for &(original, fresh) in &combined[..own.len()] {
+            self.instantiated_type_parameters.insert(
+                fresh,
+                InstantiatedTypeParameter {
+                    target: original,
+                    map: combined.clone(),
+                    parameters: sources.clone(),
+                    names: source_names.clone(),
+                },
+            );
+        }
+        let names: Vec<_> = source_names.iter().map(String::as_str).collect();
+        self.instantiate_signature(signature, &combined, &sources, &names)
     }
 
     /// One signature with every carried type substituted, or `None` when any

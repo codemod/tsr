@@ -466,6 +466,9 @@ pub struct Checker<'a, 'n> {
     pub(crate) inference_observed_priority: i32,
     /// invokeOnce's pair status for the current inference entry (inference.go).
     pub(crate) inference_visited_pairs: FxHashMap<(TypeId, TypeId), i32>,
+    pub(crate) inference_source_stack: Vec<TypeId>,
+    pub(crate) inference_target_stack: Vec<TypeId>,
+    pub(crate) inference_expanding: (bool, bool),
     /// Active `InferenceContext` snapshots for nested call return inference.
     pub(crate) active_inference_contexts:
         FxHashMap<NodeId, crate::inference::InferenceContextSnapshot>,
@@ -945,6 +948,11 @@ pub struct Checker<'a, 'n> {
     /// where it is already in hand rather than by widening `TypeData::Named`,
     /// whose `members` field would then mean two different things.
     pub(crate) type_parameter_symbols: FxHashMap<TypeId, SymbolId>,
+    /// Written references do not count as generative recursion by their target.
+    pub(crate) reference_types_from_nodes: rustc_hash::FxHashSet<TypeId>,
+    /// Fresh signature parameters retain a target and constraint mapper.
+    pub(crate) instantiated_type_parameters:
+        FxHashMap<TypeId, crate::inference::InstantiatedTypeParameter>,
     /// `the baked signature type -> the signatures its text was rendered from`.
     ///
     /// The sibling of [`Checker::type_reference_targets`] for function-shaped
@@ -1218,6 +1226,9 @@ impl<'a, 'n> Checker<'a, 'n> {
             inference_bivariant: false,
             inference_priority: crate::inference::InferencePriority::NONE,
             inference_visited_pairs: FxHashMap::default(),
+            inference_source_stack: Vec::new(),
+            inference_target_stack: Vec::new(),
+            inference_expanding: (false, false),
             inference_observed_priority: i32::from(
                 crate::inference::InferencePriority::MAX_VALUE.bits(),
             ),
@@ -1332,6 +1343,8 @@ impl<'a, 'n> Checker<'a, 'n> {
             variadic_tuple_types: FxHashMap::default(),
             variadic_alias_in_progress: rustc_hash::FxHashSet::default(),
             type_parameter_symbols: FxHashMap::default(),
+            instantiated_type_parameters: FxHashMap::default(),
+            reference_types_from_nodes: rustc_hash::FxHashSet::default(),
             signature_types: FxHashMap::default(),
             class_construct_signatures: FxHashMap::default(),
             instantiated_signatures: FxHashMap::default(),

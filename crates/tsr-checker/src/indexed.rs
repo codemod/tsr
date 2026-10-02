@@ -580,6 +580,14 @@ impl Checker<'_, '_> {
                 index,
             ));
         }
+        // getPropertyTypeForIndexType retains an any index when no property
+        // or index signature supplied a type (checker.go). Unresolved alias
+        // placeholders may carry ANY in this port but are not computed any.
+        if self.store.get(index).flags.contains(TypeFlags::ANY)
+            && !self.unresolved_types.contains(&index)
+        {
+            return Some(index);
+        }
         (index == self.intrinsics.never).then_some(self.intrinsics.never)
     }
 

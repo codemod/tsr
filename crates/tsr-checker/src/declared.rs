@@ -247,7 +247,19 @@ impl<'a> Checker<'a, '_> {
             TypeNode::ParenthesizedTypeNode(node) => node
                 .r#type
                 .map_or(self.intrinsics.error, |inner| self.get_type_from_type_node(inner)),
-            TypeNode::TypeReferenceNode(node) => self.get_type_from_type_reference(node),
+            TypeNode::TypeReferenceNode(node) => {
+                let ty = self.get_type_from_type_reference(node);
+                if self.type_reference_targets.get(&ty).is_some_and(|(symbol, _)| {
+                    self.binder
+                        .symbols()
+                        .get(*symbol)
+                        .flags
+                        .intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE)
+                }) {
+                    self.reference_types_from_nodes.insert(ty);
+                }
+                ty
+            }
             TypeNode::ImportTypeNode(node) => self.get_type_from_import_type_node(node),
             TypeNode::TypeLiteralNode(node) => self.get_type_from_type_literal(node),
             TypeNode::UnionTypeNode(node) => self.get_type_from_union_type_node(node),
@@ -474,29 +486,32 @@ impl<'a> Checker<'a, '_> {
                             {
                                 self.mapped_conditional_branches
                                     .insert(id, (true_type, false_type));
-                                if let (Some(declaration), Some(check), Some(extends)) = (
-                                    conditional.node_id,
-                                    conditional.check_type,
-                                    conditional.extends_type,
-                                ) {
-                                    let check = self.get_type_from_type_node(check);
-                                    let extends = self.get_type_from_type_node(extends);
-                                    let bindings = self
-                                        .alias_evaluation_bindings
-                                        .iter()
-                                        .flat_map(|frame| {
-                                            frame.iter().map(|(&symbol, &ty)| (symbol, ty))
-                                        })
-                                        .collect();
-                                    self.mapped_conditionals.insert(
-                                        id,
-                                        crate::mapped::MappedConditionalInfo {
-                                            declaration,
-                                            bindings,
-                                            operands: [check, extends, true_type, false_type],
-                                        },
-                                    );
-                                }
+                            }
+                            // The root and mapper remain useful when a branch
+                            // is not yet computable. Re-evaluate it only after
+                            // substituting the check operand (getConditionalTypeInstantiation).
+                            if let (Some(declaration), Some(check), Some(extends)) = (
+                                conditional.node_id,
+                                conditional.check_type,
+                                conditional.extends_type,
+                            ) {
+                                let check = self.get_type_from_type_node(check);
+                                let extends = self.get_type_from_type_node(extends);
+                                let bindings = self
+                                    .alias_evaluation_bindings
+                                    .iter()
+                                    .flat_map(|frame| {
+                                        frame.iter().map(|(&symbol, &ty)| (symbol, ty))
+                                    })
+                                    .collect();
+                                self.mapped_conditionals.insert(
+                                    id,
+                                    crate::mapped::MappedConditionalInfo {
+                                        declaration,
+                                        bindings,
+                                        operands: [check, extends, true_type, false_type],
+                                    },
+                                );
                             }
                         }
                         id
@@ -1519,7 +1534,9 @@ impl<'a> Checker<'a, '_> {
         let signatures: Option<Vec<_>> = original_signatures
             .unwrap_or_default()
             .into_iter()
-            .map(|signature| self.instantiate_signature(signature, map, parameters, names))
+            .map(|signature| {
+                self.instantiate_signature_with_fresh_parameters(signature, map, parameters, names)
+            })
             .collect();
         let Some(signatures) = signatures else {
             self.instantiated_objects.insert(cache_key, self.intrinsics.error);

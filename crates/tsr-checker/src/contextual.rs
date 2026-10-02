@@ -1276,7 +1276,8 @@ impl<'a> Checker<'a, '_> {
                 Some(yielded)
             };
         }
-        let returned = self.get_contextual_type(yield_id).unwrap_or(self.intrinsics.never);
+        let returned =
+            self.get_contextual_type(yield_id).unwrap_or_else(|| self.get_silent_never_type());
         let next = arguments.get(2).copied().unwrap_or(self.intrinsics.unknown);
         let generator = self.global_type_symbol_with_arity("Generator", 3)?;
         let sync = self.create_type_reference(generator, vec![yielded, returned, next]);

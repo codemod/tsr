@@ -62,7 +62,8 @@
 //! stopped at object types. Structural comparison creates that loop, and both
 //! guards now bite. Measured, per guard, not asserted:
 //!
-//! - a **depth cap** ([`MAX_DEPTH`]), from upstream's `isDeeplyNestedType`.
+//! - a **raw depth cap** ([`MAX_DEPTH`]), separate from the recursion-identity
+//!   guard in upstream's `isDeeplyNestedType`.
 //!   Raising it to `10_000` and running
 //!   `tests/relater.rs::a_chain_deeper_than_the_cap_gives_up` — a 110-link chain
 //!   of interfaces — **aborts the process with a stack overflow**. The cap is
@@ -91,13 +92,10 @@ use crate::{checker::Checker, flags::TypeFlags, types::TypeData, types::TypeId};
 
 /// How deep the structural walk goes before giving up.
 ///
-/// Upstream passes a `maxDepth` to `isDeeplyNestedType`
-/// (`internal/checker/relater.go`), which reports a type as deeply nested once
-/// `maxDepth` occurrences with the same recursion identity are on the stack. The
-/// walk here has no recursion *identity* to compare — that needs type references
-/// with an origin symbol — so the cap is on raw stack depth instead, which is
-/// strictly more conservative: it can give up early where upstream would
-/// continue, never the reverse. Giving up answers "not related", never "related".
+/// This raw stack bound returns Unknown when neither the pair cache nor the
+/// native recursion-identity guard closes the walk. The identity guard counts
+/// expanding instantiations separately on the source and target stacks; a long
+/// chain of distinct written types still needs this safety bound.
 pub const MAX_DEPTH: usize = 100;
 
 /// The answer to a relation question, including *"I could not tell"*.
@@ -424,9 +422,100 @@ struct Relater<'c, 'a, 'n> {
     /// (co-induction), not an inability to compute.
     results: FxHashMap<(TypeId, TypeId), Ternary>,
     depth: usize,
+    source_stack: Vec<TypeId>,
+    target_stack: Vec<TypeId>,
+    expanding: (bool, bool),
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RecursionIdentity {
+    Type(TypeId),
+    Symbol(tsr_binder::SymbolId),
+    Node(tsr_ast::NodeId),
+}
+
+bitflags::bitflags! {
+    #[derive(Clone, Copy)]
+    struct RecursionFlags: u8 {
+        const SOURCE = 1;
+        const TARGET = 2;
+        const BOTH = Self::SOURCE.bits() | Self::TARGET.bits();
+    }
 }
 
 impl Checker<'_, '_> {
+    /// getRecursionIdentity (internal/checker/relater.go). Shapes whose native
+    /// origin is not represented keep their unique type identity.
+    fn relation_recursion_identity(&self, ty: TypeId) -> RecursionIdentity {
+        if let Some(symbol) = self.type_parameter_symbols.get(&ty) {
+            return RecursionIdentity::Symbol(*symbol);
+        }
+        if let Some((symbol, _)) = self.type_reference_targets.get(&ty)
+            && !self.reference_types_from_nodes.contains(&ty)
+            && self
+                .binder
+                .symbols()
+                .get(*symbol)
+                .flags
+                .intersects(tsr_binder::SymbolFlags::CLASS | tsr_binder::SymbolFlags::INTERFACE)
+        {
+            return RecursionIdentity::Symbol(*symbol);
+        }
+        if let Some(info) = self.mapped_conditionals.get(&ty) {
+            return RecursionIdentity::Node(info.declaration);
+        }
+        if let Some(&(mut object, _, _)) = self.deferred_indexed_access_types.get(&ty) {
+            let mut visited = vec![ty];
+            while let Some(&(next, _, _)) = self.deferred_indexed_access_types.get(&object) {
+                if visited.contains(&object) {
+                    break;
+                }
+                visited.push(object);
+                object = next;
+            }
+            return RecursionIdentity::Type(object);
+        }
+        RecursionIdentity::Type(ty)
+    }
+
+    fn has_relation_recursion_identity(&self, ty: TypeId, identity: RecursionIdentity) -> bool {
+        if let TypeData::Intersection { types, .. } = &self.store.get(ty).data {
+            return types.iter().any(|&part| self.has_relation_recursion_identity(part, identity));
+        }
+        self.relation_recursion_identity(ty) == identity
+    }
+
+    /// isDeeplyNestedType's increasing-id count and recursiveTypeRelatedTo's
+    /// three-occurrence threshold (internal/checker/relater.go).
+    pub(crate) fn is_deeply_nested_type(
+        &self,
+        ty: TypeId,
+        stack: &[TypeId],
+        threshold: usize,
+    ) -> bool {
+        if stack.len() < threshold {
+            return false;
+        }
+        if let TypeData::Intersection { types, .. } = &self.store.get(ty).data {
+            return types.iter().any(|&part| self.is_deeply_nested_type(part, stack, threshold));
+        }
+        let identity = self.relation_recursion_identity(ty);
+        let mut count = 0;
+        let mut last = 0;
+        for &previous in stack {
+            if self.has_relation_recursion_identity(previous, identity) {
+                if previous.index() >= last {
+                    count += 1;
+                    if count == threshold {
+                        return true;
+                    }
+                }
+                last = previous.index();
+            }
+        }
+        false
+    }
+
     /// Whether `source` is assignable to `target`.
     ///
     /// Ported from `Checker.isTypeAssignableTo` (`internal/checker/relater.go`).
@@ -509,8 +598,15 @@ impl Checker<'_, '_> {
         target: TypeId,
         relation: Relation,
     ) -> Ternary {
-        let mut relater =
-            Relater { checker: self, relation, results: FxHashMap::default(), depth: 0 };
+        let mut relater = Relater {
+            checker: self,
+            relation,
+            results: FxHashMap::default(),
+            depth: 0,
+            source_stack: Vec::new(),
+            target_stack: Vec::new(),
+            expanding: (false, false),
+        };
         // Measurement only; a no-op unless `reasons::enable` was called.
         let outer = reasons::begin();
         let answer = relater.is_related_to(source, target);
@@ -528,6 +624,9 @@ impl Checker<'_, '_> {
             relation: Relation::Assignable,
             results: FxHashMap::default(),
             depth: 0,
+            source_stack: Vec::new(),
+            target_stack: Vec::new(),
+            expanding: (false, false),
         };
         relater.one_signature_related_to(source, target, false, false)
     }
@@ -538,7 +637,16 @@ impl Relater<'_, '_, '_> {
     ///
     /// Ported from `Checker.isTypeRelatedTo` (`internal/checker/relater.go`).
     fn is_related_to(&mut self, source: TypeId, target: TypeId) -> Ternary {
-        self.is_related_to_with_excess(source, target, true)
+        self.is_related_to_with_flags(source, target, RecursionFlags::BOTH)
+    }
+
+    fn is_related_to_with_flags(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+        flags: RecursionFlags,
+    ) -> Ternary {
+        self.is_related_to_with_excess(source, target, true, flags)
     }
 
     fn is_related_to_with_excess(
@@ -546,6 +654,7 @@ impl Relater<'_, '_, '_> {
         source: TypeId,
         target: TypeId,
         check_excess: bool,
+        flags: RecursionFlags,
     ) -> Ternary {
         // Upstream reduces a fresh literal to its regular form on both sides
         // before comparing identity, so that `"a"` fresh and `"a"` regular are
@@ -608,7 +717,7 @@ impl Relater<'_, '_, '_> {
             return Ternary::NotRelated;
         }
         if self.is_pure_signature_type(source) && self.is_pure_signature_type(target) {
-            return self.recursive_type_related_to(source, target);
+            return self.recursive_type_related_to(source, target, flags);
         }
         // §17 (`checker-notes-assign.md`): both-own-private class pairs are
         // nominal — NotRelated by the private-identity rule, decided from
@@ -670,7 +779,7 @@ impl Relater<'_, '_, '_> {
                     TypeFlags::STRING_LITERAL | TypeFlags::TEMPLATE_LITERAL | TypeFlags::STRING,
                 ))
         {
-            return self.recursive_type_related_to(source, target);
+            return self.recursive_type_related_to(source, target, flags);
         }
         // Nothing fired. That is an **answer** only where the simple arms above
         // are a complete decision procedure for both sides — `string -> number`
@@ -869,7 +978,25 @@ impl Relater<'_, '_, '_> {
         // for the overload matrix and comparable single signatures. Keep an
         // uncomputed erasure local to its signature: another source overload
         // can still prove a target signature compatible.
-        let erase = source_signatures.len() != 1
+        let same_origin = match (
+            &self.checker.store.get(source).data,
+            &self.checker.store.get(target).data,
+        ) {
+            (
+                TypeData::Anonymous { symbol: source_symbol, .. },
+                TypeData::Anonymous { symbol: target_symbol, .. },
+            ) => {
+                source_symbol == target_symbol
+                    && self.checker.instantiated_signature_mappers.contains_key(&source)
+                    && self.checker.instantiated_signature_mappers.contains_key(&target)
+            }
+            _ => false,
+        } || matches!(
+            (self.checker.type_reference_targets.get(&source), self.checker.type_reference_targets.get(&target)),
+            (Some((source, _)), Some((target, _))) if source == target
+        );
+        let erase = same_origin
+            || source_signatures.len() != 1
             || target_signatures.len() != 1
             || self.relation == Relation::Comparable;
         let source_signatures: Vec<_> = source_signatures
@@ -1037,6 +1164,13 @@ impl Relater<'_, '_, '_> {
             source_signature.type_parameters.is_empty()
                 && target_signature.type_parameters.is_empty()
         };
+        let canonical_target =
+            if !shared_type_parameters && !source_signature.type_parameters.is_empty() {
+                Some(self.checker.canonical_signature(target_signature.clone())?)
+            } else {
+                None
+            };
+        let target_signature = canonical_target.as_ref().unwrap_or(target_signature);
         let instantiated_source = if !shared_type_parameters
             && !source_signature.type_parameters.is_empty()
         {
@@ -1539,7 +1673,12 @@ impl Relater<'_, '_, '_> {
 
     /// The composite arms, guarded by the depth cap and the cycle cache.
     /// Ported from Checker.recursiveTypeRelatedTo (relater.go).
-    fn recursive_type_related_to(&mut self, source: TypeId, target: TypeId) -> Ternary {
+    fn recursive_type_related_to(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+        flags: RecursionFlags,
+    ) -> Ternary {
         if let Some(&cached) = self.results.get(&(source, target)) {
             return cached;
         }
@@ -1558,7 +1697,27 @@ impl Relater<'_, '_, '_> {
         // terminates a co-recursive cycle; see the field docs on `results`.
         self.results.insert((source, target), Ternary::Related);
         self.depth += 1;
-        let related = self.structured_type_related_to(source, target);
+        let previous = self.expanding;
+        if flags.contains(RecursionFlags::SOURCE) {
+            self.source_stack.push(source);
+            self.expanding.0 |= self.checker.is_deeply_nested_type(source, &self.source_stack, 3);
+        }
+        if flags.contains(RecursionFlags::TARGET) {
+            self.target_stack.push(target);
+            self.expanding.1 |= self.checker.is_deeply_nested_type(target, &self.target_stack, 3);
+        }
+        let related = if self.expanding == (true, true) {
+            Ternary::Related
+        } else {
+            self.structured_type_related_to(source, target)
+        };
+        self.expanding = previous;
+        if flags.contains(RecursionFlags::SOURCE) {
+            self.source_stack.pop();
+        }
+        if flags.contains(RecursionFlags::TARGET) {
+            self.target_stack.pop();
+        }
         self.depth -= 1;
         self.results.insert((source, target), related);
         related
@@ -1592,7 +1751,10 @@ impl Relater<'_, '_, '_> {
                 // structuredTypeRelatedTo (relater.go:3216) retries the combined
                 // constraint after the individual constituents fail. An unknown
                 // original relation is retained unless this supplies a proof.
-                return Ternary::any([result, self.is_related_to(constraint, target)]);
+                return Ternary::any([
+                    result,
+                    self.is_related_to_with_flags(constraint, target, RecursionFlags::SOURCE),
+                ]);
             }
         }
         result
@@ -1621,8 +1783,10 @@ impl Relater<'_, '_, '_> {
             // Upstream's `eachTypeRelatedToType` — except under the
             // comparable relation, where SOME constituent suffices
             // (`relater.go:2870`, `someTypeRelatedToType`). §750.
-            let parts: Vec<_> =
-                constituents.iter().map(|&c| self.is_related_to(c, target)).collect();
+            let parts: Vec<_> = constituents
+                .iter()
+                .map(|&c| self.is_related_to_with_flags(c, target, RecursionFlags::SOURCE))
+                .collect();
             return if matches!(self.relation, Relation::Comparable) {
                 Ternary::any(parts)
             } else {
@@ -1636,7 +1800,7 @@ impl Relater<'_, '_, '_> {
             // nested property comparisons still check their own fresh sources.
             let parts: Vec<_> = constituents
                 .iter()
-                .map(|&c| self.is_related_to_with_excess(source, c, false))
+                .map(|&c| self.is_related_to_with_excess(source, c, false, RecursionFlags::TARGET))
                 .collect();
             return Ternary::all(parts);
         }
@@ -1644,8 +1808,10 @@ impl Relater<'_, '_, '_> {
             // Related to *some* constituent of a target union.
             // Upstream's `typeRelatedToSomeType`.
             let source = self.checker.get_regular_type_of_object_literal(source);
-            let parts: Vec<_> =
-                constituents.iter().map(|&c| self.is_related_to(source, c)).collect();
+            let parts: Vec<_> = constituents
+                .iter()
+                .map(|&c| self.is_related_to_with_flags(source, c, RecursionFlags::TARGET))
+                .collect();
             return Ternary::any(parts);
         }
         if let Some(constituents) = self.intersection_constituents(source) {
@@ -1657,8 +1823,10 @@ impl Relater<'_, '_, '_> {
             // being related. That case needs the structural comparison this
             // module gaps, so it is a gap here for the same reason and not a
             // second one.
-            let parts: Vec<_> =
-                constituents.iter().map(|&c| self.is_related_to(c, target)).collect();
+            let parts: Vec<_> = constituents
+                .iter()
+                .map(|&c| self.is_related_to_with_flags(c, target, RecursionFlags::SOURCE))
+                .collect();
             return Ternary::any(parts);
         }
         // The source-variable branch also explores an indexed access's
@@ -1668,7 +1836,9 @@ impl Relater<'_, '_, '_> {
             && !self.checker.type_of(target).flags.contains(TypeFlags::INDEXED_ACCESS)
         {
             return match self.checker.base_constraint_of_type(source) {
-                Some(constraint) if constraint != source => self.is_related_to(constraint, target),
+                Some(constraint) if constraint != source => {
+                    self.is_related_to_with_flags(constraint, target, RecursionFlags::SOURCE)
+                }
                 _ => Ternary::Unknown,
             };
         }
@@ -1707,7 +1877,7 @@ impl Relater<'_, '_, '_> {
                 let Some(next) = self.checker.type_parameter_constraint(constraint) else { break };
                 constraint = next;
             }
-            return self.is_related_to(constraint, target);
+            return self.is_related_to_with_flags(constraint, target, RecursionFlags::SOURCE);
         }
         if let Some(parts) = self.checker.template_literal_parts.get(&target).cloned()
             && self.checker.type_of(source).flags.intersects(
@@ -1897,7 +2067,11 @@ impl Relater<'_, '_, '_> {
         if !target_generic {
             let constraint = self.checker.tuple_base_constraint(source);
             if constraint != source {
-                return Some(self.is_related_to(constraint, target));
+                return Some(self.is_related_to_with_flags(
+                    constraint,
+                    target,
+                    RecursionFlags::SOURCE,
+                ));
             }
         }
         let (source_elements, source_readonly) =
@@ -2017,7 +2191,7 @@ impl Relater<'_, '_, '_> {
         let target_element = self.checker.tuple_spread_array_element(target)?;
         let constraint = self.checker.tuple_base_constraint(source);
         if constraint != source {
-            return Some(self.is_related_to(constraint, target));
+            return Some(self.is_related_to_with_flags(constraint, target, RecursionFlags::SOURCE));
         }
         let (target_symbol, _) = self.checker.type_reference_targets.get(&target)?;
         let target_symbol = self.checker.binder.merged_symbol(*target_symbol);
