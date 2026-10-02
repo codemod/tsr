@@ -3738,6 +3738,24 @@ impl<'a> Checker<'a, '_> {
             // (`PrefixData<P>` answers `\`${P}:baz\``).
             return error;
         }
+        // The same alias-declared position through an alias whose body is a
+        // reference to a conditional alias (`type N3 = Not<boolean>` over
+        // `type Not<C> = If<C, false, true>`): the new alias symbol names a
+        // distributed result. A refusal keeps the named reference below.
+        if self.binder.symbols().get(symbol).flags.contains(tsr_binder::SymbolFlags::TYPE_ALIAS)
+            && let Some(declaration) =
+                self.binder.symbols().get(symbol).declarations.first().copied()
+            && let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration)
+            && matches!(alias.r#type, Some(TypeNode::TypeReferenceNode(_)))
+            && self.in_alias_declared_position(node.node_id)
+            && let Some(evaluated) = self.evaluate_conditional_alias(
+                symbol,
+                &arguments,
+                node.node_id.and_then(|id| self.alias_symbol_for_type_node(id)),
+            )
+        {
+            return evaluated;
+        }
         // §791: a generic ALIAS whose body is a §40 PRINT-ONLY VARIADIC TUPLE
         // normalises at instantiation — `TV0<[boolean]>` over
         // `type TV0<T extends unknown[]> = [string, ...T]` is `[string, boolean]`
@@ -5649,7 +5667,6 @@ impl<'a> Checker<'a, '_> {
         let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration) else {
             return None;
         };
-        let Some(TypeNode::ConditionalTypeNode(conditional)) = alias.r#type else { return None };
         let parameters = self.local_type_parameters_of(symbol);
         if parameters.len() != arguments.len() {
             return None;
@@ -5664,6 +5681,13 @@ impl<'a> Checker<'a, '_> {
         if self.instantiation_depth == 100 {
             return None;
         }
+        let conditional = match alias.r#type {
+            Some(TypeNode::ConditionalTypeNode(conditional)) => conditional,
+            Some(TypeNode::TypeReferenceNode(reference)) if !parameters.is_empty() => {
+                return self.evaluate_conditional_alias_reference(reference, frame, result_alias);
+            }
+            _ => return None,
+        };
         self.instantiation_depth += 1;
         self.alias_evaluation_bindings.push(frame);
         let result = self.evaluate_conditional_node(conditional, result_alias);
@@ -5672,6 +5696,138 @@ impl<'a> Checker<'a, '_> {
         if let Some(evaluated) = result {
             self.alias_evaluated_types.insert(evaluated);
         }
+        result
+    }
+
+    /// Whether a type alias's declared type is a conditional type: its body is
+    /// a conditional, or a reference to another generic alias whose declared
+    /// type is (the chain [`Checker::evaluate_conditional_alias_reference`]
+    /// evaluates).
+    pub(crate) fn alias_declares_conditional(&self, mut symbol: SymbolId) -> bool {
+        for _ in 0..100 {
+            if !self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_ALIAS) {
+                return false;
+            }
+            let Some(Node::TypeAliasDeclaration(alias)) = self
+                .binder
+                .symbols()
+                .get(symbol)
+                .declarations
+                .first()
+                .and_then(|&declaration| self.node_map.get(declaration))
+            else {
+                return false;
+            };
+            match alias.r#type {
+                Some(TypeNode::ConditionalTypeNode(_)) => return true,
+                Some(TypeNode::TypeReferenceNode(reference))
+                    if !alias.type_parameters.is_empty() =>
+                {
+                    let Some(tsr_ast::EntityName::Identifier(name)) = reference.type_name else {
+                        return false;
+                    };
+                    let Some(target) = name.node_id.and_then(|id| {
+                        self.binder.resolve_name(
+                            self.nodes,
+                            self.node_map,
+                            id,
+                            name.text,
+                            SymbolFlags::TYPE,
+                        )
+                    }) else {
+                        return false;
+                    };
+                    if self.local_type_parameters_of(target).is_empty() {
+                        return false;
+                    }
+                    symbol = target;
+                }
+                _ => return false,
+            }
+        }
+        false
+    }
+
+    /// A generic alias whose body is a reference to another alias:
+    /// `type IsString<T> = Extends<T, string>`.
+    ///
+    /// getTypeFromTypeAliasReference (checker.go:23580) gives the outer alias
+    /// the inner alias's instantiation as its declared type, so when that inner
+    /// body is conditional the declared type is a deferred conditional whose
+    /// root is the inner declaration. getTypeAliasInstantiation (checker.go:23641)
+    /// then instantiates it under the outer mapper, and
+    /// getConditionalTypeInstantiation (checker.go:22485) receives the caller's
+    /// alias unchanged. This walks the same chain over syntax: the reference's
+    /// arguments resolve under `frame`, missing tail arguments take their
+    /// defaults under the preceding ones (fillMissingTypeArguments,
+    /// checker.go:21954), and the inner alias evaluates with `result_alias`.
+    fn evaluate_conditional_alias_reference(
+        &mut self,
+        reference: &tsr_ast::TypeReferenceNode<'a>,
+        frame: rustc_hash::FxHashMap<SymbolId, TypeId>,
+        result_alias: Option<SymbolId>,
+    ) -> Option<TypeId> {
+        let Some(tsr_ast::EntityName::Identifier(name)) = reference.type_name else { return None };
+        let target = self.binder.resolve_name(
+            self.nodes,
+            self.node_map,
+            name.node_id?,
+            name.text,
+            SymbolFlags::TYPE,
+        )?;
+        if !self.binder.symbols().get(target).flags.contains(SymbolFlags::TYPE_ALIAS) {
+            return None;
+        }
+        let declarations = self.local_type_parameters_of(target);
+        if declarations.is_empty() || reference.type_arguments.len() > declarations.len() {
+            return None;
+        }
+        let error = self.intrinsics.error;
+        self.instantiation_depth += 1;
+        self.alias_evaluation_bindings.push(frame);
+        let mut arguments: Vec<TypeId> = reference
+            .type_arguments
+            .iter()
+            .map(|&argument| self.get_type_from_type_node(argument))
+            .collect();
+        self.alias_evaluation_bindings.pop();
+        let mut complete = !arguments.contains(&error);
+        if complete && arguments.len() < declarations.len() {
+            let mut defaults = rustc_hash::FxHashMap::default();
+            for (declaration, &argument) in declarations.iter().zip(&arguments) {
+                match declaration.node_id.and_then(|id| self.binder.symbol_of(id)) {
+                    Some(parameter) => {
+                        defaults.insert(parameter, argument);
+                    }
+                    None => complete = false,
+                }
+            }
+            for declaration in &declarations[arguments.len()..] {
+                let (Some(default), Some(parameter), true) = (
+                    declaration.default_type,
+                    declaration.node_id.and_then(|id| self.binder.symbol_of(id)),
+                    complete,
+                ) else {
+                    complete = false;
+                    break;
+                };
+                self.alias_evaluation_bindings.push(defaults.clone());
+                let filled = self.get_type_from_type_node(default);
+                self.alias_evaluation_bindings.pop();
+                if filled == error {
+                    complete = false;
+                    break;
+                }
+                defaults.insert(parameter, filled);
+                arguments.push(filled);
+            }
+        }
+        let result = if complete {
+            self.evaluate_conditional_alias(target, &arguments, result_alias)
+        } else {
+            None
+        };
+        self.instantiation_depth -= 1;
         result
     }
 
@@ -5912,6 +6068,10 @@ impl<'a> Checker<'a, '_> {
                     } else if check_is_any {
                         // Upstream answers `true | false` here; declined.
                         None
+                    } else if let Some((permissive, restrictive)) =
+                        self.conditional_extends_instantiations(extends)
+                    {
+                        self.definite_conditional_outcome(check, permissive, restrictive)
                     } else {
                         match self.relate_ternary(
                             check,
@@ -5960,6 +6120,84 @@ impl<'a> Checker<'a, '_> {
             }
         }
         result
+    }
+
+    /// getConditionalType's definite outcomes for a non-deferred extends type
+    /// that still mentions type parameters (checker.go:24372-24429): the
+    /// permissive instantiation maps them to the wildcard, the restrictive one
+    /// to unconstrained clones (getPermissiveInstantiation and
+    /// getRestrictiveInstantiation). `None` when the extends type mentions no
+    /// type parameter, so both instantiations are the type itself.
+    ///
+    /// This port has no wildcard distinct from `any`; relating to `any` is the
+    /// wildcard's relation. A failed instantiation answers `error` for both,
+    /// which [`Checker::definite_conditional_outcome`] defers.
+    fn conditional_extends_instantiations(&mut self, extends: TypeId) -> Option<(TypeId, TypeId)> {
+        let candidates: Vec<TypeId> = self.type_parameter_symbols.keys().copied().collect();
+        if !self.mentions_type_parameter(extends, &candidates, &[]) {
+            return None;
+        }
+        let mentioned: Vec<TypeId> = candidates
+            .into_iter()
+            .filter(|&parameter| self.mentions_type_parameter(extends, &[parameter], &[]))
+            .collect();
+        let names: Vec<String> =
+            mentioned.iter().map(|&parameter| self.type_to_string(parameter)).collect();
+        let name_refs: Vec<&str> = names.iter().map(String::as_str).collect();
+        let any = self.intrinsics.any;
+        let permissive_map: Vec<(TypeId, TypeId)> =
+            mentioned.iter().map(|&parameter| (parameter, any)).collect();
+        let permissive = self.instantiate_type(extends, &permissive_map, &mentioned, &name_refs);
+        // getRestrictiveTypeParameter: a clone whose constraint is
+        // noConstraintType. The clone is not registered as a declared
+        // parameter, so no constraint is found for it.
+        let restrictive_map: Vec<(TypeId, TypeId)> = mentioned
+            .iter()
+            .zip(&names)
+            .map(|(&parameter, name)| {
+                (parameter, self.store.new_named(TypeFlags::TYPE_PARAMETER, name.clone(), None))
+            })
+            .collect();
+        let restrictive = self.instantiate_type(extends, &restrictive_map, &mentioned, &name_refs);
+        let error = self.intrinsics.error;
+        if permissive == error || restrictive == error {
+            return Some((error, error));
+        }
+        Some((permissive, restrictive))
+    }
+
+    /// FALSE when even the permissive extends type rejects the check, TRUE when
+    /// the restrictive one accepts it, otherwise deferred (checker.go:24377
+    /// and :24415).
+    fn definite_conditional_outcome(
+        &mut self,
+        check: TypeId,
+        permissive: TypeId,
+        restrictive: TypeId,
+    ) -> Option<bool> {
+        let error = self.intrinsics.error;
+        if permissive == error || restrictive == error {
+            return None;
+        }
+        match self.relate_ternary(check, permissive, crate::relater::Relation::Assignable) {
+            crate::relater::Ternary::NotRelated => return Some(false),
+            crate::relater::Ternary::Unknown => return None,
+            crate::relater::Ternary::Related => {}
+        }
+        if std::env::var("TSR_DBG").is_ok() {
+            let n = self.get_property_names_of_type(restrictive);
+            let t = self.get_type_of_property_of_type(restrictive, "name");
+            eprintln!(
+                "DBG names={:?} t={:?} data={:?}",
+                n,
+                t.map(|t| self.type_to_string(t)),
+                self.store.get(restrictive)
+            );
+        }
+        match self.relate_ternary(check, restrictive, crate::relater::Relation::Assignable) {
+            crate::relater::Ternary::Related => Some(true),
+            _ => None,
+        }
     }
 
     /// getGenericObjectFlags/isDeferredType (checker.go): unions and

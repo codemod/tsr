@@ -2425,9 +2425,53 @@ impl Checker<'_, '_> {
         let TypeData::Named { members: Some(owner), .. } = self.type_of(id).data else {
             return None;
         };
+        if let Some(names) = self.mapped_alias_literal_key_names(id, owner) {
+            return Some(names);
+        }
         let mut names = Vec::new();
         let mut visiting = Vec::new();
         self.collect_structured_property_names(owner, &mut names, &mut visiting).then_some(names)
+    }
+
+    /// The property names resolveMappedTypeMembers (checker.go) gives a
+    /// reference to a generic alias whose body is `{ [P in K]: … }` over its own
+    /// parameter `K`, when the reference supplies string literal keys:
+    /// `Record<"name", T>` has `name`. The reference is owned by the alias
+    /// symbol, whose table was never the type's member list, so enumerating
+    /// that table would answer no names and let a structured target demand
+    /// nothing. Other key shapes keep the existing enumeration.
+    fn mapped_alias_literal_key_names(&self, id: TypeId, owner: SymbolId) -> Option<Vec<String>> {
+        if !self.binder.symbols().get(owner).flags.contains(SymbolFlags::TYPE_ALIAS) {
+            return None;
+        }
+        let (target, arguments) = self.type_reference_targets.get(&id)?;
+        if *target != owner {
+            return None;
+        }
+        let declaration = self.binder.symbols().get(owner).declarations.first().copied()?;
+        let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration) else {
+            return None;
+        };
+        let Some(tsr_ast::TypeNode::MappedTypeNode(mapped)) = alias.r#type else { return None };
+        if mapped.name_type.is_some() {
+            return None;
+        }
+        let Some(tsr_ast::TypeNode::TypeReferenceNode(constraint)) =
+            mapped.type_parameter.and_then(|parameter| parameter.constraint)
+        else {
+            return None;
+        };
+        let Some(tsr_ast::EntityName::Identifier(name)) = constraint.type_name else {
+            return None;
+        };
+        if !constraint.type_arguments.is_empty() {
+            return None;
+        }
+        let position = alias
+            .type_parameters
+            .iter()
+            .position(|parameter| parameter.name.is_some_and(|own| own.text == name.text))?;
+        self.literal_key_texts(*arguments.get(position)?)
     }
 
     /// resolveAnonymousTypeMembers (checker.go): the class's static properties

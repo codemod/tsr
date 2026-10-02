@@ -4315,18 +4315,7 @@ impl<'a> Checker<'a, '_> {
             && let Some(symbol) = reference
                 .type_name
                 .and_then(|name| self.resolve_entity_name(name, tsr_binder::SymbolFlags::TYPE))
-            && self
-                .binder
-                .symbols()
-                .get(symbol)
-                .declarations
-                .first()
-                .copied()
-                .and_then(|id| self.node_map.get(id))
-                .is_some_and(|node| {
-                    matches!(node, Node::TypeAliasDeclaration(alias)
-                    if matches!(alias.r#type, Some(TypeNode::ConditionalTypeNode(_))))
-                })
+            && self.alias_declares_conditional(symbol)
         {
             return Self::written_type_text(annotation, &mut false, &mut false);
         }
