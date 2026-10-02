@@ -79,3 +79,27 @@ Frozen checker/trace_case SHA-256: 9905fc83edc0125ad038aa114fb8ddf88c1889be71c61
 Final main checks pass: all 209 release workspace result blocks, clippy and
 formatting. Review receipt:
 /tmp/compound-engineering-501/ce-code-review/inference-defaults/review.json.
+
+Committed verification at 0ba7ce80 in /tmp/tsr-99-inference-defaults-verify matches
+the candidate verdict byte-for-byte and the frozen source hash. Coverage is
+455,838/478,855 RIGHT (95.19%), 6,912/9,538 complete cases (72.47%), 12 more
+complete cases. The 99% target still needs 18,229 matches. Aligned counts:
+455,838 RIGHT, 2,775 GAP, 15,630 WRONG, 474,243 total. All 209 release workspace
+result blocks, clippy, formatting and 3,330 anchors pass in that checkout. Fresh
+depend: 504 non-gapping roots, 210 cycles, zero depth caps and 3,591 walked gaps;
+C3 balances, C1/C4 remain stale (tsr-6.29). The snapshot is copied from the isolated
+checkout. Verdict: /tmp/tsr-99-inference-defaults-verified.tsv; logs:
+/tmp/tsr-99-inference-defaults-verified-*.log.
+
+Five isolated mutations compile and fail the intended assertions: removing
+constraint fallback fails closed; resolving forward defaults instead of mapping
+them to unknown fails forwardDefault; restricting constraint dependencies to
+earlier parameters fails later; replacing the recursive TS sentinel with any
+fails recursiveConstraint; immediately abandoning an unresolved receiver fails
+callback.bind(2). Sources restore in a finally block after every mutation and
+the final hash equals the committed source hash. Script:
+/tmp/tsr-99-inference-defaults-mutations.py. Logs:
+/tmp/tsr-99-inference-defaults-mutation-{constraint,forward,dependency,sentinel,receiver}.log.
+
+All four focused tests pass after restoration:
+/tmp/tsr-99-inference-defaults-restored-tests.log.

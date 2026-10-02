@@ -24,23 +24,24 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-10-02
 
-Measured on **`948a8f5b`** in an isolated checkout: **455,750/478,855 assertions
-(95.17%)**, **6,900/9,538 complete cases (72.34%)**. The 99% target requires
-474,067 correct assertions; **18,317 remain**. Denominator and pinned oracle
-unchanged. Aligned verdicts: **474,243 total; 455,750 right; 2,787 gap; 15,706 wrong**.
+Measured on **`0ba7ce80`** in an isolated checkout: **455,838/478,855 assertions
+(95.19%)**, **6,912/9,538 complete cases (72.47%)**. The 99% target requires
+474,067 correct assertions; **18,229 remain**. Denominator and pinned oracle
+unchanged. Aligned verdicts: **474,243 total; 455,838 right; 2,775 gap; 15,630 wrong**.
 Binder retains its verified **8,497/8,497 (100%)** result at aab165d8;
 other suites below retain historical measurements.
 
-This unit adds **28 matching assertions** and **four complete cases**, with
-**zero RIGHT losses and zero adverse transitions** relative to b51228ae:
-20 WRONG→RIGHT and eight GAP→RIGHT. [Declared computed members](docs/architecture/checker-99-declared-computed-members.md)
-records semantic literal keys, separate static/instance resolution caches and
-accessor modifier handling. Three pipeline tests pin 18 native outcomes,
-including cross-file enum-key spreads and computed accessor/overload separation.
-All 208 release workspace result blocks, clippy, formatting and 3,331 anchors
-pass. The committed verdict and source hash match the candidate. Four isolated
-mutations fail the intended assertions; restored sources match the committed
-hash. The broader 99% goal and tsr-8 remain active.
+This unit adds **88 matching assertions** and **12 complete cases**, with
+**zero RIGHT losses and zero new WRONG rows** relative to 948a8f5b:
+76 WRONG→RIGHT and 12 GAP→RIGHT. Three already-WRONG rows change; §5 records
+them. [Inference defaults](docs/architecture/checker-99-inference-defaults.md)
+records constraint resolution, recursive mapper sentinels, default backreferences
+and the overload applicability correction. Four pipeline tests pin 22 native
+outcomes. All 209 release workspace result blocks, clippy, formatting and 3,330
+anchors pass in main and the isolated checkout; committed coverage and source
+hash match the measured candidate. Five isolated mutations fail their intended
+assertions; all four focused tests pass after source restoration.
+The broader 99% goal and tsr-8 remain active.
 
 ### Previous whole-suite measurement — historical
 
@@ -1075,6 +1076,7 @@ Per-crate, by what the conformance suites actually assert — not by what exists
 
 | subsystem | state | evidence |
 |---|---|---|
+| candidate-free inference | **recursive constraints and default backreferences** | 0ba7ce80: +88 matches, zero RIGHT losses/new WRONG rows, +12 complete cases; 22 native controls; [evidence](docs/architecture/checker-99-inference-defaults.md) |
 | declared computed members | **semantic literal keys and side-specific resolution** | 948a8f5b: +28 matches, zero RIGHT losses/adverse transitions, +4 complete cases; 18 native controls; [evidence](docs/architecture/checker-99-declared-computed-members.md) |
 | enum/module value members | **exports, conditional reverse indexes and complete enum-run display** | b51228ae: +28 matches, zero RIGHT losses, +1 complete case; 14 native controls; [evidence](docs/architecture/checker-99-enum-static.md) |
 | enum literal semantics | **native value flags, nominal owners and direct single-value identity** | fd9b42be: +289 matches, zero RIGHT losses, +24 complete cases; computed keys, truthiness, overload syntax, index inference and generic argument contexts; [evidence](docs/architecture/checker-99-enum-literals.md) |
@@ -1245,7 +1247,19 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-### Current priorities at `948a8f5b` — 2026-10-02
+### Current priorities at `0ba7ce80` — 2026-10-02
+
+Continue toward 99%: 18,229 matching assertions remain. Candidate-free inference
+now resolves constraints recursively and applies native default backreferences.
+Next: actual candidate constraints with dependent mappers, structural and mapped
+reverse inference, contextual/circular callback inference. The structural-source
+refusal remains: removing it gained 95 but lost 36 RIGHT rows. Conditional-rest
+subtyping also remains incomplete, although a definite argument mismatch now
+rejects an overload despite an unresolved receiver comparison. Spread/property
+ordering, optional-symbol metadata and per-node computed-name circularity remain
+on tsr-8. Three changed WRONG rows are recorded in §5.
+
+### Previous priorities at `948a8f5b` — 2026-10-02
 
 Continue toward 99%: 18,317 matching assertions remain. Nonlocal enum-key
 interface spreads now resolve, and computed member lookup uses raw literal
@@ -4197,6 +4211,20 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+### Candidate-free inference at `0ba7ce80`
+
+Wholesale removal of the structural-source refusal gained 95 but lost 36 RIGHT
+rows, added 120 GAP→WRONG transitions and changed 161 WRONG rows. The losses
+cluster in circularReferenceInReturnType2, inferenceContextualReturnTypeUnion3
+and nonInferrableTypePropagation3. Keep the refusal until those inference paths
+are ported. A left-to-right constraint mapper gained 71 and lost one RIGHT row;
+recursive resolution gains 88, and carrying an unknown receiver comparison into
+the argument verdict removes that remaining loss. The final unit has zero RIGHT
+losses/new WRONG rows but three changed WRONG rows: mappedTypes1 now exposes its
+correct properties in the wrong order (two rows), and esDecorators-contextualTypes.2
+uses constrained any[] while its contextual type inference is still missing.
+[Evidence](docs/architecture/checker-99-inference-defaults.md).
 
 ### Declared computed members at `948a8f5b`
 
@@ -10354,6 +10382,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
+| 2026-10-02 | `0ba7ce80` | **72.47%** | **6,912** | **455,838/478,855 assertions (95.19%).** +88 since 948a8f5b, zero RIGHT losses/new WRONG rows; 76W→R, 12G→R, 3 changed WRONG. | Candidate-free constraints, recursive mapper sentinels, default backreferences and definite argument rejection despite an unresolved receiver. 22 native outcomes; isolated verdict/source match; 18,229 remain to 99%. |
 | 2026-10-02 | `948a8f5b` | **72.34%** | **6,900** | **455,750/478,855 assertions (95.17%).** +28 since b51228ae, zero adverse transitions; 20W→R, 8G→R. | Declared computed semantic keys, static/instance resolution caches and accessor modifiers. 18 native outcomes; 208 workspace blocks, clippy, 3331 anchors; isolated verdict/source match. 18,317 remain to 99%. |
 | 2026-10-02 | `b51228ae` | **72.30%** | **6,896** | **455,722/478,855 assertions (95.17%).** +28 since fd9b42be, zero RIGHT losses; 23W→R, 5G→R, 4G→W, 19 changed WRONG. | Enum/module exports, native reverse indexes and const access rejection, complete enum-run printing. 14 native outcomes; 207 workspace blocks, clippy, 3331 anchors; isolated verdict/source match. 18,345 remain to 99%. |
 | 2026-10-02 | `fd9b42be` | **72.29%** | **6,895** | **455,694/478,855 assertions (95.16%).** +289 since 056e7e87, zero RIGHT losses; 236W→R, 53G→R, 3G→W, 17 changed WRONG, 1W→G. | Enum literal values/owners, key lookup, truthiness, overload syntax, index inference and generic argument contexts. 49 native outcomes; 207 workspace blocks, clippy, 3331 anchors; isolated verdict/source match. 18,373 remain to 99%. |
