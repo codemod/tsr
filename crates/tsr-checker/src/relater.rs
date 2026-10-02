@@ -861,6 +861,21 @@ impl Relater<'_, '_, '_> {
         {
             return Ternary::NotRelated;
         }
+        // structuredTypeRelatedToWorker's template-source arm (relater.go:3772):
+        // against a non-object, non-template target only a distinct base
+        // constraint can relate; no target-side arm applies to a decidable
+        // target, so the failed constraint is the answer.
+        if s.contains(TypeFlags::TEMPLATE_LITERAL) && self.flag_decidable(target) {
+            if let Some(constraint) = self.checker.base_constraint_of_type(source)
+                && constraint != source
+            {
+                let result = self.is_related_to(constraint, target);
+                if result != Ternary::NotRelated {
+                    return result;
+                }
+            }
+            return Ternary::NotRelated;
+        }
         if self.flag_decidable(source) && self.flag_decidable(target) {
             Ternary::NotRelated
         } else {

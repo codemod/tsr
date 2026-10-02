@@ -134,10 +134,15 @@ impl Checker<'_, '_> {
                 true,
             );
         }
-        // checkTemplateExpression's const arm (checker.go:7997) constructs a
-        // pattern from semantic span types after the constant-value fast path.
+        // checkTemplateExpression's template arm (checker.go:7997) constructs a
+        // pattern from semantic span types after the constant-value fast path:
+        // a const context, a template-literal context, or a contextual type
+        // with a string-literal/template constituent.
         if node.node_id.is_some_and(|id| {
-            self.is_const_context(id) || self.literal_in_const_type_variable_context(id)
+            self.is_const_context(id)
+                || self.literal_in_const_type_variable_context(id)
+                || self.is_template_literal_context(id)
+                || self.has_template_literal_contextual_type(id)
         }) {
             let mut texts = vec![node.head.map_or_else(String::new, |head| head.text.to_owned())];
             for span in node.template_spans {
@@ -167,27 +172,62 @@ impl Checker<'_, '_> {
                 .collect();
             return self.get_template_literal_type(&texts, &types);
         }
-        // The three §24 declines: a const context, the element-access
-        // argument position (a template-literal context), and any span whose
-        // literal kind the fold cannot evaluate is NOT declined — only the
-        // CONTEXT questions are, because they change the ANSWER's shape.
-        if let Some(id) = node.node_id {
-            let mut current = self.nodes.parent(id);
-            while let Some(parent) = current {
-                match self.nodes.kind(parent) {
-                    SyntaxKind::AsExpression
-                    | SyntaxKind::TypeAssertionExpression
-                    | SyntaxKind::ElementAccessExpression => {
-                        return error;
-                    }
-                    SyntaxKind::ParenthesizedExpression => {
-                        current = self.nodes.parent(parent);
-                    }
-                    _ => break,
-                }
-            }
-        }
         self.intrinsics.string
+    }
+
+    /// `isTemplateLiteralContext` (`checker.go:8003`): an element-access
+    /// argument, through any parentheses.
+    fn is_template_literal_context(&self, node: tsr_ast::NodeId) -> bool {
+        let Some(parent) = self.nodes.parent(node) else { return false };
+        match self.node_map.get(parent) {
+            Some(tsr_ast::Node::ParenthesizedExpression(_)) => {
+                self.is_template_literal_context(parent)
+            }
+            Some(tsr_ast::Node::ElementAccessExpression(access)) => {
+                access.argument_expression.and_then(|argument| argument.node_id()) == Some(node)
+            }
+            _ => false,
+        }
+    }
+
+    /// `someType(getContextualType(node) ?? unknown,
+    /// isTemplateLiteralContextualType)` (`checker.go:7997`, `:8008`).
+    ///
+    /// Upstream's inference pass reads a call argument's contextual type from
+    /// the uninstantiated signature, where a constrained type parameter is
+    /// still visible; this port's single argument pass may already hold the
+    /// fixed instantiation, so a negative answer retries the written form, as
+    /// `objects.rs`' literal-freshness question does (§946).
+    fn has_template_literal_contextual_type(&mut self, node: tsr_ast::NodeId) -> bool {
+        let first =
+            self.get_contextual_type(node).is_some_and(|ty| self.some_template_literal_context(ty));
+        if first {
+            return true;
+        }
+        let saved = self.contextual_prefers_uninstantiated;
+        self.contextual_prefers_uninstantiated = true;
+        let retried =
+            self.get_contextual_type(node).is_some_and(|ty| self.some_template_literal_context(ty));
+        self.contextual_prefers_uninstantiated = saved;
+        retried
+    }
+
+    /// `isTemplateLiteralContextualType` (`checker.go:8008`) over every union
+    /// constituent (`someType`).
+    fn some_template_literal_context(&mut self, ty: TypeId) -> bool {
+        if let TypeData::Union { types, .. } = &self.store.get(ty).data {
+            let types = types.clone();
+            return types.into_iter().any(|ty| self.some_template_literal_context(ty));
+        }
+        let flags = self.store.get(ty).flags;
+        if flags.intersects(TypeFlags::STRING_LITERAL | TypeFlags::TEMPLATE_LITERAL) {
+            return true;
+        }
+        if !flags.intersects(TypeFlags::INSTANTIABLE_NON_PRIMITIVE) {
+            return false;
+        }
+        let constraint = self.base_constraint_of_type(ty).unwrap_or(self.intrinsics.unknown);
+        self.maybe_type_of_kind(constraint, TypeFlags::STRING_LIKE)
     }
 
     /// Whether the node's source file carries COMMONJS module machinery — a
@@ -923,10 +963,9 @@ impl Checker<'_, '_> {
             }
             // `checkTemplateExpression` (`checker.go:7976`): spans check;
             // an all-literal template folds to the fresh string literal
-            // (the evaluator's observable for string/number parts); else
-            // `string` — with the const-context, element-access-argument,
-            // and unfoldable-literal shapes declined to gaps
-            // (`checker-notes-narrow.md` §24).
+            // (the evaluator's observable for string/number parts); a
+            // const/template-literal context or contextual type constructs a
+            // template literal type; else `string`.
             Expression::TemplateExpression(node) => self.check_template_expression(node),
             Expression::BinaryExpression(node) => self.check_binary_expression(node),
             Expression::PropertyAccessExpression(node) => {

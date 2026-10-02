@@ -632,11 +632,22 @@ impl Checker<'_, '_> {
         }
 
         if reduce_literals
-            && includes
-                .flags
-                .intersects(TypeFlags::ENUM | TypeFlags::LITERAL | TypeFlags::UNIQUE_ES_SYMBOL)
+            && includes.flags.intersects(
+                TypeFlags::ENUM
+                    | TypeFlags::LITERAL
+                    | TypeFlags::UNIQUE_ES_SYMBOL
+                    | TypeFlags::TEMPLATE_LITERAL
+                    | TypeFlags::STRING_MAPPING,
+            )
         {
             set = self.remove_redundant_literal_types(set, includes.flags);
+        }
+        // `checker.go:25678`.
+        if reduce_literals
+            && includes.flags.contains(TypeFlags::STRING_LITERAL)
+            && includes.flags.intersects(TypeFlags::TEMPLATE_LITERAL | TypeFlags::STRING_MAPPING)
+        {
+            set = self.remove_string_literals_matched_by_template_literals(set);
         }
 
         if reduce_literals && set.iter().any(|id| self.constrained_type_variables.contains_key(id))
@@ -1094,10 +1105,10 @@ impl Checker<'_, '_> {
     /// A literal is redundant beside its own base primitive — `string | "a"` is
     /// `string` — and a *fresh* literal is redundant beside its regular twin.
     ///
-    /// Two of upstream's clauses are omitted rather than written and left
-    /// unreachable: template-literal and string-mapping types do not exist in
-    /// this port, and the `undefined`-beside-`void` clause is guarded by
-    /// `reduceVoidUndefined`, which only `UnionReductionSubtype` sets.
+    /// Template-literal and string-mapping types are redundant beside `string`
+    /// as string literals are. The `undefined`-beside-`void` clause is omitted:
+    /// it is guarded by `reduceVoidUndefined`, which only
+    /// `UnionReductionSubtype` sets.
     fn remove_redundant_literal_types(
         &mut self,
         mut types: Vec<TypeId>,
@@ -1109,8 +1120,9 @@ impl Checker<'_, '_> {
             let id = types[index];
             let ty = self.store.get(id);
             let (flags, fresh) = (ty.flags, ty.fresh);
-            let remove = flags.contains(TypeFlags::STRING_LITERAL)
-                && includes.contains(TypeFlags::STRING)
+            let remove = flags.intersects(
+                TypeFlags::STRING_LITERAL | TypeFlags::TEMPLATE_LITERAL | TypeFlags::STRING_MAPPING,
+            ) && includes.contains(TypeFlags::STRING)
                 || flags.contains(TypeFlags::NUMBER_LITERAL)
                     && includes.contains(TypeFlags::NUMBER)
                 || flags.contains(TypeFlags::BIG_INT_LITERAL)
@@ -1122,6 +1134,41 @@ impl Checker<'_, '_> {
                     types.contains(&regular)
                 };
             if remove {
+                types.remove(index);
+            }
+        }
+        types
+    }
+
+    /// `removeStringLiteralsMatchedByTemplateLiterals` (`checker.go:25857`):
+    /// a string literal matched by a pattern template or string mapping is
+    /// redundant beside it. `isTypeMatchedByTemplateLiteralType` under
+    /// `compareTypesAssignable` is the relater's template-target arm under the
+    /// assignable relation.
+    fn remove_string_literals_matched_by_template_literals(
+        &mut self,
+        mut types: Vec<TypeId>,
+    ) -> Vec<TypeId> {
+        let templates: Vec<_> =
+            types.iter().copied().filter(|&ty| self.is_pattern_template(ty)).collect();
+        if templates.is_empty() {
+            return types;
+        }
+        let mut index = types.len();
+        while index > 0 {
+            index -= 1;
+            let ty = types[index];
+            if !self.store.get(ty).flags.contains(TypeFlags::STRING_LITERAL) {
+                continue;
+            }
+            let matched = templates.iter().any(|&template| {
+                if self.store.get(template).flags.contains(TypeFlags::TEMPLATE_LITERAL) {
+                    self.is_type_assignable_to(ty, template)
+                } else {
+                    self.is_member_of_string_mapping(ty, template)
+                }
+            });
+            if matched {
                 types.remove(index);
             }
         }
