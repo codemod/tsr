@@ -122,3 +122,35 @@ this unit does not claim the complete native subtype/derivation algorithm.
 The final release workspace run passes 195 result blocks. Clippy
 with warnings denied, formatting, whitespace checks and 3,343 upstream anchors
 pass. Committed isolated measurement follows in the evidence checkpoint.
+
+## Committed measurement
+
+At 4bdedb15, the isolated checkout's seven focused tests pass and its checker
+source hash matches the working checkout. Its full verdict output reproduces the
+candidate byte-for-byte: 454,396 RIGHT, 3,016 GAP and 16,831 WRONG among 474,243
+aligned assertions. Against all 478,855 expected assertions this is 94.89%.
+The 99% target still requires 19,671 additional correct assertions.
+
+Evidence:
+- /tmp/tsr-99-adjusted-facts-verified.tsv
+- /tmp/tsr-99-adjusted-facts-verified-transitions.txt
+- /tmp/tsr-99-adjusted-facts-verified-tests.log
+- /tmp/tsr-99-adjusted-facts-workspace.log
+- /tmp/tsr-99-adjusted-facts-clippy.log
+- /tmp/tsr-99-adjusted-facts-anchors.log
+- /tmp/tsr-99-adjusted-facts-mutation.log
+- /tmp/tsr-99-adjusted-facts-sourcehash.txt
+- /tmp/compound-engineering-501/ce-code-review/adjusted-facts/review.json
+
+This unit is tracked in tsr-6.33; consumer residuals remain in tsr-6.34.
+The overall goal remains active.
+
+The checker_types coverage run at 4bdedb15 reports 6,803/9,538 complete cases
+(71.33%), nine more than the baseline. Its snapshot is refreshed from the isolated
+checkout. Coverage output: /tmp/tsr-99-adjusted-facts-coverage.log.
+
+The depend instrument exits 0 but retains stale controls: C1 reports 527
+nongapping roots, C2 reports 229 cycles and zero depth-cap hits, C3 balances
+3,890 walked gap lines, and C4 still cites a historical checkpoint. These are
+not coverage evidence; tsr-6.29 remains open. Output:
+/tmp/tsr-99-adjusted-facts-depend.log.
