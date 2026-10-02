@@ -360,7 +360,10 @@ impl Checker<'_, '_> {
         }
     }
 
-    fn array_literal_in_tuple_context(&mut self, node: &ArrayLiteralExpression<'_>) -> bool {
+    pub(crate) fn array_literal_in_tuple_context(
+        &mut self,
+        node: &ArrayLiteralExpression<'_>,
+    ) -> bool {
         self.array_literal_tuple_context_kind(node) != TupleContext::No
     }
 

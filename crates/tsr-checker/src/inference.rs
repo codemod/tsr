@@ -1053,8 +1053,10 @@ impl Checker<'_, '_> {
             for &index in &deferred {
                 let Some(&argument) = arguments.get(index) else { continue };
                 let Some(parameter) = signature.parameters.get(index) else { continue };
-                if matches!(argument, Expression::ObjectLiteralExpression(_))
-                    && let Some(source) = self.context_free_object_inference_type(argument)
+                if matches!(
+                    argument,
+                    Expression::ObjectLiteralExpression(_) | Expression::ArrayLiteralExpression(_)
+                ) && let Some(source) = self.context_free_object_inference_type(argument)
                 {
                     self.infer_from_types(
                         source,

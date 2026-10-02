@@ -443,17 +443,35 @@ impl<'a> Checker<'a, '_> {
                 let mut properties: Vec<crate::objects::AnonymousProperty> = Vec::new();
                 let mut members = Vec::new();
                 for property in node.properties {
-                    let ObjectLiteralElementLike::PropertyAssignment(assignment) = property else {
-                        return None;
+                    let (name, origin, method, ty) = match property {
+                        ObjectLiteralElementLike::PropertyAssignment(assignment) => (
+                            assignment.name,
+                            assignment.node_id,
+                            false,
+                            self.context_free_object_inference_type(assignment.initializer?)?,
+                        ),
+                        ObjectLiteralElementLike::MethodDeclaration(method) => {
+                            let id = method.node_id?;
+                            let ty = if self.is_context_sensitive_function_like(id) {
+                                self.context_free_function_type(id)
+                                    .unwrap_or_else(|| self.get_any_function_type())
+                            } else {
+                                self.get_type_of_function_expression(id)
+                            };
+                            (method.name, method.node_id, true, ty)
+                        }
+                        _ => return None,
                     };
-                    let PropertyName::Identifier(name) = assignment.name else { return None };
-                    let ty = self.context_free_object_inference_type(assignment.initializer?)?;
+                    let PropertyName::Identifier(name) = name else { return None };
+                    if ty == self.intrinsics.error {
+                        return None;
+                    }
                     non_inferrable |= self.non_inferrable_types.contains(&ty);
                     let printed = self.type_to_string(ty);
                     let property = crate::objects::AnonymousProperty {
                         accessor_write: None,
-                        method: false,
-                        origin: assignment.node_id.and_then(|id| self.binder.symbol_of(id)),
+                        method,
+                        origin: origin.and_then(|id| self.binder.symbol_of(id)),
                         name: name.text.to_string(),
                         printed_name: name.text.to_string(),
                         printed_type: printed.clone(),
@@ -480,6 +498,38 @@ impl<'a> Checker<'a, '_> {
                 let ty = self.store.new_named(crate::flags::TypeFlags::OBJECT, printed, symbol);
                 self.anonymous_properties.insert(ty, (properties, true));
                 self.object_literal_members.insert(ty, members);
+                if non_inferrable {
+                    self.non_inferrable_types.insert(ty);
+                }
+                Some(ty)
+            }
+            Expression::ArrayLiteralExpression(node)
+                if self.is_context_sensitive_argument(&expression) =>
+            {
+                let in_const = node.node_id.is_some_and(|id| self.is_const_context(id));
+                let in_tuple = self.array_literal_in_tuple_context(node);
+                let mut elements = Vec::with_capacity(node.elements.len());
+                let mut non_inferrable = false;
+                for &element in node.elements {
+                    // Spread and omitted-element inference keep their ordinary
+                    // checkArrayLiteral path until its check mode is threaded here.
+                    if matches!(
+                        element,
+                        Expression::SpreadElement(_) | Expression::OmittedExpression(_)
+                    ) {
+                        return None;
+                    }
+                    let ty = self.context_free_object_inference_type(element)?;
+                    non_inferrable |= self.non_inferrable_types.contains(&ty);
+                    elements.push(ty);
+                }
+                let ty = if in_const || in_tuple {
+                    self.create_tuple_type(elements, in_const)
+                } else {
+                    let element = self.union_with_subtype_reduction(&elements)?;
+                    let array = self.global_type_symbol("Array")?;
+                    self.create_type_reference(array, vec![element])
+                };
                 if non_inferrable {
                     self.non_inferrable_types.insert(ty);
                 }
