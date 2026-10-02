@@ -24,25 +24,24 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-10-02
 
-Measured on **`fd9b42be`** in an isolated checkout: **455,694/478,855 assertions
-(95.16%)**, **6,895/9,538 complete cases (72.29%)**. The 99% target requires
-474,067 correct assertions; **18,373 remain**. Denominator and pinned oracle
-unchanged. Aligned verdicts: **474,243 total; 455,694 right; 2,804 gap; 15,745 wrong**.
+Measured on **`b51228ae`** in an isolated checkout: **455,722/478,855 assertions
+(95.17%)**, **6,896/9,538 complete cases (72.30%)**. The 99% target requires
+474,067 correct assertions; **18,345 remain**. Denominator and pinned oracle
+unchanged. Aligned verdicts: **474,243 total; 455,722 right; 2,795 gap; 15,726 wrong**.
 Binder retains its verified **8,497/8,497 (100%)** result at aab165d8;
 other suites below retain historical measurements.
 
-This unit adds **289 matching assertions** and **24 complete cases**, with
-**zero RIGHT losses** relative to 056e7e87: 236 WRONG→RIGHT and 53 GAP→RIGHT.
-Three GAP→WRONG rows expose mapped reverse inference; 17 already-WRONG rows
-change and one becomes a gap. [Enum literals](docs/architecture/checker-99-enum-literals.md)
-records semantic values/owners, single-value identity, literal consumers,
-syntactic overload specialization, property-to-index inference and generic
-argument checking. Six pipeline tests cover 49 native outcomes. All 207 release
-workspace result blocks, clippy, 3,331 anchors and the refreshed snapshot support
-this checkpoint. The committed verdict and source hash match the frozen candidate.
-Five isolated mutations fail their intended assertions, and restored sources
-match the committed hash; all six focused tests pass after restoration. The broader
-99% goal and tsr-8 remain active.
+This unit adds **28 matching assertions** and **one complete case**, with
+**zero RIGHT losses** relative to fd9b42be: 23 WRONG→RIGHT and five GAP→RIGHT.
+Four GAP→WRONG and 19 changed WRONG retain namespace display and inference gaps.
+[Enum and module values](docs/architecture/checker-99-enum-static.md) records
+export enumeration, reverse-index selection, const-enum access rejection and
+complete enum-run printing without changing freshness. The new pipeline test
+pins 14 native outcomes. All 207 release workspace result blocks, clippy,
+formatting and 3,331 anchors pass. The committed verdict and source hash match
+the frozen candidate. Four isolated mutations fail their intended assertions,
+and restored sources match the committed hash. The broader 99% goal and tsr-8
+remain active.
 
 ### Previous whole-suite measurement — historical
 
@@ -1077,6 +1076,7 @@ Per-crate, by what the conformance suites actually assert — not by what exists
 
 | subsystem | state | evidence |
 |---|---|---|
+| enum/module value members | **exports, conditional reverse indexes and complete enum-run display** | b51228ae: +28 matches, zero RIGHT losses, +1 complete case; 14 native controls; [evidence](docs/architecture/checker-99-enum-static.md) |
 | enum literal semantics | **native value flags, nominal owners and direct single-value identity** | fd9b42be: +289 matches, zero RIGHT losses, +24 complete cases; computed keys, truthiness, overload syntax, index inference and generic argument contexts; [evidence](docs/architecture/checker-99-enum-literals.md) |
 | computed object indexes | **checked property-array filtering across all three key kinds** | 056e7e87: +59 matches, zero RIGHT losses, +10 complete cases; component visibility, duplicate methods and keyof alias constraints; [evidence](docs/architecture/checker-99-computed-indexes.md) |
 | spread batches and components | **all literals use the shared type fold** | 4e964b97: +20 matches, zero RIGHT losses/adverse transitions, +3 complete cases; accessor read/write types, symbol components and semantic instantiation; [evidence](docs/architecture/checker-99-spread-batches.md) |
@@ -1245,7 +1245,17 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-### Current priorities at `fd9b42be` — 2026-10-02
+### Current priorities at `b51228ae` — 2026-10-02
+
+Continue toward 99%: 18,345 matching assertions remain. Enum/module exports now
+reach spreads and index inference, with native reverse-index and const-access
+rules. Next: nonlocal computed interface keys (semantic versus printed names),
+namespace qualification/method serialization, no-candidate and mapped reverse
+inference, generic Omit bodies, structural-empty normalization and original
+optional-symbol serialization. The +28 checkpoint has zero RIGHT losses; four
+new WRONG and 19 changed WRONG are recorded in §5. tsr-8 remains active.
+
+### Previous priorities at `fd9b42be` — 2026-10-02
 
 Continue toward 99% coverage: 18,373 matching assertions remain. Enum literal
 values now reach computed keys, primitive members, narrowing and inference.
@@ -4176,6 +4186,17 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+### Enum/module values at `b51228ae`
+
+The first candidate lost 323 RIGHT rows while gaining 28. Replacing the callable
+representation gate with symbol flags excluded callable type literals; restoring
+that gate preserves their captures. Adding const-enum reverse indexes also needs
+the native syntactic access rejection. With both corrections: zero RIGHT losses.
+Four GAP→WRONG and 19 changed WRONG retain namespace qualification, method display,
+and index-inference limitations. String-only enum numeric inference still misses
+native unknown, and namespace mixed literals retain an unwidened numeric literal.
+[Evidence](docs/architecture/checker-99-enum-static.md).
 
 ### Enum literal consumers at `fd9b42be`
 
@@ -10311,6 +10332,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
+| 2026-10-02 | `b51228ae` | **72.30%** | **6,896** | **455,722/478,855 assertions (95.17%).** +28 since fd9b42be, zero RIGHT losses; 23W→R, 5G→R, 4G→W, 19 changed WRONG. | Enum/module exports, native reverse indexes and const access rejection, complete enum-run printing. 14 native outcomes; 207 workspace blocks, clippy, 3331 anchors; isolated verdict/source match. 18,345 remain to 99%. |
 | 2026-10-02 | `fd9b42be` | **72.29%** | **6,895** | **455,694/478,855 assertions (95.16%).** +289 since 056e7e87, zero RIGHT losses; 236W→R, 53G→R, 3G→W, 17 changed WRONG, 1W→G. | Enum literal values/owners, key lookup, truthiness, overload syntax, index inference and generic argument contexts. 49 native outcomes; 207 workspace blocks, clippy, 3331 anchors; isolated verdict/source match. 18,373 remain to 99%. |
 | 2026-10-02 | `056e7e87` | **72.04%** | **6,871** | **455,405/478,855 assertions (95.10%).** +59 since 4e964b97, zero RIGHT losses; 50W→R, 9G→R, 1G→W, 28 changed WRONG. | Complete computed index filtering, visibility, duplicate methods and keyof alias constraints. 40 native outcomes; 206 workspace blocks, clippy, 3335 anchors; isolated verdict/source match. 18,662 remain to 99%. |
 | 2026-10-02 | `4e964b97` | **71.93%** | **6,861** | **455,346/478,855 assertions (95.09%).** +20 since be4e7f41, zero RIGHT losses/adverse transitions;14W→R,6G→R. | Complete spread batches, accessor read/write metadata, symbol index components and anonymous instantiation.43 native outcomes;205workspaceblocks,clippy,3338anchors;isolated verdict/source match.18,721 remain to99%. |

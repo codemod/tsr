@@ -53,3 +53,24 @@ Candidate verdict: /tmp/tsr-99-enum-static-candidate2.tsv; transition report:
 /tmp/tsr-99-enum-static-delta2.txt. All 207 release workspace result blocks,
 clippy, formatting and 3,331 anchors pass. Review receipt:
 /tmp/compound-engineering-501/ce-code-review/enum-static/review.json.
+
+Committed verification at b51228ae in /tmp/tsr-99-enum-static-verify is
+byte-identical to the candidate verdict and has the same source hash. Coverage:
+455,722/478,855 RIGHT (95.17%), 6,896/9,538 complete cases (72.30%). This is one
+more complete case; 18,345 matches remain to 99%. All 207 workspace result blocks,
+clippy, formatting and 3,331 anchors pass in the isolated checkout. Fresh depend:
+505 non-gapping roots, 210 cycles, zero depth caps and 3,612 walked gaps; C3
+balances while C1/C4 remain stale (tsr-6.29). The checker snapshot is copied
+from this committed checkout. Logs: /tmp/tsr-99-enum-static-verified-*.log;
+verdict: /tmp/tsr-99-enum-static-verified.tsv.
+
+Four isolated mutations compile and fail their intended assertions: omitting
+enum/module enumeration fails numericString; giving string enums a reverse index
+fails textString; disabling enum-run printing fails numericString; bypassing the
+const access syntax guard fails reverse. Each mutation restores its source in a
+finally block; the final source hash equals the committed hash. Script:
+/tmp/tsr-99-enum-static-mutations.py, logs:
+/tmp/tsr-99-enum-static-mutation-{enumeration,reverse,printing,const_access}.log.
+
+All seven focused tests pass after restoration:
+/tmp/tsr-99-enum-static-restored-tests.log.
