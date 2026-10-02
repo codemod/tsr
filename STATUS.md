@@ -24,7 +24,7 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-10-01
 
-Measured on **`UNIT_CODE_CHECKPOINT`**: **453,632/478,855 assertions (94.73%)**,
+Measured on **`82ca5f80`**: **453,632/478,855 assertions (94.73%)**,
 **6,766/9,538 complete cases (70.94%)**. The 99% target requires
 474,067 correct assertions; **20,435 remain**. Denominator and pinned oracle
 unchanged. Aligned verdicts: **474,243 total; 453,632 right; 3,139 gap; 17,472 wrong**.
@@ -1080,7 +1080,7 @@ Per-crate, by what the conformance suites actually assert — not by what exists
 | module resolution | **done** | 95/95, `file_loader` 96/96, [ADR-0041](docs/adr/0041-the-checker-asks-its-program-for-a-module.md) |
 | printer | **done** | 100% round-trip at `8dcdc71` |
 | declaration emit | **partial** | `dts_shape` 85.32%, `dts_emit` 89.04% at `8dcdc71` |
-| **checker** | **94.73% of assertions** | 453,632/478,855 at `UNIT_CODE_CHECKPOINT`; §4 and §5 |
+| **checker** | **94.73% of assertions** | 453,632/478,855 at `82ca5f80`; §4 and §5 |
 | transformers | **not started** | |
 | **compiler driver / CLI** | **seam only** | three pieces, no binary. `tsr_vfs::OsFileSystem` (the real disk, `internal/vfs/osvfs`), `Checker::apply_compiler_options` ([ADR-0042](docs/adr/0042-checker-options-come-from-compiler-options.md)), and `tsr_diagnostics::format` (the plain `a.ts(1,1): error TS2304:` line and the `Found N errors` summary, byte-exact). **No command-line parser, no `tsc` binary, no emit, no pretty output** — see §4 |
 | diagnostics | **started — 6.89%** | the check traversal (ADR-0040 (1) and (2)) plus three rules; §1 and `docs/architecture/checker-notes-diag2.md` |
@@ -1228,7 +1228,7 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-### Current priorities at `UNIT_CODE_CHECKPOINT` — 2026-10-01
+### Current priorities at `82ca5f80` — 2026-10-01
 
 Continue toward 99% coverage: 20,435 matching assertions remain. Inherited
 call/construct signatures, defaults, qualified names and nongeneric callback
@@ -3959,7 +3959,7 @@ version of bare `any`.
 
 ## 5. Refused, with the number that refused it
 
-### Inherited signatures at `UNIT_CODE_CHECKPOINT`
+### Inherited signatures at `82ca5f80`
 
 The verified unit gains 295 matches with zero RIGHT losses; 19 GAP→WRONG and
 43 changed wrong answers remain visible. Earlier candidates lost 13 assertions
@@ -9910,7 +9910,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
-| 2026-10-01 | `UNIT_CODE_CHECKPOINT` | **70.94%** | **6,766** | **453,632/478,855 assertions (94.73%).** +295 since 0d806f93, zero RIGHT losses; 229W→R, 66G→R, 19G→W, 43 changed wrong. Instantiated inherited signatures, defaults/qualified names, callback context retention, never intersections and super bases. Seven focused tests, two updated refusal tests, mutation/native controls; release tests/clippy; 3,344 anchors; snapshot refreshed. [Evidence](docs/architecture/checker-99-inherited-signatures.md). 20,435 remain to 99%. |
+| 2026-10-01 | `82ca5f80` | **70.94%** | **6,766** | **453,632/478,855 assertions (94.73%).** +295 since 0d806f93, zero RIGHT losses; 229W→R, 66G→R, 19G→W, 43 changed wrong. Instantiated inherited signatures, defaults/qualified names, callback context retention, never intersections and super bases. Seven focused tests, two updated refusal tests, mutation/native controls; release tests/clippy; 3,344 anchors; snapshot refreshed. [Evidence](docs/architecture/checker-99-inherited-signatures.md). 20,435 remain to 99%. |
 | 2026-10-01 | `0d806f93` | **70.66%** | **6,740** | **453,337/478,855 assertions (94.67%).** +462 since ced80f1f, zero RIGHT losses; 405W→R, 57G→R, 16G→W, 27 changed wrong. Union signatures, predicates, array fallback, contextual intersections, abstract component flags and explicit receivers. Six focused tests plus seven binding tests; native/pinned controls; release tests/clippy; 3,348 anchors; snapshot refreshed. [Evidence](docs/architecture/checker-99-union-signatures.md). 20,730 remain to 99%. |
 | 2026-10-01 | `ced80f1f` | **70.49%** | **6,723** | **452,875/478,855 assertions (94.57%).** +113 since 87402686, zero RIGHT losses; 6G→W, 11 changed wrong. Tuple/rest binding, inherited indexes, union members, readonly metadata and callback identity. Seven focused tests; native/pinned controls; release tests/clippy; anchors; snapshot refreshed. [Evidence](docs/architecture/checker-99-destructuring.md). 21,192 remain to 99%. |
 | 2026-10-01 | `87402686` | **70.39%** | **6,714** | **452,762/478,855 assertions (94.55%).** +137 since 3ef6d975, zero RIGHT losses; 23G→W, 6W→G, 23 changed wrong. Synchronous iterator yields, indirect generic members, BuiltinIteratorReturn and nullish widening boundaries. Native controls; release tests/clippy; 3,361 anchors; snapshot refreshed. [Evidence](docs/architecture/checker-99-iteration.md). 21,305 remain to 99%. |

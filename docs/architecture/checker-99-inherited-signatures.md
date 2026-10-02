@@ -88,7 +88,7 @@ C1/C4 depend controls remain tracked in tsr-6.29 and are not coverage evidence.
 
 ## Verified checkpoint
 
-At UNIT_CODE_CHECKPOINT the aligned corpus records 453,632 RIGHT,
+At 82ca5f80 the aligned corpus records 453,632 RIGHT,
 3,139 GAP and 17,472 WRONG among 474,243 aligned assertions. This is +295
 versus 0d806f93: 229 WRONG-to-RIGHT, 66 GAP-to-RIGHT, zero RIGHT losses,
 19 GAP-to-WRONG and 43 changed wrong answers.
