@@ -4271,21 +4271,72 @@ impl Checker<'_, '_> {
                 && self.target_could_contain_parameter(target, parameters, &mut Vec::new())
             {
                 let source_infos = self.get_index_infos_of_type(source).unwrap_or_default();
-                for info in &target_infos {
-                    let Some(from) =
-                        source_infos.iter().find(|candidate| candidate.key == info.key)
-                    else {
-                        continue;
-                    };
-                    self.infer_from_types_within(
-                        from.value,
-                        info.value,
-                        original,
-                        parameters,
-                        out,
-                        depth + 1,
-                    );
+                let inferable = self.is_object_type_with_inferable_index(source);
+                let source_names =
+                    if inferable { self.property_names_of(source) } else { Vec::new() };
+                let saved = self.inference_priority;
+                if self.mapped_types.contains_key(&source)
+                    && self.mapped_types.contains_key(&target)
+                {
+                    self.inference_priority |= InferencePriority::HOMOMORPHIC_MAPPED_TYPE;
                 }
+                for info in &target_infos {
+                    if inferable {
+                        let mut values = Vec::new();
+                        for name in &source_names {
+                            let key = self.literal_type_of_property(source, name);
+                            if !self.is_applicable_index_type(key, info.key) {
+                                continue;
+                            }
+                            let Some(mut value) = self.get_type_of_property_of_type(source, name)
+                            else {
+                                continue;
+                            };
+                            let captured_optional = self
+                                .anonymous_properties
+                                .get(&source)
+                                .and_then(|(properties, _)| {
+                                    properties.iter().find(|p| p.name == *name)
+                                })
+                                .map(|property| property.optional);
+                            let optional = captured_optional.unwrap_or_else(|| {
+                                self.get_property_of_type(source, name)
+                                    .is_some_and(|symbol| self.property_is_optional(symbol))
+                            });
+                            if optional {
+                                value = self.remove_missing_or_undefined_type(value);
+                            }
+                            values.push(value);
+                        }
+                        for from in &source_infos {
+                            if self.is_applicable_index_type(from.key, info.key) {
+                                values.push(from.value);
+                            }
+                        }
+                        if !values.is_empty() {
+                            let value = self.get_union_type(&values);
+                            self.infer_from_types_within(
+                                value,
+                                info.value,
+                                original,
+                                parameters,
+                                out,
+                                depth + 1,
+                            );
+                        }
+                    }
+                    if let Some(from) = self.get_applicable_index_info(source, info.key) {
+                        self.infer_from_types_within(
+                            from.value,
+                            info.value,
+                            original,
+                            parameters,
+                            out,
+                            depth + 1,
+                        );
+                    }
+                }
+                self.inference_priority = saved;
             }
         }
         for kind in

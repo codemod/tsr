@@ -828,6 +828,38 @@ impl<'a> Checker<'a, '_> {
         }
     }
 
+    /// isObjectTypeWithInferableIndex (relater.go:4624), for represented sources.
+    pub(crate) fn is_object_type_with_inferable_index(&mut self, id: TypeId) -> bool {
+        if let TypeData::Intersection { types, .. } = &self.store.get(id).data {
+            let types = types.clone();
+            return types.into_iter().all(|ty| self.is_object_type_with_inferable_index(ty));
+        }
+        if self.js_literal_types.contains(&id) {
+            return true;
+        }
+        let (TypeData::Named { members: Some(symbol), .. } | TypeData::Anonymous { symbol, .. }) =
+            self.store.get(id).data
+        else {
+            return false;
+        };
+        let flags = self.binder.symbols().get(symbol).flags;
+        if !flags.intersects(
+            tsr_binder::SymbolFlags::OBJECT_LITERAL
+                | tsr_binder::SymbolFlags::TYPE_LITERAL
+                | tsr_binder::SymbolFlags::ENUM
+                | tsr_binder::SymbolFlags::VALUE_MODULE,
+        ) || flags.contains(tsr_binder::SymbolFlags::CLASS)
+        {
+            return false;
+        }
+        [crate::signatures::SignatureKind::Call, crate::signatures::SignatureKind::Construct]
+            .into_iter()
+            .all(|kind| {
+                self.signatures_of_type_kind(id, kind)
+                    .is_some_and(|signatures| signatures.is_empty())
+            })
+    }
+
     /// isApplicableIndexType (checker.go:19054). Unknown structural relations
     /// cannot prove applicability; numeric names retain the upstream exception.
     pub(crate) fn is_applicable_index_type(&mut self, source: TypeId, target: TypeId) -> bool {
@@ -847,7 +879,11 @@ impl<'a> Checker<'a, '_> {
                 return true;
             }
             return match &self.store.get(source).data {
-                TypeData::StringLiteral(value) => is_numeric_literal_name(value),
+                TypeData::StringLiteral(value)
+                | TypeData::EnumLiteral {
+                    value: crate::types::EnumLiteralValue::String(value),
+                    ..
+                } => is_numeric_literal_name(value),
                 _ => false,
             };
         }

@@ -51,22 +51,19 @@ impl Checker<'_, '_> {
     /// return t
     /// ```
     ///
-    /// Upstream's second condition asks whether the type's symbol is an enum
-    /// *member*, which distinguishes `E.A` from `E` — both are `EnumLike`, and
-    /// answering the enum for the enum would be a no-op at best. Here that
-    /// question is the presence of a [`Checker::enum_member_owners`] entry: the
-    /// table is written only where a member type is created
-    /// (`crate::declared::get_declared_type_of_enum`), so having an entry *is*
-    /// being a member type. The flags test is kept anyway rather than relying on
-    /// the table alone, because it is upstream's guard and the two could only
-    /// disagree if the table were populated wrongly — in which case the flags
-    /// test is what catches it.
+    /// Literal payloads carry the owning enum directly. Computed-enum types
+    /// retain the existing owner side table. Fresh and regular forms therefore
+    /// resolve the same base without reconstructing identity from display text.
     pub(crate) fn get_base_type_of_enum_like_type(&mut self, id: TypeId) -> TypeId {
         if !self.store.get(id).flags.intersects(TypeFlags::ENUM_LIKE) {
             return id;
         }
-        let Some(&owner) = self.enum_member_owners.get(&id) else {
-            return id;
+        let owner = match self.store.get(id).data {
+            crate::types::TypeData::EnumLiteral { owner, .. } => owner,
+            _ => match self.enum_member_owners.get(&id) {
+                Some(&owner) => owner,
+                None => return id,
+            },
         };
         self.get_declared_type_of_symbol(owner)
     }

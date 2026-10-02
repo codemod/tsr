@@ -898,10 +898,16 @@ impl Checker<'_, '_> {
     /// string `Number::toString` gives upstream: `a[1.0]` and `a[1]` name the same
     /// property `1`, and the payload is already normalised for exactly this
     /// reason (see [`crate::printing::normalise_number`]).
-    fn property_name_from_index(&self, index: TypeId) -> Option<String> {
+    pub(crate) fn property_name_from_index(&self, index: TypeId) -> Option<String> {
         match &self.store.get(index).data {
-            TypeData::StringLiteral(value) => Some(value.clone()),
-            TypeData::NumberLiteral(text) => Some(text.clone()),
+            TypeData::StringLiteral(value)
+            | TypeData::NumberLiteral(value)
+            | TypeData::EnumLiteral {
+                value:
+                    crate::types::EnumLiteralValue::String(value)
+                    | crate::types::EnumLiteralValue::Number(value),
+                ..
+            } => Some(value.clone()),
             _ => None,
         }
     }

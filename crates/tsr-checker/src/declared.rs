@@ -1653,7 +1653,13 @@ impl<'a> Checker<'a, '_> {
             match key.map(|id| &self.store.get(id).data) {
                 Some(
                     crate::types::TypeData::StringLiteral(value)
-                    | crate::types::TypeData::NumberLiteral(value),
+                    | crate::types::TypeData::NumberLiteral(value)
+                    | crate::types::TypeData::EnumLiteral {
+                        value:
+                            crate::types::EnumLiteralValue::String(value)
+                            | crate::types::EnumLiteralValue::Number(value),
+                        ..
+                    },
                 ) => value.clone(),
                 _ => printed.to_string(),
             }
@@ -4217,33 +4223,10 @@ impl<'a> Checker<'a, '_> {
             {
                 let declared = self.get_declared_type_of_symbol(resolved);
                 let regular = self.get_regular_type_of_literal_type(declared);
-                // STRING-enum members keep the mint: the second draft handed
-                // their literal types to interface discriminants and
-                // `discriminatedUnionTypes4` went 3 R→W / 7 R→G — the union
-                // and narrowing roads consume these where the numeric shapes
-                // only print. Numeric members measured +104/0. The test is on
-                // the initializer's SYNTAX because the fold mints every
-                // member `TypeFlags::ENUM` regardless of value kind — a flags
-                // test here was dead code, caught by an identical rescore.
-                let string_valued = self
-                    .binder
-                    .symbols()
-                    .get(resolved)
-                    .declarations
-                    .first()
-                    .and_then(|&declaration| match self.node_map.get(declaration) {
-                        Some(Node::EnumMember(member)) => member.initializer,
-                        _ => None,
-                    })
-                    .is_some_and(|initializer| {
-                        matches!(initializer, tsr_ast::Expression::StringLiteral(_))
-                    });
-                if !string_valued {
-                    if let Some(&spelled) = self.enum_access_spelling.get(&regular) {
-                        return spelled;
-                    }
-                    return regular;
+                if let Some(&spelled) = self.enum_access_spelling.get(&regular) {
+                    return spelled;
                 }
+                return regular;
             }
             let Some(written) = Self::entity_name_text(node.type_name) else { return error };
             let text = match self.qualification_free_name(name, resolved) {
@@ -4907,20 +4890,11 @@ impl<'a> Checker<'a, '_> {
     /// because the node builder renders an enum-like type from its symbol
     /// (`nodebuilderimpl.go:3260`) rather than from its constituents.
     ///
-    /// # The member values are not evaluated, and that is the remaining gap
-    ///
-    /// Upstream asks `getEnumMemberValue` for each member and builds an
-    /// *enum literal* type from the value — `getEnumLiteralType`
-    /// (`checker.go:25362`) — falling back to `createComputedEnumType` when the
-    /// evaluator cannot produce a constant. This port has no constant evaluator
-    /// (`bd tsr-8pz`), so **every** member takes the fallback: a distinct type per member
-    /// symbol, flagged `ENUM`, printing `E.A`.
-    ///
-    /// The consequence is narrow and worth stating: the enum type's *printed*
-    /// form, its constituent count and its per-member identities are all
-    /// upstream's, and two members that share a value are two types here where
-    /// upstream interns them into one. Nothing observable depends on that yet
-    /// because nothing compares enum members for value equality.
+    /// Constant members carry their string/numeric value and enum identity,
+    /// matching getEnumLiteralType (checker.go:25362). Equal values within one
+    /// enum reuse the first member's type. The sequential evaluator supports
+    /// prior same-enum references; unsupported expressions retain computed-enum
+    /// types. See docs/architecture/checker-99-enum-literals.md.
     fn get_declared_type_of_enum(&mut self, symbol: SymbolId) -> TypeId {
         // §55 (`checker-notes-narrow.md`): the sequential constant folder.
         // `None` = computed; auto-increment dies after a string or computed
@@ -5136,21 +5110,59 @@ impl<'a> Checker<'a, '_> {
                                 c.is_alphanumeric() || c == '_' || c == '$'
                             }
                         }));
+                let value: Option<MemberValue> = match member.initializer {
+                    None if no_auto => None,
+                    None => auto.map(MemberValue::Num),
+                    Some(ref expr) => eval(expr, &name, &folded),
+                };
+                auto = match &value {
+                    Some(MemberValue::Num(n)) => Some(n + 1.0),
+                    _ => None,
+                };
+                folded.push((member_name.clone(), value.clone()));
+                let literal_data = |text: String| match &value {
+                    Some(MemberValue::Num(number)) => (
+                        TypeFlags::ENUM_LITERAL | TypeFlags::NUMBER_LITERAL,
+                        crate::types::TypeData::EnumLiteral {
+                            value: crate::types::EnumLiteralValue::Number(number.to_string()),
+                            owner: symbol,
+                            member: member_symbol,
+                            text,
+                        },
+                    ),
+                    Some(MemberValue::Str(string)) => (
+                        TypeFlags::ENUM_LITERAL | TypeFlags::STRING_LITERAL,
+                        crate::types::TypeData::EnumLiteral {
+                            value: crate::types::EnumLiteralValue::String(string.clone()),
+                            owner: symbol,
+                            member: member_symbol,
+                            text,
+                        },
+                    ),
+                    None => {
+                        (TypeFlags::ENUM, crate::types::TypeData::Named { text, members: None })
+                    }
+                };
                 // §55.1: the single-member split mints DIVERGENT twins —
                 // regular spelled as the enum, fresh spelled per-name — and
                 // registers the access-road swap.
                 if total_members == 1 {
-                    let regular = self.store.new_named(TypeFlags::ENUM, name.clone(), None);
+                    let (flags, data) = literal_data(name.clone());
+                    let regular = if value.is_some() {
+                        self.store.intern_literal(flags, data, false)
+                    } else {
+                        self.store.new_named(flags, name.clone(), None)
+                    };
+                    if let Some(value) = &value {
+                        self.enum_value_types.insert((symbol, canonical(value)), regular);
+                    }
                     let per_name = if identifier_like {
                         format!("{name}.{member_name}")
                     } else {
                         format!("(typeof {name})[{}]", crate::printing::quote(&member_name))
                     };
-                    let fresh = self.store.intern_literal(
-                        TypeFlags::ENUM,
-                        crate::types::TypeData::Named { text: per_name, members: None },
-                        true,
-                    );
+                    let (flags, data) = literal_data(per_name);
+                    let fresh = self.store.intern_literal(flags, data, true);
                     self.enum_member_owners.insert(regular, symbol);
                     self.enum_member_owners.insert(fresh, symbol);
                     self.enum_member_regular.insert(fresh, regular);
@@ -5164,16 +5176,6 @@ impl<'a> Checker<'a, '_> {
                 } else {
                     format!("(typeof {name})[{}]", crate::printing::quote(&member_name))
                 };
-                let value: Option<MemberValue> = match member.initializer {
-                    None if no_auto => None,
-                    None => auto.map(MemberValue::Num),
-                    Some(ref expr) => eval(expr, &name, &folded),
-                };
-                auto = match &value {
-                    Some(MemberValue::Num(n)) => Some(n + 1.0),
-                    _ => None,
-                };
-                folded.push((member_name.clone(), value.clone()));
                 // Value-keyed interning: a later member with a seen value
                 // REUSES the first member's type (`B = A` prints `E9.A`);
                 // a computed member's type IS the enum
@@ -5199,7 +5201,12 @@ impl<'a> Checker<'a, '_> {
                 // beside `B : E8.A`-style declaration prints) is the
                 // recorded residue — it needs fresh/regular SPELLING
                 // divergence, §55's postscript.
-                let member_type = self.store.new_named(TypeFlags::ENUM, member_text, None);
+                let (flags, data) = literal_data(member_text.clone());
+                let member_type = if value.is_some() {
+                    self.store.intern_literal(flags, data, false)
+                } else {
+                    self.store.new_named(flags, member_text, None)
+                };
                 if let Some(value) = &value {
                     self.enum_value_types.insert((symbol, canonical(value)), member_type);
                 }
@@ -5245,26 +5252,31 @@ impl<'a> Checker<'a, '_> {
             // no bindable members is not a union at all.
             return self.new_named_type(symbol, TypeFlags::ENUM, false);
         }
-        // `checker.go:23904`: a union enum type carries `ENUM_LITERAL` and the
-        // enum's symbol, which is what it prints as.
-        let enum_type = self.get_named_union_type(&members, TypeFlags::ENUM_LITERAL, symbol);
-        // §280: §55.1's single-DISTINCT-VALUE generalisation. `members` holds
-        // one entry per distinct value (duplicates reused and `continue`d
-        // above), so `enum E { a, b = a }` lands here with ONE member type
-        // across TWO members — upstream's union-of-one IS the enum's declared
-        // type, and its node builder prints the bare enum name for a literal
-        // that equals it (`E.A : E`, `a : E` inside `b = a` —
-        // `mergedEnumDeclarationCodeGen`, `preserveConstEnums`,
-        // `noUnusedLocals_selfReference`). Declaration lines keep the fresh
-        // per-name spelling, exactly as §55.1's twins do; only the ACCESS
-        // spelling swaps.
-        if members.len() == 1 && total_members != 1 {
+        // getDeclaredTypeOfEnum uses the single regular literal directly.
+        // Display metadata can differ between its member declaration and the
+        // enum reference, but a one-value enum is not a semantic union wrapper.
+        if members.len() == 1 {
             let single = members[0];
+            if total_members == 1 {
+                return single;
+            }
+            let ty = self.store.get(single).clone();
+            let mut data = ty.data;
+            match &mut data {
+                crate::types::TypeData::EnumLiteral { text, .. }
+                | crate::types::TypeData::Named { text, .. } => *text = name,
+                _ => unreachable!("enum members have literal or computed enum payloads"),
+            }
+            let enum_type = self.store.intern_literal(ty.flags, data, false);
             let fresh = self.get_fresh_type_of_literal_type(single);
+            self.enum_member_owners.insert(enum_type, symbol);
+            self.enum_member_regular.insert(single, enum_type);
+            self.enum_member_regular.insert(fresh, enum_type);
             self.enum_access_spelling.insert(single, enum_type);
             self.enum_access_spelling.insert(fresh, enum_type);
+            return enum_type;
         }
-        enum_type
+        self.get_named_union_type(&members, TypeFlags::ENUM_LITERAL, symbol)
     }
 
     /// Ported from `Checker.getDeclaredTypeOfClassOrInterface`

@@ -31,6 +31,15 @@ impl TypeId {
     }
 }
 
+/// The constant payload of tsgo's enum `LiteralType` (types.go).
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum EnumLiteralValue {
+    /// A decoded string value.
+    String(String),
+    /// A canonical numeric value, sharing ordinary numeric literal spelling.
+    Number(String),
+}
+
 /// The payload distinguishing one type from another of the same flags.
 ///
 /// Upstream's `Type.data` (`types.go`), as a closed enum.
@@ -55,6 +64,18 @@ pub enum TypeData {
     /// is what a `.types` baseline compares against and float formatting is
     /// exactly where a port drifts. `1` must not print as `1.0`.
     NumberLiteral(String),
+    /// An enum literal retains its value and nominal declaration identity.
+    /// The text is display metadata and does not determine its value or owner.
+    EnumLiteral {
+        /// Folded enum-member value.
+        value: EnumLiteralValue,
+        /// Containing enum, part of the native literal interning key.
+        owner: SymbolId,
+        /// First member declaring this value.
+        member: SymbolId,
+        /// Native member/enum display spelling.
+        text: String,
+    },
     /// A bigint literal type, e.g. `1n`.
     BigIntLiteral(String),
     /// `true` or `false`.

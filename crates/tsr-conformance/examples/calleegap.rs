@@ -398,7 +398,8 @@ fn classify<'a>(
         TypeData::StringLiteral(_)
         | TypeData::NumberLiteral(_)
         | TypeData::BigIntLiteral(_)
-        | TypeData::BooleanLiteral(_) => {
+        | TypeData::BooleanLiteral(_)
+        | TypeData::EnumLiteral { .. } => {
             return Verdict::gap(format!("B2 {side}: the callee types as a literal"));
         }
         TypeData::Union { .. } => {

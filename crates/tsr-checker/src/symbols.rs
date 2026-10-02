@@ -3172,7 +3172,10 @@ impl<'a> Checker<'a, '_> {
                         return None;
                     }
                     let callee_type = self.check_expression(callee);
-                    let signature = self.resolve_call_signature(callee_type, Some(call.arguments));
+                    let resolved_context = self.resolved_call_signatures.get(&holder).cloned();
+                    let signature = resolved_context
+                        .clone()
+                        .or_else(|| self.resolve_call_signature(callee_type, Some(call.arguments)));
                     self.narrow_value_stack.remove(&holder);
                     // §789: an OVERLOAD SET resolves to `None` above —
                     // `resolve_call_signature` answers only for a set it can
@@ -3214,7 +3217,10 @@ impl<'a> Checker<'a, '_> {
                         }
                         return None;
                     };
-                    if !signature.type_parameters.is_empty() {
+                    if !signature.type_parameters.is_empty()
+                        || (resolved_context.is_none()
+                            && self.signature_declares_type_parameters(signature.declaration))
+                    {
                         if debug {
                             eprintln!("CTX: generic signature");
                         }

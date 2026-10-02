@@ -531,25 +531,9 @@ impl Checker<'_, '_> {
     /// `getUnionTypeEx` with an alias (`checker.go:25628`), **minus the
     /// single-constituent collapse**.
     ///
-    /// # A deviation, confined to one-member enums
-    ///
-    /// Upstream returns the constituent itself when there is one of them, alias
-    /// or not, so `enum E { A }` declares the type `E.A` rather than a union.
-    /// That still *prints* `E`, because the node builder asks
-    /// `getDeclaredTypeOfSymbol(parent) == t` and substitutes the enum's name
-    /// (`nodebuilderimpl.go:3262`).
-    ///
-    /// This port prints from text computed when a type is created, so it cannot
-    /// ask a question whose answer arrives later. Keeping the one-element union
-    /// is the smaller of the two available errors: the printed line stays right
-    /// in both positions, and the divergence is one extra layer of union around
-    /// a single member rather than a type with no constituents at all.
-    ///
-    /// **How this would be shown wrong:** when printing reads the store instead
-    /// of a cached string, this special case must be deleted and the collapse
-    /// restored — a one-member enum whose declared type is a union will show up
-    /// the moment anything compares an enum type for identity against its single
-    /// member's type.
+    /// Single-value enums now return their literal directly in
+    /// `get_declared_type_of_enum`. Other named union clients retain this helper's
+    /// display wrapper until their alias representation is ported.
     pub(crate) fn get_named_union_type(
         &mut self,
         types: &[TypeId],
@@ -684,6 +668,16 @@ impl Checker<'_, '_> {
         extra_flags: TypeFlags,
         symbol: Option<SymbolId>,
     ) -> TypeId {
+        // Native union interning reuses the enum's declared member set after
+        // flattening; a falsy member plus the remaining members is that enum.
+        if symbol.is_none()
+            && let Some(&owner) = types.first().and_then(|first| self.enum_member_owners.get(first))
+            && let Some(&declared) = self.declared_types.get(&owner)
+            && let TypeData::Union { types: all, .. } = &self.store.get(declared).data
+            && all == &types
+        {
+            return declared;
+        }
         if types.len() == 1 && symbol.is_none() {
             return types[0];
         }

@@ -485,14 +485,22 @@ impl Checker<'_, '_> {
         // `{ 0(): void; }`, `{ "foo"() { } }` is `{ foo(): void; }` — so
         // `{ ["m"]() { } }` is `{ m(): number; }`.
         match &self.type_of(name_type).data {
-            crate::types::TypeData::StringLiteral(text) => {
+            crate::types::TypeData::StringLiteral(text)
+            | crate::types::TypeData::EnumLiteral {
+                value: crate::types::EnumLiteralValue::String(text),
+                ..
+            } => {
                 let text = text.clone();
                 return Some((
                     if is_identifier_text(&text) { text } else { printing::quote(&text) },
                     true,
                 ));
             }
-            crate::types::TypeData::NumberLiteral(text) => {
+            crate::types::TypeData::NumberLiteral(text)
+            | crate::types::TypeData::EnumLiteral {
+                value: crate::types::EnumLiteralValue::Number(text),
+                ..
+            } => {
                 let text = text.clone();
                 let spelled = printing::normalise_number(&text);
                 // §557: a NEGATIVE numeric name keeps the BRACKETED written
@@ -1675,7 +1683,16 @@ impl Checker<'_, '_> {
                 let semantic_name = property_node_id
                     .and_then(|id| self.binder.symbol_of(id))
                     .map(|symbol| self.type_literal_member_key(name_node, symbol, &name))
-                    .or_else(|| property_name_text(&name_node).map(str::to_string));
+                    .or_else(|| {
+                        if let tsr_ast::PropertyName::ComputedPropertyName(computed) = name_node {
+                            let key = computed
+                                .expression
+                                .map(|expression| self.check_expression(expression))?;
+                            self.property_name_from_index(key)
+                        } else {
+                            property_name_text(&name_node).map(str::to_string)
+                        }
+                    });
                 if let Some(semantic_name) = semantic_name.filter(|_| !component) {
                     let property = AnonymousProperty {
                         accessor_write: None,
@@ -1743,6 +1760,10 @@ impl Checker<'_, '_> {
             // their resolved semantic types for member lookup (getSpreadType).
             let synthetic = node.properties.iter().any(|property| {
                 matches!(property, tsr_ast::ObjectLiteralElementLike::SpreadAssignment(_))
+            }) || typed_properties.iter().any(|property| {
+                property
+                    .origin
+                    .is_none_or(|origin| self.binder.symbols().get(origin).name != property.name)
             });
             self.anonymous_properties.insert(minted, (typed_properties, synthetic));
         }

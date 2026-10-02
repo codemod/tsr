@@ -41,6 +41,7 @@ pub fn type_to_string(ty: &Type) -> String {
         //   `Type` with no way back to the store. See `TypeData::Union::text`.
         TypeData::NumberLiteral(text)
         | TypeData::Named { text, .. }
+        | TypeData::EnumLiteral { text, .. }
         // - an **anonymous** object type prints `typeof C` or its call
         //   signature, computed at creation for the same reason: rendering a
         //   signature needs the parameter and return *types*, and this function

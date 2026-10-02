@@ -702,12 +702,7 @@ impl<'a> Checker<'a, '_> {
                 last_parent = parent;
             }
             last_symbol = symbol;
-            let specialized = parts.is_some_and(|parts| {
-                parts
-                    .parameters
-                    .iter()
-                    .any(|parameter| matches!(parameter.r#type, Some(TypeNode::LiteralTypeNode(_))))
-            });
+            let specialized = self.signature_has_literal_types(declaration);
             let insertion = if specialized {
                 let insertion = specialized_count;
                 specialized_count += 1;
@@ -5035,6 +5030,20 @@ impl<'a> Checker<'a, '_> {
             Some(Node::ConstructSignatureDeclaration(_)) => SignatureKind::Construct,
             _ => SignatureKind::Call,
         }
+    }
+
+    /// signatureHasLiteralTypes (checker.go), set by getSignatureFromDeclaration.
+    pub(crate) fn signature_has_literal_types(&self, declaration: NodeId) -> bool {
+        self.signature_parts_of(declaration).is_some_and(|parts| {
+            parts
+                .parameters
+                .iter()
+                .any(|parameter| matches!(parameter.r#type, Some(TypeNode::LiteralTypeNode(_))))
+        })
+    }
+
+    pub(crate) fn signature_declares_type_parameters(&self, declaration: NodeId) -> bool {
+        self.signature_parts_of(declaration).is_some_and(|parts| !parts.type_parameters.is_empty())
     }
 
     /// The signature-shaped parts of a node, or `None` if it is not one of the

@@ -1360,10 +1360,21 @@ impl Checker<'_, '_> {
             return self.intrinsics.true_type;
         }
         let falsy = match data {
+            TypeData::EnumLiteral { .. } => {
+                let facts = self.get_type_facts(operand);
+                let truthy = facts.contains(crate::flow::TypeFacts::TRUTHY);
+                let falsy = facts.contains(crate::flow::TypeFacts::FALSY);
+                return if truthy && falsy {
+                    self.intrinsics.boolean
+                } else if falsy {
+                    self.intrinsics.true_type
+                } else {
+                    self.intrinsics.false_type
+                };
+            }
             TypeData::BooleanLiteral(value) => !value,
             TypeData::StringLiteral(text) => text.is_empty(),
-            // The normalised text, so `0`, `0.0` and `0x0` all arrive as `"0"`,
-            // and `0n` likewise for the bigint half.
+            // The normalised text, so 0, 0.0 and 0x0 arrive as "0".
             TypeData::NumberLiteral(text) | TypeData::BigIntLiteral(text) => text == "0",
             // §291: a UNION folds its constituents' truthiness — all-truthy
             // is `false`, all-falsy `true`, a mix `boolean`, and any
@@ -3598,7 +3609,7 @@ impl Checker<'_, '_> {
     pub(crate) fn get_base_type_of_literal_type(&mut self, id: TypeId) -> TypeId {
         let flags = self.store.get(id).flags;
         if flags.intersects(TypeFlags::ENUM_LIKE) {
-            return id;
+            return self.get_base_type_of_enum_like_type(id);
         }
         if flags.intersects(TypeFlags::STRING_LITERAL) {
             return self.intrinsics.string;

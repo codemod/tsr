@@ -172,18 +172,11 @@ impl Ternary {
 /// mentioning it is ported. The upstream arms this port omits —
 /// `UniqueESSymbol`, the wildcard type — are why [`TypeFlags::UNIQUE_ES_SYMBOL`]
 /// is **absent** from this set despite being a primitive: for it a non-firing
-/// simple arm means "unported", not "unrelated". [`TypeFlags::ENUM`] — an enum
-/// MEMBER in this port's model — joined the set at §751, when every upstream
-/// enum arm (`relater.go:219`/`:225`/`:236-243`/`:266-270`) was ported through
-/// [`Checker::enum_member_value`]; the one arm left undecided (two same-named
-/// enums from different declarations, `isEnumTypeRelatedTo`) answers `None`
-/// explicitly. [`TypeFlags::ENUM_LITERAL`] marks the enum's UNION type, which
-/// the composite dispatch decomposes before any simple arm is asked of it.
-///
-/// This is a strict superset of [`crate::calls`]'s `SELECTABLE`, which
-/// additionally excludes [`TypeFlags::NON_PRIMITIVE`]. Widening a caller from
-/// one to the other is a separate decision from making the relation ternary,
-/// and is not taken here.
+/// simple arm means "unported", not "unrelated". Enum literals carry their
+/// primitive flags together with `ENUM_LITERAL`; computed members carry ENUM.
+/// The value/owner relation runs before primitive and composite relations.
+/// Same-named enums from different declarations still require the unported
+/// isEnumTypeRelatedTo member walk and remain undecidable.
 const FLAG_DECIDABLE: TypeFlags = TypeFlags::ANY
     .union(TypeFlags::UNKNOWN)
     .union(TypeFlags::UNDEFINED)
@@ -197,6 +190,7 @@ const FLAG_DECIDABLE: TypeFlags = TypeFlags::ANY
     .union(TypeFlags::STRING_LITERAL)
     .union(TypeFlags::NUMBER_LITERAL)
     .union(TypeFlags::ENUM)
+    .union(TypeFlags::ENUM_LITERAL)
     .union(TypeFlags::BIG_INT_LITERAL)
     .union(TypeFlags::BOOLEAN_LITERAL)
     .union(TypeFlags::NEVER)
@@ -1371,12 +1365,8 @@ impl Relater<'_, '_, '_> {
         if t.intersects(TypeFlags::NEVER) {
             return Some(false);
         }
-        // §751: the enum arms, on this port's member model — a member is a
-        // `Named` type flagged `ENUM` whose VALUE lives in the value-keyed
-        // intern map (`enum_value_types`), so "the literal's value" is read
-        // back through [`Checker::enum_member_value`] (`n:`/`s:` keys). They
-        // sit BEFORE the `NumberLike` arm because that arm's `ENUM` bit would
-        // otherwise relate a STRING-valued member to `number`.
+        // Enum literals carry the primitive value and nominal owner. Keep
+        // enum-to-enum identity ahead of ordinary primitive relations.
         let source_member = self.checker.enum_member_value(source);
         let target_member = self.checker.enum_member_value(target);
         let plain =

@@ -515,6 +515,28 @@ impl Checker<'_, '_> {
             (raw_callee_type, false)
         };
         let result = self.check_call_expression_worker(node, callee, callee_type);
+        // A generic call's final object-argument context follows inference.
+        // Non-generic calls already supplied their concrete context on the
+        // initial check; repeating it can re-enter a flow-dependent initializer.
+        // Rebuild the outer
+        // literal only: clearing checked initializer symbols would discard
+        // their established contextual types and reopen resolution cycles.
+        if result != error
+            && node.node_id.and_then(|id| self.resolved_call_signatures.get(&id)).is_some_and(
+                |signature| self.signature_declares_type_parameters(signature.declaration),
+            )
+        {
+            for &argument in node.arguments {
+                if matches!(argument, Expression::ObjectLiteralExpression(_))
+                    && !self.is_context_sensitive_argument(&argument)
+                {
+                    if let Some(id) = argument.node_id() {
+                        self.node_types.remove(&id);
+                    }
+                    self.check_expression(argument);
+                }
+            }
+        }
         // §29 (`checker-notes-callres.md`): a `this`-minted result
         // instantiates to the RECEIVER — `[a, b].sort()` is the array's own
         // type.
@@ -664,11 +686,10 @@ impl Checker<'_, '_> {
                         parameters.iter().copied().zip(written.iter().copied()).collect();
                     let answer = self.instantiate_type(signature.r#type, &map, &parameters, &names);
                     if answer != error {
-                        if node
-                            .arguments
-                            .iter()
-                            .any(|argument| self.is_context_sensitive_argument(argument))
-                            && let Some(call_id) = node.node_id
+                        if node.arguments.iter().any(|argument| {
+                            self.is_context_sensitive_argument(argument)
+                                || matches!(argument, Expression::ObjectLiteralExpression(_))
+                        }) && let Some(call_id) = node.node_id
                             && let Some(concrete) = self.instantiate_signature(
                                 signature.clone(),
                                 &map,
@@ -689,8 +710,10 @@ impl Checker<'_, '_> {
             // what `T` was inferred as, so [`crate::inference`] answers the shapes
             // it can read a candidate off directly and `errorType` for the rest.
             let mut instantiated = None;
-            let contextual =
-                node.arguments.iter().any(|argument| self.is_context_sensitive_argument(argument));
+            let contextual = node.arguments.iter().any(|argument| {
+                self.is_context_sensitive_argument(argument)
+                    || matches!(argument, Expression::ObjectLiteralExpression(_))
+            });
             let answer = self.check_generic_call_with(
                 &signature,
                 node.node_id,
@@ -711,8 +734,10 @@ impl Checker<'_, '_> {
             }
             return answer;
         }
-        if node.arguments.iter().any(|argument| self.is_context_sensitive_argument(argument))
-            && let Some(call_id) = node.node_id
+        if node.arguments.iter().any(|argument| {
+            self.is_context_sensitive_argument(argument)
+                || matches!(argument, Expression::ObjectLiteralExpression(_))
+        }) && let Some(call_id) = node.node_id
         {
             self.resolved_call_signatures.insert(call_id, signature.clone());
         }
@@ -2244,16 +2269,11 @@ impl Checker<'_, '_> {
         // `inheritedOverloadedSpecializedSignatures` lost a passing
         // diagnostics case to exactly this before the guard (the pick took a
         // general overload upstream had spliced behind `(x: 'B1')`).
-        let specialized = |checker: &Self, id: TypeId| {
-            let literal = TypeFlags::STRING_LITERAL
-                | TypeFlags::NUMBER_LITERAL
-                | TypeFlags::BIG_INT_LITERAL
-                | TypeFlags::BOOLEAN_LITERAL;
-            checker.type_of(id).flags.intersects(literal)
-        };
+        // signatureHasLiteralTypes is set from literal type syntax, not
+        // semantic flags: an enum-member reference is not specialized.
         if candidates
             .iter()
-            .any(|candidate| candidate.parameters.iter().any(|p| specialized(self, p.r#type)))
+            .any(|candidate| self.signature_has_literal_types(candidate.declaration))
         {
             return SubtypePassOutcome::Undecidable;
         }

@@ -4438,25 +4438,25 @@ impl Checker<'_, '_> {
     /// under (`enum_value_types`, §55), read back through the fresh→regular
     /// twin map. `None` for anything that is not a member. Keys are `n:<text>`
     /// / `s:<text>`, the same spelling [`Checker::plain_literal_key`] gives a
-    /// plain literal, so the two compare directly. Linear in the map — enums
-    /// are small and the relater's simple arms are the only caller.
+    /// plain literal, so the two compare directly. The value now comes directly
+    /// from the enum literal payload rather than a reverse scan of the cache.
     pub(crate) fn enum_member_value(&self, member: TypeId) -> Option<(SymbolId, String)> {
         let regular = self.enum_member_regular.get(&member).copied().unwrap_or(member);
-        if !self.store.get(regular).flags.intersects(TypeFlags::ENUM) {
+        let TypeData::EnumLiteral { owner, value, .. } = &self.store.get(regular).data else {
             return None;
-        }
-        let owner = *self.enum_member_owners.get(&regular)?;
-        self.enum_value_types
-            .iter()
-            .find(|(key, value)| key.0 == owner && **value == regular)
-            .map(|((symbol, key), _)| (*symbol, key.clone()))
+        };
+        let key = match value {
+            crate::types::EnumLiteralValue::Number(value) => format!("n:{value}"),
+            crate::types::EnumLiteralValue::String(value) => format!("s:{value}"),
+        };
+        Some((*owner, key))
     }
 
     /// §751: a plain (non-enum) literal's value in `enum_value_types`' key
     /// spelling. `None` for anything else.
     pub(crate) fn plain_literal_key(&self, literal: TypeId) -> Option<String> {
         let ty = self.store.get(literal);
-        if ty.flags.intersects(TypeFlags::ENUM) {
+        if ty.flags.intersects(TypeFlags::ENUM_LIKE) {
             return None;
         }
         let text = crate::printing::type_to_string(ty);
@@ -7789,7 +7789,10 @@ impl Checker<'_, '_> {
         // half. The one type that must not reach here is `any`, which is
         // undecidable on both axes and falls to the default.
         let truthiness = match &ty.data {
-            TypeData::StringLiteral(value) => {
+            TypeData::StringLiteral(value)
+            | TypeData::EnumLiteral {
+                value: crate::types::EnumLiteralValue::String(value), ..
+            } => {
                 if value.is_empty() {
                     TypeFacts::FALSY
                 } else {
@@ -7798,7 +7801,10 @@ impl Checker<'_, '_> {
             }
             // The stored form is the *printed* form, so the falsy values are
             // exactly the spellings of zero a `.types` baseline would print.
-            TypeData::NumberLiteral(value) => {
+            TypeData::NumberLiteral(value)
+            | TypeData::EnumLiteral {
+                value: crate::types::EnumLiteralValue::Number(value), ..
+            } => {
                 if matches!(value.as_str(), "0" | "-0") {
                     TypeFacts::FALSY
                 } else {
@@ -7835,6 +7841,14 @@ impl Checker<'_, '_> {
             // `any`, `unknown`, a type parameter, an unresolved name: nothing
             // is decidable, so every bit — see the note on `both`.
             _ => return both,
+        };
+        // Native BaseStringFacts/BaseNumberFacts admit falsy nullish values in
+        // non-strict mode. Apply this to the new enum-literal payload domain;
+        // the older ordinary-literal fact path retains its documented limit.
+        let truthiness = if !self.strict_null_checks && flags.intersects(TypeFlags::ENUM_LITERAL) {
+            truthiness | TypeFacts::FALSY
+        } else {
+            truthiness
         };
         // The `typeof` half of the `Base*StrictFacts` aggregate the arm above
         // belongs to, decided by the same flags that decided the arm.

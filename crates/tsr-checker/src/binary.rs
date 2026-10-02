@@ -625,8 +625,16 @@ impl Checker<'_, '_> {
             .intersects(TypeFlags::VOID | TypeFlags::NULLABLE | TypeFlags::ANY_OR_UNKNOWN)
             || match &ty.data {
                 TypeData::BooleanLiteral(value) => !*value,
-                TypeData::StringLiteral(value) => value.is_empty(),
-                TypeData::NumberLiteral(value) => matches!(value.as_str(), "0" | "-0"),
+                TypeData::StringLiteral(value)
+                | TypeData::EnumLiteral {
+                    value: crate::types::EnumLiteralValue::String(value),
+                    ..
+                } => value.is_empty(),
+                TypeData::NumberLiteral(value)
+                | TypeData::EnumLiteral {
+                    value: crate::types::EnumLiteralValue::Number(value),
+                    ..
+                } => matches!(value.as_str(), "0" | "-0"),
                 TypeData::BigIntLiteral(value) => matches!(value.as_str(), "0n" | "-0n"),
                 _ => false,
             };

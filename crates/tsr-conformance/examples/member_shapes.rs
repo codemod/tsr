@@ -829,7 +829,8 @@ fn main() {
                         TypeData::StringLiteral(_)
                         | TypeData::NumberLiteral(_)
                         | TypeData::BigIntLiteral(_)
-                        | TypeData::BooleanLiteral(_) => Shape::Literal,
+                        | TypeData::BooleanLiteral(_)
+                        | TypeData::EnumLiteral { .. } => Shape::Literal,
                     };
                     let text_bucket = text_shape(&printed);
 
