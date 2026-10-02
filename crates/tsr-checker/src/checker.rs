@@ -381,6 +381,10 @@ pub struct Checker<'a, 'n> {
     /// A declaration in flight declines the contextual consult and keeps the
     /// pre-§469 answer, widening.
     pub(crate) contextual_return_in_flight: rustc_hash::FxHashSet<tsr_ast::NodeId>,
+    /// The resolved contextual `this` slot of a completed object method,
+    /// corresponding to assignParameterType's symbol links (checker.go).
+    /// An absent slot is resolved absence, distinct from an unchecked method.
+    pub(crate) contextual_this_parameters: FxHashMap<NodeId, Option<TypeId>>,
     /// §469's stack budget: how many contextual-return consults are nested
     /// RIGHT NOW, cycles aside. The two parks above break true cycles; this
     /// bounds genuine nesting, because each consult's subtree re-runs call
@@ -1214,6 +1218,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             resolving_iteration_types: rustc_hash::FxHashSet::default(),
             late_bound_member_names: rustc_hash::FxHashMap::default(),
             contextual_return_in_flight: rustc_hash::FxHashSet::default(),
+            contextual_this_parameters: FxHashMap::default(),
             contextual_return_depth: 0,
             intra_expression_member_maps: rustc_hash::FxHashMap::default(),
             contextual_signature_mappers: FxHashMap::default(),

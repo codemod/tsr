@@ -1731,15 +1731,6 @@ impl<'a> Checker<'a, '_> {
         element: NodeId,
         property_name: PropertyName<'a>,
     ) -> Option<TypeId> {
-        // `c.hasBindableName(element)` (`checker.go:29927`) reduced to the names
-        // `get_property_of_type` can be keyed by. See "Not ported" above.
-        let name = match property_name {
-            PropertyName::Identifier(name) => name.text.to_string(),
-            PropertyName::StringLiteral(name) => name.text.to_string(),
-            PropertyName::NumericLiteral(name) => name.text.to_string(),
-            PropertyName::ComputedPropertyName(name) => self.late_bound_symbol_member_name(name)?.0,
-            _ => return None,
-        };
         // `objectLiteral := element.Parent` (`checker.go:29924`). No check that
         // the parent *is* an `ObjectLiteralExpression`: a `PropertyAssignment`
         // has no other possible parent in this AST, so a guard here could not be
@@ -1749,6 +1740,15 @@ impl<'a> Checker<'a, '_> {
         let contextual = self.get_contextual_type(object_literal)?;
         let contextual = self.instantiate_contextual_inference_type(contextual, object_literal);
         let contextual = self.apparent_contextual_type(contextual);
+        // `c.hasBindableName(element)` (`checker.go:29927`) reduced to the names
+        // `get_property_of_type` can be keyed by. See "Not ported" above.
+        let name = match property_name {
+            PropertyName::Identifier(name) => name.text.to_string(),
+            PropertyName::StringLiteral(name) => name.text.to_string(),
+            PropertyName::NumericLiteral(name) => name.text.to_string(),
+            PropertyName::ComputedPropertyName(name) => self.late_bound_symbol_member_name(name)?.0,
+            _ => return None,
+        };
         // `getTypeOfPropertyOfContextualTypeEx` (`checker.go:29932`). Upstream
         // maps over a union here.
         //

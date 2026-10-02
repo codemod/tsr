@@ -6314,6 +6314,7 @@ impl Checker<'_, '_> {
         let mut stack = vec![root];
         while let Some(id) = stack.pop() {
             self.node_types.remove(&id);
+            self.contextual_this_parameters.remove(&id);
             self.resolved_call_signatures.remove(&id);
             if let Some(symbol) = self.binder.symbol_of(id) {
                 self.symbol_types.remove(&symbol);

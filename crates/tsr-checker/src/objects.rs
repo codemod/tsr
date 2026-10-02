@@ -1918,6 +1918,8 @@ impl Checker<'_, '_> {
             };
             let printed = self.signature_to_string(&signature);
             let value = self.store.new_anonymous(TypeFlags::OBJECT, printed, symbol, true);
+            self.contextual_this_parameters
+                .insert(id, signature.this_parameter.as_ref().map(|parameter| parameter.r#type));
             self.signature_types.insert(value, vec![signature]);
             value
         } else {

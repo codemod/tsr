@@ -317,8 +317,7 @@ impl<'a> Checker<'a, '_> {
                 own.get(index).is_some_and(|own| own.r#type.is_none()).then_some(parameter.r#type)
             })
             .collect();
-        if self.nodes.kind(declaration) != SyntaxKind::ArrowFunction
-            && self.binder.facts(declaration).contains(tsr_binder::NodeFacts::CONTAINS_THIS)
+        if self.is_context_sensitive_function_like(declaration)
             && !parts
                 .parameters
                 .first()
@@ -1433,46 +1432,31 @@ impl<'a> Checker<'a, '_> {
                 r#type,
             );
         }
-        // §928.1 — the refusal above, REOPENED once its gate was found.
-        //
-        // `assignContextualParameterTypes` (`checker.go:25344`) copies the
-        // contextual signature's `this` parameter onto a signature that has
-        // none, which is why upstream PRINTS
-        // `explicitStructural(this: { a: number; }): number` for a method that
-        // wrote no `this` parameter. Ungated, that measured **10 `WRONG->RIGHT`
-        // against 12 `RIGHT->WRONG`**, net −2, and the adverse cases named the
-        // gate in their own titles: `thislessFunctionsNotContextSensitive1`/`2`.
-        //
-        // The gate is `isContextSensitiveFunctionOrObjectLiteralMethod`
-        // (`checker.go:29496`) → `HasContextSensitiveParameters`
-        // (`ast/utilities.go:4196`), and for a non-arrow with no explicit `this`
-        // parameter it reduces to one bit:
-        //
-        // ```go
-        // if parameter == nil || !IsThisParameter(parameter) {
-        //     return node.Flags&NodeFlagsContainsThis != 0
-        // }
-        // ```
-        //
-        // **A method is context-sensitive exactly when its body mentions
-        // `this`** — which is what "thisless" means in those case names. The
-        // binder already records it as `NodeFacts::CONTAINS_THIS`.
-        //
-        // A method with TYPE PARAMETERS is never context sensitive
-        // (`HasContextSensitiveParameters`'s outer test), so it declines here
-        // too.
+        // assignContextualParameterTypes copies the contextual `this` slot
+        // whenever contextual assignment runs, including functions sensitive
+        // through ordinary parameters or returned callbacks. A completed
+        // object's method retains this assigned slot, just like native symbol
+        // links, while its return type can still be resolved in a later context.
         if this_parameter.is_none()
             && type_parameters.is_empty()
-            && self.binder.facts(declaration).contains(tsr_binder::NodeFacts::CONTAINS_THIS)
-            && let Some(inherited) = self.contextual_this_parameter_type(declaration)
+            && self.is_context_sensitive_function_like(declaration)
         {
-            this_parameter = Some(Parameter {
-                name: "this".to_string(),
-                optional: false,
-                rest: false,
-                r#type: inherited,
-                written_text: None,
-            });
+            let inherited = match self.contextual_this_parameters.get(&declaration) {
+                Some(inherited) => *inherited,
+                None => self
+                    .contextual_signature(declaration)
+                    .and_then(|signature| signature.this_parameter)
+                    .map(|parameter| parameter.r#type),
+            };
+            if let Some(inherited) = inherited {
+                this_parameter = Some(Parameter {
+                    name: "this".to_string(),
+                    optional: false,
+                    rest: false,
+                    r#type: inherited,
+                    written_text: None,
+                });
+            }
         }
         Some(Signature {
             declaration,

@@ -1480,102 +1480,38 @@ impl Checker<'_, '_> {
         self.check_this_expression(node)
     }
 
-    /// The keyable name of a method declaration, for the member lookups §928's
-    /// arm makes. `None` for a computed or numeric name, which
-    /// [`Checker::get_property_of_type`] cannot be keyed by anyway.
-    fn method_name_text(&self, method: NodeId) -> Option<String> {
-        let Some(tsr_ast::Node::MethodDeclaration(declaration)) = self.node_map.get(method) else {
-            return None;
-        };
-        match declaration.name {
-            tsr_ast::PropertyName::Identifier(name) => Some(name.text.to_owned()),
-            tsr_ast::PropertyName::StringLiteral(name) => Some(name.text.to_owned()),
-            _ => None,
-        }
-    }
-
-    /// The `this` type an object-literal method inherits from the contextual
-    /// signature of the member it implements — §928, the second branch of
-    /// `getContextualThisParameterType` (`checker.go:29104`).
-    ///
-    /// The member is looked up from the LITERAL's contextual type rather than
-    /// through `get_contextual_type(method)`, because upstream's
-    /// object-literal-method arm (`checker.go:29964`) is not ported and that
-    /// call answers `None` here.
-    pub(crate) fn contextual_this_parameter_type(&mut self, method: NodeId) -> Option<TypeId> {
-        // §945: a FUNCTION EXPRESSION assigned to a property takes the
-        // property's declared `this` parameter.
-        //
-        // `impl.em = function () { return this.a; }` against
-        // `interface I { em(this: { a: number }): number }` answered `this : any`
-        // while the object-literal form §928 ported — `{ em() { return this.a } }`
-        // — answered `{ a: number; }`. Upstream reaches both through the same
-        // `getContextualThisParameterType`; the difference here is only which
-        // road supplies the contextual signature, and the assignment road was
-        // never wired.
-        if self.nodes.kind(method) == SyntaxKind::FunctionExpression {
-            // §945.1: **ask `get_contextual_type` first.** §945 wired the
-            // assignment road by hand and the sweep that followed found four
-            // more entry points failing the same way — an annotated variable's
-            // initialiser, a call argument, an `as` assertion, an array-literal
-            // element under an annotated array type.
-            //
-            // Every one of those already has an arm in `get_contextual_type`.
-            // Wiring them one at a time would have been four more §945s; asking
-            // the dispatch that already knows is one line and covers the arms it
-            // grows later for free.
-            if let Some(signature) = self.contextual_signature(method)
-                && let Some(this_parameter) = signature.this_parameter
-            {
-                return Some(this_parameter.r#type);
-            }
-            // The ASSIGNMENT road keeps its own arm: `get_contextual_type` has
-            // no `BinaryExpression` arm, so `impl.em = function () { … }` —
-            // §945's population — is not reachable through the dispatch.
-            let parent = self.nodes.parent(method)?;
-            let Some(tsr_ast::Node::BinaryExpression(binary)) = self.node_map.get(parent) else {
-                return None;
-            };
-            if binary.operator_token.is_none_or(|token| token.kind != SyntaxKind::EqualsToken)
-                || binary.right.and_then(|right| right.node_id()) != Some(method)
-            {
-                return None;
-            }
-            let target = binary.left?;
-            let declared = self.check_expression(target);
-            let signature = self.contextual_signature_of_type(declared)?;
-            return Some(signature.this_parameter?.r#type);
-        }
-        if self.nodes.kind(method) != SyntaxKind::MethodDeclaration {
-            return None;
-        }
-        // §928.1: `HasContextSensitiveParameters` (`ast/utilities.go:4196`)
-        // opens with *"Functions with type parameters are not context
-        // sensitive"*, and upstream gates this whole branch on it
-        // (`isContextSensitiveFunctionOrObjectLiteralMethod`,
-        // `checker.go:29496`).
-        //
-        // Its other half — a non-arrow with no explicit `this` parameter is
-        // context sensitive iff `NodeFlagsContainsThis` — **is satisfied by
-        // construction at this caller**: `check_this_expression` only runs on a
-        // `this` that is written in the body. The signature caller in
-        // `signatures.rs` has no such guarantee and tests the bit explicitly.
-        if let Some(tsr_ast::Node::MethodDeclaration(declaration)) = self.node_map.get(method)
-            && !declaration.type_parameters.is_empty()
+    /// getContextualThisParameterType's contextual-signature arm
+    /// (internal/checker/checker.go). Methods and function expressions share
+    /// the signature query so generic contexts use the active fixing mapper.
+    pub(crate) fn contextual_this_parameter_type(&mut self, function: NodeId) -> Option<TypeId> {
+        if !matches!(
+            self.nodes.kind(function),
+            SyntaxKind::FunctionExpression | SyntaxKind::MethodDeclaration
+        ) || !self.is_context_sensitive_function_like(function)
         {
             return None;
         }
-        let literal = self.nodes.parent(method)?;
-        if self.nodes.kind(literal) != SyntaxKind::ObjectLiteralExpression {
+        if let Some(signature) = self.contextual_signature(function)
+            && let Some(parameter) = signature.this_parameter
+        {
+            return Some(parameter.r#type);
+        }
+        // The existing assignment fallback covers a context not always
+        // reachable through getContextualType's expression dispatch.
+        if self.nodes.kind(function) != SyntaxKind::FunctionExpression {
             return None;
         }
-        let contextual = self.get_contextual_type(literal)?;
-        let name = self.method_name_text(method)?;
-        let member = self
-            .get_property_of_type(contextual, &name)
-            .map(|property| self.get_type_of_symbol(property))
-            .or_else(|| self.contextual_property_type(contextual, &name))?;
-        let signature = self.contextual_signature_of_type(member)?;
+        let parent = self.nodes.parent(function)?;
+        let Some(tsr_ast::Node::BinaryExpression(binary)) = self.node_map.get(parent) else {
+            return None;
+        };
+        if binary.operator_token.is_none_or(|token| token.kind != SyntaxKind::EqualsToken)
+            || binary.right.and_then(|right| right.node_id()) != Some(function)
+        {
+            return None;
+        }
+        let declared = self.check_expression(binary.left?);
+        let signature = self.contextual_signature_of_type(declared)?;
         Some(signature.this_parameter?.r#type)
     }
 

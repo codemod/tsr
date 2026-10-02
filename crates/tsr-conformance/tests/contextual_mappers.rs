@@ -111,3 +111,47 @@ fn const_inference_queries_keep_uninstantiated_context() {
         &[r#"middleware : () => "someValue""#],
     );
 }
+
+#[test]
+fn contextual_this_is_assigned_for_untyped_parameters_without_body_this() {
+    expect_counts(
+        "thislessFunctionsNotContextSensitive2.ts",
+        &[("consume : (this: { tag: string; value: number; }, _data: number) => void", 2)],
+    );
+}
+
+#[test]
+fn completed_method_signature_keeps_its_fixed_context() {
+    expect_counts(
+        "thislessFunctionsNotContextSensitive2.ts",
+        &[("produce : (this: { tag: string; value: number; }) => number", 3)],
+    );
+    expect("inferentialTypingUsingApparentType2.ts", &["m : (x: string) => number"]);
+    expect("inferObjectTypeFromStringLiteralToKeyof.ts", &["d : (n: any) => any"]);
+}
+
+#[test]
+fn retaining_assigned_this_does_not_freeze_the_method_return_type() {
+    expect("silentNeverPropagation.ts", &["{ foo() { return true } } : { foo(): true; }"]);
+}
+
+#[test]
+fn a_consumer_fixes_data_before_a_later_this_dependent_producer() {
+    expect(
+        "thislessFunctionsNotContextSensitive2.ts",
+        &[
+            "result2 : [{ tag: string; value: number; }, unknown]",
+            "result6 : [{ tag: string; value: number; }, unknown]",
+            "result7 : [{ tag: string; value: number; }, unknown]",
+            "result8 : [{ tag: string; value: number; }, typeof globalThis]",
+        ],
+    );
+}
+
+#[test]
+fn absent_method_context_does_not_evaluate_its_computed_name() {
+    expect(
+        "../conformance/es6/computedProperties/computedPropertyNames22_ES6.ts",
+        &["this.bar() : number"],
+    );
+}
