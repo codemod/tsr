@@ -363,6 +363,10 @@ pub struct Checker<'a, 'n> {
     pub(crate) resolving_signature_calls: rustc_hash::FxHashSet<tsr_ast::NodeId>,
     /// Active synchronous iterable resolution, guarding recursive protocols.
     pub(crate) resolving_iteration_types: rustc_hash::FxHashSet<TypeId>,
+    /// `getResolvedMembersOrExportsOfSymbol` / `lateBindMember`: semantic names,
+    /// with an empty entry installed while resolving to break recursive keys.
+    pub(crate) late_bound_member_names:
+        rustc_hash::FxHashMap<(SymbolId, bool), Vec<(String, tsr_ast::NodeId)>>,
     /// §469's other half of the signature-links table: DECLARATIONS whose
     /// inferred return type is currently consulting the contextual road.
     /// Upstream's `signatureLinks` is keyed per NODE and serves both the
@@ -1195,6 +1199,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             higher_order_context_calls: rustc_hash::FxHashSet::default(),
             resolving_signature_calls: rustc_hash::FxHashSet::default(),
             resolving_iteration_types: rustc_hash::FxHashSet::default(),
+            late_bound_member_names: rustc_hash::FxHashMap::default(),
             contextual_return_in_flight: rustc_hash::FxHashSet::default(),
             contextual_return_depth: 0,
             intra_expression_member_maps: rustc_hash::FxHashMap::default(),

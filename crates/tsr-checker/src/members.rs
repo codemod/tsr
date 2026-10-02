@@ -2175,33 +2175,21 @@ impl Checker<'_, '_> {
         None
     }
 
-    /// One step of the walk: `owner`'s own members, then its base types'.
-    ///
-    /// # The circularity guard is load-bearing
-    ///
-    /// `class A extends B {}` with `class B extends A {}` is a real cycle in the
-    /// base-type graph and the corpus contains such cases deliberately. Upstream
-    /// guards it in `resolveBaseTypesOfClass`, which parks a `resolvingEmptyArray`
-    /// sentinel in `resolvedBaseTypes` and reports
-    /// `Type_0_recursively_references_itself_as_a_base_type` on re-entry. There is
-    /// no `resolvedBaseTypes` memo here to park a sentinel in, so the guard is the
-    /// **path** — the symbols already on the walk — which is the same question
-    /// asked with the state that exists. It is not [`crate::resolution::Resolutions`]:
-    /// that stack is keyed on `(symbol, PropertyName)` and is about *type*
-    /// resolution, and giving base-type walking a `PropertyName` of its own is a
-    /// change to a file this work does not own.
-    ///
-    /// A cycle answers `None` — a miss — rather than a diagnostic, because the
-    /// checker has none (`bd tsr-5e7.6`).
-    /// §381: every LATE-BOUND member an owner's declarations spell, as
-    /// `(bracketed name, member node)` pairs — the binder files these under
-    /// `__computed` in no table, and the checker resolves the names late.
-    /// The spelling is §323's `late_bound_symbol_member_name`, which is what
-    /// keeps the lookup key and the printed member form identical.
+    /// `lateBindMember` / `getPropertyNameFromType` (checker.go, utilities.go):
+    /// resolve computed declarations to semantic names. Literal keys use their
+    /// values; symbol keys retain this port's existing bracketed identity.
+    /// Printing reads the declaration separately. The cache sentinel makes a
+    /// recursive key fall back to the early-bound members, as upstream does.
     pub(crate) fn late_bound_members_of(
         &mut self,
         owner: SymbolId,
+        is_static: bool,
     ) -> Vec<(String, tsr_ast::NodeId)> {
+        let cache_key = (owner, is_static);
+        if let Some(members) = self.late_bound_member_names.get(&cache_key) {
+            return members.clone();
+        }
+        self.late_bound_member_names.insert(cache_key, Vec::new());
         let declarations: Vec<tsr_ast::NodeId> =
             self.binder.symbols().get(owner).declarations.iter().copied().collect();
         let mut out = Vec::new();
@@ -2255,11 +2243,23 @@ impl Checker<'_, '_> {
                 else {
                     continue;
                 };
-                if let Some((spelled, _)) = self.late_bound_symbol_member_name(computed) {
-                    out.push((spelled, member));
+                let member_is_static = self.binder.symbol_of(member).is_some_and(|symbol| {
+                    self.property_has_modifier(symbol, tsr_ast::SyntaxKind::StaticKeyword)
+                });
+                if member_is_static != is_static {
+                    continue;
+                }
+                let Some(expression) = computed.expression else { continue };
+                let name_type = self.check_expression(expression);
+                let name = self.property_name_from_index(name_type).or_else(|| {
+                    self.late_bound_symbol_member_name(computed).map(|(spelled, _)| spelled)
+                });
+                if let Some(name) = name {
+                    out.push((name, member));
                 }
             }
         }
+        self.late_bound_member_names.insert(cache_key, out.clone());
         out
     }
 
@@ -2400,10 +2400,9 @@ impl Checker<'_, '_> {
                 names.push(name);
             }
         }
-        // §381: late-bound members are in NO table; their bracketed
-        // spellings join the walk so a target's `[Symbol.iterator]` is
-        // REQUIRED of the source (`symbolProperty13`'s `C -> I`).
-        for (name, _) in self.late_bound_members_of(owner) {
+        // getResolvedMembersOrExportsOfSymbol keeps instance members and exports
+        // separate, including computed declarations.
+        for (name, _) in self.late_bound_members_of(owner, false) {
             if !names.contains(&name) {
                 names.push(name);
             }
@@ -2420,16 +2419,32 @@ impl Checker<'_, '_> {
     ) -> Vec<(String, SymbolId)> {
         // resolveAnonymousTypeMembers / getLateBoundSymbol (checker.go):
         // computed static members belong to exports, never instance members.
-        self.late_bound_members_of(owner)
+        self.late_bound_members_of(owner, true)
             .into_iter()
             .filter_map(|(name, declaration)| {
-                let symbol = self.binder.symbol_of(declaration)?;
-                self.property_has_modifier(symbol, tsr_ast::SyntaxKind::StaticKeyword)
-                    .then_some((name, symbol))
+                self.binder.symbol_of(declaration).map(|symbol| (name, symbol))
             })
             .collect()
     }
 
+    /// One step of the walk: `owner`'s own members, then its base types'.
+    ///
+    /// # The circularity guard is load-bearing
+    ///
+    /// `class A extends B {}` with `class B extends A {}` is a real cycle in the
+    /// base-type graph and the corpus contains such cases deliberately. Upstream
+    /// guards it in `resolveBaseTypesOfClass`, which parks a `resolvingEmptyArray`
+    /// sentinel in `resolvedBaseTypes` and reports
+    /// `Type_0_recursively_references_itself_as_a_base_type` on re-entry. There is
+    /// no `resolvedBaseTypes` memo here to park a sentinel in, so the guard is the
+    /// **path** — the symbols already on the walk — which is the same question
+    /// asked with the state that exists. It is not [`crate::resolution::Resolutions`]:
+    /// that stack is keyed on `(symbol, PropertyName)` and is about *type*
+    /// resolution, and giving base-type walking a `PropertyName` of its own is a
+    /// change to a file this work does not own.
+    ///
+    /// A cycle answers `None` — a miss — rather than a diagnostic, because the
+    /// checker has none (`bd tsr-5e7.6`).
     fn get_property_of_declared_symbol(
         &mut self,
         owner: SymbolId,
@@ -2445,22 +2460,13 @@ impl Checker<'_, '_> {
         {
             return Some(found);
         }
-        // §381: a LATE-BOUND member — the binder files `[Symbol.iterator]`
-        // under no name (`__computed`, in no table), and the checker resolves
-        // the name late. The bracketed spelling §323 established IS the key
-        // here: walk the owner's declarations' members, spell each computed
-        // name with `late_bound_symbol_member_name`, and a match answers the
-        // member's own symbol — whose `get_type_of_symbol` arms (property,
-        // method, accessor) already type it. This is what lets the relation
-        // see `C -> I` over `[Symbol.iterator]` members (`symbolProperty13`)
-        // and element access find them (`symbolProperty17`).
-        if name.starts_with('[') {
-            for (spelled, member) in self.late_bound_members_of(owner) {
-                if spelled == name
-                    && let Some(symbol) = self.binder.symbol_of(member)
-                {
-                    return Some(symbol);
-                }
+        // getPropertyOfType searches the resolved member table for every
+        // semantic key, including string and numeric late-bound names.
+        for (key, member) in self.late_bound_members_of(owner, false) {
+            if key == name
+                && let Some(symbol) = self.binder.symbol_of(member)
+            {
+                return Some(symbol);
             }
         }
         for base in self.base_symbols_of(owner)? {
@@ -2767,6 +2773,8 @@ impl Checker<'_, '_> {
                 Some(Node::PropertyDeclaration(p)) => p.modifiers,
                 Some(Node::MethodSignatureDeclaration(m)) => m.modifiers,
                 Some(Node::MethodDeclaration(m)) => m.modifiers,
+                Some(Node::GetAccessorDeclaration(accessor)) => accessor.modifiers,
+                Some(Node::SetAccessorDeclaration(accessor)) => accessor.modifiers,
                 _ => return false,
             };
             modifiers.iter().any(|modifier| {

@@ -296,7 +296,8 @@ impl<'a> Checker<'a, '_> {
             && let Some(parent) = self.binder.symbols().get(symbol).parent
             && let Some(own_declaration) = declarations.first().copied()
         {
-            let members = self.late_bound_members_of(parent);
+            let is_static = self.property_has_modifier(symbol, SyntaxKind::StaticKeyword);
+            let members = self.late_bound_members_of(parent, is_static);
             let own_name =
                 members.iter().find(|(_, id)| *id == own_declaration).map(|(name, _)| name.clone());
             if let Some(own_name) = own_name {
@@ -2415,7 +2416,7 @@ impl<'a> Checker<'a, '_> {
                 }
             };
             let Some(own_static) = method_static(self, declaration) else { break 'late None };
-            let members = self.late_bound_members_of(parent);
+            let members = self.late_bound_members_of(parent, own_static);
             let own_name =
                 members.iter().find(|(_, id)| *id == declaration).map(|(name, _)| name.clone());
             let Some(own_name) = own_name else { break 'late None };
