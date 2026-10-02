@@ -24,22 +24,23 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-10-02
 
-Measured on **`552f16f3`** (rebased on bb2d3a59): **456,764/478,855 assertions
-(95.39%)**, **6,971/9,538 complete cases (73.09%)**. The 99% target requires
-474,067 correct assertions; **17,303 remain**. Denominator and pinned oracle
-unchanged. Aligned verdicts: **474,243 total; 456,764 right; 2,626 gap; 14,853
-wrong**. Binder retains its verified **8,497/8,497 (100%)** result at aab165d8;
+Measured on **`241e2d60`** (rebased on 5bf6c57c): **456,915/478,855 assertions
+(95.42%)**, **6,985/9,538 complete cases (73.23%)**. The 99% target requires
+474,067 correct assertions; **17,152 remain**. Denominator and pinned oracle
+unchanged. Aligned verdicts: **474,243 total; 456,915 right; 2,605 gap; 14,723 wrong**.
+Binder retains its verified **8,497/8,497 (100%)** result at aab165d8;
 other suites below retain historical measurements.
 
-This unit (tsr-6.22, call-site generic inference) adds **9 matching assertions**
-(all WRONG-to-RIGHT) with **zero RIGHT losses, zero GAP-to-WRONG and zero
-changed already-WRONG rows** relative to a full baseline measured at bb2d3a59.
-[Return-mapper literal contexts](docs/architecture/checker-99-return-mapper-literals.md)
-records native argument literal regularization against the return mapper and
-the cached outer return mapper. The previous unit's predicate/intersection
-record (8197bdcf, +275, nine G-to-W in tsr-9) remains in §7. Release workspace
-tests (217 result blocks), clippy, formatting, 3,317 anchors and 16,615 section
-citations pass; issue-ids still reports the historical registry gap (tsr-10).
+This unit (index signatures, tsr-6.25) adds **151 matching assertions and 14
+complete cases**, with **zero RIGHT losses, zero GAP-to-WRONG and no changed
+WRONG rows** relative to a full-run baseline measured at 5bf6c57c (130 W→R,
+21 G→R). [Object rest index infos](docs/architecture/checker-99-rest-index-infos.md)
+records getRestType's index infos, union distribution and TS2700 validity,
+unchecked index reads in object binding elements, intersection spread
+properties and nested assignment-target tuples. Three added regressions;
+all 217 release workspace result blocks, clippy, formatting, 3,329 anchors and
+the section gate pass. The issue-id gate still reports the historical IDs
+missing from the available registry (tsr-10).
 The 99% goal and tsr-8 remain active.
 
 ### Previous whole-suite measurement — historical
@@ -1256,7 +1257,18 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-### Current priorities at `552f16f3` — 2026-10-02
+### Current priorities at `241e2d60` — 2026-10-02 (index signatures, tsr-6.25)
+
+Continue toward 99%: 17,152 matching assertions remain. Object rest now keeps
+index infos and binding elements honour noUncheckedIndexedAccess. Next in the
+indexed-access family: an element access with a union of literal keys
+(`o[k]`, `k: "a" | "b"`) still answers errorType because the expression road
+does not distribute getIndexedAccessType over union indexes, and fresh object
+literals miss getPropertyTypeForIndexType's string/number fallback
+(indexedAccessWithFreshObjectLiteral). Rest-only array assignment targets and
+ObjectRestType inferable indexes remain open (see the evidence page).
+
+### Previous priorities at `552f16f3` — 2026-10-02
 
 Continue toward 99%: 17,303 matching assertions remain. Call-site generic
 inference (tsr-6.1/6.15/6.21/6.22) now regularizes argument literals under the
@@ -11481,6 +11493,7 @@ holds only the numbers.
 | 2026-10-02 | `f713c889` | — | — | **dts: `dts_shape` 858 → 868/1,006, `dts_emit` 333/373 → 335/372, `isolated_declarations` 13/15 unmoved, `dts_reachable_target` 492 → 491.** | Declaration-transform only; no checker code touched. `transformExpandoAssignment`'s keyword/resolvable-name arm (printer temp names `_a`…, `export { _a as null }`, export-modifier promotion) and its identifier-valued alias arm fixed three emitted `.d.ts` files that did not reparse; `getTypeFromBindingPattern` types unannotated pattern parameters and parameter initializers now reach `ensureType`; two source-visibility edges (private computed names, object-literal method signatures). The reachable −1 is `declarationEmitPrivateSymbolCausesVarDeclarationToBeEmitted`: `_data` is now visible, so `tsr_dts` reports `TS9010` on `const _data = Symbol()` as upstream's isolated analysis does. `IsNameResolvable` is answered for file-scope names plus `undefined`/`globalThis` only; lib globals stay unresolved. Release workspace tests, clippy, fmt pass. [Notes](docs/architecture/declaration-emit.md). |
 | 2026-10-02 | `217c356e` | — | — | **dts: `dts_shape` 868 → 874/1,006; `dts_emit` 335/372, `isolated_declarations` 13/15, `dts_reachable_target` 491/1,162 unmoved.** | Declaration-transform only. `FileScope` restates a reference that certainly resolves to a file-level class/function/non-const enum as `typeof Name`, `new C()` of a non-generic class as `C`, and such shorthands as `name: typeof name`; `tsr_dts::visibility` resolves the same value names in its fixpoint only when every declaration of the name restates as `typeof`. `transformExportAssignment`'s function-like arm (export first, then `declare function _default`). Expando namespaces attach to the first overload and need a named member. Refused in place: collecting a default-exported literal's computed keys measured −1 (`declarationEmitComputedNameConstEnumAlias` wants the enum member's value, which the builder cannot print). Release workspace tests (217 blocks), clippy, fmt pass. [Notes](docs/architecture/declaration-emit.md). |
 | 2026-10-02 | `773d5733` | — | — | **dts: `dts_shape` 874 → 877/1,006, `dts_emit` 335/372 → 338/375, `dts_reachable_target` 491 → 494/1,162, `isolated_declarations` 13/15 unmoved.** | `tsr_dts::visibility` no longer treats declaration names and non-computed member names as references (an exported interface reached its private same-named `const`), and resolves bare type-reference identifiers by meaning: the export-status half of the name with a type meaning is reached whole, as `hasVisibleDeclarations` reaches every declaration of the resolved symbol. Fewer phantom-visible declarations means fewer phantom `TS9xxx`, so three cases enter `dts_emit`'s denominator and all three pass. Release workspace tests (217 blocks), clippy, fmt pass. [Notes](docs/architecture/declaration-emit.md). |
+| 2026-10-02 | `241e2d60` | **73.23%** | **6,985** | **456,915/478,855 assertions (95.42%).** +151 vs full-run baseline at 5bf6c57c, +14 cases; 130 W→R, 21 G→R, zero RIGHT losses, GAP→WRONG or changed WRONG. | **Index signatures (tsr-6.25): object rest index infos and unchecked binding reads.** getRestType copies index infos, distributes unions, filters nullables and applies the TS2700 validity gate; binding-element index reads add undefined under noUncheckedIndexedAccess; intersection spread sources combine constituent properties; nested assignment-target array literals mint tuples with mutable-location elements. Pinned tsgo declaration controls for union rest, TS2700 and intersection spread. Release workspace 217 blocks, clippy, fmt, 3,329 anchors pass. [Evidence](docs/architecture/checker-99-rest-index-infos.md). |
 
 ## 8. Updating this file
 
