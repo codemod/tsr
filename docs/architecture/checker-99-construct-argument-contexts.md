@@ -54,3 +54,33 @@ the literal node during the applicability check with the instantiated
 contextual type; the port caches the first, unknown-fixed check. Controls in
 `crates/tsr-conformance/tests/generic_constructors.rs` were checked against
 pinned tsgo.
+
+## Overloaded construct sets
+
+`new Map([[k, v]])` resolves through `transcribed_generic_set_walk`. Native
+`inferTypeArguments` checks each argument with the candidate's parameter type
+pushed as context (`checkExpressionWithContextualType`), so the array literal is
+re-typed per candidate. The port checked array-literal arguments once,
+context-free, before the walk, and every candidate reused that cached
+`(string | boolean)[][]`. Two changes follow native for construct calls: the
+`NewExpression` contextual arm reads the active inference context's candidate
+(through the shared fixing helper) before resolving the callee, and the walk
+evicts array-literal arguments before inferring each generic candidate of a
+`new` expression.
+
+The same two changes applied to the call road gained 130 but lost nine RIGHT
+rows: tupleTypeInference's `$q.all` overloads rank by tuple arity, and the
+port's `check_generic_call_worker` declines a too-short tuple against the
+three-element candidate where native infers `unknown` and rejects at
+applicability. That decline becomes an undecidable walk; the call road keeps
+its resolving ladder until the inference worker answers such candidates
+(tsr-6.21).
+
+Measured against the published single-signature unit at 211366eb: +117
+assertions (all WRONG-to-RIGHT; 16 acceptSymbolAsWeakType, 14 setMethods, 12
+dissallowSymbolAsWeakType, 49 across for-of37–50, 30 across
+iterableArrayPattern25–30, 5 objectFromEntries), zero RIGHT losses, zero
+GAP-to-WRONG. Twenty-eight already-WRONG rows change toward native but remain wrong:
+array literals print `[string, boolean]` where native's final instantiated
+check keeps `[string, true]`, and arrayLiteralInference's `error[]` becomes
+`[AppType, AppStyle[]]` where native keeps enum-member literals.

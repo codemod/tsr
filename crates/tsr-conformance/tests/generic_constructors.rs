@@ -213,3 +213,34 @@ export const d = new DMap([["1", 2]]);
         assert!(lines.iter().any(|line| line == wanted), "missing {wanted}: {lines:?}");
     }
 }
+
+/// Pinned tsgo 5b1047d1: an overloaded construct set gives each generic
+/// candidate's array-literal argument that candidate's tuple context
+/// (inferTypeArguments re-checks arguments per candidate).
+#[test]
+fn overloaded_construct_candidates_supply_tuple_contexts() {
+    let source = r#"// @strict: true
+// @target: es2023
+export const m = new Map([[Symbol("key"), "value"]]);
+export const m2 = new Map([["a", 1]]);
+declare const s: symbol;
+export const w = new WeakMap([[s, false]]);
+export const st = new Set([[1, "a"]]);
+"#;
+    let case = TestCase::parse("probe/overloaded-construct", "overloaded-construct.ts", source);
+    let expected: Vec<_> = case
+        .files
+        .iter()
+        .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
+        .collect();
+    let assertions = types_producer::assertions_for_case(&case, &expected, false);
+    let lines: Vec<_> = assertions.iter().flatten().map(types_producer::Assertion::line).collect();
+    for wanted in [
+        "m : Map<symbol, string>",
+        "m2 : Map<string, number>",
+        "w : WeakMap<symbol, boolean>",
+        "st : Set<(string | number)[]>",
+    ] {
+        assert!(lines.iter().any(|line| line == wanted), "missing {wanted}: {lines:?}");
+    }
+}

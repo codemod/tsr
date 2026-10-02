@@ -2576,6 +2576,21 @@ impl Checker<'_, '_> {
             let concrete: Signature = if candidate.type_parameters.is_empty() {
                 candidate.clone()
             } else {
+                // inferTypeArguments re-checks every argument with this
+                // candidate's parameter type as context; an array literal's
+                // tuple-ness depends on it, so a previous candidate's (or the
+                // context-free) answer must not be reused.
+                if call
+                    .is_some_and(|call| self.nodes.kind(call) == tsr_ast::SyntaxKind::NewExpression)
+                {
+                    for argument in arguments {
+                        if matches!(argument, Expression::ArrayLiteralExpression(_))
+                            && let Some(id) = argument.node_id()
+                        {
+                            self.evict_subtree(id);
+                        }
+                    }
+                }
                 let mut instantiated = None;
                 let _ = self.check_generic_call_with(
                     candidate,

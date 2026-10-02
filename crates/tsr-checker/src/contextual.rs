@@ -1141,6 +1141,22 @@ impl<'a> Checker<'a, '_> {
                             new_expression.arguments.len(),
                         );
                     }
+                    // inferTypeArguments checks each argument with the current
+                    // candidate's parameter type (checkExpressionWithContextualType),
+                    // so an overloaded construct set's candidate under inference
+                    // supplies the context before any signature is resolved.
+                    // The call road keeps its own resolving ladder: the same
+                    // read there regressed tupleTypeInference's arity-ranked
+                    // overloads (docs/architecture/checker-99-construct-argument-contexts.md).
+                    if let Some(context) = self.active_inference_contexts.get(&call).cloned() {
+                        return self.single_generic_candidate_argument_type(
+                            &context.signature,
+                            Some(call),
+                            new_expression.arguments,
+                            new_expression.type_arguments,
+                            index,
+                        );
+                    }
                     // getContextualTypeForArgument resolves a NewExpression
                     // exactly as a CallExpression (checker.go); a single
                     // generic construct signature supplies its parameter type
