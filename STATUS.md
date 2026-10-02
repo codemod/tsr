@@ -24,14 +24,25 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-10-02
 
-Measured on **`4da26276`** (rebased on 6c230ca2): **456,949/478,855 assertions
-(95.43%)**, **6,986/9,538 complete cases (73.24%)**. The 99% target
-requires 474,067 correct assertions; **17,118 remain**. Denominator and
-pinned oracle unchanged. Aligned verdicts: **474,243 total; 456,949 right;
-2,606 gap; 14,688 wrong**. Binder retains its verified **8,497/8,497
-(100%)** result at aab165d8; other suites below retain historical measurements.
+Measured on **`b1900137`** (rebased on 6b2203cc): **457,058/478,855 assertions
+(95.45%)**, **6,987/9,538 complete cases (73.25%)**. The 99% target requires
+474,067 correct assertions; **17,009 remain**. Denominator and pinned oracle
+unchanged. Aligned verdicts: **474,243 total; 457,058 right; 2,606 gap; 14,579
+wrong**. Diagnostics 2,781/5,488 at the same commit. Binder retains its verified
+**8,497/8,497 (100%)** result at aab165d8; other suites below retain historical
+measurements.
 
-This unit (conditional alias chains, tsr-6.3/tsr-6.23) adds **34 matching assertions (all WRONG-to-RIGHT) and one complete case**
+This unit (agreeing generic overloads, tsr-6.1) adds **109 matching assertions
+and one complete case** (arrayFrom), all WRONG-to-RIGHT, with **zero RIGHT
+losses, zero GAP-to-WRONG and zero changed already-WRONG rows** relative to a
+full baseline measured at 6b2203cc.
+[Agreeing generic overloads](docs/architecture/checker-99-agreeing-overloads.md)
+records why return-spelling agreement no longer skips per-candidate inference
+and applicability; arrayFrom's TS2322 now follows the selected overload
+(diagnostics +1). Release workspace tests (217 result blocks), clippy,
+formatting, 3,330 anchors and the section gate pass.
+
+The preceding unit, measured at 4da26276: (conditional alias chains, tsr-6.3/tsr-6.23) adds **34 matching assertions (all WRONG-to-RIGHT) and one complete case**
 relative to a full baseline measured at 6c230ca2, with **zero RIGHT losses and
 zero GAP-to-WRONG**; one WRONG-to-GAP.
 [Conditional alias chains](docs/architecture/checker-99-conditional-chains.md)
@@ -1268,7 +1279,17 @@ Next in this family: evaluate non-generic conditional type nodes
 written text where the baseline wants its branch. Mapped-alias references still
 enumerate only literal keys; reporting them unenumerable measured 22 RIGHT losses.
 
-### Current priorities at `241e2d60` — 2026-10-02 (index signatures, tsr-6.25)
+### Current priorities at `b1900137` — 2026-10-02 (call-site generic inference)
+
+Continue toward 99%: 17,009 matching assertions remain. Agreeing generic
+overload returns now select by per-candidate applicability (tsr-6.1), and
+argument literals regularize under the return mapper (tsr-6.22, 552f16f3).
+Remaining in that family: promisePermutations2's mixed Promise/legacy union
+inference, generic construct-signature argument contexts (tuple contexts for
+`new Map([[k, v]])`), the Signature arm of instantiateContextualType,
+binding-pattern return contexts and genericFunctionInference1's pipe rows.
+
+### Previous priorities at `241e2d60` — 2026-10-02 (index signatures, tsr-6.25)
 
 Continue toward 99%: 17,152 matching assertions remain. Object rest now keeps
 index infos and binding elements honour noUncheckedIndexedAccess. Next in the
@@ -11704,3 +11725,5 @@ that were true of a different population than the one they were quoted about.
 | 2026-10-02 | `552f16f3` | **95.39%** | **6,971/9,538** | **Return-mapper literal contexts (tsr-6.22): +9 assertions (9 W-to-R), +0 complete cases, zero RIGHT losses, zero G-to-W, zero changed already-WRONG rows** against a full baseline at bb2d3a59: 456,764/478,855. Arguments regularize when they are literals of the return-mapper-instantiated parameter type (checkExpressionWithContextualType); outer return mappers are cached on first use (createOuterReturnMapper). The uncached first draft lost one RIGHT row (inferFromGenericFunctionReturnTypes3 makeFoo(Enum.A)). [Record](docs/architecture/checker-99-return-mapper-literals.md). |
 
 | 2026-10-02 | `4da26276` | **95.43%** | **6,986/9,538** | **Conditional alias chains (tsr-6.3/tsr-6.23): 34 matching assertions (all WRONG-to-RIGHT) and one complete case, zero RIGHT losses or GAP-to-WRONG; one W-to-G.** Rebased on 6c230ca2 and scored against a full baseline measured there: 456,949/478,855, 2,606 aligned gaps, 14,688 wrong. Alias-of-conditional chains with default fill and native alias naming; permissive/restrictive definite outcomes; Record literal-key names. The unenumerable-alias alternative measured 22 R-to-W and is recorded. Four regressions; 218 release workspace blocks, clippy, formatting, 3,324 anchors and section citations pass. [Evidence](docs/architecture/checker-99-conditional-chains.md). |
+
+| 2026-10-02 | `b1900137` | **95.45%** | **6,987/9,538** | **Agreeing generic overloads (tsr-6.1): +109 assertions (109 W-to-R: 51 promisePermutations, 51 promisePermutations3, 4 variadicTuples1, 2 underscoreTest1, 1 arrayFrom), +1 complete case, diagnostics +1, zero RIGHT losses, zero G-to-W, zero changed already-WRONG rows** against a full baseline at 6b2203cc: 457,058/478,855. choose_overload's equal-return-spelling arm now runs the transcribed per-candidate walk for every call, keeping its recovery only when the walk is undecidable. [Record](docs/architecture/checker-99-agreeing-overloads.md). |
