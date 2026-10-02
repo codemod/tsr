@@ -91,3 +91,35 @@ and testing passes cover the diff; no independent or cross-model review is
 claimed under the user's no-delegation rule. Review found and fixed stale depth
 documentation and compile-time fixture inclusion. Verification results and
 remaining measured limitations are recorded below after committed validation.
+
+Committed verification at 7ef88ba8 in /tmp/tsr-99-fresh-verify matches the full
+candidate verdict byte-for-byte and the frozen source hash
+299d6ddb83bfb69ec61a499edb6f9564efcbdcd214f6b7af5b25171c19c1a6e9.
+Coverage is 455,928/478,855 RIGHT (95.21%) and 6,917/9,538 complete cases (72.52%),
+leaving 18,139 matches to 99%. All 213 release workspace result blocks, clippy
+and 3,329 anchors pass in both checkouts. One old anchor disappeared when the
+misleading depth-cap comment was corrected. Fresh depend has 503 non-gapping
+roots, 210 cycles, zero depth caps and 3,583 walked gaps; C3 balances and C1/C4
+remain stale (tsr-6.29). The snapshot is copied from this checkout. Verdict and
+logs use /tmp/tsr-99-fresh-verified; the primary-thread review receipt is
+/tmp/compound-engineering-501/ce-code-review/fresh-signatures/review.json.
+
+Seven isolated mutations compile and fail their intended exact assertions:
+fresh allocation (promiseChaining.z), same-origin erasure (result1), canonical
+targets (P0), any-index recovery (T1), unresolved-placeholder exclusion (DropForth),
+silentNever (g's unknown return inference), and conditional-root capture
+(zipped1). The async mapper assertion alone did not fail when silentNever was
+removed, so it is not claimed as a falsifier for that dependency; the dedicated
+missing-return-context test does fail. Each mutation restores the file in a
+finally block, and the final restored hash equals the committed hash. Scripts
+and aggregate logs are /tmp/tsr-99-fresh-mutations.py and
+/tmp/tsr-99-fresh-mutations-tail.py (with .log siblings); per-mutation logs use
+/tmp/tsr-99-fresh-mutation-{name}.log. The recursion guard's termination is also
+exercised by the full corpus, including mapGroupBy; no destructive unbounded
+recursion mutation is claimed.
+
+After restoring every mutation, all eight fresh-signature tests and formatting
+pass (/tmp/tsr-99-fresh-restored-tests.log). Recompiling that test without the
+vendor link succeeds and all eight cases explicitly report the missing-submodule
+skip; /tmp/tsr-99-fresh-no-submodule.log records it. The vendor link is restored
+before the final source-hash check, then removed safely during checkout cleanup.

@@ -24,25 +24,26 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-10-02
 
-Measured on **`cd658415`** in an isolated checkout: **455,889/478,855 assertions
-(95.20%)**, **6,915/9,538 complete cases (72.50%)**. The 99% target requires
-474,067 correct assertions; **18,178 remain**. Denominator and pinned oracle
-unchanged. Aligned verdicts: **474,243 total; 455,889 right; 2,775 gap; 15,579 wrong**.
+Measured on **`7ef88ba8`** in an isolated checkout: **455,928/478,855 assertions
+(95.21%)**, **6,917/9,538 complete cases (72.52%)**. The 99% target requires
+474,067 correct assertions; **18,139 remain**. Denominator and pinned oracle
+unchanged. Aligned verdicts: **474,243 total; 455,928 right; 2,768 gap; 15,547 wrong**.
 Binder retains its verified **8,497/8,497 (100%)** result at aab165d8;
 other suites below retain historical measurements.
 
-This unit adds **14 matching assertions and two complete cases**, with **zero
-RIGHT losses and zero new WRONG rows** relative to 9afcc9f3, all WRONG→RIGHT.
-Fourteen already-WRONG rows change and remain incorrect; they are recorded in §5.
-[Generic assignability](docs/architecture/checker-99-generic-assignability.md)
-records primitive/unknown rejection and generic conditional extends deferral.
-Three relation tests and 11 conformance assertions pin native outcomes. All 212
-release workspace result blocks, clippy, formatting and 3,330 anchors pass in main
-and the isolated checkout; committed verdict and source hash match the candidate.
-Four isolated mutations compile and fail their intended assertions; restored
-source hash matches the committed code, and focused tests pass after restoration.
-The broader fresh-signature/contextual-mapper experiments remain deferred after
-measured regressions. The 99% goal and tsr-8 remain active.
+This unit adds **39 matching assertions and two complete cases**, with **zero
+RIGHT losses and zero GAP-to-WRONG rows** relative to cd658415: 32 WRONG-to-RIGHT
+and seven GAP-to-RIGHT. Six already-WRONG rows change and remain incorrect.
+[Fresh signatures](docs/architecture/checker-99-fresh-signatures.md) records fresh
+parameter identities and constraint mappers, recursion guards, same-origin erasure,
+canonical targets, computed-any indexes, silentNever yield contexts and deferred
+conditional roots. Eight regression tests pin the dependencies. All 213 release
+workspace result blocks, clippy, formatting and 3,329 anchors pass; committed
+verdict and source hash match the candidate. Fresh depend has 503 non-gapping
+roots, 210 cycles, zero depth caps and 3,583 walked gaps; C3 balances while C1/C4
+remain stale (tsr-6.29). The broader recursive contextual mapper remains deferred.
+Seven isolated mutations compile and fail their intended assertions; restored
+source hash matches the committed code. The 99% goal and tsr-8 remain active.
 
 ### Previous whole-suite measurement — historical
 
@@ -1077,6 +1078,7 @@ Per-crate, by what the conformance suites actually assert — not by what exists
 
 | subsystem | state | evidence |
 |---|---|---|
+| retained generic signatures | **fresh identities, lazy constraints and native comparison prerequisites** | 7ef88ba8: +39 matches, +2 complete cases, zero RIGHT losses/new WRONG rows; eight regression tests; [evidence](docs/architecture/checker-99-fresh-signatures.md) |
 | generic target assignability | **primitive/unknown rejection and deferred generic extends operands** | cd658415: +14 matches, +2 complete cases, zero RIGHT losses/new WRONG rows; 14 changed already-WRONG rows retained as limits; [evidence](docs/architecture/checker-99-generic-assignability.md) |
 | contextual parameter initializers | **native initializer widening and optional/default comparison** | 9afcc9f3: +2 matches, zero RIGHT losses/new WRONG rows; 18 native strict/non-strict outcomes; [evidence](docs/architecture/checker-99-contextual-initializers.md) |
 | dependent candidate inference | **recursive constraint mapping and const signature tuples** | f557e254: +35 matches, zero RIGHT losses/new WRONG rows, +1 complete case; 22 native controls; [evidence](docs/architecture/checker-99-dependent-inference.md) |
@@ -1251,7 +1253,18 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-### Current priorities at `cd658415` — 2026-10-02
+### Current priorities at `7ef88ba8` — 2026-10-02
+
+Continue toward 99%: 18,139 matching assertions remain. Fresh retained signature
+identities and their measured prerequisites now land without regressions. Revisit
+recursive contextual constraint mapping against this new baseline, retaining the
+four mappedTypeContextualTypesApplied losses as explicit counterexamples from the
+prior combined experiment. Native anonymous/tuple/homomorphic-mapped recursion
+origins, complete relation caching, permissive/restrictive conditional
+instantiation and colliding generic-name display remain incomplete. Six changed
+already-WRONG flatMap signatures still omit optional undefined; tsr-8 owns them.
+
+### Previous priorities at `cd658415` — 2026-10-02
 
 Continue toward 99%: 18,178 matching assertions remain. Primitive/unknown
 assignability to a generic parameter now rejects definitely; generic conditional
@@ -4249,6 +4262,23 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+### Fresh signature dependencies at `7ef88ba8`
+
+The accepted unit gains 39 with zero RIGHT losses and zero GAP-to-WRONG. Six
+already-WRONG rows change (arrayFlatMap four, flatArrayNoExcessiveStackDepth two):
+readonly-array syntax improves, but optional thisArg still lacks undefined.
+Broad any-index recovery without excluding unresolved placeholders lost five
+ramdaToolsNoInfinite2 RIGHT rows; the computed-state boundary restores all five.
+Before same-origin erasure, fresh parameters lost eight
+nonInferrableTypePropagation1 assertions. Before silentNever yield contexts, two
+asyncYieldStarContextualType assertions regressed. Before retaining conditional
+roots with unresolved branches, two recursive tuple-option gaps became WRONG;
+both now become RIGHT. These dependencies supersede the fresh-only refusal below,
+not the broader recursive contextual mapper experiment. That mapper remains
+unported; the prior combined verdict gained 65 but lost 17 RIGHT rows, including
+four mappedTypeContextualTypesApplied losses. Re-measure after this checkpoint
+rather than treating old-tree counts as a current prediction. [Evidence](docs/architecture/checker-99-fresh-signatures.md).
 
 ### Generic assignability prerequisites at `cd658415`
 
@@ -11440,3 +11470,5 @@ that were true of a different population than the one they were quoted about.
 | 2026-09-29 | `HEAD` | **66.83%** | **6,374** | **§956 — the variadic tuple's SPELLINGS, and §40's gate on the wrong road (+125, ZERO `RIGHT->WRONG`).** Largest entry of the session, and **it did NOT need the element-flags representation §4.-8 sized at 1,380 lines and I deferred twice as a multi-session port.** §40 gated its print-only variadic road with `any(RestTypeNode) && !any(NamedTupleMember \| OptionalTypeNode)`, so `[...T, number?]` was `errorType` and **every signature holding one printed `any`** (`<T extends unknown[]>(t1: [...T], t2: [...T, number?]) => T` in `variadicTuples1`). **Nothing about those element kinds needs the element LIST: this road composes TEXT, and `number?` and `label: T` are SPELLINGS, not structures.** The restriction is real but belongs to the road BELOW — the element-list mint, which genuinely cannot hold a rest. *§40 wrote a correct restriction on the wrong road, and it cost the whole node — the second time this session a long-standing gate was guarding the wrong thing (§951's `getNonArrayRestType` first), both found by asking what the gate PROTECTED rather than whether it was justified.* **The parser finding that the first draft got wrong:** a labelled rest is `RestTypeNode(NamedTupleMember(..))`, because `parse_tuple_element` (`tsr-parser/src/types.rs:713`) consumes the `...` first and RECURSES, and every member is built `NamedTupleMember::new(None, ..)` — so **`dot_dot_dot_token` is never set by this parser at all**; the first guard tested it and was dead code, exposed by `[a: string, ...c: boolean[]]` staying `error` while `[string, ...boolean[]]` worked. **The alias-naming rule was derived from 42 ORACLE ROWS, not chosen.** Extending §79.1's arm to rest-bearing bodies **reproduced §40's recorded 13 `RIGHT->WRONG` on `excessivelyLargeTupleSpread` EXACTLY** — the strongest confirmation of an old note this project has had. Two evidence-driven narrowings: (1) name only a body that stayed a print-only SPELLING, since a rest over a concrete tuple SPLICES into a real element list that access/instantiation/the relater consume (killed all 13; the test is `variadic_tuple_nodes`, the mint's own §791 registration, not a syntactic re-derivation); (2) NOT when the rest operand is a named REFERENCE — scanning all 42 non-generic rest-bearing tuple aliases in the baselines, they split on **whether NORMALISATION rewrote anything**: `[string, ...string[]]` prints `T06` while `[string, ...Array<string>]` prints `[string, ...string[]]`, because `Array<string>` normalises to `string[]` and creates a DIFFERENT tuple the alias is not on; `[...[...string[]]]` splices to itself and keeps its name, which is why a syntactic "rest over a tuple literal" test would have been wrong. **`RIGHT->WRONG` went 20 → 6 → 0.** Final: **+118 `WRONG->RIGHT` +7 `GAP->RIGHT` against 6 `GAP->WRONG`, zero `RIGHT->WRONG`** — `right` 443,604 → **443,729**, lines 92.64% → **92.66%**. `variadicTuples2` 34, `variadicTuples1` 24, `contextualTypeTupleEnd` 16. **§4.-8 corrected to ~1,255 lines: the count was right, the ATTRIBUTION was wrong.** *Three of my own estimates have now been corrected by opening the thing rather than sizing it (§948, §954, §956).* **Fourth lib-dependent fixture this session** (§951, §953, §955, here) — and §955's entry had already stated the pattern was "predictable enough to check before writing the assertion", after which I wrote two more before checking. The check is one question — *does this spelling need a global?* — now recorded in three places, which is evidence that recording it is not what makes me do it. |
 | 2026-09-29 | `HEAD` | **66.84%** | **6,375** | **§957 — two legs the §956 road opened, measured in ONE run (+14, zero adverse).** §956's note said to hunt more misplaced gates before the element-flags refactor; both legs were found by asking the three top tuple cases for their FIRST remaining mismatch — one `casequery` each — and **both were reachable only because §956 made variadic bodies resolve**. **Leg 1 (+6): the GENERIC rest-tuple alias.** `variadicTuples1`'s first mismatch was `>TV0 : TV0<T>` against `[string, ...T]`; scanning all 24 generic tuple-bodied aliases in the baselines splits on the same axis §956 derived for non-generic ones — `type Foo<T, U> = [T, U]` prints `Foo<T, U>` (interned WITH the alias) while `[string, ...T]`, `[A, B?, ...T, ...C[]]` and `[A, ...T, B, ...C[], D]` print structurally, because `createNormalizedTupleType`'s normalisation creates a different type the alias is not on. **Leg 2 (+8): a MALFORMED print.** `restTuplesFromContextualTypes` wanted `(a: number, b: boolean, c: string) => void` and we emitted `(a: number, b: boolean, c: string, )` — **a stray separator**, because a rest parameter whose tuple expansion is EMPTY emits nothing while the separator came from the loop INDEX. The empty expansion is upstream's own answer, which two ADJACENT baseline rows settle: the identical syntax prints `...x: string[]` under a rest-tailed contextual tuple and nothing under a fixed one — so only the comma was wrong. Fixed by writing the separator only when the previous parameter actually EMITTED something. **The first version of that fix would have measured as nothing**: emission was tracked at the END of the loop body, but two expansion arms `continue` past it — and those are exactly the parameters the fix is about, so the flag would never have been set for them. Caught by reading the control flow before measuring. *A fix whose bookkeeping skips its own subject looks identical to a fix that was not needed.* **+14 `WRONG->RIGHT`, zero adverse**, `right` 443,729 → **443,743**, **+1 case** (6,374 → 6,375), lines **92.67%**: `emitDefaultParametersFunctionExpressionES6` 4, `variadicTuples1` 4, `restTuplesFromContextualTypes` 3. **Honest note on what is left: both legs were PRINTS.** The element-flags work is entirely unported and what remains behind it is behavioural — an element list cannot hold optional or rest, so **access, instantiation and relations over variadic tuples still decline**; `variadicTuples2`'s next mismatch is `>V16 : [...string[], ...number[]]` against `(string \| number)[]`, two rests over arrays collapsing to one array of the union, which is `createNormalizedTupleType`'s own reduction. §4.-8 now reads ~1,240, and *the pattern of the last two entries — the print gate was misplaced, the behaviour was not — is the thing to check next rather than a reason to expect more of it.* |
 | 2026-09-29 | `591e34a` | **66.84%** | **6,375** | **§958 — the all-rests tuple reduction: BUILT, +13 net against 10 `RIGHT->WRONG`, REFUSED and reverted (docs only).** §957 named `[...string[], ...number[]]` as the next tuple item and said it needed element flags. **It does not — it is a REDUCTION — and the reduction is correct**: a tuple made only of rests over array-likes IS an array of the union (`createNormalizedTupleType`), so `[...boolean[]]` is `boolean[]` (11 rows in `genericRestParameters2`), `[...string[], ...Array<number>]` is `(string \| number)[]` (V16–V18), `[...any]` is `any[]`. It also composed with §956's naming rule exactly as intended — `type T03 = [...string[]]` still prints `T03` while `V16` prints the structure, differing only in §956's reference test. **+9 `GAP->RIGHT` +14 `WRONG->RIGHT` against 10 `RIGHT->WRONG`**, `right` 443,743 → 443,756 (net +13), every transition in `genericRestParameters2` — and **the 10 losses are ONE row at ten reference sites**: `>f12 : (a: number, b: string, ...x: [...boolean[]]) => void` became `...x: boolean[]`. **Those were right FOR THE RIGHT REASON**, so no right-by-coincidence override is available and §620 stands. **The finding, worth more than the 13 lines: this port has NO SEAM between a tuple's TYPE and its SPELLING.** Upstream holds both at once — the type is `boolean[]` and the node builder reuses the written node at an annotation (f11's rest has a FIXED element and expands positionally; f12's is all-rests and keeps its spelling) — whereas here **the print-only mint is the carrier of both**, its text being the spelling and its identity the type, so reducing it necessarily takes the spelling with it. ***Two fixes were attempted and neither moved the score by a single line, because both aimed at the wrong mechanism***: registering the text in `qualified_written_text` at the reduction site, then adding a direct all-rests arm to `written_annotation_text`. A parameter's `written_text` is `None` on this road — `parameter_of` never populates it from an annotation — and the spelling had been reaching the printer through `render()` of the mint's own text all along. *I diagnosed "the written-text channel is not firing" twice when the channel was never involved.* **Reopening condition is real work, not a tweak**: give a tuple a spelling separate from its identity (a `written_spelling` table, or `parameter_of` populating `written_text` for tuple annotations); then the type becomes the array, the annotation keeps its spelling, and the 20 wins come with no losses. **Same shape as §947.2's lesson — resolve the type, do not move what the reference prints — and the THIRD time this session it has decided an entry** (§947.2, §953, §958); §953 had `written_annotation_text` to hang the spelling on and this road does not. **One correction it forced on §956, applied there**: that naming test read `!variadic_tuple_nodes.contains_key(&structural)`, a correct proxy only while a rest-bearing body had two outcomes — the reduction adds a third, and the right question is `tuple_element_lists.contains_key(&structural)`. |
+
+| 2026-10-02 | `7ef88ba8` | **95.21%** | **6,917/9,538** | **Fresh retained generic signatures and comparison prerequisites: +39 assertions (+32 W-to-R, +7 G-to-R), +2 complete cases, zero RIGHT losses/new WRONG rows.** Isolated full verdict matches candidate byte-for-byte: 455,928/478,855; 2,768 aligned gaps and 15,547 wrong. Eight regression tests, all 213 release workspace blocks, clippy and 3,329 anchors pass. Six changed already-WRONG flatMap rows retain optional-undefined residue. Fresh depend: 503 non-gapping roots, 210 cycles, zero depth caps, 3,583 walked gaps; C3 balances, C1/C4 stale (tsr-6.29). [Evidence](docs/architecture/checker-99-fresh-signatures.md); tsr-8 remains active with 18,139 matches to 99%. |
