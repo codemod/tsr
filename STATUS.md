@@ -24,14 +24,26 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-10-02
 
-Measured on **`e68ea2ed`** (rebased on ab1bbead): **457,117/478,855 assertions
-(95.46%)**, **6,994/9,538 complete cases (73.33%)**. The 99% target
-requires 474,067 correct assertions; **16,950 remain**. Denominator and
-pinned oracle unchanged. Aligned verdicts: **474,243 total; 457,117 right;
-2,592 gap; 14,534 wrong**. Binder retains its verified **8,497/8,497
-(100%)** result at aab165d8; other suites below retain historical measurements.
+Measured on **`211366eb`** (rebased on fa90d3a4): **457,162/478,855 assertions
+(95.47%)**, **6,994/9,538 complete cases (73.33%)**. The 99% target requires
+474,067 correct assertions; **16,905 remain**. Denominator and pinned oracle
+unchanged. Aligned verdicts: **474,243 total; 457,162 right; 2,588 gap; 14,493
+wrong**. Diagnostics 2,782/5,488 at the same commit. Binder retains its verified
+**8,497/8,497 (100%)** result at aab165d8; other suites below retain historical
+measurements.
 
-This unit (non-generic conditional nodes, tsr-6.3) adds **59 matching assertions (49 WRONG-to-RIGHT, 10 GAP-to-RIGHT) and seven complete cases** relative to
+This unit (generic construct-signature argument contexts, tsr-6.21) adds **45
+matching assertions** (41 WRONG-to-RIGHT, 4 GAP-to-RIGHT) with **zero RIGHT
+losses and zero GAP-to-WRONG** relative to a full baseline measured at fa90d3a4;
+two already-WRONG destructuringParameterProperties3 rows change but remain
+wrong. [Construct argument contexts](docs/architecture/checker-99-construct-argument-contexts.md)
+records the shared single-generic-candidate argument context for calls and
+`new`. Release workspace tests (218 result blocks), clippy, formatting and the
+section gate pass. Correction: the agreeing-overloads checkpoint (4ff9d349) was
+measured at its pre-rebase twin b1900137, whose checker tree differs only by a
+rustfmt-only destructure.rs change.
+
+The preceding unit, measured at e68ea2ed: (non-generic conditional nodes, tsr-6.3) adds **59 matching assertions (49 WRONG-to-RIGHT, 10 GAP-to-RIGHT) and seven complete cases** relative to
 a full baseline measured at ab1bbead, with **zero RIGHT losses**; four GAP-to-WRONG in circularConstructorWithReturn (lazy class member types during alias resolution, recorded).
 [Conditional alias chains](docs/architecture/checker-99-conditional-chains.md)
 records getTypeFromConditionalTypeNode evaluation outside alias frames, written
@@ -1269,7 +1281,18 @@ four GAP-to-WRONG rows need lazy class member types during an alias's own
 resolution. Mapped-alias references still enumerate only literal keys;
 reporting them unenumerable measured 22 RIGHT losses.
 
-### Current priorities at `b1900137` — 2026-10-02 (call-site generic inference)
+### Current priorities at `211366eb` — 2026-10-02 (call-site generic inference)
+
+Continue toward 99%: 16,905 matching assertions remain. Call-site generic
+inference (tsr-6.1/6.15/6.21/6.22): agreeing overload returns select by
+applicability, return-mapper literals regularize, and single generic construct
+signatures now give `new` arguments their contexts. Remaining in that family:
+overloaded construct sets (`new Map([[k, v]])`, WeakMap/Set), the final-check
+literal retention in destructuringParameterProperties3, promisePermutations2's
+mixed Promise/legacy unions, the Signature arm of instantiateContextualType and
+genericFunctionInference1's pipe rows.
+
+### Previous priorities at `b1900137` — 2026-10-02 (call-site generic inference)
 
 Continue toward 99%: 17,009 matching assertions remain. Agreeing generic
 overload returns now select by per-candidate applicability (tsr-6.1), and
@@ -11720,3 +11743,5 @@ that were true of a different population than the one they were quoted about.
 | 2026-10-02 | `b1900137` | **95.45%** | **6,987/9,538** | **Agreeing generic overloads (tsr-6.1): +109 assertions (109 W-to-R: 51 promisePermutations, 51 promisePermutations3, 4 variadicTuples1, 2 underscoreTest1, 1 arrayFrom), +1 complete case, diagnostics +1, zero RIGHT losses, zero G-to-W, zero changed already-WRONG rows** against a full baseline at 6b2203cc: 457,058/478,855. choose_overload's equal-return-spelling arm now runs the transcribed per-candidate walk for every call, keeping its recovery only when the walk is undecidable. [Record](docs/architecture/checker-99-agreeing-overloads.md). |
 
 | 2026-10-02 | `e68ea2ed` | **95.46%** | **6,994/9,538** | **Non-generic conditional nodes (tsr-6.3): 59 matching assertions (49 WRONG-to-RIGHT, 10 GAP-to-RIGHT) and seven complete cases, zero RIGHT losses; four GAP-to-WRONG in circularConstructorWithReturn (lazy class member types during alias resolution, recorded).** Rebased on ab1bbead and scored against a full baseline measured there: 457,117/478,855, 2,592 aligned gaps, 14,534 wrong. getTypeFromConditionalTypeNode outside alias frames, written conditional annotation reuse, `extends never` for non-literal checks, exact-optional missing-type removal in property relations. Six regressions; release workspace blocks, clippy, formatting, anchors and section citations pass. [Evidence](docs/architecture/checker-99-conditional-chains.md). |
+
+| 2026-10-02 | `211366eb` | **95.47%** | **6,994/9,538** | **Generic construct-signature argument contexts (tsr-6.21): +45 assertions (41 W-to-R, 4 G-to-R: 34 destructuringParameterProperties3, 8 inferenceContextualReturnTypeUnion3, 3 contextualTypeIterableUnions), zero RIGHT losses, zero G-to-W; two changed already-WRONG rows** against a full baseline at fa90d3a4: 457,162/478,855. The NewExpression contextual arm now shares the call road's inferential-context read and single-generic-candidate fixing helper. [Record](docs/architecture/checker-99-construct-argument-contexts.md). |
