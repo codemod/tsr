@@ -24,6 +24,30 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-10-02
 
+Measured on **`04268474`**, based on 80ba5796: **457,525/478,855 assertions
+(95.55%)**, **7,007/9,538 complete cases (73.46%)**. The 99% target requires
+474,067 correct assertions; **16,542 remain**. Denominator and pinned oracle
+unchanged. Aligned verdicts: **474,243 total; 457,525 right; 2,568 gap; 14,150
+wrong**. Diagnostics **2,784/5,488**, unchanged. Binder retains its verified
+**8,497/8,497 (100%)** result at aab165d8; other suites below retain historical
+measurements.
+
+Reduced finally paths (tsr-8.5) add **17 matching assertions and one complete
+case**, all WRONG-to-RIGHT in tryCatchFinallyControlFlow, with **zero RIGHT
+losses, zero GAP transitions and zero changed already-WRONG rows** against a
+full baseline measured at 80ba5796. The type walker now applies the native
+per-query ReduceLabel stack already used by reachability. It excludes exceptions
+and pending returns after finally while retaining them inside finally.
+[Reduced finally paths](docs/architecture/checker-99-finally-flow.md) records
+native controls, seven regressions and validation. Release workspace tests
+(220 result blocks), clippy, formatting, 3,358 anchors and 16,638 section
+citations pass. The issue-id gate retains its 190 historical unresolved IDs
+(tsr-10). The separate full-project CLI run at 80ba5796 was stopped after
+16m25s in recursive conditional/mapped instantiation without diagnostics; the
+old 196-error tally cannot be assigned to this checkpoint.
+
+### Previous checker checkpoint — overloaded construct contexts
+
 Measured on **`ac495d85`** (rebased on 6249bf79): **457,508/478,855 assertions
 (95.54%)**, **7,006/9,538 complete cases (73.45%)**. The 99% target requires
 474,067 correct assertions; **16,559 remain**. Denominator and pinned oracle
@@ -1294,7 +1318,17 @@ reporting, `for-of49`'s unnormalized `[string, ...[boolean]]` tuple-target
 spelling, and the residual spreadUnion2/spreadObjectOrFalsy/
 spreadExpressionContextualTypeWithNamespace rows.
 
-### Current priorities at `ac495d85` — 2026-10-02 (call-site generic inference)
+### Current priorities at `04268474` — 2026-10-02 (real-project flow controls)
+
+Continue toward 99%: **16,542 matching assertions remain**. Finally reductions
+now pass native flow-type and TS2454 controls (tsr-8.5). Assignment expressions
+in conditions remain unnarrowed (`while ((match = next()) !== null)` retains
+TS18047 in tsr; pinned native is silent), tracked by **tsr-8.6**. Recursive
+conditional/mapped evaluation prevents the current full Next.js project run
+from completing, recorded on **tsr-6.3** with a process sample. Existing generic
+inference and mapped-type priorities below remain open.
+
+### Previous priorities at `ac495d85` — 2026-10-02 (call-site generic inference)
 
 Continue toward 99%: 16,559 matching assertions remain. Call-site generic
 inference (tsr-6.1/6.15/6.21/6.22): construct calls now re-type array-literal
@@ -11821,3 +11855,5 @@ that were true of a different population than the one they were quoted about.
 | 2026-10-02 | `44279dc` | **95.52%** | **7,002/9,538** | **tsr-6.34 flow narrowing: +35 assertions (32 W-to-R, 3 G-to-R), +2 complete cases, zero RIGHT losses, zero G-to-W, zero changed already-WRONG rows vs 5871239.** The relater's `has_members` admitted anonymous callables only by their print flag, so `L -> Function` was never compared and `typeof === "function"` answered `L & Function` (nonNullReferenceMatching 18, narrowingByTypeofInSwitch 8, strictBindCallApply1 2, multiSignatureTypeInference 2); `deferred_indexed_access` accepts a key of an intersection constituent (`NonNullable<T>[K]`: controlFlowGenericTypes 3, typeVariableTypeGuards 1, unknownControlFlow 1). Two regressions, each failing with its change reverted. diagnostics 2,784 (vs 2,782). [Evidence](docs/architecture/checker-99-flow-callables-and-intersection-keys.md) |
 
 | 2026-10-02 | `ac495d85` | **95.54%** | **7,006/9,538** | **Overloaded construct argument contexts (tsr-6.21): +117 assertions (117 W-to-R: 16 acceptSymbolAsWeakType, 14 setMethods, 12 dissallowSymbolAsWeakType, 49 for-of37–50, 30 iterableArrayPattern25–30, 5 objectFromEntries), zero RIGHT losses, zero G-to-W; 28 changed already-WRONG rows** against a full baseline at 6249bf79: 457,508/478,855. The NewExpression contextual arm reads the candidate under inference; the overload walk evicts array-literal arguments of `new` before each generic candidate. The call-road twin measured +130/−9 RIGHT and is refused until too-short tuple inference answers. [Record](docs/architecture/checker-99-construct-argument-contexts.md). |
+
+| 2026-10-02 | `04268474` | **95.55%** | **7,007/9,538** | **Reduced finally flow paths (tsr-8.5): +17 assertions, +1 complete case, all W-to-R in tryCatchFinallyControlFlow; zero RIGHT losses, GAP transitions or changed already-WRONG rows vs 80ba5796.** 457,525/478,855; aligned 457,525 right, 2,568 gap, 14,150 wrong. Per-query reductions select normal completion after finally and preserve exceptional/pending-return paths inside it. Four type tests and three diagnostic controls; 220 release workspace result blocks, clippy, fmt, anchors and sections pass. Diagnostics unchanged at 2,784/5,488. [Evidence](docs/architecture/checker-99-finally-flow.md). Assignment-in-condition narrowing remains tsr-8.6; current full-project recursive evaluation slowdown remains tsr-6.3. |
