@@ -1269,3 +1269,19 @@ fn exported_function_expressions_become_function_declarations() {
         "import { Suit } from './Types';\nexport default _default;\ndeclare function _default(suit: Suit): string;\n",
     );
 }
+
+#[test]
+fn type_references_reach_their_symbol_not_every_same_named_declaration() {
+    // A declaration's own name and a property signature's name declare rather
+    // than reference (`neverReturningFunctions1`, `nonPrimitiveAndEmptyObject`).
+    assert_emits(
+        "export interface Component { fooProps?: string }\nexport type D = Partial<Component>;\nconst Component = f();\nconst fooProps = g();",
+        "export interface Component {\n    fooProps?: string;\n}\nexport type D = Partial<Component>;\n",
+    );
+    // A type reference makes the whole merged local symbol visible
+    // (`declarationEmitNamespaceMergedWithInterfaceNestedFunction`).
+    assert_emits(
+        "export interface Foo { item: Bar }\ninterface Bar { baz(): void }\nnamespace Bar { export function biz(): number { return 0; } }",
+        "export interface Foo {\n    item: Bar;\n}\ninterface Bar {\n    baz(): void;\n}\ndeclare namespace Bar {\n    function biz(): number;\n}\nexport {};\n",
+    );
+}

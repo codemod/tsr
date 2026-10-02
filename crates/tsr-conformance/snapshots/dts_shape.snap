@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 dts_shape Summary:
 What a pass means: the declarations this port emits into a .d.ts — their kind, name and order, recursing into namespaces — match upstream's, ignoring types and formatting; judged on every case with declaration output, including the ones dts_emit cannot reach because they need inference
-Passed         : 874/1006 (86.88%)
-Failed         : 132
+Passed         : 877/1006 (87.18%)
+Failed         : 129
 Skipped        : 11438 (excluded from the denominator)
 
   11  skipped: a unit of this case does not parse cleanly
@@ -12,7 +12,7 @@ Skipped        : 11438 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   8  skipped: upstream's .d.ts baseline does not reparse
 
-First 100 of 132 failures:
+First 100 of 129 failures:
 compiler/amdLikeInputDeclarationEmit
   #0: missing `var ExtendedClass`
 compiler/caseInsensitiveFileSystemWithCapsImportTypeDeclarations
@@ -73,8 +73,6 @@ compiler/declarationEmitSpreadStringlyKeyedEnum
   #0: want `enum AgeGroups`, got `var SpotifyAgeGroupEnum`
 compiler/declarationEmitTransitiveImportOfHtmlDeclarationItem
   #0: want `import`, got `function func`
-compiler/declarationEmitTypeAliasWithTypeParameters5
-  #2: want `export{}`, got `function foo`
 compiler/declarationEmitTypeofDefaultExport
   #0: want `import`, got `var _default`
 compiler/declarationEmitUsingAlternativeContainingModules1
@@ -213,3 +211,5 @@ conformance/jsDeclarationsCommonjsRelativePath
   #0: want `var _exports`, got `class Thing`
 conformance/jsDeclarationsExportDefinePropertyEmit
   #0: want `var a`, got `function d`
+conformance/jsDeclarationsExportDoubleAssignmentInClosure
+  #0: want `export=`, got `function foo`

@@ -3,8 +3,8 @@
 **Status:** slice 4 of Phase 3.5 (`bd tsr-49v.6`), at **47.49%** on the byte-exact
 emit gate and **67.76%** on the structural one *when this document was written*.
 Those are historical; the live numbers are in [`STATUS.md`](../../STATUS.md) §1
-(at the second 2026-10-02 landing: `dts_emit` 335/372, `dts_shape`
-874/1,006). This is the artifact the phase
+(at the third 2026-10-02 landing: `dts_emit` 338/375, `dts_shape`
+877/1,006). This is the artifact the phase
 exists to ship: the first `.d.ts` this port has ever produced.
 
 **Upstream pin:** `vendor/typescript-go` @ `5b1047d10`.
@@ -370,6 +370,38 @@ case lost for the one it was meant to win.
   written one, else what the syntactic resolver infers for the expression, else
   `any` with the inference recorded. The class-expression arm of the same function
   is not ported.
+
+### Declaring names are not references, and a type reference reaches one symbol (2026-10-02)
+
+`tsr_dts::visibility` is name-based, and its collector recorded *every*
+identifier the generic walk met — including a declaration's own name and a
+property signature's name. So `export interface Component` reached a private
+`const Component` of the same name, and `fooProps?: …` in an interface reached a
+private `const fooProps` (`neverReturningFunctions1`,
+`nonPrimitiveAndEmptyObject`, each printing an extra `declare const`). The
+collector now marks declaration names and non-computed member names as
+*declaring* and skips them.
+
+Bare identifiers in type references are resolved by **meaning**. The binder keeps
+exported and local declarations in different tables, so one spelling can be two
+symbols; upstream's `hasVisibleDeclarations`
+(`internal/checker/emitresolver.go:384`) then makes every declaration of the
+*resolved* symbol visible. The pass reproduces that: among the declarations of
+the name, split by export status, the half that has a type meaning (interface,
+alias, class, enum, import) is reached whole — so an interface's merged local
+namespace is emitted (`declarationEmitNamespaceMergedWithInterfaceNestedFunction`)
+and an exported interface's local `const` twin is not. A name with no
+type-meaning declaration in the file keeps the old name-only reach, the
+documented over-approximation bias.
+
+This is also an *analysis* fix: fewer phantom-visible declarations means fewer
+phantom `TS9xxx` reports, so `dts_reachable_target` rises 491 → 494 and the three
+cases that enter `dts_emit`'s denominator all pass (335/372 → 338/375).
+
+One consequence was found by measurement, not foresight: the synthesized
+`{ fn: typeof fn }` reused the shorthand's source identifier as *both* the member
+name and the query's entity, so the declaring-name skip hid the reference. Every
+synthesized type query now takes a fresh name node.
 
 ## Known approximations
 

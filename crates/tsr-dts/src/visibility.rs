@@ -182,6 +182,41 @@ pub fn visible_module_members<'a>(statements: &'a [Statement<'a>]) -> Visible {
                 }
             }
         }
+        for name in collector.type_names {
+            let Some(targets) = by_name.get(name) else { continue };
+            // The binder keeps exported and local declarations in different
+            // tables, so one name can be two symbols; a type reference resolves
+            // to the one with a type meaning and makes *all* of that symbol's
+            // declarations visible (`hasVisibleDeclarations`,
+            // `internal/checker/emitresolver.go:384`) — an interface's merged
+            // local namespace comes along
+            // (`declarationEmitNamespaceMergedWithInterfaceNestedFunction`),
+            // an exported interface's same-named local `const` does not.
+            let symbol_reached = |exported: bool| {
+                targets
+                    .iter()
+                    .any(|target| exports_something(target) == exported && has_type_meaning(target))
+            };
+            let (exported, local) = (symbol_reached(true), symbol_reached(false));
+            // A name with no type-meaning declaration in this file keeps the old
+            // name-only reach: it may be an augmentation or a global this pass
+            // cannot see, and over-reaching is the deliberate bias.
+            let reached: Vec<_> = targets
+                .iter()
+                .filter(|target| {
+                    (!exported && !local)
+                        || if exports_something(target) { exported } else { local }
+                })
+                .collect();
+            names.insert(name.to_string());
+            for target in reached {
+                if let Some(id) = target.node_id()
+                    && visible.insert(id)
+                {
+                    queue.push(target);
+                }
+            }
+        }
     }
 
     Visible { ids: visible, names }
@@ -354,7 +389,19 @@ struct ReferenceCollector<'a> {
     /// fixpoint, because a variable of the same name contributes its type, not
     /// its name.
     value_names: Vec<&'a str>,
+    /// Bare identifiers written in a type reference (`x: Component`). They
+    /// resolve in the *type* meaning, so a same-named variable or function is
+    /// not what they name (`neverReturningFunctions1`: an exported interface
+    /// `Component` beside a private `const Component`).
+    type_names: Vec<&'a str>,
     bound_type_names: Vec<&'a str>,
+    /// Identifiers that *declare* rather than reference: a declaration's own
+    /// name and a non-computed member name. The generic walk visits them as
+    /// identifiers, which made `export interface Component` reach a private
+    /// `const Component` and a property signature `fooProps?:` reach a
+    /// private `const fooProps` (`neverReturningFunctions1`,
+    /// `nonPrimitiveAndEmptyObject`).
+    declaring: FxHashSet<NodeId>,
 }
 
 impl<'a> ReferenceCollector<'a> {
@@ -622,14 +669,93 @@ impl<'a> ReferenceCollector<'a> {
     }
 }
 
+impl<'a> ReferenceCollector<'a> {
+    fn declares(&mut self, name: Option<&tsr_ast::Identifier<'a>>) {
+        if let Some(id) = name.and_then(|name| name.node_id) {
+            self.declaring.insert(id);
+        }
+    }
+
+    fn declares_member(&mut self, name: &tsr_ast::PropertyName<'a>) {
+        if let tsr_ast::PropertyName::Identifier(identifier) = name {
+            self.declares(Some(identifier));
+        }
+    }
+}
+
 impl<'a> Visit<'a> for ReferenceCollector<'a> {
     fn visit_identifier(&mut self, node: &'a tsr_ast::Identifier<'a>) {
+        if node.node_id.is_some_and(|id| self.declaring.contains(&id)) {
+            return;
+        }
         self.record_name(node.text);
     }
 
+    fn visit_interface_declaration(&mut self, node: &'a tsr_ast::InterfaceDeclaration<'a>) {
+        self.declares(node.name);
+        tsr_ast::visit::walk_interface_declaration(self, node);
+    }
+
+    fn visit_class_declaration(&mut self, node: &'a tsr_ast::ClassDeclaration<'a>) {
+        self.declares(node.name);
+        tsr_ast::visit::walk_class_declaration(self, node);
+    }
+
+    fn visit_function_declaration(&mut self, node: &'a tsr_ast::FunctionDeclaration<'a>) {
+        self.declares(node.name);
+        tsr_ast::visit::walk_function_declaration(self, node);
+    }
+
+    fn visit_type_alias_declaration(&mut self, node: &'a tsr_ast::TypeAliasDeclaration<'a>) {
+        self.declares(node.name);
+        tsr_ast::visit::walk_type_alias_declaration(self, node);
+    }
+
+    fn visit_enum_declaration(&mut self, node: &'a tsr_ast::EnumDeclaration<'a>) {
+        self.declares(node.name);
+        tsr_ast::visit::walk_enum_declaration(self, node);
+    }
+
+    fn visit_property_signature_declaration(
+        &mut self,
+        node: &'a tsr_ast::PropertySignatureDeclaration<'a>,
+    ) {
+        self.declares_member(&node.name);
+        tsr_ast::visit::walk_property_signature_declaration(self, node);
+    }
+
+    fn visit_method_signature_declaration(
+        &mut self,
+        node: &'a tsr_ast::MethodSignatureDeclaration<'a>,
+    ) {
+        self.declares_member(&node.name);
+        tsr_ast::visit::walk_method_signature_declaration(self, node);
+    }
+
+    fn visit_method_declaration(&mut self, node: &'a tsr_ast::MethodDeclaration<'a>) {
+        self.declares_member(&node.name);
+        tsr_ast::visit::walk_method_declaration(self, node);
+    }
+
+    fn visit_get_accessor_declaration(&mut self, node: &'a tsr_ast::GetAccessorDeclaration<'a>) {
+        self.declares_member(&node.name);
+        tsr_ast::visit::walk_get_accessor_declaration(self, node);
+    }
+
+    fn visit_set_accessor_declaration(&mut self, node: &'a tsr_ast::SetAccessorDeclaration<'a>) {
+        self.declares_member(&node.name);
+        tsr_ast::visit::walk_set_accessor_declaration(self, node);
+    }
+
     fn visit_type_reference_node(&mut self, node: &'a tsr_ast::TypeReferenceNode<'a>) {
-        if let Some(name) = &node.type_name {
-            self.record_entity_name(name);
+        match &node.type_name {
+            Some(EntityName::Identifier(identifier)) => {
+                if !self.bound_type_names.contains(&identifier.text) {
+                    self.type_names.push(identifier.text);
+                }
+            }
+            Some(name) => self.record_entity_name(name),
+            None => {}
         }
         for argument in node.type_arguments {
             self.visit_node(tsr_ast::Node::from(*argument));
@@ -754,6 +880,21 @@ impl<'a> Visit<'a> for ReferenceCollector<'a> {
             self.record_default_export_expression(expression);
         }
     }
+}
+
+/// Whether a top-level statement declares something a bare type reference can
+/// name: an interface, type alias, class or enum, or an import (whose meaning
+/// this pass cannot see).
+fn has_type_meaning(statement: &Statement<'_>) -> bool {
+    matches!(
+        statement,
+        Statement::InterfaceDeclaration(_)
+            | Statement::TypeAliasDeclaration(_)
+            | Statement::ClassDeclaration(_)
+            | Statement::EnumDeclaration(_)
+            | Statement::ImportDeclaration(_)
+            | Statement::ImportEqualsDeclaration(_)
+    )
 }
 
 /// Whether a declaration's value is the symbol's own anonymous type, which an

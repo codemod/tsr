@@ -129,8 +129,12 @@ impl<'a> FileScope<'a> {
         if !resolves_at_file_scope(factory, identifier.node_id) {
             return None;
         }
+        // A fresh name node: the source identifier may also be the emitted
+        // member's *name* (a shorthand property), and the two are different
+        // roles to every later pass that walks the declaration tree.
+        let name = factory.identifier(identifier.text, span);
         Some(TypeNode::TypeQueryNode(factory.alloc(
-            tsr_ast::TypeQueryNode::new(Some(tsr_ast::EntityName::Identifier(identifier)), &[]),
+            tsr_ast::TypeQueryNode::new(Some(tsr_ast::EntityName::Identifier(name)), &[]),
             SyntaxKind::TypeQuery,
             span,
             NodeFlags::empty(),
