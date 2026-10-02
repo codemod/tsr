@@ -24,22 +24,21 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — 2026-10-01
 
-Measured on **`e8c208fc`** in an isolated checkout: **453,951/478,855 assertions
-(94.80%)**, **6,791/9,538 complete cases (71.20%)**. The 99% target requires
-474,067 correct assertions; **20,116 remain**. Denominator and pinned oracle
-unchanged. Aligned verdicts: **474,243 total; 453,951 right; 3,055 gap; 17,237 wrong**.
+Measured on **`29828bdf`** in an isolated checkout: **454,134/478,855 assertions
+(94.84%)**, **6,794/9,538 complete cases (71.23%)**. The 99% target requires
+474,067 correct assertions; **19,933 remain**. Denominator and pinned oracle
+unchanged. Aligned verdicts: **474,243 total; 454,134 right; 3,032 gap; 17,077 wrong**.
 Binder retains its verified **8,497/8,497 (100%)** result at aab165d8;
 other suites below retain historical measurements.
 
-This unit adds **319 matching assertions**, with **zero RIGHT losses** relative
-to 82ca5f80: 251 WRONG→RIGHT and 68 GAP→RIGHT. There are 19 GAP→WRONG,
-three WRONG→GAP and 52 changed wrong answers. [Constructor resolution](docs/architecture/checker-99-intersection-constructors.md)
-records native mixin intersections, apparent construct signatures, candidate
-ordering, late-bound property inference, tuple parameter traversal and structural
-inference pair memoization. Seven focused tests, four updated test files, a
-scratch mutation, native controls, release workspace tests, clippy, 3,340 anchors
-and the refreshed checker snapshot validate this checkpoint. The goal remains
-unfinished; verified changes push to main.
+This unit adds **183 matching assertions**, with **zero RIGHT losses** relative
+to e8c208fc: 163 WRONG→RIGHT and 20 GAP→RIGHT. Three GAP→WRONG assertions
+remain in JSX callback contexts. [Dependent bindings](docs/architecture/checker-99-dependent-bindings.md)
+records array discriminant indices and captured generic-alias property resolution.
+Four focused tests, native and isolated mutation controls, 194 release workspace
+result blocks, clippy, 3,340 anchors and the refreshed checker snapshot validate
+this checkpoint. Method-bearing and computed alias members retain explicit
+refusals. The goal remains unfinished; verified changes push to main.
 
 ### Previous whole-suite measurement — historical
 
@@ -1074,6 +1073,7 @@ Per-crate, by what the conformance suites actually assert — not by what exists
 
 | subsystem | state | evidence |
 |---|---|---|
+| dependent bindings | **tuple indices and captured alias properties** | 29828bdf: +183 matches, zero RIGHT losses; four native-controlled tests; [evidence](docs/architecture/checker-99-dependent-bindings.md) |
 | scanner | **done** | 100% termination and clean-files |
 | parser | **done for TypeScript** | 99.38%; `parser_reachable_target` is a wider target set |
 | binder | **near done** | 99.15% at `8dcdc71`; `getMergedSymbol` redirect landed 2026-08-06 |
@@ -1228,7 +1228,18 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-### Current priorities at `e8c208fc` — 2026-10-01
+### Current priorities at `29828bdf` — 2026-10-01
+
+Continue toward 99% coverage: 19,933 matching assertions remain. Array binding
+indices now participate in discriminant flow, and captured statically named
+properties support dependent narrowing through generic aliases and constraints.
+Uncaptured method/accessor/index/call/construct and computed alias members remain
+in tsr-6.32. The three newly reachable JSX callback context mismatches remain
+within tsr-6.30. Constructor accessibility, generic mixin static intersections,
+full CheckMode state, mapped/conditional inference and namespace serialization
+remain on the existing board. The depend C1/C4 controls remain stale (tsr-6.29).
+
+### Previous priorities at `e8c208fc` — 2026-10-01
 
 Continue toward 99% coverage: 20,116 matching assertions remain. Constructor
 intersections now distinguish mixins from ordinary overloads, and supported new
@@ -3970,6 +3981,21 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+### Dependent bindings at `29828bdf`
+
+The verified unit gains 183 matches with zero RIGHT losses; three GAP→WRONG
+assertions remain in contextuallyTypedJsxAttribute, where callbacks still infer
+any instead of native string. Removing the blanket structural-literal refusal
+gained 187 matches, but a native method probe exposed readonly [T, T] instead of
+readonly [number, number]. Retaining uncaptured member exclusions gives 183.
+A computed unique-symbol probe likewise exposed T | T[] instead of number;
+excluding computed members preserves the same corpus totals. Those exclusions
+remain until instantiated member capture is complete (tsr-6.32). The old 19G→W
+refusal for all literals no longer applies to captured property-only bodies;
+this unit resolves all 90 remaining controlFlowAliasedDiscriminants mismatches.
+See [controls and limits](docs/architecture/checker-99-dependent-bindings.md).
+
 
 ### Constructor intersections at `e8c208fc`
 
@@ -9938,6 +9964,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
+| 2026-10-01 | `29828bdf` | **71.23%** | **6,794** | **454,134/478,855 assertions (94.84%).** +183 since e8c208fc, zero RIGHT losses; 163W→R,20G→R,3G→W. | Array binding indices and instantiated property-only aliases in dependent flow. Four focused/native controls, isolated mutation, release workspace194 blocks, clippy,3,340 anchors; committed isolated verdict byte-match and refreshed snapshot. [Evidence](docs/architecture/checker-99-dependent-bindings.md). 19,933 remain to99%. |
 | 2026-10-01 | `e8c208fc` | **71.20%** | **6,791** | **453,951/478,855 assertions (94.80%).** +319 since 82ca5f80, zero RIGHT losses; 251W→R, 68G→R, 19G→W, 3W→G, 52 changed wrong. Native constructor intersections, ordering and shared resolution; late-bound and tuple inference with pair memoization. Seven focused tests, four updated test files, native/mutation controls; release workspace193 blocks, clippy,3,340 anchors; isolated committed-source measurement and snapshot. [Evidence](docs/architecture/checker-99-intersection-constructors.md). 20,116 remain to 99%. |
 | 2026-10-01 | `82ca5f80` | **70.94%** | **6,766** | **453,632/478,855 assertions (94.73%).** +295 since 0d806f93, zero RIGHT losses; 229W→R, 66G→R, 19G→W, 43 changed wrong. Instantiated inherited signatures, defaults/qualified names, callback context retention, never intersections and super bases. Seven focused tests, two updated refusal tests, mutation/native controls; release tests/clippy; 3,344 anchors; snapshot refreshed. [Evidence](docs/architecture/checker-99-inherited-signatures.md). 20,435 remain to 99%. |
 | 2026-10-01 | `0d806f93` | **70.66%** | **6,740** | **453,337/478,855 assertions (94.67%).** +462 since ced80f1f, zero RIGHT losses; 405W→R, 57G→R, 16G→W, 27 changed wrong. Union signatures, predicates, array fallback, contextual intersections, abstract component flags and explicit receivers. Six focused tests plus seven binding tests; native/pinned controls; release tests/clippy; 3,348 anchors; snapshot refreshed. [Evidence](docs/architecture/checker-99-union-signatures.md). 20,730 remain to 99%. |

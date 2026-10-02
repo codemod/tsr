@@ -94,4 +94,28 @@ A test-only raw-string lint was corrected; it does not change the checker hash.
 
 Checker sources plus trace_case SHA-256:
 3ab8543205e377b057687de3abc9221f7cab5f45bbb5aeafd5ab0aad4838a264.
-Final committed-source coverage and snapshot results follow isolated verification.
+At 29828bdf, an isolated detached checkout with a separate target directory
+reproduces the final candidate verdict byte-for-byte: 454,134/478,855 assertions
+(94.84%) and 6,794/9,538 complete cases (71.23%). That adds three complete cases;
+19,933 correct assertions remain to 99%. The four focused tests pass again in
+that checkout. Clippy with warnings denied, formatting, whitespace checks and
+3,340 upstream anchors pass. Main and isolated checker source hashes agree.
+
+Evidence:
+- /tmp/tsr-99-dependent-bindings-verified.tsv
+- /tmp/tsr-99-dependent-bindings-verified-transitions.txt
+- /tmp/tsr-99-dependent-bindings-coverage.log
+- /tmp/tsr-99-dependent-bindings-workspace.log
+- /tmp/tsr-99-dependent-bindings-focused.log
+- /tmp/tsr-99-dependent-bindings-mutation.log
+- /tmp/tsr-99-dependent-bindings-sourcehash.txt
+- /tmp/compound-engineering-501/ce-code-review/dependent-bindings/review.json
+
+The completed unit is tracked in tsr-6.31; uncaptured members remain in tsr-6.32.
+The goal remains active.
+
+
+The depend instrument exits 0; its historical controls remain stale. C1 reports
+536 nongapping roots, C2 reports 229 cycles and zero depth-cap hits, C3 balances
+3,917 walked gap lines, and C4 still quotes a historical checkpoint. These counts
+are not coverage evidence; tsr-6.29 remains open.
