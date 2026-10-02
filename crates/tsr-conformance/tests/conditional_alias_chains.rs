@@ -81,3 +81,45 @@ declare const z4: Z2<'a'>;
         &["z3 : 0", "z4 : 1"],
     );
 }
+
+#[test]
+fn a_non_generic_conditional_node_evaluates_where_it_is_written() {
+    // getTypeFromConditionalTypeNode resolves through getConditionalType with
+    // no mapper; written annotations still reuse their conditional text.
+    expect(
+        r"// @strict: true
+type Z = { name: 'a' } extends Record<'name', 'b'> ? 1 : 0;
+type A = any extends number ? 1 : 0;
+type B = never extends never ? true : false;
+type N = number extends never ? true : false;
+type C = [any] extends [number] ? 1 : 0;
+declare let x: number extends string ? 1 : 0;
+declare function f(p: number extends string ? 1 : 0): void;
+type I = [1, 2, 3] extends [infer H, ...unknown[]] ? H : never;
+",
+        &[
+            "Z : 0",
+            "A : 0 | 1",
+            "B : true",
+            "N : false",
+            "C : 1",
+            "x : 0",
+            "f : (p: number extends string ? 1 : 0) => void",
+            "I : 1",
+        ],
+    );
+}
+
+#[test]
+fn exact_optional_properties_relate_without_their_missing_type() {
+    // strictOptionalProperties2: an explicit undefined does not relate to the
+    // target's missing type (getNonMissingTypeOfSymbol on both sides).
+    expect(
+        r"// @strict: true
+// @exactOptionalPropertyTypes: true
+type T1 = { 0?: string | undefined } extends { 0?: string } ? true : false;
+type T3 = { 0?: string } extends { 0?: string | undefined } ? true : false;
+",
+        &["T1 : false", "T3 : true"],
+    );
+}

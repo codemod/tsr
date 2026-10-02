@@ -415,8 +415,13 @@ impl<'a> Checker<'a, '_> {
                 // forward mapped members remain a separate port.
                 // Immediately nested conditionals continue under the current
                 // mapper instead of minting their uninstantiated written form.
+                // getTypeFromConditionalTypeNode (checker.go:24269) resolves
+                // every conditional node through getConditionalType with no
+                // mapper, so a non-deferred check also evaluates outside an
+                // alias frame. A deferred one keeps the written mint below.
                 if let TypeNode::ConditionalTypeNode(conditional) = node
-                    && !self.alias_evaluation_bindings.is_empty()
+                    && (!self.alias_evaluation_bindings.is_empty()
+                        || self.mapped_template_depth == 0)
                 {
                     if self.instantiation_depth == 100 {
                         return self.intrinsics.error;
@@ -5971,6 +5976,7 @@ impl<'a> Checker<'a, '_> {
                 result = self.evaluate_conditional_inference(conditional, check);
             }
             let keys = if extends_is_never { self.literal_key_texts(check) } else { None };
+            let keys_decided = keys.is_some();
             if check != error
                 && let Some(keys) = keys
             {
@@ -5992,7 +5998,10 @@ impl<'a> Checker<'a, '_> {
                 // Falling back to an unmapped target can select a false branch
                 // merely because the structural inference path is incomplete.
                 && !has_infer_parameters
-                && !extends_is_never
+                // A literal-key check against `never` was decided above; any
+                // other check relates to `never` like any extends type
+                // (`number extends never` is false).
+                && !(extends_is_never && keys_decided)
                 && check != error
                 && let Some(extends_node) = conditional.extends_type
             {

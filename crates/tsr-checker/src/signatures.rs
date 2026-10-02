@@ -4319,6 +4319,13 @@ impl<'a> Checker<'a, '_> {
         {
             return Self::written_type_text(annotation, &mut false, &mut false);
         }
+        // The same reuse for a conditional written in the annotation itself,
+        // which getTypeFromConditionalTypeNode may resolve to its branch.
+        if self.alias_evaluation_bindings.is_empty()
+            && matches!(annotation, TypeNode::ConditionalTypeNode(_))
+        {
+            return Self::written_type_text(annotation, &mut false, &mut false);
+        }
         // serializeTypeForDeclaration reuses a written mapped alias when
         // normalization produced a sequence type. Keep this in the signature
         // annotation channel; the parameter's semantic type is the sequence.

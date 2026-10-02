@@ -2322,6 +2322,18 @@ impl Relater<'_, '_, '_> {
                 parts.push(Ternary::Unknown);
                 continue;
             };
+            // propertiesRelatedTo reads both sides through
+            // getNonMissingTypeOfSymbol (relater.go:4334): under
+            // exactOptionalPropertyTypes an optional property's missing type is
+            // removed, so an explicit `undefined` must relate on its own.
+            let (target_type, source_type) = if self.checker.exact_optional_property_types {
+                (
+                    self.checker.remove_missing_type(target_type),
+                    self.checker.remove_missing_type(source_type),
+                )
+            } else {
+                (target_type, source_type)
+            };
             // The privacy arms (`propertyRelatedTo`'s first switch, §16 of
             // `checker-notes-assign.md`): PRIVATE on either side relates only
             // when both symbols share one value declaration — an identity

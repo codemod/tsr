@@ -123,11 +123,59 @@ deferred generic extends shapes, the permissive FALSE outcome
 (`string extends { name: T }` → `0`), and `Record` literal keys deciding a
 concrete relation (`Z2<'b'>` → `0`, `Z2<'a'>` → `1`).
 
+## Non-generic conditional nodes
+
+`getTypeFromConditionalTypeNode` (`checker.go:24269`) builds a root for every
+conditional node and resolves it through `getConditionalType` with no mapper.
+The port evaluated a conditional node only inside an alias frame and otherwise
+minted its written text, so `type T41 = number extends never ? true : false`,
+`declare let x: number extends string ? 1 : 0` and `any extends number ? 1 : 0`
+all printed the conditional. The node arm now calls `evaluate_conditional_node`
+whenever it is not inside a mapped template (`mapped_template_depth`, whose
+root/mapper capture is a separate, measured mechanism). A deferred conditional
+still takes the written mint, which is upstream's deferred display.
+
+Two companions the measurement required:
+
+- Signature printing reuses a written conditional annotation
+  (`f : (p: number extends string ? 1 : 0) => void`), as
+  `serializeTypeForDeclaration` does when the annotation's type matches.
+- The `extends never` road decided only literal-key checks and then skipped the
+  general relation, so `number extends never` stayed undecided. A check that is
+  not a literal-key union now relates to `never` like any extends type.
+
+`strictOptionalProperties2`'s `T1` became newly reachable and wrong
+(`true` for `false`): `propertiesRelatedTo` reads both sides through
+`getNonMissingTypeOfSymbol` (`relater.go:4334`), so under
+`exactOptionalPropertyTypes` an explicit `undefined` in the source does not
+relate to the target's missing type. The relater now removes the missing type
+from both property types in that mode.
+
+### Measurement
+
+Against the baseline at `6c230ca2` and on top of the chain unit: +59 matching
+assertions beyond it (456,949 → 457,008). Transitions of this step: 49 further
+WRONG→RIGHT (conditionalTypes1 5 more, aliasOfGenericFunctionWithRestBehavedSameAsUnaliased 8,
+conditionalAnyCheckTypePicksBothBranches 8, singletonLabeledTuple, inferTypes2,
+deeplyNestedMappedTypes and others), 10 GAP→RIGHT (inferTInParentheses 6,
+mappedTypesGenericTuples 2), **zero RIGHT losses**, and **four GAP→WRONG** in
+`circularConstructorWithReturn`.
+
+Those four are a laziness divergence, not a conditional one. Resolving
+`type Client = ReturnType<typeof getPrismaClient> extends new () => infer T ? T : never`
+checks `getPrismaClient`'s class, whose constructor reads `this.self: Client`
+while `Client` is on the resolution stack; the existing self-mention placeholder
+answers the alias name, and those expression types are cached. Upstream resolves
+member types lazily and prints `PrismaClient`. The rows were `error` before only
+because the alias body never evaluated. Reopening condition: deferred member
+type resolution for class members read during an alias's own resolution.
+
 ## Remaining in this family
 
-- A non-generic conditional (`type Z = A extends B ? 1 : 0`, or a conditional
-  written directly in an annotation) is still printed from its written text;
-  upstream's `getTypeFromConditionalTypeNode` evaluates it. About 76 non-RIGHT
-  rows print a conditional where the baseline wants its branch.
+- About 25 non-RIGHT rows still print a conditional where the baseline wants
+  a branch: generic-check distributive constraints
+  (distributiveConditionalTypeConstraints), `NonNullable<T>` reduction,
+  polymorphic `this` checks, recursive/tail-recursive conditionals and
+  conditionals inside mapped templates.
 - Distributive constraint, infer-through-chain and recursive conditional
   relations remain in `bd tsr-6.3`.
