@@ -341,6 +341,16 @@ impl<'a> Checker<'a, '_> {
             // ordinary written keyof parameters retain their legacy metadata.
             TypeNode::TypeOperatorNode(node)
                 if node.operator.kind == SyntaxKind::KeyOfKeyword
+                    && !node.r#type.is_some_and(|mut operand| {
+                        while let TypeNode::ParenthesizedTypeNode(parenthesized) = operand {
+                            let Some(inner) = parenthesized.r#type else { return false };
+                            operand = inner;
+                        }
+                        matches!(
+                            operand,
+                            TypeNode::UnionTypeNode(_) | TypeNode::IntersectionTypeNode(_)
+                        )
+                    })
                     && (!self.alias_evaluation_bindings.is_empty()
                         // §730: a CONCRETE operand's key set is final, so the
                         // operator may be evaluated. §729 measured this predicate
@@ -582,8 +592,89 @@ impl<'a> Checker<'a, '_> {
             TypeNode::ThisTypeNode(node) => self.get_type_from_this_type_node(node),
             // §35 (`checker-notes-callres.md`): DEFERRED `keyof` over a type
             // parameter prints as written — the §34 mint, the §31
-            // registration. Concrete operands resolve upstream and decline.
+            // registration. Direct unions and intersections follow
+            // `getIndexTypeEx`'s semantic distribution: the keys of a union are
+            // intersected and the keys of an intersection are unioned. Keep
+            // this syntax-bounded rather than admitting every generic operand:
+            // alias consumers independently retain their written form.
             TypeNode::TypeOperatorNode(node) if node.operator.kind == SyntaxKind::KeyOfKeyword => {
+                let mut direct_operand = node.r#type;
+                while let Some(TypeNode::ParenthesizedTypeNode(parenthesized)) = direct_operand {
+                    direct_operand = parenthesized.r#type;
+                }
+                // `shouldDeferIndexType` keeps an instantiable intersection
+                // containing an empty anonymous object as one INDEX type.
+                // `keyof (T & {})` therefore stays deferred instead of reducing
+                // to `keyof T | never` and collapsing to `keyof T`.
+                if let Some(TypeNode::IntersectionTypeNode(intersection)) = direct_operand
+                    && intersection.types.iter().any(|operand| {
+                        matches!(
+                            operand,
+                            TypeNode::TypeLiteralNode(literal) if literal.members.is_empty()
+                        )
+                    })
+                {
+                    let target =
+                        self.get_type_from_type_node(TypeNode::IntersectionTypeNode(intersection));
+                    let mut pending = vec![target];
+                    let mut instantiable = false;
+                    while let Some(candidate) = pending.pop() {
+                        if self.store.get(candidate).flags.intersects(TypeFlags::INSTANTIABLE) {
+                            instantiable = true;
+                            break;
+                        }
+                        if let crate::types::TypeData::Union { types, .. }
+                        | crate::types::TypeData::Intersection { types, .. } =
+                            self.store.get(candidate).data.clone()
+                        {
+                            pending.extend(types);
+                        }
+                    }
+                    if target != self.intrinsics.error && instantiable {
+                        let text = format!("keyof ({})", self.type_to_string(target));
+                        let id = self.store.new_named(TypeFlags::INDEX, text, None);
+                        self.deferred_keyof_types.insert(id);
+                        self.deferred_keyof_operands.insert(id, target);
+                        self.deferred_index_mints.insert(id);
+                        return id;
+                    }
+                }
+                let (compound, operands, separator) = match direct_operand {
+                    Some(TypeNode::UnionTypeNode(union)) => {
+                        (Some(TypeNode::UnionTypeNode(union)), Some(union.types), " | ")
+                    }
+                    Some(TypeNode::IntersectionTypeNode(intersection)) => (
+                        Some(TypeNode::IntersectionTypeNode(intersection)),
+                        Some(intersection.types),
+                        " & ",
+                    ),
+                    _ => (None, None, ""),
+                };
+                if let (Some(compound), Some(operands)) = (compound, operands) {
+                    let target = self.get_type_from_type_node(compound);
+                    if let Some(keys) = self.resolved_keyof_type(target) {
+                        let written_operands: Vec<_> = operands
+                            .iter()
+                            .map(|&operand| self.get_type_from_type_node(operand))
+                            .collect();
+                        // The semantic type is distributed, while a declaration
+                        // signature reuses the written operator node. Keep that
+                        // spelling in the existing node-reuse channel instead
+                        // of baking it into the semantic union/intersection.
+                        if let Some(id) = node.node_id {
+                            let written = format!(
+                                "keyof ({})",
+                                written_operands
+                                    .iter()
+                                    .map(|&operand| self.type_to_string(operand))
+                                    .collect::<Vec<_>>()
+                                    .join(separator)
+                            );
+                            self.qualified_written_text.entry(id).or_insert(written);
+                        }
+                        return keys;
+                    }
+                }
                 let deferred = match node.r#type {
                     Some(TypeNode::TypeReferenceNode(operand))
                         if operand.type_arguments.is_empty() =>
