@@ -1903,12 +1903,21 @@ impl Checker<'_, '_> {
             TypeData::Anonymous { symbol, .. } => Owner::Anonymous(*symbol),
             _ => return None,
         };
-        let found = match owner {
-            Owner::Declared(owner) => {
-                let mut visiting = Vec::new();
-                self.get_property_of_declared_symbol(owner, name, &mut visiting)
+        let found = if let Some(&(_, source)) = self.class_module_clones.get(&id) {
+            if name == "default"
+                && let Some(default) = self.class_module_clone_default_symbol(id)
+            {
+                return Some(default);
             }
-            Owner::Anonymous(symbol) => self.get_property_of_anonymous_symbol(symbol, name),
+            self.get_property_of_type_ex(source, name, true)
+        } else {
+            match owner {
+                Owner::Declared(owner) => {
+                    let mut visiting = Vec::new();
+                    self.get_property_of_declared_symbol(owner, name, &mut visiting)
+                }
+                Owner::Anonymous(symbol) => self.get_property_of_anonymous_symbol(symbol, name),
+            }
         };
         if found.is_some() {
             return found;
@@ -1951,7 +1960,7 @@ impl Checker<'_, '_> {
                     .flags
                     .contains(SymbolFlags::CLASS),
                 Owner::Declared(_) => false,
-            };
+            } && !self.class_module_clones.contains_key(&id);
             let has_call = self
                 .signatures_of_type_kind(id, crate::signatures::SignatureKind::Call)
                 .is_some_and(|signatures| !signatures.is_empty());
@@ -2450,6 +2459,9 @@ impl Checker<'_, '_> {
 
     /// resolveAnonymousTypeMembers (checker.go): class values own a static side.
     pub(crate) fn class_static_symbol(&self, id: TypeId) -> Option<tsr_binder::SymbolId> {
+        if self.class_module_clones.contains_key(&id) {
+            return None;
+        }
         let TypeData::Anonymous { symbol, .. } = self.type_of(id).data else { return None };
         let symbol = self.binder.merged_symbol(symbol);
         self.binder
@@ -2475,6 +2487,15 @@ impl Checker<'_, '_> {
     /// The `None`-on-an-unfollowable-base rule is [`Checker::base_symbols_of`]'s
     /// and is why the walk cannot silently under-report a requirement.
     pub(crate) fn get_property_names_of_type(&mut self, id: TypeId) -> Option<Vec<String>> {
+        if let Some(&(_, source)) = self.class_module_clones.get(&id) {
+            let mut names = self.get_property_names_of_type(source)?;
+            if self.class_module_clone_default_symbol(id).is_some()
+                && !names.iter().any(|name| name == "default")
+            {
+                names.push("default".to_owned());
+            }
+            return Some(names);
+        }
         // resolveMappedTypeMembers supplies guaranteed keys of an open keyof
         // map from its apparent object constraint. Sequence apparent types keep
         // their existing tuple/array path; unsupported keys remain unenumerated.

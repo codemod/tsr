@@ -572,13 +572,60 @@ impl<'a> Checker<'a, '_> {
         // type.
         let computed = match target {
             Some(target) if self.get_symbol_flags(target).intersects(SymbolFlags::VALUE) => {
-                self.get_type_of_symbol(target)
+                let value = self.get_type_of_symbol(target);
+                self.class_module_clone_type(symbol, target, value).unwrap_or(value)
             }
             _ => self.intrinsics.error,
         };
         let computed = if self.resolutions.pop() { computed } else { self.intrinsics.error };
         self.symbol_types.insert(symbol, computed);
         computed
+    }
+
+    /// resolveESModuleSymbol/cloneTypeAsModuleType: namespace imports of a
+    /// class copy its value members, not its constructor signatures. Variable
+    /// exports whose value happens to be a class are a different symbol shape.
+    fn class_module_clone_type(
+        &mut self,
+        alias: SymbolId,
+        target: SymbolId,
+        value: TypeId,
+    ) -> Option<TypeId> {
+        let declaration = self.declaration_of_alias_symbol(alias)?;
+        if self.nodes.kind(declaration) != SyntaxKind::NamespaceImport {
+            return None;
+        }
+        let target = self.resolve_alias_fully(target);
+        if !self.binder.symbols().get(target).flags.contains(SymbolFlags::CLASS)
+            || self.is_error(value)
+            || self
+                .signatures_of_type_kind(value, crate::signatures::SignatureKind::Construct)
+                .is_none_or(|signatures| signatures.is_empty())
+        {
+            return None;
+        }
+        let crate::types::TypeData::Anonymous { symbol, ref text, .. } = self.store.get(value).data
+        else {
+            return None;
+        };
+        let text = text.clone();
+        let flags = self.store.get(value).flags;
+        let clone = self.store.new_anonymous(flags, text, symbol, false);
+        self.class_module_clones.insert(clone, (alias, value));
+        self.signature_types.insert(clone, Vec::new());
+        Some(clone)
+    }
+
+    /// The synthetic default aliases the export-equals value. Reuse that
+    /// alias's value/readonly metadata rather than a constructor property.
+    pub(crate) fn class_module_clone_default_symbol(&mut self, value: TypeId) -> Option<SymbolId> {
+        let &(alias, _) = self.class_module_clones.get(&value)?;
+        let declaration = self.declaration_of_alias_symbol(alias)?;
+        let specifier = self.import_declaration_specifier(declaration)?;
+        let module = self.resolve_external_module_name(declaration, specifier)?;
+        self.can_have_synthetic_default(module)
+            .then(|| self.binder.symbols().get(module).exports.get("export=").copied())
+            .flatten()
     }
 
     /// A symbol's flags, **following the alias chain**.

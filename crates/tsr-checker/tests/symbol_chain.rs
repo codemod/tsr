@@ -704,3 +704,171 @@ fn alias_export_tables_check_the_direct_name_before_renamed_aliases() {
         assert_eq!(imported_class_names_at(library), (name.to_string(), format!("typeof {name}")));
     }
 }
+
+/// Native 5b1047d: Head/Twin are separate nonconstructable module values;
+/// Raw retains the constructor and names the copied prototype's instance.
+#[test]
+fn class_namespace_imports_keep_distinct_module_value_identity() {
+    let arena = Arena::new();
+    let library = "class Foo { static left = 7; own!: string; } namespace Foo { export const right = 'right'; } export = Foo;";
+    let source = "import * as Head from './lib'; import Raw = require('./lib'); import * as Twin from './lib'; const copy = Head; Head.left; Head.right; Head.prototype; Head.default; new Head(); new Raw();";
+    let mut nodes = NodeTable::new();
+    let mut map = NodeMap::new();
+    let mut bound = tsr_binder::BindResult::empty();
+    let mut roots = Vec::new();
+    for (name, text) in [("/lib.ts", library), ("/use.ts", source)] {
+        let parsed = tsr_parser::parse_into(
+            &arena,
+            text,
+            tsr_parser::ParseOptions::default(),
+            &mut nodes,
+            &mut map,
+        );
+        assert!(parsed.diagnostics.is_empty());
+        roots.push(parsed.source_file.node_id.unwrap());
+        bound = tsr_binder::bind_into(
+            bound,
+            &arena,
+            parsed.source_file,
+            &nodes,
+            tsr_binder::FileInfo { name, text },
+        );
+    }
+    let locals = bound.locals(roots[1]).unwrap();
+    let head = locals["Head"];
+    let raw = locals["Raw"];
+    let twin = locals["Twin"];
+    let copy = locals["copy"];
+    let host = ExportLibrary(roots[0]);
+    let mut checker = Checker::with_module_host(&bound, &nodes, &map, Some(&host));
+    let mut sites = Vec::new();
+    identifiers(&map, roots[1], "copy", &mut sites);
+    let site = sites[0];
+    let head_type = checker.get_type_of_symbol(head);
+    let raw_type = checker.get_type_of_symbol(raw);
+    let twin_type = checker.get_type_of_symbol(twin);
+    assert_ne!(head_type, raw_type);
+    assert_ne!(head_type, twin_type);
+    assert_eq!(checker.get_type_of_symbol(copy), head_type);
+    assert_eq!(checker.type_to_string_at(head_type, site).as_deref(), Some("typeof Head"));
+    assert_eq!(checker.type_to_string_at(twin_type, site).as_deref(), Some("typeof Twin"));
+    assert_eq!(checker.type_to_string_at(raw_type, site).as_deref(), Some("typeof Raw"));
+    assert!(checker.signatures_of_type(head_type).unwrap().is_empty());
+    for name in ["left", "right"] {
+        assert_eq!(
+            checker.get_property_of_type(head_type, name).expect("clone retains property"),
+            checker.get_property_of_type(raw_type, name).expect("source has property"),
+            "copied property {name} retains its source symbol",
+        );
+    }
+    for (name, expected) in [("left", "number"), ("right", "\"right\"")] {
+        let property = checker.get_type_of_property_of_type(head_type, name).unwrap();
+        assert_eq!(checker.type_to_string_at(property, site).as_deref(), Some(expected));
+    }
+    assert_eq!(checker.get_property_of_type(head_type, "own"), None);
+    let prototype = checker.get_type_of_property_of_type(head_type, "prototype").unwrap();
+    assert_eq!(checker.type_to_string_at(prototype, site).as_deref(), Some("Raw"));
+    let default = checker.get_type_of_property_of_type(head_type, "default").unwrap();
+    assert_eq!(default, raw_type);
+    for name in ["Head", "Raw"] {
+        let mut uses = Vec::new();
+        identifiers(&map, roots[1], name, &mut uses);
+        let last_use = *uses.last().unwrap();
+        let Some(Node::NewExpression(expression)) = map.get(nodes.parent(last_use).unwrap()) else {
+            panic!("the last alias use is a constructor expression");
+        };
+        let constructed = checker.check_expression(tsr_ast::Expression::NewExpression(expression));
+        if name == "Raw" {
+            assert_eq!(constructed, prototype, "require alias retains the class constructor");
+        } else {
+            // Native identity probe: intrinsic "error", not intrinsic "any".
+            // Preserve errorType rather than borrowing Raw's constructor.
+            assert_eq!(constructed, checker.intrinsics().error);
+        }
+    }
+}
+
+#[test]
+fn module_class_clone_boundary_does_not_admit_other_export_meanings() {
+    for library in [
+        "interface Foo { tag: string; } export = Foo;",
+        "const Foo = class Inner { tag!: string; }; export = Foo;",
+        "function Foo() {} export = Foo;",
+        "import Foo = Foo; export = Foo;",
+    ] {
+        let arena = Arena::new();
+        let source = "import * as Head from './lib'; import Raw = require('./lib'); Head; Raw;";
+        let mut nodes = NodeTable::new();
+        let mut map = NodeMap::new();
+        let mut bound = tsr_binder::BindResult::empty();
+        let mut roots = Vec::new();
+        for (name, text) in [("/lib.ts", library), ("/use.ts", source)] {
+            let parsed = tsr_parser::parse_into(
+                &arena,
+                text,
+                tsr_parser::ParseOptions::default(),
+                &mut nodes,
+                &mut map,
+            );
+            assert!(parsed.diagnostics.is_empty());
+            roots.push(parsed.source_file.node_id.unwrap());
+            bound = tsr_binder::bind_into(
+                bound,
+                &arena,
+                parsed.source_file,
+                &nodes,
+                tsr_binder::FileInfo { name, text },
+            );
+        }
+        let locals = bound.locals(roots[1]).unwrap();
+        let host = ExportLibrary(roots[0]);
+        let mut checker = Checker::with_module_host(&bound, &nodes, &map, Some(&host));
+        let head = checker.get_type_of_symbol(locals["Head"]);
+        let raw = checker.get_type_of_symbol(locals["Raw"]);
+        assert_eq!(head, raw, "outside this class-symbol clone unit: {library}");
+        if library.starts_with("interface") || library.starts_with("import") {
+            assert_eq!(head, checker.intrinsics().error, "unsupported meaning/cycle keeps a gap");
+        }
+    }
+}
+
+/// Native prints import("./lib") for the prototype, not Head, when the
+/// original class has no accessible constructor alias. That import-type
+/// fallback remains unsupported; the cloned value still has its own name.
+#[test]
+fn a_module_clone_alias_does_not_name_an_inaccessible_original_class() {
+    let arena = Arena::new();
+    let library = "class Foo { own!: string; } export = Foo;";
+    let source = "import * as Head from './lib'; Head.prototype;";
+    let mut nodes = NodeTable::new();
+    let mut map = NodeMap::new();
+    let mut bound = tsr_binder::BindResult::empty();
+    let mut roots = Vec::new();
+    for (name, text) in [("/lib.ts", library), ("/use.ts", source)] {
+        let parsed = tsr_parser::parse_into(
+            &arena,
+            text,
+            tsr_parser::ParseOptions::default(),
+            &mut nodes,
+            &mut map,
+        );
+        assert!(parsed.diagnostics.is_empty());
+        roots.push(parsed.source_file.node_id.unwrap());
+        bound = tsr_binder::bind_into(
+            bound,
+            &arena,
+            parsed.source_file,
+            &nodes,
+            tsr_binder::FileInfo { name, text },
+        );
+    }
+    let head = bound.locals(roots[1]).unwrap()["Head"];
+    let host = ExportLibrary(roots[0]);
+    let mut checker = Checker::with_module_host(&bound, &nodes, &map, Some(&host));
+    let mut sites = Vec::new();
+    identifiers(&map, roots[1], "Head", &mut sites);
+    let value = checker.get_type_of_symbol(head);
+    assert_eq!(checker.type_to_string_at(value, sites[1]).as_deref(), Some("typeof Head"));
+    let instance = checker.get_type_of_property_of_type(value, "prototype").unwrap();
+    assert_eq!(checker.type_to_string_at(instance, sites[1]), None);
+}
