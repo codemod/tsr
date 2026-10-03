@@ -3582,6 +3582,31 @@ impl<'a> Checker<'a, '_> {
             | SyntaxKind::PropertySignature => {
                 self.get_widened_type_for_variable_like_declaration(declaration)
             }
+            // Native reparses sibling @property tags as PropertySignatures
+            // under their typedef. The binder provides that lexical ownership;
+            // annotation resolution and optionality use the ordinary roads.
+            SyntaxKind::JSDocPropertyTag => {
+                let ty = self.type_annotation_of(declaration).map_or(
+                    self.intrinsics.any,
+                    |annotation| {
+                        let ty = self.get_type_from_type_node(annotation);
+                        // getTypeFromTypeNodeWorker adds explicit undefined
+                        // for {T=}, even on an exact-optional property. Keep
+                        // this at the supported sibling-property consumer;
+                        // parameter default-initializer flow is still separate.
+                        if matches!(annotation,
+                            TypeNode::JSDocTypeExpression(expression)
+                                if matches!(expression.r#type,
+                                    Some(TypeNode::JSDocOptionalType(_))))
+                        {
+                            self.get_optional_type(ty, false)
+                        } else {
+                            ty
+                        }
+                    },
+                );
+                self.add_optionality_for_declaration(ty, declaration)
+            }
             // §292 (relocated — the first draft sat in
             // get_type_for_variable_like_declaration, which this match never
             // reaches for the kind): `export default <expr>` — the `default`
@@ -5322,6 +5347,11 @@ impl<'a> Checker<'a, '_> {
             Node::ParameterDeclaration(node) => node.r#type,
             Node::PropertyDeclaration(node) => node.r#type,
             Node::PropertySignatureDeclaration(node) => node.r#type,
+            Node::JSDocParameterOrPropertyTag(node)
+                if self.nodes.kind(declaration) == SyntaxKind::JSDocPropertyTag =>
+            {
+                node.type_expression
+            }
             _ => None,
         }
     }

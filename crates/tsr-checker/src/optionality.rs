@@ -243,6 +243,16 @@ impl Checker<'_, '_> {
             Node::PropertySignatureDeclaration(n) => n.postfix_token,
             Node::MethodDeclaration(n) => n.postfix_token,
             Node::MethodSignatureDeclaration(n) => n.postfix_token,
+            Node::JSDocParameterOrPropertyTag(n)
+                if self.nodes.kind(declaration) == SyntaxKind::JSDocPropertyTag =>
+            {
+                // reparser.go::makeQuestionIfOptional supplies the synthetic ?.
+                return n.is_bracketed
+                    || matches!(n.type_expression,
+                        Some(tsr_ast::TypeNode::JSDocTypeExpression(expression))
+                            if matches!(expression.r#type,
+                                Some(tsr_ast::TypeNode::JSDocOptionalType(_))));
+            }
             _ => None,
         };
         token.is_some_and(|token| token.kind == SyntaxKind::QuestionToken)
@@ -268,6 +278,9 @@ impl Checker<'_, '_> {
                     if token.kind == SyntaxKind::AccessorKeyword)
             }),
             Some(Node::PropertySignatureDeclaration(_)) => true,
+            Some(Node::JSDocParameterOrPropertyTag(_)) => {
+                self.nodes.kind(declaration) == SyntaxKind::JSDocPropertyTag
+            }
             _ => false,
         }
     }

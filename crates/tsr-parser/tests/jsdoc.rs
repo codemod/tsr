@@ -161,6 +161,34 @@ fn brackets_mark_a_parameter_optional() {
 }
 
 #[test]
+fn optional_property_suffix_wraps_the_whole_type_and_preserves_the_name() {
+    use tsr_ast::TypeNode;
+    let arena = Arena::new();
+    let source = "/**\n * @property {T[]=} items\n * @property {T | string=} choice\n * @property {T[]} required\n */\nlet host;";
+    let parsed = parse(&arena, source);
+    let tags = tags(&parsed);
+    assert_eq!(tags.len(), 3);
+    for (tag, expected_name, optional, expected_type) in [
+        (tags[0], "items", true, "T[]="),
+        (tags[1], "choice", true, "T | string="),
+        (tags[2], "required", false, "T[]"),
+    ] {
+        let JSDocTag::JSDocParameterOrPropertyTag(property) = tag else {
+            panic!("property tag");
+        };
+        assert!(
+            matches!(property.name, Some(EntityName::Identifier(name)) if name.text == expected_name)
+        );
+        let Some(TypeNode::JSDocTypeExpression(expression)) = property.type_expression else {
+            panic!("type expression");
+        };
+        let ty = expression.r#type.expect("inner type");
+        assert_eq!(matches!(ty, TypeNode::JSDocOptionalType(_)), optional);
+        assert_eq!(text_of(source, &parsed.nodes, ty.into()), expected_type);
+    }
+}
+
+#[test]
 fn tag_aliases_produce_the_same_node() {
     for (a, b) in [("@returns", "@return"), ("@augments", "@extends"), ("@throws", "@exception")] {
         let arena = Arena::new();

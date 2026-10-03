@@ -664,6 +664,15 @@ impl tsr_checker::resolution::ModuleHost for Program<'_> {
             let docs = file.jsdoc().get(declaration);
             {
                 for doc in docs {
+                    // A typedef owns the templates in its comment; they do
+                    // not parameterize the declaration hosting that comment.
+                    if doc
+                        .tags
+                        .iter()
+                        .any(|tag| matches!(tag, tsr_ast::JSDocTag::JSDocTypedefTag(_)))
+                    {
+                        continue;
+                    }
                     for tag in doc.tags {
                         if let tsr_ast::JSDocTag::JSDocTemplateTag(template) = tag {
                             parameters.extend(

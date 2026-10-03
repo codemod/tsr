@@ -4704,6 +4704,9 @@ impl<'a> Checker<'a, '_> {
         if !self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_ALIAS) {
             return None;
         }
+        if self.jsdoc_sibling_property_doc(symbol).is_some() {
+            return Some(symbol);
+        }
         let TypeNode::TypeLiteralNode(literal) = self.type_alias_body(symbol)? else { return None };
         self.binder.symbol_of(literal.node_id?)
     }
@@ -5617,7 +5620,47 @@ impl<'a> Checker<'a, '_> {
             return self.store.new_named(
                 TypeFlags::OBJECT,
                 format!("{name}<{}>", parameters.join(", ")),
-                None,
+                self.jsdoc_sibling_property_doc(symbol).map(|_| symbol),
+            );
+        }
+        if let Some(doc) = self.jsdoc_sibling_property_doc(symbol) {
+            if self.resolutions.on_stack(symbol, PropertyName::DeclaredType) {
+                let name = self.binder.symbols().get(symbol).name.to_string();
+                return self.store.new_named(TypeFlags::OBJECT, name, Some(symbol));
+            }
+            if !self.resolutions.push(symbol, PropertyName::DeclaredType) {
+                return error;
+            }
+            let mut members = Vec::new();
+            for tag in doc.tags {
+                let tsr_ast::JSDocTag::JSDocParameterOrPropertyTag(property) = tag else {
+                    continue;
+                };
+                let Some(id) = property.node_id else { continue };
+                if self.nodes.kind(id) != SyntaxKind::JSDocPropertyTag {
+                    continue;
+                }
+                let Some(member) = self.binder.symbol_of(id) else { continue };
+                if self.binder.symbols().get(member).parent != Some(symbol) {
+                    continue;
+                }
+                let optional = self.is_optional_declaration(id);
+                let ty = self.get_type_of_symbol(member);
+                let displayed = if optional { self.remove_missing_type(ty) } else { ty };
+                members.push(crate::objects::Member::Property {
+                    name: self.binder.symbols().get(member).name.to_string(),
+                    optional,
+                    readonly: false,
+                    printed: self.type_to_string(displayed),
+                });
+            }
+            if !self.resolutions.pop() {
+                return error;
+            }
+            return self.store.new_named(
+                TypeFlags::OBJECT,
+                crate::objects::render_object_type(&members),
+                Some(symbol),
             );
         }
         let Some(type_node) = self.type_alias_body(symbol) else { return error };
@@ -5703,12 +5746,24 @@ impl<'a> Checker<'a, '_> {
             Node::JSDocTypeExpression(expression) => expression.r#type?,
             node => TypeNode::try_from(node).ok()?,
         };
-        // A parsed type literal is complete in this AST. `@typedef {Object}`
-        // needs sibling-property synthesis and an effective lexical parent for
-        // its annotations; that remains a follow-up, so Object/primitive/
-        // function bodies keep declining rather than replacing stronger
-        // initializer inference.
+        // Complete inline bodies use ordinary type-literal evaluation. Sibling
+        // Object properties have a bound member owner instead, projected by
+        // jsdoc_sibling_property_doc; other primitive/function bodies keep
+        // declining rather than replacing stronger initializer inference.
         matches!(body, TypeNode::TypeLiteralNode(_)).then_some(body)
+    }
+
+    /// The sibling object properties that the binder attached to this alias.
+    /// Merged written/local typedefs keep declining rather than mixing bodies.
+    fn jsdoc_sibling_property_doc(&self, symbol: SymbolId) -> Option<&'a tsr_ast::JSDoc<'a>> {
+        let entry = self.binder.symbols().get(symbol);
+        let [declaration] = entry.declarations.as_slice() else { return None };
+        if !matches!(self.node_map.get(*declaration), Some(Node::JSDocTypedefTag(_)))
+            || entry.members.is_empty()
+        {
+            return None;
+        }
+        self.jsdoc_alias_doc(symbol)
     }
 
     /// §33: whether an alias body is a function type, constructor type, or

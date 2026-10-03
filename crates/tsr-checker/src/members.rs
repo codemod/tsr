@@ -865,7 +865,23 @@ impl Checker<'_, '_> {
         // `undefined` (`strictOptionalProperties1`'s `Partial<…>` writes), so
         // that mode keeps the earlier narrowed answer until those members
         // carry `missingType`.
-        if !self.exact_optional_property_types
+        // Sibling JSDoc properties now have alias-owned declarations and the
+        // ordinary missingType optionality, so they can use the native write
+        // type without this legacy flow compensation.
+        let jsdoc_property = self.exact_optional_property_types
+            && self.get_property_of_type(receiver_type, name).is_some_and(|property| {
+                let entry = self.binder.symbols().get(property);
+                entry.parent.is_some_and(|owner| {
+                    self.binder
+                        .symbols()
+                        .get(owner)
+                        .flags
+                        .contains(tsr_binder::SymbolFlags::TYPE_ALIAS)
+                }) && entry.declarations.iter().any(|&declaration| {
+                    self.nodes.kind(declaration) == tsr_ast::SyntaxKind::JSDocPropertyTag
+                })
+            });
+        if (!self.exact_optional_property_types || jsdoc_property)
             && self.assignment_target_kind(id) == crate::expressions::AssignmentTargetKind::Definite
         {
             return property_type;
@@ -2952,6 +2968,9 @@ impl Checker<'_, '_> {
                 Some(Node::PropertyDeclaration(p)) => question(p.postfix_token),
                 Some(Node::MethodSignatureDeclaration(m)) => question(m.postfix_token),
                 Some(Node::MethodDeclaration(m)) => question(m.postfix_token),
+                Some(Node::JSDocParameterOrPropertyTag(_)) => {
+                    self.is_optional_declaration(declaration)
+                }
                 _ => false,
             }
         })

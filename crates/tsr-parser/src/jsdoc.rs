@@ -780,7 +780,17 @@ impl<'a> Parser<'a> {
         // continuation lines, whose decoration is not part of it.
         self.scanner.set_skip_jsdoc_leading_asterisks(true);
         self.next_token();
-        let inner = self.parse_type();
+        let type_start = self.pos();
+        let mut inner = self.parse_type();
+        // parseJSDocType (parser.go): a suffix = wraps the complete type,
+        // including arrays/unions, before the closing brace is consumed.
+        if self.eat(SyntaxKind::EqualsToken) {
+            inner = tsr_ast::TypeNode::JSDocOptionalType(self.finish_node(
+                tsr_ast::JSDocOptionalType::new(Some(inner)),
+                SyntaxKind::JSDocOptionalType,
+                type_start,
+            ));
+        }
         self.scanner.set_skip_jsdoc_leading_asterisks(false);
 
         // Back to JSDoc tokens, rescanning the token the type parser stopped on.
