@@ -126,3 +126,59 @@ const c = four(23);
         &["one(7) : [number]", "three(\"branch\") : [string]", "four(23) : [23]"],
     );
 }
+
+#[test]
+fn conditional_sources_match_all_four_operands_across_aliases_and_inline_nodes() {
+    // Fresh pinned tsgo 5b1047d1 conditionalOperandsWave4.types: none of
+    // A/B can be inferred from either branch; C/D must retain their positions.
+    expect(
+        r"// @strict: true
+// @target: es2015
+type Source<A, B, C, D> = A extends B ? C : D;
+type Target<E, F, G, H> = E extends F ? G : H;
+declare function match<E, F, G, H>(input: Target<E, F, G, H>): [E, F, G, H];
+declare function inlineMatch<E, F, G, H>(input: E extends F ? G : H): [E, F, G, H];
+export function fromAlias<A, B, C, D>(alias: Source<A, B, C, D>) { return match(alias); }
+export function fromNode<A, B, C, D>(node: A extends B ? C : D) { return match(node); }
+export function toNode<A, B, C, D>(alias: Source<A, B, C, D>) { return inlineMatch(alias); }
+",
+        &[
+            "match(alias) : [A, B, C, D]",
+            "match(node) : [A, B, C, D]",
+            "inlineMatch(alias) : [A, B, C, D]",
+        ],
+    );
+}
+
+#[test]
+fn conditional_operand_matching_preserves_asymmetric_structured_branch_positions() {
+    // Pinned native returns [A, B, C, D] and [A, B, D, C], respectively.
+    // A branch-union walk or a swapped true/false pairing cannot infer this.
+    expect(
+        r"// @strict: true
+// @target: es2015
+type Source<A, B, C, D> = A extends { tag: B } ? [C, D] : { x: D; y: C };
+type Target<E, F, G, H> = E extends { tag: F } ? [G, H] : { x: H; y: G };
+declare function match<E, F, G, H>(input: Target<E, F, G, H>): [E, F, G, H];
+export function structured<A, B, C, D>(value: Source<A, B, C, D>) { return match(value); }
+type Swapped<A, B, C, D> = A extends { tag: B } ? [D, C] : { x: C; y: D };
+export function swapped<A, B, C, D>(other: Swapped<A, B, C, D>) { return match(other); }
+",
+        &["match(value) : [A, B, C, D]", "match(other) : [A, B, D, C]"],
+    );
+}
+
+#[test]
+fn constant_conditional_branches_do_not_hide_check_and_extends_inference() {
+    // A/B occur only in the relation operands, never in the constant branches.
+    expect(
+        r"// @strict: true
+// @target: es2015
+type Source<A, B> = A extends B ? 11 : false;
+type Target<E, F> = E extends F ? 11 : false;
+declare function match<E, F>(input: Target<E, F>): [E, F];
+export function constants<A, B>(value: Source<A, B>) { return match(value); }
+",
+        &["match(value) : [A, B]"],
+    );
+}

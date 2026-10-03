@@ -6128,6 +6128,21 @@ impl<'a> Checker<'a, '_> {
         if let Some(&branches) = self.mapped_conditional_branches.get(&id) {
             return Some(branches);
         }
+        self.with_conditional_inference_node(id, |checker, node| {
+            Some((
+                checker.get_type_from_type_node(node.true_type?),
+                checker.get_type_from_type_node(node.false_type?),
+            ))
+        })
+    }
+
+    /// Read a conditional root under its original mapper without evaluating it.
+    /// Branch inference and conditional-source matching share this alias walk.
+    fn with_conditional_inference_node<R>(
+        &mut self,
+        id: TypeId,
+        read: impl FnOnce(&mut Self, &'a tsr_ast::ConditionalTypeNode<'a>) -> Option<R>,
+    ) -> Option<R> {
         if self.instantiation_depth == 100 {
             return None;
         }
@@ -6160,13 +6175,8 @@ impl<'a> Checker<'a, '_> {
         };
         self.instantiation_depth += 1;
         self.alias_evaluation_bindings.push(bindings);
-        let branches = match body {
-            TypeNode::ConditionalTypeNode(node) => match (node.true_type, node.false_type) {
-                (Some(yes), Some(no)) => {
-                    Some((self.get_type_from_type_node(yes), self.get_type_from_type_node(no)))
-                }
-                _ => None,
-            },
+        let result = match body {
+            TypeNode::ConditionalTypeNode(node) => read(self, node),
             // This reference is an alias body, where the ordinary resolver
             // deliberately gaps deferred conditionals. Preserve its reference
             // mapper instead of attempting to evaluate that conditional again.
@@ -6187,13 +6197,42 @@ impl<'a> Checker<'a, '_> {
                     .map(|&argument| self.get_type_from_type_node(argument))
                     .collect();
                 let target = self.create_type_reference(symbol, arguments);
-                self.conditional_inference_branches(target)
+                self.with_conditional_inference_node(target, read)
             })(),
             _ => None,
         };
         self.alias_evaluation_bindings.pop();
         self.instantiation_depth -= 1;
-        branches
+        result
+    }
+
+    /// inferToConditionalType pairs the four operands of two deferred roots.
+    /// Only read extends when the ordinary evaluator deferred its check before
+    /// reaching that operand; concrete-check roots can already have resolved a
+    /// recursive infer target and must not resolve it a second time here.
+    pub(crate) fn conditional_inference_operands(&mut self, id: TypeId) -> Option<[TypeId; 4]> {
+        if let Some(info) = self.mapped_conditionals.get(&id) {
+            return Some(info.operands);
+        }
+        self.with_conditional_inference_node(id, |checker, node| {
+            let check = checker.get_type_from_type_node(node.check_type?);
+            if checker.signature_types.contains_key(&check)
+                || !(checker
+                    .store
+                    .get(check)
+                    .flags
+                    .intersects(TypeFlags::INSTANTIABLE_NON_PRIMITIVE)
+                    || checker.mentions_registered_type_parameter(check))
+            {
+                return None;
+            }
+            Some([
+                check,
+                checker.get_type_from_type_node(node.extends_type?),
+                checker.get_type_from_type_node(node.true_type?),
+                checker.get_type_from_type_node(node.false_type?),
+            ])
+        })
     }
 
     /// getConditionalTypeInstantiation composes the outer mapper before

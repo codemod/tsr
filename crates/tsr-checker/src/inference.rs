@@ -4396,7 +4396,8 @@ impl Checker<'_, '_> {
         self.inference_observed_priority = self.inference_observed_priority.min(saved_priority);
     }
 
-    /// inferToConditionalType's non-conditional-source branch (inference.go).
+    /// inferToConditionalType (inference.go:554): conditional sources match
+    /// check/extends/true/false operands without changing inference priority.
     /// Conditional targets are not unions: structured branches infer first,
     /// then naked parameters receive lower-priority candidates from the source.
     fn infer_to_conditional_type(
@@ -4408,6 +4409,25 @@ impl Checker<'_, '_> {
         out: &mut Vec<InferenceInfo>,
         depth: usize,
     ) {
+        if self.mapped_conditionals.contains_key(&source)
+            || self.conditional_inference_nodes.contains_key(&source)
+            || self
+                .type_reference_targets
+                .get(&source)
+                .is_some_and(|(symbol, _)| self.alias_declares_conditional(*symbol))
+        {
+            let Some(from) = self.conditional_inference_operands(source) else { return };
+            let to = if source == target {
+                from
+            } else {
+                let Some(to) = self.conditional_inference_operands(target) else { return };
+                to
+            };
+            for (source, target) in from.into_iter().zip(to) {
+                self.infer_from_types_within(source, target, original, parameters, out, depth + 1);
+            }
+            return;
+        }
         let Some((yes, no)) = self.conditional_inference_branches(target) else { return };
         let saved = self.inference_priority;
         if self.inference_contravariant {
