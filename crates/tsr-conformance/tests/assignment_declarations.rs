@@ -346,6 +346,157 @@ fn exact_optional_objects_select_2375_from_corresponding_concrete_read_members()
     }
 }
 
+// Strict native 5b1047d10d32e7d5b446be4de56b126ff42f82bb, exact on/off.
+// Presence removes intrinsic missing, not written undefined or null. Receiver
+// reassignment, shadowed bindings and guards on another member/receiver must
+// not reuse the positive fact. Declaration output independently pins reads.
+const PRESENCE_READS: &str = r#"interface Box { a?: string; b?: string | undefined }
+export function present(box: Box) {
+    if ("a" in box) {
+        const read: string = box.a;
+        box.a = box.a;
+        return box.a;
+    }
+    throw 0;
+}
+export function unguarded(box: Box) {
+    box.a = box.a;
+}
+export function absent(box: Box) {
+    if ("a" in box) {} else {
+        box.a = box.a;
+        const read: string = box.a;
+    }
+}
+export function explicit(box: Box) {
+    if ("b" in box) {
+        const read: string = box.b;
+        box.a = box.b;
+    }
+}
+export function reset(box: Box, other: Box) {
+    if ("a" in box) {
+        box = other;
+        box.a = box.a;
+    }
+}
+export function shadow(box: Box, other: Box) {
+    if ("a" in box) {
+        { const box = other; box.a = box.a; }
+    }
+}
+export function differentProperty(box: Box) {
+    if ("b" in box) { box.a = box.a; }
+}
+export function differentReceiver(box: Box, other: Box) {
+    if ("a" in other) { box.a = box.a; }
+}
+export function nested(container: { inner: Box }) {
+    if ("a" in (container.inner)) {
+        const read: string = container.inner.a;
+        return container.inner.a;
+    }
+    throw 0;
+}
+export function constantKey(box: Box) {
+    const key = "a";
+    if (key in box) {
+        const read: string = box[key];
+        return box[key];
+    }
+    throw 0;
+}
+export function own(box: Box) {
+    if ((box).hasOwnProperty("a")) {
+        const read: string = box.a;
+        box.a = box.a;
+        return box.a;
+    }
+    throw 0;
+}
+export function ownExplicit(box: Box) {
+    if (box.hasOwnProperty("b")) {
+        const read: string = box.b;
+        box.a = box.b;
+    }
+}
+export function ownShadow(box: Box, other: Box) {
+    if (box.hasOwnProperty("a")) {
+        { const box = other; box.a = box.a; }
+    }
+}
+export function ownReset(box: Box, other: Box) {
+    if (box.hasOwnProperty("a")) {
+        box = other;
+        box.a = box.a;
+    }
+}
+export function numeric(box: { 0?: number }) {
+    if (0 in box) {
+        const read: number = box[0];
+        return box[0];
+    }
+    throw 0;
+}
+export function template(box: Box) {
+    if (box.hasOwnProperty(`a`)) {
+        const read: string = box.a;
+        return box.a;
+    }
+    throw 0;
+}
+export function nullable(box: { a?: string | null }) {
+    if ("a" in box) {
+        const read: string | null = box.a;
+        const notNull: string = box.a;
+        return box.a;
+    }
+    throw 0;
+}
+"#;
+
+#[test]
+fn exact_optional_presence_reads_keep_native_negative_codes_and_positions() {
+    for exact in [true, false] {
+        let source = format!(
+            "// @strict: true\n// @exactOptionalPropertyTypes: {exact}\n// @filename: assignment.ts\n{PRESENCE_READS}"
+        );
+        let case = TestCase::parse("probe/optional-presence", "assignment.ts", &source);
+        let mut actual: Vec<_> = tsr_conformance::diagnostics_suite::reported_for(&case)
+            .into_iter()
+            .map(|diagnostic| (diagnostic.line, diagnostic.column, diagnostic.code))
+            .collect();
+        actual.sort_unstable();
+        let mut expected = vec![(16, 15, 2322), (21, 15, 2322), (67, 15, 2322), (99, 15, 2322)];
+        if exact {
+            expected.extend([
+                (11, 5, 2412),
+                (15, 9, 2412),
+                (22, 9, 2412),
+                (28, 9, 2412),
+                (33, 30, 2412),
+                (37, 23, 2412),
+                (40, 25, 2412),
+                (68, 9, 2412),
+                (73, 30, 2412),
+                (79, 9, 2412),
+            ]);
+        } else {
+            expected.extend([
+                (4, 15, 2322),
+                (44, 15, 2322),
+                (52, 15, 2322),
+                (59, 15, 2322),
+                (84, 15, 2322),
+                (91, 15, 2322),
+                (98, 15, 2322),
+            ]);
+        }
+        expected.sort_unstable();
+        assert_eq!(actual, expected, "exact={exact}");
+    }
+}
+
 #[test]
 fn exact_optional_object_messages_preserve_intersections_and_instantiated_names() {
     let case = optional_object_case(true);
@@ -384,4 +535,62 @@ fn exact_optional_object_messages_preserve_intersections_and_instantiated_names(
         ]
         .map(|(line, text)| (line, text.to_owned()))
     );
+}
+
+#[test]
+fn exact_optional_presence_read_returns_match_native_declarations() {
+    for exact in [true, false] {
+        let source = format!(
+            "// @strict: true\n// @exactOptionalPropertyTypes: {exact}\n// @filename: assignment.ts\n{PRESENCE_READS}"
+        );
+        let actual = lines("probe/optional-presence", &source);
+        let suffix = if exact { "" } else { " | undefined" };
+        for wanted in [
+            format!("present : (box: Box) => string{suffix}"),
+            format!("constantKey : (box: Box) => string{suffix}"),
+            format!("own : (box: Box) => string{suffix}"),
+            format!("numeric : (box: {{ 0?: number; }}) => number{suffix}"),
+            format!("template : (box: Box) => string{suffix}"),
+            format!("nullable : (box: {{ a?: string | null; }}) => string | null{suffix}"),
+        ] {
+            assert!(actual.contains(&wanted), "missing {wanted}: {actual:?}");
+        }
+    }
+}
+
+#[test]
+fn optional_presence_facts_do_not_narrow_definite_write_targets() {
+    for exact in [true, false] {
+        for condition in ["\"a\" in box", "box.hasOwnProperty(\"a\")"] {
+            let source = format!(
+                r"// @strict: true
+// @exactOptionalPropertyTypes: {exact}
+// @filename: assignment.ts
+export function writes(box: {{ a?: string }}) {{
+    if ({condition}) {{
+        box.a = box.a;
+    }} else {{
+        box.a = box.a;
+    }}
+}}
+"
+            );
+            let actual = lines("probe/presence-write-boundary", &source);
+            // Native read values are string/undefined in exact mode, but BOTH
+            // definite write targets keep string. Non-exact reads/writes retain
+            // undefined. Applying the false presence fact to the LHS yields never.
+            let mut property_types: Vec<_> =
+                actual.iter().filter_map(|line| line.strip_prefix("box.a : ")).collect();
+            property_types.sort_unstable();
+            assert_eq!(
+                property_types,
+                if exact {
+                    vec!["string", "string", "string", "undefined"]
+                } else {
+                    vec!["string | undefined"; 4]
+                },
+                "exact={exact}, condition={condition}"
+            );
+        }
+    }
 }

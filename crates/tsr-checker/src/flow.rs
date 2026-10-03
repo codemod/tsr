@@ -4933,16 +4933,44 @@ impl Checker<'_, '_> {
                 }
                 // `"p" in x` — `narrowTypeByInKeyword` (`flow.go:1001`),
                 // known-property half; `checker-notes-narrow.md` §6.1. The
-                // name must be a written string literal (upstream reads it
-                // from the operand's *type*; a literal is the only shape whose
-                // type this port can read without re-entering the flow walk,
-                // the same restriction `nullable_literal_type` states).
+                // object-reference arm retains its written-literal boundary.
+                // The missing-property arm below reads the semantic key only
+                // after matching the accessed property's receiver.
                 if operator.kind == SyntaxKind::InKeyword {
                     let (Some(left_node), Some(right_node)) = (left.node_id(), right.node_id())
                     else {
                         return t;
                     };
                     let right_node = self.get_reference_candidate(right_node);
+                    // `flow.go:523`: presence of the accessed property removes
+                    // intrinsic missing on the true branch and keeps only it
+                    // on the false branch. Written undefined is not missing.
+                    // Match the receiver by reference identity, not its text.
+                    let contains_missing = t == self.intrinsics.missing
+                        || matches!(&self.store.get(t).data, TypeData::Union { types, .. }
+                            if types.first() == Some(&self.intrinsics.missing));
+                    if contains_missing
+                        // Native getFlowTypeOfAccessExpression uses the
+                        // declared write type for definite assignment targets.
+                        // The port's exact-mode legacy write flow must not
+                        // receive the property's presence-read fact.
+                        && self.assignment_target_kind(state.reference)
+                            != crate::expressions::AssignmentTargetKind::Definite
+                        && let Some(receiver) = self.expression_of_access(state.reference)
+                        && self.references_match(receiver, right_node)
+                        && let Some(reference) = self.node_map.get(state.reference)
+                        && let Some(name) = self.accessed_property_name_at(reference)
+                    {
+                        let key = self.check_expression(left);
+                        if self.property_name_from_index(key).as_deref() == Some(name.as_str()) {
+                            let facts = if assume_true {
+                                TypeFacts::NE_UNDEFINED
+                            } else {
+                                TypeFacts::EQ_UNDEFINED
+                            };
+                            return self.get_type_with_facts(t, facts);
+                        }
+                    }
                     if let Some(Node::StringLiteral(literal)) = self.node_map.get(left_node)
                         && self.is_matching_reference(state, right_node)
                     {
@@ -5544,23 +5572,17 @@ impl Checker<'_, '_> {
         // exactly one string-literal argument naming the accessed property,
         // the branch adjusts by NE_UNDEFINED / EQ_UNDEFINED.
         'has_own: {
-            let contains_missing = match &self.store.get(t).data {
-                TypeData::Union { types, .. } => types.contains(&self.intrinsics.missing),
-                _ => t == self.intrinsics.missing,
-            };
-            if !contains_missing {
+            let contains_missing = t == self.intrinsics.missing
+                || matches!(&self.store.get(t).data, TypeData::Union { types, .. }
+                    if types.first() == Some(&self.intrinsics.missing));
+            if !contains_missing
+                || self.assignment_target_kind(state.reference)
+                    == crate::expressions::AssignmentTargetKind::Definite
+            {
                 break 'has_own;
             }
             let reference = state.reference;
-            let Some(reference_receiver) = (match self.node_map.get(reference) {
-                Some(Node::PropertyAccessExpression(access)) => {
-                    access.expression.and_then(|e| e.node_id())
-                }
-                Some(Node::ElementAccessExpression(access)) => {
-                    access.expression.and_then(|e| e.node_id())
-                }
-                _ => None,
-            }) else {
+            let Some(reference_receiver) = self.expression_of_access(reference) else {
                 break 'has_own;
             };
             let Some(Node::PropertyAccessExpression(call_access)) =
@@ -5577,45 +5599,22 @@ impl Checker<'_, '_> {
             let Some(call_receiver) = call_access.expression.and_then(|e| e.node_id()) else {
                 break 'has_own;
             };
-            // The receivers must be the same reference; the state matcher
-            // keys on the WALKED reference, so compare the two receiver
-            // nodes through it by symbol identity where possible.
-            let receivers_match = reference_receiver == call_receiver
-                || self
-                    .binder
-                    .symbol_of(reference_receiver)
-                    .zip(self.binder.symbol_of(call_receiver))
-                    .is_some_and(|(a, b)| a == b)
-                || match (self.node_map.get(reference_receiver), self.node_map.get(call_receiver)) {
-                    (Some(Node::Identifier(a)), Some(Node::Identifier(b))) => a.text == b.text,
-                    _ => false,
-                };
-            if !receivers_match {
+            let call_receiver = self.get_reference_candidate(call_receiver);
+            if !self.references_match(reference_receiver, call_receiver) {
                 break 'has_own;
             }
-            let Some(Node::StringLiteral(argument)) = tsr_ast::Node::from(call.arguments[0])
+            let argument = match tsr_ast::Node::from(call.arguments[0])
                 .node_id()
                 .and_then(|id| self.node_map.get(id))
-            else {
+            {
+                Some(Node::StringLiteral(argument)) => argument.text,
+                Some(Node::NoSubstitutionTemplateLiteral(argument)) => argument.text,
+                _ => break 'has_own,
+            };
+            let Some(reference) = self.node_map.get(reference) else {
                 break 'has_own;
             };
-            let accessed = match self.node_map.get(reference) {
-                Some(Node::PropertyAccessExpression(access)) => match access.name {
-                    Some(tsr_ast::MemberName::Identifier(name)) => Some(name.text.to_string()),
-                    _ => None,
-                },
-                Some(Node::ElementAccessExpression(access)) => {
-                    match access.argument_expression.and_then(|e| e.node_id()) {
-                        Some(id) => match self.node_map.get(id) {
-                            Some(Node::StringLiteral(literal)) => Some(literal.text.to_string()),
-                            _ => None,
-                        },
-                        None => None,
-                    }
-                }
-                _ => None,
-            };
-            if accessed.as_deref() != Some(argument.text) {
+            if self.accessed_property_name_at(reference).as_deref() != Some(argument) {
                 break 'has_own;
             }
             let facts = if assume_true { TypeFacts::NE_UNDEFINED } else { TypeFacts::EQ_UNDEFINED };
