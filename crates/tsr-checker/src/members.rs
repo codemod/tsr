@@ -3015,12 +3015,12 @@ impl Checker<'_, '_> {
 
 #[cfg(test)]
 mod property_name_tests {
-    use tsr_ast::HasNodeId;
+    use tsr_ast::{HasNodeId, NodeId};
     use tsr_core::Arena;
 
     use crate::Checker;
 
-    fn names(source: &str, owner: &str) -> Option<Vec<String>> {
+    fn with_checker<R>(source: &str, test: impl FnOnce(&mut Checker<'_, '_>, NodeId) -> R) -> R {
         let arena = Arena::new();
         let parsed = tsr_parser::parse(&arena, source);
         assert!(parsed.diagnostics.is_empty());
@@ -3031,16 +3031,143 @@ mod property_name_tests {
             tsr_binder::FileInfo { name: "test.ts", text: source },
         );
         let root = parsed.source_file.node_id().unwrap();
-        let symbol = bound.lookup_local(root, owner).unwrap();
         let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
-        let ty = checker.get_declared_type_of_symbol(symbol);
-        let first = checker.get_property_names_of_type(ty);
-        assert_eq!(
-            first,
-            checker.get_property_names_of_type(ty),
-            "repeat resolution changed order"
+        test(&mut checker, root)
+    }
+
+    fn names(source: &str, owner: &str) -> Option<Vec<String>> {
+        with_checker(source, |checker, root| {
+            let symbol = checker.binder.lookup_local(root, owner).unwrap();
+            let ty = checker.get_declared_type_of_symbol(symbol);
+            let first = checker.get_property_names_of_type(ty);
+            assert_eq!(
+                first,
+                checker.get_property_names_of_type(ty),
+                "repeat resolution changed order"
+            );
+            first
+        })
+    }
+
+    #[test]
+    fn mapped_keys_depend_on_the_concrete_reference_arguments() {
+        with_checker(
+            "type Keys<K extends string> = { [P in K]: number }; type One = Keys<'one'>; type Two = Keys<'two'>;",
+            |checker, root| {
+                let one = checker.binder.lookup_local(root, "One").unwrap();
+                let two = checker.binder.lookup_local(root, "Two").unwrap();
+                let one = checker.get_declared_type_of_symbol(one);
+                let two = checker.get_declared_type_of_symbol(two);
+                assert_ne!(one, two);
+                assert_eq!(checker.get_property_names_of_type(one).unwrap(), ["one"]);
+                assert_eq!(checker.get_property_names_of_type(two).unwrap(), ["two"]);
+                assert_eq!(checker.get_property_names_of_type(one).unwrap(), ["one"]);
+            },
         );
-        first
+    }
+
+    #[test]
+    fn equal_names_do_not_make_instantiated_member_types_equal() {
+        with_checker(
+            "interface Box<T> { value: T } type TextBox = Box<string>; type NumberBox = Box<number>;",
+            |checker, root| {
+                for (name, expected) in
+                    [("TextBox", "string"), ("NumberBox", "number"), ("TextBox", "string")]
+                {
+                    let symbol = checker.binder.lookup_local(root, name).unwrap();
+                    let ty = checker.get_declared_type_of_symbol(symbol);
+                    assert_eq!(checker.get_property_names_of_type(ty).unwrap(), ["value"]);
+                    let member = checker.get_type_of_property_of_type(ty, "value").unwrap();
+                    assert_eq!(checker.type_to_string(member), expected);
+                }
+            },
+        );
+    }
+
+    #[test]
+    fn active_late_bound_entry_does_not_complete_the_outer_name_list() {
+        with_checker(
+            "const key = 'late'; interface Shape { early: number; [key]: string }",
+            |checker, root| {
+                let owner = checker.binder.lookup_local(root, "Shape").unwrap();
+                let ty = checker.get_declared_type_of_symbol(owner);
+                // This is the marker late_bound_members_of publishes on re-entry.
+                checker.late_bound_member_names.insert((owner, false), Vec::new());
+                assert_eq!(checker.get_property_names_of_type(ty).unwrap(), ["early"]);
+                checker.late_bound_member_names.remove(&(owner, false));
+                let mut completed = checker.get_property_names_of_type(ty).unwrap();
+                completed.sort();
+                assert_eq!(completed, ["early", "late"]);
+                // This conservative diagnostic predicate is not MembersResolved.
+                assert!(!checker.declared_members_are_complete(ty));
+            },
+        );
+    }
+
+    #[test]
+    fn static_and_instance_names_have_separate_cache_domains() {
+        with_checker("class Shape { instance: number; static own: string }", |checker, root| {
+            let symbol = checker.binder.lookup_local(root, "Shape").unwrap();
+            let instance = checker.get_declared_type_of_symbol(symbol);
+            let statics = checker.get_type_of_symbol(symbol);
+            assert_eq!(checker.get_property_names_of_type(instance).unwrap(), ["instance"]);
+            let mut names = checker.get_property_names_of_type(statics).unwrap();
+            names.sort();
+            assert_eq!(names, ["own", "prototype"]);
+        });
+    }
+
+    #[test]
+    fn inherited_this_member_uses_the_concrete_receiver() {
+        with_checker(
+            "interface Base { self: this } interface Left extends Base { left: number } interface Right extends Base { right: string } declare const left: Left; declare const right: Right; left.self; right.self; left.self;",
+            |checker, root| {
+                let _ = root;
+                let mut expected = ["Left", "Right", "Left"].into_iter();
+                for raw in 0..u32::try_from(checker.nodes.len()).unwrap() {
+                    let id = NodeId::new(raw);
+                    if checker.nodes.kind(id) != tsr_ast::SyntaxKind::PropertyAccessExpression {
+                        continue;
+                    }
+                    let expression =
+                        tsr_ast::Expression::try_from(checker.node_map.get(id).unwrap()).unwrap();
+                    let ty = checker.check_expression(expression);
+                    assert_eq!(checker.type_to_string(ty), expected.next().unwrap());
+                }
+                assert_eq!(expected.next(), None);
+            },
+        );
+    }
+
+    #[test]
+    fn anonymous_spread_names_come_from_the_semantic_overlay() {
+        with_checker(
+            "const plain = { x: 1 }; const spread = { ...plain, y: '' };",
+            |checker, root| {
+                let plain = checker.binder.lookup_local(root, "plain").unwrap();
+                let spread = checker.binder.lookup_local(root, "spread").unwrap();
+                let plain = checker.get_type_of_symbol(plain);
+                let spread = checker.get_type_of_symbol(spread);
+                assert_eq!(checker.get_property_names_of_type(plain).unwrap(), ["x"]);
+                let mut names = checker.get_property_names_of_type(spread).unwrap();
+                names.sort();
+                assert_eq!(names, ["x", "y"]);
+            },
+        );
+    }
+
+    #[test]
+    fn inherited_name_list_keeps_the_derived_member_symbol() {
+        with_checker(
+            "interface Base { shared: number } interface Derived extends Base { shared: 1 }",
+            |checker, root| {
+                let owner = checker.binder.lookup_local(root, "Derived").unwrap();
+                let own = checker.binder.symbols().get(owner).members["shared"];
+                let ty = checker.get_declared_type_of_symbol(owner);
+                assert_eq!(checker.get_property_names_of_type(ty).unwrap(), ["shared"]);
+                assert_eq!(checker.get_property_of_type(ty, "shared"), Some(own));
+            },
+        );
     }
 
     #[test]

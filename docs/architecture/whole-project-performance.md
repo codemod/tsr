@@ -491,3 +491,9 @@ under `tsr-1yb.4.1.1`. Native `resolveStructuredTypeMembers` retains members
 per concrete type, including instantiated arguments and completion state;
 an owner-symbol-only name cache would not implement that contract. The
 overall native 0.50 target remains unmet and unverified.
+
+The [structured-member reuse contract](checker-member-cache-contract.md)
+records the native publication states, current TSR storage and executable
+identity/re-entry controls. It hands concrete-type attribution and the
+measured builder implementation to `tsr-1yb.4.2`; it introduces no production
+cache or throughput claim.
