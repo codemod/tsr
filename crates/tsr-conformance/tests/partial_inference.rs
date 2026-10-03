@@ -112,3 +112,58 @@ export const inferredRequired = reverse(requiredExplicit);
         assert!(lines.iter().any(|line| line == wanted), "missing {wanted}: {lines:?}");
     }
 }
+
+#[test]
+fn nested_index_constraints_keep_the_native_clean_mapped_assignment() {
+    let corpus = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../vendor/typescript-go/_submodules/TypeScript/tests/cases/compiler");
+    if !corpus.is_dir() {
+        eprintln!("skipping nested mapped assignment fixture: TypeScript submodule is absent");
+        return;
+    }
+    let source = std::fs::read_to_string(corpus.join("twiceNestedKeyofIndexInference.ts"))
+        .expect("upstream fixture exists");
+    let case = TestCase::parse("probe/nested-index-constraints", "fixture.ts", &source);
+    let diagnostics = tsr_conformance::diagnostics_suite::reported_for(&case);
+    assert!(diagnostics.is_empty(), "native has no diagnostics: {diagnostics:?}");
+}
+
+#[test]
+fn required_nested_mapped_members_keep_concrete_outer_substitutions() {
+    // These explicit arguments distinguish a lost mapped-body substitution
+    // from the separate source-intersection relation prerequisite. In
+    // particular, the written Required<{ [key in K1]: ... }> spelling does
+    // not imply that its semantic members still contain T, K1, or K2.
+    let lines = lines_for_source(
+        r#"// @target: es2015
+type Set1<T, K1 extends keyof T> = T extends any[] ? T : Pick<T, Exclude<keyof T, K1>> & {
+    [SK1 in K1]-?: Required<Pick<T, SK1>>;
+}[K1];
+type Set2<T, K1 extends keyof T, K2 extends keyof T[K1]> = T extends any[] ? T : Pick<T, Exclude<keyof T, K1>> & {
+    [SK1 in K1]-?: Required<{ [key in K1]: Set1<T[K1], K2> }>;
+}[K1];
+interface State { a: { b: string; c: number }; d: boolean }
+declare const one: Set1<State["a"], "b">;
+declare const required: Required<{ [key in "a"]: Set1<State["a"], "b"> }>;
+declare const two: Set2<State, "a", "b">;
+export const oneB = one.b;
+export const oneC = one.c;
+export const reqB = required.a.b;
+export const reqC = required.a.c;
+export const twoB = two.a.b;
+export const twoC = two.a.c;
+export const twoD = two.d;
+"#,
+    );
+    for wanted in [
+        "oneB : string",
+        "oneC : number",
+        "reqB : string",
+        "reqC : number",
+        "twoB : string",
+        "twoC : number",
+        "twoD : boolean",
+    ] {
+        assert!(lines.iter().any(|line| line == wanted), "missing {wanted}: {lines:?}");
+    }
+}
