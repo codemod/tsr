@@ -217,3 +217,175 @@ export const empty = [...never];
     );
     expect(&lines, &["union : number[]", "empty : never[]"]);
 }
+
+#[test]
+fn arbitrary_iterable_spreads_preserve_const_and_contextual_rest_positions() {
+    let lines = assertions(
+        r#"// @strict: true
+// @target: es2015
+declare const words: Iterable<string>;
+declare const nums: Iterable<number>;
+declare const tokens: Iterable<"token">;
+export const ordinary = [17, ...tokens, false];
+export const contextual: [number, ...string[]] = [9, ...words];
+export const satisfied = [9, ...words] satisfies [number, ...string[]];
+export const constant = [1, ...nums, false] as const;
+export const entries = [true, ...new Map<string, number>()] as const;
+export function generic<T extends Iterable<string>>(t: T) { return [1, ...t, false] as const; }
+"#,
+    );
+    expect(
+        &lines,
+        &[
+            "ordinary : (number | \"token\" | boolean)[]",
+            "[9, ...words] : [number, ...string[]]",
+            "satisfied : [number, ...string[]]",
+            "constant : readonly [1, ...number[], false]",
+            "entries : readonly [true, ...[string, number][]]",
+            "generic : <T extends Iterable<string>>(t: T) => readonly [1, ...string[], false]",
+        ],
+    );
+}
+
+#[test]
+fn ordinary_spread_uses_the_iterator_not_a_numeric_index() {
+    let lines = assertions(
+        r#"// @strict: true
+// @target: es2015
+declare const indexOnly: { [n: number]: "indexed" };
+export const invalid = [3, ...indexOnly];
+export const invalidConst = [3, ...indexOnly, true] as const;
+declare const hybrid: { [n: number]: number; [Symbol.iterator](): { next(): { done: false, value: "yielded" } | { done: true, value: Date } } };
+export const iterated = [false, ...hybrid];
+let head: boolean;
+let tail: typeof hybrid;
+[head, ...tail] = null as any;
+declare const genuine: { [Symbol.iterator](): { next(): { done: false, value: string } } };
+let iteratorTail: typeof genuine;
+[head, ...iteratorTail] = null as any;
+"#,
+    );
+    expect(
+        &lines,
+        &[
+            "invalid : any[]",
+            "invalidConst : readonly [3, ...any[], true]",
+            "iterated : (\"yielded\" | boolean)[]",
+            "[head, ...tail] : [boolean, ...number[]]",
+            "[head, ...iteratorTail] : [boolean, ...string[]]",
+        ],
+    );
+}
+
+#[test]
+fn missing_iteration_protocols_recover_without_borrowing_partial_union_yields() {
+    let lines = assertions(
+        r#"// @strict: true
+// @target: es2015
+declare const badUnion: Iterable<string> | { count: number };
+export const badUnionSpread = [...badUnion];
+declare const validUnion: Iterable<"text"> | readonly [42, false];
+export const validUnionSpread = [...validUnion];
+declare const nonCallable: { [Symbol.iterator]: number };
+export const nonCallableSpread = [...nonCallable];
+declare const optional: { [Symbol.iterator]?: () => { next(): {value: string} } };
+export const optionalSpread = [...optional];
+export const primitiveSpread = [...123];
+declare const unknown: unknown;
+export const unknownSpread = [...unknown];
+"#,
+    );
+    expect(
+        &lines,
+        &[
+            "badUnionSpread : any[]",
+            "validUnionSpread : (\"text\" | 42 | false)[]",
+            "nonCallableSpread : any[]",
+            "optionalSpread : any[]",
+            "primitiveSpread : any[]",
+            "unknownSpread : any[]",
+        ],
+    );
+}
+
+#[test]
+fn invalid_next_methods_are_absent_types_not_completed_iterator_yields() {
+    let lines = assertions(
+        r#"// @strict: true
+// @target: es2015
+declare const optionalNext: { [Symbol.iterator](): { next?: () => {value: string} } };
+export const optional = [...optionalNext];
+declare const missingNext: { [Symbol.iterator](): {} };
+export const missing = [...missingNext];
+declare const malformedResult: { [Symbol.iterator](): { next(): {} } };
+export const malformed = [...malformedResult];
+declare const recoveredReturn: { [Symbol.iterator](): { next: number; return(): {value: "returned"} } };
+export const returned = [...recoveredReturn];
+declare const recoveredThrow: { [Symbol.iterator](): { next?: () => {value: string}; throw(): {value: 73} } };
+export const thrown = [...recoveredThrow];
+declare const empty: { [Symbol.iterator](): {next: number} };
+declare const good: Iterable<"actual">;
+export const combined = [...(null as unknown as typeof empty | typeof good)];
+"#,
+    );
+    expect(
+        &lines,
+        &[
+            "optional : any[]",
+            "missing : any[]",
+            "malformed : any[]",
+            "returned : \"returned\"[]",
+            "thrown : 73[]",
+            "combined : any[]",
+        ],
+    );
+}
+
+#[test]
+fn assignment_rests_do_not_apply_spread_any_recovery() {
+    let lines = assertions(
+        r"// @strict: true
+// @target: es2015
+let missing: {};
+[...missing] = null as any;
+let finished: { [Symbol.iterator](): { next(): {done:true, value:string} } };
+[...finished] = null as any;
+let never: Iterable<never>;
+[...never] = null as any;
+",
+    );
+    expect(
+        &lines,
+        &["[...missing] : unknown[]", "[...finished] : unknown[]", "[...never] : never[]"],
+    );
+}
+
+#[test]
+fn iterator_result_values_are_read_after_filtering_whole_yield_and_return_unions() {
+    let lines = assertions(
+        r"// @strict: true
+// @target: es2015
+declare const completedMissing: { [Symbol.iterator](): {next(): {done:true}} };
+declare const completed: { [Symbol.iterator](): {next(): {done:true, value:string}} };
+declare const good: Iterable<number>;
+export const missingUnion = [...(null as unknown as typeof completedMissing | typeof good)];
+export const completedUnion = [...(null as unknown as typeof completed | typeof good)];
+declare const partial: { [Symbol.iterator](): { next(): {done:false} | {done:true,value:string} } };
+export const partialUnion = [...(null as unknown as typeof partial | typeof good)];
+declare const missingYield: { [Symbol.iterator](): { next(): {done:false} | {done:false,value:number} } };
+export const missingYieldUnion = [...(null as unknown as typeof missingYield | typeof good)];
+declare const completeYield: { [Symbol.iterator](): { next(): {done:false,value:42} | {done:true} } };
+export const completeYieldUnion = [...(null as unknown as typeof completeYield | typeof good)];
+",
+    );
+    expect(
+        &lines,
+        &[
+            "missingUnion : any[]",
+            "completedUnion : number[]",
+            "partialUnion : number[]",
+            "missingYieldUnion : any[]",
+            "completeYieldUnion : number[]",
+        ],
+    );
+}

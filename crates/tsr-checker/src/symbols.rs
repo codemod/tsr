@@ -4249,7 +4249,15 @@ impl<'a> Checker<'a, '_> {
         Some(if yields.is_empty() { self.intrinsics.any } else { self.get_union_type(&yields) })
     }
 
-    /// None is unresolved; an empty vector is a resolved but absent yield.
+    /// getIteratedTypeOrElementType without the consumer's any recovery.
+    /// A destructuring target uses unknown when no yield type is present.
+    pub(crate) fn iterated_element_type(&mut self, iterated: TypeId) -> Option<TypeId> {
+        let yields = self.for_of_yield_types(iterated)?;
+        (!yields.is_empty()).then(|| self.get_union_type(&yields))
+    }
+
+    /// None is an invalid or unresolved protocol; an empty vector is a valid
+    /// iterator with no yield. Consumers choose their own absent-yield recovery.
     /// A real never yield remains a one-element vector containing never.
     fn for_of_yield_types(&mut self, iterated: TypeId) -> Option<Vec<TypeId>> {
         // getPropertyOfType reads the apparent type of a type parameter when
@@ -4444,11 +4452,14 @@ impl<'a> Checker<'a, '_> {
             return Some(vec![iterator]);
         }
         let mut yields = Vec::new();
+        let mut has_iteration_types = false;
         for name in ["next", "return", "throw"] {
             let Some(mut method) = self.iteration_property_type(iterator, name) else {
-                if name == "next" {
+                if name == "next" && self.declared_property_table(iterator).is_none() {
                     return None;
                 }
+                // getIterationTypesOfMethod returns absent iteration types
+                // for a missing method. Other methods may still yield.
                 continue;
             };
             if self.is_error(method) {
@@ -4459,7 +4470,7 @@ impl<'a> Checker<'a, '_> {
                     .get_property_of_type(iterator, name)
                     .is_some_and(|symbol| self.property_is_optional(symbol))
             {
-                return None;
+                continue;
             }
             if name != "next" {
                 method = self.get_non_nullable_type(method);
@@ -4473,13 +4484,11 @@ impl<'a> Checker<'a, '_> {
                 self.call_signatures_of_type(method)?
             };
             if signatures.is_empty() {
-                // A non-callable optional return/throw contributes no iteration
-                // types, even though native also reports a diagnostic for it.
-                if name != "next" {
-                    continue;
-                }
-                return None;
+                // Native reports a diagnostic but contributes no iteration
+                // types, including for a non-callable next method.
+                continue;
             }
+            has_iteration_types = true;
             let returns: Vec<_> = signatures.iter().map(|signature| signature.r#type).collect();
             if returns.iter().any(|&ty| self.is_error(ty)) {
                 return None;
@@ -4504,35 +4513,95 @@ impl<'a> Checker<'a, '_> {
                 crate::types::TypeData::Union { types, .. } => types,
                 _ => vec![result],
             };
-            for part in parts {
-                if part == self.intrinsics.any {
-                    return Some(vec![part]);
+            if parts.contains(&self.intrinsics.any) {
+                return Some(vec![self.intrinsics.any]);
+            }
+            // getIterationTypesOfIteratorResult filters yield and return
+            // constituents separately, then reads value on each entire union.
+            // One missing yield value must not borrow another yield arm's value;
+            // a present return value can still make the result valid with no yield.
+            let mut values = [None, None];
+            for (index, truth) in
+                [self.intrinsics.false_type, self.intrinsics.true_type].into_iter().enumerate()
+            {
+                let mut results = Vec::new();
+                for &part in &parts {
+                    if self.store.get(part).flags.contains(TypeFlags::NEVER) {
+                        continue;
+                    }
+                    let done = self
+                        .get_type_of_property_of_type(part, "done")
+                        .unwrap_or(self.intrinsics.false_type);
+                    if self.is_error(done) {
+                        return None;
+                    }
+                    match self.relate_ternary(truth, done, crate::relater::Relation::Assignable) {
+                        crate::relater::Ternary::NotRelated => {}
+                        crate::relater::Ternary::Unknown => return None,
+                        crate::relater::Ternary::Related => results.push(part),
+                    }
                 }
-                let done = self
-                    .get_type_of_property_of_type(part, "done")
-                    .unwrap_or(self.intrinsics.false_type);
-                if self.is_error(done) {
+                if results.is_empty() {
+                    continue;
+                }
+                let result = self.get_union_type(&results);
+                let value = self.get_type_of_property_of_type(result, "value");
+                if let Some(value) = value {
+                    if self.is_error(value) {
+                        return None;
+                    }
+                    values[index] = Some(value);
+                } else if !results.iter().all(|&part| {
+                    self.declared_property_table(part).is_some()
+                        || self.store.get(part).flags.intersects(
+                            TypeFlags::PRIMITIVE | TypeFlags::NON_PRIMITIVE | TypeFlags::UNKNOWN,
+                        )
+                }) {
                     return None;
                 }
-                match self.relate_ternary(
-                    self.intrinsics.false_type,
-                    done,
-                    crate::relater::Relation::Assignable,
-                ) {
-                    crate::relater::Ternary::NotRelated => continue,
-                    crate::relater::Ternary::Unknown => return None,
-                    crate::relater::Ternary::Related => {}
-                }
-                let value = self.get_type_of_property_of_type(part, "value")?;
-                if self.is_error(value) {
-                    return None;
-                }
+            }
+            if let Some(value) = values[0] {
                 yields.push(value);
+            } else if values[1].is_none() {
+                // With neither yield nor return value, native's method
+                // resolver recovers an invalid IteratorResult with any.
+                yields.push(self.intrinsics.any);
             }
         }
         // combineIterationTypes preserves absence until all iterable union
-        // constituents have contributed their yield types.
-        Some(yields)
+        // constituents have contributed their yield types. No method types
+        // at all is an invalid protocol, not a completed-only iterator.
+        has_iteration_types.then_some(yields)
+    }
+
+    /// Whether an iterator provably contributes no next/return/throw types.
+    /// A complete table distinguishes missing methods from unresolved ones.
+    pub(crate) fn iteration_methods_decidably_absent(&mut self, iterator: TypeId) -> bool {
+        let Some(properties) = self.declared_property_table(iterator) else { return false };
+        for name in ["next", "return", "throw"] {
+            let Some((_, optional)) = properties.iter().find(|(property, _)| property == name)
+            else {
+                continue;
+            };
+            if name == "next" && *optional {
+                continue;
+            }
+            let Some(mut method) = self.iteration_property_type(iterator, name) else {
+                return false;
+            };
+            if self.is_error(method) || method == self.intrinsics.any {
+                return false;
+            }
+            if name != "next" {
+                method = self.get_non_nullable_type(method);
+            }
+            if !self.store.get(method).flags.intersects(TypeFlags::PRIMITIVE)
+                && !self.call_signatures_of_type(method).is_some_and(|types| types.is_empty())
+            {
+                return false;
+            }
+        }
+        true
     }
 
     /// §284: the class method declaration of the given name, found on the

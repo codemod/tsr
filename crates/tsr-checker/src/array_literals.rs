@@ -659,13 +659,10 @@ impl Checker<'_, '_> {
         if let Some(id) = node.node_id
             && self.assignment_target_kind(id) != crate::expressions::AssignmentTargetKind::None
             && !node.elements.iter().enumerate().any(|(index, element)| {
-                // §431: ONE TRAILING spread WITH leading elements is the rest
-                // element and prints; a rest-only target prints `T[]` through
-                // the ordinary road (`[...obj?.a] = x` is `any[]`,
-                // `elementAccessChain.3` — the draft's 9 R->W), and anything
-                // else keeps today's road too.
-                matches!(element, Expression::SpreadElement(_))
-                    && (index + 1 != node.elements.len() || node.elements.len() == 1)
+                // A trailing rest-only target normalizes to an array, not a
+                // one-element tuple. It must still use the assignment-target
+                // index/iteration/unknown fallback rather than spread's any.
+                matches!(element, Expression::SpreadElement(_)) && index + 1 != node.elements.len()
                     || matches!(element, Expression::OmittedExpression(_))
             })
         {
@@ -703,6 +700,7 @@ impl Checker<'_, '_> {
                             info.value
                         } else {
                             self.tuple_index_type(operand_type, self.intrinsics.number, false)
+                                .or_else(|| self.iterated_element_type(operand_type))
                                 .unwrap_or(self.intrinsics.unknown)
                         };
                         let Some(array) = self.global_type_symbol("Array") else {
@@ -761,11 +759,19 @@ impl Checker<'_, '_> {
                 let (t, spread) = if let Expression::SpreadElement(spread) = element {
                     let Some(operand) = spread.expression else { return error };
                     let t = self.check_expression(operand);
-                    if !self.tuple_array_like(t) {
-                        supported = false;
-                        break;
+                    if self.tuple_array_like(t) {
+                        (t, true)
+                    } else {
+                        // checkArrayLiteral keeps array-like operands Variadic,
+                        // but other spreads contribute the iterated element as
+                        // a Rest. The normalizer represents Rest with an array.
+                        let Some(element) = self.array_spread_element_type(t) else {
+                            supported = false;
+                            break;
+                        };
+                        let Some(array) = self.global_type_symbol("Array") else { return error };
+                        (self.create_type_reference(array, vec![element]), true)
                     }
-                    (t, true)
                 } else if matches!(element, Expression::OmittedExpression(_)) {
                     supported = false;
                     break;
@@ -1209,6 +1215,47 @@ impl Checker<'_, '_> {
         if let Some(element) = self.for_of_element_type(operand) {
             return Some(element);
         }
+        // Iterable unions are valid only when every constituent supports the
+        // protocol. The successful resolver above combines absent yields
+        // before recovery; only a failed union reaches the constituent errors.
+        if let crate::types::TypeData::Union { types, .. } = self.store.get(operand).data.clone() {
+            let elements = types
+                .into_iter()
+                .map(|part| self.array_spread_element_type(part))
+                .collect::<Option<Vec<_>>>()?;
+            return Some(self.get_union_type(&elements));
+        }
+        if let Some(symbol) = self.get_property_of_type(operand, "[Symbol.iterator]") {
+            if self.resolutions.on_stack(symbol, crate::resolution::PropertyName::Type) {
+                return None;
+            }
+            if self.property_is_optional(symbol) {
+                return Some(self.intrinsics.any);
+            }
+            if let Some(method) = self.get_type_of_property_of_type(operand, "[Symbol.iterator]")
+                && !self.is_error(method)
+            {
+                if self.store.get(method).flags.intersects(TypeFlags::PRIMITIVE) {
+                    return Some(self.intrinsics.any);
+                }
+                if let Some(signatures) = self.call_signatures_of_type(method) {
+                    let returns: Vec<_> = signatures
+                        .iter()
+                        .filter(|signature| self.signature_min_argument_count(signature) == 0)
+                        .map(|signature| signature.r#type)
+                        .collect();
+                    if returns.is_empty() {
+                        return Some(self.intrinsics.any);
+                    }
+                    if returns.iter().all(|&t| !self.is_error(t)) {
+                        let iterator = self.get_intersection_type(&returns, None);
+                        if self.iteration_methods_decidably_absent(iterator) {
+                            return Some(self.intrinsics.any);
+                        }
+                    }
+                }
+            }
+        }
         // §495: a DECIDABLE protocol failure is upstream's reported
         // not-iterable error, and `checkIteratedTypeOrElementType` answers
         // `anyType` there (`checker.go:6103`) — a heritage-free class with no
@@ -1216,6 +1263,28 @@ impl Checker<'_, '_> {
         // only `this` while `next` is absent (`iteratorSpreadInArray8/10`).
         // Everything short of provable stays the gap.
         if self.iteration_decidably_fails(operand) {
+            return Some(self.intrinsics.any);
+        }
+        // A complete property-only capture or declaration table proves the
+        // absence of Symbol.iterator. Numeric index signatures do not supply
+        // an iterator: unlike a destructuring target, an ordinary spread must
+        // recover with any rather than borrow operand[number]. Unresolved
+        // computed names, aliases and heritage keep the gap.
+        let missing_iterator =
+            self.anonymous_properties.get(&operand).filter(|(_, complete)| *complete).is_some_and(
+                |(properties, _)| {
+                    properties.iter().all(|property| property.name != "[Symbol.iterator]")
+                },
+            ) || self.declared_property_table(operand).is_some_and(|properties| {
+                properties.iter().all(|(name, _)| name != "[Symbol.iterator]")
+            });
+        if missing_iterator
+            || self
+                .store
+                .get(operand)
+                .flags
+                .intersects(TypeFlags::PRIMITIVE | TypeFlags::NON_PRIMITIVE | TypeFlags::UNKNOWN)
+        {
             return Some(self.intrinsics.any);
         }
         None
