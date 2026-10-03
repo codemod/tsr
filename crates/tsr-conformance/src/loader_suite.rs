@@ -99,9 +99,10 @@ impl Suite for FileLoaderRequests {
         // it, which is ADR-0034's caller-owns-the-arena shape at its smallest:
         // this suite reads only the traces, so nothing borrowing it escapes.
         let arena = tsr_core::Arena::new();
+        let host = prepared.host.cached();
         let loaded = FileLoader::load(
             &arena,
-            &prepared.host,
+            &host,
             tsr_compiler::LoadOptions {
                 compiler_options: prepared.options.clone(),
                 root_file_names: prepared.root_file_names.clone(),

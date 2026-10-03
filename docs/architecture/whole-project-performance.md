@@ -216,3 +216,52 @@ none. The remaining native-only Lingui declaration and effective-config output
 differences keep the benchmark **incomparable**. This does not verify the 0.50
 target. Local evidence is `/tmp/tsr-1yb-nextjs-resolution-cache.json`; follow-up
 alignment is tracked in `tsr-1yb.1.1`.
+
+## Native compiler-host filesystem cache
+
+A temporary wrapper measured actual backing-host operations during program
+loading after query caching; configuration discovery was outside this probe.
+It found 114,266 repeated metadata
+and real-path probes. The CLI now wraps its compilation host with native
+`cachedvfs` semantics; content reads remain uncached.
+
+| Operation | Before calls | Cached backing calls |
+|---|---:|---:|
+| File existence | 72,745 | 41,238 |
+| Directory existence | 78,858 | 6,155 |
+| Real path | 11,066 | 1,010 |
+| Content read | 14,213 | 14,213 |
+
+All cached backing-call paths were unique. This workload made no directory-entry
+queries; unit controls cover cached entries, including empty results. Repeated
+underlying calls accounted for 0.240 s in the locating probe. Tracking overhead
+is excluded from that sum, and the instrumented total is not a speed benchmark.
+The temporary wrapper was removed before the final build.
+
+Five fresh-process pairs compared source `f1389da9` with and without this wrapper:
+
+| Measurement | Before | Cached |
+|---|---:|---:|
+| Median wall | 6.629 s | 6.478 s |
+| Wall range | 6.525–6.661 s | 6.363–6.494 s |
+| Median user CPU | 5.999 s | 6.062 s |
+| Median system CPU | 0.619 s | 0.398 s |
+| Median peak RSS | 1.123 GB | 1.101 GB |
+
+The measured wall reduction is **2.3%**; system CPU fell by about 36%, offset in
+part by cache lookup/storage CPU. RSS ranges overlap, so the result establishes
+no memory reduction. Both sides retained the same 13,097 files, stable content
+fingerprints, effective options and 123 diagnostics. The public generic-imports
+fixture also retains identical diagnostics and three checked files; output
+differs only in phase times. The resolution and loader oracle suites now use the
+cached host, exercising all 95 resolver transcripts and 96 loader cases.
+All 474,251 assertion rows are byte-identical against the same-source reference:
+458,472 RIGHT, 2,436 GAP, 13,343 WRONG. These tallies include concurrent JSDoc
+checker changes, whose gains are independent of this cache. CLI baseline replay
+also has identical output: 33 of 43 judged cases pass, with ten existing failures.
+
+Local evidence is `/tmp/tsr-1yb-cached-vfs-paired.json`; its `tsgo` tool slot holds
+the saved **TSR reference binary**, not native tsgo. This is an isolated TSR
+comparison and does not prove the overall 0.50 target. The full-app CLI trace
+control emitted zero bytes on both versions and is invalid as trace evidence;
+trace forwarding is tracked in `tsr-1yb.1.1.1`.

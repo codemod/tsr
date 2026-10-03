@@ -122,6 +122,23 @@ snapshot. Rebuild the resolver when files/options change; watch or incremental
 hosts must invalidate or replace them before reuse. No persistent build cache is
 involved.
 
+The CLI also creates a `CachedFileSystem` for each compiler host, following
+native `NewCachedFSCompilerHost` and `internal/vfs/cachedvfs`. File existence,
+directory existence, directory entries and real paths have separate caches
+keyed by exact path spelling. Negative and empty results are retained. Reads of
+file contents and case-sensitivity queries always delegate to the backing host.
+This wrapper remains active during traced resolution: it reuses disk results
+without suppressing resolver trace messages. Configuration discovery precedes
+the compiler host and keeps its own filesystem behavior.
+
+`clear_cache` discards metadata without disabling caching;
+`disable_and_clear_cache` bypasses reads and writes until `enable` is called.
+Refreshing metadata alone does not invalidate resolver/package-JSON caches:
+future watch or incremental support must refresh all snapshot-dependent layers
+together. The current driver creates all of them afresh for each compilation.
+The wrapper is sequential; a parallel loader must synchronize its maps and use
+a shareable backing filesystem, as native does.
+
 ## The oracle, and the denominator
 
 The suite is `crates/tsr-conformance/src/module_suite.rs`. How it splits the

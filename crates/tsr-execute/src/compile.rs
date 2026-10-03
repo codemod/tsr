@@ -232,7 +232,10 @@ pub fn run_compilation(
     // borrows an arena that must outlive the program.
     let program_started = sys.since_start();
     let arena = tsr_core::Arena::new();
-    let host = DriverHost { fs: sys.fs(), current_directory: current_directory.clone() };
+    // Native tsc creates a cached filesystem compiler host for each compilation.
+    // Config discovery above and text reads retain their independent semantics.
+    let cached_fs = tsr_vfs::CachedFileSystem::new(sys.fs());
+    let host = DriverHost { fs: &cached_fs, current_directory: current_directory.clone() };
     let program = tsr_compiler::Program::from_root_files(
         &arena,
         &host,

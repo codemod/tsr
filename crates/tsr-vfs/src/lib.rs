@@ -27,9 +27,11 @@
 //! in-memory host remains the conformance harness's, and the two implement the
 //! same six questions.
 
+pub mod cached;
 pub mod glob;
 pub mod os;
 
+pub use cached::CachedFileSystem;
 pub use os::OsFileSystem;
 
 use std::collections::BTreeMap;

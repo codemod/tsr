@@ -96,7 +96,8 @@ impl Suite for ModuleResolution {
             };
         }
 
-        let resolver = Resolver::new(&prepared.host, prepared.options.clone());
+        let host = prepared.host.cached();
+        let resolver = Resolver::new(&host, prepared.options.clone());
         let mut traces: Vec<Trace> = Vec::new();
         for request in &requests {
             let (_, request_traces) = match request.kind {

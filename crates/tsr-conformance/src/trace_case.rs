@@ -98,6 +98,31 @@ impl ResolutionHost for TestHost {
     }
 }
 
+impl TestHost {
+    /// Exercise the same project-local metadata cache as the real CLI host.
+    pub(crate) fn cached(&self) -> CachedTestHost<'_> {
+        CachedTestHost {
+            fs: tsr_vfs::CachedFileSystem::new(&self.fs),
+            current_directory: &self.current_directory,
+        }
+    }
+}
+
+pub(crate) struct CachedTestHost<'host> {
+    fs: tsr_vfs::CachedFileSystem<'host>,
+    current_directory: &'host str,
+}
+
+impl ResolutionHost for CachedTestHost<'_> {
+    fn fs(&self) -> &dyn FileSystem {
+        &self.fs
+    }
+
+    fn current_directory(&self) -> &str {
+        self.current_directory
+    }
+}
+
 /// Prepare a case, or say why it is not judged.
 ///
 /// The skip reasons are the same for both suites except where a suite is
