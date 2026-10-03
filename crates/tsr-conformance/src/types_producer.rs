@@ -313,9 +313,12 @@ fn heritage_reaches<'a>(
     binder: &tsr_binder::BindResult<'a>,
     nodes: &NodeTable,
     map: &NodeMap<'a>,
+    checker: &mut tsr_checker::Checker<'a, '_>,
     from: tsr_binder::SymbolId,
     target: tsr_binder::SymbolId,
 ) -> bool {
+    let target = binder.symbols().get(target).export_symbol.unwrap_or(target);
+    let target = binder.merged_symbol(target);
     let mut seen: std::collections::HashSet<tsr_binder::SymbolId> =
         std::collections::HashSet::new();
     let mut stack = vec![from];
@@ -325,7 +328,21 @@ fn heritage_reaches<'a>(
         if steps > 64 {
             return false;
         }
+        let current = binder.symbols().get(current).export_symbol.unwrap_or(current);
+        let current = binder.merged_symbol(current);
+        if current == target {
+            return true;
+        }
         if !seen.insert(current) {
+            continue;
+        }
+        // Import-equals links can occur inside the base chain too. A pure
+        // alias has no class declaration to walk; follow its target using the
+        // same visited/depth bound rather than silently stopping the cycle.
+        if binder.symbols().get(current).flags == SymbolFlags::ALIAS {
+            if let Some(resolved) = checker.resolve_alias(current) {
+                stack.push(resolved);
+            }
             continue;
         }
         let Some(declaration) = binder.symbols().get(current).declarations.first().copied() else {
@@ -901,12 +918,51 @@ pub fn type_id_at_location_tracking<'a>(
                             tsr_binder::SymbolFlags::TYPE,
                         )
                     })
+                    // getTypeOfNode(EWTA) reads the instance base, not the
+                    // alias's value type. Resolve nongeneric CLASS targets
+                    // before the declared-type and cycle checks. A type-only
+                    // target has no constructor base; generic targets still
+                    // need argument/default validation, so keep their existing
+                    // expression fallback rather than leaking free parameters.
+                    .map(|base| {
+                        let alias = binder.symbols().get(base);
+                        // Namespace imports may denote cloned module types,
+                        // not constructors. This recovery is for import-equals.
+                        if alias.flags != SymbolFlags::ALIAS
+                            || !alias.declarations.iter().any(|&declaration| {
+                                nodes.kind(declaration) == SyntaxKind::ImportEqualsDeclaration
+                            })
+                        {
+                            return base;
+                        }
+                        checker
+                            .resolve_alias(base)
+                            .filter(|&target| {
+                                let symbol = binder.symbols().get(target);
+                                symbol.flags.contains(SymbolFlags::CLASS)
+                                    && symbol.declarations.iter().all(|&declaration| {
+                                        match map.get(declaration) {
+                                            Some(Node::ClassDeclaration(class)) => {
+                                                class.type_parameters.is_empty()
+                                            }
+                                            Some(Node::ClassExpression(class)) => {
+                                                class.type_parameters.is_empty()
+                                            }
+                                            Some(Node::InterfaceDeclaration(interface)) => {
+                                                interface.type_parameters.is_empty()
+                                            }
+                                            _ => true,
+                                        }
+                                    })
+                            })
+                            .unwrap_or(base)
+                    })
                     // §837: decline a self-extension CYCLE at any depth, not
                     // just the direct one this arm's name test catches.
                     .filter(|&base| {
                         match nodes.parent(clause).and_then(|owner| binder.symbol_of(owner)) {
                             Some(extending) => {
-                                !heritage_reaches(binder, nodes, map, base, extending)
+                                !heritage_reaches(binder, nodes, map, checker, base, extending)
                             }
                             None => true,
                         }
@@ -2802,6 +2858,80 @@ mod tests {
                 ("A".to_string(), "typeof A".to_string()), // a value reference
             ],
         );
+    }
+
+    #[test]
+    fn a_class_alias_base_uses_its_instance_but_other_alias_positions_use_its_value() {
+        // Pinned native 5b1047d: GetTypeAtLocation(E) is typeof E, but the
+        // baseline consumer asks the parent heritage entry for its base E.
+        // Alias declaration order must not change either semantic question.
+        for (body, expected) in [
+            (
+                "class B extends E {} import E = A.C; const value = E;",
+                vec!["E", "typeof E", "typeof E"],
+            ),
+            (
+                "import E = A.C; class B extends E {} const value = E;",
+                vec!["typeof E", "E", "typeof E"],
+            ),
+        ] {
+            let source = format!(
+                "namespace Host {{ namespace A {{ export class C {{ tag = 7; }} }} {body} }}"
+            );
+            let pairs = typed(&source);
+            let aliases: Vec<_> =
+                pairs.iter().filter(|(text, _)| text == "E").map(|(_, ty)| ty.as_str()).collect();
+            assert_eq!(aliases, expected, "in {pairs:?}");
+        }
+        // The original ambient use-before-declaration witness, whose class
+        // is implicitly exported from its ambient namespace.
+        let pairs = typed(
+            "declare module 'test' { namespace A { class C {} } class B extends E {} import E = A.C; }",
+        );
+        let aliases: Vec<_> =
+            pairs.iter().filter(|(text, _)| text == "E").map(|(_, ty)| ty.as_str()).collect();
+        assert_eq!(aliases, ["E", "typeof E"], "in {pairs:?}");
+    }
+
+    #[test]
+    fn a_type_only_or_cyclic_alias_base_keeps_the_expression_fallback() {
+        // Opposite meaning: resolving a type-only interface alias must not
+        // turn an invalid value base into the interface's declared type.
+        // Native errorType prints any; the isolated helper retains our error
+        // gap instead of applying the corpus writer's had-errors handling.
+        // Cycles and missing required arguments also have no native instance
+        // base, so retain typeof E.
+        for (declaration, expected) in [
+            ("export interface I { tag: string; }", "error"),
+            ("export class I extends B {}", "typeof E"),
+            ("export class I<T> { tag!: T; }", "typeof E"),
+        ] {
+            let source = format!(
+                "namespace Host {{ namespace A {{ {declaration} }} import E = A.I; class B extends E {{}} const value = E; }}"
+            );
+            let pairs = typed(&source);
+            let aliases: Vec<_> =
+                pairs.iter().filter(|(text, _)| text == "E").map(|(_, ty)| ty.as_str()).collect();
+            assert_eq!(aliases, [expected; 3], "in {pairs:?}");
+        }
+        let pairs = typed(
+            "namespace Host { namespace A { export class C {} } import E = A.C; function f(E: number) { class B extends E {} return E; } }",
+        );
+        let aliases: Vec<_> =
+            pairs.iter().filter(|(text, _)| text == "E").map(|(_, ty)| ty.as_str()).collect();
+        assert_eq!(aliases, ["typeof E", "number", "number", "number"], "in {pairs:?}");
+    }
+
+    #[test]
+    fn an_import_equals_alias_inside_a_base_cycle_preserves_value_types() {
+        let pairs = typed(
+            "namespace Host { namespace A { export class C extends F {} } import E = A.C; namespace Other { export class D extends B {} } import F = Other.D; class B extends E {} const value = E; }",
+        );
+        for (name, expected) in [("E", vec!["typeof E"; 3]), ("F", vec!["typeof F"; 2])] {
+            let aliases: Vec<_> =
+                pairs.iter().filter(|(text, _)| text == name).map(|(_, ty)| ty.as_str()).collect();
+            assert_eq!(aliases, expected, "in {pairs:?}");
+        }
     }
 
     #[test]
