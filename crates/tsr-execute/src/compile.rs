@@ -502,6 +502,7 @@ fn copy_option(into: &mut CompilerOptions, from: &CompilerOptions, name: &str) {
         "traceResolution" => trace_resolution,
         "extendedDiagnostics" => extended_diagnostics,
         "singleThreaded" => single_threaded,
+        "deduplicatePackages" => deduplicate_packages,
     }
 }
 

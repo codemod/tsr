@@ -612,7 +612,7 @@ pub struct CompilerOptions {
     pub extended_diagnostics: Tristate,
     /// `inlineSourceMap`. Parsed; not yet read.
     pub inline_source_map: Tristate,
-    /// `deduplicatePackages`. Parsed; not yet read.
+    /// `deduplicatePackages`. Redirect identical package instances during replay.
     pub deduplicate_packages: Tristate,
     /// `assumeChangesOnlyAffectDirectDependencies`. Parsed; not yet read.
     pub assume_changes_only_affect_direct_dependencies: Tristate,

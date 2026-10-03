@@ -186,7 +186,7 @@ impl NodeResolutionFeatures {
 ///
 /// Its [`fmt::Display`] form appears in the `with Package ID '{2}'` trace line,
 /// so the exact shape `name/sub@version+peer@version` is baselined.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
 pub struct PackageId {
     /// The package's `name`.
     pub name: String,

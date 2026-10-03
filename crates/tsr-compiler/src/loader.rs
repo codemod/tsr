@@ -3,9 +3,9 @@
 //! Ported from `internal/compiler/fileloader.go` and
 //! `internal/compiler/filesparser.go` at the pinned commit — the part of them
 //! that discovers files. Together those are 1,358 lines; most of that is project
-//! references, emit, redirect deduplication, include-reason bookkeeping for
-//! `--explainFiles`, and lib sorting, none of which exists here yet. What is here
-//! is the DFS over root files and the per-task trace buffering.
+//! references, emit, and include-reason bookkeeping for `--explainFiles`.
+//! This port implements root-file discovery, per-task trace buffering, lib
+//! sorting, and package-identity redirects during deterministic replay.
 //!
 //! # What this is for
 //!
@@ -53,8 +53,8 @@
 //! - **`importHelpers` does not synthesise a `tslib` import.** No `.trace.json`
 //!   baseline contains one — checked, `Resolving module 'tslib'` appears zero
 //!   times across all 146 — so implementing it would be untested code.
-//! - **Project references, redirects, and package deduplication** are absent, as
-//!   they are from [`crate::Program`].
+//! - **Project references and their redirects** are absent. Package-identity
+//!   redirects are implemented and can be disabled with `deduplicatePackages`.
 //! - **`moduleDetection` is assumed `auto`**, upstream's default. It is not a
 //!   ported option; a case setting `moduleDetection: legacy` or `force` would
 //!   get the wrong answer for whether a file is an external module, which
@@ -65,7 +65,7 @@ use tsr_core::{CompilerOptions, JsxEmit, ModuleKind, ModuleResolutionKind, Resol
 use tsr_module::{
     messages::Trace,
     resolver::Resolver,
-    types::{ResolutionHost, ResolvedModule},
+    types::{PackageId, ResolutionHost, ResolvedModule},
 };
 use tsr_parser::{CollectOptions, SpecifierContext};
 use tsr_path::{
@@ -232,6 +232,9 @@ pub struct LoadedFiles<'a> {
     pub requests: Vec<ResolutionRequest>,
     /// Every trace line the resolver produced, in replay order.
     pub traces: Vec<Trace>,
+    /// Duplicate package paths redirected to the first source file with the
+    /// same complete package identity (`filesparser.go:getProcessedFiles`).
+    pub package_redirects: FxHashMap<Path, Path>,
 }
 
 /// A file's module format and where that format came from
@@ -313,6 +316,7 @@ impl ParseTask<'_> {
 struct ResolvedRef {
     file_name: String,
     depth: Depth,
+    package_id: PackageId,
 }
 
 /// The walk (`compiler.fileLoader` + `compiler.filesParser`).
@@ -342,6 +346,9 @@ pub struct FileLoader<'host, 'a> {
     /// The task that claimed each path. Upstream's `taskDataByPath`, minus the
     /// per-casing map: see [`FileLoader::process_task`].
     claimed: FxHashMap<Path, usize>,
+    /// First nonempty identity of a path, even if a root already loaded it.
+    /// Native propagates this through `parseTaskData` when another task arrives.
+    package_ids: FxHashMap<Path, PackageId>,
     supported_extensions: &'static [&'static [&'static str]],
     supported_extensions_with_json: &'static [&'static [&'static str]],
     max_node_module_js_depth: i32,
@@ -390,6 +397,7 @@ impl<'host, 'a> FileLoader<'host, 'a> {
             tasks: Vec::new(),
             root_tasks: Vec::new(),
             claimed: FxHashMap::default(),
+            package_ids: FxHashMap::default(),
             supported_extensions,
             supported_extensions_with_json,
         };
@@ -689,7 +697,11 @@ impl<'host, 'a> FileLoader<'host, 'a> {
                     let path = self.path_for_lib_file(name);
                     let sub = self.add_sub_task(
                         index,
-                        &ResolvedRef { file_name: path, depth: Depth::default() },
+                        &ResolvedRef {
+                            file_name: path,
+                            depth: Depth::default(),
+                            package_id: PackageId::default(),
+                        },
                     );
                     self.tasks[sub].lib_file = Some(name);
                 }
@@ -750,6 +762,7 @@ impl<'host, 'a> FileLoader<'host, 'a> {
                     index,
                     &ResolvedRef {
                         file_name: resolved.resolved_file_name,
+                        package_id: resolved.package_id,
                         depth: Depth {
                             increase: resolved.is_external_library_import,
                             elide: false,
@@ -797,6 +810,7 @@ impl<'host, 'a> FileLoader<'host, 'a> {
                     index,
                     &ResolvedRef {
                         file_name: resolved.resolved_file_name,
+                        package_id: resolved.package_id,
                         depth: Depth {
                             increase: resolved.is_external_library_import,
                             elide: false,
@@ -880,6 +894,7 @@ impl<'host, 'a> FileLoader<'host, 'a> {
                                 && resolved_file_name.contains("/node_modules/"),
                         },
                         file_name: resolved_file_name,
+                        package_id: resolved.package_id,
                     },
                 );
             }
@@ -954,7 +969,11 @@ impl<'host, 'a> FileLoader<'host, 'a> {
         };
         let normalized = normalize_path(&referenced);
         let resolved = self.source_file_from_reference(&normalized, containing_file)?;
-        Some(ResolvedRef { file_name: resolved, depth: Depth::default() })
+        Some(ResolvedRef {
+            file_name: resolved,
+            depth: Depth::default(),
+            package_id: PackageId::default(),
+        })
     }
 
     /// `fileLoader.getSourceFileFromReference`, reduced to its success value.
@@ -998,6 +1017,11 @@ impl<'host, 'a> FileLoader<'host, 'a> {
 
     fn add_sub_task(&mut self, parent: usize, reference: &ResolvedRef) -> usize {
         let index = self.new_task(normalize_path(&reference.file_name));
+        if reference.package_id.is_set() {
+            self.package_ids
+                .entry(self.tasks[index].path.clone())
+                .or_insert_with(|| reference.package_id.clone());
+        }
         self.tasks[index].depth = reference.depth;
         self.tasks[parent].sub_tasks.push(index);
         index
@@ -1211,8 +1235,9 @@ impl<'host, 'a> FileLoader<'host, 'a> {
         // are interleaved in the walk and only the libs are sorted.
         let mut libs: Vec<usize> = Vec::new();
         let mut rest: Vec<usize> = Vec::new();
+        let mut packages: FxHashMap<PackageId, Path> = FxHashMap::default();
         for root in &self.root_tasks {
-            self.collect_task(*root, &mut seen, &mut result, &mut libs, &mut rest);
+            self.collect_task(*root, &mut seen, &mut result, &mut libs, &mut rest, &mut packages);
         }
 
         // `fileLoader.sortLibs` / `getDefaultLibFilePriority` (`fileloader.go:315`).
@@ -1253,6 +1278,7 @@ impl<'host, 'a> FileLoader<'host, 'a> {
         result: &mut LoadedFiles<'a>,
         libs: &mut Vec<usize>,
         rest: &mut Vec<usize>,
+        packages: &mut FxHashMap<PackageId, Path>,
     ) {
         let task = &self.tasks[index];
         if !task.loaded || !seen.insert(task.path.clone()) {
@@ -1263,8 +1289,24 @@ impl<'host, 'a> FileLoader<'host, 'a> {
         result.requests.extend(task.resolution_requests.iter().cloned());
         result.traces.extend(task.resolutions_trace.iter().cloned());
 
+        // Native chooses the first package file in replay order before walking
+        // its dependencies. Duplicate paths still resolve to that source file,
+        // but their subtree is not replayed or bound a second time. Versions,
+        // submodules and resolved peer sets are all part of the identity.
+        if !self.options.deduplicate_packages.is_false()
+            && let Some(package_id) = self.package_ids.get(&task.path)
+        {
+            if let Some(target) = packages.get(package_id) {
+                result.package_redirects.insert(task.path.clone(), target.clone());
+                return;
+            }
+            if task.file.is_some() {
+                packages.insert(package_id.clone(), task.path.clone());
+            }
+        }
+
         for sub_task in &task.sub_tasks {
-            self.collect_task(*sub_task, seen, result, libs, rest);
+            self.collect_task(*sub_task, seen, result, libs, rest, packages);
         }
 
         // A task whose file could not be read is upstream's `missingFiles`

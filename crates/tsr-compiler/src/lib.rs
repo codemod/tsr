@@ -2,9 +2,9 @@
 //!
 //! Ported from `internal/compiler/program.go` at the pinned commit — the part of
 //! it that matters before there is a checker or an emitter. Upstream's `Program`
-//! is 2,232 lines, and most of that is emit, project references, redirect
-//! deduplication, and diagnostic plumbing. What is here is `processedFiles`
-//! (`files`, `filesByPath`) and `BindSourceFiles`.
+//! includes emit, project references, and diagnostic plumbing. This crate
+//! implements `processedFiles` (`files`, `filesByPath`), package-identity
+//! redirects from the loader, and `BindSourceFiles`.
 //!
 //! # Why this exists before module resolution
 //!
@@ -340,6 +340,11 @@ impl<'a> Program<'a> {
         let mut files_by_path = FxHashMap::default();
         for (index, file) in loaded.files.iter().enumerate() {
             files_by_path.entry(file.path().clone()).or_insert(index);
+        }
+        for (duplicate, target) in &loaded.package_redirects {
+            if let Some(&index) = files_by_path.get(target) {
+                files_by_path.insert(duplicate.clone(), index);
+            }
         }
         let files_by_source_file = source_file_index(&loaded.files);
         let current_directory = host.current_directory().to_string();
@@ -913,6 +918,113 @@ mod tests {
 
     fn host(files: &[(String, String)]) -> TestHost {
         TestHost { fs: tsr_vfs::InMemoryFileSystem::new(files.iter().cloned(), [], true) }
+    }
+
+    fn duplicate_package_program<'a>(
+        arena: &'a Arena,
+        second_version: &str,
+        second_submodule: &str,
+        distinct_peers: bool,
+        deduplicate: tsr_core::Tristate,
+    ) -> Program<'a> {
+        let mut files = vec![
+            ("/a/main.ts".to_string(), "import { K } from 'shared'; export { K };".to_string()),
+            (
+                "/b/main.ts".to_string(),
+                format!("import {{ K }} from 'shared{second_submodule}'; export {{ K }};"),
+            ),
+            (
+                "/a/node_modules/shared/index.d.ts".to_string(),
+                "export declare class K { private brand; }".to_string(),
+            ),
+            (
+                format!(
+                    "/b/node_modules/shared{}.d.ts",
+                    if second_submodule.is_empty() { "/index" } else { second_submodule }
+                ),
+                "import './copy-only'; export declare class K { private brand; }".to_string(),
+            ),
+            (
+                "/b/node_modules/shared/copy-only.d.ts".to_string(),
+                "export interface OnlyInDuplicate { value: number }".to_string(),
+            ),
+        ];
+        for (directory, version, peer_version) in
+            [("a", "1.0.0", "1.0.0"), ("b", second_version, "2.0.0")]
+        {
+            let peers = if distinct_peers { ",\"peerDependencies\":{\"peer\":\"*\"}" } else { "" };
+            files.push((format!("/{directory}/node_modules/shared/package.json"), format!("{{\"name\":\"shared\",\"version\":\"{version}\",\"types\":\"index.d.ts\"{peers}}}")));
+            if distinct_peers {
+                files.push((
+                    format!("/{directory}/node_modules/peer/package.json"),
+                    format!("{{\"name\":\"peer\",\"version\":\"{peer_version}\"}}"),
+                ));
+            }
+        }
+        let host = host(&files);
+        Program::from_root_files(
+            arena,
+            &host,
+            LoadOptions {
+                compiler_options: CompilerOptions {
+                    no_lib: tsr_core::Tristate::True,
+                    deduplicate_packages: deduplicate,
+                    ..Default::default()
+                },
+                root_file_names: vec!["/a/main.ts".to_string(), "/b/main.ts".to_string()],
+                default_library_path: "/libs".to_string(),
+            },
+        )
+    }
+
+    #[test]
+    fn identical_packages_redirect_imports_and_do_not_replay_duplicate_dependencies() {
+        let arena = Arena::new();
+        let program =
+            duplicate_package_program(&arena, "1.0.0", "", false, tsr_core::Tristate::Unknown);
+        let target = program.resolved_module(file_id(&program, "/a/main.ts"), "shared").unwrap();
+        assert_eq!(
+            program.resolved_module(file_id(&program, "/b/main.ts"), "shared"),
+            Some(target)
+        );
+        assert_eq!(file_id(&program, "/b/node_modules/shared/index.d.ts"), target);
+        assert_eq!(program.source_files().len(), 3);
+        assert!(program.source_file("/b/node_modules/shared/copy-only.d.ts").is_none());
+    }
+
+    #[test]
+    fn package_deduplication_can_be_disabled() {
+        let arena = Arena::new();
+        let program =
+            duplicate_package_program(&arena, "1.0.0", "", false, tsr_core::Tristate::False);
+        assert_ne!(
+            program.resolved_module(file_id(&program, "/a/main.ts"), "shared"),
+            program.resolved_module(file_id(&program, "/b/main.ts"), "shared")
+        );
+        assert_eq!(program.source_files().len(), 5);
+        assert!(program.source_file("/b/node_modules/shared/copy-only.d.ts").is_some());
+    }
+
+    #[test]
+    fn package_versions_submodules_and_peers_keep_distinct_identities() {
+        for (version, submodule, peers) in
+            [("2.0.0", "", false), ("1.0.0", "/other", false), ("1.0.0", "", true)]
+        {
+            let arena = Arena::new();
+            let program = duplicate_package_program(
+                &arena,
+                version,
+                submodule,
+                peers,
+                tsr_core::Tristate::Unknown,
+            );
+            let first = program.resolved_module(file_id(&program, "/a/main.ts"), "shared").unwrap();
+            let second = program
+                .resolved_module(file_id(&program, "/b/main.ts"), &format!("shared{submodule}"))
+                .unwrap();
+            assert_ne!(first, second, "distinct identity collapsed: {version}/{submodule}/{peers}");
+            assert!(program.source_file("/b/node_modules/shared/copy-only.d.ts").is_some());
+        }
     }
 
     /// The bundled lib directory, or `None` when the submodule is not checked

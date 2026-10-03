@@ -96,3 +96,37 @@ Both program construction and checking need improvement; parallelizing only the
 checker cannot reach half native's total wall time while loading alone costs
 over three seconds. Detailed source and native counter attribution remain in
 `bd tsr-1yb.2`.
+
+## Package identity alignment
+
+The loader now follows native `filesparser.go:getProcessedFiles`: the first
+source file with a complete package identity wins during deterministic replay.
+Name, version, submodule and resolved peer dependencies all participate. Imports
+through duplicate physical paths point to the first source file, and replay skips
+the duplicate's dependencies. `deduplicatePackages: false` keeps both instances.
+Discovery still parses duplicates, as native does; this does not avoid all work
+on those copies.
+
+On the real app this removes all 463 TSR-only listed paths, leaving 13,097 TSR
+files versus 13,098 native files. Native additionally loads
+`@lingui/conf/dist/index.d.ts`; effective-config differences also remain. The
+performance comparison therefore remains unverified. The full assertion audit
+loses no previously RIGHT rows: four WRONG rows become RIGHT and six newly
+aligned rows are RIGHT. One newly aligned global-merge row remains WRONG.
+The diagnostic harness checks each canonical source-file identity once and
+attributes its spans to the canonical test unit. The pinned global-merge
+diagnostic control passes; the full diagnostic suite retains 2,799/5,488 passes.
+
+A separate five-pair comparison alternated saved pre-change and candidate
+binaries on the same app, with fresh processes, one warmup per binary, no emit
+and incremental/composite disabled. Median wall times were **7.418 s before and
+7.428 s after** (ratio 1.0014); all 141 diagnostic fingerprints matched.
+This is neutral within observed noise, not a speed improvement. Local evidence
+is `/tmp/tsr-1yb-dedup-paired.json`, with binary hashes and every sample.
+
+Compiler controls verify canonical import identities, skipped duplicate-only
+dependencies, and separate versions/submodules/peers. A distinct-package class
+assignment control also exposes a preexisting checker false negative: with
+deduplication disabled native reports incompatible members but both the saved
+pre-change binary and candidate accept them. This is tracked as `bd tsr-6.47.1`;
+the passing source-file identity controls do not prove that diagnostic works.

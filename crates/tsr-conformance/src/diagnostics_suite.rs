@@ -518,6 +518,24 @@ fn from_check_traversal(test: &crate::TestCase) -> Vec<BaselineDiagnostic> {
     }
     checker.set_checked_files(own_files);
 
+    // `Program.getBindAndCheckDiagnostics`: diagnose canonical source files,
+    // not every original input spelling. A package redirect may make an input
+    // resolve to another unit's AST; attributing its spans to the redirect's
+    // name reports a diagnostic in the wrong file.
+    let current_directory = tsr_path::get_normalized_absolute_path(
+        test.current_directory.as_deref().unwrap_or("/"),
+        "/",
+    );
+    let case_sensitive = test
+        .options
+        .get("usecasesensitivefilenames")
+        .is_none_or(|value| !value.eq_ignore_ascii_case("false"));
+    let names: std::collections::HashMap<_, _> = test
+        .files
+        .iter()
+        .map(|unit| (tsr_path::to_path(&unit.name, &current_directory, case_sensitive), &unit.name))
+        .collect();
+    let mut visited = std::collections::HashSet::new();
     let mut units = Vec::new();
     for unit in &test.files {
         if tsr_parser::ScriptKind::from_file_name(&unit.name) == tsr_parser::ScriptKind::Json {
@@ -525,6 +543,9 @@ fn from_check_traversal(test: &crate::TestCase) -> Vec<BaselineDiagnostic> {
         }
         let Some(file) = program.source_file(&unit.name) else { continue };
         let Some(id) = file.source_file().node_id else { continue };
+        if !visited.insert(id) {
+            continue;
+        }
         // Upstream's parser sets `NodeFlagsAmbient` on every node of a
         // declaration file; this port's does not, so the bit is supplied here.
         // `.d.ts` / `.d.mts` / `.d.cts`, which is `tspath.IsDeclarationFileName`.
@@ -538,7 +559,8 @@ fn from_check_traversal(test: &crate::TestCase) -> Vec<BaselineDiagnostic> {
                 has_parse_errors: !file.diagnostics().is_empty(),
             },
         );
-        units.push((id, unit.name.clone(), file.text()));
+        let canonical_name = names.get(file.path()).copied().unwrap_or(&unit.name);
+        units.push((id, canonical_name.clone(), file.text()));
     }
 
     let mut out = Vec::new();
@@ -675,5 +697,26 @@ mod tests {
     fn a_purely_missing_set_names_the_first_code() {
         let expected = vec![diagnostic(2304, 3), diagnostic(2322, 7)];
         assert_eq!(summarise(&expected, &[]), "2 missing (first TS2304 at a.ts(3,1))".to_string());
+    }
+
+    #[test]
+    fn redirected_package_diagnostics_keep_the_canonical_file_name() {
+        let root = crate::repo_root();
+        if !root.join("vendor/typescript-go/_submodules/TypeScript/tests/cases").is_dir() {
+            eprintln!("skipping: TypeScript submodule absent");
+            return;
+        }
+        let cases = crate::Corpus::from_repo_root(&root).discover().expect("corpus");
+        let case = cases
+            .iter()
+            .find(|case| case.name == "compiler/duplicatePackage_globalMerge")
+            .expect("duplicate-package control");
+        let baseline = case.expected_errors().expect("baseline").expect("errors baseline");
+        let test = case.load().expect("case");
+        let mut expected = errors_baseline::parse(&baseline);
+        let mut actual = reported_for(&test);
+        expected.sort_unstable();
+        actual.sort_unstable();
+        assert_eq!(actual, expected);
     }
 }
