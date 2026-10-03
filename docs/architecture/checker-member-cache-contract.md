@@ -126,3 +126,9 @@ the controls, complete diagnostics and previously RIGHT corpus assertions.
 Keep a change only if fresh-process whole-project timing exceeds the unchanged
 measurement threshold. The overall native wall ratio target remains 0.50 and
 is unverified.
+
+The subsequent [concrete member-query observation](checker-member-query-profile.md)
+separates repeat name answers, structured walks and returned payload bytes on
+`074f60a7`. Stable names are an opportunity bound, not proof of completed
+member-image equivalence or saved CPU. Mapper/instantiation identity and relation
+publication now have separate audits, `tsr-1yb.4.1.2` and `tsr-1yb.4.1.3`.
