@@ -358,3 +358,19 @@ controls, pass, as do all-target clippy and formatting checks.
 Local evidence is `/tmp/tsr-1yb-program-file-queries-paired.json`; its `tsgo`
 slot contains the saved **TSR reference**, not native tsgo. The isolated gain
 does not verify the overall native 0.50 target.
+
+A separate five-pair pinned-native run after this change observed **5.559 s TSR
+versus 3.305 s tsgo**, ratio **1.682**. It used the same TSR binary as the isolated
+comparison above, but alternated against native rather than the saved TSR
+reference. Do not combine medians from those different pairings into a ratio.
+TSR user/system CPU medians were 4.552/0.458 s and peak RSS 1.130 GB; native
+medians were 17.364/1.640 s and 5.023 GB. The additional TSR wall time over CPU in
+this pairing has not been attributed.
+
+The native comparison remains **incomparable**: 13,097 versus 13,098 files,
+123 versus zero diagnostics, and effective-config differences. Input content
+remained stable; processes were fresh and incremental/composite reuse disabled.
+The 0.50 target is still unmet and unverified. Local evidence is
+`/tmp/tsr-1yb-nextjs-after-file-index.json`. Worker memory/scaling and remaining
+loader CPU are the next larger opportunities; checked-scope telemetry and
+workload alignment remain required before verifying the overall target.
