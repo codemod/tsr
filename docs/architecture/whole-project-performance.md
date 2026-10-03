@@ -374,3 +374,64 @@ The 0.50 target is still unmet and unverified. Local evidence is
 `/tmp/tsr-1yb-nextjs-after-file-index.json`. Worker memory/scaling and remaining
 loader CPU are the next larger opportunities; checked-scope telemetry and
 workload alignment remain required before verifying the overall target.
+
+## Package JSON string validation
+
+A two-second early-loader sample with `noCheck` on the saved `efddbfe0` binary
+captured 1,666 main-thread stacks. UTF-8 validation had 630 self samples, all
+under `tsr_module::json::Parser::string`. For each ordinary string character,
+that reader validated the entire remaining document suffix, then decoded one
+character. The public parser already receives a valid `&str`; repeated suffix
+validation makes this part of reading large package files quadratic.
+
+The reader now retains that validated text alongside its byte view and uses
+safe string slicing to decode the next character. It preserves cursor-boundary
+failure, escapes, declaration order, duplicate-key last position and existing
+malformed-input behavior. It adds no unsafe conversion, cache or dependency.
+
+Five alternating fresh-process pairs compared saved source `760513fa` with this
+change, after one warmup per binary:
+
+| Measurement | Before | Validated text view |
+|---|---:|---:|
+| Median wall | 4.935 s | 4.140 s |
+| Wall range | 4.858–5.041 s | 4.061–4.194 s |
+| Median user CPU | 4.492 s | 3.711 s |
+| Median system CPU | 0.397 s | 0.384 s |
+| Median peak RSS | 1.093 GB | 1.077 GB |
+
+The isolated wall reduction is **16.1%**. RSS ranges overlap, so the result
+establishes no memory reduction. Both binaries retain 13,097 loaded files,
+effective options, stable input-content fingerprints and identical complete
+123 diagnostics. Separate extended-diagnostics controls confirm 1,341 actually
+checked files and 13,560 parsed files on both sides.
+
+All 474,251 assertion rows are byte-identical to the same-source reference:
+458,508 RIGHT, 2,433 GAP and 13,310 WRONG, with zero previously RIGHT losses.
+The tallies include concurrent checker fixes already present in the reference;
+they are not benefits of this optimization. All 49 module tests, 95 native
+resolver transcripts and 96 loader cases pass, as do all-target module clippy,
+formatting and whitespace checks. Focused controls cover mixed 2/3/4-byte UTF-8,
+escaped delimiters and surrogate pairs, and malformed strings after multibyte
+characters.
+
+A separate candidate `noCheck` locating probe attributed 0.423 s to resolution
+and 1.624 s to Program construction. Its sample has no whole-suffix UTF-8
+validation stacks under JSON string parsing. The captured stages differ from
+the earlier early-loader sample, so these profile times and counts do not
+establish a throughput ratio; the paired full-check result above does.
+
+Local evidence is `/tmp/tsr-1yb-json-utf8-paired.json`,
+`/tmp/tsr-1yb-json-utf8-assertion-audit.json` and
+`/tmp/tsr-1yb-json-utf8-checked-scope.json`. The paired harness's `tsgo` slot
+contains the saved **TSR reference**, not native tsgo. This isolated win does
+not verify the overall native 0.50 target, and production checking remains serial.
+
+A separate five-pair pinned-native observation after this change measured
+**4.287 s TSR versus 3.414 s tsgo**, observed ratio **1.256**. This run is
+incomparable: TSR retains 13,097 files and reports 123 diagnostics; native
+retains 13,098 and reports none, with the same native-only Lingui declaration
+and effective-config differences as before. Inputs remain stable and
+incremental/composite reuse is disabled. Do not combine the isolated 4.140 s
+median with this native run's median. The 0.50 target remains unmet and
+unverified. Local evidence is `/tmp/tsr-1yb-nextjs-json-utf8-native.json`.

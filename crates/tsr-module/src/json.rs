@@ -90,7 +90,7 @@ impl Json {
 /// so the caller decides what an error means.
 #[must_use]
 pub fn parse(text: &str) -> Option<Json> {
-    let mut parser = Parser { bytes: text.as_bytes(), position: 0 };
+    let mut parser = Parser { text, bytes: text.as_bytes(), position: 0 };
     parser.skip_whitespace();
     let value = parser.value()?;
     parser.skip_whitespace();
@@ -98,6 +98,7 @@ pub fn parse(text: &str) -> Option<Json> {
 }
 
 struct Parser<'a> {
+    text: &'a str,
     bytes: &'a [u8],
     position: usize,
 }
@@ -225,8 +226,10 @@ impl Parser<'_> {
                     }
                 }
                 _ => {
-                    // Step by whole characters so multi-byte UTF-8 survives.
-                    let rest = std::str::from_utf8(&self.bytes[self.position..]).ok()?;
+                    // The input is already valid UTF-8. Revalidating the
+                    // remaining document at every character is quadratic.
+                    // Safe slicing also rejects a cursor inside a code point.
+                    let rest = self.text.get(self.position..)?;
                     let character = rest.chars().next()?;
                     self.position += character.len_utf8();
                     result.push(character);
@@ -328,5 +331,19 @@ mod tests {
         // A surrogate pair, which a naive `\uXXXX` reader turns into mojibake.
         assert_eq!(parse(r#""😀""#), Some(Json::String("😀".to_string())));
         assert_eq!(parse(r#""café""#), Some(Json::String("café".to_string())));
+    }
+
+    #[test]
+    fn strings_mix_all_utf8_widths_with_escaped_delimiters() {
+        let value = parse(r#"{"é漢😀":"asciié漢😀\"\\\/\u0061\uD83D\uDE00tail"}"#)
+            .expect("valid UTF-8 and escapes");
+        assert_eq!(value.get("é漢😀").and_then(Json::as_str), Some("asciié漢😀\"\\/a😀tail"));
+    }
+
+    #[test]
+    fn malformed_strings_after_multibyte_characters_are_rejected() {
+        for text in [r#""é漢😀"#, r#""é\q""#, r#""漢\u00""#, r#""😀\uD83Dtail""#] {
+            assert!(parse(text).is_none(), "malformed string accepted: {text}");
+        }
     }
 }
