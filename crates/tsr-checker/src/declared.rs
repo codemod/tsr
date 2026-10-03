@@ -6042,6 +6042,51 @@ impl<'a> Checker<'a, '_> {
                     return Some(result);
                 }
             }
+            if check != error {
+                result = self.evaluate_conditional_inference(conditional, check);
+            }
+            // Inference resolves and instantiates its own extends target. Only
+            // resolve the ordinary relation target when there are no infer
+            // parameters and inference did not already select a branch;
+            // resolving a recursive infer target twice can expand it before
+            // the instantiation guard observes the cycle.
+            let extends_node = conditional.extends_type?;
+            let mut extends = error;
+            if result.is_none() && !has_infer_parameters {
+                extends = self.get_type_from_type_node(extends_node);
+                // getUnionTypeWorker (checker.go:25692) represents a
+                // nullable-only union under non-strict null checks with a
+                // widening null/undefined intrinsic. This port deliberately
+                // has no widening identities, so the ordinary printing road
+                // returns errorType. getConditionalType consumes the union only
+                // semantically: use the corresponding non-widening intrinsic
+                // here, preferring undefined exactly as the native branch does,
+                // and leave general union construction alone.
+                if extends == error && !self.strict_null_checks {
+                    let mut nullable_node = extends_node;
+                    while let TypeNode::ParenthesizedTypeNode(parenthesized) = nullable_node {
+                        nullable_node = parenthesized.r#type?;
+                    }
+                    if let TypeNode::UnionTypeNode(union) = nullable_node {
+                        let parts: Vec<_> = union
+                            .types
+                            .iter()
+                            .map(|&node| self.get_type_from_type_node(node))
+                            .collect();
+                        if !parts.is_empty()
+                            && parts.iter().all(|&part| {
+                                self.store.get(part).flags.intersects(TypeFlags::NULLABLE)
+                            })
+                        {
+                            extends = if parts.contains(&self.intrinsics.undefined) {
+                                self.intrinsics.undefined
+                            } else {
+                                self.intrinsics.null
+                            };
+                        }
+                    }
+                }
+            }
             // getConditionalType's extraTypes includes the true branch for
             // any and then continues into the false branch. Any/unknown extends
             // types instead select the true branch alone. Infer targets need
@@ -6050,7 +6095,6 @@ impl<'a> Checker<'a, '_> {
                 && check != error
                 && self.store.get(check).flags.contains(TypeFlags::ANY)
             {
-                let extends = self.get_type_from_type_node(conditional.extends_type?);
                 if extends == error
                     || self.unresolved_types.contains(&extends)
                     || self.store.get(extends).flags.intersects(
@@ -6075,9 +6119,6 @@ impl<'a> Checker<'a, '_> {
                     return None;
                 }
                 return Some(self.get_union_type(&[true_type, false_type]));
-            }
-            if check != error {
-                result = self.evaluate_conditional_inference(conditional, check);
             }
             let keys = if extends_is_never { self.literal_key_texts(check) } else { None };
             let keys_decided = keys.is_some();
@@ -6107,9 +6148,7 @@ impl<'a> Checker<'a, '_> {
                 // (`number extends never` is false).
                 && !(extends_is_never && keys_decided)
                 && check != error
-                && let Some(extends_node) = conditional.extends_type
             {
-                let extends = self.get_type_from_type_node(extends_node);
                 // §821 (`checker-notes-deferred.md`): upstream's own three
                 // outcomes, replacing the hand-rolled `primitive_domain` gate.
                 // `getConditionalType`'s non-deferred case

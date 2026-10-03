@@ -206,6 +206,47 @@ Measured against `cec7cef5`: +10 WRONG→RIGHT assertions
 (`genericDefaults` 7, `typeArgumentDefaultUsesConstraintOnCircularDefault` 2,
 `subclassThisTypeAssignable01` 1), zero RIGHT losses, no new GAP→WRONG.
 
+## Nullable-only extends operands in non-strict conditionals (`bd tsr-6.3`)
+
+`Awaited<T>` begins with `T extends null | undefined ? T : ...`. With
+`strictNullChecks` disabled, `getUnionTypeWorker` (`checker.go:25692`) reduces
+that nullable-only union to `undefinedWideningType` (or `nullWideningType` when
+there is no `undefined`). The port deliberately has no widening nullable
+intrinsics, so its ordinary union construction returns the gap marker instead.
+That printing limitation escaped into `getConditionalType`: even
+`Awaited<number>` could not test its first branch and later printed `any`.
+
+The conditional evaluator now gives an all-nullish extends union its semantic
+non-widening twin, preferring `undefined` as native does. It first walks only
+transparent `ParenthesizedTypeNode` wrappers, so both `(null | undefined)` and
+`((null | undefined))` reach the same relation; strict mode retains the ordinary
+union road. This is local to the relation operand: general union construction
+and rendering retain their existing refusal. Once the false branch is selected,
+the existing nested conditional and infer mapper continue normally. The focused
+control separates all three outcomes: a primitive takes the final false branch,
+`Box<"value">` continues into nested `infer U`, and `undefined` takes the
+nullable true branch, with raw, once-parenthesised, twice-parenthesised, and
+strict spellings distinguished. The pinned native `awaitedType.types` baseline
+independently records the same distinction (`T1: number`, `T2: number`,
+`TUndefined: undefined`).
+
+Ordering is part of the fix. A rejected draft resolved the extends node before
+running conditional inference. On `recursiveResolveTypeMembers` that resolved a
+recursive `Promise<H>` target twice, expanded it before the instantiation guard
+could observe the cycle, exceeded 13 GiB RSS in an unrestricted run, and hit the
+12 GiB full-run cap. The accepted ordering lets inference resolve and instantiate
+its own target first and resolves the ordinary relation target only when there
+are no infer parameters and no branch was selected. The corrected filtered
+control completes in 1.23 s at about 175 MiB RSS under a 1.6 GiB limit, retaining
+all five aligned rows; `infiniteConstraints` remains 62/62 RIGHT.
+
+Measured against `8f8f4e1a`: +12 WRONG→RIGHT assertions, all in
+`awaitedType`, with zero RIGHT losses and no GAP transitions. There are no added
+or removed assertion keys. Three remaining WRONG payloads change at positions
+18, 19, and 20: each previously printed `any` and now prints
+`_Expect<string | number, string | number>`, while the expected payload remains
+`string | number`.
+
 ## Refused: non-generic mapped types in the relater's structural arm
 
 `Extract<Options, { [P in "k"]: "a" | "b" }>` stays unevaluated because the

@@ -134,6 +134,84 @@ export function result() { return { stringResult, numberResult, failed, merged, 
 }
 
 #[test]
+fn non_strict_nullable_extends_continues_into_nested_inference() {
+    let source = r#"// @strict: false
+// @target: es2015
+type Box<T> = { value: T };
+type Unwrap<T> = T extends null | undefined ? T : T extends Box<infer U> ? U : T;
+type Parenthesized<T> = T extends (null | undefined) ? T : T extends Box<infer U> ? U : T;
+type TwiceParenthesized<T> = T extends ((null | undefined)) ? T : T extends Box<infer U> ? U : T;
+type Primitive = Unwrap<number>;
+type Nested = Unwrap<Box<"value">>;
+type Nullable = Unwrap<undefined>;
+type ParenthesizedPrimitive = Parenthesized<number>;
+type ParenthesizedNested = Parenthesized<Box<"value">>;
+type TwiceParenthesizedPrimitive = TwiceParenthesized<number>;
+declare const primitive: Primitive;
+declare const nested: Nested;
+declare const nullable: Nullable;
+declare const parenthesizedPrimitive: ParenthesizedPrimitive;
+declare const parenthesizedNested: ParenthesizedNested;
+declare const twiceParenthesizedPrimitive: TwiceParenthesizedPrimitive;
+export function result() { return { primitive, nested, nullable, parenthesizedPrimitive, parenthesizedNested, twiceParenthesizedPrimitive }; }
+"#;
+    let case = TestCase::parse(
+        "probe/non-strict-nullable-conditional",
+        "non-strict-nullable-conditional.ts",
+        source,
+    );
+    let expected: Vec<_> = case
+        .files
+        .iter()
+        .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
+        .collect();
+    let assertions = types_producer::assertions_for_case(&case, &expected, false);
+    let lines: Vec<_> = assertions.iter().flatten().map(types_producer::Assertion::line).collect();
+    for wanted in [
+        "primitive : number",
+        "nested : \"value\"",
+        "nullable : undefined",
+        "parenthesizedPrimitive : number",
+        "parenthesizedNested : \"value\"",
+        "twiceParenthesizedPrimitive : number",
+    ] {
+        assert!(lines.iter().any(|line| line == wanted), "missing {wanted}: {lines:?}");
+    }
+}
+
+#[test]
+fn strict_nullable_extends_keeps_ordinary_union_semantics_through_parentheses() {
+    let source = r#"// @strict: true
+// @target: es2015
+type Box<T> = { value: T };
+type Parenthesized<T> = T extends (null | undefined) ? T : T extends Box<infer U> ? U : T;
+type TwiceParenthesized<T> = T extends ((null | undefined)) ? T : T extends Box<infer U> ? U : T;
+type Primitive = Parenthesized<number>;
+type Nested = TwiceParenthesized<Box<"value">>;
+type Nullable = Parenthesized<undefined>;
+declare const primitive: Primitive;
+declare const nested: Nested;
+declare const nullable: Nullable;
+export function result() { return { primitive, nested, nullable }; }
+"#;
+    let case = TestCase::parse(
+        "probe/strict-parenthesized-nullable-conditional",
+        "strict-parenthesized-nullable-conditional.ts",
+        source,
+    );
+    let expected: Vec<_> = case
+        .files
+        .iter()
+        .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
+        .collect();
+    let assertions = types_producer::assertions_for_case(&case, &expected, false);
+    let lines: Vec<_> = assertions.iter().flatten().map(types_producer::Assertion::line).collect();
+    for wanted in ["primitive : number", "nested : \"value\"", "nullable : undefined"] {
+        assert!(lines.iter().any(|line| line == wanted), "missing {wanted}: {lines:?}");
+    }
+}
+
+#[test]
 fn conditional_distribution_maps_each_union_constituent_and_preserves_tuple_wrapping() {
     let source = r#"// @strict: true
 // @target: es2015
