@@ -3012,3 +3012,67 @@ impl Checker<'_, '_> {
         })
     }
 }
+
+#[cfg(test)]
+mod property_name_tests {
+    use tsr_ast::HasNodeId;
+    use tsr_core::Arena;
+
+    use crate::Checker;
+
+    fn names(source: &str, owner: &str) -> Option<Vec<String>> {
+        let arena = Arena::new();
+        let parsed = tsr_parser::parse(&arena, source);
+        assert!(parsed.diagnostics.is_empty());
+        let bound = tsr_binder::bind(
+            &arena,
+            parsed.source_file,
+            &parsed.nodes,
+            tsr_binder::FileInfo { name: "test.ts", text: source },
+        );
+        let root = parsed.source_file.node_id().unwrap();
+        let symbol = bound.lookup_local(root, owner).unwrap();
+        let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+        let ty = checker.get_declared_type_of_symbol(symbol);
+        let first = checker.get_property_names_of_type(ty);
+        assert_eq!(
+            first,
+            checker.get_property_names_of_type(ty),
+            "repeat resolution changed order"
+        );
+        first
+    }
+
+    #[test]
+    fn diamond_members_are_unique_and_type_parameters_are_excluded() {
+        let mut names = names(
+            "interface Base<T> { base: T; shared: number } interface Left extends Base<number> { left: string; shared: number } interface Right extends Base<number> { right: string; shared: number } interface Derived extends Left, Right { own: boolean; shared: number }",
+            "Derived",
+        ).unwrap();
+        names.sort();
+        assert_eq!(names, ["base", "left", "own", "right", "shared"]);
+    }
+
+    #[test]
+    fn late_bound_names_are_combined_with_inherited_and_regular_members() {
+        let mut names = names(
+            "const key = 'late'; interface Base { base: number } interface Derived extends Base { [key]: string; ['literal']: boolean; regular: number }",
+            "Derived",
+        ).unwrap();
+        names.sort();
+        assert_eq!(names, ["base", "late", "literal", "regular"]);
+    }
+
+    #[test]
+    fn cycles_terminate_but_unfollowable_bases_do_not_become_empty() {
+        let mut cyclic =
+            names("interface A extends B { a: number } interface B extends A { b: string }", "A")
+                .unwrap();
+        cyclic.sort();
+        assert_eq!(cyclic, ["a", "b"]);
+        assert_eq!(
+            names("type Alias = number; interface A extends Alias { a: number }", "A"),
+            None
+        );
+    }
+}

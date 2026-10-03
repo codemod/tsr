@@ -435,3 +435,59 @@ and effective-config differences as before. Inputs remain stable and
 incremental/composite reuse is disabled. Do not combine the isolated 4.140 s
 median with this native run's median. The 0.50 target remains unmet and
 unverified. Local evidence is `/tmp/tsr-1yb-nextjs-json-utf8-native.json`.
+
+## Structured property-name enumeration experiment
+
+A checker-phase sample on `81216b80` captured 1,699 main-thread stacks.
+Disjoint attribution to the nearest TSR owner placed 138 samples under
+`collect_structured_property_names`, including 61 allocator self samples.
+The captured interval covers part of checking; these counts are not a share
+of complete CLI time.
+
+Temporary opt-in counters recorded 222,029 structured visits across 3,615
+owner symbols, with at most 25,471 visits to one owner. The existing loop
+copied 3,262,955 own names (30,779,136 name bytes) into temporary vectors.
+Only 34,699 copies were subsequently discarded as duplicates. Temporary
+vector capacity summed to 116,079,456 bytes over the run; this is neither
+total heap allocation nor peak live memory. Instrumentation was removed
+before building the comparison binaries.
+
+The candidate enumerated immutable binder members directly, allocating a
+name only when adding it to the result. It removed the intermediate vector
+while retaining most final name copies. Three independent five-pair runs,
+each alternating fresh processes after one warmup per binary, produced:
+
+| Reference source | Before median wall | Candidate median wall | Outcome |
+|---|---:|---:|---|
+| `81216b80`, initial | 5.068 s | 4.987 s | 1.6% observed reduction |
+| `81216b80`, confirmation | 5.123 s | 4.949 s | 3.4% observed reduction |
+| `4bf5fe96`, integration | 4.929 s | 4.971 s | 0.9% observed increase; rejected |
+
+Every sample is retained. The confirmation run includes large final-pair
+outliers (9.840 s before, 5.962 s candidate); no memory benefit is established.
+The integration result fails the isolated wall-time decision's unchanged
+0.020 s absolute threshold. The production loop was restored rather than
+shipping a gain that did not repeat on current source.
+
+On `4bf5fe96`, both binaries retain identical effective options, input
+fingerprints, 13,097 loaded files and complete 123 diagnostics. Separate
+extended-diagnostics controls confirm 1,341 checked and 13,560 parsed files
+on both sides. All 474,251 assertion rows are byte-identical: 459,381 RIGHT,
+2,198 GAP and 12,672 WRONG, with zero previously RIGHT losses. These totals
+reflect the concurrent fidelity checkpoint, not an optimization benefit.
+Retained unit controls cover diamond inheritance and duplicate names,
+type-parameter exclusion, computed members, stable repeat ordering, cycles
+and unfollowable bases.
+
+Local evidence is `/tmp/tsr-1yb-property-names-paired.json`,
+`/tmp/tsr-1yb-property-names-confirmation.json`,
+`/tmp/tsr-1yb-member-current-paired.json`,
+`/tmp/tsr-1yb-member-current-audit.json` and
+`/tmp/tsr-1yb-member-current-telemetry.json`. Each paired harness's `tsgo`
+slot holds a saved TSR reference. These runs establish no native speed ratio.
+
+The repeated visits justify investigating completed structured-member reuse
+under `tsr-1yb.4.1.1`. Native `resolveStructuredTypeMembers` retains members
+per concrete type, including instantiated arguments and completion state;
+an owner-symbol-only name cache would not implement that contract. The
+overall native 0.50 target remains unmet and unverified.
