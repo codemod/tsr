@@ -6669,7 +6669,10 @@ impl<'a> Checker<'a, '_> {
             .intersects(TypeFlags::INSTANTIABLE_NON_PRIMITIVE | TypeFlags::INDEX)
     }
 
-    fn distributive_conditional_parameter(&self, mut node: TypeNode<'a>) -> Option<SymbolId> {
+    pub(crate) fn distributive_conditional_parameter(
+        &self,
+        mut node: TypeNode<'a>,
+    ) -> Option<SymbolId> {
         while let TypeNode::ParenthesizedTypeNode(parenthesized) = node {
             node = parenthesized.r#type?;
         }

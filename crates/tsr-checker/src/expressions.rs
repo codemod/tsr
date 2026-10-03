@@ -3022,7 +3022,135 @@ impl Checker<'_, '_> {
         if operand_type == error {
             return error;
         }
-        self.awaited_type_no_alias(operand_type).unwrap_or(error)
+        self.awaited_type(operand_type).unwrap_or(error)
+    }
+
+    /// getAwaitedTypeEx/createAwaitedTypeIfNeeded (checker.go): concrete
+    /// unwrapping precedes the optional global Awaited<T> alias instantiation.
+    fn awaited_type(&mut self, id: TypeId) -> Option<TypeId> {
+        let awaited = self.awaited_type_no_alias(id)?;
+        if self.is_awaited_type_needed(awaited)?
+            && let Some(symbol) = self.global_type_symbol_with_arity("Awaited", 1)
+        {
+            // tryCreateAwaitedType unwraps existing Awaited constituents before
+            // instantiating the alias, avoiding Awaited<Awaited<T> | U>.
+            let awaited = self.unwrap_awaited_type(awaited);
+            // Instantiating a distributive conditional retains deferred generic
+            // branches alongside concrete branches. Do not impose distribution
+            // on a custom global alias with a non-distributive declaration.
+            if let TypeData::Union { types, .. } = &self.store.get(awaited).data
+                && let Some(Node::TypeAliasDeclaration(alias)) = self
+                    .binder
+                    .symbols()
+                    .get(symbol)
+                    .declarations
+                    .first()
+                    .and_then(|&declaration| self.node_map.get(declaration))
+                && let Some(tsr_ast::TypeNode::ConditionalTypeNode(conditional)) = alias.r#type
+                && let Some(check) = conditional.check_type
+                && let Some(parameter) = self.distributive_conditional_parameter(check)
+                && alias.type_parameters.first().is_some_and(|parameter_node| {
+                    parameter_node.node_id.and_then(|node| self.binder.symbol_of(node))
+                        == Some(parameter)
+                })
+            {
+                let types = types.clone();
+                let instantiated: Vec<_> = types
+                    .into_iter()
+                    .map(|part| self.create_type_reference(symbol, vec![part]))
+                    .collect();
+                return Some(self.get_union_type(&instantiated));
+            }
+            return Some(self.create_type_reference(symbol, vec![awaited]));
+        }
+        Some(awaited)
+    }
+
+    /// unwrapAwaitedType (checker.go:31440): async return inference keeps the
+    /// generic argument of a global conditional Awaited instantiation.
+    pub(crate) fn unwrap_awaited_type(&mut self, id: TypeId) -> TypeId {
+        if let TypeData::Union { types, .. } = &self.store.get(id).data {
+            let types = types.clone();
+            let unwrapped: Vec<_> =
+                types.into_iter().map(|part| self.unwrap_awaited_type(part)).collect();
+            return self.get_union_type(&unwrapped);
+        }
+        if self.store.get(id).flags.contains(TypeFlags::CONDITIONAL)
+            && let Some((symbol, arguments)) = self.type_reference_targets.get(&id)
+            && let [argument] = arguments.as_slice()
+            && self.global_type_symbol("Awaited").is_some_and(|awaited| {
+                self.binder.merged_symbol(awaited) == self.binder.merged_symbol(*symbol)
+            })
+        {
+            return *argument;
+        }
+        id
+    }
+
+    /// isAwaitedTypeNeeded (checker.go:31393). Generic arguments on ordinary
+    /// references are not generic objects; use native's existing classifier.
+    fn is_awaited_type_needed(&mut self, id: TypeId) -> Option<bool> {
+        if self.store.get(id).flags.contains(TypeFlags::ANY)
+            || (self.store.get(id).flags.contains(TypeFlags::CONDITIONAL)
+                && self.type_reference_targets.get(&id).is_some_and(|(symbol, arguments)| {
+                    arguments.len() == 1
+                        && self.global_type_symbol("Awaited").is_some_and(|awaited| {
+                            self.binder.merged_symbol(awaited) == self.binder.merged_symbol(*symbol)
+                        })
+                }))
+            || !self.spread_generic_flags(id, &mut Vec::new()).0
+        {
+            return Some(false);
+        }
+        let Some(constraint) = self.base_constraint_of_type(id) else {
+            return Some(
+                self.maybe_type_of_kind(id, TypeFlags::TYPE_PARAMETER | TypeFlags::INDEXED_ACCESS),
+            );
+        };
+        if constraint == self.intrinsics.error {
+            return None;
+        }
+        if self.store.get(constraint).flags.intersects(TypeFlags::ANY_OR_UNKNOWN)
+            || self.is_empty_spread_object_type(constraint)
+        {
+            return Some(true);
+        }
+        let constituents = match &self.store.get(constraint).data {
+            TypeData::Union { types, .. } => types.clone(),
+            _ => vec![constraint],
+        };
+        for part in constituents {
+            if self.is_thenable_type(part)? {
+                return Some(true);
+            }
+        }
+        Some(false)
+    }
+
+    /// isThenableType (checker.go:31450), for the resolved base constraints
+    /// inspected by isAwaitedTypeNeeded. Unsupported signatures remain a gap.
+    fn is_thenable_type(&mut self, id: TypeId) -> Option<bool> {
+        if self.store.get(id).flags.intersects(TypeFlags::PRIMITIVE | TypeFlags::NEVER) {
+            return Some(false);
+        }
+        let Some(then) = self.get_type_of_property_of_type(id, "then") else {
+            return Some(false);
+        };
+        if then == self.intrinsics.error {
+            return None;
+        }
+        let then = self.get_type_with_facts(then, crate::flow::TypeFacts::NE_UNDEFINED_OR_NULL);
+        if self
+            .store
+            .get(then)
+            .flags
+            .intersects(TypeFlags::ANY_OR_UNKNOWN | TypeFlags::PRIMITIVE | TypeFlags::NEVER)
+        {
+            return Some(false);
+        }
+        Some(
+            !self.signatures_of_type_kind(then, crate::signatures::SignatureKind::Call)?.is_empty(),
+        )
     }
 
     /// `getAwaitedTypeNoAlias` (`checker.go:31270`), widened from the §18
@@ -3035,9 +3163,9 @@ impl Checker<'_, '_> {
     ///   `errorType` never reaches here (both callers screen it first).
     /// - A **union** awaits per constituent (`:31285`); one undecidable
     ///   constituent gaps the whole.
-    /// - A **generic** type wraps in `Awaited<T>` (`isAwaitedTypeNeeded`,
-    ///   `:31395`) — this port mints no conditional alias instantiations, so
-    ///   every type-variable-flavored shape declines.
+    /// - A type parameter retains its identity. The separate `awaited_type`
+    ///   consumer introduces Awaited<T> only when isAwaitedTypeNeeded requires
+    ///   it; async return aggregation keeps the unwrapped parameter.
     /// - A reference to the **global `Promise`** unwraps to its argument
     ///   (`getPromisedTypeOfPromiseEx`'s short-circuit, `checker.go:28941`),
     ///   recursively. `PromiseLike<T>` reaches the same `T` upstream through
@@ -3086,11 +3214,13 @@ impl Checker<'_, '_> {
         if flags.contains(TypeFlags::CONDITIONAL) {
             return Some(id);
         }
+        if flags.contains(TypeFlags::TYPE_PARAMETER) {
+            return Some(id);
+        }
         // `isAwaitedTypeNeeded`'s domain plus the deferred kinds whose
         // members this port cannot probe: all decline rather than guess.
         if flags.intersects(
-            TypeFlags::TYPE_PARAMETER
-                .union(TypeFlags::INDEX)
+            TypeFlags::INDEX
                 .union(TypeFlags::INDEXED_ACCESS)
                 .union(TypeFlags::SUBSTITUTION)
                 .union(TypeFlags::INTERSECTION),

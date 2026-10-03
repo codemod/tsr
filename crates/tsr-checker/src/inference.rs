@@ -5158,16 +5158,17 @@ impl Checker<'_, '_> {
             // body, whose spec purpose is agreeing with `getAwaitedType` on
             // every non-generic input, and `createAwaitedTypeIfNeeded`
             // (`checker.go:31410`) only mints the alias form for type
-            // variables in the first place. `awaited_type_no_alias`'s domain
-            // is exactly the concrete types: a type-variable argument
-            // declines there and the reference keeps its written name, which
-            // is also upstream's spelling for it. This is what turns
+            // variables in the first place. No-alias awaiting now preserves
+            // generic parameter identity for async aggregation, so this
+            // concrete shortcut must explicitly retain a generic alias.
+            // This is what turns
             // `resolve<T>(value: T): Promise<Awaited<T>>` instantiated at
             // `string` into `Promise<string>`.
             if let [argument] = substituted.as_slice()
                 && self.global_type_symbol("Awaited").is_some_and(|awaited| {
                     self.binder.merged_symbol(awaited) == self.binder.merged_symbol(symbol)
                 })
+                && !self.spread_generic_flags(*argument, &mut Vec::new()).0
                 && let Some(awaited) = self.awaited_type_no_alias(*argument)
             {
                 return awaited;

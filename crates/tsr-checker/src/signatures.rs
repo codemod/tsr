@@ -2609,10 +2609,46 @@ impl<'a> Checker<'a, '_> {
                     // From within an async function you can return either a
                     // non-promise value or a promise —
                     // `unwrapAwaitedType(checkAwaitedType(t, …))`
-                    // (`checker.go:20282`); the unwrap is an identity here
-                    // because this port mints no `Awaited<T>`.
-                    self.awaited_type_no_alias(id)?
+                    // (`checker.go:20282`). Await expressions can mint the
+                    // conditional alias, but the return aggregate keeps T.
+                    let awaited = self.awaited_type_no_alias(id)?;
+                    self.unwrap_awaited_type(awaited)
                 };
+                // Contextual union-call inference can still leave a foreign
+                // signature parameter uninstantiated (Promise.reject's T).
+                // Preserving parameter identity licenses lexical parameters,
+                // not publishing that unsupported call mapper as a return type.
+                let parts = match &self.store.get(awaited).data {
+                    crate::types::TypeData::Union { types, .. } => types.clone(),
+                    _ => vec![awaited],
+                };
+                for part in parts {
+                    if !self.store.get(part).flags.contains(crate::flags::TypeFlags::TYPE_PARAMETER)
+                    {
+                        continue;
+                    }
+                    let symbol = *self.type_parameter_symbols.get(&part)?;
+                    let owners: Vec<_> = self
+                        .binder
+                        .symbols()
+                        .get(symbol)
+                        .declarations
+                        .iter()
+                        .filter_map(|&parameter| self.nodes.parent(parameter))
+                        .collect();
+                    let mut scope = Some(declaration);
+                    let mut bound = false;
+                    while let Some(node) = scope {
+                        if owners.contains(&node) {
+                            bound = true;
+                            break;
+                        }
+                        scope = self.nodes.parent(node);
+                    }
+                    if !bound {
+                        return None;
+                    }
+                }
                 let awaited = self.const_function_body_expression_type(node, awaited);
                 if !valued.contains(&awaited) {
                     valued.push(awaited);

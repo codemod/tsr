@@ -2088,7 +2088,7 @@ impl Checker<'_, '_> {
     /// object boundary to the anonymous empty objects this port can resolve.
     /// Native's union/intersection recursion belongs here, not in the broader
     /// spread-empty predicate below.
-    fn is_empty_spread_object_type(&mut self, ty: TypeId) -> bool {
+    pub(crate) fn is_empty_spread_object_type(&mut self, ty: TypeId) -> bool {
         if self.is_empty_anonymous_object_type(ty)
             || self.store.get(ty).flags.intersects(TypeFlags::NON_PRIMITIVE)
         {
