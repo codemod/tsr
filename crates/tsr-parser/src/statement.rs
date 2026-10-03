@@ -632,7 +632,11 @@ impl<'a> Parser<'a> {
             // with empty source text, which fails the case on its assertion
             // COUNT while every line it does render is right — see
             // `docs/architecture/checker-notes-nearmiss.md` §191.
-            if !self.is_binding_identifier_or_private_identifier_or_pattern() {
+            // Unknown tokens must reach the recovery arm above even when a
+            // comma preceded them (`parser.go:664` continues unconditionally).
+            if !self.at(SyntaxKind::Unknown)
+                && !self.is_binding_identifier_or_private_identifier_or_pattern()
+            {
                 trailing_comma = true;
                 break;
             }

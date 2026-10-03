@@ -102,6 +102,13 @@ Three pinned controls in `crates/tsr-conformance/tests/this_property_declaration
 compare whole `.types` sequences with tsgo's own compiler-test baselines
 (strict, non-strict, constructor/method/inherited/static/precedence cases).
 
+Reverified on the current wave's exact base `cec7cef5` before integration:
+457,641 → 457,896 aligned RIGHT, 2,538 → 2,475 GAP, and 14,064 → 13,872
+WRONG. The same 195 WRONG→RIGHT, 60 GAP→RIGHT and three GAP→WRONG
+transitions remain, with zero RIGHT losses. Complete checker cases improve
+7,021 → 7,049 and diagnostic cases 2,790 → 2,793. These are this unit's
+isolated results, not the combined wave totals recorded in STATUS.
+
 ## Not ported
 
 - Constructor functions (`function C() { this.x = 1 }`): upstream's binder

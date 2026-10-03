@@ -50490,8 +50490,12 @@ and a cross-worktree binary resolved `repo_root()` back to that checkout. After
 the tracked diagnostics snapshot read **2,790**; unfiltered `scorepair --accept`
 produced the baseline numbers above. No `TSR_*` environment variable was set.
 
-Five parser-native controls pin the three invalid tails, exact TS1127-only
+Six parser-native controls pin the three invalid tails, exact TS1127-only
 diagnostics, an invalid token at EOF (no manufactured declaration), and an
-ordinary comma-separated declaration list. The existing printer control now
+ordinary comma-separated declaration list. Integration review added the
+post-comma boundary: `var arg, \u003;` must also declare `arg` and `u003`.
+The worker draft stopped at the old post-comma guard and failed this test with
+only `arg`; letting Unknown reach the loop's recovery arm matches native's
+unconditional post-comma continue (`parser.go:664`). The existing printer control now
 expects `var u0031a;`, independently anchored to upstream's checked-in
 `invalidUnicodeEscapeSequance4.js`; no printer implementation changed.

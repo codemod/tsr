@@ -39,6 +39,13 @@ fn an_invalid_escape_between_declarations_is_skipped() {
 }
 
 #[test]
+fn an_invalid_escape_after_a_comma_stays_in_the_declaration_list() {
+    let (names, diagnostics) = declaration_names(r"var arg, \u003;");
+    assert_eq!(names, ["arg", "u003"]);
+    assert_eq!(diagnostics, ["TS1127"]);
+}
+
+#[test]
 fn a_nondigit_escape_tail_is_still_a_declaration() {
     let (names, diagnostics) = declaration_names(r"var arg\uxxxx");
     assert_eq!(names, ["arg", "uxxxx"]);
