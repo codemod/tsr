@@ -1455,6 +1455,28 @@ fn a_numeric_enum_member_relates_to_number_and_its_value_literal() {
     assert!(!related_after_decl(wrong_literal, |c, a, b| c.is_type_assignable_to(b, a)));
 }
 
+#[test]
+#[allow(clippy::redundant_closure_for_method_calls)]
+fn nonfinite_enum_values_match_plain_literals_without_losing_owner_identity() {
+    for value in ["1e999", "-2e999"] {
+        let fixture = format!("enum E {{ A = {value}, B = 7 }} const a = E.A; let b: {value};");
+        assert!(related_after_decl(&fixture, |c, a, b| c.is_type_assignable_to(a, b)));
+        assert!(related_after_decl(&fixture, |c, a, b| c.is_type_assignable_to(b, a)));
+    }
+    let opposite = "enum E { A = 1e999, B = 7 } const a = E.A; let b: -1e999;";
+    assert!(!related_after_decl(opposite, |c, a, b| c.is_type_assignable_to(a, b)));
+    assert!(!related_after_decl(opposite, |c, a, b| c.is_type_assignable_to(b, a)));
+    with_checker(
+        "enum E { A = 1e999, B = 7 } enum F { A = 1e999, B = 7 } const a = E.A; const b = F.A;",
+        |checker, statements| {
+            let a = declaration_type(checker, statements, 2);
+            let b = declaration_type(checker, statements, 3);
+            assert!(!checker.is_type_assignable_to(a, b));
+            assert!(!checker.is_type_assignable_to(b, a));
+        },
+    );
+}
+
 /// §751. A STRING enum member is string-like, not number-like — the port's
 /// `ENUM` bit sits inside `NUMBER_LIKE`, which is exactly the misfire the
 /// enum arms are placed ahead of.

@@ -3597,6 +3597,9 @@ impl Checker<'_, '_> {
 fn negate_number_text(normalised: &str) -> Option<String> {
     let value: f64 = normalised.parse().ok()?;
     let negated = -value;
+    if !negated.is_finite() {
+        return Some(tsr_core::jsnum::format_number(negated));
+    }
     // `-0.0 == 0.0` is true in IEEE 754, so this catches negative zero without
     // needing to inspect the sign bit, and turns it into the `0` upstream prints.
     if negated == 0.0 {

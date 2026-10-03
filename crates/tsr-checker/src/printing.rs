@@ -244,9 +244,12 @@ pub fn normalise_number(text: &str) -> String {
 /// Apply ECMAScript `Number::toString`'s notation boundaries to Rust's shortest
 /// round-tripping decimal digits.
 fn number_to_ecmascript_string(value: f64) -> String {
+    if !value.is_finite() {
+        return tsr_core::jsnum::format_number(value);
+    }
     let raw = value.to_string();
     let absolute = value.abs();
-    if !value.is_finite() || absolute == 0.0 || (1e-6..1e21).contains(&absolute) {
+    if absolute == 0.0 || (1e-6..1e21).contains(&absolute) {
         return raw;
     }
 

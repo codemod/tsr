@@ -5394,7 +5394,11 @@ impl<'a> Checker<'a, '_> {
                     Some(MemberValue::Num(number)) => (
                         TypeFlags::ENUM_LITERAL | TypeFlags::NUMBER_LITERAL,
                         crate::types::TypeData::EnumLiteral {
-                            value: crate::types::EnumLiteralValue::Number(number.to_string()),
+                            value: crate::types::EnumLiteralValue::Number(if number.is_finite() {
+                                number.to_string()
+                            } else {
+                                tsr_core::jsnum::format_number(*number)
+                            }),
                             owner: symbol,
                             member: member_symbol,
                             text,

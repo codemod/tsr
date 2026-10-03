@@ -60,6 +60,28 @@ fn a_numeric_literal_type_prints_its_value_not_its_spelling() {
 }
 
 #[test]
+fn positive_nonfinite_numeric_literals_keep_their_value_when_infinity_is_shadowed() {
+    // Pinned native 5b1047d emits Infinity for overflow literals, independently
+    // of a same-spelled value binding; it does not turn them into references.
+    assert_eq!(type_of_initialiser("const x = 1e999;"), "Infinity");
+    assert_eq!(type_of_initialiser("const x = +2e999;"), "Infinity");
+    assert_eq!(type_of_declaration("const Infinity = 'held'; const x = 2e999;", "x"), "Infinity");
+    assert_eq!(type_of_declaration("let x: 1e999;", "x"), "Infinity");
+    assert_eq!(type_of_declaration("const Infinity = 'held';", "Infinity"), "\"held\"");
+    assert_eq!(type_of_initialiser("const x = 1e308;"), "1e+308");
+}
+
+#[test]
+fn negative_nonfinite_numeric_literals_and_annotations_share_the_same_value() {
+    assert_eq!(type_of_initialiser("const x = -1e999;"), "-Infinity");
+    // Native widens a composed unary expression, even if its operand is a literal.
+    assert_eq!(type_of_initialiser("const x = -(-2e999);"), "number");
+    assert_eq!(type_of_declaration("let x: -1e999;", "x"), "-Infinity");
+    assert_eq!(type_of_initialiser("const x = -0;"), "0");
+    assert_eq!(type_of_initialiser("const x = -1.5;"), "-1.5");
+}
+
+#[test]
 fn a_string_literal_type_is_quoted_and_escaped_as_typescript_prints_it() {
     // Whole-line comparison means the quoting is under test, not cosmetic.
     assert_eq!(type_of_initialiser(r"const x = 'a';"), r#""a""#);
