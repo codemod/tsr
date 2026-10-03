@@ -5725,7 +5725,7 @@ impl<'a> Checker<'a, '_> {
     /// field as an ordinary alias. This port keeps the parsed JSDoc tag instead
     /// of synthesising an AST declaration; this is the equivalent projection
     /// at the checker boundary.
-    fn type_alias_body(&self, symbol: SymbolId) -> Option<TypeNode<'a>> {
+    pub(crate) fn type_alias_body(&self, symbol: SymbolId) -> Option<TypeNode<'a>> {
         let declarations = &self.binder.symbols().get(symbol).declarations;
         // A written alias wins in a merged symbol. Native's reparser creates a
         // JSTypeAliasDeclaration, but its checker still finds the ordinary
@@ -5755,7 +5755,10 @@ impl<'a> Checker<'a, '_> {
 
     /// The sibling object properties that the binder attached to this alias.
     /// Merged written/local typedefs keep declining rather than mixing bodies.
-    fn jsdoc_sibling_property_doc(&self, symbol: SymbolId) -> Option<&'a tsr_ast::JSDoc<'a>> {
+    pub(crate) fn jsdoc_sibling_property_doc(
+        &self,
+        symbol: SymbolId,
+    ) -> Option<&'a tsr_ast::JSDoc<'a>> {
         let entry = self.binder.symbols().get(symbol);
         let [declaration] = entry.declarations.as_slice() else { return None };
         if !matches!(self.node_map.get(*declaration), Some(Node::JSDocTypedefTag(_)))

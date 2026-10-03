@@ -356,3 +356,79 @@ fn present_sibling_members_and_object_builtins_remain_valid() {
         .replace("local.absent;", "local.present;");
     assert!(configured_typedef_diagnostics(&source).is_empty());
 }
+
+/// Native rejects the reverse covariant assignment, the forward contravariant
+/// assignment (a.js:36), and both invariant assignments. In particular, the
+/// positive contravariant assignment at a.js:37 must not default to covariance.
+#[test]
+fn declared_jsdoc_variance_orders_both_assignment_directions() {
+    let source = include_str!(
+        "../../../vendor/typescript-go/_submodules/TypeScript/tests/cases/conformance/jsdoc/jsdocTemplateTag8.ts"
+    );
+    let case = TestCase::parse("probe/jsdoc-declared-variance", "variance.ts", source);
+    let arena = tsr_core::Arena::new();
+    let program = types_producer::program_for_case(&arena, &case);
+    let mut checker = types_producer::configured_checker(&program);
+    let file = program.source_file("a.js").expect("fixture file");
+    let mut stack = vec![tsr_ast::Node::SourceFile(file.source_file())];
+    let mut assignments = Vec::new();
+    while let Some(node) = stack.pop() {
+        tsr_ast::push_children(node, &mut stack);
+        if let tsr_ast::Node::BinaryExpression(binary) = node
+            && binary
+                .operator_token
+                .is_some_and(|token| token.kind == tsr_ast::SyntaxKind::EqualsToken)
+        {
+            let target = checker.check_expression(binary.left.expect("assignment target"));
+            let source = checker.check_expression(binary.right.expect("assignment value"));
+            assignments.push((
+                program.nodes().span(binary.node_id.expect("registered")).start,
+                checker.is_type_assignable_to(source, target),
+            ));
+        }
+    }
+    assignments.sort_unstable_by_key(|(position, _)| *position);
+    let outcomes: Vec<_> = assignments.iter().map(|(_, related)| *related).collect();
+    assert_eq!(outcomes, [true, false, false, true, false, false]);
+}
+
+#[test]
+fn unannotated_jsdoc_objects_measure_variance_instead_of_defaulting_covariant() {
+    let source = r"// @allowJs: true
+// @checkJs: true
+// @strict: true
+// @filename: a.js
+/** @template T @typedef {{ value: T }} InlineOutput */ ;
+/** @template T @typedef {{ accept: (value: T) => void }} InlineInput */ ;
+/** @template T @typedef {Object} SiblingOutput @property {T} value */ ;
+/** @template T @typedef {Object} SiblingInput @property {(value: T) => void} accept */ ;
+/** @template T @typedef {{ tag: string }} Independent */ ;
+";
+    let case = TestCase::parse("probe/jsdoc-measured-variance", "variance.ts", source);
+    let arena = tsr_core::Arena::new();
+    let program = types_producer::program_for_case(&arena, &case);
+    let mut checker = types_producer::configured_checker(&program);
+    let root = program.source_file("a.js").unwrap().source_file().node_id.unwrap();
+    let text = checker.intrinsics().string;
+    let wide = checker.intrinsics().unknown;
+    let unrelated = checker.intrinsics().number;
+    for (name, other, expected) in [
+        ("InlineOutput", wide, [true, false]),
+        ("InlineInput", wide, [false, true]),
+        ("SiblingOutput", wide, [true, false]),
+        ("SiblingInput", wide, [false, true]),
+        ("Independent", unrelated, [true, true]),
+    ] {
+        let symbol = program.binder().lookup_local(root, name).expect("typedef symbol");
+        let narrow = checker.create_type_reference_public(symbol, vec![text]);
+        let other = checker.create_type_reference_public(symbol, vec![other]);
+        assert_eq!(
+            [
+                checker.is_type_assignable_to(narrow, other),
+                checker.is_type_assignable_to(other, narrow),
+            ],
+            expected,
+            "{name}"
+        );
+    }
+}

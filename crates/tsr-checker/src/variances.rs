@@ -40,12 +40,18 @@ impl Checker<'_, '_> {
         let declarations = self.local_type_parameters_of(symbol).to_vec();
         let parameters = self.local_type_parameter_types_of(symbol)?;
         let alias = self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_ALIAS);
-        // A named reference to an unsupported alias body has no reliable
-        // structural representation to compare.
-        if alias && !self.binder.symbols().get(symbol).declarations.iter().any(|id| {
-            matches!(self.node_map.get(*id), Some(Node::TypeAliasDeclaration(node)) if matches!(node.r#type,
-                Some(TypeNode::FunctionTypeNode(_) | TypeNode::ConstructorTypeNode(_) | TypeNode::TypeLiteralNode(_))))
-        }) {
+        // Keep the written-alias body boundary: invalid in/out on a reference
+        // alias must not override its ordinary relation. JSDoc declarations can
+        // carry valid in/out even when their body cannot be measured here.
+        if alias
+            && self.binder.symbols().get(symbol).declarations.iter().any(|id| {
+                matches!(self.node_map.get(*id), Some(Node::TypeAliasDeclaration(_)))
+            })
+            && !self.binder.symbols().get(symbol).declarations.iter().any(|id| {
+                matches!(self.node_map.get(*id), Some(Node::TypeAliasDeclaration(node)) if matches!(node.r#type,
+                    Some(TypeNode::FunctionTypeNode(_) | TypeNode::ConstructorTypeNode(_) | TypeNode::TypeLiteralNode(_))))
+            })
+        {
             self.variance_cache.insert(symbol, None);
             return None;
         }
@@ -142,30 +148,29 @@ impl Checker<'_, '_> {
             .enumerate()
             .map(|(i, (parameter, _))| if i == index { marker } else { *parameter })
             .collect();
-        let result =
-            if alias {
-                let body = self.binder.symbols().get(symbol).declarations.iter().find_map(
-                    |id| match self.node_map.get(*id) {
-                        Some(Node::TypeAliasDeclaration(alias)) => alias.r#type,
-                        _ => None,
-                    },
-                )?;
-                if matches!(body, TypeNode::TypeLiteralNode(_)) {
-                    self.create_type_reference(symbol, arguments)
-                } else {
-                    let owns_resolution = self.variadic_alias_in_progress.insert(symbol);
-                    let declared = self.get_type_from_type_node(body);
-                    if owns_resolution {
-                        self.variadic_alias_in_progress.remove(&symbol);
-                    }
-                    let own: Vec<_> = parameters.iter().map(|(parameter, _)| *parameter).collect();
-                    let names: Vec<_> = parameters.iter().map(|(_, name)| name.as_str()).collect();
-                    let map: Vec<_> = own.iter().copied().zip(arguments).collect();
-                    self.instantiate_type(declared, &map, &own, &names)
-                }
-            } else {
+        let result = if alias && self.jsdoc_sibling_property_doc(symbol).is_none() {
+            let body = self.type_alias_body(symbol)?;
+            if matches!(body, TypeNode::TypeLiteralNode(_)) {
                 self.create_type_reference(symbol, arguments)
-            };
+            } else if matches!(
+                body,
+                TypeNode::FunctionTypeNode(_) | TypeNode::ConstructorTypeNode(_)
+            ) {
+                let owns_resolution = self.variadic_alias_in_progress.insert(symbol);
+                let declared = self.get_type_from_type_node(body);
+                if owns_resolution {
+                    self.variadic_alias_in_progress.remove(&symbol);
+                }
+                let own: Vec<_> = parameters.iter().map(|(parameter, _)| *parameter).collect();
+                let names: Vec<_> = parameters.iter().map(|(_, name)| name.as_str()).collect();
+                let map: Vec<_> = own.iter().copied().zip(arguments).collect();
+                self.instantiate_type(declared, &map, &own, &names)
+            } else {
+                return None;
+            }
+        } else {
+            self.create_type_reference(symbol, arguments)
+        };
         if self.is_error(result) {
             return None;
         }
@@ -180,16 +185,35 @@ mod tests {
     use tsr_core::Arena;
 
     fn measured(source: &str, name: &str) -> Option<Vec<Variance>> {
+        measured_in_file(source, name, "variance.ts")
+    }
+
+    fn measured_in_file(source: &str, name: &str, file: &str) -> Option<Vec<Variance>> {
         let arena = Arena::new();
-        let parsed = tsr_parser::parse(&arena, source);
+        let mut parsed = tsr_parser::parse_with_options(
+            &arena,
+            source,
+            tsr_parser::ParseOptions::for_file(file),
+        );
         assert!(parsed.diagnostics.is_empty());
-        let bound = tsr_binder::bind(
+        let root = parsed.source_file.node_id.expect("source file");
+        if std::path::Path::new(file)
+            .extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("js"))
+        {
+            parsed.nodes.add_flags(root, tsr_ast::NodeFlags::JAVASCRIPT_FILE);
+        }
+        let jsdoc: Vec<_> = parsed.jsdoc.iter().collect();
+        let bound = tsr_binder::bind_into_with_jsdoc(
+            tsr_binder::BindResult::empty(),
             &arena,
             parsed.source_file,
             &parsed.nodes,
-            tsr_binder::FileInfo { name: "variance.ts", text: source },
+            tsr_binder::FileInfo { name: file, text: source },
+            &jsdoc,
         );
         let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+        checker.set_jsdoc(parsed.jsdoc.iter());
         let symbol = parsed
             .source_file
             .statements
@@ -207,8 +231,12 @@ mod tests {
                 }
                 _ => None,
             })
+            .or_else(|| bound.lookup_local(root, name))
             .expect("declared generic type");
-        checker.inference_variances(symbol)
+        let result = checker.inference_variances(symbol);
+        assert!(checker.variance_in_progress.is_empty());
+        assert_eq!(checker.inference_variances(symbol), result, "cached variance");
+        result
     }
 
     #[test]
@@ -302,5 +330,55 @@ mod tests {
             measured("interface Fn<A, B> { (a: A): B; then<C>(next: Fn<B, C>): Fn<A, C> }", "Fn"),
             Some(vec![Variance::Contravariant, Variance::Covariant])
         );
+    }
+
+    #[test]
+    fn jsdoc_declared_variance_does_not_require_body_measurement() {
+        assert_eq!(
+            measured_in_file(
+                "/** @template in I, out O, in out T @typedef {(value: I) => O} Op */ ;",
+                "Op",
+                "variance.js"
+            ),
+            Some(vec![Variance::Contravariant, Variance::Covariant, Variance::Invariant])
+        );
+    }
+
+    #[test]
+    fn jsdoc_supported_objects_measure_each_direction_and_independence() {
+        for (source, expected) in [
+            (
+                "/** @template I, O @typedef {{ accept: (value: I) => O }} Op */ ;",
+                vec![Variance::Contravariant, Variance::Covariant],
+            ),
+            (
+                "/** @template T @typedef {Object} Op @property {T} value */ ;",
+                vec![Variance::Covariant],
+            ),
+            (
+                "/** @template T @typedef {Object} Op @property {(value: T) => void} accept */ ;",
+                vec![Variance::Contravariant],
+            ),
+            ("/** @template T @typedef {{ tag: string }} Op */ ;", vec![Variance::Independent]),
+        ] {
+            assert_eq!(measured_in_file(source, "Op", "variance.js"), Some(expected), "{source}");
+        }
+    }
+
+    #[test]
+    fn jsdoc_unsupported_unannotated_alias_stays_unmeasured() {
+        assert_eq!(
+            measured_in_file(
+                "/** @template T @typedef {(value: T) => void} Op */ ;",
+                "Op",
+                "variance.js"
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn invalid_variance_on_a_written_reference_alias_stays_unmeasured() {
+        assert_eq!(measured("type Box<T> = { value: T }; type Op<in out T> = Box<T>;", "Op"), None);
     }
 }
