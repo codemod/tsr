@@ -7036,13 +7036,12 @@ impl Checker<'_, '_> {
         // either way, so nothing reachable is given up.
         let Some(value_type) = self.nullable_literal_type(value) else {
             // §52 (`checker-notes-narrow.md`): the comparable-filter half
-            // (`flow.go:580`) for a NON-nullable value. SS155: LOOSE
-            // operators pass through when the whole comparison stays inside
-            // ONE primitive literal domain - coercion is identity there, so
-            // `isCoercibleUnderDoubleEquals` adds nothing and the
-            // comparable filter is exact (`const x = 1` … `x == 2` wants
-            // `never`). Any cross-domain or non-literal shape under a loose
-            // operator keeps the whole-decline.
+            // (`flow.go:580`) for a NON-nullable value. Loose equality also
+            // keeps the exact primitive pairs admitted by native
+            // `isCoercibleUnderDoubleEquals`: number/string/boolean-literal
+            // sources against number/string/boolean targets. This is
+            // constituent-wise; declining the whole union loses
+            // `narrowByEquality`'s broad primitive comparisons.
             // Reentrancy: typing the operand can re-enter this same walk
             // through the operand's own narrowing (the recursion the
             // nullable-only port declined to risk) — a node already being
@@ -7081,16 +7080,25 @@ impl Checker<'_, '_> {
             // `filter_type` cannot reach this: a non-union `unknown` either
             // survives whole or becomes `never`, so the narrowing was a no-op.
             //
-            // NOT ported, and stated rather than approximated: the
-            // `IsEmptyAnonymousObjectType` half of upstream's same condition (a
-            // `{}` receiver or value). That is a second predicate with no
-            // equivalent here, and folding it in would make this measurement
-            // unreadable.
+            // The other upstream gate is `someType(t,
+            // IsEmptyAnonymousObjectType)`. It matters after filtering
+            // `unknown`: `unknown !== undefined` leaves `{} | null`, and a
+            // subsequent strict equality to a primitive must narrow to that
+            // primitive rather than decline and later recombine to `unknown`
+            // (`unknownControlFlow`, the #50706 repro).
+            let t_has_empty_anonymous = match self.store.get(t).data.clone() {
+                TypeData::Union { types, .. } => {
+                    types.into_iter().any(|part| self.is_empty_anonymous_object_type(part))
+                }
+                _ => self.is_empty_anonymous_object_type(t),
+            };
             if assume_true
                 && !double_equals
-                && self.store.get(t).flags.intersects(TypeFlags::UNKNOWN)
+                && (self.store.get(t).flags.intersects(TypeFlags::UNKNOWN) || t_has_empty_anonymous)
             {
-                if value_flags.intersects(TypeFlags::PRIMITIVE | TypeFlags::NON_PRIMITIVE) {
+                if value_flags.intersects(TypeFlags::PRIMITIVE | TypeFlags::NON_PRIMITIVE)
+                    || self.is_empty_anonymous_object_type(value_type)
+                {
                     return value_type;
                 }
                 if value_flags.intersects(TypeFlags::OBJECT) {
@@ -7120,30 +7128,6 @@ impl Checker<'_, '_> {
                 }
                 _ => vec![t],
             };
-            if double_equals {
-                let domain_of = |flags: TypeFlags| -> Option<u8> {
-                    if flags.intersects(TypeFlags::NUMBER_LITERAL) {
-                        Some(0)
-                    } else if flags.intersects(TypeFlags::STRING_LITERAL) {
-                        Some(1)
-                    } else if flags.intersects(TypeFlags::BIG_INT_LITERAL) {
-                        Some(2)
-                    } else if flags.intersects(TypeFlags::BOOLEAN_LITERAL) {
-                        Some(3)
-                    } else {
-                        None
-                    }
-                };
-                let Some(comparand_domain) = domain_of(value_flags) else {
-                    return t;
-                };
-                let same_domain = constituents.iter().all(|&constituent| {
-                    domain_of(self.store.get(constituent).flags) == Some(comparand_domain)
-                });
-                if !same_domain {
-                    return t;
-                }
-            }
             let total = constituents.len();
             let mut kept = Vec::new();
             if assume_true {
@@ -7155,6 +7139,17 @@ impl Checker<'_, '_> {
                     _ => vec![value_type],
                 };
                 for constituent in constituents {
+                    let source_flags = self.store.get(constituent).flags;
+                    let coercible_under_double_equals = double_equals
+                        && source_flags.intersects(
+                            TypeFlags::NUMBER | TypeFlags::STRING | TypeFlags::BOOLEAN_LITERAL,
+                        )
+                        && value_flags
+                            .intersects(TypeFlags::NUMBER | TypeFlags::STRING | TypeFlags::BOOLEAN);
+                    if coercible_under_double_equals {
+                        kept.push(constituent);
+                        continue;
+                    }
                     let mut verdict = Some(false);
                     for &comparand in &comparand_constituents {
                         match self.comparable_ternary(constituent, comparand) {

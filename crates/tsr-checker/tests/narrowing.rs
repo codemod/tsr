@@ -622,6 +622,66 @@ fn an_equality_against_a_non_nullable_operand_narrows_nothing() {
     );
 }
 
+/// `unknownControlFlow.types`' #50706 repro distinguishes the empty-object
+/// operand from the nullable and direct-unknown roads. After `!== undefined`,
+/// an `unknown` is represented as `{} | null`; strict equality to a primitive
+/// still narrows to that primitive (`someType(t,
+/// IsEmptyAnonymousObjectType)` in native `narrowTypeByEquality`).
+#[test]
+fn strict_equality_narrows_a_filtered_unknown_through_its_empty_object_part() {
+    assert_eq!(
+        type_of_last_expression(
+            "declare let x: unknown;\n\
+             if (x !== undefined && x !== \"utf8\") { throw 0; }\n\
+             x;"
+        ),
+        "\"utf8\" | undefined"
+    );
+
+    // Equal and unequal syntax must reach the same assume-true equality after
+    // operator polarity is normalized.
+    for source in [
+        "declare let x: unknown;\nif (x !== undefined) { if (x === 42) { x; } }",
+        "declare let x: unknown;\nif (x !== undefined) { if (x !== 42) {} else { x; } }",
+    ] {
+        assert_eq!(type_of_last_expression(source), "42");
+    }
+
+    // Nullable operands keep their dedicated facts path; the empty-object arm
+    // must not turn either comparison into a primitive-literal comparison.
+    assert_eq!(
+        type_of_last_expression("declare let x: unknown;\nif (x === undefined) { x; }"),
+        "undefined"
+    );
+    assert_eq!(type_of_last_expression("declare let x: unknown;\nif (x === null) { x; }"), "null");
+}
+
+/// `narrowByEquality.types` pins native `isCoercibleUnderDoubleEquals`:
+/// broad number/string/boolean comparands keep every coercible primitive
+/// constituent, while unit comparands still narrow to that unit. The object
+/// comparand control needs the corpus libs and remains in the native baseline;
+/// the strict-literal control is
+/// `an_equality_against_a_non_nullable_operand_narrows_nothing` above.
+#[test]
+fn loose_equality_filters_with_native_coercible_primitive_pairs() {
+    for (comparand, expected) in [
+        ("declare let n: number", "string | number | boolean"),
+        ("declare let n: string", "string | number | boolean"),
+        ("declare let n: boolean", "string | number | boolean"),
+        ("const n = 1", "1"),
+        ("const n = \"foo\"", "\"foo\""),
+        ("const n = true", "true"),
+    ] {
+        assert_eq!(
+            type_of_last_expression(&format!(
+                "declare let x: number | string | boolean;\n{comparand};\nif (x == n) {{ x; }}"
+            )),
+            expected,
+            "comparand: {comparand}"
+        );
+    }
+}
+
 #[test]
 fn a_shadowed_undefined_is_not_the_literal() {
     // `undefined` is an identifier, not a keyword, so the operand is matched
