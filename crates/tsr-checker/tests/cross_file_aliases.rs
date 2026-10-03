@@ -244,6 +244,33 @@ fn alias_resolves(fixture: &Fixture<'_>, name: &str) -> bool {
     checker.resolve_alias(symbol).is_some()
 }
 
+/// Render the alias at its declaration, rather than baking the remote name.
+fn alias_rendered_at(fixture: &Fixture<'_>, name: &str) -> String {
+    let mut checker = Checker::with_module_host(
+        &fixture.bound,
+        &fixture.nodes,
+        &fixture.node_map,
+        Some(&fixture.host),
+    );
+    let declaration = (0..u32::try_from(fixture.nodes.len()).expect("node count fits in u32"))
+        .map(NodeId::new)
+        .filter(|&id| {
+            matches!(
+                fixture.nodes.kind(id),
+                SyntaxKind::ImportSpecifier | SyntaxKind::ExportSpecifier
+            )
+        })
+        .find(|&id| {
+            fixture.bound.symbol_of(id).is_some_and(|s| fixture.bound.symbols().get(s).name == name)
+        })
+        .unwrap_or_else(|| panic!("no specifier named `{name}`"));
+    let symbol = fixture.bound.symbol_of(declaration).expect("the specifier binds an alias");
+    let id = checker.get_type_of_symbol(symbol);
+    let reference =
+        fixture.node_map.get(declaration).and_then(|node| node.name_id()).unwrap_or(declaration);
+    checker.type_to_string_at(id, reference).unwrap_or_else(|| "error".to_string())
+}
+
 /// [`type_of_alias`] restricted to one specifier kind.
 ///
 /// Needed only where a fixture holds an import specifier **and** an export
@@ -661,39 +688,101 @@ fn an_own_numeric_function_member_is_still_an_export_equals_member() {
 }
 
 #[test]
-fn an_enum_literal_member_is_not_a_site_independent_primitive() {
-    // Source-correlated with native's enum-literal identity: `state` is E.A,
-    // not merely the numeric literal 0. Importing it from another module needs
-    // the accessible spelling of E at that site, so TypeFlags::ENUM_LITERAL
-    // must not enter through its accompanying NUMBER_LITERAL bit.
+fn an_enum_literal_member_keeps_its_owner_at_the_import_site() {
+    // The value member is E.A, not 0 and not the namespace object Owner.
+    // Two consumers of the same member must name its enum through their own
+    // namespace import. Looking up the value must not bake either site's name.
     let arena = Arena::new();
     let fixture = program(
         &arena,
         &[
             (
                 "m",
-                "declare namespace Owner { export enum E { A }\nexport const state: E.A }\nexport = Owner;\n",
+                "declare namespace Owner { export enum E { A = 3, B = 8 }\nexport const state: E.A }\nexport = Owner;\n",
             ),
-            ("a", "import { state } from \"./m\";\n"),
+            (
+                "a",
+                "import * as First from \"./m\";\nimport { state as firstState } from \"./m\";\n",
+            ),
+            (
+                "b",
+                "import * as Second from \"./m\";\nimport { state as secondState } from \"./m\";\n",
+            ),
         ],
     );
-    assert!(!alias_resolves(&fixture, "state"));
+    assert!(alias_resolves(&fixture, "firstState"));
+    assert_eq!(alias_rendered_at(&fixture, "firstState"), "First.E.A");
+    assert_eq!(alias_rendered_at(&fixture, "secondState"), "Second.E.A");
 }
 
 #[test]
-fn a_unique_symbol_member_is_not_a_site_independent_primitive() {
-    // `unique symbol` carries the identity of the declared `key`; cross-module
-    // rendering may need `typeof` plus an accessible chain to that declaration.
-    // Its primitive flag therefore cannot justify returning the member here.
+fn a_named_import_from_an_export_equals_enum_is_a_member_not_the_enum_object() {
+    // Here the export-equals target IS an enum, rather than a namespace
+    // containing an enum-typed variable. The selected alias denotes A, while
+    // the namespace import denotes typeof E. Neither is the primitive value 3.
+    let arena = Arena::new();
+    let fixture = program(
+        &arena,
+        &[
+            ("m", "enum E { A = 3, B = 8 }\nexport = E;\n"),
+            ("a", "import * as EnumView from \"./m\";\nimport { A as selected } from \"./m\";\n"),
+        ],
+    );
+    assert!(alias_resolves(&fixture, "selected"));
+    assert_eq!(alias_rendered_at(&fixture, "selected"), "EnumView.A");
+}
+
+#[test]
+fn a_unique_symbol_member_retains_uniqueness_but_its_copy_widens() {
+    // Native imports the property's unique identity. It does not select the
+    // namespace object, nor flatten the imported member itself to symbol.
+    // A new const initialized from that import is a copy and does widen.
     let arena = Arena::new();
     let fixture = program(
         &arena,
         &[
             ("m", "declare namespace Owner { export const key: unique symbol }\nexport = Owner;\n"),
-            ("a", "import { key } from \"./m\";\n"),
+            ("a", "import { key as importedKey } from \"./m\";\nconst copied = importedKey;\n"),
         ],
     );
-    assert!(!alias_resolves(&fixture, "key"));
+    assert!(alias_resolves(&fixture, "importedKey"));
+    assert_eq!(alias_rendered_at(&fixture, "importedKey"), "unique symbol");
+    assert_eq!(type_of_variable_with_host(&fixture, "copied", true), "symbol");
+}
+
+#[test]
+fn an_original_module_value_export_cannot_replace_an_export_equals_member() {
+    // getExportsOfModuleWorker carries only TYPE/NAMESPACE-only exports over
+    // from the original module. This invalid extra value export is ignored:
+    // native still selects the target's 7, not the original module's 19.
+    let arena = Arena::new();
+    let fixture = program(
+        &arena,
+        &[
+            ("m", "declare const o: { Item: 7 };\nexport declare const Item: 19;\nexport = o;\n"),
+            ("a", "import { Item as selected } from \"./m\";\n"),
+        ],
+    );
+    assert!(alias_resolves(&fixture, "selected"));
+    assert_eq!(alias_rendered_at(&fixture, "selected"), "7");
+}
+
+#[test]
+fn an_original_value_export_cannot_make_a_declined_object_member_representable() {
+    // Native selects the target's object here too, not the numeric export.
+    // The former is outside this port's representable slice, so keep the gap.
+    let arena = Arena::new();
+    let fixture = program(
+        &arena,
+        &[
+            (
+                "m",
+                "declare const o: { Item: { wrong: string } };\nexport declare const Item: 19;\nexport = o;\n",
+            ),
+            ("a", "import { Item as selected } from \"./m\";\n"),
+        ],
+    );
+    assert!(!alias_resolves(&fixture, "selected"));
 }
 
 #[test]
@@ -718,11 +807,11 @@ fn a_type_only_supplement_does_not_erase_the_value_member() {
 }
 
 #[test]
-fn a_declined_value_does_not_fall_through_to_a_type_only_supplement() {
+fn a_unique_symbol_value_does_not_fall_through_to_a_type_only_supplement() {
     // The target owns a unique-symbol VALUE named Token and the original module
-    // owns a distinct type-only Token. Native combines both meanings. Once the
-    // value is declined for site-dependent spelling, selecting the interface
-    // alone would silently erase that value meaning rather than preserve a gap.
+    // owns a distinct type-only Token. Native combines both meanings. Selecting
+    // either the now-representable value or the interface alone would erase
+    // one meaning; this still needs a synthetic symbol and remains a gap.
     let arena = Arena::new();
     let fixture = program(
         &arena,
@@ -735,6 +824,24 @@ fn a_declined_value_does_not_fall_through_to_a_type_only_supplement() {
         ],
     );
     assert!(!alias_resolves(&fixture, "Token"));
+}
+
+#[test]
+fn a_declined_object_value_does_not_fall_through_to_a_type_only_supplement() {
+    // The supplemental VALUE shortcut must not admit a type-only supplement:
+    // native combines the object's value with the interface's type meaning.
+    let arena = Arena::new();
+    let fixture = program(
+        &arena,
+        &[
+            (
+                "m",
+                "declare const o: { Item: { wrong: string } };\nexport interface Item { tag: number }\nexport = o;\n",
+            ),
+            ("a", "import { Item as selected } from \"./m\";\n"),
+        ],
+    );
+    assert!(!alias_resolves(&fixture, "selected"));
 }
 
 #[test]

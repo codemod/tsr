@@ -5047,6 +5047,8 @@ impl<'a> Checker<'a, '_> {
             self.get_declared_type_of_type_alias(symbol)
         } else if flags.intersects(SymbolFlags::ENUM) {
             self.get_declared_type_of_enum(symbol)
+        } else if flags.contains(SymbolFlags::ENUM_MEMBER) {
+            self.get_declared_type_of_enum_member(symbol)
         } else {
             self.intrinsics.error
         };

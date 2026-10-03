@@ -1423,10 +1423,11 @@ impl<'a> Checker<'a, '_> {
         // A pure alias target can replace a written local type name with the
         // remote declaration's name, while an object/function member can carry
         // named types whose shortest accessible chain depends on this import
-        // site. Only site-independent primitive and literal types are the
-        // coherent representable slice. ENUM/ENUM_LITERAL and UNIQUE_ES_SYMBOL
-        // are deliberately excluded: despite being primitive flags, their
-        // rendering can carry a declaration's site-dependent symbol name.
+        // site. Scalar members retain their native type identity: enum types
+        // keep their owner for type_to_string_at's qualification, and unique
+        // symbols stay unique on the import (only a copied initializer widens
+        // to symbol). Neither should be replaced with its primitive base or
+        // with the export-equals namespace object.
         // The lookup above separately excludes Object/Function fallback
         // members, matching native's `skipObjectFunctionPropertyAugment = true`;
         // filtering by the member's type would not suffice because fallback
@@ -1446,14 +1447,27 @@ impl<'a> Checker<'a, '_> {
                     | TypeFlags::LITERAL
                     | TypeFlags::VOID_LIKE
                     | TypeFlags::NULL;
-                (type_flags.intersects(site_independent)
-                    && !type_flags.intersects(TypeFlags::ENUM_LIKE | TypeFlags::UNIQUE_ES_SYMBOL))
-                .then_some(value)
+                type_flags
+                    .intersects(
+                        site_independent | TypeFlags::ENUM_LIKE | TypeFlags::UNIQUE_ES_SYMBOL,
+                    )
+                    .then_some(value)
             }
         } else {
             None
         };
-        let supplemental = self.get_export_of_module(module_symbol, name.text);
+        // getExportsOfModuleWorker (checker.go:16148) follows export= before
+        // reading exports. Only TYPE/NAMESPACE-only names absent from the
+        // target's exports are carried over from the original module; its
+        // unrelated value exports must not replace a target property.
+        let target_exports = &self.binder.symbols().get(self.binder.merged_symbol(target)).exports;
+        let supplemental = target_exports.get(name.text).copied().or_else(|| {
+            let supplemental = self.get_export_of_module(module_symbol, name.text)?;
+            let flags = self.get_symbol_flags(supplemental);
+            (flags.intersects(SymbolFlags::TYPE | SymbolFlags::NAMESPACE)
+                && !flags.intersects(SymbolFlags::VALUE))
+            .then_some(supplemental)
+        });
         // Finding and then declining a value is different from finding no
         // value. In the former case, returning a type-only supplement would
         // silently erase the value meaning that native combines with it.
@@ -1464,10 +1478,8 @@ impl<'a> Checker<'a, '_> {
             (None, supplemental) => supplemental,
             (value, None) => value,
             (Some(value), Some(supplemental)) => {
-                // The first two exits of upstream's
-                // `combineValueAndTypeSymbols` need no synthetic symbol. The
-                // third does, and returning either half would erase one of the
-                // name's meanings, so keep that shape an explicit miss.
+                // The first two native shortcuts need no synthetic symbol.
+                // Otherwise selecting either half would erase one meaning.
                 let supplemental_flags = self.binder.symbols().get(supplemental).flags;
                 if supplemental_flags.intersects(SymbolFlags::VALUE) {
                     Some(supplemental)
@@ -2248,15 +2260,6 @@ impl<'a> Checker<'a, '_> {
     /// because forcing it is what fills the link in; the second read is not
     /// redundant and the `unwrap_or` below is upstream's fallback for a member
     /// the enum did not claim, not a guess.
-    ///
-    /// **A hazard this port has and upstream does not.**
-    /// [`Checker::get_declared_type_of_symbol`] has no `ENUM_MEMBER` arm, so
-    /// asking it about a member symbol *first* would cache `errorType` against
-    /// that member and this function would then return it. Nothing reaches that
-    /// today — `E.A` in type position is a qualified name and unported — but the
-    /// order is load-bearing rather than incidental. (§743's exhaustiveness
-    /// un-spelling reaches this only for a symbol the qualified-reference
-    /// road has already resolved, whose enum is therefore already computed.)
     pub(crate) fn get_declared_type_of_enum_member(&mut self, symbol: SymbolId) -> TypeId {
         if let Some(&cached) = self.declared_types.get(&symbol) {
             return cached;
