@@ -193,8 +193,8 @@ fn an_async_declaration_with_no_valued_return_is_promise_void() {
     );
     // A returned OBJECT with no `then` member is its own awaited type —
     // `getAwaitedTypeNoAlias`'s tail (`checker.go:31417`). Before the §443
-    // widening this was the gap sentinel; the `then`-carrying shape still is,
-    // because the promised-type signature walk is unported.
+    // widening this was the gap sentinel. Structural thenable controls below
+    // distinguish an ordinary member from a callable fulfillment callback.
     assert_eq!(
         type_of_declaration_with_promise("async function f() { return { a: 1 }; }", "f"),
         "() => Promise<{ a: number; }>"
@@ -287,6 +287,103 @@ fn await_unwraps_the_global_promise_and_passes_primitives_through() {
         type_of_declaration_with_promise("async function f() { return await 1; }", "f"),
         "() => Promise<number>"
     );
+}
+
+#[test]
+fn await_structural_thenables_extracts_callback_values_recursively() {
+    for (source, expected) in [
+        (
+            "declare const p: { then(callback: (value: string) => void): void }; async function f() { return await p; }",
+            "() => Promise<string>",
+        ),
+        (
+            "declare const p: { then(callback: (value: { then(callback: (value: number) => void): void }) => void): void }; async function f() { return await p; }",
+            "() => Promise<number>",
+        ),
+        (
+            "declare const p: { then(callback?: ((value: boolean) => void) | null): void }; async function f() { return await p; }",
+            "() => Promise<boolean>",
+        ),
+        (
+            "declare const p: { then(callback: (value: string) => void): void } | number; async function f() { return await p; }",
+            "() => Promise<string | number>",
+        ),
+    ] {
+        assert_eq!(type_of_declaration_with_promise(source, "f"), expected, "{source}");
+    }
+}
+
+#[test]
+fn await_thenable_overloads_filter_this_before_resolving_callback_union() {
+    // The union of two callbacks has a synthesized call signature with the
+    // intersected parameter string & number. Pinned native emits Promise<never>.
+    assert_eq!(
+        type_of_declaration_with_promise(
+            "declare const p: { then(callback: (value: string) => void): void; then(callback: (value: number) => void): void }; async function f() { return await p; }",
+            "f"
+        ),
+        "() => Promise<never>"
+    );
+    // Overloads of one callback instead retain both first-parameter types.
+    assert_eq!(
+        type_of_declaration_with_promise(
+            "declare const p: { then(callback: { (value: string): void; (value: number): void }): void }; async function f() { return await p; }",
+            "f"
+        ),
+        "() => Promise<string | number>"
+    );
+    // Only the boolean-valued overload has a compatible receiver. Taking all
+    // overloads yields number | boolean; taking only the first yields number.
+    assert_eq!(
+        type_of_declaration_with_promise(
+            "declare const p: { tag: string; then(this: { tag: number }, callback: (value: number) => void): void; then(this: void, callback: (value: boolean) => void): void }; async function f() { return await p; }",
+            "f"
+        ),
+        "() => Promise<boolean>"
+    );
+}
+
+#[test]
+fn await_thenable_empty_and_rest_callback_positions_follow_native() {
+    assert_eq!(
+        type_of_declaration_with_promise(
+            "declare const p: { then(callback: () => void): void }; async function f() { return await p; }",
+            "f"
+        ),
+        "() => Promise<never>"
+    );
+    assert_eq!(
+        type_of_declaration_with_promise(
+            "declare const p: { then(callback: (...values: [string, number]) => void): void }; async function f() { return await p; }",
+            "f"
+        ),
+        "() => Promise<string>"
+    );
+}
+
+#[test]
+fn await_noncallable_then_is_ordinary_but_invalid_and_recursive_thenables_decline() {
+    for (source, expected) in [
+        (
+            "declare const p: { then: number; tag: string }; async function f() { return await p; }",
+            "() => Promise<{ then: number; tag: string; }>",
+        ),
+        (
+            "declare const p: { then: any; tag: string }; async function f() { return await p; }",
+            "() => Promise<{ then: any; tag: string; }>",
+        ),
+        ("declare const p: { then(): void }; async function f() { return await p; }", "error"),
+        (
+            "interface Recursive { then(callback: (value: Recursive) => void): void } declare const p: Recursive; async function f() { return await p; }",
+            "error",
+        ),
+        (
+            "interface A { then(callback: (value: B) => void): void } interface B { then(callback: (value: A) => void): void } declare const p: A; async function f() { return await p; }",
+            "error",
+        ),
+    ] {
+        assert_eq!(type_of_declaration_with_promise(source, "f"), expected, "{source}");
+    }
 }
 
 /// §220. A bare `yield;` under **no-strict** contributes `any`.

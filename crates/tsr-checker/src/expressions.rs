@@ -3046,20 +3046,35 @@ impl Checker<'_, '_> {
     /// - Everything else is its own awaited type **unless it carries a
     ///   `then` member** (`:31417`): a primitive cannot (`isThenableType`'s
     ///   first test, `:31450`), and an object type is probed through
-    ///   [`Checker::get_type_of_property_of_type`]. A `then`-carrying type
-    ///   needs the promised-type signature walk — unported, gap.
+    ///   [`Checker::get_type_of_property_of_type`]. Callable `then` members
+    ///   unwrap their fulfillment callback's first parameter, recursively;
+    ///   noncallable members leave the object unchanged. Unsupported signature
+    ///   or relation lookups and recursive fulfillment types decline.
     pub(crate) fn awaited_type_no_alias(&mut self, id: TypeId) -> Option<TypeId> {
+        self.awaited_type_no_alias_worker(id, &mut Vec::new())
+    }
+
+    fn awaited_type_no_alias_worker(
+        &mut self,
+        id: TypeId,
+        stack: &mut Vec<TypeId>,
+    ) -> Option<TypeId> {
+        if id == self.intrinsics.error || stack.contains(&id) {
+            return None;
+        }
         let flags = self.store.get(id).flags;
         if flags.intersects(TypeFlags::ANY | TypeFlags::UNKNOWN) {
             return Some(id);
         }
         if let crate::types::TypeData::Union { types, .. } = &self.store.get(id).data {
             let constituents = types.clone();
-            let mut mapped = Vec::with_capacity(constituents.len());
-            for constituent in constituents {
-                mapped.push(self.awaited_type_no_alias(constituent)?);
-            }
-            return Some(self.get_union_type(&mapped));
+            stack.push(id);
+            let mapped: Option<Vec<_>> = constituents
+                .into_iter()
+                .map(|part| self.awaited_type_no_alias_worker(part, stack))
+                .collect();
+            stack.pop();
+            return Some(self.get_union_type(&mapped?));
         }
         if flags.intersects(TypeFlags::PRIMITIVE | TypeFlags::NEVER) {
             return Some(id);
@@ -3091,13 +3106,91 @@ impl Checker<'_, '_> {
                     .is_some_and(|symbol| self.binder.merged_symbol(symbol) == target)
             });
             if is_promise {
-                return self.awaited_type_no_alias(arguments[0]);
+                stack.push(id);
+                let result = self.awaited_type_no_alias_worker(arguments[0], stack);
+                stack.pop();
+                return result;
             }
         }
-        match self.get_type_of_property_of_type(id, "then") {
-            None => Some(id),
-            Some(_) => None,
+        let Some(then) = self.get_type_of_property_of_type(id, "then") else {
+            return Some(id);
+        };
+        if then == self.intrinsics.error {
+            return None;
         }
+        if self
+            .store
+            .get(then)
+            .flags
+            .intersects(TypeFlags::ANY_OR_UNKNOWN | TypeFlags::PRIMITIVE | TypeFlags::NEVER)
+        {
+            return Some(id);
+        }
+        let signatures =
+            self.signatures_of_type_kind(then, crate::signatures::SignatureKind::Call)?;
+        if signatures.is_empty() {
+            // isThenableType removes null/undefined before testing callability.
+            let non_null =
+                self.get_type_with_facts(then, crate::flow::TypeFacts::NE_UNDEFINED_OR_NULL);
+            return self
+                .signatures_of_type_kind(non_null, crate::signatures::SignatureKind::Call)?
+                .is_empty()
+                .then_some(id);
+        }
+        let promised = self.promised_type_of_thenable(id, &signatures)?;
+        stack.push(id);
+        let result = self.awaited_type_no_alias_worker(promised, stack);
+        stack.pop();
+        result
+    }
+
+    /// getPromisedTypeOfPromiseEx (checker.go): compatible then signatures,
+    /// nullable callback removal, and subtype-reduced fulfillment value types.
+    fn promised_type_of_thenable(
+        &mut self,
+        id: TypeId,
+        signatures: &[crate::signatures::Signature],
+    ) -> Option<TypeId> {
+        use crate::relater::{Relation, Ternary};
+        let mut callbacks = Vec::new();
+        for signature in signatures {
+            if let Some(this) = &signature.this_parameter
+                && this.r#type != self.intrinsics.void
+            {
+                match self.relate_ternary(id, this.r#type, Relation::Subtype) {
+                    Ternary::Related => {}
+                    Ternary::NotRelated => continue,
+                    Ternary::Unknown => return None,
+                }
+            }
+            callbacks.push(
+                self.signature_type_at_position(signature, 0).unwrap_or(self.intrinsics.never),
+            );
+        }
+        if callbacks.is_empty() || callbacks.contains(&self.intrinsics.error) {
+            return None;
+        }
+        let callbacks = self.get_union_type(&callbacks);
+        let callbacks =
+            self.get_type_with_facts(callbacks, crate::flow::TypeFacts::NE_UNDEFINED_OR_NULL);
+        if self.store.get(callbacks).flags.contains(TypeFlags::ANY) {
+            return None;
+        }
+        let signatures =
+            self.signatures_of_type_kind(callbacks, crate::signatures::SignatureKind::Call)?;
+        if signatures.is_empty() {
+            return None;
+        }
+        let values: Vec<_> = signatures
+            .iter()
+            .map(|signature| {
+                self.signature_type_at_position(signature, 0).unwrap_or(self.intrinsics.never)
+            })
+            .collect();
+        if values.contains(&self.intrinsics.error) {
+            return None;
+        }
+        self.union_with_subtype_reduction(&values)
     }
 
     fn check_yield_expression(&mut self, node: &tsr_ast::YieldExpression<'_>) -> TypeId {
