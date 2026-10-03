@@ -67,6 +67,45 @@ fn a_later_member_uses_its_own_declaration_order() {
     );
 }
 
+/// `tryMergeUnionOfObjectTypeAndEmptyObject` treats `T extends undefined` as
+/// the one nonempty alternative of `object | T`, then resolves that
+/// alternative's properties through its constraint. Native therefore folds
+/// `{ ...a }` to `{}`, not `T | {}` (`spreadObjectOrFalsy`). A primitive
+/// constraint that can be truthy is still an invalid spread and must not be
+/// admitted by this path.
+#[test]
+fn a_falsy_constrained_generic_union_spreads_to_empty_object() {
+    assert_eq!(
+        type_of("function f<T extends undefined>(a: object | T) { return { ...a }; }", "f"),
+        "<T extends undefined>(a: object | T) => {}"
+    );
+    assert_eq!(
+        type_of("function f<T extends string>(a: object | T) { return { ...a }; }", "f"),
+        "<T extends string>(a: object | T) => any",
+        "a truthy primitive constraint is not a valid spread source"
+    );
+}
+
+/// The empty paths have two different native exits. A primitive-only union is
+/// rejected by `isValidSpreadType`; with a real empty object among the
+/// primitives, `tryMergeUnionOfObjectTypeAndEmptyObject` returns that actual
+/// empty constituent. These controls keep the broader "spreads into empty"
+/// classification from being mistaken for actual `isEmptyObjectType` and
+/// returning the last nullish/primitive constituent.
+#[test]
+fn empty_only_unions_preserve_the_actual_empty_object_distinction() {
+    assert_eq!(
+        type_of("function f(a: null | undefined) { return { ...a }; }", "f"),
+        "(a: null | undefined) => any",
+        "primitive-only unions are invalid spread sources"
+    );
+    assert_eq!(
+        type_of("function f(a: {} | null | undefined) { return { ...a }; }", "f"),
+        "(a: {} | null | undefined) => {}",
+        "a real empty-object constituent wins over nullish constituents"
+    );
+}
+
 /// **Member order is the source declaration order, not the table's.**
 ///
 /// `SymbolTable` is an `FxHashMap`, so iterating it yields **hash** order, and

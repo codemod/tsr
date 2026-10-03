@@ -2024,32 +2024,34 @@ impl Checker<'_, '_> {
         let TypeData::Union { types, .. } = self.store.get(source).data.clone() else {
             return source;
         };
-        let mut nonempty = None;
-        let mut empty = None;
-        for ty in types {
-            if self.is_empty_anonymous_object_type(ty) {
-                empty = Some(ty);
-            } else if !self.store.get(ty).flags.intersects(
-                TypeFlags::NULLABLE
-                    | TypeFlags::BOOLEAN_LIKE
-                    | TypeFlags::NUMBER_LIKE
-                    | TypeFlags::BIG_INT_LIKE
-                    | TypeFlags::STRING_LIKE
-                    | TypeFlags::ENUM_LIKE
-                    | TypeFlags::NON_PRIMITIVE
-                    | TypeFlags::INDEX,
-            ) {
-                if nonempty.is_some_and(|previous| previous != ty) {
-                    return source;
-                }
-                nonempty = Some(ty);
-            }
+        if types.iter().all(|&ty| self.is_empty_object_type_or_spreads_into_empty_object(ty)) {
+            // Native searches for an ACTUAL empty object separately. A later
+            // null/undefined/primitive constituent must not overwrite it; if
+            // there is no actual empty object, return emptyObjectType rather
+            // than one of the primitive constituents.
+            return types
+                .into_iter()
+                .find(|&ty| self.is_empty_spread_object_type(ty))
+                .unwrap_or(self.intrinsics.empty_object);
         }
-        let Some(first) = nonempty else {
-            return empty.unwrap_or(self.intrinsics.empty_object);
+        let mut nonempty = types
+            .into_iter()
+            .filter(|&ty| !self.is_empty_object_type_or_spreads_into_empty_object(ty));
+        let Some(first) = nonempty.next() else { return source };
+        if nonempty.any(|ty| ty != first) {
+            return source;
+        }
+        let semantic = self.base_constraint_of_type(first).unwrap_or(first);
+        let properties_source = if self.is_empty_object_type_or_spreads_into_empty_object(semantic)
+        {
+            semantic
+        } else {
+            first
         };
-        let Some((mut properties, _)) = self.spread_properties(first, false) else { return source };
-        let Some(resolved) = self.resolved_spread_source(first) else { return source };
+        let Some((mut properties, _)) = self.spread_properties(properties_source, false) else {
+            return source;
+        };
+        let Some(resolved) = self.resolved_spread_source(properties_source) else { return source };
         let Some(infos) = self.get_index_infos_of_type(resolved) else { return source };
         let mut partial_members = Vec::new();
         for info in &infos {
@@ -2080,6 +2082,50 @@ impl Checker<'_, '_> {
         self.object_literal_members.insert(result, partial_members);
         self.object_literal_spread_flags.insert(result, false);
         result
+    }
+
+    /// `isEmptyObjectType` (`checker.go:26485`), restricted at the concrete
+    /// object boundary to the anonymous empty objects this port can resolve.
+    /// Native's union/intersection recursion belongs here, not in the broader
+    /// spread-empty predicate below.
+    fn is_empty_spread_object_type(&mut self, ty: TypeId) -> bool {
+        if self.is_empty_anonymous_object_type(ty)
+            || self.store.get(ty).flags.intersects(TypeFlags::NON_PRIMITIVE)
+        {
+            return true;
+        }
+        match self.store.get(ty).data.clone() {
+            TypeData::Union { types, .. } => {
+                types.into_iter().any(|part| self.is_empty_spread_object_type(part))
+            }
+            TypeData::Intersection { types, .. } => {
+                types.into_iter().all(|part| self.is_empty_spread_object_type(part))
+            }
+            _ => false,
+        }
+    }
+
+    /// `isEmptyObjectTypeOrSpreadsIntoEmptyObject` (`checker.go:13604`).
+    /// This classification deliberately does not inspect type-parameter
+    /// constraints: a `T extends undefined` is the one nonempty constituent
+    /// of `object | T`, then native property resolution consults its constraint
+    /// and produces the empty partial object.
+    fn is_empty_object_type_or_spreads_into_empty_object(&mut self, ty: TypeId) -> bool {
+        if self.is_empty_spread_object_type(ty) {
+            return true;
+        }
+        // Unlike isEmptyObjectType, this mask applies only to `ty` itself.
+        // Do not recurse through union/intersection constituents here.
+        self.store.get(ty).flags.intersects(
+            TypeFlags::NULLABLE
+                | TypeFlags::BOOLEAN_LIKE
+                | TypeFlags::NUMBER_LIKE
+                | TypeFlags::BIG_INT_LIKE
+                | TypeFlags::STRING_LIKE
+                | TypeFlags::ENUM_LIKE
+                | TypeFlags::NON_PRIMITIVE
+                | TypeFlags::INDEX,
+        )
     }
 
     /// Ported from `Checker.checkExpressionForMutableLocation`
