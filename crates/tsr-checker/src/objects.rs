@@ -2085,12 +2085,23 @@ impl Checker<'_, '_> {
     }
 
     /// `isEmptyObjectType` (`checker.go:26485`), restricted at the concrete
-    /// object boundary to the anonymous empty objects this port can resolve.
+    /// object boundary to member tables this port can prove complete.
     /// Native's union/intersection recursion belongs here, not in the broader
     /// spread-empty predicate below.
     pub(crate) fn is_empty_spread_object_type(&mut self, ty: TypeId) -> bool {
         if self.is_empty_anonymous_object_type(ty)
             || self.store.get(ty).flags.intersects(TypeFlags::NON_PRIMITIVE)
+        {
+            return true;
+        }
+        if self.store.get(ty).flags.contains(TypeFlags::OBJECT)
+            && self.declared_members_are_complete(ty)
+            && self.get_property_names_of_type(ty).is_some_and(|names| names.is_empty())
+            && self.call_signatures_of_type(ty).is_some_and(|signatures| signatures.is_empty())
+            && self
+                .signatures_of_type_kind(ty, crate::signatures::SignatureKind::Construct)
+                .is_some_and(|signatures| signatures.is_empty())
+            && self.get_index_infos_of_type(ty).is_some_and(|indexes| indexes.is_empty())
         {
             return true;
         }

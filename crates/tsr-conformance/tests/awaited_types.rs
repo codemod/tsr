@@ -144,3 +144,57 @@ async function custom<T>(x: T | undefined) { const customValue = await x; return
     assert!(lines.iter().any(|line| line == "customValue : Awaited<T | undefined>"), "{lines:?}");
     assert!(diagnostics_suite::reported_for(&case).is_empty());
 }
+
+#[test]
+fn generic_await_recognizes_only_resolved_empty_named_constraints() {
+    // Pinned native declarations wrap the first three values in Awaited<T>.
+    // No own property names is insufficient: inherited/private properties,
+    // either signature kind and index signatures all make a bound nonempty.
+    let source = r"// @strict: true
+// @target: esnext
+interface Empty {}
+interface EmptyChild extends Empty {}
+interface Tagged { tag: string }
+interface TaggedChild extends Tagged {}
+interface Callable { (): number }
+interface Constructible { new(): Tagged }
+interface Indexed { [key: string]: number }
+declare class EmptyClass {}
+declare class PrivateClass { private value: number }
+declare class TaggedClass { tag: string }
+export async function emptyInterface<T extends Empty>(x: T) { const emptyInterfaceValue = await x; return { emptyInterfaceValue }; }
+export async function emptyInherited<T extends EmptyChild>(x: T) { const emptyInheritedValue = await x; return { emptyInheritedValue }; }
+export async function emptyClass<T extends EmptyClass>(x: T) { const emptyClassValue = await x; return { emptyClassValue }; }
+export async function taggedInherited<T extends TaggedChild>(x: T) { const taggedInheritedValue = await x; return { taggedInheritedValue }; }
+export async function privateClass<T extends PrivateClass>(x: T) { const privateClassValue = await x; return { privateClassValue }; }
+export async function callable<T extends Callable>(x: T) { const callableValue = await x; return { callableValue }; }
+export async function constructible<T extends Constructible>(x: T) { const constructibleValue = await x; return { constructibleValue }; }
+export async function indexed<T extends Indexed>(x: T) { const indexedValue = await x; return { indexedValue }; }
+export async function taggedClass<T extends TaggedClass>(x: T) { const taggedClassValue = await x; return { taggedClassValue }; }
+";
+    let case = TestCase::parse("probe/awaited-named-empty", "awaited-named-empty.ts", source);
+    let expected: Vec<_> = case
+        .files
+        .iter()
+        .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
+        .collect();
+    let lines: Vec<_> = types_producer::assertions_for_case(&case, &expected, false)
+        .iter()
+        .flatten()
+        .map(types_producer::Assertion::line)
+        .collect();
+    for wanted in [
+        "emptyInterfaceValue : Awaited<T>",
+        "emptyInheritedValue : Awaited<T>",
+        "emptyClassValue : Awaited<T>",
+        "taggedInheritedValue : T",
+        "privateClassValue : T",
+        "callableValue : T",
+        "constructibleValue : T",
+        "indexedValue : T",
+        "taggedClassValue : T",
+    ] {
+        assert!(lines.iter().any(|line| line == wanted), "missing {wanted}: {lines:?}");
+    }
+    assert!(diagnostics_suite::reported_for(&case).is_empty());
+}
