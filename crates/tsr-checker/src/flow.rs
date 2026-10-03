@@ -7614,6 +7614,25 @@ impl Checker<'_, '_> {
         }
     }
 
+    /// The second half of `isFunctionObjectType` (checker.go:31140): a type
+    /// without signatures is still function-like when it has a `bind` member
+    /// and is a subtype of the global `Function` — the lib's `Function`
+    /// interface itself, and interfaces extending it. Only a decided subtype
+    /// answer counts; an undecidable relation keeps `ObjectStrictFacts`.
+    fn is_bind_bearing_function_subtype(&mut self, t: TypeId) -> bool {
+        if self.get_property_of_type(t, "bind").is_none() {
+            return false;
+        }
+        let Some(function_symbol) = self.global_type_symbol_with_arity("Function", 0) else {
+            return false;
+        };
+        let function = self.get_declared_type_of_symbol(function_symbol);
+        function != self.intrinsics.error
+            && (t == function
+                || self.relate_ternary(t, function, crate::relater::Relation::Subtype)
+                    == crate::relater::Ternary::Related)
+    }
+
     /// What is knowable about a type without narrowing it
     /// (`getTypeFacts`, `checker.go:30982`).
     ///
@@ -7817,8 +7836,9 @@ impl Checker<'_, '_> {
         //   object at runtime → `ObjectStrictFacts`;
         // - a `Named` type with a members table cannot carry call signatures
         //   in this port (the binder deliberately files no `__call`,
-        //   `binder.rs:3482`), so `ObjectStrictFacts` is consistent with the
-        //   port's own model rather than a guess about upstream's;
+        //   `binder.rs:3482`); its declared call-signature members, or
+        //   isFunctionObjectType's `bind` + subtype-of-`Function` half, choose
+        //   `FunctionStrictFacts`, and otherwise `ObjectStrictFacts`;
         // - remaining object representations use ObjectStrictFacts.
         if flags.intersects(TypeFlags::OBJECT | TypeFlags::NON_PRIMITIVE) {
             let object_strict = TypeFacts::TRUTHY
@@ -7857,7 +7877,11 @@ impl Checker<'_, '_> {
                         self.binder.symbols().get(*symbol).declarations.iter().any(
                             |&declaration| self.declaration_has_call_signature_member(declaration),
                         );
-                    if has_call_signature { function_strict } else { object_strict }
+                    if has_call_signature || self.is_bind_bearing_function_subtype(t) {
+                        function_strict
+                    } else {
+                        object_strict
+                    }
                 }
                 _ => object_strict,
             };

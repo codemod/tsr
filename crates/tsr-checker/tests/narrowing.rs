@@ -955,6 +955,24 @@ fn typeof_function_keeps_an_aliased_callable_without_an_intersection() {
     );
 }
 
+/// The lib's `Function` interface declares no call signatures, yet native
+/// gives it `FunctionStrictFacts`: `isFunctionObjectType` (checker.go:31140)
+/// also accepts a type with a `bind` member that is a subtype of the global
+/// `Function`. Without that half, a `typeof x !== "function"` branch (and a
+/// switch's default clause) kept `Function`, as in
+/// `narrowingByTypeofInSwitch.types`' `string | object | undefined` rows.
+#[test]
+fn typeof_not_function_removes_the_function_interface() {
+    assert_eq!(
+        type_of_last_expression(
+            "interface Function { bind(this: Function, thisArg: any): any; }\n\
+             declare var x: string | Function;\n\
+             if (typeof x !== \"function\") { x; }"
+        ),
+        "string"
+    );
+}
+
 /// The control, and it is the one that would have caught the original defect:
 /// with **no** `Function` in scope the decline is correct, so a fixture that
 /// only tests the narrowing cannot tell "declines when it should" from

@@ -83,10 +83,42 @@ Two regressions: `typeof_function_keeps_an_aliased_callable_without_an_intersect
 (deferred_indexed_access.rs). Each fails with its production change reverted
 (`L & Function`, `error`).
 
-## 4. What remains in tsr-6.34
+## 4. The lib `Function` interface is function-like (second landing)
 
-- narrowingByTypeofInSwitch still has union-order (`R | L` vs `L | R`),
-  `object | Function` default-clause and `[X | Y]` tuple-union ordering rows;
-  these are union ordering / switch-default facts, not the callable relation.
+`narrowingByTypeofInSwitch`'s default clauses and `typeof x !== "function"`
+branches kept `Function` (`string | object | Function | undefined` where native
+records `string | object | undefined`). `getTypeFactsWorker` chooses
+FunctionStrictFacts when `isFunctionObjectType` holds (checker.go:31140):
+the resolved type has signatures, **or** it has a `bind` member and is a subtype
+of the global `Function`. The port had only the signature half (declared
+call-signature members on a named interface), so the lib's `Function`
+interface — which declares no call signature — carried ObjectStrictFacts and
+survived the `TypeofNEFunction` filter.
+
+`get_type_facts` now applies the second half to named object types without call
+signatures: a `bind` property (via `get_property_of_type`) plus a *decided*
+`Subtype` relation to the global `Function` (identity short-circuits). An
+undecidable relation keeps ObjectStrictFacts, the existing safe direction (a
+wrong NE bit deletes a constituent). Upstream's quick `bind` check stays first,
+so ordinary interfaces never pay for the relation.
+
+Full scorepair against an isolated baseline at `cec7cef` reports 457,648 RIGHT,
+2,538 GAP and 14,057 WRONG: +7, all `narrowingByTypeofInSwitch`
+WRONG-to-RIGHT, with zero adverse and zero changed already-WRONG rows. The
+regression `typeof_not_function_removes_the_function_interface` (narrowing.rs)
+fails with the change reverted (`string | Function`). Pinned native
+`narrowingByTypeofInSwitch.types` records the expected `string | object |
+undefined` and `object` at all seven converted sites.
+
+## 5. What remains in tsr-6.34
+
+- narrowingByTypeofInSwitch still has union-order (`R | L` vs `L | R`) and
+  `[X | Y]` tuple-union ordering rows (type-id allocation order), plus one
+  return type where native's `addNamedUnions` collapse returns `Basic` after
+  subtype reduction removes `Function` (getUnionTypeEx); this port expands it.
+- typeGuardOfFormTypeOfFunction:95/97 keep `Function | (() => void)`: the
+  relater answers `Function` a subtype of the generic mapped
+  `Record<keyof S, () => void>`, where native's generic-mapped-target arm
+  requires `keyof S` related to `keyof Function` and refuses.
 - Non-strict fact aggregates and the fully general subtype reduction remain
   as described in checker-99-adjusted-facts.md.
