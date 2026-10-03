@@ -614,6 +614,7 @@ impl Checker<'_, '_> {
         // are expanded by inference_spread_argument_type below; unsupported
         // positional spread calls still check their argument nodes first.
         let mut argument_types: Vec<TypeId> = Vec::with_capacity(arguments.len());
+        let mut skipped_generic_arguments = vec![false; arguments.len()];
         let mut spread = false;
         let mut preceding_inferences = infos.clone();
         let infer_preceding = self.written_type_arguments(call).is_none()
@@ -632,6 +633,20 @@ impl Checker<'_, '_> {
                 });
             } else {
                 let source = self.check_expression(argument);
+                // inferSignatureInstantiationForOverloadFailure adds both
+                // SkipContextSensitive and SkipGenericFunctions (checker.go:
+                // 9575). The latter replaces a single-signature generic
+                // function with anyFunctionType only when its contextual
+                // signature is non-generic (checker.go:7599). `undefined` is
+                // this port's existing no-candidate placeholder for the retry.
+                if overload_failure
+                    && let Some(parameter) = signature.parameters.get(index)
+                    && self.overload_failure_skips_generic_argument(source, parameter.r#type)
+                {
+                    skipped_generic_arguments[index] = true;
+                    argument_types.push(self.intrinsics.undefined);
+                    continue;
+                }
                 let source = match (signature.parameters.get(index), &return_literal_map) {
                     (Some(parameter), map) if !parameter.rest => self
                         .contextual_argument_literal_source(
@@ -1017,6 +1032,12 @@ impl Checker<'_, '_> {
         }
         let mut inferred_type_parameters = Vec::new();
         for (index, parameter) in signature.parameters.iter().enumerate() {
+            // CheckModeSkipGenericFunctions produces anyFunctionType, an
+            // ObjectFlagsNonInferrableType. The placeholder above preserves
+            // argument indexing; it must not become an `undefined` candidate.
+            if skipped_generic_arguments.get(index) == Some(&true) {
+                continue;
+            }
             // §939: a REST parameter takes EVERY argument from its position on,
             // each inferred against the rest's ELEMENT type.
             //
@@ -2158,6 +2179,25 @@ impl Checker<'_, '_> {
             && target.type_parameters.is_empty()
             && target.r#type != self.intrinsics.void
             && primitive_mismatch(self, source.r#type, target.r#type)
+    }
+
+    /// The `SkipGenericFunctions` branch of
+    /// `instantiateTypeWithSingleGenericCallSignature` (checker.go:7599).
+    /// A generic value is skipped only when both sides have one signature of
+    /// the same kind and the contextual signature is non-generic.
+    fn overload_failure_skips_generic_argument(&mut self, source: TypeId, target: TypeId) -> bool {
+        let Some(source_signature) = self.single_call_or_construct_signature(source, true) else {
+            return false;
+        };
+        if source_signature.type_parameters.is_empty() {
+            return false;
+        }
+        let target = self.get_non_nullable_type(target);
+        let Some(target_signature) = self.single_call_or_construct_signature(target, false) else {
+            return false;
+        };
+        source_signature.kind == target_signature.kind
+            && target_signature.type_parameters.is_empty()
     }
 
     /// `isAritySmaller` and `inferSignatureInstantiationForOverloadFailure`

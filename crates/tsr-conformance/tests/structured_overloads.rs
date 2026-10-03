@@ -103,3 +103,57 @@ var viaNative = s1.then(native, native, native);
         assert!(lines.iter().any(|line| line == wanted), "missing {wanted}: {lines:?}");
     }
 }
+
+/// Pinned tsgo 5b1047d1: inferSignatureInstantiationForOverloadFailure uses
+/// `CheckModeSkipGenericFunctions` only for a single generic signature under a
+/// non-generic contextual signature. Ordinary and successful generic callback
+/// inference must retain their candidates.
+#[test]
+fn overload_failure_skips_only_contextualized_generic_function_values() {
+    let source = r"// @target: es2015
+// @strict: false
+interface Promise<T> {
+  then<U>(success?: (value:T)=>U, error?: (e:any)=>U, progress?: (p:any)=>void): Promise<U>;
+}
+interface IPromise<T> { value:T }
+declare function tooWide<T>(x:T, cb:(a:T)=>T): IPromise<T>;
+declare function id<T>(x:T):T;
+declare function plain(x:number):number;
+declare var source: Promise<number>;
+var failed=source.then(tooWide,tooWide,tooWide);
+var identityOk=source.then(id,id,id);
+var plainOk=source.then(plain,plain,plain);
+interface Hybrid {
+  <T>(x:T, cb:(a:T)=>T):IPromise<T>;
+  new<T>(x:T):IPromise<T>;
+}
+declare var hybrid:Hybrid;
+var callAndConstruct=source.then(hybrid,hybrid,hybrid);
+interface MemberCallback<U> {
+  (value:number):U;
+  marker:string;
+}
+interface MemberPromise<T> {
+  then<U>(success?:MemberCallback<U>, error?:MemberCallback<U>):MemberPromise<U>;
+}
+declare var memberSource:MemberPromise<number>;
+var contextualMembers=memberSource.then(tooWide,tooWide);
+";
+    let case = TestCase::parse("probe/skip-generic-overload-failure", "skip-generic.ts", source);
+    let expected: Vec<_> = case
+        .files
+        .iter()
+        .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
+        .collect();
+    let assertions = types_producer::assertions_for_case(&case, &expected, false);
+    let lines: Vec<_> = assertions.iter().flatten().map(types_producer::Assertion::line).collect();
+    for wanted in [
+        "failed : Promise<unknown>",
+        "identityOk : Promise<any>",
+        "plainOk : Promise<number>",
+        "callAndConstruct : Promise<IPromise<unknown>>",
+        "contextualMembers : MemberPromise<IPromise<unknown>>",
+    ] {
+        assert!(lines.iter().any(|line| line == wanted), "missing {wanted}: {lines:?}");
+    }
+}
