@@ -93,6 +93,33 @@ fn a_name_declared_in_one_script_file_resolves_from_another() {
 }
 
 #[test]
+fn merged_ambient_declarations_preserve_the_module_and_ordinary_global() {
+    let arena = Arena::new();
+    let mut nodes = NodeTable::new();
+    let mut node_map = NodeMap::new();
+    let (result, _) = bind_program(
+        &arena,
+        &[
+            (
+                "first.d.ts",
+                "declare var process: number; declare module 'process' { export const first: number; }",
+            ),
+            ("second.d.ts", "declare module 'process' { export const second: string; }"),
+        ],
+        &mut nodes,
+        &mut node_map,
+    );
+    let ambient = result.ambient_module("process").expect("merged ambient module");
+    let ordinary = result.global("process").expect("ordinary global");
+    assert_ne!(ambient, ordinary);
+    let module = result.symbols().get(ambient);
+    assert_eq!(module.declarations.len(), 2);
+    assert!(module.exports.contains_key("first"));
+    assert!(module.exports.contains_key("second"));
+    assert_eq!(result.ambient_module("not-declared"), None);
+}
+
+#[test]
 fn reopened_namespaces_resolve_the_merged_exports_with_local_precedence() {
     let arena = Arena::new();
     let mut nodes = NodeTable::new();

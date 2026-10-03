@@ -497,3 +497,10 @@ records the native publication states, current TSR storage and executable
 identity/re-entry controls. It hands concrete-type attribution and the
 measured builder implementation to `tsr-1yb.4.2`; it introduces no production
 cache or throughput claim.
+
+The [ambient lookup experiment](ambient-module-lookup-performance.md) reduces
+temporary quoted-key construction under `tsr-1yb.7.6`. Two independent
+five-pair TSR comparisons confirm 1.943% and 0.948% median wall reductions,
+with identical complete corpus results and actual checked-file identities.
+The separate pinned-native comparison remains incomparable; the required
+verified native wall ratio stays 0.50.

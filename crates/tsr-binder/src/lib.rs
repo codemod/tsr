@@ -306,10 +306,20 @@ impl<'a> BindResult<'a> {
     /// rooted disk paths, which a hand-rolled `starts_with("./")` misses.
     #[must_use]
     pub fn ambient_module(&self, specifier: &str) -> Option<SymbolId> {
-        self.globals
-            .get(format!("\"{specifier}\"").as_str())
-            .copied()
-            .map(|found| self.merged_symbol(found))
+        let mut short_key = [0; 64];
+        let long_key;
+        let key = if specifier.len() <= short_key.len() - 2 {
+            let end = specifier.len() + 1;
+            short_key[0] = b'"';
+            short_key[1..end].copy_from_slice(specifier.as_bytes());
+            short_key[end] = b'"';
+            std::str::from_utf8(&short_key[..=end])
+                .expect("quoting a UTF-8 specifier preserves UTF-8")
+        } else {
+            long_key = format!("\"{specifier}\"");
+            long_key.as_str()
+        };
+        self.globals.get(key).copied().map(|found| self.merged_symbol(found))
     }
 
     /// Look a name up in `container`'s own scope, without walking outward.
@@ -1090,4 +1100,57 @@ pub fn bind_into_with_jsdoc<'a>(
     jsdoc: &[(NodeId, &'a [&'a tsr_ast::JSDoc<'a>])],
 ) -> BindResult<'a> {
     binder::Binder::resuming(arena, nodes, previous).bind_source_file_with_jsdoc(file, info, jsdoc)
+}
+
+#[cfg(test)]
+mod ambient_lookup_tests {
+    use super::{BindResult, SymbolFlags};
+
+    #[test]
+    fn quoted_keys_preserve_utf8_and_inline_boundary_names() {
+        let names = [
+            String::new(),
+            "process".to_owned(),
+            "x".repeat(62),
+            "x".repeat(63),
+            "é".repeat(31),
+            "é".repeat(32),
+            "café/日本語/🦀".to_owned(),
+            "embedded\"quote\\slash\nnewline".to_owned(),
+            "./relative".to_owned(),
+            "C:\\rooted".to_owned(),
+            "*.widgets".to_owned(),
+        ];
+        let keys: Vec<_> = names.iter().map(|name| format!("\"{name}\"")).collect();
+        let mut bound = BindResult::empty();
+        let mut symbols = Vec::new();
+        for key in &keys {
+            let symbol = bound.symbols.create(key, SymbolFlags::VALUE_MODULE);
+            bound.globals.insert(key, symbol);
+            symbols.push(symbol);
+        }
+        // The unquoted global and quoted ambient module are distinct domains.
+        let ordinary = bound.symbols.create("process", SymbolFlags::FUNCTION_SCOPED_VARIABLE);
+        bound.globals.insert("process", ordinary);
+        for (name, symbol) in names.iter().zip(symbols) {
+            assert_eq!(bound.ambient_module(name), Some(symbol), "{name:?}");
+            assert_eq!(bound.ambient_module(&format!("{name}/missing")), None);
+        }
+        assert_ne!(bound.ambient_module("process"), Some(ordinary));
+        // Wildcard keys remain exact at this API; matching is the caller's policy.
+        assert_eq!(bound.ambient_module("one.widgets"), None);
+    }
+
+    #[test]
+    fn ambient_lookup_follows_merged_symbol_redirects() {
+        let mut bound = BindResult::empty();
+        let first = bound.symbols.create("\"m\"", SymbolFlags::VALUE_MODULE);
+        let second = bound.symbols.create("\"m\"", SymbolFlags::VALUE_MODULE);
+        let final_symbol = bound.symbols.create("\"m\"", SymbolFlags::VALUE_MODULE);
+        bound.globals.insert("\"m\"", first);
+        bound.merged.insert(first, second);
+        bound.merged.insert(second, final_symbol);
+        assert_eq!(bound.ambient_module("m"), Some(final_symbol));
+        assert_eq!(bound.ambient_module("missing"), None);
+    }
 }
