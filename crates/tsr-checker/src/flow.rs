@@ -299,7 +299,41 @@ impl Checker<'_, '_> {
         declared_type: TypeId,
     ) -> TypeId {
         let declared_type = self.narrowable_type_for_reference(declared_type, reference);
-        self.get_flow_type_of_reference_ex(reference, symbol, declared_type, None)
+        // checkIdentifier's removeOptionalityFromDeclaredType keeps the
+        // parameter's write type intact, but an actual default with no
+        // undefined value removes undefined at the START of its read flow.
+        // A documented [p=default] has no initializer in the emitted code.
+        let mut initial_type = None;
+        if self.strict_null_checks
+            && let Some(declaration) =
+                symbol.and_then(|symbol| self.binder.symbols().get(symbol).value_declaration)
+            && self.jsdoc_parameter_annotation(declaration).is_some()
+            && let Some(Node::ParameterDeclaration(parameter)) = self.node_map.get(declaration)
+            && let Some(initializer) = parameter.initializer
+            && self.get_type_facts(declared_type).contains(TypeFacts::IS_UNDEFINED)
+            && !self.parameter_initializer_contains_undefined(declaration, initializer)
+        {
+            initial_type = Some(self.get_type_with_facts(declared_type, TypeFacts::NE_UNDEFINED));
+        }
+        self.get_flow_type_of_reference_ex(reference, symbol, declared_type, initial_type)
+    }
+
+    /// Native `parameterInitializerContainsUndefined`: memoize the initializer
+    /// facts and retain undefined during recursive default resolution.
+    fn parameter_initializer_contains_undefined(
+        &mut self,
+        declaration: NodeId,
+        initializer: tsr_ast::Expression<'_>,
+    ) -> bool {
+        if let Some(&contains) = self.parameter_initializer_contains_undefined.get(&declaration) {
+            return contains;
+        }
+        self.parameter_initializer_contains_undefined.insert(declaration, true);
+        let typed = self.check_expression(initializer);
+        let contains = typed == self.intrinsics.error
+            || self.get_type_facts(typed).contains(TypeFacts::IS_UNDEFINED);
+        self.parameter_initializer_contains_undefined.insert(declaration, contains);
+        contains
     }
 
     /// §50's pseudo-reference walk: narrow `parent_union` at `reference`'s
@@ -340,15 +374,16 @@ impl Checker<'_, '_> {
         if result == self.intrinsics.unreachable_never { parent_union } else { result }
     }
 
-    /// `getFlowTypeOfReferenceEx`'s `initialType` parameter, which the caller
-    /// above always leaves at its default.
+    /// `getFlowTypeOfReferenceEx`'s explicit `initialType` parameter.
     ///
     /// Upstream's default *is* the declared type (`checker.go`,
     /// `getFlowTypeOfReference`), and this port additionally substitutes
     /// `undefined` for an auto-typed declaration — the arm documented at
     /// [`Checker::get_flow_type_of_reference`]. `Some(initial)` overrides both.
+    /// Defaulted JSDoc parameters use it to remove undefined from entry reads,
+    /// without changing the declared write type.
     ///
-    /// # The one caller that needs it, and why nothing else does
+    /// # The diagnostic caller deliberately starts uninitialized
     ///
     /// TS2454 (`Variable_0_is_used_before_being_assigned`, `checker.go:11191`)
     /// is decided by running the graph with the top-of-graph type set to

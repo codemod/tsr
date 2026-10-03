@@ -4836,10 +4836,19 @@ impl<'a> Checker<'a, '_> {
         // answers the reparsed JSDoc type for BOTH consumers. A doc type that
         // does not compute keeps the implicit any, as the signature half does.
         if self.nodes.kind(declaration) == SyntaxKind::Parameter
-            && let Some(annotation) = self.jsdoc_parameter_annotation(declaration)
+            && let Some((annotation, bracketed)) = self.jsdoc_parameter_annotation(declaration)
         {
-            let declared = self.get_type_from_type_node(annotation);
+            let mut declared = self.get_type_from_type_node(annotation);
             if declared != self.intrinsics.error {
+                // Native reparses bracket names as question tokens, and {T=}
+                // supplies explicit undefined. Both affect the symbol/write
+                // type; an actual initializer only changes its entry flow.
+                let suffix_optional = matches!(annotation,
+                    TypeNode::JSDocTypeExpression(expression)
+                        if matches!(expression.r#type, Some(TypeNode::JSDocOptionalType(_))));
+                if self.strict_null_checks && (bracketed || suffix_optional) {
+                    declared = self.get_optional_type(declared, false);
+                }
                 return Some(self.add_optionality_for_declaration(declared, declaration));
             }
         }
@@ -5179,7 +5188,11 @@ impl<'a> Checker<'a, '_> {
     /// repeated here for the parameter's own symbol (upstream needs only one
     /// road because `getEffectiveTypeAnnotationNode` answers the reparsed
     /// JSDoc type to every consumer).
-    fn jsdoc_parameter_annotation(&self, parameter: NodeId) -> Option<TypeNode<'a>> {
+    /// The second component preserves the reparsed bracket question token.
+    pub(crate) fn jsdoc_parameter_annotation(
+        &self,
+        parameter: NodeId,
+    ) -> Option<(TypeNode<'a>, bool)> {
         if !self.in_js_file(parameter) {
             return None;
         }
@@ -5233,7 +5246,9 @@ impl<'a> Checker<'a, '_> {
                         && matches!(tag.tag_name.text, "param" | "parameter" | "arg" | "argument")
                         && matches!(tag.name, Some(tsr_ast::EntityName::Identifier(n)) if n.text == name)
                     {
-                        return tag.type_expression;
+                        return tag
+                            .type_expression
+                            .map(|annotation| (annotation, tag.is_bracketed));
                     }
                 }
             }

@@ -125,6 +125,9 @@ pub struct Checker<'a, 'n> {
     pub(crate) diagnostics: Vec<(NodeId, tsr_diagnostics::Diagnostic)>,
     /// `symbol -> its type`, upstream's `valueSymbolLinks[symbol].resolvedType`.
     pub(crate) symbol_types: FxHashMap<SymbolId, TypeId>,
+    /// Native `InitializerIsUndefinedComputed` / `InitializerIsUndefined`:
+    /// parameter default facts, with `true` installed during resolution.
+    pub(crate) parameter_initializer_contains_undefined: FxHashMap<NodeId, bool>,
     /// `thisExpandoKinds` / `thisExpandoLocations` (`checker.go`): the
     /// classification `isConstructorDeclaredThisProperty` caches per symbol.
     pub(crate) this_expando_kinds:
@@ -1216,6 +1219,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             enum_member_owners: FxHashMap::default(),
             diagnostics: Vec::new(),
             symbol_types,
+            parameter_initializer_contains_undefined: FxHashMap::default(),
             this_expando_kinds: FxHashMap::default(),
             symbol_assignment_scan: FxHashMap::default(),
             symbol_empty_array_assignment_scan: FxHashMap::default(),

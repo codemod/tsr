@@ -1285,7 +1285,7 @@ impl<'a> Checker<'a, '_> {
         // §110 (`checker-notes-narrow.md`): a JS declaration's type
         // parameters live in its JSDoc `@template` tags — a side table the
         // module host carries; the node's own list is empty there.
-        let mut param_types: Vec<(&str, TypeNode<'a>)> = Vec::new();
+        let mut param_types: Vec<(&str, TypeNode<'a>, bool)> = Vec::new();
         let mut return_tag: Option<TypeNode<'a>> = None;
         let mut this_tag: Option<TypeNode<'a>> = None;
         if self.in_js_file(declaration) {
@@ -1341,7 +1341,11 @@ impl<'a> Checker<'a, '_> {
                                         Some(annotation),
                                     ) = (parameter.name, parameter.type_expression)
                                     {
-                                        param_types.push((name.text, annotation));
+                                        param_types.push((
+                                            name.text,
+                                            annotation,
+                                            parameter.is_bracketed,
+                                        ));
                                     }
                                 }
                                 tsr_ast::JSDocTag::JSDocReturnTag(tag) if return_tag.is_none() => {
@@ -1426,12 +1430,21 @@ impl<'a> Checker<'a, '_> {
             // §110 slice 2: an unannotated JS parameter takes its `@param`
             // type; a doc type that does not compute keeps the implicit any.
             if node.r#type.is_none()
-                && let Some((_, annotation)) =
-                    param_types.iter().find(|(name, _)| *name == parameter.name)
+                && let Some((_, annotation, bracketed)) =
+                    param_types.iter().find(|(name, _, _)| *name == parameter.name)
             {
-                let typed = self.get_type_from_type_node(*annotation);
+                let mut typed = self.get_type_from_type_node(*annotation);
                 if typed != self.intrinsics.error {
+                    let suffix_optional = matches!(annotation,
+                        TypeNode::JSDocTypeExpression(expression)
+                            if matches!(expression.r#type, Some(TypeNode::JSDocOptionalType(_))));
+                    // A bracketed parameter prints its written annotation;
+                    // {T=} carries explicit undefined in the signature too.
+                    if self.strict_null_checks && suffix_optional {
+                        typed = self.get_optional_type(typed, false);
+                    }
                     parameter.r#type = typed;
+                    parameter.optional |= *bracketed || suffix_optional;
                 }
             }
             if index == 0 && parameter.name == "this" {
@@ -1440,7 +1453,8 @@ impl<'a> Checker<'a, '_> {
             }
             let syntactically_optional = node.question_token.is_some()
                 || node.initializer.is_some()
-                || node.dot_dot_dot_token.is_some();
+                || node.dot_dot_dot_token.is_some()
+                || parameter.optional;
             parameters.push(parameter);
             if !syntactically_optional {
                 min_argument_count = parameters.len();
@@ -1456,7 +1470,7 @@ impl<'a> Checker<'a, '_> {
         let offset = usize::from(this_parameter.is_some());
         for (index, node) in parameter_nodes.iter().enumerate().skip(offset) {
             let Some(slot) = parameters.get_mut(index - offset) else { continue };
-            if node.question_token.is_some() {
+            if node.question_token.is_some() || slot.optional {
                 slot.optional = true;
             } else if node.initializer.is_some() {
                 slot.optional = index >= min_argument_count;
