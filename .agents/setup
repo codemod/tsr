@@ -50,6 +50,25 @@ init_submodules() {
   git submodule update --init --recursive --depth 1 --jobs 4
 }
 
+install_go() {
+  # The pinned tsgo oracle requires Go 1.26. Keep it available for direct
+  # declaration-output comparisons, not only checked-in corpus baselines.
+  local version="1.26.8"
+  local root="$HOME/.local/share/go${version}"
+  if [ ! -x "$root/bin/go" ]; then
+    local tmp
+    tmp="$(mktemp -d)"
+    curl -fsSL -o "$tmp/go.tgz" "https://go.dev/dl/go${version}.linux-amd64.tar.gz"
+    echo "d0f743b33e8d8945e6b1f432edd15785c70507121d6e2a723b21285eddf8b57b  $tmp/go.tgz" | sha256sum -c -
+    mkdir -p "$root"
+    tar xzf "$tmp/go.tgz" --strip-components=1 -C "$root"
+    rm -rf "$tmp"
+  fi
+  mkdir -p "$HOME/.local/bin"
+  ln -sf "$root/bin/go" "$HOME/.local/bin/go"
+  "$HOME/.local/bin/go" version
+}
+
 install_bd() {
   mkdir -p "$HOME/.local/bin"
   if [ "$("$HOME/.local/bin/bd" version 2>/dev/null | awk '{print $3}')" != "$BD_VERSION" ]; then
@@ -83,5 +102,6 @@ prebuild() {
 step "rust toolchain" install_rust
 step "login shell PATH" persist_path
 step "git submodules" init_submodules
+step "tsgo oracle toolchain" install_go
 step "beads (bd)" install_bd
 step "cargo prebuild" prebuild
