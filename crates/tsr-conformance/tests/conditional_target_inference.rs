@@ -182,3 +182,63 @@ export function constants<A, B>(value: Source<A, B>) { return match(value); }
         &["match(value) : [A, B]"],
     );
 }
+
+#[test]
+fn conditional_default_constraint_retains_alias_literals_and_free_widening() {
+    // Pinned native primitiveConstraintWave5.types retains the alias-constraint
+    // literal but still widens an unconstrained enum member and string literal.
+    expect(
+        r#"// @strict: true
+// @target: es2015
+type Both<U> = U extends string ? string : number;
+type Alias<U> = Both<U>;
+declare function alias<U, T extends Alias<U>>(value: T, other: U): [T];
+declare function free<T>(value: T): [T];
+enum First { A = "a", B = "b" }
+export const held = alias("alias", "key");
+export const ordinaryEnum = free(First.A);
+export const freeText = free("free");
+"#,
+        &["held : [\"alias\"]", "ordinaryEnum : [First]", "freeText : [string]"],
+    );
+}
+
+#[test]
+fn conditional_default_constraints_elide_any_without_following_branch_constraints() {
+    // The any branches must not swallow the primitive opposite branch or
+    // make an object-only default primitive. A constrained variable branch is
+    // not replaced by its string base constraint at this native boundary.
+    expect(
+        r#"// @strict: true
+// @target: es2015
+type Both<U> = U extends string ? string : number;
+type TrueAny<U> = U extends string ? any : number;
+type FalseAny<U> = U extends string ? string : any;
+type NoPrimitive<U> = U extends string ? any : {};
+type FalseObject<U> = U extends string ? {} : any;
+type VariableOnly<U, V extends string> = U extends string ? any : V;
+declare function both<U, T extends Both<U>>(value: T, other: U): [T];
+declare function trueAny<U, T extends TrueAny<U>>(value: T, other: U): [T];
+declare function falseAny<U, T extends FalseAny<U>>(value: T, other: U): [T];
+declare function noPrimitive<U, T extends NoPrimitive<U>>(value: T, other: U): [T];
+declare function falseObject<U, T extends FalseObject<U>>(value: T, other: U): [T];
+declare function variableOnly<U, V extends string, T extends VariableOnly<U, V>>(value: T, other: U, variable: V): [T];
+export const text = both("held", "key");
+export const numeric = both(37, false);
+export const trueNumber = trueAny(41, "key");
+export const falseText = falseAny("other", false);
+export const objectControl = noPrimitive("wide", "key");
+export const falseObjectControl = falseObject(53, false);
+export const variableControl = variableOnly("variable", "key", "marker");
+"#,
+        &[
+            "text : [\"held\"]",
+            "numeric : [37]",
+            "trueNumber : [41]",
+            "falseText : [\"other\"]",
+            "objectControl : [string]",
+            "falseObjectControl : [number]",
+            "variableControl : [\"variable\"]",
+        ],
+    );
+}

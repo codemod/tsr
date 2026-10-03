@@ -13,6 +13,20 @@ pub(crate) struct BaseConstraintKey {
 }
 
 impl Checker<'_, '_> {
+    /// getDefaultConstraintOfConditionalType (checker.go:17263). Select the
+    /// semantic branches without distributing the check or following either
+    /// branch's base constraint. An any branch is elided, not made viral.
+    pub(crate) fn default_constraint_of_conditional_type(&mut self, ty: TypeId) -> Option<TypeId> {
+        let (yes, no) = self.conditional_inference_branches(ty)?;
+        Some(if self.store.get(yes).flags.contains(TypeFlags::ANY) {
+            no
+        } else if self.store.get(no).flags.contains(TypeFlags::ANY) {
+            yes
+        } else {
+            self.get_union_type(&[yes, no])
+        })
+    }
+
     /// getEffectiveConstraintOfIntersection (internal/checker/relater.go:2282).
     /// Preserve the source variable for union targets so identity proofs remain
     /// available while the constraint's disjoint domains distribute.

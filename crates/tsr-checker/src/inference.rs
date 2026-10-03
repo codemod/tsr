@@ -6099,6 +6099,105 @@ mod tests {
     use crate::Checker;
 
     #[test]
+    fn conditional_default_primitive_test_does_not_follow_distributive_or_variable_constraints() {
+        use crate::flags::TypeFlags;
+
+        let arena = Arena::new();
+        let source = r"type TrueAny<W> = W extends string ? any : number;
+type FalseObject<W> = W extends string ? {} : any;
+type VariableOnly<W, V extends string> = W extends string ? any : V;
+type Restricted<U extends string> = U extends string ? {} : number;
+declare function owner<U extends string, V extends string, W,
+    A extends TrueAny<W>, B extends FalseObject<W>, C extends VariableOnly<W, V>,
+    D extends Restricted<U>, E extends string>(): void;";
+        let parsed = tsr_parser::parse(&arena, source);
+        assert!(parsed.diagnostics.is_empty());
+        let bound = tsr_binder::bind(
+            &arena,
+            parsed.source_file,
+            &parsed.nodes,
+            tsr_binder::FileInfo { name: "test.ts", text: source },
+        );
+        let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+        checker.set_strict_null_checks(true);
+        let Statement::FunctionDeclaration(declaration) = parsed.source_file.statements[4] else {
+            panic!("the fixture must declare its owner function");
+        };
+        let owner = bound.symbol_of(declaration.node_id.unwrap()).unwrap();
+        let signature = checker.get_signatures_of_symbol(owner).unwrap().remove(0);
+        let variable = signature.type_parameters[5].constraint.unwrap();
+        let restricted = signature.type_parameters[6].constraint.unwrap();
+        assert_eq!(checker.base_constraint_of_type(variable), Some(checker.intrinsics.string));
+        let narrowed = checker.base_constraint_of_type(restricted).unwrap();
+        assert!(checker.store.get(narrowed).flags.contains(TypeFlags::OBJECT));
+        for (position, expected) in [(3, true), (4, false), (5, false), (6, true), (7, true)] {
+            assert_eq!(
+                checker.parameter_has_primitive_constraint(&signature, position),
+                expected,
+                "constraint at position {position}"
+            );
+        }
+    }
+
+    #[test]
+    fn conditional_primitive_candidates_keep_named_enum_member_identity() {
+        use crate::relater::{Relation, Ternary};
+
+        let arena = Arena::new();
+        let source = r#"enum First { A = "a", B = "b" }
+enum Second { A = "a", C = "c" }
+declare function owner<U, T extends U extends string ? First : number>(value: T): [T];
+const value = First.A;"#;
+        let parsed = tsr_parser::parse(&arena, source);
+        assert!(parsed.diagnostics.is_empty());
+        let bound = tsr_binder::bind(
+            &arena,
+            parsed.source_file,
+            &parsed.nodes,
+            tsr_binder::FileInfo { name: "test.ts", text: source },
+        );
+        let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+        checker.set_strict_null_checks(true);
+        let Statement::EnumDeclaration(first) = parsed.source_file.statements[0] else {
+            panic!("first enum");
+        };
+        let Statement::EnumDeclaration(second) = parsed.source_file.statements[1] else {
+            panic!("second enum");
+        };
+        let first =
+            checker.get_declared_type_of_symbol(bound.symbol_of(first.node_id.unwrap()).unwrap());
+        let second =
+            checker.get_declared_type_of_symbol(bound.symbol_of(second.node_id.unwrap()).unwrap());
+        let Statement::FunctionDeclaration(owner) = parsed.source_file.statements[2] else {
+            panic!("owner function");
+        };
+        let signature = checker
+            .get_signatures_of_symbol(bound.symbol_of(owner.node_id.unwrap()).unwrap())
+            .unwrap()
+            .remove(0);
+        let Statement::VariableStatement(variable) = parsed.source_file.statements[3] else {
+            panic!("enum member candidate");
+        };
+        let expression = variable.declaration_list.unwrap().declarations[0].initializer.unwrap();
+        let candidate = checker.check_expression(expression);
+        let mut infos = Vec::new();
+        super::add_directional_candidate(
+            &mut infos,
+            signature.parameters[0].r#type,
+            candidate,
+            false,
+            super::InferencePriority::NONE,
+        );
+        let inferred = checker.inferred_covariant_type(&infos[0], &signature, 1).unwrap();
+        assert_eq!(checker.type_to_string(inferred), "First.A");
+        assert_eq!(checker.relate_ternary(inferred, first, Relation::Assignable), Ternary::Related);
+        assert_eq!(
+            checker.relate_ternary(inferred, second, Relation::Assignable),
+            Ternary::NotRelated
+        );
+    }
+
+    #[test]
     fn registered_parameter_membership_preserves_identity_graphs_and_current_registry() {
         use crate::flags::TypeFlags;
 
@@ -6734,17 +6833,18 @@ impl Checker<'_, '_> {
         self.is_type_parameter_at_top_level(signature.r#type, parameter)
     }
 
-    /// `hasPrimitiveConstraint`'s test as this port already spelled it inside
-    /// [`Checker::same_base_literal_supertype`], lifted so the single-candidate
-    /// road can ask the same question (§162).
+    /// hasPrimitiveConstraint (inference.go:1482) tests a conditional's default
+    /// branch constraint, not its distributive or recursively resolved base.
     fn parameter_has_primitive_constraint(
-        &self,
+        &mut self,
         signature: &Signature,
         parameter_position: usize,
     ) -> bool {
         use crate::flags::TypeFlags;
         signature.type_parameters.get(parameter_position).and_then(|tp| tp.constraint).is_some_and(
             |constraint| {
+                let constraint =
+                    self.default_constraint_of_conditional_type(constraint).unwrap_or(constraint);
                 self.maybe_type_of_kind(
                     constraint,
                     TypeFlags::PRIMITIVE
