@@ -608,8 +608,9 @@ impl<'a> Checker<'a, '_> {
     }
 
     /// Report the assignability failure at `span`, choosing the code the way
-    /// upstream's relation does: a single absent required property is TS2741 and
-    /// everything else this port will speak about is TS2322.
+    /// upstream's relation does: a single absent required property is TS2741,
+    /// a direct exact-optional missing-property write is TS2412, and other
+    /// failures this port will speak about are TS2322.
     fn report_assignability_failure(
         &mut self,
         at: NodeId,
@@ -690,18 +691,45 @@ impl<'a> Checker<'a, '_> {
             return false;
         }
         probe!(PROBE_REPORTED);
+        let message = if self.exact_optional_property_assignment_mismatch(at, source) {
+            &messages::TYPE_0_IS_NOT_ASSIGNABLE_TO_TYPE_1_WITH_EXACTOPTIONALPROPERTYTYPES_COLON_TRUE_CONSIDER_ADDING_UNDEFINED_TO_THE_TYPE_OF_THE_TARGET
+        } else {
+            &messages::TYPE_0_IS_NOT_ASSIGNABLE_TO_TYPE_1
+        };
         let displayed_source = self.assignability_source_for_error_display(source, target);
         let source_text = self.type_to_string(displayed_source);
         let target_text = self.type_to_string(target);
-        self.report(
-            file,
-            Diagnostic::with_args(
-                &messages::TYPE_0_IS_NOT_ASSIGNABLE_TO_TYPE_1,
-                span,
-                [source_text, target_text],
-            ),
-        );
+        self.report(file, Diagnostic::with_args(message, span, [source_text, target_text]));
         true
+    }
+
+    /// `checkAssignmentOperator` (`checker.go:12777`): the TS2412 head message
+    /// reads the concrete receiver's property before the write type removes
+    /// missing. `containsMissingType` (`checker.go:1250`) tests the first union
+    /// constituent: explicit undefined can precede missing and admits undefined.
+    fn exact_optional_property_assignment_mismatch(&mut self, at: NodeId, source: TypeId) -> bool {
+        if !self.exact_optional_property_types
+            || !self.maybe_type_of_kind(source, TypeFlags::UNDEFINED)
+        {
+            return false;
+        }
+        let Some(Node::PropertyAccessExpression(access)) = self.node_map.get(at) else {
+            return false;
+        };
+        let (Some(receiver), Some(name)) = (access.expression, access.name) else {
+            return false;
+        };
+        let name = match name {
+            tsr_ast::MemberName::Identifier(name) => name.text,
+            tsr_ast::MemberName::PrivateIdentifier(name) => name.text,
+        };
+        let receiver = self.check_expression(receiver);
+        let Some(property_type) = self.get_type_of_property_of_type(receiver, name) else {
+            return false;
+        };
+        property_type == self.intrinsics.missing
+            || matches!(&self.type_of(property_type).data, TypeData::Union { types, .. }
+                if types.first() == Some(&self.intrinsics.missing))
     }
 
     /// `reportRelationError`: generalize literal source names only for targets
