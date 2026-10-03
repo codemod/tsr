@@ -31,7 +31,11 @@ use tsr_ast::{BinaryExpression, Node, NodeId, SyntaxKind};
 use tsr_binder::SymbolFlags;
 use tsr_diagnostics::{Diagnostic, messages};
 
-use crate::{checker::Checker, flags::TypeFlags, types::TypeId};
+use crate::{
+    checker::Checker,
+    flags::TypeFlags,
+    types::{TypeData, TypeId},
+};
 
 /// Verdicts recorded by §172's probe, in the order
 /// `report_assignability_failure` tests them.
@@ -589,7 +593,8 @@ impl<'a> Checker<'a, '_> {
         }
         let Some(file) = self.source_file_of_for_diagnostics(at) else { return false };
         let span = self.error_span(at);
-        let source_text = self.type_to_string(source);
+        let displayed_source = self.assignability_source_for_error_display(source, target);
+        let source_text = self.type_to_string(displayed_source);
         let target_text = self.type_to_string(target);
         self.report(
             file,
@@ -685,7 +690,8 @@ impl<'a> Checker<'a, '_> {
             return false;
         }
         probe!(PROBE_REPORTED);
-        let source_text = self.type_to_string(source);
+        let displayed_source = self.assignability_source_for_error_display(source, target);
+        let source_text = self.type_to_string(displayed_source);
         let target_text = self.type_to_string(target);
         self.report(
             file,
@@ -696,6 +702,57 @@ impl<'a> Checker<'a, '_> {
             ),
         );
         true
+    }
+
+    /// `reportRelationError`: generalize literal source names only for targets
+    /// that cannot contain top-level singleton types. This changes the display,
+    /// never the types passed to the relation.
+    fn assignability_source_for_error_display(&mut self, source: TypeId, target: TypeId) -> TypeId {
+        let source_type = self.type_of(source);
+        let is_literal = source_type.flags.intersects(TypeFlags::BOOLEAN | TypeFlags::UNIT)
+            || matches!(&source_type.data, TypeData::Union { types, .. }
+                if types.iter().all(|&ty| self.type_of(ty).flags.intersects(TypeFlags::UNIT)));
+        if !is_literal
+            || self.type_of(target).flags.contains(TypeFlags::NEVER)
+            || self.type_could_have_top_level_singleton_types(target, &mut Vec::new())
+        {
+            source
+        } else {
+            self.get_base_type_of_literal_type(source)
+        }
+    }
+
+    /// `typeCouldHaveTopLevelSingletonTypes` (`relater.go:1305`). Constraint
+    /// resolution stays in this checker's existing constraint domain.
+    fn type_could_have_top_level_singleton_types(
+        &mut self,
+        target: TypeId,
+        active: &mut Vec<TypeId>,
+    ) -> bool {
+        let flags = self.type_of(target).flags;
+        if flags.contains(TypeFlags::BOOLEAN) {
+            return false;
+        }
+        let singleton = flags
+            .intersects(TypeFlags::UNIT | TypeFlags::TEMPLATE_LITERAL | TypeFlags::STRING_MAPPING);
+        if active.contains(&target) {
+            return singleton;
+        }
+        active.push(target);
+        let result = if let TypeData::Union { types, .. } | TypeData::Intersection { types, .. } =
+            self.type_of(target).data.clone()
+        {
+            types.iter().any(|&ty| self.type_could_have_top_level_singleton_types(ty, active))
+        } else if flags.intersects(TypeFlags::INSTANTIABLE)
+            && let Some(constraint) = self.base_constraint_of_type(target)
+            && constraint != target
+        {
+            self.type_could_have_top_level_singleton_types(constraint, active)
+        } else {
+            singleton
+        };
+        active.pop();
+        result
     }
 
     /// The declines that survive `relate_ternary` — situations where the
@@ -843,20 +900,26 @@ impl<'a> Checker<'a, '_> {
             // a computed non-literal name yields no usable name type and
             // upstream `continue`s.
             let Some(name) = self.identifier_text(name_id).map(str::to_string) else { continue };
-            let Some(initializer) = assignment.initializer.and_then(|e| e.node_id()) else {
+            if assignment.initializer.and_then(|e| e.node_id()).is_none() {
                 continue;
-            };
+            }
             // `getBestMatchIndexedAccessTypeOrUndefined(source, target, nameType)`
             // — absent from the target means excess, which is TS2353's row and
             // not this one.
-            let Some(target_property) = self.get_property_of_type(target, &name) else { continue };
-            let target_property_type = self.get_type_of_symbol(target_property);
-            // `getIndexedAccessTypeOrUndefined(source, nameType, …)`. Reading
-            // the *initialiser's* type rather than the literal's member is
-            // upstream's `checkExpressionForMutableLocationWithContextualType`
-            // reduced to what this port can answer, and it is the same type at
-            // every position a fresh literal reaches.
-            let source_property_type = self.check_expression_at_node(initializer);
+            // The indexed-access result uses the concrete target receiver.
+            // Reading the declaration symbol alone loses its mapper, so a
+            // member declared as T on C<number> would be compared against T.
+            let Some(target_property_type) = self.get_type_of_property_of_type(target, &name)
+            else {
+                continue;
+            };
+            // `getIndexedAccessTypeOrUndefined(source, nameType, …)` reads the
+            // completed source member, including mutable-location widening.
+            // A fresh initializer alone still has its literal type here.
+            let Some(source_property_type) = self.get_type_of_property_of_type(source, &name)
+            else {
+                continue;
+            };
             // `checkTypeRelatedTo(sourcePropType, targetPropType, …)` — the
             // three-valued form, and reporting only on a **confident**
             // `NotRelated`, which is §25's rule for a rule acting on a negative.
@@ -876,7 +939,9 @@ impl<'a> Checker<'a, '_> {
             // is the anchor §175 measured and the one `check_excess_properties`
             // already uses.
             let span = self.nodes.span(name_id);
-            let source_text = self.type_to_string(source_property_type);
+            let displayed_source = self
+                .assignability_source_for_error_display(source_property_type, target_property_type);
+            let source_text = self.type_to_string(displayed_source);
             let target_text = self.type_to_string(target_property_type);
             self.report(
                 file,
@@ -888,7 +953,6 @@ impl<'a> Checker<'a, '_> {
             );
             reported = true;
         }
-        let _ = source;
         reported
     }
 }

@@ -282,7 +282,6 @@ fn cross_file_errors_and_merged_globals_match_serial_cli() {
 }
 
 #[test]
-#[ignore = "tsr-6.48: recursive imported member substitution still reports T"]
 fn recursive_cross_file_generics_can_be_queried_after_checking() {
     compare_fixture(
         &[
@@ -303,7 +302,69 @@ fn recursive_cross_file_generics_can_be_queried_after_checking() {
         |_, _, workers, diagnostics| {
             assert_eq!(diagnostics.len(), 1, "{diagnostics:#?}");
             assert!(diagnostics[0].contains("error TS2322"));
+            assert!(
+                diagnostics[0]
+                    .ends_with("error TS2322: Type 'string' is not assignable to type 'number'.")
+            );
             assert_eq!(queries(workers), [("/project/use.ts".into(), "A<number>".into())]);
+        },
+    );
+}
+
+#[test]
+fn generic_object_literal_members_keep_concrete_types_and_literal_context() {
+    compare_fixture(
+        &[
+            (
+                "model.ts",
+                "export interface Base<T> { value: T } export interface Box<T = number> extends Base<T> {} export type Mapped<T> = { [K in keyof T]: T[K] };",
+            ),
+            (
+                "use.ts",
+                "import type { Base, Box, Mapped } from './model';\nconst goodDefault: Box = { value: 1 };\nconst badDefault: Box = { value: 'bad' };\nconst goodMapped: Mapped<Base<string>> = { value: 'ok' };\nconst badMapped: Mapped<Base<string>> = { value: 1 };\nconst goodLiteral: Base<'yes'> = { value: 'yes' };\nconst badLiteral: Base<'yes'> = { value: 'no' };\nconst badAsserted: Base<number> = { value: 'bad' as const };",
+            ),
+        ],
+        &["--noLib"],
+        |_, _, _, diagnostics| {
+            let endings: Vec<_> = diagnostics
+                .iter()
+                .map(|message| message.split("error TS2322: ").nth(1).unwrap())
+                .collect();
+            assert_eq!(
+                endings,
+                [
+                    "Type 'string' is not assignable to type 'number'.",
+                    "Type 'number' is not assignable to type 'string'.",
+                    "Type '\"no\"' is not assignable to type '\"yes\"'.",
+                    "Type 'string' is not assignable to type 'number'.",
+                ],
+            );
+        },
+    );
+}
+
+#[test]
+fn literal_error_display_preserves_never_and_singleton_targets() {
+    compare_fixture(
+        &[(
+            "use.ts",
+            "const impossible: { value: never } = { value: 1 as const };\nconst booleanTarget: { value: boolean } = { value: 'bad' as const };\nconst singletonTarget: { value: 'yes' | 2 } = { value: 'bad' as const };\nconst templateTarget: { value: `yes${string}` } = { value: 'bad' as const };",
+        )],
+        &["--noLib"],
+        |_, _, _, diagnostics| {
+            let endings: Vec<_> = diagnostics
+                .iter()
+                .map(|message| message.split("error TS2322: ").nth(1).unwrap())
+                .collect();
+            assert_eq!(
+                endings,
+                [
+                    "Type '1' is not assignable to type 'never'.",
+                    "Type 'string' is not assignable to type 'boolean'.",
+                    "Type '\"bad\"' is not assignable to type '\"yes\" | 2'.",
+                    "Type '\"bad\"' is not assignable to type '`yes${string}`'.",
+                ],
+            );
         },
     );
 }

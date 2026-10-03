@@ -232,12 +232,18 @@ CLI. Input contents are unchanged before and after the runs. This replay is
 not a throughput benchmark; evidence is
 `/tmp/tsr-1yb-worker-merge-nextjs.json`.
 
-The same external controls establish stable TSR output for recursive generic
-imports and module augmentation, but expose existing native differences:
-`tsr-6.48` leaves recursive imported members as `T`, and `tsr-6.49` does not
-expose augmented interface members to imports. Their native-expectation tests
-remain explicitly ignored with those issue IDs, not counted as passing worker
-readiness. Both block `tsr-1yb.3.2`, which still precedes production workers.
+The recursive generic import control now matches pinned native output:
+the numeric assignment is accepted, the string assignment reports TS2322
+against `number`, and query-after-check retains `A<number>` at 1/2/3/4 workers.
+`tsr-6.48` was a diagnostic elaboration read that bypassed the concrete receiver's
+mapper, rather than a worker identity defect. The enabled controls also cover
+inherited/defaulted and mapped members, mutable literals and const assertions;
+see [receiver diagnostics](checker-receiver-diagnostics.md).
+
+The module augmentation control still exposes `tsr-6.49`: augmented interface
+members are invisible to imports. Its native-expectation test remains explicitly
+ignored and does not count as passing worker readiness. That fidelity gap still
+blocks `tsr-1yb.3.2`, which precedes production workers.
 
 Checker-backed declaration emit cannot yet be exercised: the CLI behaves as
 `noEmit`, and `tsr-declarations` uses `SyntacticResolver` while mutating its
