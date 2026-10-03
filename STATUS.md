@@ -22,7 +22,49 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
-### Current checker checkpoint — eleven-orb integration
+### Current checker checkpoint — twelve-unit integration
+
+Measured on **`3c213739`**, against exact `8f8f4e1a`:
+**458,472/478,855 assertions (95.74%)**, **7,084/9,538 complete cases
+(74.27%)**. The 99% target requires 474,067 matches; **15,595 remain**.
+Pinned oracle and native denominator are unchanged. Aligned verdicts:
+**474,251 total; 458,472 RIGHT; 2,436 GAP; 13,343 WRONG**.
+
+The combined source gains **450 matching assertions and 25 complete cases**:
+437 WRONG→RIGHT, 7 GAP→RIGHT, and 6 newly aligned RIGHT rows. There is also
+one newly aligned WRONG row in `duplicatePackage_globalMerge`. Independent
+multiline verdict comparison confirms **zero RIGHT losses and zero removed
+rows**. Two GAP→WRONG rows remain: `generatorYieldContextualType:0:52` and
+`interfaceExtendsObjectIntersection:0:17`, exposing incomplete generic
+alias/body rendering in the bounded JSDoc unit.
+
+There are **15 changed already-WRONG payloads**, not counted as gains:
+`awaitedType` positions 18/19/20/40, `awaitedTypeStrictNull` 40,
+`arrayLiteralInference` 26/28/29/40/54, `callChain.3` 35–37,
+`interfaceExtendsObjectIntersectionErrors` 12, and `jsdocTemplateTag8` 47.
+The eight array/call-inference rows cannot be attributed to one worker from
+its retained artifacts; the earlier zero-payload-change claim is retracted.
+
+The twelve-unit source measured **+436 matches and +24 complete cases**
+before the later upstream changes. Preserved package-identity redirection
+adds four corrections, six new RIGHT rows, one new WRONG row and one complete
+case. Preserved template-assertion widening adds four corrections, no other
+row changes, and no additional complete cases. These are measured comparisons,
+not a sum of worker claims. Parser, binder and all four declaration snapshots
+remained unchanged in the combined-source sweep before the final assertion
+fix; checker and diagnostic snapshots are refreshed on the final source.
+Diagnostics improve **2,799 → 2,800/5,488 (+1)**.
+
+Release workspace tests (**227 result blocks**), strict workspace clippy,
+formatting, **3,398 upstream references**, and **16,642 section citations**
+pass. The issue-id check reports **197 missing records**: the historical 191
+plus six `tsr-1yb` references from incoming performance documentation that are
+absent from this orb's database. Dolt remote adoption remains unapproved
+(tsr-kmm); local task updates are not claimed as remotely published.
+The 99% epic (tsr-djf) stays open. This corpus wave does not rerun the real
+Next.js application; its performance measurements remain separate.
+
+### Previous checker checkpoint — eleven-orb integration
 
 Measured on **`d0018e00`**, against clean `cec7cef5`: **458,022/478,855
 assertions (95.65%)**, **7,059/9,538 complete cases (74.01%)**. The 99%
@@ -1403,6 +1445,31 @@ rendering `any` for `errorType` (ADR-0038).
 ---
 
 ## 4. What is next — the scored board
+
+### Bounded follow-ups from the second multi-orb wave (tsr-djf)
+
+The twelve integrated mechanisms cover enum constant evaluation, namespace
+export name lookup, template intersections, primitive literal normalization,
+assignment-target tuple spreads, exact-optional member inference, equality
+narrowing, contextual return inference into argument literals, export-equals
+primitive members, nullable conditional extends, direct generic compound
+`keyof`, and complete-inline JSDoc typedef bodies/templates. The 99% epic
+remains open; §1 records the combined measurement, not a sum of unit claims.
+
+The remaining boundaries are semantic work, not formatting patches: named
+generic `keyof` aliases; native conditional-target inference for
+`Promise<Awaited<T>>`; arbitrary iterable spread element recovery;
+partially-inferable/contextual/recursive mapped inference; general subtype
+and named-union reduction; and site-sensitive enum/unique-symbol export
+members. Qualified import-equals privacy leaves remain separate.
+
+JSDoc sibling `@property` annotations need one alias-owned lexical mapper for
+`T`, `T[]`, nested objects, alias references, and exact/non-exact optional
+properties (tsr-djf.1). Complete-inline members already substitute through
+the ordinary mapper; the integration control uses an annotated parameter,
+so initializer inference cannot satisfy it accidentally. Callback signatures
+remain outside this unit. Namespace-export controls are correlated with pinned
+native source, not a fresh executable probe, and claim no corpus gain.
 
 ### Eleven-orb integration at `d0018e00` — 2026-10-03
 
@@ -4683,6 +4750,34 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+### Second-wave review refusals — exact worker base `8f8f4e1a`
+
+- Exposing return-context inference for every argument gained the target family
+  but lost **7 RIGHT rows** through premature nested-call inference. The accepted
+  scope is object/array/function literals under an actual return mapper.
+- Resolving an infer conditional's target twice caused
+  `recursiveResolveTypeMembers` to exceed **13 GiB**. Keeping its original
+  single-resolution order restores the worker's five aligned rows under a
+  1.6 GiB control; parentheses are unwrapped only for the nullable fallback.
+- Distributing written `keyof` constituents before reducing the whole operand
+  answered `keyof (any | {a: string})` as `"a"`. Whole-operand resolution is
+  required. Empty-object deferral additionally requires a semantic instantiable
+  constituent; concrete/mapped intersections must not be deferred. Named aliases
+  remain bounded by the earlier **2 RIGHT losses and 9 GAP→WRONG** refusal.
+- Primitive export-member filtering alone still admitted inherited
+  `Function.length/name`. Native's existing skip-augmentation flag is required;
+  enum literals, unique symbols and conflicting value/type meanings remain
+  declined, while explicit own primitive members resolve.
+- The JSDoc prior/forward offset comparison was not native alias visibility.
+  It was removed in favor of top-level comment-host ownership. A bare-`T`
+  property adapter was rejected; sibling-property lexical ownership must cover
+  all annotation shapes together.
+- The call-context worker's “zero changed-WRONG payloads” claim was unsupported
+  by its status-only scorepair. The eight-unit audit found **8** such rows
+  (`arrayLiteralInference` 26/28/29/40/54, `callChain.3` 35–37); retained worker
+  files cannot attribute these to the unit versus interactions. Final combined
+  payload counts are reported separately in §1.
 
 ### Multi-orb review refusals — exact worker base `cec7cef5`
 
@@ -12090,3 +12185,5 @@ that were true of a different population than the one they were quoted about.
 | 2026-10-02 | `e6812e01` | **95.56%** | **7,019/9,538** | **Assignment/comma condition narrowing (tsr-8.6): +68 assertions (66 W-to-R, 2 G-to-R), +12 complete cases vs 5ca50fea, zero RIGHT losses or G-to-W; one changed already-WRONG row.** 457,593/478,855; aligned 457,593 right, 2,566 gap, 14,084 wrong. Native candidate normalization, assignment/comma target matching and RHS-then-target truthiness; JSDoc cast boundaries and short-circuit result gates eliminate the initial nine RIGHT losses. Nine narrowing tests, one logical-result test and four diagnostic controls; 220 release workspace result blocks, clippy, fmt, anchors and sections pass. Diagnostics unchanged at 2,784/5,488. [Evidence](docs/architecture/checker-99-assignment-conditions.md). 16,474 matches remain to 99%; recursive conditional/mapped project slowdown remains tsr-6.3. |
 
 | 2026-10-03 | `d0018e00` | **95.65%** | **7,059/9,538** | **Eleven-orb integration: +381 assertions and +38 complete cases vs clean cec7cef5.** 458,022/478,855; aligned 474,244 total, 458,022 RIGHT, 2,445 GAP, 13,777 WRONG. 290 W→R, 90 G→R, one new RIGHT row, zero RIGHT losses or removed rows; three exposed static Array predicate G→W and 57 changed WRONG rows. Diagnostics 2,799/5,488 (+9), dts_shape 898/1,006 (+1); parser, binder and the other three dts suites unchanged. 223 release workspace result blocks, clippy, fmt, 3,389 anchors and 16,643 section citations pass. The 191 historical issue-id failures and missing Dolt remote remain explicit. Review refusals and residual scope are recorded in §§4–5. |
+
+| 2026-10-03 | `3c213739` | **95.74%** | **7,084/9,538** | **Twelve-unit integration plus preserved upstream changes: +450 assertions and +25 complete cases vs exact 8f8f4e1a.** 458,472/478,855; aligned 474,251 total, 458,472 RIGHT, 2,436 GAP, 13,343 WRONG. 437 W→R, 7 G→R, 6 new RIGHT and 1 new WRONG; zero RIGHT losses or removed rows, 2 G→W and 15 changed already-WRONG payloads. The twelve units account for +436 matches; package redirection adds +10 and assertion widening +4, verified by separate combined-source audits. Diagnostics 2,800/5,488 (+1). All 227 release workspace result blocks, strict clippy, fmt, 3,398 anchors and 16,642 section citations pass. The issue-ID gate reports 197 absent local records; Dolt adoption remains unapproved. 15,595 matches remain to 99%; bounded follow-ups and review refusals are in §§4–5. |
