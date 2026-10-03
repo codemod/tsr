@@ -1311,6 +1311,39 @@ fn commonjs_files_are_modules_whose_exports_are_their_assignments() {
         emit_javascript_trimmed("module.exports = function () {};\nmodule.exports.x = 1;"),
         "export = _exports;\ndeclare function _exports(): void;\ndeclare namespace _exports {\n    export var x: 1;\n}"
     );
+    // `transformCommonJSExportWorker`'s class-expression arm: an anonymous
+    // class takes the export name; a matching named class needs no alias; and a
+    // differing expression name is isolated so its members can retain that
+    // private name (`cjsExportNamedClassExpressionNoAssignment`).
+    assert_eq!(
+        emit_javascript_trimmed(
+            "exports.Anonymous = class { value = 1 };\nexports.Matched = class Matched { method() {} };\nexports.Public = class Private { value = 1 };"
+        ),
+        "export declare class Anonymous {\n    value: number;\n}\nexport declare class Matched {\n    method(): void;\n}\ndeclare namespace _ns {\n    export class Private {\n        value: number;\n    }\n}\nimport _Public = _ns.Private;\nexport { _Public as Public };"
+    );
+    // Native branches on the export-name node kind, not identifier-text
+    // validity (`transform.go:1380`, `:1433`). A quoted name always remains a
+    // string export name: anonymous classes use `_class`, and named classes use
+    // `_ns` isolation even when their text matches the export text.
+    assert_eq!(
+        emit_javascript_trimmed("exports[\"not-valid\"] = class { value = 1 };"),
+        "export declare class _class {\n    value: number;\n}\nexport { _class as \"not-valid\" };"
+    );
+    assert_eq!(
+        emit_javascript_trimmed("exports[\"Private\"] = class Private { value = 1 };"),
+        "declare namespace _ns {\n    export class Private {\n        value: number;\n    }\n}\nimport _exported = _ns.Private;\nexport { _exported as \"Private\" };"
+    );
+    assert_eq!(
+        emit_javascript_trimmed("exports[\"public-name\"] = class Private { value = 1 };"),
+        "declare namespace _ns {\n    export class Private {\n        value: number;\n    }\n}\nimport _exported = _ns.Private;\nexport { _exported as \"public-name\" };"
+    );
+    // A same-name self-reference needs upstream's checker-backed TrackSymbol
+    // distinction. The conservative source scan keeps the pre-existing typed
+    // variable form rather than incorrectly emitting a direct class.
+    assert_eq!(
+        emit_javascript_trimmed("exports.Self = class Self { self = new Self() };"),
+        "export declare var Self: any;"
+    );
 }
 
 fn emit_javascript_trimmed(source: &str) -> String {

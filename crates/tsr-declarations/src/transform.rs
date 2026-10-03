@@ -30,7 +30,7 @@
 //!
 //! | Upstream | Why it is out |
 //! |---|---|
-//! | `transformCommonJSExport`'s class-expression arm, `Object.defineProperty` exports, `require` → `import =` (`:1352`, `:2707`, `:836`) | `CommonJS` emit beyond the assignment forms. The module kind itself turned out to be syntactic (`CommonJSModuleIndicator`) and the assignment forms are ported |
+//! | `transformCommonJSExport`'s same-name self-reference branch, `Object.defineProperty` exports, `require` → `import =` (`:1352`, `:2707`, `:836`) | The syntax-only `CommonJS` assignment and class-expression forms are ported; exact self-reference isolation needs the resolver's symbol-use tracking |
 //! | `visitThisPropertyAssignments`, `collectThisPropertyAssignments` (`:2072`, `:2163`) | JS-file only, and JSDoc-driven |
 //! | The `JSDoc*` transform arms (`:2576`–`:2632`) | JS-file only |
 //! | `CreateLateBoundIndexSignatures` in `buildClassMembers` (`:1918`) | Purely a checker product |
@@ -625,8 +625,9 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
     }
 
     /// `transformCommonJSExportWorker` (`transform.go:1334`) for one
-    /// `exports.name = right`, without the class-expression arm. A top-level
-    /// alias (`exports.a = b`, the name assigned once) is `export { b as a }`;
+    /// `exports.name = right`. A top-level alias (`exports.a = b`, the name
+    /// assigned once) is `export { b as a }`; a class expression becomes a
+    /// class declaration, with named mismatches isolated in `_ns`;
     /// `default` is a `_default` binding with `export default`; a name nothing
     /// else in scope declares is `export declare var name: T`; anything else
     /// goes through an `_exported` binding and a renaming specifier.
@@ -637,7 +638,26 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
             && let Expression::Identifier(right) = export.right
         {
             let property_name = (right.text != export.name).then_some(*right);
-            return vec![self.export_specifier_statement(property_name, name, span)];
+            return vec![self.export_specifier_statement(
+                property_name,
+                tsr_ast::ModuleExportName::Identifier(name),
+                span,
+            )];
+        }
+        if let Some(class) = skip_parentheses_to_class(export.right) {
+            if let Some(class_name) = class.name
+                && matches!(export.export_name, tsr_ast::ModuleExportName::Identifier(_))
+                && class_name.text == export.name
+                && class_expression_mentions_name(class, class_name.text)
+            {
+                // Upstream detects this through TrackSymbol while serializing
+                // members. A source occurrence is only a conservative proxy: a
+                // method-body-only reference must not force namespace isolation,
+                // so leave this checker-owned distinction on the existing typed
+                // variable path rather than emitting the wrong declaration set.
+            } else {
+                return self.transform_commonjs_class_export(export, class, span);
+            }
         }
         // A primitive literal keeps its literal type (`assignmentToVoidZero2`:
         // `exports.j = 1` emits `export declare var j: 1;`); anything else is
@@ -681,8 +701,111 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
         }
         let local = self.fresh_unique_name("_exported", span);
         let variable = self.const_statement(declare, local, r#type, span);
-        let specifier = self.export_specifier_statement(Some(local), name, span);
+        let specifier = self.export_specifier_statement(
+            Some(local),
+            tsr_ast::ModuleExportName::Identifier(name),
+            span,
+        );
         vec![variable, specifier]
+    }
+
+    /// The class-expression arm of `transformCommonJSExportWorker`
+    /// (`transform.go:1352`). Anonymous and same-named classes become exported
+    /// declarations. A differently named expression keeps its private name in a
+    /// declaration namespace and exports an import alias to that class.
+    fn transform_commonjs_class_export(
+        &mut self,
+        export: &CommonJsExport<'a>,
+        class: &'a tsr_ast::ClassExpression<'a>,
+        span: Span,
+    ) -> Vec<Statement<'a>> {
+        let export_identifier = match export.export_name {
+            tsr_ast::ModuleExportName::Identifier(identifier) => Some(identifier),
+            tsr_ast::ModuleExportName::StringLiteral(_) => None,
+        };
+        let class_name = class.name.unwrap_or_else(|| {
+            export_identifier.unwrap_or_else(|| self.fresh_unique_name("_class", span))
+        });
+        let mut flags = ModifierFlags::EXPORT;
+        if self.needs_declare {
+            flags |= ModifierFlags::AMBIENT;
+        }
+        let created = modifiers::create_modifiers_from_flags(&mut self.factory, flags, span);
+        let mut class_statements = self.class_expression_to_declarations(
+            class,
+            class_name,
+            self.factory.slice(&created),
+            span,
+        );
+
+        if class.name.is_none() {
+            if export_identifier.is_none() {
+                class_statements.push(self.export_specifier_statement(
+                    Some(class_name),
+                    export.export_name,
+                    span,
+                ));
+            }
+            return class_statements;
+        }
+
+        if export_identifier.is_some() && class_name.text == export.name {
+            return class_statements;
+        }
+
+        let namespace_name = self.fresh_unique_name("_ns", span);
+        let namespace =
+            self.wrap_in_commonjs_export_namespace(namespace_name, &class_statements, span);
+        let alias_stem = if export_identifier.is_some() {
+            format!("_{}", export.name)
+        } else {
+            "_exported".to_string()
+        };
+        let alias = self.fresh_unique_name(&alias_stem, span);
+        let qualified = self.factory.alloc(
+            tsr_ast::QualifiedName::new(
+                Some(tsr_ast::EntityName::Identifier(namespace_name)),
+                Some(class_name),
+            ),
+            SyntaxKind::QualifiedName,
+            span,
+            NodeFlags::empty(),
+        );
+        let import = Statement::ImportEqualsDeclaration(self.factory.alloc(
+            tsr_ast::ImportEqualsDeclaration::new(
+                &[],
+                false,
+                Some(alias),
+                Some(tsr_ast::ModuleReference::QualifiedName(qualified)),
+            ),
+            SyntaxKind::ImportEqualsDeclaration,
+            span,
+            NodeFlags::empty(),
+        ));
+        let export = self.export_specifier_statement(Some(alias), export.export_name, span);
+        vec![namespace, import, export]
+    }
+
+    fn class_expression_to_declarations(
+        &mut self,
+        class: &'a tsr_ast::ClassExpression<'a>,
+        name: &'a tsr_ast::Identifier<'a>,
+        modifiers: &'a [ModifierLike<'a>],
+        span: Span,
+    ) -> Vec<Statement<'a>> {
+        let declaration = self.factory.alloc(
+            tsr_ast::ClassDeclaration::new(
+                modifiers,
+                Some(name),
+                class.type_parameters,
+                class.heritage_clauses,
+                class.members,
+            ),
+            SyntaxKind::ClassDeclaration,
+            span,
+            NodeFlags::empty(),
+        );
+        self.transform_class_declaration(declaration, true)
     }
 
     fn const_statement(
@@ -759,25 +882,19 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
 
     /// The statement without a `declare` modifier (`declareStrippingVisitor`).
     fn strip_declare(&mut self, statement: &Statement<'a>) -> Statement<'a> {
-        let Statement::VariableStatement(variable) = statement else { return *statement };
-        let kept: Vec<ModifierLike<'a>> = variable
-            .modifiers
+        let Some(existing) = statement_modifiers(statement) else { return *statement };
+        let kept: Vec<ModifierLike<'a>> = existing
             .iter()
             .copied()
             .filter(|modifier| {
                 !matches!(modifier, ModifierLike::Token(token) if token.kind == SyntaxKind::DeclareKeyword)
             })
             .collect();
-        if kept.len() == variable.modifiers.len() {
+        if kept.len() == existing.len() {
             return *statement;
         }
         let modifiers = self.factory.slice(&kept);
-        Statement::VariableStatement(self.factory.alloc(
-            tsr_ast::VariableStatement::new(modifiers, variable.declaration_list),
-            SyntaxKind::VariableStatement,
-            self.span_of(variable.node_id),
-            NodeFlags::empty(),
-        ))
+        replace_modifiers(&mut self.factory, statement, modifiers)
     }
 
     /// `transformFunctionLikeToDeclaration` (`transform.go:1281`) without a
@@ -1230,7 +1347,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
                 let property_name = (right.text != name).then_some(right);
                 namespace_statements.push(self.export_specifier_statement(
                     property_name,
-                    export_name,
+                    tsr_ast::ModuleExportName::Identifier(export_name),
                     member_span,
                 ));
                 continue;
@@ -1276,7 +1393,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
             if needs_specifier {
                 namespace_statements.push(self.export_specifier_statement(
                     Some(local_name),
-                    export_name,
+                    tsr_ast::ModuleExportName::Identifier(export_name),
                     member_span,
                 ));
             }
@@ -1317,14 +1434,14 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
     fn export_specifier_statement(
         &mut self,
         property_name: Option<&'a tsr_ast::Identifier<'a>>,
-        name: &'a tsr_ast::Identifier<'a>,
+        name: tsr_ast::ModuleExportName<'a>,
         span: Span,
     ) -> Statement<'a> {
         let specifier = self.factory.alloc(
             tsr_ast::ExportSpecifier::new(
                 false,
                 property_name.map(tsr_ast::ModuleExportName::Identifier),
-                Some(tsr_ast::ModuleExportName::Identifier(name)),
+                Some(name),
             ),
             SyntaxKind::ExportSpecifier,
             span,
@@ -3856,6 +3973,10 @@ fn retain_referenced_jsdoc_imports(statements: Vec<Statement<'_>>) -> Vec<Statem
 /// One `exports.name = right` a `CommonJS` file exports.
 struct CommonJsExport<'a> {
     name: &'a str,
+    /// Preserve whether the assignment used a property identifier or a quoted
+    /// element name. Native's class-expression arm branches on the AST kind,
+    /// not whether the text would be a valid identifier.
+    export_name: tsr_ast::ModuleExportName<'a>,
     right: &'a Expression<'a>,
     node_id: Option<tsr_ast::NodeId>,
     /// `isCommonJSAliasExport` at the top level: the right side is an
@@ -3879,11 +4000,13 @@ fn commonjs_exports<'a>(file: &SourceFile<'a>) -> Vec<CommonJsExport<'a>> {
                 && let Some(tsr_dts::visibility::CommonJsTarget::Property(name)) =
                     tsr_dts::visibility::commonjs_export_target(left)
                 && let Some(right) = &node.right
+                && let Some(export_name) = commonjs_export_name(left)
             {
                 *self.counts.entry(name).or_default() += 1;
                 if !self.found.iter().any(|export| export.name == name) {
                     self.found.push(CommonJsExport {
                         name,
+                        export_name,
                         right,
                         node_id: node.node_id,
                         is_alias: matches!(right, Expression::Identifier(_))
@@ -3915,6 +4038,24 @@ fn commonjs_exports<'a>(file: &SourceFile<'a>) -> Vec<CommonJsExport<'a>> {
             export
         })
         .collect()
+}
+
+fn commonjs_export_name<'a>(left: &Expression<'a>) -> Option<tsr_ast::ModuleExportName<'a>> {
+    match left {
+        Expression::PropertyAccessExpression(access) => match access.name {
+            Some(tsr_ast::MemberName::Identifier(name)) => {
+                Some(tsr_ast::ModuleExportName::Identifier(name))
+            }
+            _ => None,
+        },
+        Expression::ElementAccessExpression(access) => match access.argument_expression {
+            Some(Expression::StringLiteral(name)) => {
+                Some(tsr_ast::ModuleExportName::StringLiteral(name))
+            }
+            _ => None,
+        },
+        _ => None,
+    }
 }
 
 /// The right side of the file's last `module.exports = …`, in the tree order
@@ -3957,6 +4098,45 @@ fn skip_parentheses_to_function<'a>(expression: &Expression<'a>) -> Option<Expre
         Expression::ArrowFunction(_) | Expression::FunctionExpression(_) => Some(*expression),
         _ => None,
     }
+}
+
+fn skip_parentheses_to_class<'a>(
+    expression: &'a Expression<'a>,
+) -> Option<&'a tsr_ast::ClassExpression<'a>> {
+    match expression {
+        Expression::ParenthesizedExpression(inner) => {
+            skip_parentheses_to_class(inner.expression.as_ref()?)
+        }
+        Expression::ClassExpression(class) => Some(class),
+        _ => None,
+    }
+}
+
+/// Conservative stand-in for upstream's checker-backed `TrackSymbol` watch.
+/// The class's own name node is not visited; any use in its heritage, type
+/// parameters, members, or bodies makes the caller retain the old typed-variable
+/// fallback rather than guess whether serialization observed it.
+fn class_expression_mentions_name(class: &tsr_ast::ClassExpression<'_>, name: &str) -> bool {
+    struct Finder<'a> {
+        name: &'a str,
+        found: bool,
+    }
+    impl<'a> tsr_ast::Visit<'a> for Finder<'_> {
+        fn visit_identifier(&mut self, node: &'a tsr_ast::Identifier<'a>) {
+            self.found |= node.text == self.name;
+        }
+    }
+    let mut finder = Finder { name, found: false };
+    for parameter in class.type_parameters {
+        tsr_ast::Visit::visit_node(&mut finder, tsr_ast::Node::from(*parameter));
+    }
+    for clause in class.heritage_clauses {
+        tsr_ast::Visit::visit_node(&mut finder, tsr_ast::Node::from(*clause));
+    }
+    for member in class.members {
+        tsr_ast::Visit::visit_node(&mut finder, tsr_ast::Node::from(*member));
+    }
+    finder.found
 }
 
 fn is_identifier_text(text: &str) -> bool {

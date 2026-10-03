@@ -440,9 +440,31 @@ with `any` where upstream inferred a type; with it the denominator is unchanged
 (375) and the passes rise 338 → 342. `dts_shape` 877 → 892, no case lost in
 either suite.
 
-Still absent: `exports.K = class K {}` (the class-expression arm with its
-`_ns` isolation namespace), `require` → `import x = require(…)`, and the
-multiple-`export =` merge at `transform.go:360`.
+The syntax-only part of the class-expression arm is now present
+(`transform.go:1352`): anonymous and matching-name expressions become exported
+class declarations, while a differently named expression is isolated in a
+`declare namespace _ns`, imported through `_Export = _ns.Private`, and exported
+under the assignment's property name. The assignment name retains its AST kind:
+`exports.K` supplies an identifier, while `exports["K"]` supplies a string
+literal even though its text is identifier-like. Native branches on that kind
+(`transform.go:1380`, `:1433`): an anonymous quoted export uses a fresh `_class`
+plus a named export, and every named class with a quoted export is isolated,
+including when the two texts match. Treating validity of the text as the gate
+would incorrectly turn `exports["not-valid"] = class {}` into an invalid class
+declaration.
+
+The remaining same-name self-reference branch is deliberately conservative.
+Upstream's `TrackSymbol` watch observes
+whether member-type serialization used the class-expression symbol; this
+checker-free pass can only see source occurrences, which include method bodies
+that declaration emit discards. If the source class mentions its own name, the
+port therefore retains the prior typed-variable output rather than incorrectly
+forcing `_ns`. A resolver callback that reports symbol use during serialization
+would falsify that refusal and permit the final branch to be ported exactly.
+
+Still absent: that same-name self-reference branch, `require` →
+`import x = require(…)`, and the multiple-`export =` merge at
+`transform.go:360`.
 
 ### A JSDoc `@import` tag is an `import type` declaration (2026-10-02)
 
@@ -482,7 +504,7 @@ crate does not. They are the expected source of divergence.
 | `strictNullChecks` | a compiler option | absent. `null` widens to `any`, which is the corpus default and every baseline currently in the target |
 | Module specifiers | re-emitted from the original source text | re-quoted with double quotes, so `require('x')` becomes `require("x")` |
 | Comments | preserved in `.d.ts` output | dropped — the printer emits none |
-| `module.exports =`, expando functions, JS/JSDoc declarations | `transformCommonJSExport`, `transformExpandoAssignment`, `visitThisPropertyAssignments` | *Originally* absent. The `CommonJS` assignment forms and syntactic expandos have since been ported (see the 2026-10-02 sections above); the class-expression and `Object.defineProperty` export arms and `require` → `import =` are still absent |
+| `module.exports =`, expando functions, JS/JSDoc declarations | `transformCommonJSExport`, `transformExpandoAssignment`, `visitThisPropertyAssignments` | *Originally* absent. The `CommonJS` assignment forms, syntactic expandos, and syntax-only class-expression branches have since been ported (see the 2026-10-02 sections above); same-name self-reference tracking, the `Object.defineProperty` export arm, and `require` → `import =` are still absent |
 
 ## What is left, by shape
 
