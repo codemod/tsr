@@ -22,6 +22,10 @@ export async function conditionalReturn<T>(x: Select<T>) { const selected = awai
 export async function unionReturn<T>(x: T | undefined) { const selectedUnion = await x; return selectedUnion; }
 export function capture<T>(x: T) { return async function inner<U>(y: U) { return x; }; }
 export async function higherOrder<T, U>(x: Awaited<T> | U) { const higherValue = await x; return { higherValue }; }
+export async function brandedNumber<T extends number & { then(): void }>(x: T) { const brandedNumberValue = await x; return { brandedNumberValue }; }
+export async function brandedString<T extends string & { then(onfulfilled: (value: number) => void): void }>(x: T) { const brandedStringValue = await x; return { brandedStringValue }; }
+export async function objectThen<T extends { then(): void }>(x: T) { const objectThenValue = await x; return { objectThenValue }; }
+export async function mixedThen<T extends (number | { tag: string }) & { then(): void }>(x: T) { const mixedThenValue = await x; return { mixedThenValue }; }
 ";
     let case = TestCase::parse("probe/generic-awaited", "generic-awaited.ts", source);
     let expected: Vec<_> = case
@@ -54,6 +58,10 @@ export async function higherOrder<T, U>(x: Awaited<T> | U) { const higherValue =
         "unionReturn : <T>(x: T | undefined) => Promise<T | undefined>",
         "capture : <T>(x: T) => <U>(y: U) => Promise<T>",
         "higherValue : Awaited<T> | Awaited<U>",
+        "brandedNumberValue : T",
+        "brandedStringValue : T",
+        "objectThenValue : Awaited<T>",
+        "mixedThenValue : Awaited<T>",
     ] {
         assert!(lines.iter().any(|line| line == wanted), "missing {wanted}: {lines:?}");
     }

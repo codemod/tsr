@@ -3133,6 +3133,27 @@ impl Checker<'_, '_> {
         if self.store.get(id).flags.intersects(TypeFlags::PRIMITIVE | TypeFlags::NEVER) {
             return Some(false);
         }
+        // allTypesAssignableToKind tests assignability as well as flags. The
+        // caller already visits normalized constraint union constituents; an
+        // intersection such as number & { then(): void } is still primitive.
+        // An unsupported relation is not a primitive proof.
+        for primitive in [
+            self.intrinsics.number,
+            self.intrinsics.bigint,
+            self.intrinsics.string,
+            self.intrinsics.boolean,
+            self.intrinsics.void,
+            self.intrinsics.never,
+            self.intrinsics.null,
+            self.intrinsics.undefined,
+            self.intrinsics.es_symbol,
+        ] {
+            if self.relate_ternary(id, primitive, crate::relater::Relation::Assignable)
+                == crate::relater::Ternary::Related
+            {
+                return Some(false);
+            }
+        }
         let Some(then) = self.get_type_of_property_of_type(id, "then") else {
             return Some(false);
         };
