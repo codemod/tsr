@@ -3379,6 +3379,19 @@ impl<'a, 'n> Checker<'a, 'n> {
                         .iter()
                         .map(|(&key, &value)| (key, value))
                         .collect();
+                    // trySymbolTable checks a direct own-name hit before
+                    // sorting aliases even when this table is reached through
+                    // a container alias (symbolaccessibility.go:543-547).
+                    // Do not resolve an export specifier for this test: an
+                    // alias named C is still a competing alias, not direct C.
+                    if let Some(&(export_name, exported)) =
+                        exports.iter().find(|&&(key, _)| key == own)
+                        && self.binder.merged_symbol(exported) == target
+                        && !self.is_shadowed_at(candidate, name, reference, SymbolFlags::NAMESPACE)
+                    {
+                        qualified.push((candidate, exported, format!("{name}.{export_name}")));
+                        continue;
+                    }
                     for (export_name, exported) in exports {
                         if export_name == "export=" {
                             continue;

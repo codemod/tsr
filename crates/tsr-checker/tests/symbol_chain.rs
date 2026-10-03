@@ -39,9 +39,9 @@
 //!   `>Point : typeof M2.Point` — the same rule on the static side, which is
 //!   705 of the 2,990 sized conversions (§10.3).
 
-use tsr_ast::{Node, NodeId, NodeMap, push_children};
+use tsr_ast::{Node, NodeId, NodeMap, NodeTable, SyntaxKind, push_children};
 use tsr_binder::SymbolFlags;
-use tsr_checker::Checker;
+use tsr_checker::{Checker, resolution::ModuleHost};
 use tsr_core::Arena;
 
 /// Every identifier in the file whose text is `text`, in source order.
@@ -627,5 +627,80 @@ fn direct_alias_ties_preserve_scope_and_own_name_priority() {
             declared_type_at(source, &["Source"], "C", site, 0, true),
             format!("typeof {expected}")
         );
+    }
+}
+
+/// The two-file controls share one parser/binder identity space. Only the
+/// namespace-import resolution seam differs from the one-file controls.
+struct ExportLibrary(NodeId);
+
+impl ModuleHost for ExportLibrary {
+    fn resolved_module(&self, _importing_file: NodeId, specifier: &str) -> Option<NodeId> {
+        (specifier == "./lib").then_some(self.0)
+    }
+
+    fn module_resolution_found(&self, importing_file: NodeId, specifier: &str) -> bool {
+        self.resolved_module(importing_file, specifier).is_some()
+    }
+}
+
+fn imported_class_names_at(library: &str) -> (String, String) {
+    let arena = Arena::new();
+    let library = arena.alloc_str(library);
+    let source = "import * as Head from './lib'; const item = new Head.Zzz();";
+    let mut nodes = NodeTable::new();
+    let mut map = NodeMap::new();
+    let mut bound = tsr_binder::BindResult::empty();
+    let mut roots = Vec::new();
+    for (name, text) in [("/lib.ts", &*library), ("/use.ts", source)] {
+        let parsed = tsr_parser::parse_into(
+            &arena,
+            text,
+            tsr_parser::ParseOptions::default(),
+            &mut nodes,
+            &mut map,
+        );
+        assert!(parsed.diagnostics.is_empty(), "fixture must parse");
+        roots.push(parsed.source_file.node_id.unwrap());
+        bound = tsr_binder::bind_into(
+            bound,
+            &arena,
+            parsed.source_file,
+            &nodes,
+            tsr_binder::FileInfo { name, text },
+        );
+    }
+    let class = (0..u32::try_from(nodes.len()).unwrap())
+        .map(NodeId::new)
+        .find(|&node| nodes.kind(node) == SyntaxKind::ClassDeclaration)
+        .and_then(|node| bound.symbol_of(node))
+        .unwrap();
+    let class = bound.symbols().get(class).export_symbol.unwrap_or(class);
+    let mut sites = Vec::new();
+    identifiers(&map, roots[1], "item", &mut sites);
+    let host = ExportLibrary(roots[0]);
+    let mut checker = Checker::with_module_host(&bound, &nodes, &map, Some(&host));
+    let instance = checker.get_declared_type_of_symbol(class);
+    let constructor = checker.get_type_of_symbol(class);
+    (
+        checker.type_to_string_at(instance, sites[0]).unwrap(),
+        checker.type_to_string_at(constructor, sites[0]).unwrap(),
+    )
+}
+
+/// Pinned native executable: a direct C export beats earlier Zzz and later
+/// Aaa aliases. With no direct export, declaration order selects Zzz, even
+/// when a later export specifier happens to use the target's own name C.
+#[test]
+fn alias_export_tables_check_the_direct_name_before_renamed_aliases() {
+    for (library, name) in [
+        ("export { C as Zzz }; export class C { tag = 7; } export { C as Aaa };", "Head.C"),
+        ("export { C as Zzz }; class C { tag = 7; } export { C as Aaa };", "Head.Zzz"),
+        (
+            "export { C as Zzz }; class C { tag = 7; } export { C }; export { C as Aaa };",
+            "Head.Zzz",
+        ),
+    ] {
+        assert_eq!(imported_class_names_at(library), (name.to_string(), format!("typeof {name}")));
     }
 }
