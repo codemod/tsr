@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 dts_shape Summary:
 What a pass means: the declarations this port emits into a .d.ts — their kind, name and order, recursing into namespaces — match upstream's, ignoring types and formatting; judged on every case with declaration output, including the ones dts_emit cannot reach because they need inference
-Passed         : 897/1006 (89.17%)
-Failed         : 109
+Passed         : 898/1006 (89.26%)
+Failed         : 108
 Skipped        : 11438 (excluded from the denominator)
 
   11  skipped: a unit of this case does not parse cleanly
@@ -12,7 +12,7 @@ Skipped        : 11438 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   8  skipped: upstream's .d.ts baseline does not reparse
 
-First 100 of 109 failures:
+First 100 of 108 failures:
 compiler/amdLikeInputDeclarationEmit
   #0: want `var ExtendedClass`, got `export=`
 compiler/caseInsensitiveFileSystemWithCapsImportTypeDeclarations
@@ -173,8 +173,6 @@ compiler/typeReferenceDirectives9
   #1: want `import`, got `var cls`
 compiler/uniqueSymbolPropertyDeclarationEmit
   #0: want `import`, got `function foo`
-conformance/commonJSImportExportedClassExpression
-  #0: want `class K`, got `var K`
 conformance/exportDefaultNamespace
   #1: want `export=`, got `namespace someFunc`
 conformance/jsDeclarationsClassMethod
@@ -212,4 +210,6 @@ conformance/jsDeclarationsTypedefPropertyAndExportAssignment
 conformance/moduleExportAliasElementAccessExpression
   the emitted .d.ts does not reparse
 conformance/moduleExportDuplicateAlias
+  #1: missing `function a`
+conformance/moduleExportDuplicateAlias2
   #1: missing `function a`

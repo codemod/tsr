@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 7021/9538 (73.61%)
-Assertion lines: 457641/478855 (95.57%)  — a gradient, not a pass rate
-Failed         : 2517
+Passed         : 7059/9538 (74.01%)
+Assertion lines: 458022/478855 (95.65%)  — a gradient, not a pass rate
+Failed         : 2479
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -12,7 +12,7 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 2517 failures:
+First 100 of 2479 failures:
 compiler/ClassDeclaration26
   ClassDeclaration26.ts: 5 assertion(s), expected 6
 compiler/abstractClassInLocalScopeIsAbstract
@@ -61,8 +61,6 @@ compiler/ambientExportDefaultErrors
   foo.d.ts: >Foo : typeof Foo — expected >Foo : typeof import("./foo")
 compiler/ambientExternalModuleReopen
   ambientExternalModuleReopen.ts: >"fs" : error — expected >"fs" : typeof import("fs")
-compiler/ambientPropertyDeclarationInJs
-  /test.js: >this.prop : any — expected >this.prop : string
 compiler/amdLikeInputDeclarationEmit
   ExtendedClass.js: >(BaseClass) => {            const ExtendedClass = BaseClass.extends({        f: function() {            return "something";        }    });    // Exports the module in a way tsc recognize class export     const module = {};    module.exports = ExtendedClass    return module.exports;} : (BaseClass: unknown) => any — expected >(BaseClass) => {            const ExtendedClass = BaseClass.extends({        f: function() {            return "something";        }    });    // Exports the module in a way tsc recognize class export     const module = {};    module.exports = ExtendedClass    return module.exports;} : (BaseClass: typeof import("deps/BaseClass")) => any
 compiler/anonClassDeclarationEmitIsAnon
@@ -81,10 +79,6 @@ compiler/argumentsReferenceInConstructor4_Js
   /a.js: >foo : object — expected >foo : object | undefined
 compiler/argumentsReferenceInConstructor5_Js
   /a.js: >foo : object — expected >foo : object | undefined
-compiler/argumentsReferenceInConstructor6_Js
-  /a.js: >this.foo : error — expected >this.foo : object
-compiler/argumentsReferenceInConstructor7_Js
-  /a.js: >this.callee : error — expected >this.callee : Function
 compiler/argumentsReferenceInFunction1_Js
   index.js: >debuglog : () => any — expected >debuglog : () => string
 compiler/argumentsReferenceInMethod1_Js
@@ -97,10 +91,6 @@ compiler/argumentsReferenceInMethod4_Js
   /a.js: >foo : object — expected >foo : object | undefined
 compiler/argumentsReferenceInMethod5_Js
   /a.js: >foo : object — expected >foo : object | undefined
-compiler/argumentsReferenceInMethod6_Js
-  /a.js: >this.foo : error — expected >this.foo : object
-compiler/argumentsReferenceInMethod7_Js
-  /a.js: >this.callee : error — expected >this.callee : Function
 compiler/argumentsUsedInClassFieldInitializerOrStaticInitializationBlock
   argumentsUsedInClassFieldInitializerOrStaticInitializationBlock.ts: >a : any — expected >a : (x?: any) => void
 compiler/arrayBindingPatternOmittedExpressions
@@ -213,3 +203,13 @@ compiler/capturedParametersInInitializers1
   capturedParametersInInitializers1.ts: >foo3 : (y?: { x: number; }, z?: number) => void — expected >foo3 : (y?: { x: typeof z; }, z?: number) => void
 compiler/caseInsensitiveFileSystemWithCapsImportTypeDeclarations
   Uppercased_Dir/src/index.ts: >method : () => Merge<TypeA, { b: string; }> — expected >method : () => TypeB
+compiler/castExpressionParentheses
+  castExpressionParentheses.ts: >12e+34 : 120000000000000000000000000000000000 — expected >12e+34 : 1.2e+35
+compiler/castOfYield
+  castOfYield.ts: 8 assertion(s), expected 9
+compiler/castParentheses
+  castParentheses.ts: >a.b() : error — expected >a.b() : any
+compiler/chainedCallsWithTypeParameterConstrainedToOtherTypeParameter2
+  chainedCallsWithTypeParameterConstrainedToOtherTypeParameter2.ts: >(new Chain(t)).then(tt => s).then : <S extends S>(cb: (x: S) => S) => Chain<S> — expected >(new Chain(t)).then(tt => s).then : <S extends S_1>(cb: (x: S_1) => S) => Chain<S>
+compiler/chainedImportAlias
+  chainedImportAlias_file1.ts: >y : any — expected >y : typeof x

@@ -22,7 +22,44 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
-### Current checker checkpoint — Next.js integration
+### Current checker checkpoint — eleven-orb integration
+
+Measured on **`d0018e00`**, against clean `cec7cef5`: **458,022/478,855
+assertions (95.65%)**, **7,059/9,538 complete cases (74.01%)**. The 99%
+target requires 474,067 matches; **16,045 remain**. Pinned oracle and coverage
+denominator unchanged. Aligned verdicts: **474,244 total; 458,022 right;
+2,445 gap; 13,777 wrong**.
+
+The combined wave adds **381 matching assertions and 38 complete cases**:
+290 WRONG→RIGHT, 90 GAP→RIGHT, and one newly aligned RIGHT declaration row in
+invalidUnicodeEscapeSequance4. Independent multiline verdict comparison
+confirms **zero RIGHT losses and zero removed rows**. Three GAP→WRONG rows
+remain in javascriptThisAssignmentInStaticBlock (positions 23/27/28): the JS
+property mechanism exposes an existing static Array predicate inference gap.
+There are also **57 changed already-WRONG rows**, not counted as gains.
+
+Diagnostics improve **2,790 → 2,799/5,488 (+9)**. Parser and binder retain
+**5,031/5,031** and **8,497/8,497**. Declaration shape improves **897 →
+898/1,006**; declaration emit **342/375**, isolated declarations **14/15**,
+and reachable declaration target **493/1,162** are unchanged. All eight
+affected suite snapshots were regenerated from the combined source.
+
+The first five units were separately gated at `31344fd0`: +104 RIGHT
+(74 WRONG→RIGHT, 30 GAP→RIGHT), no adverse transitions, 7,030 checker cases
+and 2,793 diagnostic cases. The final numbers above are a new combined run,
+not a sum of worker claims. Function-level reservations allowed eleven local
+worker bundles to integrate without conflicts. Review corrected quoted export
+names, spread empty-object selection, overload single-signature eligibility,
+and post-comma parser recovery before the final gate.
+
+Release workspace tests (**223 result blocks**), clippy, formatting,
+**3,389 upstream references**, and **16,643 section citations** pass.
+The issue-id check still fails on **191 historical missing IDs**. Beads sync
+remains blocked by an unconfigured Dolt remote (tsr-kmm); local task updates
+are not claimed as remotely published. The earlier Next.js project timing
+below is historical; this bounded corpus wave did not rerun that application.
+
+### Previous checker checkpoint — Next.js integration
 
 Measured on **`6b42bfb5`**, based on 2004d00d: **457,641/478,855 assertions
 (95.57%)**, **7,021/9,538 complete cases (73.61%)**. The 99% target requires
@@ -1366,6 +1403,39 @@ rendering `any` for `errorType` (ADR-0038).
 ---
 
 ## 4. What is next — the scored board
+
+### Eleven-orb integration at `d0018e00` — 2026-10-03
+
+This wave reserves functions within shared files, imports local worker bundles,
+and measures the combined source centrally. The bounded mechanisms now present
+are concrete-object `keyof` numeric keys (tsr-6.30), reverse-mapped written
+numeric key provenance (tsr-6.10), invalid forward/self generic defaults
+(tsr-6.23), template-expression contexts and literal reduction (tsr-6.11),
+bind-bearing Function facts (tsr-6.34), JS this-property constructor flow
+(tsr-6.26), falsy-constrained object spreads (tsr-8), overload-failure generic
+function skipping (tsr-6.1), retained-overload site names (tsr-6.35), CommonJS
+class-expression declarations (tsr-zuu), and invalid-escape variable-list
+recovery. The integration adds the post-comma Unknown-token parser boundary.
+
+The precise numeric-provenance and generic-default issues (tsr-6.10 and
+tsr-6.23) are closed locally. Broader parent issues remain open for the
+residual mechanisms below.
+
+The broader tasks remain bounded by their recorded evidence: generic/unresolved
+`keyof`, computed-key reverse inference, conditional distribution, template
+intersection/inference holes, general Function subtype reductions, static-block
+Array predicates and JSDoc `@this`, complete structured empty-object detection,
+union call inference, the retained single-signature `F_1` rename, same-name
+class symbol tracking and `require` → `import =`, and general parsing-context
+recovery are not implemented by this wave. Architecture notes accompany each
+unit; §1 holds combined measurements rather than summed worker claims.
+
+The issue database in this orb lacks a Dolt remote; historical task states and
+191 cited IDs cannot be reconciled by importing the passive JSONL export.
+Orchestration is recorded locally in tsr-fr0, with sync repair in tsr-kmm.
+The previously claimed 2,798 diagnostic baseline was contaminated by a staged
+experiment and is retracted: clean `cec7cef5` is 2,790. The recovered
+TS2683/TS2564 experiment is preserved but unverified/deferred, not proved a no-op.
 
 ### Next.js follow-up at `6b42bfb5` — 2026-10-02
 
@@ -4613,6 +4683,35 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+### Multi-orb review refusals — exact worker base `cec7cef5`
+
+- Global `emptyTypeLiteralType` identity corrected spread ordering but lost
+  **46 RIGHT→WRONG and 7 RIGHT→GAP** (53 adverse). Only the spread-local
+  falsy-constraint mechanism is included. The reviewed fold separately finds
+  an actual empty object and keeps native union/intersection recursion out of
+  the primitive mask. See [spread evidence](docs/architecture/checker-99-spread-falsy-constraints.md).
+- Widening semantic `keyof` to generic/unresolved operands lost **2 RIGHT**
+  and caused **9 GAP→WRONG**; the concrete-object dispatch is the accepted scope.
+- Unconditionally reopening retained overload text gained **3 RIGHT** but
+  lost **16 RIGHT**. Rebuild only when the print site's own allocation renamed
+  a parameter; the bounded version gains the three without those losses.
+  See [serialization evidence](docs/architecture/checker-99-shadowed-names.md).
+- Letting overload-failure placeholders infer gained **16 RIGHT** but lost
+  **2 RIGHT** in functionConstraintSatisfaction2. The accepted placeholder is
+  non-inferrable; review also replaced a custom single-signature check with the
+  existing native-style helper, including opposite-kind/member exclusions.
+- The initial class-export patch lost quoted-name syntax and could emit an
+  invalid class identifier. Its correction preserves the AST name kind only
+  for the class arm: a broader correction lost moduleExportsElementAccessAssignment.
+- The initial variable-list recovery skipped the post-comma route. A new
+  regression failed with only `arg` instead of `arg, u003`; the integration
+  fix lets Unknown reach the existing recovery arm after a comma as native does.
+
+The JS this-property unit exposes three GAP→WRONG static Array predicate rows
+without losing RIGHT assertions. These remain known gaps, not successful
+predicate inference. The discarded 2,798 diagnostic measurement is invalid
+evidence, not a performance or correctness refusal of its recovered experiment.
 
 ### Recursive error recovery and ambient alias scope — `6b42bfb5`
 
@@ -11989,3 +12088,5 @@ that were true of a different population than the one they were quoted about.
 | 2026-10-02 | `04268474` | **95.55%** | **7,007/9,538** | **Reduced finally flow paths (tsr-8.5): +17 assertions, +1 complete case, all W-to-R in tryCatchFinallyControlFlow; zero RIGHT losses, GAP transitions or changed already-WRONG rows vs 80ba5796.** 457,525/478,855; aligned 457,525 right, 2,568 gap, 14,150 wrong. Per-query reductions select normal completion after finally and preserve exceptional/pending-return paths inside it. Four type tests and three diagnostic controls; 220 release workspace result blocks, clippy, fmt, anchors and sections pass. Diagnostics unchanged at 2,784/5,488. [Evidence](docs/architecture/checker-99-finally-flow.md). Assignment-in-condition narrowing remains tsr-8.6; current full-project recursive evaluation slowdown remains tsr-6.3. |
 
 | 2026-10-02 | `e6812e01` | **95.56%** | **7,019/9,538** | **Assignment/comma condition narrowing (tsr-8.6): +68 assertions (66 W-to-R, 2 G-to-R), +12 complete cases vs 5ca50fea, zero RIGHT losses or G-to-W; one changed already-WRONG row.** 457,593/478,855; aligned 457,593 right, 2,566 gap, 14,084 wrong. Native candidate normalization, assignment/comma target matching and RHS-then-target truthiness; JSDoc cast boundaries and short-circuit result gates eliminate the initial nine RIGHT losses. Nine narrowing tests, one logical-result test and four diagnostic controls; 220 release workspace result blocks, clippy, fmt, anchors and sections pass. Diagnostics unchanged at 2,784/5,488. [Evidence](docs/architecture/checker-99-assignment-conditions.md). 16,474 matches remain to 99%; recursive conditional/mapped project slowdown remains tsr-6.3. |
+
+| 2026-10-03 | `d0018e00` | **95.65%** | **7,059/9,538** | **Eleven-orb integration: +381 assertions and +38 complete cases vs clean cec7cef5.** 458,022/478,855; aligned 474,244 total, 458,022 RIGHT, 2,445 GAP, 13,777 WRONG. 290 W→R, 90 G→R, one new RIGHT row, zero RIGHT losses or removed rows; three exposed static Array predicate G→W and 57 changed WRONG rows. Diagnostics 2,799/5,488 (+9), dts_shape 898/1,006 (+1); parser, binder and the other three dts suites unchanged. 223 release workspace result blocks, clippy, fmt, 3,389 anchors and 16,643 section citations pass. The 191 historical issue-id failures and missing Dolt remote remain explicit. Review refusals and residual scope are recorded in §§4–5. |
