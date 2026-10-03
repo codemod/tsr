@@ -318,6 +318,44 @@ impl Checker<'_, '_> {
             Some(Node::TypeLiteralNode(literal)) => {
                 literal.members.iter().all(|member| self.type_member_is_plain(*member))
             }
+            Some(Node::JSDocTypedefTag(_)) => {
+                // bind_jsdoc_declarations exposes sibling members only for an
+                // Object/object body. Prove the entire document uses that
+                // table, not a merged alias or a partially gathered body.
+                let Some(owner) = self.binder.symbol_of(declaration) else { return false };
+                let entry = self.binder.symbols().get(owner);
+                if entry.declarations.as_slice() != [declaration] || entry.members.is_empty() {
+                    return false;
+                }
+                let Some(doc) =
+                    self.jsdoc_entries.values().flat_map(|docs| docs.iter().copied()).find(|doc| {
+                        doc.tags.iter().any(|tag| {
+                            matches!(tag, tsr_ast::JSDocTag::JSDocTypedefTag(tag)
+                                if tag.node_id == Some(declaration))
+                        })
+                    })
+                else {
+                    return false;
+                };
+                doc.tags.iter().all(|tag| match tag {
+                    tsr_ast::JSDocTag::JSDocTypedefTag(tag) => tag.node_id == Some(declaration),
+                    tsr_ast::JSDocTag::JSDocTypeTag(_) => false,
+                    tsr_ast::JSDocTag::JSDocParameterOrPropertyTag(property)
+                        if property.kind.kind == SyntaxKind::JSDocPropertyTag =>
+                    {
+                        let Some(tsr_ast::EntityName::Identifier(name)) = property.name else {
+                            return false;
+                        };
+                        property.node_id.and_then(|id| self.binder.symbol_of(id)).is_some_and(
+                            |member| {
+                                self.binder.symbols().get(member).parent == Some(owner)
+                                    && entry.members.contains_key(name.text)
+                            },
+                        )
+                    }
+                    _ => true,
+                })
+            }
             // A class merged with a namespace, an enum, a variable — the symbol's
             // member table is then assembled from somewhere this walk does not
             // read.
@@ -360,5 +398,82 @@ impl Checker<'_, '_> {
     /// Is this member name a literal the binder could record?
     fn name_is_written(&self, name: tsr_ast::PropertyName<'_>) -> bool {
         name.node_id().is_some_and(|id| self.nodes.kind(id) != SyntaxKind::ComputedPropertyName)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Checker;
+
+    const BOUNDARY_SOURCE: &str = r"/** @typedef {Object} Plain @property {string} present */
+;
+/** @template T @typedef {Object} Generic @property {T} present */
+;
+/** @typedef {object} Lower @property {number} present */
+;
+/** @typedef {Object} Qualified @property {Object} child @property {string} child.present */
+;
+/** @typedef {Object} Replaced @property {string} ignored @type {{ kept: number }} */
+;
+function first() {
+    /** @typedef {Object} Merged @property {number} left */
+    ;
+    /** @param {Merged} item */
+    function read(item) { item.left; }
+}
+function second() {
+    /** @typedef {Object} Merged @property {string} right */
+    ;
+    /** @param {Merged} item */
+    function read(item) { item.right; }
+}
+/** @typedef {Object} Multiple @property {string} left @typedef {Object} Other @property {number} right */
+;
+/** @param {Qualified} qualified @param {Replaced} replaced */
+function read(qualified, replaced) { qualified.child.present; replaced.kept; }
+";
+
+    #[test]
+    fn only_unambiguous_fully_bound_sibling_typedefs_are_complete() {
+        let arena = tsr_core::Arena::new();
+        let mut parsed = tsr_parser::parse_with_options(
+            &arena,
+            BOUNDARY_SOURCE,
+            tsr_parser::ParseOptions::for_file("boundary.js"),
+        );
+        assert!(parsed.diagnostics.is_empty());
+        let root = parsed.source_file.node_id.expect("registered file");
+        parsed.nodes.add_flags(root, tsr_ast::NodeFlags::JAVASCRIPT_FILE);
+        let docs: Vec<_> = parsed.jsdoc.iter().collect();
+        let bound = tsr_binder::bind_into_with_jsdoc(
+            tsr_binder::BindResult::empty(),
+            &arena,
+            parsed.source_file,
+            &parsed.nodes,
+            tsr_binder::FileInfo { name: "boundary.js", text: BOUNDARY_SOURCE },
+            &docs,
+        );
+        let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+        checker.set_jsdoc(parsed.jsdoc.iter());
+        for (name, expected) in [
+            ("Plain", vec![true]),
+            ("Generic", vec![true]),
+            ("Lower", vec![true]),
+            ("Qualified", vec![false]),
+            ("Replaced", vec![false]),
+            ("Merged", vec![false, false]),
+            ("Multiple", vec![false]),
+            ("Other", vec![false]),
+        ] {
+            let symbol = bound.lookup_local(root, name).expect("typedef bound");
+            let actual: Vec<_> = bound
+                .symbols()
+                .get(symbol)
+                .declarations
+                .iter()
+                .map(|&declaration| checker.declaration_members_are_complete(declaration))
+                .collect();
+            assert_eq!(actual, expected, "{name}");
+        }
     }
 }

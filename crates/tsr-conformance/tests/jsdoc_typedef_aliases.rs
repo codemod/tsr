@@ -278,3 +278,81 @@ function read(box) {
         assert!(got.iter().any(|line| line == expected), "missing {expected}: {got:#?}");
     }
 }
+
+const COMPLETE_SOURCE: &str = r"// @allowJs: true
+// @checkJs: true
+// @strict: true
+// @noEmit: true
+// @filename: complete.js
+/** @template T @typedef {Object} Box @property {T} value @property {T[]} items @property {{ deep: T }} nested @property {T} [optional] */
+/** @param {Box<string>} box */
+function read(box) {
+    box.value;
+    box.items;
+    box.nested.deep;
+    box.optional;
+    box.toString();
+    box.absent;
+}
+/** @typedef {object} Flat @property {number} count */
+/** @param {Flat} flat */
+function plain(flat) {
+    flat.count;
+    flat.absent;
+}
+function scope() {
+    /** @typedef {Object} Local @property {number} present */
+    ;
+    /** @param {Local} local */
+    function readLocal(local) {
+        local.present;
+        local.absent;
+    }
+}
+";
+
+fn configured_typedef_diagnostics(source: &str) -> Vec<(u32, u32, u32)> {
+    let case = TestCase::parse("probe/jsdoc-member-completeness", "complete.ts", source);
+    let arena = tsr_core::Arena::new();
+    let program = types_producer::program_for_case(&arena, &case);
+    let mut checker = types_producer::configured_checker(&program);
+    let file = program.source_file("complete.js").expect("fixture file");
+    let id = file.source_file().node_id.expect("registered file");
+    checker.set_checked_files([id]);
+    checker.check_source_file(
+        id,
+        tsr_checker::check::FileContext { ambient: false, has_parse_errors: false },
+    );
+    let mut diagnostics: Vec<_> = checker
+        .diagnostics()
+        .iter()
+        .map(|(_, diagnostic)| {
+            let (line, column) = tsr_conformance::symbols_baseline::line_and_character(
+                file.text(),
+                diagnostic.span.start,
+            );
+            (line + 1, column + 1, diagnostic.message.code())
+        })
+        .collect();
+    diagnostics.sort_unstable();
+    diagnostics
+}
+
+#[test]
+fn complete_sibling_typedefs_report_only_native_absent_members() {
+    // The three TS2339 positions are pinned-native outputs, not computed from
+    // the implementation. Parameters have no initializer to infer members from.
+    assert_eq!(
+        configured_typedef_diagnostics(COMPLETE_SOURCE),
+        [(9, 9, 2339), (15, 10, 2339), (23, 15, 2339)]
+    );
+}
+
+#[test]
+fn present_sibling_members_and_object_builtins_remain_valid() {
+    let source = COMPLETE_SOURCE
+        .replace("box.absent;", "box.value;")
+        .replace("flat.absent;", "flat.count;")
+        .replace("local.absent;", "local.present;");
+    assert!(configured_typedef_diagnostics(&source).is_empty());
+}
