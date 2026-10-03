@@ -220,6 +220,10 @@ pub struct LoadStatistics {
     pub resolution_time: Duration,
     /// Module/type-directive resolver invocations measured above.
     pub resolution_requests: usize,
+    /// Module requests reusable by native's directory/name/mode cache key.
+    pub reusable_module_requests: usize,
+    /// Type requests reusable by native's directory/name/mode/inferred key.
+    pub reusable_type_requests: usize,
     /// Actual parser calls, including discarded duplicate package files.
     pub parsed_files: usize,
 }
@@ -459,6 +463,38 @@ impl<'host, 'a> FileLoader<'host, 'a> {
             loader.process_task(root, 0);
         }
         let (mut result, order) = loader.collect_files();
+        if load_started.is_some() {
+            // Count potential native-key reuse, including traced requests that
+            // bypass query-cache reads. Include every
+            // discovered task, even if package replay later discards its file.
+            let mut modules = FxHashSet::default();
+            let mut types = FxHashSet::default();
+            for task in &loader.tasks {
+                for request in &task.resolution_requests {
+                    let key = (
+                        get_directory_path(&request.containing_file),
+                        request.name.as_str(),
+                        request.mode as u8,
+                    );
+                    if !modules.insert(key) {
+                        loader.statistics.reusable_module_requests += 1;
+                    }
+                }
+                for request in &task.type_resolution_requests {
+                    let key = (
+                        get_directory_path(&request.containing_file),
+                        request.name.as_str(),
+                        request.mode as u8,
+                        request
+                            .containing_file
+                            .ends_with(tsr_module::util::INFERRED_TYPES_CONTAINING_FILE),
+                    );
+                    if !types.insert(key) {
+                        loader.statistics.reusable_type_requests += 1;
+                    }
+                }
+            }
+        }
         result.files = order
             .into_iter()
             .map(|index| loader.tasks[index].file.take().expect("only read files are collected"))

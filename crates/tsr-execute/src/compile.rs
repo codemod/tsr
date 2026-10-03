@@ -401,6 +401,7 @@ pub fn run_compilation(
              File read time:        {:.3}s\nMetadata time:         {:.3}s\n\
              Parse time:            {:.3}s\nFile discovery time:   {:.3}s\n\
              Resolver time:         {:.3}s\nResolver requests:     {}\n\
+             Reusable modules:      {}\nReusable type refs:    {}\n\
              Indexing time:         {:.3}s\nBind time:             {:.3}s\n\
              Config time:           {:.3}s\nProgram time:          {:.3}s\n\
              Checker init time:     {:.3}s\nCheck time:            {:.3}s\n\
@@ -415,6 +416,8 @@ pub fn run_compilation(
             statistics.load.discovery_time().as_secs_f64(),
             statistics.load.resolution_time.as_secs_f64(),
             statistics.load.resolution_requests,
+            statistics.load.reusable_module_requests,
+            statistics.load.reusable_type_requests,
             statistics.indexing_time.as_secs_f64(),
             statistics.bind_time.as_secs_f64(),
             program_started.saturating_sub(compilation_started).as_secs_f64(),

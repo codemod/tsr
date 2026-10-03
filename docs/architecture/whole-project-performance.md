@@ -171,3 +171,48 @@ filesystem probes and reusable native directory/module keys in `bd tsr-1yb.10`
 before implementing a cache; package-JSON caching already exists and its trace
 behavior is observable. Lazy JSDoc remains a measured candidate, with a smaller
 upper bound than the resolver cost on this workload.
+
+## Native resolution query caches
+
+Of 46,031 discovered task queries, 22,265 module requests and 45 type-reference
+requests repeated complete native cache keys. The resolver now reuses both
+successful and failed results with those keys. Tracing bypasses query-cache
+reads, matching pinned tsgo, so traced walks remain observable. Caches are scoped
+to one resolver/options/project snapshot; config lookup uses separate semantics.
+See [module resolution](module-resolution.md#per-project-query-caches).
+
+Five fresh-process pairs alternated an uncached reference and cache candidate,
+both including checker commit `830c97e6`. Both retained the same 13,097 files,
+had stable input-content fingerprints, and produced identical 123 diagnostics:
+
+| Measurement | Before | Cached |
+|---|---:|---:|
+| Median wall | 7.255 s | 6.622 s |
+| Wall range | 7.208–7.282 s | 6.616–6.631 s |
+| Median user CPU | 6.376 s | 6.022 s |
+| Median system CPU | 0.871 s | 0.596 s |
+| Median peak RSS | 1.110 GB | 1.093 GB |
+
+This is an **8.7% wall reduction** against the uncached TSR reference, with a
+substantial reduction in system CPU. RSS ranges overlap; do not claim a memory
+improvement from these medians. The complete 474,251-row assertion verdict files
+are byte-identical: 458,036 RIGHT, 2,445 GAP, 13,770 WRONG. Six controls verify
+actual filesystem-probe elimination, mode/directory/inferred distinctions,
+traced walks, symlink/package identity and fresh-snapshot behavior. A temporary
+full-app comparison of cached and freshly computed complete resolver results
+also found no differences; that verification instrumentation was removed.
+
+An earlier comparison used a reference predating the concurrent template
+assertion fix. Its 141-to-123 diagnostic reduction and four assertion gains
+belong to that checker fix and are not cache benefits. The isolated comparison
+above supersedes it. Detailed local evidence, including distinct binary hashes,
+is `/tmp/tsr-1yb-resolution-cache-isolated-paired.json`.
+
+A separate five-pair pinned-native comparison observed a TSR median of 6.705 s
+and tsgo median of 3.230 s (observed ratio 2.076). Both used fresh processes,
+warmed filesystem inputs and disabled incremental/composite reuse. TSR retained
+13,097 files and reported 123 diagnostics; tsgo retained 13,098 and reported
+none. The remaining native-only Lingui declaration and effective-config output
+differences keep the benchmark **incomparable**. This does not verify the 0.50
+target. Local evidence is `/tmp/tsr-1yb-nextjs-resolution-cache.json`; follow-up
+alignment is tracked in `tsr-1yb.1.1`.

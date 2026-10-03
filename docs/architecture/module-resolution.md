@@ -104,6 +104,24 @@ The trace oracle pins the *walk*, not the answer, so structure is behaviour.
   logs its `typesVersions` lines twice. Deduplicating would silently shorten every
   trace that revisits a package.
 
+## Per-project query caches
+
+The resolver also has native query caches (`internal/module/cache.go`). Module
+keys contain the exact directory spelling, specifier, and resolution mode. Type
+reference keys additionally distinguish the inferred-types containing file.
+Successes and failures are cached; config-file lookup has separate semantics and
+does not use either query cache. Project-reference redirects are not supported;
+when introduced they must add native's redirected-config identity or use a
+separately configured resolver.
+
+As in native `ResolveModuleName` and `ResolveTypeReferenceDirective`, tracing
+bypasses query-cache reads, while the package-JSON cache still emits its observed
+hit messages. A cache entry therefore does not suppress a traced resolution walk.
+These caches belong to one resolver with immutable options and one project
+snapshot. Rebuild the resolver when files/options change; watch or incremental
+hosts must invalidate or replace them before reuse. No persistent build cache is
+involved.
+
 ## The oracle, and the denominator
 
 The suite is `crates/tsr-conformance/src/module_suite.rs`. How it splits the

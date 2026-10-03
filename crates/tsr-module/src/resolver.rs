@@ -152,6 +152,22 @@ enum Loader {
     NodeModuleDirectory { package_file: String, package_info: Option<Rc<PackageJsonInfo>> },
 }
 
+/// Native `moduleResolutionCacheKey` (`internal/module/cache.go`). Options are
+/// fixed for this resolver; project-reference redirects are not supported yet.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct ModuleResolutionCacheKey {
+    containing_directory: String,
+    name: String,
+    resolution_mode: u8,
+}
+
+/// Native `typeRefDirectiveResolutionCacheKey` (`internal/module/cache.go`).
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct TypeReferenceCacheKey {
+    request: ModuleResolutionCacheKey,
+    from_inferred_types_containing_file: bool,
+}
+
 /// A configured resolver, with its caches (`module.Resolver`).
 ///
 /// One per program. The `package.json` cache is not an optimisation here: the
@@ -162,6 +178,8 @@ pub struct Resolver<'host> {
     host: &'host dyn ResolutionHost,
     compiler_options: CompilerOptions,
     package_json_cache: RefCell<FxHashMap<tsr_path::Path, Rc<PackageJsonInfo>>>,
+    module_resolution_cache: RefCell<FxHashMap<ModuleResolutionCacheKey, ResolvedModule>>,
+    type_reference_cache: RefCell<FxHashMap<TypeReferenceCacheKey, ResolvedTypeReferenceDirective>>,
     parsed_patterns_for_paths: ParsedPatterns,
 }
 
@@ -174,6 +192,8 @@ impl<'host> Resolver<'host> {
             host,
             compiler_options,
             package_json_cache: RefCell::new(FxHashMap::default()),
+            module_resolution_cache: RefCell::new(FxHashMap::default()),
+            type_reference_cache: RefCell::new(FxHashMap::default()),
             parsed_patterns_for_paths,
         }
     }
@@ -226,6 +246,16 @@ impl<'host> Resolver<'host> {
     ) -> (ResolvedModule, Vec<Trace>) {
         let containing_directory = get_directory_path(containing_file).to_string();
         let tracing = self.compiler_options.trace_resolution == Tristate::True;
+        let cache_key = ModuleResolutionCacheKey {
+            containing_directory: containing_directory.clone(),
+            name: module_name.to_string(),
+            resolution_mode: resolution_mode as u8,
+        };
+        // Native bypasses query-cache reads when tracing, so each request still
+        // emits its full walk. Its package-JSON cache remains observable.
+        if !tracing && let Some(cached) = self.module_resolution_cache.borrow().get(&cache_key) {
+            return (cached.clone(), Vec::new());
+        }
 
         let mut state = ResolutionState::new(
             self,
@@ -278,6 +308,11 @@ impl<'host> Resolver<'host> {
             state.trace(&messages::MODULE_NAME_0_WAS_NOT_RESOLVED, &[module_name]);
         }
 
+        // `moduleResolutionCache.Set` keeps the first result, including failure.
+        self.module_resolution_cache
+            .borrow_mut()
+            .entry(cache_key)
+            .or_insert_with(|| result.clone());
         (result, state.traces)
     }
 
@@ -327,6 +362,17 @@ impl<'host> Resolver<'host> {
         let tracing = self.compiler_options.trace_resolution == Tristate::True;
         let from_inferred_types_containing_file =
             containing_file.ends_with(INFERRED_TYPES_CONTAINING_FILE);
+        let cache_key = TypeReferenceCacheKey {
+            request: ModuleResolutionCacheKey {
+                containing_directory: containing_directory.clone(),
+                name: type_reference_directive_name.to_string(),
+                resolution_mode: resolution_mode as u8,
+            },
+            from_inferred_types_containing_file,
+        };
+        if !tracing && let Some(cached) = self.type_reference_cache.borrow().get(&cache_key) {
+            return (cached.clone(), Vec::new());
+        }
 
         let (type_roots, from_config) =
             self.compiler_options.get_effective_type_roots(self.host.current_directory());
@@ -375,6 +421,7 @@ impl<'host> Resolver<'host> {
             );
         }
 
+        self.type_reference_cache.borrow_mut().insert(cache_key, result.clone());
         (result, state.traces)
     }
 }
@@ -2567,4 +2614,258 @@ pub fn get_automatic_type_directive_names(
     }
     result.dedup();
     result
+}
+
+#[cfg(test)]
+mod cache_tests {
+    use std::cell::Cell;
+
+    use super::*;
+    use tsr_vfs::{DirectoryEntries, FileSystem, InMemoryFileSystem};
+
+    struct CountingFileSystem {
+        snapshot: RefCell<InMemoryFileSystem>,
+        probes: Cell<usize>,
+    }
+
+    impl CountingFileSystem {
+        fn probe(&self) {
+            self.probes.set(self.probes.get() + 1);
+        }
+    }
+
+    impl FileSystem for CountingFileSystem {
+        fn use_case_sensitive_file_names(&self) -> bool {
+            true
+        }
+        fn file_exists(&self, path: &str) -> bool {
+            self.probe();
+            self.snapshot.borrow().file_exists(path)
+        }
+        fn read_file(&self, path: &str) -> Option<String> {
+            self.probe();
+            self.snapshot.borrow().read_file(path)
+        }
+        fn directory_exists(&self, path: &str) -> bool {
+            self.probe();
+            self.snapshot.borrow().directory_exists(path)
+        }
+        fn get_accessible_entries(&self, path: &str) -> DirectoryEntries {
+            self.probe();
+            self.snapshot.borrow().get_accessible_entries(path)
+        }
+        fn realpath(&self, path: &str) -> String {
+            self.probe();
+            self.snapshot.borrow().realpath(path)
+        }
+    }
+
+    struct Host {
+        fs: CountingFileSystem,
+    }
+
+    impl ResolutionHost for Host {
+        fn fs(&self) -> &dyn FileSystem {
+            &self.fs
+        }
+        fn current_directory(&self) -> &'static str {
+            "/"
+        }
+    }
+
+    fn snapshot(files: &[(&str, &str)]) -> InMemoryFileSystem {
+        InMemoryFileSystem::new(
+            files.iter().map(|(name, text)| (name.to_string(), text.to_string())),
+            [],
+            true,
+        )
+    }
+
+    fn host(files: &[(&str, &str)]) -> Host {
+        Host {
+            fs: CountingFileSystem {
+                snapshot: RefCell::new(snapshot(files)),
+                probes: Cell::new(0),
+            },
+        }
+    }
+
+    fn options() -> CompilerOptions {
+        CompilerOptions {
+            module: tsr_core::ModuleKind::NodeNext,
+            module_resolution: ModuleResolutionKind::NodeNext,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn sibling_module_queries_reuse_success_and_failure_without_filesystem_probes() {
+        let host = host(&[("/src/local.ts", "export const value = 1;")]);
+        let resolver = Resolver::new(&host, options());
+        for name in ["./local", "./absent"] {
+            let (first, traces) =
+                resolver.resolve_module_name(name, "/src/a.ts", ResolutionMode::CommonJS);
+            assert!(traces.is_empty());
+            let probes = host.fs.probes.get();
+            assert!(probes > 0);
+            let (second, traces) =
+                resolver.resolve_module_name(name, "/src/b.ts", ResolutionMode::CommonJS);
+            assert_eq!(first.is_resolved(), name == "./local");
+            assert_eq!(second.resolved_file_name, first.resolved_file_name);
+            assert_eq!(host.fs.probes.get(), probes, "cached {name} touched the filesystem");
+            assert!(traces.is_empty());
+        }
+    }
+
+    #[test]
+    fn directory_and_resolution_mode_are_distinct_cache_keys() {
+        let host = host(&[
+            (
+                "/node_modules/pkg/package.json",
+                r#"{"exports":{"import":"./esm.d.ts","require":"./cjs.d.ts"}}"#,
+            ),
+            ("/node_modules/pkg/esm.d.ts", "export const value: number;"),
+            ("/node_modules/pkg/cjs.d.ts", "export const value: string;"),
+            ("/other/node_modules/pkg/index.d.ts", "export const value: boolean;"),
+        ]);
+        let resolver = Resolver::new(&host, options());
+        for (file, mode, expected) in [
+            ("/src/a.ts", ResolutionMode::CommonJS, "/node_modules/pkg/cjs.d.ts"),
+            ("/src/b.ts", ResolutionMode::ESNext, "/node_modules/pkg/esm.d.ts"),
+            ("/other/c.ts", ResolutionMode::CommonJS, "/other/node_modules/pkg/index.d.ts"),
+        ] {
+            let probes = host.fs.probes.get();
+            let (result, _) = resolver.resolve_module_name("pkg", file, mode);
+            assert_eq!(result.resolved_file_name, expected);
+            assert!(host.fs.probes.get() > probes);
+        }
+    }
+
+    #[test]
+    fn inferred_type_requests_do_not_reuse_ordinary_type_reference_results() {
+        let host = host(&[
+            ("/custom/placeholder", ""),
+            (
+                "/src/node_modules/@types/pkg/package.json",
+                r#"{"exports":{"require":"./cjs.d.ts","import":"./esm.d.ts"}}"#,
+            ),
+            ("/src/node_modules/@types/pkg/cjs.d.ts", "export const value: number;"),
+            ("/src/node_modules/@types/pkg/esm.d.ts", "export const value: string;"),
+        ]);
+        let mut options = options();
+        options.type_roots = Some(vec!["/custom".into()]);
+        let resolver = Resolver::new(&host, options);
+        let (ordinary, _) =
+            resolver.resolve_type_reference_directive("pkg", "/src/a.ts", ResolutionMode::CommonJS);
+        assert!(ordinary.is_resolved());
+        let probes = host.fs.probes.get();
+        let (sibling, _) =
+            resolver.resolve_type_reference_directive("pkg", "/src/b.ts", ResolutionMode::CommonJS);
+        assert_eq!(sibling.resolved_file_name, ordinary.resolved_file_name);
+        assert_eq!(host.fs.probes.get(), probes);
+        let (esm, _) =
+            resolver.resolve_type_reference_directive("pkg", "/src/a.ts", ResolutionMode::ESNext);
+        assert_ne!(esm.resolved_file_name, ordinary.resolved_file_name);
+        assert!(esm.resolved_file_name.ends_with("/esm.d.ts"));
+        let inferred = format!("/src/{INFERRED_TYPES_CONTAINING_FILE}");
+        let (missing, _) =
+            resolver.resolve_type_reference_directive("pkg", &inferred, ResolutionMode::CommonJS);
+        assert!(!missing.is_resolved(), "custom type roots suppress inferred secondary lookup");
+        let probes = host.fs.probes.get();
+        let (again, _) =
+            resolver.resolve_type_reference_directive("pkg", &inferred, ResolutionMode::CommonJS);
+        assert!(!again.is_resolved());
+        assert_eq!(host.fs.probes.get(), probes);
+    }
+
+    #[test]
+    fn trace_resolution_bypasses_query_cache_and_keeps_package_cache_traces() {
+        let host = host(&[
+            (
+                "/node_modules/pkg/package.json",
+                r#"{"name":"pkg","version":"1.0.0","types":"index.d.ts"}"#,
+            ),
+            ("/node_modules/pkg/index.d.ts", "export const value: number;"),
+        ]);
+        let mut options = options();
+        options.trace_resolution = Tristate::True;
+        let resolver = Resolver::new(&host, options);
+        let (_, first) = resolver.resolve_module_name("pkg", "/src/a.ts", ResolutionMode::CommonJS);
+        let probes = host.fs.probes.get();
+        let (_, second) =
+            resolver.resolve_module_name("pkg", "/src/b.ts", ResolutionMode::CommonJS);
+        assert!(host.fs.probes.get() > probes);
+        assert!(first[0].text.contains("/src/a.ts"));
+        assert!(second[0].text.contains("/src/b.ts"));
+        assert!(
+            second.iter().any(|trace| trace.text.contains("according to earlier cached lookups"))
+        );
+    }
+
+    #[test]
+    fn new_resolver_observes_new_snapshot_and_config_queries_have_separate_semantics() {
+        let host = host(&[]);
+        let resolver = Resolver::new(&host, options());
+        assert!(
+            !resolver
+                .resolve_module_name("./late", "/src/a.ts", ResolutionMode::CommonJS)
+                .0
+                .is_resolved()
+        );
+        host.fs
+            .snapshot
+            .replace(snapshot(&[("/src/late.ts", "export {};"), ("/src/late.json", "{}")]));
+        assert!(
+            !resolver
+                .resolve_module_name("./late", "/src/b.ts", ResolutionMode::CommonJS)
+                .0
+                .is_resolved()
+        );
+        let fresh = Resolver::new(&host, options());
+        assert_eq!(
+            fresh
+                .resolve_module_name("./late", "/src/a.ts", ResolutionMode::CommonJS)
+                .0
+                .resolved_file_name,
+            "/src/late.ts"
+        );
+        assert_eq!(
+            fresh.resolve_config("./late", "/src/tsconfig.json").resolved_file_name,
+            "/src/late.json"
+        );
+    }
+
+    #[test]
+    fn cached_results_preserve_symlink_and_package_identity() {
+        let host = host(&[]);
+        host.fs.snapshot.replace(InMemoryFileSystem::new(
+            [
+                (
+                    "/store/pkg/package.json".into(),
+                    r#"{"name":"pkg","version":"1.0.0","types":"index.d.ts"}"#.into(),
+                ),
+                ("/store/pkg/index.d.ts".into(), "export const value: number;".into()),
+            ],
+            [("/src/node_modules/pkg".into(), "/store/pkg".into())],
+            true,
+        ));
+        let resolver = Resolver::new(&host, options());
+        let (first, _) = resolver.resolve_module_name("pkg", "/src/a.ts", ResolutionMode::CommonJS);
+        assert_eq!(first.resolved_file_name, "/store/pkg/index.d.ts");
+        assert_eq!(first.original_path, "/src/node_modules/pkg/index.d.ts");
+        assert!(first.package_id.is_set());
+        let probes = host.fs.probes.get();
+        let (cached, _) =
+            resolver.resolve_module_name("pkg", "/src/b.ts", ResolutionMode::CommonJS);
+        assert_eq!(cached.resolved_file_name, first.resolved_file_name);
+        assert_eq!(cached.original_path, first.original_path);
+        assert_eq!(cached.package_id, first.package_id);
+        assert_eq!(host.fs.probes.get(), probes);
+        let mut options = options();
+        options.preserve_symlinks = Tristate::True;
+        let preserving = Resolver::new(&host, options);
+        let (logical, _) =
+            preserving.resolve_module_name("pkg", "/src/a.ts", ResolutionMode::CommonJS);
+        assert_eq!(logical.resolved_file_name, "/src/node_modules/pkg/index.d.ts");
+    }
 }
