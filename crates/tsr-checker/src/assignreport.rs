@@ -609,8 +609,8 @@ impl<'a> Checker<'a, '_> {
 
     /// Report the assignability failure at `span`, choosing the code the way
     /// upstream's relation does: a single absent required property is TS2741,
-    /// a direct exact-optional missing-property write is TS2412, and other
-    /// failures this port will speak about are TS2322.
+    /// a direct exact-optional missing-property write is TS2412, a whole-object
+    /// exact-optional mismatch is TS2375, and other failures are TS2322.
     fn report_assignability_failure(
         &mut self,
         at: NodeId,
@@ -691,16 +691,48 @@ impl<'a> Checker<'a, '_> {
             return false;
         }
         probe!(PROBE_REPORTED);
-        let message = if self.exact_optional_property_assignment_mismatch(at, source) {
-            &messages::TYPE_0_IS_NOT_ASSIGNABLE_TO_TYPE_1_WITH_EXACTOPTIONALPROPERTYTYPES_COLON_TRUE_CONSIDER_ADDING_UNDEFINED_TO_THE_TYPE_OF_THE_TARGET
-        } else {
-            &messages::TYPE_0_IS_NOT_ASSIGNABLE_TO_TYPE_1
-        };
         let displayed_source = self.assignability_source_for_error_display(source, target);
         let source_text = self.type_to_string(displayed_source);
         let target_text = self.type_to_string(target);
+        let message = if self.exact_optional_property_assignment_mismatch(at, source) {
+            &messages::TYPE_0_IS_NOT_ASSIGNABLE_TO_TYPE_1_WITH_EXACTOPTIONALPROPERTYTYPES_COLON_TRUE_CONSIDER_ADDING_UNDEFINED_TO_THE_TYPE_OF_THE_TARGET
+        } else if source_text != target_text && self.exact_optional_object_mismatch(source, target)
+        {
+            &messages::TYPE_0_IS_NOT_ASSIGNABLE_TO_TYPE_1_WITH_EXACTOPTIONALPROPERTYTYPES_COLON_TRUE_CONSIDER_ADDING_UNDEFINED_TO_THE_TYPES_OF_THE_TARGET_S_PROPERTIES
+        } else {
+            &messages::TYPE_0_IS_NOT_ASSIGNABLE_TO_TYPE_1
+        };
         self.report(file, Diagnostic::with_args(message, span, [source_text, target_text]));
         true
+    }
+
+    /// `getExactOptionalUnassignableProperties` (`checker.go:13115`): inspect
+    /// corresponding read members, not assignability or optional symbol flags.
+    /// This port resolves instantiated members through the concrete receiver
+    /// rather than native's instantiated property symbols. As in
+    /// `containsMissingType`, explicit undefined ahead of missing admits it.
+    fn exact_optional_object_mismatch(&mut self, source: TypeId, target: TypeId) -> bool {
+        if !self.exact_optional_property_types
+            || (self.tuple_element_lists.contains_key(&source)
+                && self.tuple_element_lists.contains_key(&target))
+        {
+            return false;
+        }
+        let Some(names) = self.get_property_names_of_type(target) else { return false };
+        names.iter().any(|name| {
+            let Some(source_property) = self.get_type_of_property_of_type(source, name) else {
+                return false;
+            };
+            if !self.maybe_type_of_kind(source_property, TypeFlags::UNDEFINED) {
+                return false;
+            }
+            let Some(target_property) = self.get_type_of_property_of_type(target, name) else {
+                return false;
+            };
+            target_property == self.intrinsics.missing
+                || matches!(&self.type_of(target_property).data, TypeData::Union { types, .. }
+                    if types.first() == Some(&self.intrinsics.missing))
+        })
     }
 
     /// `checkAssignmentOperator` (`checker.go:12777`): the TS2412 head message

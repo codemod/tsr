@@ -266,3 +266,122 @@ fn undefined_in_source_does_not_make_explicit_undefined_an_exact_optional_mismat
         );
     }
 }
+
+// Native 5b1047d10d32e7d5b446be4de56b126ff42f82bb, strict, exact on/off.
+// RequiredBox catches inspecting the source declaration's T instead of the
+// instantiated read type; Box<number | undefined> catches raw target-symbol
+// lookup. The unrelated undefined member must not influence the optional a.
+const OPTIONAL_OBJECTS: &str = r"interface Optional { a?: string; d: boolean }
+interface Explicit { a?: string | undefined; d: boolean }
+interface RequiredFields { a: string; d: boolean }
+declare const optionalWrong: { d: boolean } & { a?: number };
+declare const optionalGood: { a?: string } & { d: boolean };
+declare const explicitSource: { a: string | undefined; d: boolean };
+declare const good: { a: string; d: boolean };
+declare const omitted: { d: boolean };
+const optionalCheck: Optional = optionalWrong;
+const optionalPositive: Optional = optionalGood;
+const explicitSourceCheck: Optional = explicitSource;
+const positiveCheck: Optional = good;
+const omittedCheck: Optional = omitted;
+const explicitTargetCheck: Explicit = optionalWrong;
+const requiredTargetCheck: RequiredFields = explicitSource;
+declare const unrelated: { other?: number; d: number | undefined };
+const unrelatedCheck: Optional = unrelated;
+declare const undefinedOnly: { a: string | undefined };
+const undefinedOnlyCheck: { a?: undefined } = undefinedOnly;
+interface Box<T> { value?: T; tag: boolean }
+interface RequiredBox<T> { value: T; tag: boolean }
+declare const box: Box<string>;
+declare const requiredBox: RequiredBox<string | undefined>;
+const genericCheck: Box<number> = box;
+const explicitGenericCheck: Box<number | undefined> = box;
+const requiredGenericCheck: Box<string> = requiredBox;
+declare const tuple: [number?];
+const tupleCheck: [string?] = tuple;
+declare const always: { a: undefined };
+const alwaysCheck: { a?: undefined } = always;
+";
+
+fn optional_object_case(exact: bool) -> TestCase {
+    TestCase::parse(
+        "probe/exact-optional-objects",
+        "assignment.ts",
+        &format!(
+            "// @strict: true\n// @exactOptionalPropertyTypes: {exact}\n// @filename: assignment.ts\n{OPTIONAL_OBJECTS}"
+        ),
+    )
+}
+
+#[test]
+fn exact_optional_objects_select_2375_from_corresponding_concrete_read_members() {
+    for exact in [true, false] {
+        let case = optional_object_case(exact);
+        let mut actual = tsr_conformance::diagnostics_suite::reported_for(&case);
+        actual.sort_unstable();
+        let mut expected =
+            vec![(14, 2322), (15, 2322), (17, 2322), (19, 2322), (25, 2322), (28, 2322)];
+        if exact {
+            expected.extend([(9, 2375), (11, 2375), (24, 2375), (26, 2375)]);
+        } else {
+            expected.extend([(9, 2322), (24, 2322)]);
+        }
+        expected.sort_unstable();
+        assert_eq!(
+            actual
+                .iter()
+                .map(|diagnostic| (
+                    diagnostic.file.as_str(),
+                    diagnostic.line,
+                    diagnostic.column,
+                    diagnostic.code,
+                ))
+                .collect::<Vec<_>>(),
+            expected
+                .iter()
+                .map(|&(line, code)| ("assignment.ts", line, 7, code))
+                .collect::<Vec<_>>(),
+            "exact={exact}"
+        );
+    }
+}
+
+#[test]
+fn exact_optional_object_messages_preserve_intersections_and_instantiated_names() {
+    let case = optional_object_case(true);
+    let arena = tsr_core::Arena::new();
+    let program = types_producer::program_for_case(&arena, &case);
+    let mut checker = types_producer::configured_checker(&program);
+    let file = program.source_file("assignment.ts").expect("fixture file");
+    let id = file.source_file().node_id.expect("registered file");
+    checker.set_checked_files([id]);
+    checker.check_source_file(
+        id,
+        tsr_checker::check::FileContext { ambient: false, has_parse_errors: false },
+    );
+    let mut messages: Vec<_> = checker
+        .diagnostics()
+        .iter()
+        .filter_map(|(_, diagnostic)| {
+            let (line, _) = tsr_conformance::symbols_baseline::line_and_character(
+                file.text(),
+                diagnostic.span.start,
+            );
+            let args: Vec<_> = diagnostic.args.iter().map(String::as_str).collect();
+            [9, 11, 24, 26]
+                .contains(&(line + 1))
+                .then(|| (line + 1, diagnostic.message.format(&args)))
+        })
+        .collect();
+    messages.sort_unstable();
+    assert_eq!(
+        messages,
+        [
+            (9, "Type '{ d: boolean; } & { a?: number; }' is not assignable to type 'Optional' with 'exactOptionalPropertyTypes: true'. Consider adding 'undefined' to the types of the target's properties."),
+            (11, "Type '{ a: string | undefined; d: boolean; }' is not assignable to type 'Optional' with 'exactOptionalPropertyTypes: true'. Consider adding 'undefined' to the types of the target's properties."),
+            (24, "Type 'Box<string>' is not assignable to type 'Box<number>' with 'exactOptionalPropertyTypes: true'. Consider adding 'undefined' to the types of the target's properties."),
+            (26, "Type 'RequiredBox<string | undefined>' is not assignable to type 'Box<string>' with 'exactOptionalPropertyTypes: true'. Consider adding 'undefined' to the types of the target's properties."),
+        ]
+        .map(|(line, text)| (line, text.to_owned()))
+    );
+}
