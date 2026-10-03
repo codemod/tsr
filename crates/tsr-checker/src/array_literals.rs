@@ -673,39 +673,61 @@ impl Checker<'_, '_> {
             // `>[] : []` (`emptyAssignmentPatterns01_ES6`); §365's draft
             // excluded it for no upstream reason.
             let mut elements = Vec::with_capacity(node.elements.len());
-            let mut rest: Option<String> = None;
             for element in node.elements {
-                // §431: the trailing REST target spells `...T` in the tuple —
-                // `[a, ...b] = new FooIterator` records `[Bar, ...Bar[]]`
-                // (`iterableArrayPattern4/6/8`). Display-only mint: the
-                // pattern line is the only consumer, the assignment's own
-                // type is the RHS.
-                if let Expression::SpreadElement(spread) = element {
+                let (element_type, spread) = if let Expression::SpreadElement(spread) = element {
                     let Some(operand) = spread.expression else { return error };
                     let operand_type = self.check_expression(operand);
                     if operand_type == error {
                         return error;
                     }
-                    rest = Some(format!("...{}", self.type_to_string(operand_type)));
-                    continue;
-                }
-                // `checkArrayLiteral` reads every element through
-                // checkExpressionForMutableLocation, so a defaulted target
-                // `b = 0` contributes `number`, not the fresh `0`.
-                let element_type = self.check_expression_for_mutable_location(*element);
-                if element_type == error {
-                    return error;
-                }
-                elements.push(element_type);
+                    // `checkArrayLiteral` classifies an array-like spread as a
+                    // Variadic tuple element. Normalization then expands a
+                    // fixed tuple, retains a generic variadic, and turns a
+                    // plain array into its element Rest type. For a
+                    // non-array-like destructuring rest, its numeric index type
+                    // (or unknown) is wrapped in the array representation that
+                    // this port's normalizer uses for a Rest element.
+                    if self.tuple_array_like(operand_type) {
+                        (operand_type, true)
+                    } else {
+                        let indexed = if self
+                            .store
+                            .get(operand_type)
+                            .flags
+                            .intersects(TypeFlags::STRING_LIKE)
+                        {
+                            self.intrinsics.string
+                        } else if let Some(info) =
+                            self.get_applicable_index_info(operand_type, self.intrinsics.number)
+                        {
+                            info.value
+                        } else {
+                            self.tuple_index_type(operand_type, self.intrinsics.number, false)
+                                .unwrap_or(self.intrinsics.unknown)
+                        };
+                        let Some(array) = self.global_type_symbol("Array") else {
+                            return error;
+                        };
+                        (self.create_type_reference(array, vec![indexed]), true)
+                    }
+                } else {
+                    // `checkArrayLiteral` reads every element through
+                    // checkExpressionForMutableLocation, so a defaulted target
+                    // `b = 0` contributes `number`, not the fresh `0`.
+                    let element_type = self.check_expression_for_mutable_location(*element);
+                    if element_type == error {
+                        return error;
+                    }
+                    (element_type, false)
+                };
+                elements.push(crate::tuples::TupleElement {
+                    r#type: element_type,
+                    spread,
+                    optional: false,
+                    label: None,
+                });
             }
-            if let Some(rest) = rest {
-                let mut parts: Vec<String> =
-                    elements.iter().map(|&element| self.type_to_string(element)).collect();
-                parts.push(rest);
-                let printed = format!("[{}]", parts.join(", "));
-                return self.store.new_named(TypeFlags::OBJECT, printed, None);
-            }
-            return self.create_tuple_type(elements, false);
+            return self.normalize_variadic_tuple(elements, false);
         }
         let checked = self.check_array_literal_value(node);
         self.create_array_literal_type(checked)

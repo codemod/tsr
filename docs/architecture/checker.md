@@ -2324,6 +2324,24 @@ failing that, **verify it against the named future edit** (this, and the tuple
 gap); failing that, an `#[ignore]`d test naming the issue (the `const` assertion
 arm). Only when none of the three is possible should it be prose.
 
+### Assignment targets use the same tuple normalizer
+
+`checkArrayLiteral` marks an assignment-target spread as `Variadic` when its
+operand is array-like, then delegates to `createTupleTypeEx` and
+`createNormalizedTypeReference` (`checker.go`). That distinction is semantic,
+not just rendering: `[x, ...r]` flattens a fixed tuple `r`, preserves a generic
+tuple parameter as `...T`, carries optional tuple elements through, and retains
+a plain array as a rest element. The port routes these target tuples through
+`normalize_variadic_tuple` as well; constructing a named display string here
+would bypass union distribution, optional/rest normalization, and tuple
+metadata used by later consumers.
+
+The non-array-like destructuring fallback first reads an applicable numeric
+index signature, including index-only object types, and otherwise uses
+`unknown`. Native next tries `getIteratedTypeOrElementType`, but this port does
+not yet expose equivalent general iterator-protocol resolution in this seam;
+arbitrary iterable-only rest targets therefore remain outside this slice.
+
 ## Signature members print with a colon, not an arrow
 
 Ported 2026-08-05, cycle 9. `get_type_from_type_literal` rejected the **whole**

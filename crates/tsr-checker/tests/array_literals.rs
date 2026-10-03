@@ -98,6 +98,52 @@ fn type_of_initialiser(source: &str) -> String {
 }
 
 #[test]
+fn assignment_target_spreads_use_tuple_normalization() {
+    // `checkArrayLiteral` passes a trailing array-like target to
+    // `createTupleTypeEx` as a Variadic element. A fixed tuple is flattened,
+    // while a generic variadic and a plain array remain deferred/rest.
+    assert_eq!(
+        type_of_last_array_literal(
+            "let x: number; let r: [string, boolean]; [x, ...r] = null as any;"
+        ),
+        "[number, string, boolean]"
+    );
+    assert_eq!(
+        type_of_last_array_literal(
+            "function f<T extends unknown[]>(r: T) { let x: number; [x, ...r] = null as any; }"
+        ),
+        "[number, ...T]"
+    );
+    assert_eq!(
+        type_of_last_array_literal(
+            "let x: number; let r: [string?, boolean?]; [x, ...r] = null as any;"
+        ),
+        "[number, string?, boolean?]"
+    );
+    assert_eq!(
+        type_of_last_array_literal("let x: number; let r: string[]; [x, ...r] = null as any;"),
+        "[number, ...string[]]"
+    );
+    // A non-array-like destructuring rest uses its numeric index type (or
+    // unknown) as a Rest element rather than treating the operand itself as a
+    // variadic tuple argument.
+    assert_eq!(
+        type_of_last_array_literal("let x: number; let r: string; [x, ...r] = null as any;"),
+        "[number, ...string[]]"
+    );
+    assert_eq!(
+        type_of_last_array_literal("let x: number; let r: {}; [x, ...r] = null as any;"),
+        "[number, ...unknown[]]"
+    );
+    assert_eq!(
+        type_of_last_array_literal(
+            "let x: number; let r: { [n: number]: string }; [x, ...r] = null as any;"
+        ),
+        "[number, ...string[]]"
+    );
+}
+
+#[test]
 fn an_empty_array_literal_is_never_and_not_a_special_case_of_nothing() {
     // `implicitNeverType` under `strictNullChecks` (`checker.go:8098`), which
     // the harness defaults on; the corpus splits 461 `never[]` to 297
