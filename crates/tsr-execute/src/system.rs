@@ -43,9 +43,8 @@ pub trait System {
 
     /// How long since the process started, for `--diagnostics`.
     ///
-    /// Upstream has `Now()` and `SinceStart()`; only the elapsed form is ported,
-    /// because nothing here yet prints a wall-clock time and a `Now()` that no
-    /// caller uses is a method whose correctness nothing checks.
+    /// Used for CLI phase timings. Baseline hosts keep this clock fixed, so an
+    /// opt-in statistics report remains deterministic in virtual-filesystem tests.
     fn since_start(&self) -> Duration;
 
     /// The version this compiler reports.

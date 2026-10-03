@@ -78,3 +78,21 @@ baseline predates the harness's input-content fingerprint addition. Subsequent
 confirmation must use that check. These observations supersede the earlier single
 timings as evidence of the problem, not as proof that work matches or that the
 optimization is complete.
+
+## Initial phase attribution
+
+The CLI now honors `--extendedDiagnostics` and reports actual checks plus coarse
+host-clock phase times. Program time combines discovery/resolution, parsing and
+binding. Reporting includes diagnostic extraction, source indexing, comment
+directives and formatting. Compilation time excludes process startup and final
+teardown, so use the external harness for the end-to-end target.
+
+A separate full-app probe on the same source with the new instrumentation reported
+13,560 loaded files and **1,341 actually checked**: 0.031 s config, 3.696 s
+program construction, 0.000 s checker initialization, 3.700 s checking and 0.089 s
+reporting. A `noCheck` control performed zero checks, took 3.283 s wall and
+0.926 GB peak RSS. These are locating probes, not a new confirmed benchmark.
+Both program construction and checking need improvement; parallelizing only the
+checker cannot reach half native's total wall time while loading alone costs
+over three seconds. Detailed source and native counter attribution remain in
+`bd tsr-1yb.2`.

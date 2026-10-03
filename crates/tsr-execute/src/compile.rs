@@ -107,6 +107,7 @@ pub fn run_compilation(
     command_line: &ParsedCommandLine,
     config_file_name: &str,
 ) -> ExitStatus {
+    let compilation_started = sys.since_start();
     let current_directory = sys.current_directory().to_string();
 
     // The options a compilation runs under are the config's, with the command
@@ -229,6 +230,7 @@ pub fn run_compilation(
 
     // Everything above is host-independent. From here the compiler runs, and it
     // borrows an arena that must outlive the program.
+    let program_started = sys.since_start();
     let arena = tsr_core::Arena::new();
     let host = DriverHost { fs: sys.fs(), current_directory: current_directory.clone() };
     let program = tsr_compiler::Program::from_root_files(
@@ -240,6 +242,7 @@ pub fn run_compilation(
             default_library_path: sys.default_library_path().to_string(),
         },
     );
+    let program_finished = sys.since_start();
 
     // A root file the loader could not reach is a diagnostic, not silence.
     // Upstream reports it from `processAllProgramFiles`
@@ -295,8 +298,10 @@ pub fn run_compilation(
         .filter_map(|file| file.source_file().node_id)
         .collect();
     checker.set_checked_files(own_files.clone());
+    let checker_initialized = sys.since_start();
 
     let mut diagnostics: Vec<(String, Diagnostic)> = Vec::new();
+    let mut checked_file_count = 0;
     if !options.no_check.is_true() {
         for file in program.root_and_referenced_files() {
             let Some(id) = file.source_file().node_id else { continue };
@@ -332,7 +337,11 @@ pub fn run_compilation(
                     has_parse_errors: !file.diagnostics().is_empty(),
                 },
             );
+            checked_file_count += 1;
         }
+    }
+    let checking_finished = sys.since_start();
+    if !options.no_check.is_true() {
         for (file_id, diagnostic) in checker.diagnostics() {
             if let Some(file) = program
                 .root_and_referenced_files()
@@ -379,6 +388,27 @@ pub fn run_compilation(
     }
 
     report_located(sys, &files, &diagnostics, &options);
+    let reporting_finished = sys.since_start();
+
+    if options.extended_diagnostics.is_true() {
+        // Native `reportStatistics` uses the host clock too. Program time here
+        // includes discovery/resolution, parsing and binding; do not label the
+        // aggregate "Parse time" and imply those stages were separated.
+        sys.write(&format!(
+            "Files:                 {}\nChecked files:         {}\n\
+             Config time:           {:.3}s\nProgram time:          {:.3}s\n\
+             Checker init time:     {:.3}s\nCheck time:            {:.3}s\n\
+             Reporting time:        {:.3}s\nCompilation time:      {:.3}s\n",
+            program.source_files().len(),
+            checked_file_count,
+            program_started.saturating_sub(compilation_started).as_secs_f64(),
+            program_finished.saturating_sub(program_started).as_secs_f64(),
+            checker_initialized.saturating_sub(program_finished).as_secs_f64(),
+            checking_finished.saturating_sub(checker_initialized).as_secs_f64(),
+            reporting_finished.saturating_sub(checking_finished).as_secs_f64(),
+            reporting_finished.saturating_sub(compilation_started).as_secs_f64(),
+        ));
+    }
 
     let errors = diagnostics
         .iter()
@@ -470,6 +500,8 @@ fn copy_option(into: &mut CompilerOptions, from: &CompilerOptions, name: &str) {
         "composite" => composite,
         "quiet" => quiet,
         "traceResolution" => trace_resolution,
+        "extendedDiagnostics" => extended_diagnostics,
+        "singleThreaded" => single_threaded,
     }
 }
 
@@ -540,7 +572,11 @@ mod directive_tests {
     use crate::baseline::{Baseline, BaselineSystem};
 
     fn compile(source: &str) -> (ExitStatus, String) {
-        let baseline = Baseline {
+        compile_with_options(source, &[])
+    }
+
+    fn compile_with_options(source: &str, extra_options: &[&str]) -> (ExitStatus, String) {
+        let mut baseline = Baseline {
             name: "directives".to_string(),
             current_directory: "/project".to_string(),
             use_case_sensitive_file_names: true,
@@ -557,9 +593,31 @@ mod directive_tests {
             expects_emit: false,
             environment: Vec::new(),
         };
+        baseline.args.extend(extra_options.iter().map(|option| (*option).to_string()));
         let mut system = BaselineSystem::new(&baseline);
         let status = crate::command_line(&mut system, &baseline.args);
         (status, system.output().to_string())
+    }
+
+    #[test]
+    fn extended_statistics_count_checks_without_hiding_errors() {
+        let (status, output) =
+            compile_with_options("const bad: number = 'bad';", &["--extendedDiagnostics"]);
+        assert_eq!(status, ExitStatus::DiagnosticsPresentOutputsSkipped, "{output}");
+        assert!(output.contains("TS2322"), "{output}");
+        assert!(output.contains("Checked files:         1\n"), "{output}");
+        assert!(output.contains("Check time:            0.000s\n"), "{output}");
+    }
+
+    #[test]
+    fn no_check_reports_zero_actual_checks() {
+        let (status, output) = compile_with_options(
+            "const bad: number = 'bad';",
+            &["--extendedDiagnostics", "--noCheck"],
+        );
+        assert_eq!(status, ExitStatus::Success, "{output}");
+        assert!(!output.contains("TS2322"), "{output}");
+        assert!(output.contains("Checked files:         0\n"), "{output}");
     }
 
     #[test]

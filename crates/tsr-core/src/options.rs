@@ -608,7 +608,7 @@ pub struct CompilerOptions {
     pub explain_files: Tristate,
     /// `diagnostics`. Parsed; not yet read.
     pub diagnostics: Tristate,
-    /// `extendedDiagnostics`. Parsed; not yet read.
+    /// `extendedDiagnostics`. CLI phase timings and actual checked-file count.
     pub extended_diagnostics: Tristate,
     /// `inlineSourceMap`. Parsed; not yet read.
     pub inline_source_map: Tristate,
