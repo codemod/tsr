@@ -389,3 +389,90 @@ export const completeYieldUnion = [...(null as unknown as typeof completeYield |
         ],
     );
 }
+
+const ELISIONS: &str = r#"
+declare const words: Iterable<string>;
+declare const fixed: readonly ["tail", 37];
+declare const numbers: number[];
+export const prefix = [1, , ...words] as const;
+export const between = [1, , ...fixed, false] as const;
+export const trailing = [1, ...words, , false] as const;
+export const after = [...numbers, , "end"] as const;
+export const contextual = [9, , ...words] satisfies [number, undefined?, ...string[]];
+export const plainConst = [1, , "last", false] as const;
+export const onlyHoles = [, ,] as const;
+export const array = [1, , ...words, false];
+export const explicitUndefined = [1, undefined, false] as const;
+export const explicitAfterHole = [1, , undefined, false] as const;
+export const plainLength = plainConst.length;
+export const holesLength = onlyHoles.length;
+export const explicitLength = explicitUndefined.length;
+export const betweenLength = between.length;
+export const holeValue = onlyHoles[0];
+"#;
+
+#[test]
+fn elisions_preserve_optional_hole_semantics_independently_of_display() {
+    for (exact, wanted) in [
+        (
+            false,
+            ["plainLength : 4", "holesLength : 2", "betweenLength : 5", "holeValue : undefined"],
+        ),
+        (
+            true,
+            [
+                "plainLength : 1 | 2 | 3 | 4",
+                "holesLength : 0 | 1 | 2",
+                "betweenLength : 4 | 5",
+                "holeValue : undefined",
+            ],
+        ),
+    ] {
+        let lines = assertions(&format!(
+            "// @strict: true\n// @target: es2015\n// @exactOptionalPropertyTypes: {exact}\n{ELISIONS}"
+        ));
+        expect(&lines, &wanted);
+        expect(
+            &lines,
+            &["explicitLength : 3", "array : (string | number | boolean | undefined)[]"],
+        );
+    }
+}
+
+#[test]
+fn optional_holes_hide_missing_but_not_explicit_undefined_in_tuple_display() {
+    for (exact, wanted) in [
+        (
+            false,
+            [
+                "prefix : readonly [1, undefined, ...string[]]",
+                "between : readonly [1, undefined, \"tail\", 37, false]",
+                "trailing : readonly [1, ...string[], undefined, false]",
+                "after : readonly [...number[], undefined, \"end\"]",
+                "contextual : [number, undefined, ...string[]]",
+                "plainConst : readonly [1, undefined, \"last\", false]",
+                "onlyHoles : readonly [undefined, undefined]",
+                "explicitAfterHole : readonly [1, undefined, undefined, false]",
+            ],
+        ),
+        (
+            true,
+            [
+                "prefix : readonly [1, never?, ...string[]]",
+                "between : readonly [1, undefined, \"tail\", 37, false?]",
+                "trailing : readonly [1, ...(string | false | undefined)[]]",
+                "after : readonly (number | \"end\" | undefined)[]",
+                "contextual : [number, never?, ...string[]]",
+                "plainConst : readonly [1, never?, \"last\"?, false?]",
+                "onlyHoles : readonly [never?, never?]",
+                "explicitAfterHole : readonly [1, never?, undefined?, false?]",
+            ],
+        ),
+    ] {
+        let lines = assertions(&format!(
+            "// @strict: true\n// @target: es2015\n// @exactOptionalPropertyTypes: {exact}\n{ELISIONS}"
+        ));
+        expect(&lines, &wanted);
+        expect(&lines, &["explicitUndefined : readonly [1, undefined, false]"]);
+    }
+}

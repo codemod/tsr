@@ -139,8 +139,9 @@ impl<'a> Checker<'a, '_> {
         // whole — readonly MEMBERS are slice 2, behind the value-spelling
         // carriage.
         if let Expression::ArrayLiteralExpression(array) = inner {
-            if array.elements.iter().any(|element| matches!(element, Expression::SpreadElement(_)))
-            {
+            if array.elements.iter().any(|element| {
+                matches!(element, Expression::SpreadElement(_) | Expression::OmittedExpression(_))
+            }) {
                 return self.check_array_literal(array);
             }
             let mut elements = Vec::with_capacity(array.elements.len());

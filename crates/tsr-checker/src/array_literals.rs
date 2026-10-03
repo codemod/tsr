@@ -752,9 +752,20 @@ impl Checker<'_, '_> {
         // `checkArrayLiteral` keeps array-like spread operands as variadic
         // tuple arguments. Normalization expands tuples and retains generic
         // operands; outside tuple context they contribute operand[number].
-        if node.elements.iter().any(|element| matches!(element, Expression::SpreadElement(_))) {
+        let has_spread =
+            node.elements.iter().any(|element| matches!(element, Expression::SpreadElement(_)));
+        let omitted_tuple = !has_spread
+            && node
+                .elements
+                .iter()
+                .any(|element| matches!(element, Expression::OmittedExpression(_)))
+            && (node.node_id.is_some_and(|id| {
+                self.is_const_context(id) || self.literal_in_const_type_variable_context(id)
+            }) || self.array_literal_in_tuple_context(node));
+        if has_spread || omitted_tuple {
             let mut arguments = Vec::with_capacity(node.elements.len());
             let mut supported = true;
+            let mut has_omitted = false;
             for element in node.elements {
                 let (t, spread) = if let Expression::SpreadElement(spread) = element {
                     let Some(operand) = spread.expression else { return error };
@@ -773,10 +784,26 @@ impl Checker<'_, '_> {
                         (self.create_type_reference(array, vec![element]), true)
                     }
                 } else if matches!(element, Expression::OmittedExpression(_)) {
-                    supported = false;
-                    break;
+                    if self.exact_optional_property_types {
+                        has_omitted = true;
+                        (self.intrinsics.missing, false)
+                    } else {
+                        (self.intrinsics.undefined, false)
+                    }
                 } else {
-                    (self.check_array_literal_element(node, *element), false)
+                    let t = self.check_array_literal_element(node, *element);
+                    if self.is_error(t) {
+                        return error;
+                    }
+                    // checkArrayLiteral marks ordinary elements after an
+                    // exact-optional omission optional as well. Spread flags
+                    // stay Variadic/Rest regardless of preceding omissions.
+                    let t = if has_omitted && self.strict_null_checks {
+                        self.get_optional_type(t, true)
+                    } else {
+                        t
+                    };
+                    (t, false)
                 };
                 if self.is_error(t) {
                     return error;
@@ -784,7 +811,7 @@ impl Checker<'_, '_> {
                 arguments.push(crate::tuples::TupleElement {
                     r#type: t,
                     spread,
-                    optional: false,
+                    optional: has_omitted && !spread,
                     label: None,
                 });
             }

@@ -130,7 +130,10 @@ impl Checker<'_, '_> {
 
     /// Parentheses for a union/intersection under the optional tuple element
     /// node emitted by typeToTypeNode (internal/checker/nodebuilder.go).
-    pub(crate) fn optional_tuple_element_text(&self, id: TypeId) -> String {
+    pub(crate) fn optional_tuple_element_text(&mut self, id: TypeId) -> String {
+        // Optional tuple nodes omit implicit missing, but retain a written
+        // undefined. An elision's missing-only type therefore prints never?.
+        let id = self.remove_missing_type(id);
         let text = self.type_to_string(id);
         // boolean's true | false constituents render as a keyword node.
         if id != self.intrinsics.boolean
