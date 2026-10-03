@@ -1355,11 +1355,15 @@ impl<'a> Checker<'a, '_> {
     ///
     /// # What is deliberately not ported, each a miss and never a wrong target
     ///
-    /// - **A module with `export =`.** Upstream reads the member off
-    ///   `getTypeOfSymbol(targetSymbol)` via `getPropertyOfTypeEx` and may
-    ///   combine a value symbol with a type symbol
-    ///   (`combineValueAndTypeSymbols`). Both are real machinery; this answers
-    ///   `None` when `exports` holds `export=`, so nothing is guessed.
+    /// - ~~**A module with `export =`.**~~ **Partially ported.** The value
+    ///   member is read from the resolved target's type, and supplemental
+    ///   exports remain on the original module, as upstream's
+    ///   `getExternalModuleMember` (`checker.go:14667`) requires. The two
+    ///   representable shortcuts from `combineValueAndTypeSymbols`
+    ///   (`checker.go:14717`) are ported too; the one case that needs a freshly
+    ///   allocated synthetic symbol — separate value and type-only symbols of
+    ///   the same name — stays a miss because the checker reads the binder's
+    ///   immutable symbol store.
     /// - ~~**`export *` re-exports.**~~ **Ported** — see
     ///   [`Checker::get_export_from_star`]. The refusal was accurate when it was
     ///   written: the binder collected no `__export` symbol at all, so the
@@ -1392,11 +1396,89 @@ impl<'a> Checker<'a, '_> {
         // `cloneTypeAsModuleType` arms are guarded by `namespaceImport != nil ||
         // IsImportCall(referenceParent)`, and a *named* import or re-export is
         // neither.
-        if self.resolve_external_module_symbol(module_symbol) != module_symbol {
-            // The `export =` case, gapped above.
+        let target = self.resolve_external_module_symbol(module_symbol);
+        if target == module_symbol {
+            return self.get_export_of_module(module_symbol, name.text);
+        }
+
+        // Native routes the export name `default` through
+        // `getTargetOfModuleDefault` before this ordinary-member branch. This
+        // port's caller currently reaches here instead, but selecting the
+        // export-equals target's `.default` property is observably wrong: the
+        // alias denotes the synthetic default module object, not that property.
+        // Preserve the prior miss until the dedicated default road can retain
+        // its per-site alias spelling.
+        if name.text == "default" {
             return None;
         }
-        self.get_export_of_module(module_symbol, name.text)
+
+        // `getExternalModuleMember`'s `export =` branch: VALUE members belong
+        // to the exported target's type, while supplemental TYPE/NAMESPACE
+        // exports belong to the original module. Looking only in either place
+        // loses the other meaning.
+        let target_type = self.get_type_of_symbol(target);
+        let value = self.get_property_of_type_ex(target_type, name.text, true);
+        let value_was_found = value.is_some();
+        // This semantic resolver must not outrun the site-aware spelling lane.
+        // A pure alias target can replace a written local type name with the
+        // remote declaration's name, while an object/function member can carry
+        // named types whose shortest accessible chain depends on this import
+        // site. Only site-independent primitive and literal types are the
+        // coherent representable slice. ENUM/ENUM_LITERAL and UNIQUE_ES_SYMBOL
+        // are deliberately excluded: despite being primitive flags, their
+        // rendering can carry a declaration's site-dependent symbol name.
+        // The lookup above separately excludes Object/Function fallback
+        // members, matching native's `skipObjectFunctionPropertyAugment = true`;
+        // filtering by the member's type would not suffice because fallback
+        // members such as Function.length and Function.name are primitives.
+        let value = if let Some(value) = value {
+            let flags = self.binder.symbols().get(value).flags;
+            if flags.intersects(SymbolFlags::ALIAS) {
+                None
+            } else {
+                let value_type = self.get_type_of_symbol(value);
+                let type_flags = self.store.get(value_type).flags;
+                let site_independent = TypeFlags::STRING
+                    | TypeFlags::NUMBER
+                    | TypeFlags::BIG_INT
+                    | TypeFlags::BOOLEAN
+                    | TypeFlags::ES_SYMBOL
+                    | TypeFlags::LITERAL
+                    | TypeFlags::VOID_LIKE
+                    | TypeFlags::NULL;
+                (type_flags.intersects(site_independent)
+                    && !type_flags.intersects(TypeFlags::ENUM_LIKE | TypeFlags::UNIQUE_ES_SYMBOL))
+                .then_some(value)
+            }
+        } else {
+            None
+        };
+        let supplemental = self.get_export_of_module(module_symbol, name.text);
+        // Finding and then declining a value is different from finding no
+        // value. In the former case, returning a type-only supplement would
+        // silently erase the value meaning that native combines with it.
+        if value_was_found && value.is_none() && supplemental.is_some() {
+            return None;
+        }
+        match (value, supplemental) {
+            (None, supplemental) => supplemental,
+            (value, None) => value,
+            (Some(value), Some(supplemental)) => {
+                // The first two exits of upstream's
+                // `combineValueAndTypeSymbols` need no synthetic symbol. The
+                // third does, and returning either half would erase one of the
+                // name's meanings, so keep that shape an explicit miss.
+                let supplemental_flags = self.binder.symbols().get(supplemental).flags;
+                if supplemental_flags.intersects(SymbolFlags::VALUE) {
+                    Some(supplemental)
+                } else {
+                    let value_flags = self.binder.symbols().get(value).flags;
+                    value_flags
+                        .intersects(SymbolFlags::TYPE | SymbolFlags::NAMESPACE)
+                        .then_some(value)
+                }
+            }
+        }
     }
 
     /// TS2305 — `Module '{0}' has no exported member '{1}'.`

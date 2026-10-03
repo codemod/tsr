@@ -1862,7 +1862,7 @@ impl Checker<'_, '_> {
         self.get_property_of_type_ex(id, name, false)
     }
 
-    fn get_property_of_type_ex(
+    pub(crate) fn get_property_of_type_ex(
         &mut self,
         id: TypeId,
         name: &str,

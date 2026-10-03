@@ -827,9 +827,31 @@ The chain, and what each step reduces to here:
 
 ### Deliberately not ported, each a miss and never a wrong target
 
-- **`export =` modules.** Upstream reads the member off
-  `getTypeOfSymbol(targetSymbol)` through `getPropertyOfTypeEx` and may combine
-  a value symbol with a type symbol. The arm declines the form.
+- **`export =` modules.** The site-independent primitive value-member slice is
+  now ported: the member is read from `getTypeOfSymbol(targetSymbol)` through
+  `getPropertyOfTypeEx(..., skipObjectFunctionPropertyAugment = true)`, while
+  supplemental exports continue to come from the original module. The skip is
+  semantically separate from primitive filtering: inherited `Function.length`
+  and `Function.name` themselves have primitive types but are not exports of
+  the target. Value members that are aliases or whose types are objects stay
+  gaps: their correct rendering needs the importing site's shortest accessible
+  symbol chain, owned by the site-aware spelling lane. The full run falsified
+  the ungated form with `Foo.Bar` where native prints
+  `import("./thing").Bar`. `ENUM`, `ENUM_LITERAL`, and `UNIQUE_ES_SYMBOL` stay
+  out too: TypeScript classifies them as primitives, but their identity and
+  rendering still carry a declaration symbol whose accessible name depends on
+  the use site.
+
+  Two combinations need no allocation and are represented directly. A
+  same-name primitive value property plus a distinct type-only supplemental
+  export still declines: upstream's `combineValueAndTypeSymbols` creates a
+  synthetic symbol, whereas this checker intentionally has immutable access to
+  the binder's symbol store. Returning either real symbol would erase one
+  meaning and turn a semantic gap into a wrong answer. A value member rejected
+  by the spelling gate likewise cannot fall through to a type-only supplement:
+  native saw both meanings, so choosing only the supplement would erase the
+  value. The name `default` also declines here because native routes it through
+  `getTargetOfModuleDefault` before ordinary named-member lookup.
 - **`export *` re-exports.** `getExportsOfSymbol` (`checker.go:15920`) resolves
   star exports in `getExportsOfModuleWorker` (`checker.go:16148`); this reads
   the binder's `exports` table directly.

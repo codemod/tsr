@@ -221,6 +221,29 @@ fn type_of_alias(fixture: &Fixture<'_>, name: &str, with_host: bool) -> String {
     checker.type_to_string(id)
 }
 
+/// Whether a named import/export alias has a semantic target, independent of
+/// whether [`Checker::get_type_of_symbol`] can use that target as a value.
+fn alias_resolves(fixture: &Fixture<'_>, name: &str) -> bool {
+    let mut checker = Checker::with_module_host(
+        &fixture.bound,
+        &fixture.nodes,
+        &fixture.node_map,
+        Some(&fixture.host),
+    );
+    let symbol = (0..u32::try_from(fixture.nodes.len()).expect("node count fits in u32"))
+        .map(NodeId::new)
+        .filter(|&id| {
+            matches!(
+                fixture.nodes.kind(id),
+                SyntaxKind::ImportSpecifier | SyntaxKind::ExportSpecifier
+            )
+        })
+        .filter_map(|id| fixture.bound.symbol_of(id))
+        .find(|&symbol| fixture.bound.symbols().get(symbol).name == name)
+        .unwrap_or_else(|| panic!("no import or export specifier named `{name}`"));
+    checker.resolve_alias(symbol).is_some()
+}
+
 /// [`type_of_alias`] restricted to one specifier kind.
 ///
 /// Needed only where a fixture holds an import specifier **and** an export
@@ -499,13 +522,15 @@ fn a_two_link_re_export_chain_across_three_files_resolves() {
 }
 
 #[test]
-fn a_named_import_from_a_module_with_export_equals_is_a_gap() {
+fn a_named_import_reads_a_value_member_from_an_export_equals_target() {
     // `resolveExternalModuleSymbol` (`checker.go:15556`) makes a module that
-    // writes `export = X` *be* `X`, and upstream then reads the member off
-    // `getTypeOfSymbol(X)` through `getPropertyOfTypeEx`, possibly combining a
-    // value symbol with a type symbol. None of that is ported, so the arm
-    // declines the whole form rather than looking the name up in a table that
-    // no longer means what it did.
+    // writes `export = X` *be* `X`; `getExternalModuleMember`
+    // (`checker.go:14667`) then reads the named member from
+    // `getTypeOfSymbol(X)`, not from the original module's exports table.
+    //
+    // The annotation is asymmetric (`number`, not the alias fallback's `any`)
+    // and the target has no module exports of its own, so neither a direct
+    // module-table lookup nor a missing-member error can satisfy this control.
     let arena = Arena::new();
     let fixture = program(
         &arena,
@@ -514,7 +539,202 @@ fn a_named_import_from_a_module_with_export_equals_is_a_gap() {
             ("a", "import { x } from \"./m\";\n"),
         ],
     );
-    assert_eq!(type_of_alias(&fixture, "x", true), "error");
+    assert_eq!(type_of_alias(&fixture, "x", true), "number");
+}
+
+#[test]
+fn a_missing_member_of_an_export_equals_target_remains_a_gap() {
+    // The negative half: a resolved target is not itself the answer. Upstream
+    // asks for the named property, and a miss remains a miss. Falling back to
+    // the target would print its whole `{ x: number }` type here.
+    let arena = Arena::new();
+    let fixture = program(
+        &arena,
+        &[
+            ("m", "declare const o: { x: number };\nexport = o;\n"),
+            ("a", "import { absent } from \"./m\";\n"),
+        ],
+    );
+    assert_eq!(type_of_alias(&fixture, "absent", true), "error");
+}
+
+#[test]
+fn a_default_named_import_does_not_select_an_export_equals_property() {
+    // `getTargetOfImportSpecifier` sends the name `default` through native's
+    // dedicated synthetic-default road before `getExternalModuleMember`. The
+    // ordinary target property is `number` here, so this is red if the
+    // export-equals member arm incorrectly handles `default` itself.
+    let arena = Arena::new();
+    let fixture = program(
+        &arena,
+        &[
+            ("m", "declare const o: { default: number };\nexport = o;\n"),
+            ("a", "import { default as picked } from \"./m\";\n"),
+        ],
+    );
+    assert_eq!(type_of_alias(&fixture, "picked", true), "error");
+}
+
+#[test]
+fn a_default_re_export_does_not_select_an_export_equals_property() {
+    // The matching `getTargetOfExportSpecifier` control. Returning the target's
+    // numeric `default` property would type `forwarded`; preserving the prior
+    // miss keeps this syntax on its native dedicated-default road.
+    let arena = Arena::new();
+    let fixture = program(
+        &arena,
+        &[
+            ("m", "declare const o: { default: number };\nexport = o;\n"),
+            ("a", "export { default as forwarded } from \"./m\";\n"),
+        ],
+    );
+    assert_eq!(type_of_alias(&fixture, "forwarded", true), "error");
+}
+
+#[test]
+fn a_plain_es_module_named_import_keeps_its_existing_path() {
+    // The non-`export =` control. The target and module symbol are identical,
+    // so this must continue to use the original exports-table road rather than
+    // trying to treat the module object as an export-equals value.
+    let arena = Arena::new();
+    let fixture = program(&arena, &[M, ("a", "import { x } from \"./m\";\n")]);
+    assert_eq!(type_of_alias(&fixture, "x", true), "number");
+}
+
+#[test]
+fn a_member_needing_site_aware_type_spelling_remains_a_gap() {
+    // Native can spell this return type as `import("./m").Result` from the
+    // importing file. This checker currently bakes `Owner.Result` into the
+    // function type, so resolving the member would replace a semantic gap with
+    // a wrong spelling. Primitive members do not cross that naming boundary.
+    let arena = Arena::new();
+    let fixture = program(
+        &arena,
+        &[
+            (
+                "m",
+                "declare namespace Owner { export interface Result {}\nexport function make(): Result }\nexport = Owner;\n",
+            ),
+            ("a", "import { make } from \"./m\";\n"),
+        ],
+    );
+    assert_eq!(type_of_alias(&fixture, "make", true), "error");
+}
+
+#[test]
+fn function_interface_fallback_members_are_not_export_equals_members() {
+    // `length` and `name` are supplied by the global Function interface, not
+    // declared on Owner. Native passes skipObjectFunctionPropertyAugment=true
+    // for this lookup, so their primitive number/string types must not let
+    // these fallback members masquerade as named exports of Owner.
+    let arena = Arena::new();
+    let fixture = program(
+        &arena,
+        &[
+            ("lib", "interface Function { readonly length: number; readonly name: string }\n"),
+            ("m", "declare function Owner(): void;\nexport = Owner;\n"),
+            ("a", "import { length, name } from \"./m\";\n"),
+        ],
+    );
+    assert!(!alias_resolves(&fixture, "length"));
+    assert!(!alias_resolves(&fixture, "name"));
+}
+
+#[test]
+fn an_own_numeric_function_member_is_still_an_export_equals_member() {
+    // The skip flag applies only to Object/Function augmentation. An explicitly
+    // declared own member with the same primitive shape remains discoverable.
+    let arena = Arena::new();
+    let fixture = program(
+        &arena,
+        &[
+            ("lib", "interface Function { readonly length: number }\n"),
+            (
+                "m",
+                "declare function Owner(): void;\ndeclare namespace Owner { export const ownCount: 7 }\nexport = Owner;\n",
+            ),
+            ("a", "import { ownCount } from \"./m\";\n"),
+        ],
+    );
+    assert!(alias_resolves(&fixture, "ownCount"));
+    assert_eq!(type_of_alias(&fixture, "ownCount", true), "7");
+}
+
+#[test]
+fn an_enum_literal_member_is_not_a_site_independent_primitive() {
+    // Source-correlated with native's enum-literal identity: `state` is E.A,
+    // not merely the numeric literal 0. Importing it from another module needs
+    // the accessible spelling of E at that site, so TypeFlags::ENUM_LITERAL
+    // must not enter through its accompanying NUMBER_LITERAL bit.
+    let arena = Arena::new();
+    let fixture = program(
+        &arena,
+        &[
+            (
+                "m",
+                "declare namespace Owner { export enum E { A }\nexport const state: E.A }\nexport = Owner;\n",
+            ),
+            ("a", "import { state } from \"./m\";\n"),
+        ],
+    );
+    assert!(!alias_resolves(&fixture, "state"));
+}
+
+#[test]
+fn a_unique_symbol_member_is_not_a_site_independent_primitive() {
+    // `unique symbol` carries the identity of the declared `key`; cross-module
+    // rendering may need `typeof` plus an accessible chain to that declaration.
+    // Its primitive flag therefore cannot justify returning the member here.
+    let arena = Arena::new();
+    let fixture = program(
+        &arena,
+        &[
+            ("m", "declare namespace Owner { export const key: unique symbol }\nexport = Owner;\n"),
+            ("a", "import { key } from \"./m\";\n"),
+        ],
+    );
+    assert!(!alias_resolves(&fixture, "key"));
+}
+
+#[test]
+fn a_type_only_supplement_does_not_erase_the_value_member() {
+    // Upstream combines a value property on the export-equals target with a
+    // supplemental type export on the original module. This checker cannot
+    // allocate that synthetic combined symbol without crossing the immutable
+    // binder boundary, so it must decline rather than return either half and
+    // erase the other meaning.
+    let arena = Arena::new();
+    let fixture = program(
+        &arena,
+        &[
+            (
+                "m",
+                "declare const o: { Item: number };\nexport interface Item { tag: string }\nexport = o;\n",
+            ),
+            ("a", "import { Item } from \"./m\";\n"),
+        ],
+    );
+    assert!(!alias_resolves(&fixture, "Item"));
+}
+
+#[test]
+fn a_declined_value_does_not_fall_through_to_a_type_only_supplement() {
+    // The target owns a unique-symbol VALUE named Token and the original module
+    // owns a distinct type-only Token. Native combines both meanings. Once the
+    // value is declined for site-dependent spelling, selecting the interface
+    // alone would silently erase that value meaning rather than preserve a gap.
+    let arena = Arena::new();
+    let fixture = program(
+        &arena,
+        &[
+            (
+                "m",
+                "declare namespace Owner { export const Token: unique symbol }\nexport interface Token { tag: string }\nexport = Owner;\n",
+            ),
+            ("a", "import { Token } from \"./m\";\n"),
+        ],
+    );
+    assert!(!alias_resolves(&fixture, "Token"));
 }
 
 #[test]
