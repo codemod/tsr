@@ -160,7 +160,7 @@ fn a_conditional_alias_reference_answers_from_its_branch() {
 }
 
 /// Enum-member declared-type dispatch forces its parent enum before caching the
-/// member type. This works without a lib or ModuleHost; the historical gap was
+/// member type. This works without a lib or `ModuleHost`; the historical gap was
 /// the missing dispatch, not an inherent limitation of this harness.
 #[test]
 fn an_enum_argument_resolves_without_a_module_host() {

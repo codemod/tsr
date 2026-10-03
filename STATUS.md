@@ -22,7 +22,48 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
-### Current checker checkpoint — twelve-unit integration
+### Current checker checkpoint — third eight-orb integration
+
+Measured on **`19677867`**, against exact `8a65762e`:
+**459,381/478,855 assertions (95.93%)**, **7,147/9,538 complete cases
+(74.93%)**. The 99% target requires 474,067 matches; **14,686 remain**.
+Pinned native `5b1047d1` and the denominator are unchanged. Aligned verdicts:
+**474,251 total; 459,381 RIGHT; 2,198 GAP; 12,672 WRONG**.
+
+The combined source adds **909 matching assertions and 63 complete cases**:
+690 WRONG→RIGHT and 219 GAP→RIGHT, with **zero RIGHT losses and zero
+new/removed rows**. There are **19 GAP→WRONG** transitions and **76 changed
+already-WRONG payloads**, neither counted as gains. A logical-record audit
+preserves embedded-newline types; a physical-line scorepair cannot establish
+the payload counts.
+
+Preserved generic-alias `keyof` work accounts for 36 matches, one GAP→WRONG
+and 17 changed-WRONG payloads. Against its independently measured source
+`25007101`, the eight imported units add **873 matches**: 656 WRONG→RIGHT,
+217 GAP→RIGHT, zero RIGHT losses/population changes, 18 GAP→WRONG and
+59 changed-WRONG payloads. Concurrent performance commits through `81216b80`
+are preserved; these comparisons are measured on the combined tree, not sums
+of worker claims.
+
+The accepted units cover concrete expression-index constraints, cold
+enum-member/export-equals resolution, lazy semantic reverse-mapped indexes,
+subtype/named-union reduction, iterable spread/assignment-rest boundaries,
+conditional-target inference, sibling JSDoc property ownership, and qualified
+alias/site-sensitive naming. Reverse indexes print `any` without discarding
+semantic values. Qualified aliases use the target's value meaning; type-only
+aliases do not acquire constructors.
+
+All eight affected suites were rerun. Parser and binder retain 100%; all four
+declaration suites are unchanged. Diagnostics improve **2,800 → 2,808/5,488
+(+8)**. **2,630 release workspace tests across 229 result blocks**, three
+worker-diagnostic example tests, nine performance-script tests, strict
+workspace/all-target clippy, formatting, **3,400 upstream references** and
+**16,633 section citations** pass. The issue-ID gate still reports **197
+missing historical records**, and this orb has no configured Dolt remote;
+local task states are not claimed as synced. The 99% goal remains unmet.
+This corpus wave does not rerun the real Next.js application.
+
+### Previous checker checkpoint — twelve-unit integration
 
 Measured on **`3c213739`**, against exact `8f8f4e1a`:
 **458,472/478,855 assertions (95.74%)**, **7,084/9,538 complete cases
@@ -1445,6 +1486,38 @@ rendering `any` for `errorType` (ADR-0038).
 ---
 
 ## 4. What is next — the scored board
+
+### Bounded follow-ups from the third eight-orb wave (tsr-lv3)
+
+- **Conditional operands and cyclic contexts** (tsr-v5l): three
+  conditionalTypeRelaxingConstraintAssignability rows retain enum aliases
+  instead of widened intrinsic arguments; two contextualTypeSelfReferencing
+  rows widen a cyclic tuple context to an array. Conditional-source four-operand
+  inference and defaulted alias chains remain unported.
+- **Accessible alias roots** (tsr-jwe): 12
+  collisionExportsRequireAndInternalModuleAliasInGlobalFile rows need the
+  intermediate `exports` alias; declFileAliasUseBeforeDeclaration2 still prints
+  `typeof E` instead of `E`. Recursive accessible export chains and ambient
+  exported-alias visibility remain separate from nonambient qualified aliases.
+- **JSDoc consumers** (tsr-yix, tsr-5iz): diagnostics traversal does not install
+  the JSDoc table; suffix-optional parameter/default-initializer flow still
+  blocks global optionality parity. Qualified sibling paths, stray `@type`
+  body replacement, callbacks and merged local typedefs remain declined.
+- **Const elisions alongside spreads** (tsr-dlz): a separate iterable follow-up
+  is investigating exact-optional missing holes versus required undefined.
+  Tuple normalization and inference functions are not part of its reservation.
+- **Enum union order and combined symbol meanings** (tsr-n3t, tsr-15w): four
+  logicalOrOperatorWithEveryType payloads still place the enum first; separate
+  value/type export symbols need native synthetic combination. No enum-as-alias
+  spelling workaround is retained.
+
+Partial/contextual reverse-mapped inference, unresolved generic/alias members,
+generic tuple expression deferral and generic-key validation remain bounded
+by their existing native prerequisites. The 19 exposed GAP→WRONG rows include
+the preserved `keyof` unit's computedTypesKeyofNoIndexSignatureType mismatch;
+the eight new units introduce the other 18. The 76 changed-WRONG payloads are
+17 preserved `keyof`, 25 naming, 28 JSDoc, four union-order and two conditional
+rows. Neither category is a correction.
 
 ### Bounded follow-ups from the second multi-orb wave (tsr-djf)
 
@@ -4750,6 +4823,34 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+### Third-wave review refusals — exact worker base `8a65762e`
+
+- Broad exported-ALIAS/ambient admission gained 726 matches but lost **26
+  RIGHT rows**, with 31 GAP→WRONG and 80 changed-WRONG payloads. The retained
+  binder prerequisite admits only nonambient qualified import-equals; the
+  checker still validates target value meaning. Same-name pure aliases compare
+  their immediate target without hiding a merged namespace's own meaning.
+- Global JSDocOptionalType undefined addition gained 38 WRONG→RIGHT but lost
+  **one RIGHT row** in returnConditionalExpressionJSDocCast, with 22 changed
+  WRONG payloads. Explicit `{T=}` undefined remains in the supported sibling
+  property consumer; defaulted parameter flow is a separate prerequisite.
+- Conditional dispatch before reference matching gained 12 matches but lost
+  **eight RIGHT rows**. Native references-first dispatch restores them; branch
+  priority is conditional rather than a synthetic union, and top-level literal
+  widening follows the native three-conditional depth boundary.
+- Apparent-source reverse-mapping produced **zero focused corrections and 14
+  changed-WRONG payloads**. It and eager cache-publication experiments are absent.
+  Retained display elision and pending nested completion preserve concrete
+  semantic index reads; semantic-any and eager-completion mutations fail the
+  discriminatory regression.
+- Iterable rest-only assignment recovery initially introduced **two
+  GAP→WRONG and one changed-WRONG payload**. Assignment targets retain their
+  numeric-index/unknown boundary; invalid ordinary spreads use native any
+  recovery. Yield/return values are read after filtering the entire result union.
+- Treating enum origin as a named-alias spelling to force union order is refused.
+  The semantic subtype/origin unit gains ten matches with no RIGHT losses;
+  its four remaining enum-order payloads are recorded rather than disguised.
 
 ### Second-wave review refusals — exact worker base `8f8f4e1a`
 
@@ -12189,3 +12290,5 @@ that were true of a different population than the one they were quoted about.
 | 2026-10-03 | `3c213739` | **95.74%** | **7,084/9,538** | **Twelve-unit integration plus preserved upstream changes: +450 assertions and +25 complete cases vs exact 8f8f4e1a.** 458,472/478,855; aligned 474,251 total, 458,472 RIGHT, 2,436 GAP, 13,343 WRONG. 437 W→R, 7 G→R, 6 new RIGHT and 1 new WRONG; zero RIGHT losses or removed rows, 2 G→W and 15 changed already-WRONG payloads. The twelve units account for +436 matches; package redirection adds +10 and assertion widening +4, verified by separate combined-source audits. Diagnostics 2,800/5,488 (+1). All 227 release workspace result blocks, strict clippy, fmt, 3,398 anchors and 16,642 section citations pass. The issue-ID gate reports 197 absent local records; Dolt adoption remains unapproved. 15,595 matches remain to 99%; bounded follow-ups and review refusals are in §§4–5. |
 
 | 2026-10-03 | `HEAD` | **95.75%** | **7,084/9,538** | **Generic alias keyof operands (tsr-6.42): +36 assertions vs exact cfcbcfab, zero RIGHT losses or population changes.** 458,508/478,855; aligned 474,251 total, 458,508 RIGHT, 2,433 GAP, 13,310 WRONG. 34 W→R, 2 G→R, one exposed G→W and 17 changed already-WRONG payloads. Alias-body evaluation, semantic empty-object deferral and retained remapped-alias operands follow pinned tsgo; concrete substitutions are tested. Diagnostics unchanged at 2,800/5,488. All 227 release workspace result blocks, strict clippy, fmt, 3,400 anchors and 16,642 section citations pass on the rebased source. The issue-ID gate still reports 197 missing historical records; Dolt adoption remains unapproved. 15,559 matches remain to 99%; recursive mapped keys, computed-symbol keys and circular-alias diagnostics remain in tsr-6.43. [Evidence](docs/architecture/checker-99-union-key-access.md). |
+
+| 2026-10-03 | `19677867` | **95.93%** | **7,147/9,538** | **Third eight-orb integration plus preserved upstream work: +909 assertions and +63 complete cases vs exact 8a65762e.** 459,381/478,855; aligned 474,251 total, 459,381 RIGHT, 2,198 GAP, 12,672 WRONG. 690 W→R, 219 G→R, zero RIGHT losses/new/removed rows, 19 G→W and 76 changed-WRONG payloads. Eight units alone add 873 matches against preserved 25007101; the other 36 are independently verified generic-alias keyof work. Diagnostics 2,808/5,488 (+8); parser, binder and declaration suites unchanged. All 2,630 release workspace tests/229 result blocks, three worker-diagnostic controls, nine performance-script tests, strict clippy, fmt, 3,400 anchors and 16,633 section citations pass. The 197 historical issue-ID failures and unconfigured Dolt remote remain explicit. 14,686 matches remain to 99%; review refusals and semantic follow-ups are recorded in §§4–5. |
