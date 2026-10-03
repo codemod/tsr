@@ -171,3 +171,36 @@ deterministic global merges remain work in `bd tsr-1yb.5`.
 - Parallel parsing in any real driver — only the harness uses it.
 - Arena pooling.
 - Parallel binding or checking; both subsystems now exist and run serially.
+
+## Opt-in worker measurement probe
+
+`cargo build --release -p tsr-execute --example checker_workers` builds a
+standalone ownership/cost probe. Run the resulting absolute executable from the
+project directory with `/absolute/tsconfig.json 1`, `2`, or `4`. The production
+CLI remains serial. The probe shares a fully bound Program and gives each scoped
+worker a private checker; file affinity follows the complete Program array
+index modulo worker count, before filtering eligible files. It caps the requested
+count at four, available CPUs and Program files, and honors `singleThreaded`.
+These are probe limits, not an approved production default or the full native
+`checkers` option contract.
+
+Stdout contains checker diagnostics after comment directives. Stderr records
+loaded/checked identities, phase times and each worker's checked count, initial
+and final type counts, expression computations and initialization/check time.
+Type counts are not allocation bytes, and expression computations are not all
+generic instantiations. Measure external process wall/CPU/peak RSS separately.
+The probe is not a replacement for CLI config, parse/bind diagnostics or emit.
+
+One exploratory fresh-process Next.js run per probe mode on source `8a65762e`
+observed 4.789/3.715/3.351 seconds at 1/2/4 workers, with process peak RSS
+1.047/0.990/1.002 GB. Each checked the same 1,341 files from 13,097 loaded files
+with stable input fingerprints; all three had identical complete diagnostic
+fingerprints. All 123 diagnostic headers also matched the serial CLI. Its
+complete fingerprint differs because the harness attaches summary lines to the
+last diagnostic (`tsr-1yb.1.4`); header equality is not a substitute for fixing
+that comparison. These single observations establish no retained speedup,
+memory reduction, production default or native 2x result.
+
+Local evidence is `/tmp/tsr-1yb-worker-scaling-exploratory.json`. Repeated scaling
+and memory policy remain in `tsr-1yb.3.1`; diagnostic merging and query/emit
+ownership controls are `tsr-1yb.3.2`. Both must precede production scheduling.
