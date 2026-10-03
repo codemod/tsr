@@ -394,6 +394,16 @@ impl Checker<'_, '_> {
         let writing = node.node_id.is_some_and(|id| {
             self.assignment_target_kind(id) != crate::expressions::AssignmentTargetKind::None
         });
+        // checkElementAccessExpression (checker.go:8169): a generic receiver
+        // other than polymorphic `this` can read, but cannot write through a
+        // non-numeric index signature of its constraint.
+        let no_index_signatures = writing
+            && self.indexed_access_object_is_generic(object_type)
+            && !self
+                .this_types
+                .values()
+                .chain(self.this_type_nodes.values())
+                .any(|&ty| ty == object_type);
         // checkElementAccessExpression (`checker.go:8148`) widens the receiver
         // of an assignment target or a called method; a widened object literal
         // has lost ObjectFlagsObjectLiteral.
@@ -406,7 +416,8 @@ impl Checker<'_, '_> {
         if let TypeData::Union { types, .. } = self.store.get(index_type).data.clone()
             && !self.store.get(index_type).flags.contains(crate::flags::TypeFlags::BOOLEAN)
             && !self.indexed_access_index_is_generic(index_type)
-            && !self.indexed_access_object_is_generic(object_type)
+            && (!self.variadic_tuple_elements.contains_key(&object_type)
+                || !self.indexed_access_object_is_generic(object_type))
         {
             let mut values = Vec::with_capacity(types.len());
             for key in types {
@@ -415,6 +426,7 @@ impl Checker<'_, '_> {
                     key,
                     include_undefined,
                     widened,
+                    no_index_signatures,
                 );
                 if value == error {
                     return error;
@@ -433,7 +445,13 @@ impl Checker<'_, '_> {
                 self.get_union_type(&values)
             };
         }
-        self.element_access_for_index_type(object_type, index_type, include_undefined, widened)
+        self.element_access_for_index_type(
+            object_type,
+            index_type,
+            include_undefined,
+            widened,
+            no_index_signatures,
+        )
     }
 
     /// `isMethodAccessForCall` (`checker.go:11466`): the access, through any
@@ -464,6 +482,7 @@ impl Checker<'_, '_> {
         index_type: TypeId,
         include_undefined: bool,
         widened: bool,
+        no_index_signatures: bool,
     ) -> TypeId {
         let error = self.intrinsics.error;
         let Some(name) = self.property_name_from_index(index_type) else {
@@ -476,9 +495,20 @@ impl Checker<'_, '_> {
             {
                 return deferred;
             }
+            // getReducedApparentType follows the receiver's base constraint
+            // after deferral. Do not use that constraint to admit a generic
+            // key rejected by the expression-side validation above.
+            let apparent = if self.indexed_access_index_is_generic(index_type) {
+                object_type
+            } else {
+                self.apparent_type(object_type)
+            };
             // Not a literal, so it names no property. `getIndexedAccessType`
             // falls to the index signatures (`checker.go:21902`).
-            if let Some(info) = self.get_applicable_index_info(object_type, index_type) {
+            if let Some(info) = self.get_applicable_index_info(apparent, index_type) {
+                if no_index_signatures && info.key != self.intrinsics.number {
+                    return error;
+                }
                 return self.include_unchecked_undefined(
                     info.value,
                     include_undefined,
@@ -562,6 +592,9 @@ impl Checker<'_, '_> {
         // A named lookup that misses still reaches the index signatures, which is
         // what makes `{ [k: string]: number }["anything"]` answer `number`.
         if let Some(info) = self.get_applicable_index_info(object_type, index_type) {
+            if no_index_signatures && info.key != self.intrinsics.number {
+                return error;
+            }
             return self.include_unchecked_undefined(
                 info.value,
                 include_undefined,
@@ -580,6 +613,9 @@ impl Checker<'_, '_> {
         if apparent != object_type
             && let Some(info) = self.get_applicable_index_info(apparent, index_type)
         {
+            if no_index_signatures && info.key != self.intrinsics.number {
+                return error;
+            }
             return self.include_unchecked_undefined(
                 info.value,
                 include_undefined,
