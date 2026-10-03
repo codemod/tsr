@@ -47,6 +47,20 @@ in `reverse_mapped.rs` distinguishes those answers. Ordinary `keyof { 1: T }`
 continues to produce the number literal `1`. This closes tsr-6.10's written
 numeric/quoted-key mismatch; computed-key inference remains outside this unit.
 
+Exact optional reverse inference preserves the distinction between an absent
+property and an explicitly written `undefined`. Native `inferFromProperties`
+(`internal/checker/inference.go:829–835`) removes `missingType` from source and
+target member types only when their property symbols are optional. It does not
+remove ordinary `undefined`. The Rust structural property walk now applies the
+same symbol-driven normalization before recursive inference: under
+`exactOptionalPropertyTypes`, reversing `{ p?: string }` yields `{ p: string }`,
+while both `{ p?: string | undefined }` and required
+`{ p: string | undefined }` preserve `undefined`. Without the exact-optional
+option, the property walk removes no constituent; the optional mapped template's
+ordinary `undefined` then makes all three controls infer `{ p: string }`, matching
+native. Focused controls distinguish both modes and explicit `undefined`; no
+printed type spelling is inspected.
+
 Partially inferable source flags, expanding reverse recursion, full member
 widening and contextual nested indexed-access simplification remain incomplete.
 The original intersection origin is retained on mapped metadata; general union

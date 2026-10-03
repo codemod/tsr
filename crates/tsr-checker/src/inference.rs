@@ -4385,12 +4385,30 @@ impl Checker<'_, '_> {
             };
         if !target_names.is_empty() {
             for name in &target_names {
-                let (Some(target_member), Some(source_member)) = (
+                let (Some(mut target_member), Some(mut source_member)) = (
                     self.get_type_of_property_of_type(target, name),
                     self.get_type_of_property_of_type(source, name),
                 ) else {
                     continue;
                 };
+                // inferFromProperties (inference.go:829) removes only the
+                // distinct missing constituent carried by optional symbols.
+                // Explicit `undefined` therefore remains an inference
+                // candidate under exactOptionalPropertyTypes.
+                if self.exact_optional_property_types {
+                    if self
+                        .get_property_of_type(target, name)
+                        .is_some_and(|property| self.property_is_optional(property))
+                    {
+                        target_member = self.remove_missing_type(target_member);
+                    }
+                    if self
+                        .get_property_of_type(source, name)
+                        .is_some_and(|property| self.property_is_optional(property))
+                    {
+                        source_member = self.remove_missing_type(source_member);
+                    }
+                }
                 self.infer_from_types_within(
                     source_member,
                     target_member,
