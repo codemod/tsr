@@ -592,51 +592,30 @@ impl<'a> Checker<'a, '_> {
             TypeNode::ThisTypeNode(node) => self.get_type_from_this_type_node(node),
             // §35 (`checker-notes-callres.md`): DEFERRED `keyof` over a type
             // parameter prints as written — the §34 mint, the §31
-            // registration. Direct unions and intersections follow
+            // registration. Unions and intersections follow
             // `getIndexTypeEx`'s semantic distribution: the keys of a union are
-            // intersected and the keys of an intersection are unioned. Keep
-            // this syntax-bounded rather than admitting every generic operand:
-            // alias consumers independently retain their written form.
+            // intersected and the keys of an intersection are unioned.
+            // Alias consumers independently retain their written form.
             TypeNode::TypeOperatorNode(node) if node.operator.kind == SyntaxKind::KeyOfKeyword => {
                 let mut direct_operand = node.r#type;
                 while let Some(TypeNode::ParenthesizedTypeNode(parenthesized)) = direct_operand {
                     direct_operand = parenthesized.r#type;
                 }
-                // `shouldDeferIndexType` keeps an instantiable intersection
-                // containing an empty anonymous object as one INDEX type.
-                // `keyof (T & {})` therefore stays deferred instead of reducing
-                // to `keyof T | never` and collapsing to `keyof T`.
-                if let Some(TypeNode::IntersectionTypeNode(intersection)) = direct_operand
-                    && intersection.types.iter().any(|operand| {
-                        matches!(
-                            operand,
-                            TypeNode::TypeLiteralNode(literal) if literal.members.is_empty()
-                        )
-                    })
-                {
-                    let target =
-                        self.get_type_from_type_node(TypeNode::IntersectionTypeNode(intersection));
-                    let mut pending = vec![target];
-                    let mut instantiable = false;
-                    while let Some(candidate) = pending.pop() {
-                        if self.store.get(candidate).flags.intersects(TypeFlags::INSTANTIABLE) {
-                            instantiable = true;
-                            break;
-                        }
-                        if let crate::types::TypeData::Union { types, .. }
-                        | crate::types::TypeData::Intersection { types, .. } =
-                            self.store.get(candidate).data.clone()
-                        {
-                            pending.extend(types);
-                        }
-                    }
-                    if target != self.intrinsics.error && instantiable {
-                        let text = format!("keyof ({})", self.type_to_string(target));
-                        let id = self.store.new_named(TypeFlags::INDEX, text, None);
-                        self.deferred_keyof_types.insert(id);
-                        self.deferred_keyof_operands.insert(id, target);
-                        self.deferred_index_mints.insert(id);
-                        return id;
+                // getIndexTypeEx consumes an alias's instantiated body, not
+                // its display identity. Resolve the whole operand first so
+                // absorbing any/never constituents reduce before distribution.
+                if let Some(operand @ TypeNode::TypeReferenceNode(_)) = direct_operand {
+                    let target = self.get_type_from_type_node(operand);
+                    let alias_reference =
+                        self.type_reference_targets.get(&target).is_some_and(|(symbol, _)| {
+                            self.binder
+                                .symbols()
+                                .get(*symbol)
+                                .flags
+                                .contains(SymbolFlags::TYPE_ALIAS)
+                        });
+                    if alias_reference && let Some(keys) = self.resolved_keyof_type(target) {
+                        return keys;
                     }
                 }
                 let (compound, operands, separator) = match direct_operand {
@@ -6797,23 +6776,58 @@ impl<'a> Checker<'a, '_> {
     /// substituted keyof operands. Property syntax distinguishes numeric names
     /// from quoted numeric names; index signatures contribute their key types.
     pub(crate) fn resolved_keyof_type(&mut self, target: TypeId) -> Option<TypeId> {
+        if !self.index_types_in_progress.insert(target) {
+            return None;
+        }
+        let result = self.resolved_keyof_type_worker(target);
+        self.index_types_in_progress.remove(&target);
+        result
+    }
+
+    fn resolved_keyof_type_worker(&mut self, target: TypeId) -> Option<TypeId> {
         if target == self.intrinsics.error {
             return None;
         }
         if let Some(keys) = self.mapped_index_type(target) {
             return Some(keys);
         }
+        // Native alias instantiations expose the body's semantic kind. Keep
+        // the reference separately for index origins and deferred alias names;
+        // later substitution must run this same query on the rebuilt operand.
+        let original = target;
+        let target = self.binding_type_alias_body(target);
+        if target != original
+            && let Some(keys) = self.mapped_index_type(target)
+        {
+            return Some(keys);
+        }
+        // shouldDeferIndexType: an instantiable intersection containing an
+        // empty anonymous object is one INDEX type, not a union of its keys.
+        let deferred_intersection = matches!(&self.store.get(target).data, crate::types::TypeData::Intersection { types, .. }
+                if self.maybe_type_of_kind(target, TypeFlags::INSTANTIABLE)
+                    && types.iter().any(|&part| self.is_empty_anonymous_object_type(part)));
         if self.store.get(target).flags.intersects(TypeFlags::INSTANTIABLE_NON_PRIMITIVE)
+            || deferred_intersection
             || self.is_generic_homomorphic_mapped_type(target)
             || self.mapped_types.get(&target).cloned().is_some_and(|info| {
                 info.name_type.is_some()
                     && self.signature_parameter_type_is_generic(info.constraint)
             })
         {
-            let text = format!("keyof {}", self.type_to_string(target));
+            let operand_type = if deferred_intersection { original } else { target };
+            let operand = self.type_to_string(operand_type);
+            let operand = if deferred_intersection
+                && self.store.get(operand_type).flags.contains(TypeFlags::INTERSECTION)
+                && !crate::printing::prints_as_a_single_token(self.store.get(operand_type))
+            {
+                format!("({operand})")
+            } else {
+                operand
+            };
+            let text = format!("keyof {operand}");
             let id = self.store.new_named(TypeFlags::INDEX, text, None);
             self.deferred_keyof_types.insert(id);
-            self.deferred_keyof_operands.insert(id, target);
+            self.deferred_keyof_operands.insert(id, operand_type);
             self.deferred_index_mints.insert(id);
             return Some(id);
         }
@@ -6947,7 +6961,13 @@ impl<'a> Checker<'a, '_> {
             }
         }
         let union = self.get_union_type(&keys);
-        Some(if self.keyof_origin_applies(target) {
+        let aliased_object = self.store.get(target).flags.contains(TypeFlags::OBJECT)
+            && !self.mapped_types.contains_key(&target)
+            && !self.mapped_identity_sources.contains_key(&target)
+            && self.type_reference_targets.get(&target).is_some_and(|(symbol, _)| {
+                self.binder.symbols().get(*symbol).flags.contains(SymbolFlags::TYPE_ALIAS)
+            });
+        Some(if aliased_object || self.keyof_origin_applies(target) {
             let text = format!("keyof {}", self.type_to_string(target));
             self.union_with_origin_text(union, text)
         } else {

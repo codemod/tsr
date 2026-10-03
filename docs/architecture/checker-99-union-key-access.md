@@ -164,6 +164,47 @@ RIGHT, 2,445 GAP and 13,777 WRONG to 458,065 RIGHT, 2,441 GAP and 13,738 WRONG:
 or removed aligned rows and no changed still-WRONG payloads. Complete cases move
 from 7,059/9,538 to 7,062/9,538.
 
+## Generic alias operands and semantic empty-object deferral
+
+The named-alias refusal above is superseded by tsr-6.42. The semantic
+`resolved_keyof_type` query now projects generic aliases through the existing
+alias-body evaluator before inspecting their kind. Declaration queries and
+`instantiateTypeWorker` share this boundary: a function returning
+`keyof NonNull<T>` for `type NonNull<T> = T & {}` returns `"a" | "b"` after
+substitution with `{ a: number; b: string }`. Fixing only the written-node
+dispatch made the generic signature print correctly but left this call at error.
+
+The native rules are `getIndexTypeEx` (checker.go:26684),
+`shouldDeferIndexType` (checker.go:26834), and `IsEmptyAnonymousObjectType`
+(checker.go:26476). Empty-object deferral now tests the resolved intersection,
+not written `{}` syntax. Named empty literals are recognized through their
+literal origin; raw binder tables cannot prove emptiness because they omit
+late-bound computed members. Nonempty objects, callables, and concrete
+intersections must not acquire this deferral.
+
+Pinned tsgo was built with Go 1.26.8 using `go build -o /tmp/tsr-tsgo ./cmd/tsgo`
+in `vendor/typescript-go`. The regression sources were checked with
+`/tmp/tsr-tsgo --strict --declaration --emitDeclarationOnly --outDir /tmp/tsr-keyof-oracle-out /tmp/tsr-keyof-oracle.ts`.
+The new cases in `tests/union_key_element_access.rs` retain these outcomes:
+
+- Alias of `T | U`, including reordered alias chains: `keyof T & keyof U`.
+- Alias of `T & U`: `keyof T | keyof U`.
+- Alias of `T | any` or `T & never`: `string | number | symbol`.
+- Alias of `T & unknown`: `keyof T`.
+- Alias `Wrapped<T> = T & {}`: `keyof Wrapped<T>`.
+- `T & Empty`, with `type Empty = {}`: `keyof (T & Empty)`.
+- Generic `Box<T>` with two ordinary properties: `keyof Box<T>`.
+- Generic `Box<T>` with one property `value`: `"value"`.
+
+The same native run corrected an older regression expectation:
+`keyof P<O>` for a homomorphic optional mapping retains `keyof O`, not the
+expanded string-literal union. An invalid `type Cycle<T> = T | Cycle<T>` probe
+exposed unbounded key recursion; active index-query identities now stop that
+cycle without a depth cap. Its native error-any key set and circularity
+diagnostics remain unported, explicitly pinned as a gap rather than a native
+expectation. Remaining computed-symbol and recursive mapped-key failures are
+tracked in tsr-6.43.
+
 ## Limits
 
 - The expression road still does not apply isStringIndexSignatureOnlyType's

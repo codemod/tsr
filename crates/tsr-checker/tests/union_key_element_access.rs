@@ -1,11 +1,10 @@
 //! Element access with union keys, the object-literal key fallback, and
 //! narrowing `obj[key]` through an unassigned identifier key.
 //!
-//! Every expectation is the declaration output of a pinned tsgo build
+//! Native expectations are the declaration output of a pinned tsgo build
 //! (`5b1047d1`, `--strict`), and
 //! `docs/architecture/checker-99-union-key-access.md` records the native rules.
-//! The named generic-alias assertion explicitly records the bounded port's
-//! existing refusal so the direct-syntax unit cannot silently broaden its road.
+//! The circular-alias control explicitly retains the port's unresolved gap.
 
 use tsr_ast::Statement;
 use tsr_checker::Checker;
@@ -89,10 +88,9 @@ fn a_concrete_keyof_keeps_numeric_names_numeric() {
 }
 
 /// `getIndexTypeEx` (`checker.go:26684`) intersects the deferred keys of a
-/// direct union and unions those of a direct intersection. An equivalent named
-/// alias stays on the existing alias road rather than being expanded here.
+/// union and unions those of an intersection, including named alias operands.
 #[test]
-fn direct_generic_compounds_distribute_keyof_without_expanding_aliases() {
+fn generic_compounds_distribute_keyof_without_erasing_written_aliases() {
     let union = "function f<T, U>(key: keyof (T | U)) { return key; }";
     assert_eq!(type_of_last(union), "<T, U>(key: keyof (T | U)) => keyof T & keyof U");
 
@@ -104,9 +102,76 @@ fn direct_generic_compounds_distribute_keyof_without_expanding_aliases() {
 
     let alias = "type Wrapped<T, U> = T | U;\n\
                  function f<T, U>(key: keyof Wrapped<T, U>) { return key; }";
-    // Native returns `keyof T & keyof U`; this unit deliberately leaves the
-    // previously measured generic-alias road unchanged.
-    assert_eq!(type_of_last(alias), "<T, U>(key: keyof Wrapped<T, U>) => any");
+    assert_eq!(type_of_last(alias), "<T, U>(key: keyof Wrapped<T, U>) => keyof T & keyof U");
+}
+
+/// Aliases substitute arguments before computing keys, including reordered
+/// alias chains. A reduced body and a written parameter have distinct renders.
+#[test]
+fn generic_alias_keys_follow_substituted_bodies() {
+    let intersection = "type Wrapped<T, U> = T & U;\n\
+                        function f<T, U>(key: keyof Wrapped<T, U>) { return key; }";
+    assert_eq!(type_of_last(intersection), "<T, U>(key: keyof Wrapped<T, U>) => keyof T | keyof U");
+    let chain = "type Pair<A, B> = A | B; type Wrapped<T, U> = Pair<U, T>;\n\
+                 function f<T, U>(key: keyof Wrapped<T, U>) { return key; }";
+    // CompareTypes sorts named union constituents before getIndexTypeEx
+    // intersects their keys, independently of the written argument order.
+    assert_eq!(type_of_last(chain), "<T, U>(key: keyof Wrapped<T, U>) => keyof T & keyof U");
+    let any = "type Wrapped<T> = T | any;\n\
+               function f<T>(key: keyof Wrapped<T>) { return key; }";
+    assert_eq!(type_of_last(any), "<T>(key: keyof Wrapped<T>) => string | number | symbol");
+    let never = "type Wrapped<T> = T & never;\n\
+                 function f<T>(key: keyof Wrapped<T>) { return key; }";
+    assert_eq!(type_of_last(never), "<T>(key: keyof Wrapped<T>) => string | number | symbol");
+    let unknown = "type Wrapped<T> = T & unknown;\n\
+                   function f<T>(key: keyof Wrapped<T>) { return key; }";
+    assert_eq!(type_of_last(unknown), "<T>(key: keyof Wrapped<T>) => keyof T");
+}
+
+/// shouldDeferIndexType tests semantic empty objects, including through an
+/// alias. It must not replace `keyof (T & {})` with `keyof T`.
+#[test]
+fn generic_alias_keys_preserve_empty_object_deferral() {
+    let alias = "type Wrapped<T> = T & {};\n\
+                 function f<T>(key: keyof Wrapped<T>) { return key; }";
+    assert_eq!(type_of_last(alias), "<T>(key: keyof Wrapped<T>) => keyof Wrapped<T>");
+    let named_empty = "type Empty = {};\n\
+                       function f<T>(key: keyof (T & Empty)) { return key; }";
+    assert_eq!(type_of_last(named_empty), "<T>(key: keyof (T & Empty)) => keyof (T & Empty)");
+    let nonempty = "type Tag = { a: number };\n\
+                    function f<T>(key: keyof (T & Tag)) { return key; }";
+    assert_eq!(type_of_last(nonempty), "<T>(key: keyof (T & Tag)) => \"a\" | keyof T");
+}
+
+/// instantiateTypeWorker recomputes the deferred index after substituting its
+/// operand; retaining only the alias's printed name would leave this as error.
+#[test]
+fn deferred_alias_keys_resolve_after_call_instantiation() {
+    let source = "type NonNull<T> = T & {};\n\
+                  function f<T>(key: keyof NonNull<T>) { return key; }\n\
+                  const value = f<{ a: number; b: string }>(\"a\");";
+    assert_eq!(type_of_last(source), "\"a\" | \"b\"");
+}
+
+/// Invalid circular aliases are still an unresolved-type gap in this port.
+/// Exposing their semantic union must not infinitely recurse computing keys.
+#[test]
+fn circular_alias_key_queries_remain_a_gap_without_overflowing() {
+    let source = "type Cycle<T> = T | Cycle<T>;\n\
+                  function f<T>(key: keyof Cycle<T>) { return key; }";
+    assert_eq!(type_of_last(source), "<T>(key: keyof Cycle<T>) => any");
+}
+
+/// getLiteralTypeFromProperties preserves the index origin of an aliased
+/// object, but a single-key union still collapses to its literal.
+#[test]
+fn generic_object_alias_keys_retain_their_origin() {
+    let pair = "type Box<T> = { value: T; extra: number };\n\
+                function f<T>(key: keyof Box<T>) { return key; }";
+    assert_eq!(type_of_last(pair), "<T>(key: keyof Box<T>) => keyof Box<T>");
+    let single = "type Box<T> = { value: T };\n\
+                  function f<T>(key: keyof Box<T>) { return key; }";
+    assert_eq!(type_of_last(single), "<T>(key: keyof Box<T>) => \"value\"");
 }
 
 /// `shouldDeferIndexType` requires an instantiable constituent as well as an

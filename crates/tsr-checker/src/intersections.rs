@@ -651,9 +651,18 @@ impl Checker<'_, '_> {
         Some(types)
     }
 
-    /// `IsEmptyAnonymousObjectType` (checker.go). Only a complete structural
-    /// property table establishes emptiness; missing member data does not.
+    /// `IsEmptyAnonymousObjectType` (checker.go): either resolved structural
+    /// members or a type-literal symbol with no members establishes emptiness.
     pub(crate) fn is_empty_anonymous_object_type(&self, id: TypeId) -> bool {
+        // Named literal aliases do not carry anonymous_properties. Read their
+        // literal origin; a raw binder member table alone would miss late-bound
+        // computed members that native getMembersOfSymbol includes.
+        if self.type_literal_origins.get(&id).is_some_and(|&origin| {
+            matches!(self.node_map.get(origin), Some(tsr_ast::Node::TypeLiteralNode(node))
+                if node.members.is_empty())
+        }) {
+            return true;
+        }
         self.anonymous_properties.get(&id).is_some_and(|(properties, _)| properties.is_empty())
             && self.any_function_type != Some(id)
             && self.signature_types.get(&id).is_none_or(Vec::is_empty)

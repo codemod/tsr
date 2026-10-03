@@ -433,13 +433,15 @@ fn a_literal_index_naming_a_property_resolves() {
 /// "unpinned" half: the behaviour is verifiable against the language without the
 /// corpus, and `keys_of` answering `error` here was a defect whether or not a
 /// baseline row happens to witness it.
+/// A direct pinned-tsgo declaration probe additionally confirms that the
+/// source's index origin survives: the result prints `keyof O`, not its union.
 #[test]
 fn keyof_a_homomorphic_identity_mapped_type_is_the_sources_keys() {
     assert_eq!(
         type_of_last_expression(
             "type O = { x: string; y: number };\ntype P<T> = { [K in keyof T]?: T[K] };\ndeclare let v: keyof P<O>;\nv;"
         ),
-        "\"x\" | \"y\""
+        "keyof O"
     );
 }
 

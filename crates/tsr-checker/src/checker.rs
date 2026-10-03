@@ -280,6 +280,9 @@ pub struct Checker<'a, 'n> {
     pub(crate) deferred_keyof_types: rustc_hash::FxHashSet<TypeId>,
     /// The operand of a deferred `IndexType`, for substitution (types.go).
     pub(crate) deferred_keyof_operands: FxHashMap<TypeId, TypeId>,
+    /// Active semantic index queries. Unresolved circular alias bodies must
+    /// remain a gap rather than recursively expanding their own key sets.
+    pub(crate) index_types_in_progress: rustc_hash::FxHashSet<TypeId>,
     /// §813: the DEFERRED `keyof X` / `X[Y]` mints, as a set of their own.
     ///
     /// A subset of [`Self::unresolved_types`] rather than a new kind of type.
@@ -1238,6 +1241,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             unresolved_types: rustc_hash::FxHashSet::default(),
             deferred_keyof_types: rustc_hash::FxHashSet::default(),
             deferred_keyof_operands: FxHashMap::default(),
+            index_types_in_progress: rustc_hash::FxHashSet::default(),
             deferred_index_mints: rustc_hash::FxHashSet::default(),
             deferred_indexed_access_types: FxHashMap::default(),
             deferred_indexed_access_cache: FxHashMap::default(),
