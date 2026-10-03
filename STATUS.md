@@ -22,23 +22,35 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
-### Current checker checkpoint — nonfinite literals and cold mapped producers
+### Current checker checkpoint — nonfinite literals and class-module identities
 
-Measured production tree **`dea5ee4e`**, against published `d881bd20`:
-**459,594/478,855 assertions (95.98%)**, **7,173/9,538 complete cases
-(75.20%)**. The 99% target requires 474,067 matches; **14,473 remain**.
+Measured production tree **`c111a6b0`**, against published `d881bd20`:
+**459,598/478,855 assertions (95.98%)**, **7,173/9,538 complete cases
+(75.20%)**. The 99% target requires 474,067 matches; **14,469 remain**.
 Pinned native `5b1047d1` and both denominators are unchanged. Aligned verdicts:
-**474,251 total; 459,594 RIGHT; 2,183 GAP; 12,474 WRONG**.
+**474,251 total; 459,598 RIGHT; 2,183 GAP; 12,470 WRONG**.
 
 Nonfinite numeric values now use the existing ECMAScript formatter when interned
 as literals, negated literals and enum payloads. Finite formatting and scanner
 recovery are unchanged. Native controls distinguish overflow from a shadowed
 `Infinity` binding, preserve negative zero and finite values, and keep enum-owner
 identity in both assignment directions. Composed unary `-(-2e999)` still widens
-to `number`, matching native. The full audit adds **45 WRONG→RIGHT** in
+to `number`, matching native. The numeric audit adds **45 WRONG→RIGHT** in
 `fakeInfinity1/2/3` and `deferredConditionalTypes2`, with **zero RIGHT losses,
 GAP→WRONG, changed remaining-WRONG payloads, or new/removed records**. Three whole
 cases improve; the 45 assertions are not 45 cases.
+
+Class namespace imports retain distinct nonconstructable module identities,
+copied static/member provenance, source prototypes and synthetic defaults.
+`new Head()` returns native intrinsic error-any; `new Raw()` still constructs.
+The combined class audit adds **four WRONG→RIGHT** in `es6ExportEqualsInterop`,
+with zero RIGHT losses, GAP→WRONG or population changes. One remaining-WRONG
+`umd8` naming payload changes: the cloned alias cannot name the original
+constructor, and the native import-type spelling remains unsupported. Executed
+native/Rust identity controls show naming `None` preserves the original OBJECT
+constructor, prototype and member data rather than projecting it to any/error.
+These four assertions add no complete case. Together the two units add 49
+matches; the naming residue is not a gain.
 
 Cold bounded homomorphic mapped queries expose guaranteed names, modifiers,
 declaration roots and deferred values. Open-key and union enumeration stay
@@ -54,7 +66,7 @@ Complete duplicate-aware diagnostics are byte-identical to `d881bd20` across
 **20,617 matched occurrences / 3,891 extras**. There are no correct-case,
 expected-occurrence, empty-positive, payload or population losses.
 
-**2,755 release workspace tests across 236 result blocks**, six existing ignores,
+**2,758 release workspace tests across 236 result blocks**, six existing ignores,
 strict release workspace/all-target Clippy, formatting and diff checks pass.
 Unfiltered scorepair agrees with the multiline-aware audit and accepts the new
 baseline; checker and diagnostics snapshots are refreshed after strict Clippy.
@@ -64,8 +76,8 @@ remote, so local issue updates are not claimed as synced.
 The standalone intrinsic-error negation patch is held despite 11 gains: three
 GAP→WRONG rows require constrained-parameter truthiness and loop-flow/binding
 prerequisites. Its complete diagnostics are unchanged, and both negation and
-the rejected unresolved supplier are restored. Class-module-clone, bounded
-conditional-constraint and semantic signature-position work still requires
+the rejected unresolved supplier are restored. Function-export namespace copies,
+bounded conditional constraints and semantic signature positions still require
 combined integration audits. The 99% goal is not reached; this is a checkpoint,
 not completion.
 
