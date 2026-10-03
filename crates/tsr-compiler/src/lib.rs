@@ -57,6 +57,7 @@ mod file;
 pub mod loader;
 
 use std::collections::hash_map::Entry;
+use std::time::{Duration, Instant};
 
 use rustc_hash::FxHashMap;
 use tsr_ast::{NodeId, NodeMap, NodeTable};
@@ -66,6 +67,17 @@ use tsr_path::{Path, to_path};
 
 pub use file::ProgramFile;
 pub use loader::{FileLoader, LoadOptions, LoadedFiles, RequestKind, ResolutionRequest};
+
+/// Opt-in program construction attribution (`compiler.reportStatistics`).
+#[derive(Debug, Default, Clone, Copy)]
+pub struct ProgramStatistics {
+    /// File discovery, reading and parsing attributed by the loader.
+    pub load: loader::LoadStatistics,
+    /// Canonical file/module indexing after loading and before binding.
+    pub indexing_time: Duration,
+    /// Binding and global merges over the canonical files.
+    pub bind_time: Duration,
+}
 
 /// How a program is constructed (`compiler.ProgramOptions`).
 #[derive(Debug, Clone)]
@@ -216,6 +228,7 @@ pub struct Program<'a> {
     /// `SymbolStore` is filled by one sequential accumulation. See
     /// [`Program::bind_source_files`].
     bound_file_count: usize,
+    statistics: ProgramStatistics,
 }
 
 impl<'a> Program<'a> {
@@ -310,6 +323,7 @@ impl<'a> Program<'a> {
             node_map,
             binder: BindResult::empty(),
             bound_file_count: 0,
+            statistics: ProgramStatistics::default(),
         }
     }
 
@@ -336,6 +350,7 @@ impl<'a> Program<'a> {
     ) -> Self {
         let compiler_options = options.compiler_options.clone();
         let loaded = loader::FileLoader::load(arena, host, options);
+        let indexing_started = compiler_options.extended_diagnostics.is_true().then(Instant::now);
 
         let mut files_by_path = FxHashMap::default();
         for (index, file) in loaded.files.iter().enumerate() {
@@ -369,8 +384,16 @@ impl<'a> Program<'a> {
             node_map: loaded.node_map,
             binder: BindResult::empty(),
             bound_file_count: 0,
+            statistics: ProgramStatistics { load: loaded.statistics, ..Default::default() },
         };
+        if let Some(started) = indexing_started {
+            program.statistics.indexing_time = started.elapsed();
+        }
+        let bind_started = program.options.extended_diagnostics.is_true().then(Instant::now);
         program.bind_source_files(arena);
+        if let Some(started) = bind_started {
+            program.statistics.bind_time = started.elapsed();
+        }
         program
     }
 
@@ -443,6 +466,13 @@ impl<'a> Program<'a> {
     #[must_use]
     pub fn bound_file_count(&self) -> usize {
         self.bound_file_count
+    }
+
+    /// Construction times requested through `extendedDiagnostics`; zero for
+    /// uninstrumented programs or ones built from an explicit file list.
+    #[must_use]
+    pub fn statistics(&self) -> &ProgramStatistics {
+        &self.statistics
     }
 
     /// Every file, in the order given (`Program.SourceFiles`).

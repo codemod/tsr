@@ -60,6 +60,8 @@
 //!   get the wrong answer for whether a file is an external module, which
 //!   changes how `declare module "x"` inside it is classified.
 
+use std::time::{Duration, Instant};
+
 use rustc_hash::{FxHashMap, FxHashSet};
 use tsr_core::{CompilerOptions, JsxEmit, ModuleKind, ModuleResolutionKind, ResolutionMode};
 use tsr_module::{
@@ -198,6 +200,39 @@ pub struct LoaderDiagnostic {
     pub args: Vec<String>,
 }
 
+/// Opt-in host-clock attribution for the serial loader (`reportStatistics`).
+/// Task time excludes recursive child processing. Parse time includes JSDoc;
+/// discovery is the remaining task work, including import collection/resolution.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct LoadStatistics {
+    /// Construction through file extraction; excludes final task-storage drop.
+    pub total_time: Duration,
+    /// Sum of nonrecursive `load_task` calls, including automatic type tasks.
+    pub task_time: Duration,
+    /// Source-file module-format and package metadata lookups.
+    pub metadata_time: Duration,
+    /// Source-text reads, including failed reads.
+    pub read_time: Duration,
+    /// Parser calls into shared node tables, including JSDoc parsing.
+    pub parse_time: Duration,
+    /// Module/type-directive queries within tasks; excludes lib replacement.
+    /// This is a subset of discovery time, not another disjoint phase.
+    pub resolution_time: Duration,
+    /// Module/type-directive resolver invocations measured above.
+    pub resolution_requests: usize,
+    /// Actual parser calls, including discarded duplicate package files.
+    pub parsed_files: usize,
+}
+
+impl LoadStatistics {
+    /// Task work outside the separately measured metadata/read/parser calls.
+    /// Includes source copies, reference collection, and module resolution.
+    #[must_use]
+    pub fn discovery_time(&self) -> Duration {
+        self.task_time.saturating_sub(self.metadata_time + self.read_time + self.parse_time)
+    }
+}
+
 /// Everything one walk of the file graph produced.
 #[derive(Debug, Default)]
 pub struct LoadedFiles<'a> {
@@ -235,6 +270,8 @@ pub struct LoadedFiles<'a> {
     /// Duplicate package paths redirected to the first source file with the
     /// same complete package identity (`filesparser.go:getProcessedFiles`).
     pub package_redirects: FxHashMap<Path, Path>,
+    /// Zero unless `extendedDiagnostics` requested attribution.
+    pub statistics: LoadStatistics,
 }
 
 /// A file's module format and where that format came from
@@ -328,6 +365,7 @@ struct ResolvedRef {
 /// one arena per case — and unifying them would make the shorter one infect the
 /// longer.
 pub struct FileLoader<'host, 'a> {
+    statistics: LoadStatistics,
     host: &'host dyn ResolutionHost,
     /// Where every file's tree, name and text is allocated. See ADR-0034,
     /// "Who owns the arena": the caller owns it, and both this and
@@ -372,6 +410,7 @@ impl<'host, 'a> FileLoader<'host, 'a> {
     ) -> LoadedFiles<'a> {
         let LoadOptions { compiler_options: options, root_file_names, default_library_path } =
             load_options;
+        let load_started = options.extended_diagnostics.is_true().then(Instant::now);
         // From `tsr-tsoptions`, as upstream's `fileloader.go` takes them from
         // `internal/tsoptions`: the same two lists decide which files a wildcard
         // `include` expands to and which extensions a reference may name.
@@ -380,6 +419,7 @@ impl<'host, 'a> FileLoader<'host, 'a> {
             tsr_tsoptions::file_names::supported_extensions_with_json(&options);
 
         let mut loader = Self {
+            statistics: LoadStatistics::default(),
             loader_diagnostics: Vec::new(),
             resolver: Resolver::new(host, options.clone()),
             host,
@@ -428,6 +468,10 @@ impl<'host, 'a> FileLoader<'host, 'a> {
         // the files were parsed into.
         result.nodes = loader.nodes;
         result.node_map = loader.node_map;
+        if let Some(started) = load_started {
+            loader.statistics.total_time = started.elapsed();
+        }
+        result.statistics = loader.statistics;
         result
     }
 
@@ -567,7 +611,11 @@ impl<'host, 'a> FileLoader<'host, 'a> {
             return;
         }
 
+        let task_started = self.options.extended_diagnostics.is_true().then(Instant::now);
         self.load_task(index);
+        if let Some(started) = task_started {
+            self.statistics.task_time += started.elapsed();
+        }
         let sub_tasks = self.tasks[index].sub_tasks.clone();
         for sub_task in sub_tasks {
             self.process_task(sub_task, current_depth);
@@ -598,6 +646,7 @@ impl<'host, 'a> FileLoader<'host, 'a> {
         // sharper: `load_source_file_meta_data` warms the resolver's
         // `package.json` cache, which later resolutions observe, so doing it for
         // a lib file would change the trace of a program that has one.
+        let metadata_started = self.options.extended_diagnostics.is_true().then(Instant::now);
         self.tasks[index].metadata = if self.tasks[index].lib_file.is_some() {
             SourceFileMetaData {
                 package_json_type: String::new(),
@@ -606,8 +655,16 @@ impl<'host, 'a> FileLoader<'host, 'a> {
         } else {
             self.load_source_file_meta_data(&file_name)
         };
+        if let Some(started) = metadata_started {
+            self.statistics.metadata_time += started.elapsed();
+        }
 
-        let Some(text) = self.host.fs().read_file(&file_name) else { return };
+        let read_started = self.options.extended_diagnostics.is_true().then(Instant::now);
+        let text = self.host.fs().read_file(&file_name);
+        if let Some(started) = read_started {
+            self.statistics.read_time += started.elapsed();
+        }
+        let Some(text) = text else { return };
 
         // The host's `String` is copied into the arena and then dropped. That
         // copy is what lets `ProgramFile` own nothing: a `Symbol`'s name and the
@@ -633,8 +690,13 @@ impl<'host, 'a> FileLoader<'host, 'a> {
         // Into the program's shared tables, not fresh ones: this is the parser
         // half of the identity widening, and parsing into fresh tables here
         // would give two files the same `NodeId`s.
+        let parse_started = self.options.extended_diagnostics.is_true().then(Instant::now);
         let parsed =
             tsr_parser::parse_into(arena, text, options, &mut self.nodes, &mut self.node_map);
+        if let Some(started) = parse_started {
+            self.statistics.parse_time += started.elapsed();
+            self.statistics.parsed_files += 1;
+        }
         // Upstream's parser stamps `NodeFlagsJavaScriptFile` from its
         // `ScriptKind`; this parser never sees the file name (ADR-0016), so
         // the loader — which holds both the name and the table — stamps the
@@ -747,8 +809,13 @@ impl<'host, 'a> FileLoader<'host, 'a> {
             // bundler the unspecified mode is what triggers the `import`
             // condition.
             let mode = ResolutionMode::None;
+            let resolution_started = self.options.extended_diagnostics.is_true().then(Instant::now);
             let (resolved, traces) =
                 self.resolver.resolve_type_reference_directive(&name, &containing_file, mode);
+            if let Some(started) = resolution_started {
+                self.statistics.resolution_time += started.elapsed();
+                self.statistics.resolution_requests += 1;
+            }
             self.tasks[index].type_resolution_requests.push(ResolutionRequest {
                 kind: RequestKind::TypeReferenceDirective,
                 name: name.clone(),
@@ -792,11 +859,16 @@ impl<'host, 'a> FileLoader<'host, 'a> {
                     self.default_resolution_mode_for_file(&file_name, &metadata)
                 }
             };
+            let resolution_started = self.options.extended_diagnostics.is_true().then(Instant::now);
             let (resolved, traces) = self.resolver.resolve_type_reference_directive(
                 &directive.file_name,
                 &file_name,
                 mode,
             );
+            if let Some(started) = resolution_started {
+                self.statistics.resolution_time += started.elapsed();
+                self.statistics.resolution_requests += 1;
+            }
             self.tasks[index].type_resolution_requests.push(ResolutionRequest {
                 kind: RequestKind::TypeReferenceDirective,
                 name: directive.file_name.clone(),
@@ -854,8 +926,13 @@ impl<'host, 'a> FileLoader<'host, 'a> {
                 continue;
             }
             let mode = self.mode_for_usage_location(&file_name, &metadata, specifier);
+            let resolution_started = self.options.extended_diagnostics.is_true().then(Instant::now);
             let (resolved, traces) =
                 self.resolver.resolve_module_name(&specifier.text, &file_name, mode);
+            if let Some(started) = resolution_started {
+                self.statistics.resolution_time += started.elapsed();
+                self.statistics.resolution_requests += 1;
+            }
             self.tasks[index].resolution_requests.push(ResolutionRequest {
                 kind: RequestKind::Module,
                 name: specifier.text.clone(),

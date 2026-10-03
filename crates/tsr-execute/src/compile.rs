@@ -391,16 +391,32 @@ pub fn run_compilation(
     let reporting_finished = sys.since_start();
 
     if options.extended_diagnostics.is_true() {
-        // Native `reportStatistics` uses the host clock too. Program time here
-        // includes discovery/resolution, parsing and binding; do not label the
-        // aggregate "Parse time" and imply those stages were separated.
+        // Native `reportStatistics` uses the host clock too. These serial
+        // loader subphases are disjoint; discovery includes source copies and
+        // reference/import collection as well as resolver calls.
+        let statistics = program.statistics();
         sys.write(&format!(
             "Files:                 {}\nChecked files:         {}\n\
+             Parsed files:          {}\nLoader time:           {:.3}s\n\
+             File read time:        {:.3}s\nMetadata time:         {:.3}s\n\
+             Parse time:            {:.3}s\nFile discovery time:   {:.3}s\n\
+             Resolver time:         {:.3}s\nResolver requests:     {}\n\
+             Indexing time:         {:.3}s\nBind time:             {:.3}s\n\
              Config time:           {:.3}s\nProgram time:          {:.3}s\n\
              Checker init time:     {:.3}s\nCheck time:            {:.3}s\n\
              Reporting time:        {:.3}s\nCompilation time:      {:.3}s\n",
             program.source_files().len(),
             checked_file_count,
+            statistics.load.parsed_files,
+            statistics.load.total_time.as_secs_f64(),
+            statistics.load.read_time.as_secs_f64(),
+            statistics.load.metadata_time.as_secs_f64(),
+            statistics.load.parse_time.as_secs_f64(),
+            statistics.load.discovery_time().as_secs_f64(),
+            statistics.load.resolution_time.as_secs_f64(),
+            statistics.load.resolution_requests,
+            statistics.indexing_time.as_secs_f64(),
+            statistics.bind_time.as_secs_f64(),
             program_started.saturating_sub(compilation_started).as_secs_f64(),
             program_finished.saturating_sub(program_started).as_secs_f64(),
             checker_initialized.saturating_sub(program_finished).as_secs_f64(),

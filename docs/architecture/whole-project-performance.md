@@ -81,9 +81,10 @@ optimization is complete.
 
 ## Initial phase attribution
 
-The CLI now honors `--extendedDiagnostics` and reports actual checks plus coarse
+The CLI honors `--extendedDiagnostics` and reports actual checks plus
 host-clock phase times. Program time combines discovery/resolution, parsing and
-binding. Reporting includes diagnostic extraction, source indexing, comment
+binding; opt-in loader statistics now separate those costs below. Reporting
+includes diagnostic extraction, source indexing, comment
 directives and formatting. Compilation time excludes process startup and final
 teardown, so use the external harness for the end-to-end target.
 
@@ -130,3 +131,43 @@ assignment control also exposes a preexisting checker false negative: with
 deduplication disabled native reports incompatible members but both the saved
 pre-change binary and candidate accept them. This is tracked as `bd tsr-6.47.1`;
 the passing source-file identity controls do not prove that diagnostic works.
+
+## Loader cost attribution
+
+Run the built CLI with `--extendedDiagnostics --noEmit --incremental false
+--composite false` and the same project. Add `--noCheck` for a loader-only
+control. The added clocks and counters run only when extended diagnostics is
+enabled; these fields are locating measurements, not a throughput benchmark.
+
+A separate real-app `noCheck` probe after package alignment reported:
+
+| Measurement | Time |
+|---|---:|
+| Loader total | 2.960 s |
+| File reads | 0.162 s |
+| Package/module metadata | 0.057 s |
+| Parser, including JSDoc | 0.547 s |
+| Discovery, including resolver calls | 2.172 s |
+| Resolver calls, within discovery | 2.041 s |
+| File/module indexing | 0.054 s |
+| Binding and global merges | 0.156 s |
+| Program total | 3.194 s |
+
+The resolver made **46,031 module/type-directive queries**, taking about 69% of
+the loader time in this probe. Resolver time is a subset of discovery time;
+do not add it to discovery again. It excludes lib-replacement queries during
+setup. Loader total includes setup/replay but excludes final task-storage
+disposal; program total includes that disposal and the unclassified overhead.
+
+The loader parsed **13,560 files**, retained 13,097, and performed zero checks.
+A separate full-check probe made the same 46,031 queries, attributed 2.853 s to
+the resolver, and checked 1,341 files. Both full-check instrumentation versions
+preserved the existing 141 diagnostic fingerprints. Probe timing varies and
+does not demonstrate a code speedup. Local evidence is
+`/tmp/tsr-1yb-resolver-profile.json`.
+
+This ranks resolver probe/cache reuse ahead of parser or binder work. Count
+filesystem probes and reusable native directory/module keys in `bd tsr-1yb.10`
+before implementing a cache; package-JSON caching already exists and its trace
+behavior is observable. Lazy JSDoc remains a measured candidate, with a smaller
+upper bound than the resolver cost on this workload.
