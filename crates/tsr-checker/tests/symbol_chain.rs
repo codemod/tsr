@@ -596,3 +596,36 @@ fn an_export_alias_does_not_rename_or_preserve_a_copied_unique_symbol() {
         assert_eq!(checker.type_to_string_at(ty, sites[0]).unwrap(), expected);
     }
 }
+
+/// Direct aliases have equal-length native chains. `trySymbolTable` sorts
+/// those by `compareSymbols`, so declaration order beats lexical name order.
+#[test]
+fn direct_alias_ties_use_declaration_order() {
+    for (aliases, expected) in [
+        ("import Zulu = Source.C; import Alpha = Source.C;", "Zulu"),
+        ("import Alpha = Source.C; import Zulu = Source.C;", "Alpha"),
+    ] {
+        let source = format!(
+            "namespace Source {{ export class C {{ p: number; }} }} {aliases} let outside = 1;"
+        );
+        assert_eq!(declared_type_at(&source, &["Source"], "C", "outside", 0, false), expected);
+        assert_eq!(
+            declared_type_at(&source, &["Source"], "C", "outside", 0, true),
+            format!("typeof {expected}")
+        );
+    }
+}
+
+/// Ordering is per table, not global: an earlier outer alias cannot preempt
+/// the innermost table, and the symbol's direct own name still wins there.
+#[test]
+fn direct_alias_ties_preserve_scope_and_own_name_priority() {
+    let source = "namespace Source { export class C { p: number; } import Zulu = Source.C; import Alpha = Source.C; export let own = 1; } import Outer = Source.C; namespace Use { import Zulu = Source.C; import Alpha = Source.C; export let inside = 1; } let outside = 1;";
+    for (site, expected) in [("own", "C"), ("inside", "Zulu"), ("outside", "Outer")] {
+        assert_eq!(declared_type_at(source, &["Source"], "C", site, 0, false), expected);
+        assert_eq!(
+            declared_type_at(source, &["Source"], "C", site, 0, true),
+            format!("typeof {expected}")
+        );
+    }
+}

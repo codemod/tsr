@@ -3238,12 +3238,11 @@ impl<'a, 'n> Checker<'a, 'n> {
     /// table the direct hit is checked before the aliases (`trySymbolTable`,
     /// `symbolaccessibility.go:543` then `:562`).
     ///
-    /// `Some(name)` — the symbol's own name on a direct hit, or the unique
-    /// alias name in the first table that reaches the symbol. `None` when no
-    /// table reaches it, or when one table holds ≥2 distinct alias names for
-    /// it — the chain-choice rule this port declines to guess
-    /// (`checker-notes-nameres.md` §14 measured both tie-breaks at ~96%
-    /// coincidence).
+    /// `Some(name)` — the symbol's own name on a direct hit, or the first
+    /// direct alias under `compareSymbols` in the first table that reaches
+    /// the symbol. All direct aliases have one-element chains, so native
+    /// `trySymbolTable`'s shortest-chain ordering ties on length here.
+    /// `None` when no table reaches it.
     /// `admit_local_import_equals` — whether a **same-file** `import a = b`
     /// may supply the name. The corpus splits on print position
     /// (`checker-notes-modobj.md` §10.16): a chain **segment** takes it
@@ -3295,7 +3294,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             {
                 return Some(own.to_string());
             }
-            let mut found: Option<String> = None;
+            let mut found: Option<(&str, SymbolId)> = None;
             let mut qualified = Vec::new();
             for (name, candidate) in table {
                 if !self.binder.symbols().get(candidate).flags.intersects(SymbolFlags::ALIAS) {
@@ -3359,12 +3358,11 @@ impl<'a, 'n> Checker<'a, 'n> {
                         let full = self.resolve_alias_fully(t);
                         self.binder.merged_symbol(full) == target
                     });
-                if reaches && !excluded {
-                    match &found {
-                        Some(existing) if existing == name => {}
-                        Some(_) => return None,
-                        None => found = Some(name.to_string()),
-                    }
+                if reaches
+                    && !excluded
+                    && found.is_none_or(|(_, best)| self.compare_symbols(candidate, best).is_lt())
+                {
+                    found = Some((name, candidate));
                 }
                 // getCandidateListForSymbol looks through an alias's exports
                 // before consulting the outer scope (symbolaccessibility.go:630).
@@ -3399,8 +3397,8 @@ impl<'a, 'n> Checker<'a, 'n> {
                     }
                 }
             }
-            if found.is_some() {
-                return found;
+            if let Some((name, _)) = found {
+                return Some(name.to_string());
             }
             qualified.sort_by(|a, b| {
                 self.compare_symbols(a.0, b.0).then_with(|| self.compare_symbols(a.1, b.1))
