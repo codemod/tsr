@@ -1,0 +1,193 @@
+--- /dev/null
++++ b/internal/checker/symbol_storage_contract_probe.go
+@@ -0,0 +1,95 @@
++package checker
++
++import (
++	"maps"
++	"slices"
++
++	"github.com/microsoft/typescript-go/internal/ast"
++)
++
++// Scratch-only characterization of the original clone/merge implementations.
++type StorageObservation struct {
++	Result *ast.Symbol
++	Checks map[string]bool
++}
++
++func (c *Checker) ObserveCloneStorage(bound *ast.Symbol) StorageObservation {
++	flags, checkFlags := bound.Flags, bound.CheckFlags
++	parent, valueDeclaration := bound.Parent, bound.ValueDeclaration
++	declarations := slices.Clone(bound.Declarations)
++	members, exports := maps.Clone(bound.Members), maps.Clone(bound.Exports)
++	clone := c.cloneSymbol(bound)
++	checks := map[string]bool{
++		"bound_not_transient":            bound.Flags&ast.SymbolFlagsTransient == 0,
++		"clone_distinct":                 clone != bound,
++		"clone_transient":                clone.Flags&ast.SymbolFlagsTransient != 0,
++		"clone_zero_check_flags":         clone.CheckFlags == 0,
++		"clone_copies_declarations":      slices.Equal(clone.Declarations, declarations),
++		"clone_copies_parent_and_value":  clone.Parent == parent && clone.ValueDeclaration == valueDeclaration,
++		"clone_shallow_member_values":    maps.Equal(clone.Members, members),
++		"clone_shallow_export_values":    maps.Equal(clone.Exports, exports),
++		"checker_redirects_bound_origin": c.getMergedSymbol(bound) == clone,
++	}
++	// Mutate only the private clone: independent map storage and append capacity
++	// are required even though the original declaration/member values are shared.
++	clone.Declarations = append(clone.Declarations, declarations...)
++	ast.GetSymbolTable(&clone.Members)["__private_clone_member"] = c.newProperty("__private_clone_member", c.stringType)
++	ast.GetSymbolTable(&clone.Exports)["__private_clone_export"] = c.newProperty("__private_clone_export", c.numberType)
++	checks["bound_declarations_unchanged_after_append"] = slices.Equal(bound.Declarations, declarations)
++	checks["bound_tables_unchanged_after_clone_mutation"] = maps.Equal(bound.Members, members) && maps.Equal(bound.Exports, exports)
++	checks["bound_metadata_unchanged"] = bound.Flags == flags && bound.CheckFlags == checkFlags && bound.Parent == parent && bound.ValueDeclaration == valueDeclaration
++	return StorageObservation{clone, checks}
++}
++
++func (c *Checker) ObserveMergeStorage(target, source *ast.Symbol, unidirectional bool) StorageObservation {
++	targetDeclarations, sourceDeclarations := slices.Clone(target.Declarations), slices.Clone(source.Declarations)
++	targetMembers, sourceMembers := maps.Clone(target.Members), maps.Clone(source.Members)
++	targetExports, sourceExports := maps.Clone(target.Exports), maps.Clone(source.Exports)
++	targetFlags, sourceFlags := target.Flags, source.Flags
++	result := c.mergeSymbol(target, source, unidirectional)
++	checks := map[string]bool{
++		"merge_distinct_private_target":     result != target && result != source && result.Flags&ast.SymbolFlagsTransient != 0,
++		"merge_zero_check_flags":            result.CheckFlags == 0,
++		"merge_keeps_all_declarations":      len(result.Declarations) == len(targetDeclarations)+len(sourceDeclarations),
++		"target_declarations_unchanged":     slices.Equal(target.Declarations, targetDeclarations),
++		"source_declarations_unchanged":     slices.Equal(source.Declarations, sourceDeclarations),
++		"target_tables_unchanged":           maps.Equal(target.Members, targetMembers) && maps.Equal(target.Exports, targetExports),
++		"source_tables_unchanged":           maps.Equal(source.Members, sourceMembers) && maps.Equal(source.Exports, sourceExports),
++		"bound_flags_unchanged":             target.Flags == targetFlags && source.Flags == sourceFlags,
++		"target_redirects_to_private_clone": c.getMergedSymbol(target) == result,
++		"source_redirect_matches_direction": (c.getMergedSymbol(source) == result) == !unidirectional,
++	}
++	if targetMembers != nil && sourceMembers != nil {
++		checks["merge_contains_both_member_tables"] = result.Members["x"] == targetMembers["x"] && result.Members["y"] == sourceMembers["y"]
++	}
++	if targetExports != nil && sourceExports != nil {
++		merged := result.Exports["Shared"]
++		originalTarget, originalSource := targetExports["Shared"], sourceExports["Shared"]
++		added := sourceExports["Added"]
++		checks["merged_export_private_distinct"] = merged != nil && merged != originalTarget && merged != originalSource && merged.Flags&ast.SymbolFlagsTransient != 0
++		checks["merged_export_parent_is_private_module"] = merged != nil && merged.Parent == result
++		checks["original_export_parents_unchanged"] = originalTarget.Parent == target && originalSource.Parent == source
++		checks["source_only_export_keeps_raw_parent"] = result.Exports["Added"] == added && added.Parent == source
++		checks["source_only_export_parent_accessor_redirects"] = (c.getParentOfSymbol(added) == result) == !unidirectional
++		checks["merged_export_has_both_members"] = merged != nil && merged.Members["a"] == originalTarget.Members["a"] && merged.Members["b"] == originalSource.Members["b"]
++		checks["original_shared_declarations_unchanged"] = len(originalTarget.Declarations) == 1 && len(originalSource.Declarations) == 1
++	}
++	return StorageObservation{result, checks}
++}
++
++func (c *Checker) ObserveSameSymbolMerge(bound *ast.Symbol) bool {
++	return c.mergeSymbol(bound, bound, false) == bound
++}
++
++func (c *Checker) ObserveConstSymbolBypass(node *ast.Node, file *ast.SourceFile) StorageObservation {
++	before := c.symbolNodeLinks.Get(node).resolvedSymbol
++	errors := len(c.diagnostics.GetDiagnosticsForFile(file.FileName()))
++	result := c.getTypeFromTypeNode(node)
++	repeated := c.getTypeFromTypeNode(node)
++	return StorageObservation{Checks: map[string]bool{
++		"const_symbol_entry_stays_uncomputed":         before == nil && c.symbolNodeLinks.Get(node).resolvedSymbol == nil,
++		"const_type_query_preserves_readonly_literal": c.TypeToString(result) == "{ readonly value: 1; }",
++		"const_type_query_reuses_type_identity":       result == repeated,
++		"const_type_query_adds_no_missing_name_error": len(c.diagnostics.GetDiagnosticsForFile(file.FileName())) == errors,
++	}}
++}
+--- /dev/null
++++ b/cmd/symbol-storage-contract/main.go
+@@ -0,0 +1,92 @@
++package main
++
++import (
++	"encoding/json"
++	"fmt"
++
++	"github.com/microsoft/typescript-go/internal/ast"
++	"github.com/microsoft/typescript-go/internal/bundled"
++	"github.com/microsoft/typescript-go/internal/checker"
++	"github.com/microsoft/typescript-go/internal/compiler"
++	"github.com/microsoft/typescript-go/internal/core"
++	"github.com/microsoft/typescript-go/internal/tsoptions"
++	"github.com/microsoft/typescript-go/internal/vfs/vfstest"
++)
++
++func main() {
++	fs := vfstest.FromMap(map[string]string{
++		"/storage.ts": `interface Target { x: string }
++interface Source { y: number }
++namespace TargetNS { export interface Shared { a: string } export interface Existing { e: boolean } }
++namespace SourceNS { export interface Shared { b: number } export interface Added { n: number } }
++const assertion = {value: 1} as const;`,
++		"/tsconfig.json": `{"compilerOptions":{"strict":true,"singleThreaded":true,"noLib":true,"noEmit":true},"files":["storage.ts"]}`,
++	}, true)
++	host := compiler.NewCompilerHost("/", bundled.WrapFS(fs), bundled.LibPath(), nil, nil)
++	parsed, errors := tsoptions.GetParsedCommandLineOfConfigFile("/tsconfig.json", &core.CompilerOptions{}, nil, host, nil)
++	if len(errors) != 0 {
++		panic(fmt.Sprint(errors))
++	}
++	p := compiler.NewProgram(compiler.ProgramOptions{Config: parsed, Host: host})
++	p.BindSourceFiles()
++	locals := p.GetSourceFile("/storage.ts").AsNode().Locals()
++	get := func(name string) *ast.Symbol {
++		symbol := locals[name]
++		if symbol == nil {
++			panic("missing bound symbol " + name)
++		}
++		return symbol
++	}
++	newChecker := func() *checker.Checker { c, _ := checker.NewChecker(p, nil); return c }
++	rows := map[string]map[string]bool{}
++	check := func(name string, observed checker.StorageObservation) {
++		for key, value := range observed.Checks {
++			if !value {
++				panic(name + ": " + key)
++			}
++		}
++		rows[name] = observed.Checks
++	}
++	first, second := newChecker(), newChecker()
++	a := first.ObserveCloneStorage(get("Target"))
++	b := second.ObserveCloneStorage(get("Target"))
++	check("interface_clone_first_checker", a)
++	check("interface_clone_second_checker", b)
++	if a.Result == b.Result {
++		panic("clones must be private across Checkers")
++	}
++	rows["two_checker_domains"] = map[string]bool{"bound_origin_shared": a.Result.Name == b.Result.Name && a.Result.Declarations[0] == b.Result.Declarations[0], "private_clones_distinct": a.Result != b.Result}
++	check("namespace_clone", newChecker().ObserveCloneStorage(get("TargetNS")))
++	check("interface_merge", newChecker().ObserveMergeStorage(get("Target"), get("Source"), false))
++	check("namespace_merge", newChecker().ObserveMergeStorage(get("TargetNS"), get("SourceNS"), false))
++	check("unidirectional_namespace_merge", newChecker().ObserveMergeStorage(get("TargetNS"), get("SourceNS"), true))
++	if !newChecker().ObserveSameSymbolMerge(get("Target")) {
++		panic("same-symbol merge must return original")
++	}
++	rows["same_symbol_merge"] = map[string]bool{"returns_original_bound_symbol": true}
++	file := p.GetSourceFile("/storage.ts")
++	var assertion *ast.Node
++	file.AsNode().ForEachChild(func(node *ast.Node) bool {
++		if node.Kind == ast.KindVariableStatement {
++			node.ForEachChild(func(list *ast.Node) bool {
++				list.ForEachChild(func(declaration *ast.Node) bool {
++					if declaration.Kind == ast.KindVariableDeclaration && declaration.Name().Text() == "assertion" {
++						assertion = declaration.Initializer().Type()
++					}
++					return false
++				})
++				return false
++			})
++		}
++		return false
++	})
++	if assertion == nil {
++		panic("missing const assertion type node")
++	}
++	check("normal_const_type_query_bypass", newChecker().ObserveConstSymbolBypass(assertion, file))
++	data, err := json.Marshal(rows)
++	if err != nil {
++		panic(err)
++	}
++	fmt.Printf("SYMBOL_STORAGE_CONTRACT\t%s\n", data)
++}

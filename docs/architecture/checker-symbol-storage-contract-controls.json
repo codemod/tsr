@@ -1,0 +1,186 @@
+{
+  "native_source": "5b1047d10d32e7d5b446be4de56b126ff42f82bb",
+  "base_getter_probe": "checker-symbol-completion-probe.patch",
+  "base_getter_probe_enabled": false,
+  "delta_probe_patch": "checker-symbol-storage-contract-probe.patch",
+  "delta_probe_patch_sha256": "6cdd004106dce9e71e4ab9cbf3d2ad84a4e2b1b17ebf88c386352d343ee04bac",
+  "source_file_sha256": {
+    "internal/checker/symbol_storage_contract_probe.go": "0484be84db04719bf8c5e4b1da5f1781bb07db4bceb4d3f30dbaf2720c08d50a",
+    "cmd/symbol-storage-contract/main.go": "fcec41372799854b0bc20c772126bb0ce2c265daa450fc61843caddb6a2dae27"
+  },
+  "built_checker_go_sha256": "4a154f91997846a6868eb0b5884e611336d9ff24ba3abd648fa7bf3dd6980474",
+  "native_methods_unchanged": [
+    "newSymbol",
+    "cloneSymbol",
+    "mergeSymbol",
+    "mergeSymbolTable",
+    "getMergedSymbol",
+    "getParentOfSymbol",
+    "getTypeFromTypeReference",
+    "getTypeFromTypeNode"
+  ],
+  "sample": {
+    "command": [
+      "/tmp/tsr-native-symbol-completion-5b/storage-const-contract-control"
+    ],
+    "binary_sha256": "bd8729380291763ea7ccbca3edf7c54328262db53f74a6eeb71e9e942e71d268",
+    "exit_code": 0,
+    "stdout": "SYMBOL_STORAGE_CONTRACT\t{\"interface_clone_first_checker\":{\"bound_declarations_unchanged_after_append\":true,\"bound_metadata_unchanged\":true,\"bound_not_transient\":true,\"bound_tables_unchanged_after_clone_mutation\":true,\"checker_redirects_bound_origin\":true,\"clone_copies_declarations\":true,\"clone_copies_parent_and_value\":true,\"clone_distinct\":true,\"clone_shallow_export_values\":true,\"clone_shallow_member_values\":true,\"clone_transient\":true,\"clone_zero_check_flags\":true},\"interface_clone_second_checker\":{\"bound_declarations_unchanged_after_append\":true,\"bound_metadata_unchanged\":true,\"bound_not_transient\":true,\"bound_tables_unchanged_after_clone_mutation\":true,\"checker_redirects_bound_origin\":true,\"clone_copies_declarations\":true,\"clone_copies_parent_and_value\":true,\"clone_distinct\":true,\"clone_shallow_export_values\":true,\"clone_shallow_member_values\":true,\"clone_transient\":true,\"clone_zero_check_flags\":true},\"interface_merge\":{\"bound_flags_unchanged\":true,\"merge_contains_both_member_tables\":true,\"merge_distinct_private_target\":true,\"merge_keeps_all_declarations\":true,\"merge_zero_check_flags\":true,\"source_declarations_unchanged\":true,\"source_redirect_matches_direction\":true,\"source_tables_unchanged\":true,\"target_declarations_unchanged\":true,\"target_redirects_to_private_clone\":true,\"target_tables_unchanged\":true},\"namespace_clone\":{\"bound_declarations_unchanged_after_append\":true,\"bound_metadata_unchanged\":true,\"bound_not_transient\":true,\"bound_tables_unchanged_after_clone_mutation\":true,\"checker_redirects_bound_origin\":true,\"clone_copies_declarations\":true,\"clone_copies_parent_and_value\":true,\"clone_distinct\":true,\"clone_shallow_export_values\":true,\"clone_shallow_member_values\":true,\"clone_transient\":true,\"clone_zero_check_flags\":true},\"namespace_merge\":{\"bound_flags_unchanged\":true,\"merge_distinct_private_target\":true,\"merge_keeps_all_declarations\":true,\"merge_zero_check_flags\":true,\"merged_export_has_both_members\":true,\"merged_export_parent_is_private_module\":true,\"merged_export_private_distinct\":true,\"original_export_parents_unchanged\":true,\"original_shared_declarations_unchanged\":true,\"source_declarations_unchanged\":true,\"source_only_export_keeps_raw_parent\":true,\"source_only_export_parent_accessor_redirects\":true,\"source_redirect_matches_direction\":true,\"source_tables_unchanged\":true,\"target_declarations_unchanged\":true,\"target_redirects_to_private_clone\":true,\"target_tables_unchanged\":true},\"normal_const_type_query_bypass\":{\"const_symbol_entry_stays_uncomputed\":true,\"const_type_query_adds_no_missing_name_error\":true,\"const_type_query_preserves_readonly_literal\":true,\"const_type_query_reuses_type_identity\":true},\"same_symbol_merge\":{\"returns_original_bound_symbol\":true},\"two_checker_domains\":{\"bound_origin_shared\":true,\"private_clones_distinct\":true},\"unidirectional_namespace_merge\":{\"bound_flags_unchanged\":true,\"merge_distinct_private_target\":true,\"merge_keeps_all_declarations\":true,\"merge_zero_check_flags\":true,\"merged_export_has_both_members\":true,\"merged_export_parent_is_private_module\":true,\"merged_export_private_distinct\":true,\"original_export_parents_unchanged\":true,\"original_shared_declarations_unchanged\":true,\"source_declarations_unchanged\":true,\"source_only_export_keeps_raw_parent\":true,\"source_only_export_parent_accessor_redirects\":true,\"source_redirect_matches_direction\":true,\"source_tables_unchanged\":true,\"target_declarations_unchanged\":true,\"target_redirects_to_private_clone\":true,\"target_tables_unchanged\":true}}\n",
+    "stderr": "",
+    "wall_seconds": 0.2758816249843221,
+    "user_seconds": 0.005447,
+    "system_seconds": 0.012208,
+    "peak_rss_bytes": 11567104,
+    "native_source": "5b1047d10d32e7d5b446be4de56b126ff42f82bb"
+  },
+  "observations": {
+    "interface_clone_first_checker": {
+      "bound_declarations_unchanged_after_append": true,
+      "bound_metadata_unchanged": true,
+      "bound_not_transient": true,
+      "bound_tables_unchanged_after_clone_mutation": true,
+      "checker_redirects_bound_origin": true,
+      "clone_copies_declarations": true,
+      "clone_copies_parent_and_value": true,
+      "clone_distinct": true,
+      "clone_shallow_export_values": true,
+      "clone_shallow_member_values": true,
+      "clone_transient": true,
+      "clone_zero_check_flags": true
+    },
+    "interface_clone_second_checker": {
+      "bound_declarations_unchanged_after_append": true,
+      "bound_metadata_unchanged": true,
+      "bound_not_transient": true,
+      "bound_tables_unchanged_after_clone_mutation": true,
+      "checker_redirects_bound_origin": true,
+      "clone_copies_declarations": true,
+      "clone_copies_parent_and_value": true,
+      "clone_distinct": true,
+      "clone_shallow_export_values": true,
+      "clone_shallow_member_values": true,
+      "clone_transient": true,
+      "clone_zero_check_flags": true
+    },
+    "interface_merge": {
+      "bound_flags_unchanged": true,
+      "merge_contains_both_member_tables": true,
+      "merge_distinct_private_target": true,
+      "merge_keeps_all_declarations": true,
+      "merge_zero_check_flags": true,
+      "source_declarations_unchanged": true,
+      "source_redirect_matches_direction": true,
+      "source_tables_unchanged": true,
+      "target_declarations_unchanged": true,
+      "target_redirects_to_private_clone": true,
+      "target_tables_unchanged": true
+    },
+    "namespace_clone": {
+      "bound_declarations_unchanged_after_append": true,
+      "bound_metadata_unchanged": true,
+      "bound_not_transient": true,
+      "bound_tables_unchanged_after_clone_mutation": true,
+      "checker_redirects_bound_origin": true,
+      "clone_copies_declarations": true,
+      "clone_copies_parent_and_value": true,
+      "clone_distinct": true,
+      "clone_shallow_export_values": true,
+      "clone_shallow_member_values": true,
+      "clone_transient": true,
+      "clone_zero_check_flags": true
+    },
+    "namespace_merge": {
+      "bound_flags_unchanged": true,
+      "merge_distinct_private_target": true,
+      "merge_keeps_all_declarations": true,
+      "merge_zero_check_flags": true,
+      "merged_export_has_both_members": true,
+      "merged_export_parent_is_private_module": true,
+      "merged_export_private_distinct": true,
+      "original_export_parents_unchanged": true,
+      "original_shared_declarations_unchanged": true,
+      "source_declarations_unchanged": true,
+      "source_only_export_keeps_raw_parent": true,
+      "source_only_export_parent_accessor_redirects": true,
+      "source_redirect_matches_direction": true,
+      "source_tables_unchanged": true,
+      "target_declarations_unchanged": true,
+      "target_redirects_to_private_clone": true,
+      "target_tables_unchanged": true
+    },
+    "normal_const_type_query_bypass": {
+      "const_symbol_entry_stays_uncomputed": true,
+      "const_type_query_adds_no_missing_name_error": true,
+      "const_type_query_preserves_readonly_literal": true,
+      "const_type_query_reuses_type_identity": true
+    },
+    "same_symbol_merge": {
+      "returns_original_bound_symbol": true
+    },
+    "two_checker_domains": {
+      "bound_origin_shared": true,
+      "private_clones_distinct": true
+    },
+    "unidirectional_namespace_merge": {
+      "bound_flags_unchanged": true,
+      "merge_distinct_private_target": true,
+      "merge_keeps_all_declarations": true,
+      "merge_zero_check_flags": true,
+      "merged_export_has_both_members": true,
+      "merged_export_parent_is_private_module": true,
+      "merged_export_private_distinct": true,
+      "original_export_parents_unchanged": true,
+      "original_shared_declarations_unchanged": true,
+      "source_declarations_unchanged": true,
+      "source_only_export_keeps_raw_parent": true,
+      "source_only_export_parent_accessor_redirects": true,
+      "source_redirect_matches_direction": true,
+      "source_tables_unchanged": true,
+      "target_declarations_unchanged": true,
+      "target_redirects_to_private_clone": true,
+      "target_tables_unchanged": true
+    }
+  },
+  "assertion_count": 88,
+  "limits": [
+    "Direct helper controls do not characterize complete Program module-augmentation preparation (tsr-6.49).",
+    "No production TSR handle implementation or performance claim.",
+    "Namespace symbols are deliberately passed to the original merge worker; this is not a source-level augmentation fixture."
+  ],
+  "historical_samples": [
+    {
+      "sample": {
+        "command": [
+          "/tmp/tsr-native-symbol-completion-5b/storage-contract-control"
+        ],
+        "binary_sha256": "ebcdb962c3a4bbada67c9ace752e55400d6e2e8093e34c94df46577bce9e641c",
+        "exit_code": 0,
+        "stdout": "SYMBOL_STORAGE_CONTRACT\t{\"interface_clone_first_checker\":{\"bound_declarations_unchanged_after_append\":true,\"bound_metadata_unchanged\":true,\"bound_not_transient\":true,\"bound_tables_unchanged_after_clone_mutation\":true,\"checker_redirects_bound_origin\":true,\"clone_copies_declarations\":true,\"clone_copies_parent_and_value\":true,\"clone_distinct\":true,\"clone_shallow_export_values\":true,\"clone_shallow_member_values\":true,\"clone_transient\":true,\"clone_zero_check_flags\":true},\"interface_clone_second_checker\":{\"bound_declarations_unchanged_after_append\":true,\"bound_metadata_unchanged\":true,\"bound_not_transient\":true,\"bound_tables_unchanged_after_clone_mutation\":true,\"checker_redirects_bound_origin\":true,\"clone_copies_declarations\":true,\"clone_copies_parent_and_value\":true,\"clone_distinct\":true,\"clone_shallow_export_values\":true,\"clone_shallow_member_values\":true,\"clone_transient\":true,\"clone_zero_check_flags\":true},\"interface_merge\":{\"bound_flags_unchanged\":true,\"merge_contains_both_member_tables\":true,\"merge_distinct_private_target\":true,\"merge_keeps_all_declarations\":true,\"merge_zero_check_flags\":true,\"source_declarations_unchanged\":true,\"source_redirect_matches_direction\":true,\"source_tables_unchanged\":true,\"target_declarations_unchanged\":true,\"target_redirects_to_private_clone\":true,\"target_tables_unchanged\":true},\"namespace_clone\":{\"bound_declarations_unchanged_after_append\":true,\"bound_metadata_unchanged\":true,\"bound_not_transient\":true,\"bound_tables_unchanged_after_clone_mutation\":true,\"checker_redirects_bound_origin\":true,\"clone_copies_declarations\":true,\"clone_copies_parent_and_value\":true,\"clone_distinct\":true,\"clone_shallow_export_values\":true,\"clone_shallow_member_values\":true,\"clone_transient\":true,\"clone_zero_check_flags\":true},\"namespace_merge\":{\"bound_flags_unchanged\":true,\"merge_distinct_private_target\":true,\"merge_keeps_all_declarations\":true,\"merge_zero_check_flags\":true,\"merged_export_has_both_members\":true,\"merged_export_parent_is_private_module\":true,\"merged_export_private_distinct\":true,\"original_export_parents_unchanged\":true,\"original_shared_declarations_unchanged\":true,\"source_declarations_unchanged\":true,\"source_only_export_keeps_raw_parent\":true,\"source_only_export_parent_accessor_redirects\":true,\"source_redirect_matches_direction\":true,\"source_tables_unchanged\":true,\"target_declarations_unchanged\":true,\"target_redirects_to_private_clone\":true,\"target_tables_unchanged\":true},\"same_symbol_merge\":{\"returns_original_bound_symbol\":true},\"two_checker_domains\":{\"bound_origin_shared\":true,\"private_clones_distinct\":true},\"unidirectional_namespace_merge\":{\"bound_flags_unchanged\":true,\"merge_distinct_private_target\":true,\"merge_keeps_all_declarations\":true,\"merge_zero_check_flags\":true,\"merged_export_has_both_members\":true,\"merged_export_parent_is_private_module\":true,\"merged_export_private_distinct\":true,\"original_export_parents_unchanged\":true,\"original_shared_declarations_unchanged\":true,\"source_declarations_unchanged\":true,\"source_only_export_keeps_raw_parent\":true,\"source_only_export_parent_accessor_redirects\":true,\"source_redirect_matches_direction\":true,\"source_tables_unchanged\":true,\"target_declarations_unchanged\":true,\"target_redirects_to_private_clone\":true,\"target_tables_unchanged\":true}}\n",
+        "stderr": "",
+        "wall_seconds": 0.26519583398476243,
+        "user_seconds": 0.004112,
+        "system_seconds": 0.009146,
+        "peak_rss_bytes": 11255808,
+        "native_source": "5b1047d10d32e7d5b446be4de56b126ff42f82bb"
+      },
+      "source_file_sha256": {
+        "internal/checker/symbol_storage_contract_probe.go": "941490298af7d200d6cc1d2d3909264674fc72e02fa244de88d6ed766c5f5943",
+        "cmd/symbol-storage-contract/main.go": "3891ae87ffd3eb3db7e13ed1676043782cd7b33ebd0de807cf609c0afd33ac3c"
+      },
+      "delta_probe_patch_sha256": "93b7be2f0fda5c425be29510a6e461174dbd5370bec5cd253aa0b475ea8a8953",
+      "source_hash_scope": "Earlier eight-case runner, before normal const type-query control. Final source hashes belong to the final nine-case sample only."
+    }
+  ],
+  "verification": {
+    "base_and_delta_patch_dry_run": true,
+    "patches_reproduce_built_source": true,
+    "original_native_methods_unchanged": true,
+    "binary_and_result_readback": true,
+    "rust_layout_test": "crates/tsr-checker/tests/symbol_domain_contract.rs",
+    "rust_layout_test_sha256": "c1a06a698394ce66b15b8cdf91583a7fa786e17c666bd2e97511b1a4b871b70d",
+    "rust_layout_controls_passed": 7,
+    "production_symbol_store_implemented": false,
+    "normal_const_type_query_bypasses_symbol_completion": true,
+    "design_links_resolve": true
+  }
+}

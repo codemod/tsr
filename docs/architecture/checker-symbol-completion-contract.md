@@ -42,7 +42,7 @@ const-assertion type-query path. Preserve the bypass.
 | Ordinary bound declaration | Program binding; the tested declaration is shared between two Checkers | `tsr_binder::SymbolId` indexes the immutable bound SymbolStore. |
 | Unknown sentinel | Private Checker | Intrinsic error/any TypeIds distinguish type outcomes, but are not a native unknown-symbol handle. |
 | Unresolved path and its parents | Private Checker synthetic symbols | `unresolved_type_reference` creates an error-like named TypeId and registers it in `unresolved_types`. This preserves tested printing/error propagation, not synthetic symbol identity. |
-| Merged/cloned transient symbols | Checker preparation/resolution as required by native | The ordinary bound-pointer control does not establish this behavior. See `tsr-6.49` and `tsr-1yb.3.2`. |
+| Merged/cloned transient symbols | Checker preparation/resolution as required by native | Direct clone/merge controls below establish private storage and redirects; full augmentation preparation remains `tsr-6.49` and `tsr-1yb.3.2`. |
 | Expression/type completion | Private Checker | `node_types`, `symbol_types` and instantiation tables store TypeIds. They do not substitute for static symbol completion. |
 
 Rust's opaque SymbolId contains a store index without a domain tag. SymbolStore
@@ -51,14 +51,128 @@ its symbols lack native transient CheckFlags. Checker borrows Binder
 immutably. Appending synthetic ids to Program storage or passing private ids to
 `binder.symbols().get` would violate these boundaries.
 
-The concrete follow-up is **`tsr-1yb.4.1.6.1`**: specify the smallest distinct
-completed-symbol handle, checker-owned synthetic store and accessor surface.
-An implementable design must represent uncomputed separately from completed
-unknown; distinguish bound handles from private handles; retain full parent
-paths and alias origin; and prevent private handles from reaching a different
-Checker. It must also cover native merged/cloned targets rather than assuming
-all nonunknown symbols are Program ids. Storage layout is deliberately not
-implemented before this consumer/domain obligation is settled.
+The design for **`tsr-1yb.4.1.6.1`** follows. It is a checked ownership layout
+and consumer migration contract, not a production implementation. Production
+reuse remains `tsr-1yb.7.7`.
+
+## Handle and storage layout
+
+Use one opaque, nongeneric `SymbolRef` with two variants: a bound Program
+symbol id plus its Program stamp, or a private store index plus its Checker
+stamp. Constructors and fields are private to the symbol access module; there
+is no conversion from a private index to `tsr_binder::SymbolId`. A node link is
+`Option<SymbolRef>`: `None` means uncomputed, while unknown is an actual private
+symbol. Unresolved and merged targets are other private records, not additional
+meanings of `None`.
+
+Each stamp owns a distinct `Arc` allocation with a nonzero payload. Equality
+uses `Arc::ptr_eq` and hashing uses its allocation identity; deriving equality
+from the equal payload would collapse different domains. The Program creates
+its stamp once with its bound store and every Checker borrows that same store.
+The Checker creates its private stamp once. Moving either owner does not change
+its stamp. A retained handle keeps the allocation alive after its store drops,
+so another owner cannot reuse that allocation address while the handle exists.
+The stamp owns no AST or symbol records and extends none of their lifetimes.
+Access still requires a live Checker with the matching borrowed Program.
+
+Bound handles are accepted by both Checkers on the same Program. Bound handles
+from another Program and private handles from another Checker are rejected
+before indexing or returning a type. Treat a foreign domain as an ownership
+error, not as a missing-name result. No global counter, semantic cache, unsafe
+branding, shared mutable store, or new dependency is required. Keep `Clone`
+explicit: this owned boundary handle is not `Copy`.
+
+The [executable ownership layout](../../crates/tsr-checker/tests/symbol_domain_contract.rs)
+uses actual binder SymbolIds and checks these domain rules, pointer-based
+hashing, owner-drop behavior, moving a Checker, unresolved parent paths and
+bound origins of private clones. Its small records are a layout proof; they do
+not implement native name resolution or certify production accessors.
+
+The private store contains a contiguous record vector, a full-path unresolved
+table and a merged-symbol redirect table. Its minimum record carries flags,
+CheckFlags, `Cow<str>` name, declaration ids, value declaration, parent and
+export-symbol handles, optional member/export maps with `SymbolRef` values,
+and explicit origin metadata where the native operation requires it. Own names
+for synthetic paths; borrow bound names while the Program is alive. Origin
+may itself be private when a private symbol is cloned. Preserve absence of a
+table until its native initialization point; an empty table is not a completed
+member image.
+
+Unknown is a private Property/Transient symbol named `unknown`. Unresolved
+records are TypeAlias/Transient with CheckFlagsUnresolved, full-path parent
+handles and declared-type linkage to the private unresolved type. The unresolved
+table key is the full textual path within this Checker; it excludes source
+scope, AST identity, generic arguments and the current substitution frame.
+Each node still does its own first lookup and diagnostic before sharing that
+symbol. An empty/missing name returns unknown through the native path.
+
+Classify private storage by **SymbolFlagsTransient**, not nonzero CheckFlags.
+Native `newSymbol` at 14070 sets Transient; `cloneSymbol` at 14343 also uses it
+and leaves CheckFlags zero. A clone owns separate member/export maps whose
+existing symbol values remain shared handles. Its declaration sequence must
+be copied before append (native caps the shared slice to force reallocation).
+Copy exactly the native clone fields: CheckFlags and ExportSymbol are not
+automatically inherited by `cloneSymbol`; origin metadata does not change that.
+`recordMergedSymbol` at 14372 redirects source to result inside this Checker;
+it does not mutate a bound symbol or rewrite the Program's binder redirects.
+
+During an export-table merge, an actually merged private export gets the
+private merged module as its raw parent. A source-only export retains its
+original raw parent. `getParentOfSymbol` applies late-bound and merged redirects
+when reading that parent: after a bidirectional merge it can return the merged
+module even when the raw parent remains the source. Unidirectional merges do
+not publish a redirect for the source; cloning still redirects the original
+target. Do not normalize these two parent channels into one eagerly rewritten
+field or replace declaration merging with a property-type union.
+
+## Access and consumer migration
+
+Put stamp validation, private indexing and merged/parent access behind one
+symbol access module. Reads return flags, declaration ids and cloned handles,
+or a short-lived immutable view. Drop any view before recursive `&mut self`
+work, then publish by handle, following [ADR-0013](../adr/0013-checker-memoisation.md).
+The private store may keep compact local indexes internally, but they cannot
+escape its encapsulated records/tables. Other Checker methods and type owners
+receive tagged handles; making a bare local index crate-visible would bypass
+the very domain check this layout establishes.
+
+| Existing boundary | Required migration before private results reach it |
+|---|---|
+| `symbols.rs::get_type_of_symbol`, `get_symbol_flags`, alias/export/module helpers | Add handle-taking internal entry points. Keep existing bound-id APIs as compatibility wrappers that construct a handle from this Checker's Program. Resolve flags, declarations, merged targets and parents through the accessor. |
+| `declared.rs::get_declared_type_of_symbol` and type-reference selection | Accept private unknown/unresolved/merged results and keep current instantiation, written-name and alias-frame work after static selection. Key node completion by the entire TypeReference node, not its name child. |
+| `members.rs` owner traversal, `get_property_of_type[_ex]`, optional/readonly queries | Return and consume handles, including private merged/instantiated properties. Resolve the concrete receiver and arguments after owner selection under `.4.1.5`/`.4.2`; never return `None` merely because a property is private. |
+| `signatures.rs::get_signatures_of_symbol`, class construct signatures | Read the private symbol's declarations and typed member edges. Signature objects currently carry declaration/TypeIds, not a symbol field; migrate their owner keys and readers, not an invented field. |
+| `TypeData::Named.members`, `Anonymous.symbol`, Union/Intersection alias symbol and EnumLiteral owner/member | Replace reachable owner fields with `SymbolRef` and update factories/consumers. TypeData/TypeStore are nongeneric, so borrowed AST/store references cannot solve this channel. Preserve complete interning identity, constituent order and freshness; handle equality includes domain. No fake Program index or duplicate fallback side table. |
+| Checker `symbol_types`, `declared_types`, `this_types`, signature cache, `resolutions` and instantiation/alias target metadata | Migrate keys/values when their native operations can select private symbols; resolution stack keys must preserve property kind as well as symbol identity. Include `type_reference_targets` and deferred alias/mapper ownership channels in the call-site audit. |
+| Binder declaration lookup, bound assignment scans and bound declaration-check sets | Remain Program-id APIs where the operation really addresses a binder declaration. A private clone explicitly reaches its origin/declarations through the accessor; no unchecked demotion. Do not mechanically widen every SymbolId table. |
+
+Owner changes to public TypeData variants/factories need a repository-wide
+caller audit and coordinated edits. Bound-only compatibility APIs do not
+provide a general private-symbol query. A new handle getter cannot be enabled
+while a downstream owner still assumes all results belong to the bound store.
+
+Keep alias-target links separate from node links. Native `resolveAlias` at
+16266 pushes the AliasTarget resolution property, resolves pure aliases through
+`resolveIndirectionAlias`, propagates type-only declaration metadata, publishes
+target-or-unknown, and can replace it with unknown on a failed pop while
+reporting the cycle. `tryResolveAlias` can decline an active unresolved cycle.
+This is not equivalent to one per-symbol resolving bit or memoizing today's
+nonrecursive Rust alias dispatch. Restore the stack/property protocol when
+porting transitive alias completion. The alias node getter's nonpublishing
+fallback remains nonpublishing.
+
+Construction order is bind/freeze Program inputs, create the private Checker
+store, run native preparation/merge behavior, then permit supported completed
+node queries. `tsr-6.49` and `.3.2` own that preparation and worker-affinity
+contract. This design does not introduce a guessed version counter or clear
+completed entries to compensate for an unported late merge. Written aliases,
+flow nodes, type arguments and substitution frames remain separate channels.
+
+One stamp per Program, one per Checker, and handle clone/refcount work are real costs.
+Count handle construction/clones, lookup worker executions and retained map/
+record capacities on current source before choosing a compact production
+encoding. The layout proves safe ownership, not profitable reuse. `.7.7` must
+measure the integrated change against its unchanged whole-project gates.
 
 ## Consumer boundaries
 
@@ -106,6 +220,28 @@ Reproduction: export the exact pinned native tree, apply
 `-buildvcs=false`; run with `TSR_NATIVE_SYMBOL_PROBE=1`. The delta adds two
 scratch-only files and does not modify the getter semantics. Patch application
 and resulting source hashes are verified independently.
+
+[Storage controls](checker-symbol-storage-contract-controls.json) add nine
+direct native cases with **88 passing assertions** for private clones across
+Checkers, zero CheckFlags, independent member/export map mutation, declaration
+append, bound-origin redirects, interface/namespace merging, raw versus queried
+parent identity, unidirectional source redirects and same-symbol no-op merges.
+The normal const type-query control leaves its symbol link uncomputed, reuses
+the completed type, prints `{ readonly value: 1; }` and adds no name error.
+They call the original native methods on bound symbols; the standalone runner
+uses existing cached dependencies. Apply the base getter probe (disabled for
+this run), then [the storage delta](checker-symbol-storage-contract-probe.patch),
+build `./cmd/symbol-storage-contract` with `-buildvcs=false`, and run it without
+`TSR_NATIVE_SYMBOL_PROBE`. The saved result includes complete output and binary/
+source identities. The earlier eight-case sample retains its own historical
+source hashes; final hashes describe the nine-case runner. These controls
+deliberately invoke the merge worker; they do not reproduce full source-level
+module-augmentation preparation.
+
+The seven Rust ownership-layout controls pass in
+`cargo test --release -p tsr-checker --test symbol_domain_contract`. They use a
+test-only Program stamp wrapper over the real bound store and private records;
+the production Program and Checker have not acquired these stamps or accessors.
 
 The Rust unresolved-reference fixture passes repeated/reordered queries for
 full qualified paths and different type arguments. The retained native
