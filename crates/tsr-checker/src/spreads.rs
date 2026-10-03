@@ -549,7 +549,11 @@ impl Checker<'_, '_> {
     }
 
     /// getGenericObjectFlags: object/index genericity are separate flags.
-    fn spread_generic_flags(&mut self, ty: TypeId, visited: &mut Vec<TypeId>) -> (bool, bool) {
+    pub(crate) fn spread_generic_flags(
+        &mut self,
+        ty: TypeId,
+        visited: &mut Vec<TypeId>,
+    ) -> (bool, bool) {
         if visited.contains(&ty) {
             return (false, false);
         }

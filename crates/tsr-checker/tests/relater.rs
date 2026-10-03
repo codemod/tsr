@@ -1486,3 +1486,63 @@ fn two_members_of_one_enum_are_decidably_unrelated() {
     });
     assert_eq!(verdict, Ternary::NotRelated);
 }
+
+#[test]
+fn source_intersection_members_decide_both_success_and_missing_requirements() {
+    use tsr_checker::relater::{Relation, Ternary};
+    for (source, member, expected) in [
+        ("{ a: string } & { d: boolean }", "string", Ternary::Related),
+        ("{ d: boolean } & { a: string }", "string", Ternary::Related),
+        ("{ a: number } & { d: boolean }", "string", Ternary::NotRelated),
+        ("{ a: string } & { other: number }", "string", Ternary::NotRelated),
+        ("{ a?: string } & { d: boolean }", "any", Ternary::NotRelated),
+    ] {
+        for exact in [false, true] {
+            with_checker(
+                &format!("let source: {source}; let target: {{ a: {member}; d: boolean }};"),
+                |checker, statements| {
+                    checker.apply_compiler_options(&tsr_core::CompilerOptions {
+                        strict: tsr_core::Tristate::True,
+                        exact_optional_property_types: if exact {
+                            tsr_core::Tristate::True
+                        } else {
+                            tsr_core::Tristate::False
+                        },
+                        ..Default::default()
+                    });
+                    let a = annotation_type(checker, statements, 0);
+                    let b = annotation_type(checker, statements, 1);
+                    assert_eq!(checker.relate_ternary(a, b, Relation::Assignable), expected);
+                    if member == "any" {
+                        assert_eq!(
+                            checker.relate_ternary(a, b, Relation::Comparable),
+                            Ternary::Related,
+                            "comparability skips optional-source/required-target rejection"
+                        );
+                    }
+                },
+            );
+        }
+    }
+}
+
+#[test]
+fn combined_readonly_flags_order_only_strict_subtypes_and_use_all_contributions() {
+    use tsr_checker::relater::{Relation, Ternary};
+    for (source, strict_expected) in [
+        ("{ readonly a: string } & { d: boolean }", Ternary::NotRelated),
+        ("{ readonly a: string } & { a: string } & { d: boolean }", Ternary::Related),
+        ("{ a: string } & { readonly a: string } & { d: boolean }", Ternary::Related),
+    ] {
+        with_checker(
+            &format!("let source: {source}; let target: {{ a: string; d: boolean }};"),
+            |checker, statements| {
+                let a = annotation_type(checker, statements, 0);
+                let b = annotation_type(checker, statements, 1);
+                assert_eq!(checker.relate_ternary(a, b, Relation::Assignable), Ternary::Related);
+                assert_eq!(checker.relate_ternary(a, b, Relation::Subtype), Ternary::Related);
+                assert_eq!(checker.relate_ternary(a, b, Relation::StrictSubtype), strict_expected);
+            },
+        );
+    }
+}

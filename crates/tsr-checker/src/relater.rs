@@ -1934,20 +1934,42 @@ impl Relater<'_, '_, '_> {
                 .map(|&c| self.is_related_to_with_flags(source, c, RecursionFlags::TARGET));
             return RelationResult::any(parts);
         }
-        if let Some(constituents) = self.intersection_constituents(source) {
-            // *Some* constituent of a source intersection suffices.
-            //
-            // Upstream reaches this via `someTypeRelatedToType` and notes that
-            // it is incomplete: `A & B` can be related to `T` through the
-            // *combination* of its constituents' members without any single one
-            // being related. That case needs the structural comparison this
-            // module gaps, so it is a gap here for the same reason and not a
-            // second one.
+        let source_intersection_result = if let Some(constituents) =
+            self.intersection_constituents(source)
+        {
+            // unionOrIntersectionRelatedTo first tries individual constituents.
+            // A failed attempt must still reach the combined object comparison.
             let parts = constituents
                 .iter()
                 .map(|&c| self.is_related_to_with_flags(c, target, RecursionFlags::SOURCE));
-            return RelationResult::any(parts);
-        }
+            let result = RelationResult::any(parts);
+            if result.is_success() {
+                // structuredTypeRelatedTo's extra source-intersection check:
+                // another constituent can supply an incompatible OPTIONAL
+                // target property even when the first constituent suffices.
+                if self.has_members(target)
+                    && !constituents.contains(&target)
+                    && self.tuple_relation_elements(target).is_none()
+                    && self.checker.tuple_spread_array_element(target).is_none()
+                    && !self.checker.spread_generic_flags(target, &mut Vec::new()).0
+                {
+                    let optionals = self.properties_related_to_with_optionals(source, target, true);
+                    return RelationResult::all([result, optionals]);
+                }
+                return result;
+            }
+            // Generic source intersections still need native constraint/member
+            // synthesis before combining their object members. Preserve the
+            // existing constituent path for that separately unsupported boundary.
+            if !self.has_members(target)
+                || self.checker.spread_generic_flags(source, &mut Vec::new()).0
+            {
+                return result;
+            }
+            Some(result)
+        } else {
+            None
+        };
         // The source-variable branch also explores an indexed access's
         // constraint, except when both operands are indexed accesses and the
         // object/index comparison above owns the relation (relater.go:3665).
@@ -2165,14 +2187,18 @@ impl Relater<'_, '_, '_> {
                 }
             }
         }
-        if self.has_members(source) && self.has_members(target) {
+        if (self.has_members(source) || source_intersection_result.is_some())
+            && self.has_members(target)
+        {
             // structuredTypeRelatedToWorker (relater.go:3864): properties,
             // call/construct signatures and indexes are independent conjuncts.
             // Index infos can be synthesized by literals or mapped types, so
             // inspecting only binder declarations misses a target requirement.
             let properties = self.properties_related_to(source, target);
             if properties == RelationResult::NotRelated {
-                return properties;
+                return RelationResult::any(
+                    source_intersection_result.into_iter().chain([properties]),
+                );
             }
             let signatures = if self.declares_call_or_construct(target) {
                 self.related_signatures(source, target).unwrap_or_else(|| {
@@ -2183,11 +2209,14 @@ impl Relater<'_, '_, '_> {
                 RelationResult::Related
             };
             if signatures == RelationResult::NotRelated {
-                return signatures;
+                return RelationResult::any(
+                    source_intersection_result.into_iter().chain([signatures]),
+                );
             }
             let indexes =
                 self.related_index_signatures(source, target).unwrap_or(RelationResult::Unknown);
-            return RelationResult::all([properties, signatures, indexes]);
+            let result = RelationResult::all([properties, signatures, indexes]);
+            return RelationResult::any(source_intersection_result.into_iter().chain([result]));
         }
         // Reached only by a type whose *flags* say union or intersection while
         // its data says otherwise, which `is_related_to`'s gate lets through.
@@ -2395,6 +2424,15 @@ impl Relater<'_, '_, '_> {
     /// optionality and strict-subtype readonly checks precede comparison of the
     /// resolved property types. Generic parameters use the ordinary relation.
     fn properties_related_to(&mut self, source: TypeId, target: TypeId) -> RelationResult {
+        self.properties_related_to_with_optionals(source, target, false)
+    }
+
+    fn properties_related_to_with_optionals(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+        optionals_only: bool,
+    ) -> RelationResult {
         let Some(names) = self.checker.get_property_names_of_type(target) else {
             // Row 1 of `checker-notes-assign.md` §2: the target's inherited
             // requirements could not be *enumerated*, so no verdict about them
@@ -2402,11 +2440,42 @@ impl Relater<'_, '_, '_> {
             reasons::note(reasons::Site::UnfollowableBase);
             return RelationResult::Unknown;
         };
+        // Keep the original receiver for member reads: intersection property
+        // types are already synthesized by property_type_via_shape. Only names
+        // and declaration metadata need the distinct contributing object types.
+        let source_parts = self.intersection_constituents(source).map(|types| {
+            let mut pending = types;
+            let mut visited = Vec::new();
+            let mut parts = Vec::new();
+            while let Some(part) = pending.pop() {
+                let part = self.checker.apparent_type(part);
+                if visited.contains(&part) {
+                    continue;
+                }
+                visited.push(part);
+                if let Some(types) = self.intersection_constituents(part) {
+                    pending.extend(types);
+                } else {
+                    parts.push(part);
+                }
+            }
+            parts
+        });
+        let intersection_names = source_parts.as_ref().map(|parts| {
+            parts
+                .iter()
+                .map(|&part| self.checker.get_property_names_of_type(part))
+                .collect::<Option<Vec<_>>>()
+                .map(|names| names.into_iter().flatten().collect::<Vec<_>>())
+        });
         // propertiesRelatedTo (relater.go:4240): an object-literal target
         // requires actual named properties, even when it has an index signature.
         // Regularization retains ObjectLiteral; widening removes it.
-        if self.checker.is_object_literal_type(target) {
-            let Some(source_names) = self.checker.get_property_names_of_type(source) else {
+        if !optionals_only && self.checker.is_object_literal_type(target) {
+            let Some(source_names) = intersection_names
+                .clone()
+                .unwrap_or_else(|| self.checker.get_property_names_of_type(source))
+            else {
                 return RelationResult::Unknown;
             };
             if source_names.iter().any(|name| !names.contains(name)) {
@@ -2415,6 +2484,14 @@ impl Relater<'_, '_, '_> {
         }
         let mut parts = Vec::with_capacity(names.len());
         for name in names {
+            if optionals_only
+                && !self
+                    .checker
+                    .get_property_of_type(target, &name)
+                    .is_some_and(|property| self.checker.property_is_optional(property))
+            {
+                continue;
+            }
             // Through [`Checker::get_type_of_property_of_type`], not
             // `get_property_of_type` + `get_type_of_symbol`. The symbol is the
             // *uninstantiated* declaration, so on a `C<number>` with a member
@@ -2465,7 +2542,10 @@ impl Relater<'_, '_, '_> {
                 // (`symbolProperty13`). An unfollowable source keeps the
                 // Unknown.
                 if self.checker.get_type_of_property_of_type(source, &name).is_none()
-                    && self.checker.get_property_names_of_type(source).is_some()
+                    && intersection_names
+                        .clone()
+                        .unwrap_or_else(|| self.checker.get_property_names_of_type(source))
+                        .is_some()
                 {
                     parts.push(RelationResult::NotRelated);
                     continue;
@@ -2493,31 +2573,78 @@ impl Relater<'_, '_, '_> {
             // target rejects; a protected TARGET needs `isValidOverrideOf`,
             // unported, so that pair is `Unknown` and any reduction touching
             // it declines whole.
-            if let (Some(source_property), Some(target_property)) = (
-                self.checker.get_property_of_type(source, &name),
-                self.checker.get_property_of_type(target, &name),
-            ) {
-                let private = tsr_ast::SyntaxKind::PrivateKeyword;
-                let protected = tsr_ast::SyntaxKind::ProtectedKeyword;
-                let source_private = self.checker.property_has_modifier(source_property, private);
-                let target_private = self.checker.property_has_modifier(target_property, private);
-                if source_private || target_private {
-                    let source_declaration =
-                        self.checker.binder.symbols().get(source_property).value_declaration;
-                    let target_declaration =
-                        self.checker.binder.symbols().get(target_property).value_declaration;
-                    if source_declaration != target_declaration || source_declaration.is_none() {
-                        parts.push(RelationResult::NotRelated);
-                        continue;
+            let source_properties = if source_parts.is_some() {
+                self.checker.intersection_property_symbols(source, &name)
+            } else {
+                self.checker.get_property_of_type(source, &name).into_iter().collect()
+            };
+            if let Some(target_property) = self.checker.get_property_of_type(target, &name) {
+                let mut privacy = Vec::new();
+                for &source_property in &source_properties {
+                    let private = tsr_ast::SyntaxKind::PrivateKeyword;
+                    let protected = tsr_ast::SyntaxKind::ProtectedKeyword;
+                    let source_private =
+                        self.checker.property_has_modifier(source_property, private);
+                    let target_private =
+                        self.checker.property_has_modifier(target_property, private);
+                    if source_private || target_private {
+                        let source_declaration =
+                            self.checker.binder.symbols().get(source_property).value_declaration;
+                        let target_declaration =
+                            self.checker.binder.symbols().get(target_property).value_declaration;
+                        if source_declaration != target_declaration || source_declaration.is_none()
+                        {
+                            privacy.push(RelationResult::NotRelated);
+                        }
+                    } else if self.checker.property_has_modifier(target_property, protected) {
+                        privacy.push(RelationResult::Unknown);
+                    } else if self.checker.property_has_modifier(source_property, protected) {
+                        privacy.push(RelationResult::NotRelated);
                     }
-                } else if self.checker.property_has_modifier(target_property, protected) {
-                    parts.push(RelationResult::Unknown);
-                    continue;
-                } else if self.checker.property_has_modifier(source_property, protected) {
-                    parts.push(RelationResult::NotRelated);
+                }
+                let privacy = RelationResult::all(privacy);
+                if privacy != RelationResult::Related {
+                    parts.push(privacy);
                     continue;
                 }
             }
+            // createUnionOrIntersectionProperty uses AND for optional and
+            // readonly flags: one required/mutable contribution wins. Captured
+            // anonymous members retain mapped optionality independent of origin.
+            let source_metadata = if let Some(source_parts) = &source_parts {
+                let mut metadata = Vec::new();
+                for &part in source_parts {
+                    if self.checker.get_type_of_property_of_type(part, &name).is_none() {
+                        continue;
+                    }
+                    let captured =
+                        self.checker.anonymous_properties.get(&part).and_then(|(properties, _)| {
+                            properties.iter().find(|property| property.name == name)
+                        });
+                    let flags = if let Some(property) = captured {
+                        Some((property.optional, property.readonly))
+                    } else {
+                        self.checker.get_property_of_type(part, &name).map(|property| {
+                            (
+                                self.checker.property_is_optional(property),
+                                self.checker.is_readonly_property(property),
+                            )
+                        })
+                    };
+                    metadata.push(flags);
+                }
+                metadata.into_iter().collect::<Option<Vec<_>>>().and_then(|flags| {
+                    (!flags.is_empty())
+                        .then(|| (flags.iter().all(|flag| flag.0), flags.iter().all(|flag| flag.1)))
+                })
+            } else {
+                source_properties.first().map(|&property| {
+                    (
+                        self.checker.property_is_optional(property),
+                        self.checker.is_readonly_property(property),
+                    )
+                })
+            };
             // A source-OPTIONAL property against a REQUIRED target member
             // rejects in every relation but comparability
             // (`propertyRelatedTo`, the 1.0-spec §3.8.3 clause: "if M is a
@@ -2525,14 +2652,18 @@ impl Relater<'_, '_, '_> {
             // `{ p?: number }` is not related to `{ p: any }`, which is what
             // keeps `Contextual | Ellement` un-reduced
             // (`nonContextuallyTypedLogicalOr`, §15.1's two wrong lines).
-            if let (Some(source_property), Some(target_property)) = (
-                self.checker.get_property_of_type(source, &name),
-                self.checker.get_property_of_type(target, &name),
-            ) && self.checker.property_is_optional(source_property)
+            if let Some(target_property) = self.checker.get_property_of_type(target, &name)
                 && !self.checker.property_is_optional(target_property)
+                && (source_parts.is_none() || self.relation != Relation::Comparable)
             {
-                parts.push(RelationResult::NotRelated);
-                continue;
+                if source_metadata.is_some_and(|flags| flags.0) {
+                    parts.push(RelationResult::NotRelated);
+                    continue;
+                }
+                if source_parts.is_some() && source_metadata.is_none() {
+                    parts.push(RelationResult::Unknown);
+                    continue;
+                }
             }
             // `readonly` orders the STRICT subtype relation and only that one
             // (`relater.go:4300`–`:4308`): a readonly source property against
@@ -2542,11 +2673,8 @@ impl Relater<'_, '_, '_> {
             // `checker-notes-assign.md`; `readonlyPropertySubtypeRelationDirected`
             // is the pin.
             if self.relation == Relation::StrictSubtype
-                && let (Some(source_property), Some(target_property)) = (
-                    self.checker.get_property_of_type(source, &name),
-                    self.checker.get_property_of_type(target, &name),
-                )
-                && self.checker.is_readonly_property(source_property)
+                && let Some(target_property) = self.checker.get_property_of_type(target, &name)
+                && source_metadata.is_some_and(|flags| flags.1)
                 && !self.checker.is_readonly_property(target_property)
             {
                 parts.push(RelationResult::NotRelated);
