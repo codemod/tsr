@@ -322,6 +322,7 @@ dependencies = [
  "tsr-module",
  "tsr-parser",
  "tsr-path",
+ "tsr-scanner",
  "tsr-tsoptions",
  "tsr-vfs",
 ]

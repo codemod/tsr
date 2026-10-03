@@ -350,6 +350,34 @@ pub fn run_compilation(
         .map(|file| DiagnosticFile::new(file.file_name(), file.text()))
         .collect();
 
+    if !options.no_check.is_true() {
+        let mut filtered = Vec::with_capacity(diagnostics.len());
+        for (source, indexed) in program.root_and_referenced_files().iter().zip(&files) {
+            // Match SkipTypeChecking: skipped declaration files must not earn
+            // unused-directive errors without ever being checked.
+            if (tsr_path::is_declaration_file_name(source.file_name())
+                && options.skip_lib_check.is_true())
+                || (options.skip_default_lib_check.is_true()
+                    && is_default_library(&program, source))
+            {
+                continue;
+            }
+            let directives = tsr_compiler::comment_directives::directives_in(source.text());
+            let entries: Vec<_> = diagnostics
+                .iter()
+                .filter(|(name, _)| name == source.file_name())
+                .map(|entry| (indexed.line_of_position(entry.1.span.start), entry.clone()))
+                .collect();
+            let (kept, unused) =
+                tsr_compiler::comment_directives::filter(source.text(), &entries, &directives);
+            filtered.extend(kept);
+            filtered.extend(
+                unused.into_iter().map(|diagnostic| (source.file_name().to_string(), diagnostic)),
+            );
+        }
+        diagnostics = filtered;
+    }
+
     report_located(sys, &files, &diagnostics, &options);
 
     let errors = diagnostics
@@ -504,4 +532,64 @@ fn report_located(
         .collect();
     let text = render(sys, &located, options, true);
     sys.write(&text);
+}
+
+#[cfg(test)]
+mod directive_tests {
+    use super::ExitStatus;
+    use crate::baseline::{Baseline, BaselineSystem};
+
+    fn compile(source: &str) -> (ExitStatus, String) {
+        let baseline = Baseline {
+            name: "directives".to_string(),
+            current_directory: "/project".to_string(),
+            use_case_sensitive_file_names: true,
+            files: vec![
+                ("/project/a.ts".to_string(), source.to_string()),
+                ("/project/empty.js".to_string(), String::new()),
+            ],
+            args: vec!["--noEmit", "--noLib", "--strict", "--pretty", "false", "a.ts"]
+                .into_iter()
+                .map(str::to_string)
+                .collect(),
+            expected_status: String::new(),
+            expected_output: String::new(),
+            expects_emit: false,
+            environment: Vec::new(),
+        };
+        let mut system = BaselineSystem::new(&baseline);
+        let status = crate::command_line(&mut system, &baseline.args);
+        (status, system.output().to_string())
+    }
+
+    #[test]
+    fn directives_suppress_errors_in_the_cli() {
+        let (status, output) = compile(
+            "// @ts-expect-error\nconst a: string = 1;\n// @ts-ignore\nconst b: string = 2;\n",
+        );
+        assert_eq!(status, ExitStatus::Success, "{output}");
+        assert!(output.is_empty(), "{output}");
+    }
+
+    #[test]
+    fn unused_expect_error_and_unsuppressed_errors_still_report() {
+        let (status, output) =
+            compile("// @ts-expect-error\nconst a: number = 1;\nconst b: string = 2;\n");
+        assert_eq!(status, ExitStatus::DiagnosticsPresentOutputsSkipped);
+        assert!(output.contains("TS2578"), "{output}");
+        assert!(output.contains("TS2322"), "{output}");
+    }
+
+    #[test]
+    fn side_effect_js_imports_do_not_require_declarations() {
+        let (status, output) = compile("import './empty.js';");
+        assert_eq!(status, ExitStatus::Success, "{output}");
+    }
+
+    #[test]
+    fn js_value_imports_still_require_declarations_under_strict() {
+        let (status, output) = compile("import value from './empty.js'; value;");
+        assert_eq!(status, ExitStatus::DiagnosticsPresentOutputsSkipped);
+        assert!(output.contains("TS7016"), "{output}");
+    }
 }

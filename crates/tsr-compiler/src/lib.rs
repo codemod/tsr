@@ -52,6 +52,7 @@
 //! first is what the conformance corpus supplies today; the second is what `tsc`
 //! does.
 
+pub mod comment_directives;
 mod file;
 pub mod loader;
 

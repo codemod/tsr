@@ -22,6 +22,16 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
+### Next.js integration fixes — implementation follow-up
+
+The Next.js follow-up addresses error-like any expansion in recursive
+constructor types, external declaration-file import visibility, JSON module
+symbols and value types, CLI comment directives, and assertion regularization
+and widening. The exact committed-source measurement follows this code delivery.
+[CLI diagnosis and implementation](docs/architecture/checker-nextjs-cli-diagnosis.md)
+records native sites and the tested boundaries. Ambient namespace alias
+visibility remains tracked separately in tsr-6.44.1.
+
 ### Current checker checkpoint — 2026-10-02
 
 Measured on **`e6812e01`**, based on 5ca50fea: **457,593/478,855 assertions

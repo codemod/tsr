@@ -1,6 +1,69 @@
 # Next.js CLI comparison — 2026-10-02
 
-Investigation: tsr-6.43. This is a diagnosis; no checker implementation changed.
+Investigation: tsr-6.43. The initial diagnosis below is retained as historical
+evidence. Its implementation follow-up is recorded next.
+
+## Implementation follow-up
+
+The follow-up fixes tsr-6.3.1, tsr-6.44, tsr-6.45 and tsr-6.46.
+The final numerical checkpoint is recorded after committing the source so that
+its measurements identify an exact compiler SHA.
+
+The blocking constructor is `new McpServer` in
+`packages/api/src/entries/hono/grep-mcp/server.ts`. Its `Implementation` parameter
+uses the recursive `Flatten<z.infer<...>>` utility in the SDK declaration.
+An unresolved qualified reference carries the port's ANY flag while remaining
+an error type. Conditional evaluation treated it as genuine `any`, recursively
+evaluating both branches through arrays, sets, maps and mapped objects.
+Native `getConditionalType` checks errorType before its any expansion
+(`checker.go:24319`). The evaluator now recognizes unresolved error types and
+declines evaluation, preserving the existing written-reference fallback.
+Genuine `any` still evaluates both branches. This addresses the demonstrated
+blowup; it does not implement native instantiation caches or all recursive
+conditional types.
+
+The React Hook Form and BullMQ failures share a binder cause. An external
+`.d.ts` file with an implicit export context exported imported aliases.
+`export *` then selected private imports from the first barrel member, creating
+alias cycles or leaking unrelated type-only provenance. The source-file arm
+now follows native `declareModuleMember` (`binder.go:377`): imports stay local,
+export specifiers and explicitly exported import-equals aliases remain exports.
+The checker preserves an unresolved imported reference's written form when a
+resolved file's declaration is unavailable; an actually missing module retains
+native any recovery, and a resolved non-type target still rejects.
+
+The corresponding rule inside ambient namespaces is deferred as tsr-6.44.1.
+The broader candidate exposed unsupported deferred-alias recovery and namespace
+printing. It is not part of the package fix. The recorded refused measurements
+in STATUS describe why this extra scope was excluded.
+
+JSON parsing now records `JSON_FILE`; binding creates the file module and its
+`export=` property while preserving the SourceFile's own module symbol
+(`binder.go:754`). Reading that property widens the JSON expression
+(`checker.go:16589`), so imports retain property types instead of merely hiding
+TS2306. A control assigning the numeric JSON member to string still reports.
+
+The Tailwind TS7016 is valid and preceded by `@ts-expect-error`. The CLI now
+uses the same program-level directive filter as conformance, moved into
+`tsr-compiler`. It suppresses preceding directives and reports unused
+expect-error directives, except in skipped declaration files. This fixes a
+CLI integration gap; allowJs does not suppress missing-declaration errors.
+The native implicit-any-module rule also skips side-effect imports
+(`checker.go:15486`); imports that consume a value still require declarations
+under strict mode. This removes the app's `server-only` import false positives.
+
+Assertions now regularize the object source and compare the target against its
+widened form before the forward comparison (`checker.go:12317`). Regularization
+alone still rejects the empty-object example because regular object literals
+retain their exact property set. Widening removes that exactness. Both `as` and
+angle-bracket assertions pass the empty-object controls; incompatible member
+types still report TS2352.
+
+Regression controls cover implicit/explicit alias exports, barrel type and
+constructor use, retained JSON member types, assertion overlap, real any versus
+unresolved conditional checks, directive suppression and unused directives.
+The shared directive filter retains its original tests. Concurrent checkout
+work and local configuration were preserved.
 
 ## Versions and full-project result
 

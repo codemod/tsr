@@ -3823,6 +3823,12 @@ impl Checker<'_, '_> {
                 [text.to_string(), path],
             )
         } else if ["js", "jsx", "cjs", "mjs"].contains(&extension.as_str()) {
+            // errorOnImplicitAnyModule (checker.go:15486) ignores side-effect
+            // imports: they do not consume a value needing a declaration.
+            if matches!(self.node_map.get(declaration), Some(Node::ImportDeclaration(import)) if import.import_clause.is_none())
+            {
+                return;
+            }
             if !self.no_implicit_any {
                 return;
             }

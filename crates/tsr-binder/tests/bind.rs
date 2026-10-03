@@ -529,6 +529,33 @@ fn a_declaration_file_exports_everything_it_declares() {
 }
 
 #[test]
+fn declaration_file_imports_stay_local_in_an_implicit_export_context() {
+    let arena = Arena::new();
+    let bound = bind_as(
+        &arena,
+        "import Default from './x'; import * as NS from './x'; import type { Shape } from './x'; import Local = NS.Member; declare const value: Shape;",
+        "a.d.ts",
+    );
+    for name in ["Default", "NS", "Shape", "Local"] {
+        assert!(bound.top_level(name).is_some(), "{name} remains local");
+        assert!(bound.export(name).is_none(), "{name} must not be implicitly exported");
+    }
+    assert!(bound.export("value").is_some());
+}
+
+#[test]
+fn explicit_alias_exports_still_export_from_declaration_files() {
+    let arena = Arena::new();
+    let bound = bind_as(
+        &arena,
+        "import * as NS from './x'; export import Public = NS.Member; export { NS };",
+        "a.d.ts",
+    );
+    assert!(bound.export("Public").is_some());
+    assert!(bound.export("NS").is_some());
+}
+
+#[test]
 fn a_umd_global_name_is_not_an_export() {
     // `export as namespace N` claims a *global*; putting it in `exports` would
     // make `import { N }` resolve.

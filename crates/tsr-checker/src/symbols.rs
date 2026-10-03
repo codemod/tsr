@@ -1131,6 +1131,16 @@ impl<'a> Checker<'a, '_> {
         };
         let specifier = specifier?.node_id()?;
         let module = self.resolve_external_module_name(declaration, specifier)?;
+        if self
+            .binder
+            .symbols()
+            .get(module)
+            .declarations
+            .iter()
+            .any(|&id| self.nodes.flags(id).contains(NodeFlags::JSON_FILE))
+        {
+            return Some(self.resolve_external_module_symbol(module));
+        }
         // getTargetOfModuleDefault gives a synthetic CommonJS default priority
         // over a real exports.default when no __esModule marker is present.
         if self.can_have_synthetic_default(module)
@@ -1653,7 +1663,7 @@ impl<'a> Checker<'a, '_> {
     }
 
     /// The `ImportDeclaration` or `ExportDeclaration` a specifier belongs to.
-    fn import_or_export_declaration_of(&self, specifier: NodeId) -> Option<NodeId> {
+    pub(crate) fn import_or_export_declaration_of(&self, specifier: NodeId) -> Option<NodeId> {
         let mut current = specifier;
         while let Some(parent) = self.nodes.parent(current) {
             match self.nodes.kind(parent) {
@@ -2081,7 +2091,7 @@ impl<'a> Checker<'a, '_> {
     /// and `ImportTypeNode`; none of those reaches this function in this port,
     /// and listing a kind whose caller does not exist would be an intention
     /// documented as though it were built.
-    fn external_module_name(&self, node: NodeId) -> Option<NodeId> {
+    pub(crate) fn external_module_name(&self, node: NodeId) -> Option<NodeId> {
         let specifier = match self.node_map.get(node)? {
             Node::ImportDeclaration(node) => node.module_specifier,
             Node::ExportDeclaration(node) => node.module_specifier,
@@ -3458,6 +3468,26 @@ impl<'a> Checker<'a, '_> {
 
         let kind = self.nodes.kind(declaration);
         let result = match kind {
+            // JSON's export= property is declared on the SourceFile itself
+            // (getTypeOfVariableOrParameterOrProperty, checker.go:16589).
+            SyntaxKind::SourceFile
+                if self.nodes.flags(declaration).contains(NodeFlags::JSON_FILE) =>
+            {
+                let Some(Node::SourceFile(file)) = self.node_map.get(declaration) else {
+                    return self.intrinsics.error;
+                };
+                match file.statements.first() {
+                    Some(tsr_ast::Statement::ExpressionStatement(statement)) => {
+                        let checked =
+                            statement.expression.map_or(self.intrinsics.error, |expression| {
+                                self.check_expression(expression)
+                            });
+                        let literal = self.get_widened_literal_type(checked);
+                        self.widen_object_literal_freshness(literal)
+                    }
+                    _ => self.intrinsics.empty_object,
+                }
+            }
             SyntaxKind::BinaryExpression | SyntaxKind::CallExpression => {
                 self.get_widened_type_for_assignment_declaration(symbol)
             }

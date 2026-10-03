@@ -57,6 +57,74 @@ use tsr_checker::Checker;
 use tsr_checker::check::FileContext;
 use tsr_checker::resolution::ModuleHost;
 
+#[test]
+fn an_empty_object_assertion_to_a_required_shape_is_comparable() {
+    assert_eq!(
+        codes(&[(
+            "/a.ts",
+            "interface Context { id: string } const a = {} as Context; const b = <{ id: string }>{};"
+        )]),
+        Vec::<String>::new()
+    );
+}
+
+#[test]
+fn incompatible_object_assertions_still_report() {
+    assert!(
+        codes(&[("/a.ts", "const a = { id: 1 } as { id: string };")])
+            .contains(&"TS2352".to_string())
+    );
+}
+
+#[test]
+fn json_default_imports_preserve_the_exported_value_type() {
+    assert!(codes(&[("/data.json", r#"{"name":"probe","count":1}"#), ("/a.ts", "import data from './data'; const name: string = data.name; const wrong: string = data.count;")]).contains(&"TS2322".to_string()));
+    assert_eq!(
+        codes(&[
+            ("/data.json", r#"{"name":"probe","count":1}"#),
+            ("/a.ts", "import data from './data'; const name: string = data.name;")
+        ]),
+        Vec::<String>::new()
+    );
+}
+
+#[test]
+fn a_barrel_skips_private_import_aliases_in_declaration_files() {
+    let types = (
+        "/types.d.ts",
+        "export type Fields = { name: string }; export declare class QueueEvents {}",
+    );
+    let private = (
+        "/private.d.ts",
+        "import type { Fields, QueueEvents } from './types'; declare const local: Fields;",
+    );
+    let barrel = ("/barrel.d.ts", "export * from './private'; export * from './types';");
+    assert_eq!(
+        codes(&[
+            types,
+            private,
+            barrel,
+            (
+                "/a.ts",
+                "import { QueueEvents } from './barrel'; import type { Fields } from './barrel'; const fields: Fields = { name: 'x' }; new QueueEvents();"
+            )
+        ]),
+        Vec::<String>::new()
+    );
+    assert!(
+        codes(&[
+            types,
+            private,
+            barrel,
+            (
+                "/a.ts",
+                "import type { Fields } from './barrel'; const fields: Fields = { name: 1 };"
+            )
+        ])
+        .contains(&"TS2322".to_string())
+    );
+}
+
 /// Resolves `"./stem"` to the fixture whose file name has that stem, and
 /// answers `is_declaration_file` from the fixture's own name.
 ///

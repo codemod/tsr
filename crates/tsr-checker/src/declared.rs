@@ -1390,10 +1390,27 @@ impl<'a> Checker<'a, '_> {
                         let declared = self.get_declared_type_of_symbol(merged);
                         return self.get_regular_type_of_literal_type(declared);
                     }
-                    return self.get_instantiated_type_reference(node, merged, parameters);
+                    let instantiated =
+                        self.get_instantiated_type_reference(node, merged, parameters);
+                    return if self.is_error(instantiated) {
+                        self.unresolved_type_reference(node)
+                    } else {
+                        instantiated
+                    };
                 }
+                return error;
             }
-            return error;
+            return if self
+                .declaration_of_alias_symbol(symbol)
+                .and_then(|declaration| {
+                    self.external_module_name(self.import_or_export_declaration_of(declaration)?)
+                })
+                .is_some_and(|specifier| self.module_specifier_unfindable(specifier))
+            {
+                error
+            } else {
+                self.unresolved_type_reference(node)
+            };
         }
         let parameters = self.local_type_parameters_of(symbol).len();
         if parameters == 0 {
@@ -5892,6 +5909,14 @@ impl<'a> Checker<'a, '_> {
             });
         if let Some(check_node) = conditional.check_type {
             let check = self.get_type_from_type_node(check_node);
+            // getConditionalType (checker.go:24319): errorType propagates
+            // before any's two-branch expansion. Unresolved references retain
+            // a written name here, but still represent that same errorType.
+            // Decline evaluation so the port's reference fallback preserves
+            // its written form, as it already does for intrinsic errorType.
+            if self.is_error(check) {
+                return None;
+            }
             // A deferred check must stay under its conditional mapper. Walk
             // semantic operands, including keyof and deeply nested references.
             let parameters: Vec<_> = self.type_parameter_symbols.keys().copied().collect();
@@ -7034,5 +7059,42 @@ impl Checker<'_, '_> {
             return None;
         }
         Some(alias.name?.text.to_string())
+    }
+}
+
+#[cfg(test)]
+mod conditional_error_tests {
+    use super::*;
+
+    #[test]
+    fn an_unresolved_check_does_not_evaluate_any_branches() {
+        let arena = tsr_core::Arena::new();
+        let source = "type Choose<T> = T extends number ? 1 : 2; type Broken = Missing.Type;";
+        let parsed = tsr_parser::parse(&arena, source);
+        assert!(parsed.diagnostics.is_empty());
+        let bound = tsr_binder::bind(
+            &arena,
+            parsed.source_file,
+            &parsed.nodes,
+            tsr_binder::FileInfo { name: "test.ts", text: source },
+        );
+        let tsr_ast::Statement::TypeAliasDeclaration(choose) = parsed.source_file.statements[0]
+        else {
+            panic!("Choose alias")
+        };
+        let tsr_ast::Statement::TypeAliasDeclaration(broken) = parsed.source_file.statements[1]
+        else {
+            panic!("Broken alias")
+        };
+        let symbol = bound.symbol_of(choose.node_id.unwrap()).unwrap();
+        let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+        let unresolved = checker.get_type_from_type_node(broken.r#type.unwrap());
+        assert!(checker.is_error(unresolved));
+        assert_ne!(unresolved, checker.intrinsics.error);
+        let result = checker.evaluate_conditional_alias(symbol, &[unresolved], None);
+        assert_eq!(result, None);
+        let genuine_any = checker.intrinsics.any;
+        let result = checker.evaluate_conditional_alias(symbol, &[genuine_any], None).unwrap();
+        assert_eq!(checker.type_to_string(result), "1 | 2");
     }
 }

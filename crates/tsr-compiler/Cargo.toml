@@ -15,6 +15,7 @@ tsr-checker = { workspace = true }
 tsr-core = { workspace = true }
 tsr-diagnostics = { workspace = true }
 tsr-parser = { workspace = true }
+tsr-scanner = { workspace = true }
 tsr-path = { workspace = true }
 tsr-module = { workspace = true }
 tsr-tsoptions = { workspace = true }

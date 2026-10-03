@@ -58,11 +58,13 @@ impl<'a> Parser<'a> {
         };
 
         let eof = self.alloc_token(SyntaxKind::EndOfFile, self.token.span);
-        self.finish_node(
+        let file = self.finish_node(
             SourceFile::new(self.arena.alloc_slice(&statements), eof),
             SyntaxKind::SourceFile,
             start,
-        )
+        );
+        self.nodes.add_flags(file.node_id.unwrap(), tsr_ast::NodeFlags::JSON_FILE);
+        file
     }
 
     /// The one statement a JSON file has: its top-level value.

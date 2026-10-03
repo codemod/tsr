@@ -57,17 +57,19 @@ impl Checker<'_, '_> {
         // `string` against `"bar"` and report nothing. Ported literally rather
         // than approximated by a primitive-family test — §45 found the proxy
         // was being read as a statement about the *relation*, which it is not.
-        // `getRegularTypeOfObjectLiteral` and `getWidenedType` wrap it upstream
-        // and are unported; the composite decline below is what stands in for
-        // the population they would reach.
+        // checkAssertionDeferred regularizes object literals before comparing
+        // them (checker.go:12317); assertion overlap does not check excess
+        // properties on the fresh expression type.
         let expression_type = self.check_expression(expression);
         let source = self.get_base_type_of_literal_type(expression_type);
+        let source = self.get_regular_type_of_object_literal(source);
+        let widened = self.widen_object_literal_freshness(source);
         if !self.pair_is_reportable(source, target) || self.either_is_composite(source, target) {
             return;
         }
         // Both directions, both confident. `Unknown` on either side is silence.
-        if self.relate_ternary(source, target, Relation::Comparable) != Ternary::NotRelated
-            || self.relate_ternary(target, source, Relation::Comparable) != Ternary::NotRelated
+        if self.relate_ternary(target, widened, Relation::Comparable) != Ternary::NotRelated
+            || self.relate_ternary(source, target, Relation::Comparable) != Ternary::NotRelated
         {
             return;
         }

@@ -496,6 +496,22 @@ impl<'a, 'n> Binder<'a, 'n> {
             // here borrows from the source or the file name.
             let symbol = self.bind_source_file_as_external_module(root_id);
             self.owner = Some(symbol);
+        } else if self.nodes.flags(root_id).contains(NodeFlags::JSON_FILE) {
+            // bindSourceFileIfExternalModule (binder.go:758): a JSON value is
+            // the module's export= property, equivalent to module.exports.
+            let module = self.bind_source_file_as_external_module(root_id);
+            self.owner = Some(module);
+            self.declare_into(
+                Destination::Exports,
+                root_id,
+                Some(module),
+                INTERNAL_EXPORT_EQUALS,
+                SymbolFlags::PROPERTY,
+                root_id,
+            );
+            // declareSymbol sets the declaration's symbol to the property;
+            // upstream restores the source file's original module symbol.
+            self.node_symbols[root_id.index()] = Some(module);
         }
 
         self.bind(root);
@@ -2814,9 +2830,25 @@ impl<'a, 'n> Binder<'a, 'n> {
         // a local `x` is the case that looks like it should be a local, and is not:
         // the export half is a separate symbol in the container's exports, which is
         // what makes `M.x` reachable, and the local it aliases already exists.
-        let exported = matches!(node, Node::ExportSpecifier(_))
-            || self.export_context
-            || self.has_export_modifier(node);
+        // declareModuleMember handles aliases before ExportContext: imports
+        // remain local in declaration files. Only explicit export specifiers
+        // and exported import-equals declarations enter exports. The source
+        // file arm is ported here; applying it inside ambient namespaces also
+        // requires their local-alias type recovery (tsr-6.44.1).
+        let exported = match node {
+            Node::ExportSpecifier(_) => true,
+            Node::ImportEqualsDeclaration(_)
+                if self.nodes.kind(self.container) == SyntaxKind::SourceFile =>
+            {
+                self.has_export_modifier(node)
+            }
+            Node::ImportClause(_) | Node::ImportSpecifier(_) | Node::NamespaceImport(_)
+                if self.nodes.kind(self.container) == SyntaxKind::SourceFile =>
+            {
+                false
+            }
+            _ => self.export_context || self.has_export_modifier(node),
+        };
         match self.nodes.kind(self.container) {
             SyntaxKind::ModuleDeclaration => exported,
             // `declareSourceFileMember` routes through `declareModuleMember` only
