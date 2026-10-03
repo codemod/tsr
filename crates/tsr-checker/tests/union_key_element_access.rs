@@ -75,3 +75,13 @@ fn an_unassigned_parameter_key_narrows_the_access() {
     );
     assert_eq!(type_of_last(&assigned), "(obj: Thing, key: keyof Thing) => string | undefined");
 }
+
+/// `getLiteralTypeFromPropertyName` (`checker.go:26773`): a numeric-literal
+/// property name is a NUMBER literal key of a concrete `keyof`, printed after
+/// the string keys in native union order.
+#[test]
+fn a_concrete_keyof_keeps_numeric_names_numeric() {
+    let source = "declare const k: keyof { 0: string; 10: boolean; 2: number; a: number };\n\
+                  const v = k;";
+    assert_eq!(type_of_last(source), "\"a\" | 0 | 2 | 10");
+}

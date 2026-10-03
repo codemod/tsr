@@ -361,6 +361,19 @@ impl<'a> Checker<'a, '_> {
                 {
                     return self.resolved_keyof_type(target).unwrap_or(self.intrinsics.error);
                 }
+                // getIndexType over a concrete object operand: the semantic
+                // key union, so a numeric-literal property name contributes a
+                // NUMBER literal key (`getLiteralTypeFromPropertyName`,
+                // `checker.go:26773`) where `keys_of` spells every key as a
+                // string. Generic, unresolved and non-object operands keep
+                // the legacy road below.
+                if self.store.get(target).flags.contains(TypeFlags::OBJECT)
+                    && !self.unresolved_types.contains(&target)
+                    && !self.mentions_any_type_parameter(target, 4)
+                    && let Some(keys) = self.resolved_keyof_type(target)
+                {
+                    return keys;
+                }
                 match self.keys_of(target) {
                     Some(keys) => {
                         let union = self.literal_key_union(&keys);

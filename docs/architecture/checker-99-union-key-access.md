@@ -77,6 +77,34 @@ Pinned tsgo declaration controls check these results:
 - `{ a: 1, b: "" }[k as "a" | "z"]` gives `number | undefined`.
 - The narrowed and assigned key functions give `string | number` and `string | undefined`.
 
+## Concrete `keyof` keys are semantic
+
+The two GAP-to-WRONG rows recorded above are removed by this unit. A
+written `keyof X` over a concrete object operand used to read `keys_of` and
+`literal_key_union`, which spell every key as a string literal. It now takes
+the semantic `resolved_keyof_type` that mapped and type-parameter operands
+already used. That function follows getLiteralTypeFromPropertyName
+(checker.go:26773), so a numeric-literal property name becomes a number literal
+key. A pinned tsgo control gives
+`keyof { 0: string; 10: boolean; 2: number; a: number }` as `"a" | 0 | 2 | 10`,
+and the port now prints the same.
+
+The first draft took the semantic road for every operand, and its full run lost
+two RIGHT rows and added nine GAP-to-WRONG rows:
+
+- `keyof (T | U)` inside an alias argument became `keyof T & keyof U`, where the
+  baseline prints the written form.
+- An unresolved `React.ReactHTML`, which carries ANY in this port, became
+  `string | number | symbol`.
+- `t[k]` lost its `any` in unknownControlFlow.
+
+The road is therefore restricted to OBJECT-flagged, resolved operands that
+mention no type parameter. With that restriction, the full run against exact
+starting main `cec7cef5` adds 37 assertions (29 GAP→RIGHT and 8 WRONG→RIGHT),
+with no adverse transitions. Aligned verdicts move from 457,641 RIGHT, 2,538
+GAP and 14,064 WRONG to 457,678 RIGHT, 2,509 GAP and 14,056 WRONG. The two
+partialOfLargeAPIIsAbleToBeWorkedWith rows convert.
+
 ## Limits
 
 - The expression road still does not apply isStringIndexSignatureOnlyType's
@@ -84,4 +112,5 @@ Pinned tsgo declaration controls check these results:
   measured.
 - A write through a union key intersects the property read types. Native
   intersects the write types. The two differ only for divergent accessors.
-- Numeric-literal keys of `keyof` are string literals, as described above.
+- Numeric-literal keys stay string literals on the generic and unresolved
+  `keyof` roads, and anywhere `keys_of` is still read directly.
