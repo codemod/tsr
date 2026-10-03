@@ -160,15 +160,10 @@ pub(crate) fn quote_ascii(value: &str) -> String {
 /// of its value, not as it was written: `1.0`, `1e0` and `0x1` are all the type
 /// `1`. So the source text cannot be used directly.
 ///
-/// **What is ported:** decimal integers and fractions, hex/octal/binary literals,
-/// numeric separators, and exponents whose result stays inside the range where
-/// Rust's `f64` formatting and `Number::toString` agree.
-///
-/// **What is not:** the exponential-notation boundaries. `Number::toString`
-/// switches to exponential at `1e21` and below `1e-6`, and Rust's `{}` does not,
-/// so `1e21` prints `1000000000000000000000` here and `1e+21` upstream. Left
-/// unported rather than half-ported, and tracked as `bd tsr-4sc.1`: the corpus
-/// will show whether it matters before it is guessed at.
+/// Decimal integers and fractions, radix literals, numeric separators, and the
+/// ECMAScript exponential-notation boundaries are ported. Rust and ECMAScript
+/// use the same shortest round-tripping digits but different notation cutoffs,
+/// so [`number_to_ecmascript_string`] adjusts only that presentation choice.
 #[must_use]
 #[allow(
     clippy::cast_precision_loss,
@@ -242,8 +237,96 @@ pub fn normalise_number(text: &str) -> String {
         // inside the agreed range.
         format!("{value:.0}")
     } else {
-        format!("{value}")
+        number_to_ecmascript_string(value)
     }
+}
+
+/// Apply ECMAScript `Number::toString`'s notation boundaries to Rust's shortest
+/// round-tripping decimal digits.
+fn number_to_ecmascript_string(value: f64) -> String {
+    let raw = value.to_string();
+    let absolute = value.abs();
+    if !value.is_finite() || absolute == 0.0 || (1e-6..1e21).contains(&absolute) {
+        return raw;
+    }
+
+    let (sign, magnitude) = raw.strip_prefix('-').map_or(("", raw.as_str()), |rest| ("-", rest));
+    let Some((first, exponent, tail)) = scientific_parts(magnitude) else { return raw };
+    let tail = tail.trim_end_matches('0');
+    let mantissa = if tail.is_empty() { first.to_string() } else { format!("{first}.{tail}") };
+    let exponent_sign = if exponent >= 0 { "+" } else { "" };
+    format!("{sign}{mantissa}e{exponent_sign}{exponent}")
+}
+
+/// Split a non-zero, non-exponential decimal into scientific components.
+fn scientific_parts(decimal: &str) -> Option<(char, isize, String)> {
+    if let Some(fraction) = decimal.strip_prefix("0.") {
+        let first_index = fraction.find(|character| character != '0')?;
+        let exponent = -isize::try_from(first_index).ok()? - 1;
+        let mut digits = fraction[first_index..].chars();
+        Some((digits.next()?, exponent, digits.collect()))
+    } else {
+        let digits: String = decimal.chars().filter(|character| *character != '.').collect();
+        let mut digits = digits.chars();
+        let first = digits.next()?;
+        let tail: String = digits.collect();
+        let exponent = isize::try_from(tail.len()).ok()?;
+        Some((first, exponent, tail))
+    }
+}
+
+/// Convert a bigint literal spelling to the decimal value identity TypeScript
+/// stores in a bigint literal type.
+///
+/// This ports `jsnum.ParsePseudoBigInt` (`internal/jsnum/pseudobigint.go`) rather
+/// than parsing through a machine integer. Decimal multiply/add makes the result
+/// arbitrary-precision without adding a checker-wide bigint dependency.
+#[must_use]
+pub fn normalise_bigint(text: &str) -> String {
+    let (negative, text) = text.strip_prefix('-').map_or((false, text), |rest| (true, rest));
+    let cleaned: String = text
+        .strip_suffix('n')
+        .unwrap_or(text)
+        .chars()
+        .filter(|character| *character != '_')
+        .collect();
+    let (radix, digits) = if let Some(digits) =
+        cleaned.strip_prefix("0b").or_else(|| cleaned.strip_prefix("0B"))
+    {
+        (2, digits)
+    } else if let Some(digits) = cleaned.strip_prefix("0o").or_else(|| cleaned.strip_prefix("0O")) {
+        (8, digits)
+    } else if let Some(digits) = cleaned.strip_prefix("0x").or_else(|| cleaned.strip_prefix("0X")) {
+        (16, digits)
+    } else {
+        (10, cleaned.as_str())
+    };
+
+    // Little-endian decimal digits. Each source digit multiplies the current
+    // value by at most 16, so every intermediate fits comfortably in u16.
+    let mut decimal = vec![0_u8];
+    for character in digits.chars() {
+        let Some(value) = character.to_digit(radix) else {
+            // Scanner recovery can leave malformed source text. Preserve the
+            // old spelling in that case instead of manufacturing a value.
+            return text.strip_suffix('n').unwrap_or(text).to_string();
+        };
+        let mut carry = value;
+        for digit in &mut decimal {
+            let next = u32::from(*digit) * radix + carry;
+            *digit = (next % 10) as u8;
+            carry = next / 10;
+        }
+        while carry != 0 {
+            decimal.push((carry % 10) as u8);
+            carry /= 10;
+        }
+    }
+    while decimal.len() > 1 && decimal.last() == Some(&0) {
+        decimal.pop();
+    }
+    let value: String = decimal.iter().rev().map(|digit| char::from(b'0' + digit)).collect();
+    if negative && value != "0" { format!("-{value}") } else { value }
 }
 
 #[cfg(test)]
@@ -272,6 +355,33 @@ mod tests {
         assert_eq!(normalise_number("0.5"), "0.5");
         assert_eq!(normalise_number("1_000"), "1000");
         assert_eq!(normalise_number("1.5"), "1.5");
+    }
+
+    #[test]
+    fn number_notation_uses_ecmascript_boundaries() {
+        assert_eq!(normalise_number("1e20"), "100000000000000000000");
+        assert_eq!(normalise_number("1e21"), "1e+21");
+        assert_eq!(normalise_number("1.2e35"), "1.2e+35");
+        assert_eq!(normalise_number("0.000001"), "0.000001");
+        assert_eq!(normalise_number("0.0000001"), "1e-7");
+        assert_eq!(normalise_number("-0.00000012"), "-1.2e-7");
+    }
+
+    #[test]
+    fn bigint_normalisation_is_radix_independent_and_arbitrary_precision() {
+        assert_eq!(normalise_bigint("0xC0Bn"), "3083");
+        assert_eq!(normalise_bigint("0b010_10_1n"), "21");
+        assert_eq!(normalise_bigint("0o1234_567n"), "342391");
+        assert_eq!(normalise_bigint("123_456_789n"), "123456789");
+        assert_eq!(normalise_bigint("-0x000n"), "0");
+        assert_eq!(normalise_bigint("0xn"), "0");
+        // One followed by 32 hexadecimal zeroes is 16^32 = 2^128, one
+        // greater than u128::MAX. The decimal expectation is derived from
+        // that boundary rather than from the implementation under test.
+        assert_eq!(
+            normalise_bigint("0x100000000000000000000000000000000n"),
+            "340282366920938463463374607431768211456"
+        );
     }
 
     #[test]

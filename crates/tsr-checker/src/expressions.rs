@@ -587,9 +587,9 @@ impl Checker<'_, '_> {
             ),
             Expression::BigIntLiteral(node) => self.store.intern_literal(
                 TypeFlags::BIG_INT_LITERAL,
-                // A bigint literal's text carries its trailing `n`; the type's
-                // payload is the digits, and `type_to_string` puts the `n` back.
-                TypeData::BigIntLiteral(node.text.trim_end_matches('n').to_string()),
+                // Upstream stores a PseudoBigInt value, not source spelling:
+                // radix, separators and leading zeros therefore disappear.
+                TypeData::BigIntLiteral(printing::normalise_bigint(node.text)),
                 true,
             ),
             Expression::KeywordExpression(node) => match node.kind {
@@ -1292,10 +1292,11 @@ impl Checker<'_, '_> {
         if let Expression::BigIntLiteral(literal) = operand
             && operator == SyntaxKind::MinusToken
         {
-            let digits = literal.text.trim_end_matches('n');
+            let digits = printing::normalise_bigint(literal.text);
+            let value = if digits == "0" { digits } else { format!("-{digits}") };
             return self.store.intern_literal(
                 TypeFlags::BIG_INT_LITERAL,
-                TypeData::BigIntLiteral(format!("-{digits}")),
+                TypeData::BigIntLiteral(value),
                 true,
             );
         }
