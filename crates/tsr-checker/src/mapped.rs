@@ -503,7 +503,17 @@ impl<'a> Checker<'a, '_> {
                     _ => vec![key],
                 });
             }
-            for name in self.property_names_of(source) {
+            // An open homomorphic map can enumerate an object constraint, but
+            // an unsupported constraint is not a proven empty member table.
+            let names = if info
+                .modifiers_source
+                .is_some_and(|source| self.signature_parameter_type_is_generic(source))
+            {
+                self.get_property_names_of_type(source)?
+            } else {
+                self.property_names_of(source)
+            };
+            for name in names {
                 keys.push(self.store.intern_literal(
                     TypeFlags::STRING_LITERAL,
                     TypeData::StringLiteral(name),
@@ -1160,5 +1170,125 @@ impl<'a> Checker<'a, '_> {
         .unwrap_or(id);
         self.mapped_apparent_types.insert(id, resolved);
         resolved
+    }
+}
+
+#[cfg(test)]
+mod member_producer_tests {
+    use crate::{Checker, flags::TypeFlags, types::TypeData};
+    use tsr_ast::Statement;
+    use tsr_core::Arena;
+
+    #[test]
+    fn open_homomorphic_members_keep_constraint_roots_and_deferred_values() {
+        let source = "interface Shape { readonly a?: string; b: number }
+type Req<T> = { [P in keyof T]-?: T[P] };
+type Part<T> = { [P in keyof T]?: T[P] };
+type Read<T> = { readonly [P in keyof T]: T[P] };
+type Mutable<T> = { -readonly [P in keyof T]: T[P] };
+function read<T extends Shape>(req: Req<T>, part: Part<T>, read: Read<T>, mutable: Mutable<T>) {}";
+        let arena = Arena::new();
+        let parsed = tsr_parser::parse(&arena, source);
+        assert!(parsed.diagnostics.is_empty());
+        let bound = tsr_binder::bind(
+            &arena,
+            parsed.source_file,
+            &parsed.nodes,
+            tsr_binder::FileInfo { name: "mapped-members.ts", text: source },
+        );
+        let Statement::FunctionDeclaration(function) = parsed.source_file.statements[5] else {
+            panic!("function");
+        };
+        // Cold name and symbol queries must both synthesize members, without
+        // a prior value read warming the resolver. Exact optional mode changes
+        // absence, not these mapped modifiers or deferred T[P] identities.
+        for exact in [false, true] {
+            for symbols_first in [false, true] {
+                let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+                checker.strict_null_checks = true;
+                checker.exact_optional_property_types = exact;
+                let shape = checker.get_declared_type_of_symbol(bound.globals()["Shape"]);
+                let a = checker.get_property_of_type(shape, "a").unwrap();
+                let b = checker.get_property_of_type(shape, "b").unwrap();
+                let expected = [
+                    [(false, true), (false, false)],
+                    [(true, true), (true, false)],
+                    [(true, true), (false, true)],
+                    [(true, false), (false, false)],
+                ];
+                for (parameter, flags) in function.parameters.iter().zip(expected) {
+                    let mapped = checker.get_type_from_type_node(parameter.r#type.unwrap());
+                    if symbols_first {
+                        assert_eq!(checker.get_property_of_type(mapped, "a"), Some(a));
+                        assert_eq!(checker.get_property_of_type(mapped, "b"), Some(b));
+                    }
+                    assert_eq!(
+                        checker.get_property_names_of_type(mapped),
+                        Some(vec!["a".into(), "b".into()])
+                    );
+                    let (properties, complete) = &checker.anonymous_properties[&mapped];
+                    assert!(*complete);
+                    assert_eq!((properties[0].optional, properties[0].readonly), flags[0]);
+                    assert_eq!((properties[1].optional, properties[1].readonly), flags[1]);
+                    assert_eq!(properties[0].origin, Some(a));
+                    assert_eq!(properties[1].origin, Some(b));
+                    assert!(properties.iter().all(|property| {
+                        checker.type_of(property.r#type).flags.contains(TypeFlags::INDEXED_ACCESS)
+                    }));
+                    let b_value = properties[1].r#type;
+                    assert_eq!(
+                        checker.base_constraint_of_type(b_value),
+                        Some(checker.intrinsics.number)
+                    );
+                    let b_read = checker.get_type_of_property_of_type(mapped, "b").unwrap();
+                    if flags[1].0 {
+                        let TypeData::Union { types, .. } = &checker.type_of(b_read).data else {
+                            panic!("optional read must include undefined");
+                        };
+                        assert!(types.contains(&b_value));
+                        assert!(types.iter().any(|&ty| {
+                            checker.type_of(ty).flags.contains(TypeFlags::UNDEFINED)
+                        }));
+                    } else {
+                        assert_eq!(b_read, b_value);
+                    }
+                    assert_eq!(checker.get_property_of_type(mapped, "a"), Some(a));
+                    assert_eq!(checker.get_property_of_type(mapped, "b"), Some(b));
+                    assert_eq!(checker.get_property_of_type(mapped, "absent"), None);
+                    // A mapped override must not mutate its declaration root.
+                    assert!(checker.property_is_optional(a));
+                    assert!(checker.is_readonly_property(a));
+                    assert!(!checker.property_is_optional(b));
+                    assert!(!checker.is_readonly_property(b));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn unsupported_open_keys_do_not_publish_complete_empty_members() {
+        let source = "type Req<T> = { [P in keyof T]-?: T[P] };
+function read<T extends { a: string; b: number } | { a: string; c: boolean }, K extends 'a'>(
+    union: Req<T>, open: { [P in K]: string }) {}";
+        let arena = Arena::new();
+        let parsed = tsr_parser::parse(&arena, source);
+        assert!(parsed.diagnostics.is_empty());
+        let bound = tsr_binder::bind(
+            &arena,
+            parsed.source_file,
+            &parsed.nodes,
+            tsr_binder::FileInfo { name: "mapped-members.ts", text: source },
+        );
+        let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+        let Statement::FunctionDeclaration(function) = parsed.source_file.statements[1] else {
+            panic!("function");
+        };
+        for parameter in function.parameters {
+            let mapped = checker.get_type_from_type_node(parameter.r#type.unwrap());
+            checker.resolve_mapped_type_members(mapped);
+            assert_eq!(checker.get_property_names_of_type(mapped), None);
+            assert!(!checker.anonymous_properties.contains_key(&mapped));
+            assert_eq!(checker.get_property_of_type(mapped, "a"), None);
+        }
     }
 }

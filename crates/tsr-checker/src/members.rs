@@ -1884,6 +1884,17 @@ impl Checker<'_, '_> {
         name: &str,
         skip_object_function_augment: bool,
     ) -> Option<SymbolId> {
+        // getPropertyOfType resolves an open homomorphic map's members before
+        // exposing their declaration roots. Values and mapped modifiers remain
+        // on the synthesized property, not the unmodified origin symbol.
+        if self.is_generic_homomorphic_mapped_type(id) && self.apparent_mapped_type(id) == id {
+            self.resolve_mapped_type_members(id);
+            if let Some((properties, true)) = self.anonymous_properties.get(&id)
+                && let Some(property) = properties.iter().find(|property| property.name == name)
+            {
+                return property.origin;
+            }
+        }
         // The borrow of `self.store` has to end before the recursion below, which
         // takes `&mut self`. Both bindings are `Copy`, so this statement copies
         // out what it needs and releases the type. ADR-0013's read-drop-recurse.
@@ -2464,6 +2475,12 @@ impl Checker<'_, '_> {
     /// The `None`-on-an-unfollowable-base rule is [`Checker::base_symbols_of`]'s
     /// and is why the walk cannot silently under-report a requirement.
     pub(crate) fn get_property_names_of_type(&mut self, id: TypeId) -> Option<Vec<String>> {
+        // resolveMappedTypeMembers supplies guaranteed keys of an open keyof
+        // map from its apparent object constraint. Sequence apparent types keep
+        // their existing tuple/array path; unsupported keys remain unenumerated.
+        if self.is_generic_homomorphic_mapped_type(id) && self.apparent_mapped_type(id) == id {
+            self.resolve_mapped_type_members(id);
+        }
         if let Some((properties, true)) = self.anonymous_properties.get(&id) {
             return Some(properties.iter().map(|property| property.name.clone()).collect());
         }
