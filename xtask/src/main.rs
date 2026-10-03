@@ -3,6 +3,7 @@
 //! ```text
 //! cargo xtask codegen    regenerate crates/tsr-ast/src/generated
 //! cargo xtask perf       compare against typescript-go; write perf artifacts
+//! cargo run -p xtask -- perf-project  compare fresh whole-project CLI checks
 //! cargo xtask anchors    verify every upstream anchor still resolves
 //!                        --upstream <path> checks a newer checkout, which is
 //!                        the drift report (bd tsr-l68)
@@ -42,6 +43,17 @@ fn main() -> Result<()> {
     match task.as_deref() {
         Some("codegen") => codegen(),
         Some("perf") => perf::run(&workspace_root()),
+        Some("perf-project") => {
+            let status = std::process::Command::new("python3")
+                .arg(workspace_root().join("scripts/whole_project_perf.py"))
+                .args(std::env::args().skip(2))
+                .status()
+                .context("running the whole-project benchmark (requires Python 3)")?;
+            if !status.success() {
+                bail!("whole-project benchmark exited with {status}");
+            }
+            Ok(())
+        }
         Some("anchors") => {
             let mut args = std::env::args().skip(2);
             let mut upstream = None;
@@ -59,11 +71,13 @@ fn main() -> Result<()> {
         Some("measure") => measure::run(&workspace_root()),
         Some(other) => {
             bail!(
-                "unknown task {other:?}; expected `codegen`, `perf`, `anchors`, `issue-ids`, `sections`, `gate` or `measure`"
+                "unknown task {other:?}; expected `codegen`, `perf`, `perf-project`, `anchors`, `issue-ids`, `sections`, `gate` or `measure`"
             )
         }
         None => {
-            eprintln!("usage: cargo xtask <codegen|perf|anchors|issue-ids|sections|gate|measure>");
+            eprintln!(
+                "usage: cargo xtask <codegen|perf|perf-project|anchors|issue-ids|sections|gate|measure>"
+            );
             Ok(())
         }
     }
