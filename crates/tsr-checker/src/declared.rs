@@ -20,6 +20,12 @@ pub(crate) struct TypeLiteralKey {
     mapped_template: bool,
 }
 
+#[derive(Clone, Debug)]
+pub(crate) struct ConditionalInferenceNode {
+    declaration: NodeId,
+    bindings: rustc_hash::FxHashMap<SymbolId, TypeId>,
+}
+
 impl<'a> Checker<'a, '_> {
     /// getTypeFromClassOrInterfaceReference / fillMissingTypeArguments for a
     /// heritage member lookup. Defaults see the arguments already supplied.
@@ -541,6 +547,16 @@ impl<'a> Checker<'a, '_> {
                                     },
                                 );
                             }
+                        } else if let TypeNode::ConditionalTypeNode(conditional) = node
+                            && let Some(declaration) = conditional.node_id
+                        {
+                            let bindings = self
+                                .alias_evaluation_bindings
+                                .iter()
+                                .flat_map(|frame| frame.iter().map(|(&symbol, &ty)| (symbol, ty)))
+                                .collect();
+                            self.conditional_inference_nodes
+                                .insert(id, ConditionalInferenceNode { declaration, bindings });
                         }
                         id
                     }
@@ -6043,6 +6059,86 @@ impl<'a> Checker<'a, '_> {
         };
         self.instantiation_depth -= 1;
         result
+    }
+
+    /// getTrueTypeFromConditionalType/getFalseTypeFromConditionalType for
+    /// inference. Unlike a conditional's default constraint, these branches
+    /// retain the original check parameter rather than its base constraint.
+    /// Resolve only the branches: reading extends again can eagerly expand a
+    /// recursive infer target before its instantiation guard observes a cycle.
+    pub(crate) fn conditional_inference_branches(
+        &mut self,
+        id: TypeId,
+    ) -> Option<(TypeId, TypeId)> {
+        if let Some(&branches) = self.mapped_conditional_branches.get(&id) {
+            return Some(branches);
+        }
+        if self.instantiation_depth == 100 {
+            return None;
+        }
+        let (body, bindings) = if let Some(info) = self.conditional_inference_nodes.get(&id) {
+            let Some(Node::ConditionalTypeNode(node)) = self.node_map.get(info.declaration) else {
+                return None;
+            };
+            (TypeNode::ConditionalTypeNode(node), info.bindings.clone())
+        } else {
+            let (symbol, arguments) = self.type_reference_targets.get(&id)?.clone();
+            if !self.alias_declares_conditional(symbol) {
+                return None;
+            }
+            let declaration = self.binder.symbols().get(symbol).declarations.first().copied()?;
+            let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration) else {
+                return None;
+            };
+            let parameters = self.local_type_parameters_of(symbol);
+            if parameters.len() != arguments.len() {
+                return None;
+            }
+            let mut bindings = rustc_hash::FxHashMap::default();
+            for (parameter, argument) in parameters.iter().zip(arguments) {
+                bindings.insert(
+                    parameter.node_id.and_then(|node| self.binder.symbol_of(node))?,
+                    argument,
+                );
+            }
+            (alias.r#type?, bindings)
+        };
+        self.instantiation_depth += 1;
+        self.alias_evaluation_bindings.push(bindings);
+        let branches = match body {
+            TypeNode::ConditionalTypeNode(node) => match (node.true_type, node.false_type) {
+                (Some(yes), Some(no)) => {
+                    Some((self.get_type_from_type_node(yes), self.get_type_from_type_node(no)))
+                }
+                _ => None,
+            },
+            // This reference is an alias body, where the ordinary resolver
+            // deliberately gaps deferred conditionals. Preserve its reference
+            // mapper instead of attempting to evaluate that conditional again.
+            TypeNode::TypeReferenceNode(reference) => (|| {
+                let Some(tsr_ast::EntityName::Identifier(name)) = reference.type_name else {
+                    return None;
+                };
+                let symbol = self.binder.resolve_name(
+                    self.nodes,
+                    self.node_map,
+                    name.node_id?,
+                    name.text,
+                    SymbolFlags::TYPE,
+                )?;
+                let arguments = reference
+                    .type_arguments
+                    .iter()
+                    .map(|&argument| self.get_type_from_type_node(argument))
+                    .collect();
+                let target = self.create_type_reference(symbol, arguments);
+                self.conditional_inference_branches(target)
+            })(),
+            _ => None,
+        };
+        self.alias_evaluation_bindings.pop();
+        self.instantiation_depth -= 1;
+        branches
     }
 
     /// getConditionalTypeInstantiation composes the outer mapper before

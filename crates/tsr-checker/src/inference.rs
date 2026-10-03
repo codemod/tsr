@@ -4194,25 +4194,6 @@ impl Checker<'_, '_> {
             }
             return;
         }
-        // inferToConditionalType infers to the true/false types of a deferred
-        // template, using conditional priority in contravariant positions.
-        if let Some(&(true_type, false_type)) = self.mapped_conditional_branches.get(&target) {
-            let target_types = self.get_union_type(&[true_type, false_type]);
-            let saved = self.inference_priority;
-            if self.inference_contravariant {
-                self.inference_priority |= InferencePriority::CONTRAVARIANT_CONDITIONAL;
-            }
-            self.infer_from_types_within(
-                source,
-                target_types,
-                original,
-                parameters,
-                out,
-                depth + 1,
-            );
-            self.inference_priority = saved;
-            return;
-        }
         if let Some((remaining, variable)) =
             self.intersection_inference_source(source, target, parameters)
         {
@@ -4265,6 +4246,29 @@ impl Checker<'_, '_> {
             // inferFromObjectTypes (internal/checker/inference.go) continues
             // structurally when the reference targets differ. Candidate
             // direction and priority resolve the resulting inferences.
+        }
+        // Native dispatch matches references before conditional targets.
+        // invokeOnce(inferToConditionalType) must precede branch reads: a
+        // recursive conditional can return the same reference from a branch.
+        if self.mapped_conditional_branches.contains_key(&target)
+            || self.conditional_inference_nodes.contains_key(&target)
+            || self
+                .type_reference_targets
+                .get(&target)
+                .is_some_and(|(symbol, _)| self.alias_declares_conditional(*symbol))
+        {
+            let key = (source, target);
+            if let Some(&priority) = self.inference_visited_pairs.get(&key) {
+                self.inference_observed_priority = self.inference_observed_priority.min(priority);
+                return;
+            }
+            self.inference_visited_pairs.insert(key, -1);
+            let saved = self.inference_observed_priority;
+            self.inference_observed_priority = i32::from(InferencePriority::MAX_VALUE.bits());
+            self.infer_to_conditional_type(source, target, original, parameters, out, depth);
+            self.inference_visited_pairs.insert(key, self.inference_observed_priority);
+            self.inference_observed_priority = self.inference_observed_priority.min(saved);
+            return;
         }
         if let TypeData::Union { types, .. } = self.store.get(target).data.clone() {
             self.infer_to_union(source, &types, original, parameters, out, depth);
@@ -4390,6 +4394,37 @@ impl Checker<'_, '_> {
         self.inference_expanding = saved_expanding;
         self.inference_visited_pairs.insert(key, self.inference_observed_priority);
         self.inference_observed_priority = self.inference_observed_priority.min(saved_priority);
+    }
+
+    /// inferToConditionalType's non-conditional-source branch (inference.go).
+    /// Conditional targets are not unions: structured branches infer first,
+    /// then naked parameters receive lower-priority candidates from the source.
+    fn infer_to_conditional_type(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+        original: TypeId,
+        parameters: &[TypeId],
+        out: &mut Vec<InferenceInfo>,
+        depth: usize,
+    ) {
+        let Some((yes, no)) = self.conditional_inference_branches(target) else { return };
+        let saved = self.inference_priority;
+        if self.inference_contravariant {
+            self.inference_priority |= InferencePriority::CONTRAVARIANT_CONDITIONAL;
+        }
+        for branch in [yes, no] {
+            if !parameters.contains(&branch) {
+                self.infer_from_types_within(source, branch, original, parameters, out, depth + 1);
+            }
+        }
+        self.inference_priority |= InferencePriority::NAKED_TYPE_VARIABLE;
+        for branch in [yes, no] {
+            if parameters.contains(&branch) {
+                self.infer_from_types_within(source, branch, original, parameters, out, depth + 1);
+            }
+        }
+        self.inference_priority = saved;
     }
 
     /// The structural member portion of inferFromObjectTypes (inference.go).
@@ -6636,29 +6671,39 @@ pub(crate) fn merge_info(infos: &mut Vec<InferenceInfo>, from: &InferenceInfo) {
 }
 
 impl Checker<'_, '_> {
-    /// `isTypeParameterAtTopLevel` (`inference.go:1493-1499`), verbatim over
-    /// the shapes this port has: the type IS the parameter, or a union whose
-    /// constituents contain it at top level. Intersections and conditionals
-    /// are the two arms whose `TypeData` this port does not walk; both answer
-    /// `false`, the conservative side (it widens where upstream might not,
-    /// and the pair watches that).
-    fn is_type_parameter_at_top_level(&self, id: TypeId, parameter: TypeId) -> bool {
+    /// isTypeParameterAtTopLevel (inference.go:1493-1499). Conditional
+    /// branches count as top level through three nested conditionals; beyond
+    /// that native deliberately retains literal inference candidates.
+    fn is_type_parameter_at_top_level(&mut self, id: TypeId, parameter: TypeId) -> bool {
+        self.is_type_parameter_at_top_level_with_depth(id, parameter, 0)
+    }
+
+    fn is_type_parameter_at_top_level_with_depth(
+        &mut self,
+        id: TypeId,
+        parameter: TypeId,
+        depth: usize,
+    ) -> bool {
         if id == parameter {
             return true;
         }
-        match &self.store.get(id).data {
-            crate::types::TypeData::Union { types, .. } => {
-                types.iter().any(|&t| self.is_type_parameter_at_top_level(t, parameter))
-            }
-            _ => false,
+        if let crate::types::TypeData::Union { types, .. } = self.store.get(id).data.clone() {
+            return types
+                .iter()
+                .any(|&t| self.is_type_parameter_at_top_level_with_depth(t, parameter, depth));
         }
+        depth < 3
+            && self.conditional_inference_branches(id).is_some_and(|(yes, no)| {
+                self.is_type_parameter_at_top_level_with_depth(yes, parameter, depth + 1)
+                    || self.is_type_parameter_at_top_level_with_depth(no, parameter, depth + 1)
+            })
     }
 
     /// `isTypeParameterAtTopLevelInReturnType` (`inference.go:1501-1507`)
     /// over the return type; the type-predicate leg is unreachable here (a
     /// construct signature carries none).
     fn is_type_parameter_at_top_level_in_return_type(
-        &self,
+        &mut self,
         signature: &Signature,
         parameter: TypeId,
     ) -> bool {
