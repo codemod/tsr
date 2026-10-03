@@ -84,3 +84,28 @@ const convert2 = <T>(value: Foo<T>): Baz<T> => value;
     );
     assert!(!lines.iter().any(|line| line == "value : number | boolean"), "{lines:?}");
 }
+
+/// `compiler/declarationEmitHigherOrderRetainedGenerics.types`: an instantiated
+/// overload set keeps semantic signatures for later use, but the node builder
+/// must still allocate names again at each assertion site. Both sibling
+/// overloads independently allocate `_1`; a nested retained signature sees the
+/// same site shadow without leaking either sibling's allocation.
+#[test]
+fn retained_overloads_allocate_shadowed_names_at_the_print_site() {
+    let source = include_str!(
+        "../../../vendor/typescript-go/_submodules/TypeScript/tests/cases/compiler/declarationEmitHigherOrderRetainedGenerics.ts"
+    );
+    let lines = lines(source);
+
+    let retained: Vec<_> =
+        lines.iter().filter(|line| line.contains("<R2_1, O2_1, E2_1, B_1, A, C>")).collect();
+    assert!(retained.len() >= 2, "retained overloads were not site-renamed: {lines:?}");
+    assert!(
+        retained.iter().any(|line| line.contains("): <R1_1, O1_1, E1_1>(self:")),
+        "the nested retained signature was not renamed: {retained:?}"
+    );
+    assert!(
+        retained.iter().all(|line| !line.contains("R1_2") && !line.contains("R2_2")),
+        "an overload scope leaked into its sibling or nested signature: {retained:?}"
+    );
+}

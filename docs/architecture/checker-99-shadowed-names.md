@@ -98,3 +98,32 @@ Remaining under tsr-6.38: unresolved generic mints (`Promise.Inspection<R>`)
 are text-only and cannot be renamed by instantiation (native keys error types by
 alias symbol and argument ids); type-parameter cloning for receiver
 instantiation; by-text allocation inside baked composites.
+
+## Retained overload sets reopen at a shadowing site
+
+Higher-order instantiation keeps two forms of an overload set: semantic
+signatures for later member reads and a baked spelling that may contain a
+print-only rename. `alias_named_signature_types` originally made that spelling
+an unconditional terminal. That preserved a correct mint-time rename, but also
+prevented `typeParameterToName` from allocating again when the retained set was
+printed inside a different generic signature. In
+`declarationEmitHigherOrderRetainedGenerics`, both overload siblings therefore
+printed `R2`/`B` where native prints `R2_1`/`B_1`, and the nested returned
+signature printed `R1` where native prints `R1_1`.
+
+The multi-signature renderer now evaluates the site allocation even for these
+alias-marked sets. It uses the rebuilt text only if at least one overload
+parameter was actually renamed at this site. Otherwise it falls through to the
+baked spelling. This guard is necessary: always rebuilding gained the three
+target assertions but lost 16 RIGHT assertions, because a neutral site exposed
+the unrenamed semantic signatures. With the guard, the full run gains the same
+three and loses none. Each overload still pushes and truncates its own render
+scope, so sibling allocations do not leak; nested slots see only the current
+overload's allocation.
+
+The focused control reads the pinned native fixture and checks all three
+distinguishing facts: both siblings allocate `_1`, the nested retained signature
+also allocates `_1`, and no `_2` appears from scope leakage. One assertion in the
+fixture remains wrong: the enclosing single signature prints `F_1` where native
+prints `F`. That is the older single-signature rename path, not the retained
+overload reopening, and is left for a separately measured change.

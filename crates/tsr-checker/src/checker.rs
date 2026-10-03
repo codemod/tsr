@@ -1883,31 +1883,42 @@ impl<'a, 'n> Checker<'a, 'n> {
             if let Some(signatures) = self.signature_types.get(&id)
                 && signatures.len() > 1
                 && !self.rendering_composites.contains(&id)
-                && !self.alias_named_signature_types.contains(&id)
             {
                 let signatures = signatures.clone();
                 self.rendering_composites.insert(id);
                 // §102 (decoded): shadow renames against the SITE, byText
                 // claims across the signatures of ONE render.
                 let mut claimed = rustc_hash::FxHashSet::default();
+                let mut site_renamed = false;
                 let mut out = String::from("{ ");
                 for signature in &signatures {
-                    let signature = self.rename_type_parameters_for_site(
+                    let rendered = self.rename_type_parameters_for_site(
                         signature.clone(),
                         reference,
                         &mut claimed,
                     );
+                    site_renamed |= signature
+                        .type_parameters
+                        .iter()
+                        .map(|parameter| &parameter.name)
+                        .ne(rendered.type_parameters.iter().map(|parameter| &parameter.name));
                     // Each overload is its own `enterNewScope`: its allocated
                     // names are visible to its slots and to no sibling.
                     let scope_depth = self.render_type_parameter_scope.len();
-                    self.push_render_type_parameter_scope(&signature);
-                    out.push_str(&self.signature_member_text_at(&signature, reference));
+                    self.push_render_type_parameter_scope(&rendered);
+                    out.push_str(&self.signature_member_text_at(&rendered, reference));
                     self.render_type_parameter_scope.truncate(scope_depth);
                     out.push_str("; ");
                 }
                 out.push('}');
                 self.rendering_composites.remove(&id);
-                return Some(out);
+                // An instantiated signature set may carry a correct print-only
+                // rename that is absent from its stored semantic signatures.
+                // Keep that baked spelling at neutral sites; rebuild only when
+                // this site adds a shadow allocation of its own.
+                if !self.alias_named_signature_types.contains(&id) || site_renamed {
+                    return Some(out);
+                }
             }
             // §97 (`checker-notes-narrow.md`): a union carrying ORIGIN
             // entries re-renders each entry at the site — the alias-named
