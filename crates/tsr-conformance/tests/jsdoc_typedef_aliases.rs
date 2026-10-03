@@ -432,3 +432,43 @@ fn unannotated_jsdoc_objects_measure_variance_instead_of_defaulting_covariant() 
         );
     }
 }
+
+#[test]
+fn diagnostic_traversal_reports_native_sibling_member_positions() {
+    let case =
+        TestCase::parse("probe/jsdoc-diagnostic-completeness", "complete.ts", COMPLETE_SOURCE);
+    let mut actual: Vec<_> = tsr_conformance::diagnostics_suite::reported_for(&case)
+        .into_iter()
+        .map(|diagnostic| (diagnostic.line, diagnostic.column, diagnostic.code))
+        .collect();
+    actual.sort_unstable();
+    // Pinned native: generic, plain, and function-local siblings. No parameter
+    // initializer can supply the members or fake the JSDoc annotation.
+    assert_eq!(actual, [(9, 9, 2339), (15, 10, 2339), (23, 15, 2339)]);
+}
+
+#[test]
+fn diagnostic_traversal_preserves_native_positive_sibling_accesses() {
+    let source = COMPLETE_SOURCE
+        .replace("box.absent;", "box.value;")
+        .replace("flat.absent;", "flat.count;")
+        .replace("local.absent;", "local.present;");
+    let case = TestCase::parse("probe/jsdoc-diagnostic-present", "complete.ts", &source);
+    assert!(tsr_conformance::diagnostics_suite::reported_for(&case).is_empty());
+}
+
+#[test]
+fn diagnostic_traversal_respects_native_declared_variance() {
+    let source = include_str!(
+        "../../../vendor/typescript-go/_submodules/TypeScript/tests/cases/conformance/jsdoc/jsdocTemplateTag8.ts"
+    );
+    let case = TestCase::parse("probe/jsdoc-diagnostic-variance", "variance.ts", source);
+    let mut actual: Vec<_> = tsr_conformance::diagnostics_suite::reported_for(&case)
+        .into_iter()
+        .map(|diagnostic| (diagnostic.line, diagnostic.column, diagnostic.code))
+        .collect();
+    actual.sort_unstable();
+    // Native rejects 36:1 and accepts 37:1. The separate TS1274 grammar
+    // diagnostic at 59:14 remains unsupported; no assignment is suppressed.
+    assert_eq!(actual, [(18, 1, 2322), (36, 1, 2322), (55, 1, 2322), (56, 1, 2322)]);
+}

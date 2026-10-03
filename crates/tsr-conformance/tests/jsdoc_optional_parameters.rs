@@ -196,3 +196,26 @@ fn conditional_cast_defaulted_parameter_keeps_its_native_read_type() {
         ["string | undefined", "string", "string"]
     );
 }
+
+#[test]
+fn diagnostic_traversal_accepts_native_optional_and_defaulted_undefined_writes() {
+    for source in [OPTIONAL_SOURCE, DEFAULT_SOURCE] {
+        let case =
+            TestCase::parse("probe/jsdoc-diagnostic-positive-writes", "parameters.ts", source);
+        assert!(tsr_conformance::diagnostics_suite::reported_for(&case).is_empty());
+    }
+}
+
+#[test]
+fn diagnostic_traversal_rejects_only_native_incompatible_parameter_writes() {
+    let case =
+        TestCase::parse("probe/jsdoc-diagnostic-negative-writes", "parameters.ts", NEGATIVE_SOURCE);
+    let mut actual: Vec<_> = tsr_conformance::diagnostics_suite::reported_for(&case)
+        .into_iter()
+        .map(|diagnostic| (diagnostic.line, diagnostic.column, diagnostic.code))
+        .collect();
+    actual.sort_unstable();
+    // Native rejects string/null/boolean into number and number into string,
+    // but accepts undefined at 10:5 even with the actual string initializer.
+    assert_eq!(actual, [(3, 5, 2322), (4, 5, 2322), (5, 5, 2322), (9, 5, 2322)]);
+}

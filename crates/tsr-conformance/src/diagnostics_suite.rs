@@ -480,26 +480,10 @@ fn from_check_traversal(test: &crate::TestCase) -> Vec<BaselineDiagnostic> {
             code: diagnostic.message.code(),
         });
     }
-    let mut checker = tsr_checker::Checker::with_module_host(
-        program.binder(),
-        program.nodes(),
-        program.node_map(),
-        Some(&program),
-    );
-    // Eleven options, one derivation, upstream's (ADR-0042). This block used to
-    // read `test.options` — the raw `@directive` strings — and resolve each
-    // default by hand; `types_producer` did the same independently and the two
-    // disagreed. Both now read the `CompilerOptions` the program was built with,
-    // which `apply_test_directives` filled from those same directives.
-    //
-    // **One rule changed in the move, and it is the reason this is a fidelity
-    // fix rather than a refactor.** `strictPropertyInitialization` used to fall
-    // back through `strictNullChecks` and only then to `strict`. Upstream's
-    // `GetStrictOptionValue` (`core/compileroptions.go:294`) has no such leg: it
-    // reads the explicit value, then `strict`. A case setting
-    // `@strictNullChecks: false` with `strict` unset therefore turned property
-    // initialization off here and left it on upstream.
-    checker.apply_compiler_options(program.compiler_options());
+    // Match the type producer's module host, JSDoc tables, and compiler options.
+    // Without the tables, annotated JavaScript can silently check as `any` or
+    // infer only from its initializer instead of its declared type.
+    let mut checker = crate::types_producer::configured_checker(&program);
 
     // `set_checked_files` before the first `check_source_file`, because the set
     // is a property of the program: a rule that asks "is this declaration in a
