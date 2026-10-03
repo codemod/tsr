@@ -84,6 +84,15 @@ class BenchmarkEvidenceTests(unittest.TestCase):
         self.assertGreater(sample["peak_rss_bytes"], 0)
         self.assertEqual(diagnostics(sample["stdout"], Path.cwd())["count"], 1)
 
+    def test_process_identity_belongs_to_the_executed_child(self):
+        command = [sys.executable, "-c", "import os; print(os.getpid())"]
+        first = process(command, Path.cwd(), 10)
+        second = process(command, Path.cwd(), 10)
+        for sample in (first, second):
+            self.assertEqual(sample["pid"], int(sample["stdout"].strip()))
+            self.assertEqual(sample["command"], command)
+        self.assertLess(first["started_at_unix_ns"], second["started_at_unix_ns"])
+
     def test_timeout_is_not_a_successful_fast_check(self):
         sample = process([sys.executable, "-c", "import time; time.sleep(10)"], Path.cwd(), 0.1)
         self.assertTrue(sample["timed_out"])

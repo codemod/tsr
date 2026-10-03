@@ -30,6 +30,12 @@ pairs. Every check is a fresh process with `noEmit`, `incremental false`,
 these are warm-filesystem measurements. POSIX `wait4` measures CPU and peak RSS
 for each individual child rather than reusing cumulative resource usage.
 
+Each sample also records its child PID, launch timestamp and exact command.
+The [cache-isolation controls](benchmark-cache-isolation.md) demonstrate native
+incremental diagnostic replay and verify that absent, valid, stale, poisoned and
+malformed build info cannot change the disabled-incremental fixture checks.
+Fresh process identity alone does not exclude persisted incremental reuse.
+
 The JSON contains every sample, medians, p95 and ranges, binary fingerprints,
 source/oracle/project revisions, effective configs, loaded-file identities, and
 diagnostic fingerprints. It persists each sample immediately. A timeout or an

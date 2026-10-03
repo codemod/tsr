@@ -45,6 +45,7 @@ def revision(path: Path) -> str | None:
 def process(command: list[str], cwd: Path, timeout: float) -> dict:
     """Temporary files avoid pipe deadlocks; wait4 owns reaping this child."""
     with tempfile.TemporaryFile() as stdout, tempfile.TemporaryFile() as stderr:
+        started_at_unix_ns = time.time_ns()
         start = time.perf_counter()
         child = subprocess.Popen(
             command, cwd=cwd, stdout=stdout, stderr=stderr, start_new_session=True,
@@ -71,6 +72,9 @@ def process(command: list[str], cwd: Path, timeout: float) -> dict:
         stdout.seek(0)
         stderr.seek(0)
         return {
+            "pid": child.pid,
+            "started_at_unix_ns": started_at_unix_ns,
+            "command": list(command),
             "wall_seconds": seconds,
             "user_seconds": usage.ru_utime,
             "system_seconds": usage.ru_stime,
