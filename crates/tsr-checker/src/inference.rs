@@ -632,7 +632,34 @@ impl Checker<'_, '_> {
                     self.intrinsics.error
                 });
             } else {
+                // checkExpressionWithContextualType pushes the inference
+                // context while checking every ordinary argument
+                // (checker.go:9485, :7486). This lets a contextual return
+                // candidate instantiate nested object/array member contexts
+                // before their literals widen.
+                let use_active_context = return_literal_map.is_some()
+                    && matches!(
+                        argument,
+                        Expression::ObjectLiteralExpression(_)
+                            | Expression::ArrayLiteralExpression(_)
+                            | Expression::ArrowFunction(_)
+                            | Expression::FunctionExpression(_)
+                    );
+                let previous_inferential = if use_active_context
+                    && let Some(call) = call
+                    && let Some(context) = self.active_inference_contexts.get_mut(&call)
+                {
+                    Some(std::mem::replace(&mut context.inferential, true))
+                } else {
+                    None
+                };
                 let source = self.check_expression(argument);
+                if let Some(previous_inferential) = previous_inferential
+                    && let Some(call) = call
+                    && let Some(context) = self.active_inference_contexts.get_mut(&call)
+                {
+                    context.inferential = previous_inferential;
+                }
                 // inferSignatureInstantiationForOverloadFailure adds both
                 // SkipContextSensitive and SkipGenericFunctions (checker.go:
                 // 9575). The latter replaces a single-signature generic
