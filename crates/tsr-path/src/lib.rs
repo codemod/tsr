@@ -91,44 +91,82 @@ pub fn normalize_slashes(path: &str) -> String {
     path.replace('\\', "/")
 }
 
-/// How many leading characters of `path` are its root (`tspath.GetRootLength`).
+/// How many leading bytes of `path` are its root (`tspath.GetRootLength`).
 ///
-/// `/` on POSIX, `c:/` or `c:` on Windows, and the server-and-share prefix of a
-/// UNC path. Zero for a relative path.
+/// Includes POSIX, DOS, UNC server, URL and untitled roots. Zero for a relative
+/// path, including a drive-relative name such as `c:d`.
 #[must_use]
 pub fn get_root_length(path: &str) -> usize {
+    get_root_length_and_is_url(path).0
+}
+
+/// The two components of native `GetEncodedRootLength`: root length and whether
+/// it is a URL. Keep URL roots distinct from absolute disk paths.
+fn get_root_length_and_is_url(path: &str) -> (usize, bool) {
     let bytes = path.as_bytes();
-    if bytes.first() == Some(&b'/') || bytes.first() == Some(&b'\\') {
-        // A UNC path: `//server/share`. Both separators, because this runs
-        // before normalisation.
-        if bytes.get(1) != Some(&b'/') && bytes.get(1) != Some(&b'\\') {
-            return 1;
+    let Some(&first) = bytes.first() else {
+        return (0, false);
+    };
+    if matches!(first, b'/' | b'\\') {
+        if bytes.get(1) != Some(&first) {
+            return (1, false);
         }
-        let after_separators = &path[2..];
-        let Some(server_end) = after_separators.find(['/', '\\']) else {
-            return path.len();
-        };
-        let share = &after_separators[server_end + 1..];
-        return match share.find(['/', '\\']) {
-            Some(share_end) => 2 + server_end + 1 + share_end + 1,
-            None => path.len(),
-        };
+        let length =
+            bytes[2..].iter().position(|&byte| byte == first).map_or(path.len(), |index| index + 3);
+        return (length, false);
     }
-    // A DOS path: `c:/` — and `c:` alone, which is a *relative* path on that
-    // drive, so its root is the two characters and no separator.
-    if bytes.get(1) == Some(&b':') && bytes.first().is_some_and(u8::is_ascii_alphabetic) {
-        return match bytes.get(2) {
-            Some(b'/' | b'\\') => 3,
-            _ => 2,
-        };
+    if first.is_ascii_alphabetic() && bytes.get(1) == Some(&b':') {
+        if path.len() == 2 {
+            return (2, false);
+        }
+        if matches!(bytes.get(2), Some(b'/' | b'\\')) {
+            return (3, false);
+        }
     }
-    0
+    if first == b'^' && bytes.get(1) == Some(&b'/') {
+        return (2, false);
+    }
+    if let Some(scheme_end) = path.find("://") {
+        let authority_start = scheme_end + 3;
+        let Some(authority_length) = path[authority_start..].find('/') else {
+            return (path.len(), true);
+        };
+        let authority_end = authority_start + authority_length;
+        let authority = &path[authority_start..authority_end];
+        if &path[..scheme_end] == "file"
+            && matches!(authority, "" | "localhost")
+            && bytes.get(authority_end + 1).is_some_and(u8::is_ascii_alphabetic)
+        {
+            let start = authority_end + 2;
+            let volume_end = if bytes.get(start) == Some(&b':') {
+                Some(start + 1)
+            } else if bytes.get(start) == Some(&b'%')
+                && bytes.get(start + 1) == Some(&b'3')
+                && matches!(bytes.get(start + 2), Some(b'a' | b'A'))
+            {
+                Some(start + 3)
+            } else {
+                None
+            };
+            if let Some(end) = volume_end {
+                if end == path.len() {
+                    return (end, true);
+                }
+                if bytes.get(end) == Some(&b'/') {
+                    return (end + 1, true);
+                }
+            }
+        }
+        return (authority_end + 1, true);
+    }
+    (0, false)
 }
 
 /// Whether `path` begins at a root (`tspath.IsRootedDiskPath`).
 #[must_use]
 pub fn is_rooted_disk_path(path: &str) -> bool {
-    get_root_length(path) > 0
+    let (length, is_url) = get_root_length_and_is_url(path);
+    length > 0 && !is_url
 }
 
 /// Join path segments, normalising slashes (`tspath.CombinePaths`).
@@ -143,10 +181,13 @@ pub fn combine_paths(base: &str, parts: &[&str]) -> String {
             continue;
         }
         let part = normalize_slashes(part);
-        if result.is_empty() || is_rooted_disk_path(&part) {
+        if result.is_empty() || get_root_length(&part) != 0 {
             result = part;
         } else {
-            result = format!("{}/{part}", result.trim_end_matches('/'));
+            if !has_trailing_directory_separator(&result) {
+                result.push('/');
+            }
+            result.push_str(&part);
         }
     }
     result
@@ -155,23 +196,26 @@ pub fn combine_paths(base: &str, parts: &[&str]) -> String {
 /// Resolve `.` and `..` against `current_directory`
 /// (`tspath.GetNormalizedAbsolutePath`).
 ///
-/// Upstream's implementation is hand-optimised to allocate nothing when the path
-/// is already normal, scanning segment by segment and only building a new string
-/// once it finds something to change. This is the same function written plainly.
-/// The difference is allocation, not result — and it is a deliberate deferral:
-/// path normalisation has not appeared in a profile, and the optimised version is
-/// 90 lines of index arithmetic that would need its own tests to trust. Revisit
-/// if a profile says so.
+/// Use the native `simpleNormalizePath` fast path before collecting segments.
+/// An already-normal path only needs the owned result required by this API.
 #[must_use]
 pub fn get_normalized_absolute_path(file_name: &str, current_directory: &str) -> String {
     let root_length = get_root_length(file_name);
-    let combined = if root_length == 0 && !current_directory.is_empty() {
+    let mut combined = if root_length == 0 && !current_directory.is_empty() {
         combine_paths(current_directory, &[file_name])
     } else {
         normalize_slashes(file_name)
     };
 
     let root_length = get_root_length(&combined);
+    if simple_normalize_path(&mut combined) {
+        if combined.len() > root_length && combined.ends_with('/') {
+            combined.pop();
+        } else if combined.len() == root_length && root_length != 0 && !combined.ends_with('/') {
+            combined.push('/');
+        }
+        return combined;
+    }
     let (root, rest) = combined.split_at(root_length);
 
     let mut segments: Vec<&str> = Vec::new();
@@ -203,10 +247,54 @@ pub fn get_normalized_absolute_path(file_name: &str, current_directory: &str) ->
     }
 }
 
+/// Native `simpleNormalizePath`: preserve the path when no work is needed,
+/// otherwise try `/./` and leading `./` cleanup before the general fallback.
+fn simple_normalize_path(path: &mut String) -> bool {
+    if !has_relative_path_segment(path) {
+        return true;
+    }
+    let simplified = path.replace("/./", "/");
+    let trimmed = simplified.strip_prefix("./").unwrap_or(&simplified);
+    if trimmed != path
+        && !has_relative_path_segment(trimmed)
+        && !(trimmed != simplified && trimmed.starts_with('/'))
+    {
+        *path = trimmed.to_string();
+        return true;
+    }
+    false
+}
+
+/// Native `hasRelativePathSegment`. Byte scanning is safe for UTF-8: only ASCII
+/// separators and whole dot segments affect normalization.
+fn has_relative_path_segment(path: &str) -> bool {
+    let mut previous_slash = false;
+    let mut segment_length = 0;
+    let mut only_dots = true;
+    for byte in path.bytes() {
+        if byte == b'/' {
+            if previous_slash || (only_dots && matches!(segment_length, 1 | 2)) {
+                return true;
+            }
+            previous_slash = true;
+            segment_length = 0;
+            only_dots = true;
+        } else {
+            only_dots &= byte == b'.';
+            segment_length += 1;
+            previous_slash = false;
+        }
+    }
+    only_dots && matches!(segment_length, 1 | 2)
+}
+
 /// Normalise a path without making it absolute (`tspath.NormalizePath`).
 #[must_use]
 pub fn normalize_path(path: &str) -> String {
-    let slashed = normalize_slashes(path);
+    let mut slashed = normalize_slashes(path);
+    if simple_normalize_path(&mut slashed) {
+        return slashed;
+    }
     let normalized = get_normalized_absolute_path(&slashed, "");
     if !normalized.is_empty() && has_trailing_directory_separator(&slashed) {
         return ensure_trailing_directory_separator(&normalized);
@@ -612,16 +700,212 @@ pub fn for_each_ancestor_directory<T>(
 mod tests {
     use super::*;
 
+    // Expected results from the pinned tspath path_test.go, including root
+    // forms whose normalization differs from a platform filesystem path.
+    #[test]
+    fn native_root_forms() {
+        let cases = [
+            ("a", 0),
+            ("/", 1),
+            ("/path", 1),
+            ("c:", 2),
+            ("c:d", 0),
+            ("c:/", 3),
+            ("c:\\", 3),
+            ("//server", 8),
+            ("//server/share", 9),
+            ("\\\\server", 8),
+            ("\\\\server\\share", 9),
+            ("file:///", 8),
+            ("file:///path", 8),
+            ("file:///c:", 10),
+            ("file:///c:d", 8),
+            ("file:///c:/path", 11),
+            ("file:///c%3a", 12),
+            ("file:///c%3ad", 8),
+            ("file:///c%3a/path", 13),
+            ("file:///c%3A", 12),
+            ("file:///c%3Ad", 8),
+            ("file:///c%3A/path", 13),
+            ("file://localhost", 16),
+            ("file://localhost/", 17),
+            ("file://localhost/path", 17),
+            ("file://localhost/c:", 19),
+            ("file://localhost/c:d", 17),
+            ("file://localhost/c:/path", 20),
+            ("file://localhost/c%3a", 21),
+            ("file://localhost/c%3ad", 17),
+            ("file://localhost/c%3a/path", 22),
+            ("file://localhost/c%3A", 21),
+            ("file://localhost/c%3Ad", 17),
+            ("file://localhost/c%3A/path", 22),
+            ("file://server", 13),
+            ("file://server/", 14),
+            ("file://server/path", 14),
+            ("file://server/c:", 14),
+            ("file://server/c:d", 14),
+            ("file://server/c:/d", 14),
+            ("file://server/c%3a", 14),
+            ("file://server/c%3ad", 14),
+            ("file://server/c%3a/d", 14),
+            ("file://server/c%3A", 14),
+            ("file://server/c%3Ad", 14),
+            ("file://server/c%3A/d", 14),
+            ("http://server", 13),
+            ("http://server/path", 14),
+            ("^/untitled/a", 2),
+            ("//日本/share/a", 9),
+            ("/\\a", 1),
+            ("\\/a", 1),
+        ];
+        for (path, expected) in cases {
+            assert_eq!(get_root_length(path), expected, "{path:?}");
+        }
+        assert!(is_rooted_disk_path("c:"));
+        assert!(!is_rooted_disk_path("c:d"));
+        assert!(!is_rooted_disk_path("file:///c:/a"));
+        assert!(!is_rooted_disk_path("http://server/a"));
+        assert!(is_rooted_disk_path("^/untitled/a"));
+    }
+
+    #[test]
+    fn native_absolute_normalization_controls() {
+        let cases = [
+            ("/", "", "/"),
+            ("/.", "", "/"),
+            ("/./", "", "/"),
+            ("/../", "", "/"),
+            ("/a", "", "/a"),
+            ("/a/", "", "/a"),
+            ("/a/.", "", "/a"),
+            ("/a/foo.", "", "/a/foo."),
+            ("/a/./", "", "/a"),
+            ("/a/./b", "", "/a/b"),
+            ("/a/./b/", "", "/a/b"),
+            ("/a/..", "", "/"),
+            ("/a/../", "", "/"),
+            ("/a/../", "", "/"),
+            ("/a/../b", "", "/b"),
+            ("/a/../b/", "", "/b"),
+            ("/a/..", "", "/"),
+            ("/a/..", "/", "/"),
+            ("/a/..", "b/", "/"),
+            ("/a/..", "/b", "/"),
+            ("/a/.", "b", "/a"),
+            ("/a/.", ".", "/a"),
+            ("\\", "", "/"),
+            ("\\.", "", "/"),
+            ("\\.\\", "", "/"),
+            ("\\..\\", "", "/"),
+            ("\\a\\.\\", "", "/a"),
+            ("\\a\\.\\b", "", "/a/b"),
+            ("\\a\\.\\b\\", "", "/a/b"),
+            ("\\a\\..", "", "/"),
+            ("\\a\\..\\", "", "/"),
+            ("\\a\\..\\", "", "/"),
+            ("\\a\\..\\b", "", "/b"),
+            ("\\a\\..\\b\\", "", "/b"),
+            ("\\a\\..", "", "/"),
+            ("\\a\\..", "\\", "/"),
+            ("\\a\\..", "b\\", "/"),
+            ("\\a\\..", "\\b", "/"),
+            ("\\a\\.", "b", "/a"),
+            ("\\a\\.", ".", "/a"),
+            ("", "", ""),
+            (".", "", ""),
+            ("./", "", ""),
+            ("..", "", ".."),
+            ("../", "", ".."),
+            ("", "/home", "/home"),
+            (".", "/home", "/home"),
+            ("./", "/home", "/home"),
+            ("..", "/home", "/"),
+            ("../", "/home", "/"),
+            ("a", "b", "b/a"),
+            ("a", "b/c", "b/c/a"),
+            (".a", "", ".a"),
+            ("..a", "", "..a"),
+            ("a.", "", "a."),
+            ("a..", "", "a.."),
+            ("/base/./.a", "", "/base/.a"),
+            ("/base/../.a", "", "/.a"),
+            ("/base/./..a", "", "/base/..a"),
+            ("/base/../..a", "", "/..a"),
+            ("/base/./..a/b", "", "/base/..a/b"),
+            ("/base/../..a/b", "", "/..a/b"),
+            ("/base/./a.", "", "/base/a."),
+            ("/base/../a.", "", "/a."),
+            ("/base/./a..", "", "/base/a.."),
+            ("/base/../a..", "", "/a.."),
+            ("/base/./a../b", "", "/base/a../b"),
+            ("/base/../a../b", "", "/a../b"),
+            ("a/..", "", ""),
+            ("/a//", "", "/a"),
+            ("//a", "a", "//a/"),
+            ("/\\", "", "//"),
+            ("a///", "a", "a/a"),
+            ("/.//", "", "/"),
+            ("//\\\\", "", "///"),
+            (".//a", ".", "a"),
+            ("a/../..", "", ".."),
+            ("../..", "\\a", "/"),
+            ("a:", "b", "a:/"),
+            ("a/../..", "..", "../.."),
+            ("a/../..", "b", ""),
+            ("a//../..", "..", "../.."),
+            ("a//b", "", "a/b"),
+            ("a///b", "", "a/b"),
+            ("a/b//c", "", "a/b/c"),
+            ("/a/b//c", "", "/a/b/c"),
+            ("//a/b//c", "", "//a/b/c"),
+            ("a\\\\b", "", "a/b"),
+            ("a\\\\\\b", "", "a/b"),
+            ("a\\b\\\\c", "", "a/b/c"),
+            ("\\a\\b\\\\c", "", "/a/b/c"),
+            ("\\\\a\\b\\\\c", "", "//a/b/c"),
+            ("a/\\b", "", "a/b"),
+            ("a\\/b", "", "a/b"),
+            ("a\\/\\b", "", "a/b"),
+            ("a\\b//c", "", "a/b/c"),
+            ("\\a\\b\\\\c", "", "/a/b/c"),
+            ("\\\\a\\b\\\\c", "", "//a/b/c"),
+            ("c:x", "/base", "/base/c:x"),
+            ("//server/share/../a", "", "//server/a"),
+            ("file:///c:/../a", "", "file:///c:/a"),
+            ("http://server/a/../../b", "", "http://server/b"),
+            ("日本/../é", "/base", "/base/é"),
+        ];
+        for (path, directory, expected) in cases {
+            assert_eq!(
+                get_normalized_absolute_path(path, directory),
+                expected,
+                "path={path:?}, directory={directory:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn native_normalize_path_and_combine_preserve_root_and_separator_spelling() {
+        assert_eq!(normalize_path("c:"), "c:");
+        assert_eq!(normalize_path("//server"), "//server/");
+        assert_eq!(normalize_path("/a/./b/"), "/a/b/");
+        assert_eq!(normalize_path(".//a"), "a");
+        assert_eq!(normalize_path("file:///c:/a/../"), "file:///c:/");
+        assert_eq!(combine_paths("/a//", &["b"]), "/a//b");
+        assert_eq!(combine_paths("/base", &["c:x"]), "/base/c:x");
+        assert_eq!(combine_paths("/base", &["http://server/a"]), "http://server/a");
+    }
+
     #[test]
     fn a_root_is_recognised_in_each_of_its_forms() {
         assert_eq!(get_root_length("/"), 1);
         assert_eq!(get_root_length("/a/b"), 1);
         assert_eq!(get_root_length("c:/"), 3);
         assert_eq!(get_root_length("c:\\a"), 3);
-        // `c:` without a separator is relative *to that drive*, so the root is
-        // the drive letter and nothing more.
+        // A bare drive is a root; a drive-relative name is not.
         assert_eq!(get_root_length("c:"), 2);
-        assert_eq!(get_root_length("//server/share/a"), "//server/share/".len());
+        assert_eq!(get_root_length("c:d"), 0);
+        assert_eq!(get_root_length("//server/share/a"), "//server/".len());
         assert_eq!(get_root_length("a/b"), 0);
         assert_eq!(get_root_length(""), 0);
     }
