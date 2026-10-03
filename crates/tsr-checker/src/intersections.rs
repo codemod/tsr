@@ -173,6 +173,25 @@ impl Checker<'_, '_> {
             return self.intrinsics.never;
         }
 
+        // `extractRedundantTemplateLiterals` (`checker.go:26085`, `:26317`):
+        // a string literal subsumes a template or string mapping it inhabits;
+        // one it cannot inhabit empties a pattern intersection. This runs
+        // before the `any` arm in native, and reduction to one constituent
+        // returns that constituent even when the written intersection had an
+        // alias (`checker.go:26127`). Keep that singleton rule local to this
+        // newly ported reduction rather than changing general alias identity.
+        if includes.flags.intersects(TypeFlags::TEMPLATE_LITERAL | TypeFlags::STRING_MAPPING)
+            && includes.flags.contains(TypeFlags::STRING_LITERAL)
+        {
+            let Some(reduced) = self.extract_redundant_template_literals(set) else {
+                return self.intrinsics.never;
+            };
+            set = reduced;
+            if set.len() == 1 {
+                return set[0];
+            }
+        }
+
         if includes.flags.contains(TypeFlags::ANY) {
             // `checker.go:26092`, and the same "a gap in a constituent is a gap
             // in the whole" that unions get for free: `errorType` carries
@@ -199,7 +218,16 @@ impl Checker<'_, '_> {
             // type that constrains nothing.
             return self.intrinsics.unknown;
         }
-        if set.len() == 1 && symbol.is_none() {
+        // Native returns a singleton after supertype reduction regardless of
+        // the written alias. Restrict the newly observable alias elision to
+        // this unit's template/string-mapping intersections; general alias
+        // identity remains unchanged.
+        if set.len() == 1
+            && (symbol.is_none()
+                || includes
+                    .flags
+                    .intersects(TypeFlags::TEMPLATE_LITERAL | TypeFlags::STRING_MAPPING))
+        {
             return set[0];
         }
         let mut constrained_variable = None;
@@ -564,7 +592,11 @@ impl Checker<'_, '_> {
             index -= 1;
             let flags = self.store.get(types[index]).flags;
             let remove = flags.contains(TypeFlags::STRING)
-                && includes.contains(TypeFlags::STRING_LITERAL)
+                && includes.intersects(
+                    TypeFlags::STRING_LITERAL
+                        | TypeFlags::TEMPLATE_LITERAL
+                        | TypeFlags::STRING_MAPPING,
+                )
                 || flags.contains(TypeFlags::NUMBER)
                     && includes.contains(TypeFlags::NUMBER_LITERAL)
                 || flags.contains(TypeFlags::BIG_INT)
@@ -579,6 +611,44 @@ impl Checker<'_, '_> {
             }
         }
         types
+    }
+
+    /// `extractRedundantTemplateLiterals` (`checker.go:26317`). `None` is the
+    /// empty set, for example `` `get${string}` & "setX" ``. A matching
+    /// literal removes the template/mapping constituent; a non-pattern mapping
+    /// that cannot be decided remains in the intersection.
+    fn extract_redundant_template_literals(
+        &mut self,
+        mut types: Vec<TypeId>,
+    ) -> Option<Vec<TypeId>> {
+        let literals: Vec<_> = types
+            .iter()
+            .copied()
+            .filter(|&ty| self.store.get(ty).flags.contains(TypeFlags::STRING_LITERAL))
+            .collect();
+        let mut index = types.len();
+        while index > 0 {
+            index -= 1;
+            let ty = types[index];
+            if !self
+                .store
+                .get(ty)
+                .flags
+                .intersects(TypeFlags::TEMPLATE_LITERAL | TypeFlags::STRING_MAPPING)
+            {
+                continue;
+            }
+            for &literal in &literals {
+                if self.is_type_subtype_of(literal, ty) {
+                    types.remove(index);
+                    break;
+                }
+                if self.is_pattern_template(ty) {
+                    return None;
+                }
+            }
+        }
+        Some(types)
     }
 
     /// `IsEmptyAnonymousObjectType` (checker.go). Only a complete structural
