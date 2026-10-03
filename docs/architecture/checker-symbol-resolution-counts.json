@@ -1,0 +1,757 @@
+{
+  "schema_version": 1,
+  "kind": "locating counts; no production cache or speed gain",
+  "date": "2026-10-03",
+  "target_tsr_native_ratio": 0.5,
+  "target_verified": false,
+  "tsr": {
+    "source": {
+      "source": "e1a538485661f3eddda7c10691a04118396e55b6",
+      "files": {
+        "crates/tsr-binder/src/lib.rs": "6e2a052817a11b7811fa2f66f15c9f88186ea40adfc2f9954e2cce49627e7379",
+        "crates/tsr-execute/src/compile.rs": "129d3c400d9e054048682ae81b8a7edb8703b32c16475223bf5233770e91a11d"
+      },
+      "reference_binary": "/tmp/tsr-a697-cost-baseline",
+      "reference_binary_sha256": "9787054f832ca8d6680eaee29b1d03bb12d2e104de901fed0e9e66736bed67c9",
+      "kind": "temporary caller/query attribution, no production cache",
+      "probe_binary_sha256": "e840019592ea31b77a94636ca0fd89793956fa5654ba48454e5b5fb39e49127f",
+      "production_sources_restored": true
+    },
+    "totals": {
+      "queries": 3788288,
+      "steps": 30271006,
+      "global_unique_queries": 623630
+    },
+    "caller_rows": 100,
+    "caller_csv_sha256": "9f359d65267da3473e3446369acb4fbc0751c02883caa478e720a332fb427f64",
+    "checked_count": 1341,
+    "checked_fingerprint": "04d5f55be4e9253b8d9291375c46f171c6a829377ae41e28a2590b6480ede474",
+    "checked_input_fingerprint": "c88bfc76a5b5fba807593a481ba3c4fbad93e58a3d45413681d8d7aa9106a0ad",
+    "diagnostic_count": 121,
+    "diagnostic_fingerprint": "fa0e14ebbc31d7fb9f24f996a93bfb2888f16755748a89785f00309b0b33a190",
+    "disabled_wall_seconds": 5.081269665999571,
+    "enabled_wall_seconds": 5.921830584004056
+  },
+  "native": {
+    "source": "5b1047d10d32e7d5b446be4de56b126ff42f82bb",
+    "source_manifest": "30380d7a8bfa9599238174c57217a3d4167aa28210a646f6bda2e2f5118f17f2",
+    "binaries": {
+      "existing_pin": {
+        "sha256": "118d4efb63e59af858d6d0f5a718a8d2809d9f5551303a62caa5be3d5364c7ce",
+        "go_build_metadata": "/tmp/tsr-95-tsgo: go1.26.0\n\tpath\tgithub.com/microsoft/typescript-go/cmd/tsgo\n\tmod\tgithub.com/microsoft/typescript-go\t(devel)\t\n\tdep\tgithub.com/go-json-experiment/json\tv0.0.0-20260623181947-01eb4420fa68\th1:KZaTBSyshWX3MP5jukJcNSuXDQTO+rNpt0J564dX/eg=\n\tdep\tgithub.com/mackerelio/go-osstat\tv0.2.7\th1:TCavZi10wF49bT6iQZ9eT2keGZQpC69MTDfdJej5e94=\n\tdep\tgithub.com/zeebo/xxh3\tv1.1.0\th1:s7DLGDK45Dyfg7++yxI0khrfwq9661w9EN78eP/UZVs=\n\tdep\tgolang.org/x/sync\tv0.21.0\th1:HLII4xRRTtCRkxYp4HNFF0Js/Og6q2i++KXbg0gHCwM=\n\tdep\tgolang.org/x/sys\tv0.46.0\th1:noSf2Fq6F8DBgS+LysIkx7rIExoNHJsxOAtPp4rthXw=\n\tdep\tgolang.org/x/term\tv0.44.0\th1:0rLvDRCtNj0gZkyIXhCyOb2OAzEhLVqc4B+hrsBhrmc=\n\tdep\tgolang.org/x/text\tv0.38.0\th1:sXmwo9DwP3OK9EZ7PqAdaooSGozfl/3a6/xJcbzPRhE=\n\tbuild\t-buildmode=exe\n\tbuild\t-compiler=gc\n\tbuild\tCGO_ENABLED=1\n\tbuild\tCGO_CFLAGS=\n\tbuild\tCGO_CPPFLAGS=\n\tbuild\tCGO_CXXFLAGS=\n\tbuild\tCGO_LDFLAGS=\n\tbuild\tGOARCH=arm64\n\tbuild\tGOOS=darwin\n\tbuild\tGOARM64=v8.0\n\tbuild\tvcs=git\n\tbuild\tvcs.revision=40f72f567475d70c4dfd1057c003d7fd729f9b38\n\tbuild\tvcs.time=2026-10-01T10:11:36Z\n\tbuild\tvcs.modified=true\n"
+      },
+      "clean": {
+        "sha256": "6340b230f887095fb7c82fedb41eecadd7dc49e4baa65a05ef4abb8ab4b74bc4",
+        "go_build_metadata": "/private/tmp/tsr-native-symbol-completion-5b/clean: go1.26.0\n\tpath\tgithub.com/microsoft/typescript-go/cmd/tsgo\n\tmod\tgithub.com/microsoft/typescript-go\t(devel)\t\n\tdep\tgithub.com/go-json-experiment/json\tv0.0.0-20260623181947-01eb4420fa68\th1:KZaTBSyshWX3MP5jukJcNSuXDQTO+rNpt0J564dX/eg=\n\tdep\tgithub.com/mackerelio/go-osstat\tv0.2.7\th1:TCavZi10wF49bT6iQZ9eT2keGZQpC69MTDfdJej5e94=\n\tdep\tgithub.com/zeebo/xxh3\tv1.1.0\th1:s7DLGDK45Dyfg7++yxI0khrfwq9661w9EN78eP/UZVs=\n\tdep\tgolang.org/x/sync\tv0.21.0\th1:HLII4xRRTtCRkxYp4HNFF0Js/Og6q2i++KXbg0gHCwM=\n\tdep\tgolang.org/x/sys\tv0.46.0\th1:noSf2Fq6F8DBgS+LysIkx7rIExoNHJsxOAtPp4rthXw=\n\tdep\tgolang.org/x/term\tv0.44.0\th1:0rLvDRCtNj0gZkyIXhCyOb2OAzEhLVqc4B+hrsBhrmc=\n\tdep\tgolang.org/x/text\tv0.38.0\th1:sXmwo9DwP3OK9EZ7PqAdaooSGozfl/3a6/xJcbzPRhE=\n\tbuild\t-buildmode=exe\n\tbuild\t-compiler=gc\n\tbuild\tCGO_ENABLED=1\n\tbuild\tCGO_CFLAGS=\n\tbuild\tCGO_CPPFLAGS=\n\tbuild\tCGO_CXXFLAGS=\n\tbuild\tCGO_LDFLAGS=\n\tbuild\tGOARCH=arm64\n\tbuild\tGOOS=darwin\n\tbuild\tGOARM64=v8.0\n"
+      },
+      "probe": {
+        "sha256": "9fa2725e6a929b1150552c9cb0a11bc197617f5c352cff8d378a0ddc68e89516",
+        "go_build_metadata": "/private/tmp/tsr-native-symbol-completion-5b/probe: go1.26.0\n\tpath\tgithub.com/microsoft/typescript-go/cmd/tsgo\n\tmod\tgithub.com/microsoft/typescript-go\t(devel)\t\n\tdep\tgithub.com/go-json-experiment/json\tv0.0.0-20260623181947-01eb4420fa68\th1:KZaTBSyshWX3MP5jukJcNSuXDQTO+rNpt0J564dX/eg=\n\tdep\tgithub.com/mackerelio/go-osstat\tv0.2.7\th1:TCavZi10wF49bT6iQZ9eT2keGZQpC69MTDfdJej5e94=\n\tdep\tgithub.com/zeebo/xxh3\tv1.1.0\th1:s7DLGDK45Dyfg7++yxI0khrfwq9661w9EN78eP/UZVs=\n\tdep\tgolang.org/x/sync\tv0.21.0\th1:HLII4xRRTtCRkxYp4HNFF0Js/Og6q2i++KXbg0gHCwM=\n\tdep\tgolang.org/x/sys\tv0.46.0\th1:noSf2Fq6F8DBgS+LysIkx7rIExoNHJsxOAtPp4rthXw=\n\tdep\tgolang.org/x/term\tv0.44.0\th1:0rLvDRCtNj0gZkyIXhCyOb2OAzEhLVqc4B+hrsBhrmc=\n\tdep\tgolang.org/x/text\tv0.38.0\th1:sXmwo9DwP3OK9EZ7PqAdaooSGozfl/3a6/xJcbzPRhE=\n\tbuild\t-buildmode=exe\n\tbuild\t-compiler=gc\n\tbuild\tCGO_ENABLED=1\n\tbuild\tCGO_CFLAGS=\n\tbuild\tCGO_CPPFLAGS=\n\tbuild\tCGO_CXXFLAGS=\n\tbuild\tCGO_LDFLAGS=\n\tbuild\tGOARCH=arm64\n\tbuild\tGOOS=darwin\n\tbuild\tGOARM64=v8.0\n"
+      }
+    },
+    "instrumented_files": {
+      "cmd/tsgo/main.go": "d40e83ec56332a2552348b174d28255ae5c0677ff473da636494819d6a1ef38d",
+      "internal/checker/checker.go": "4a154f91997846a6868eb0b5884e611336d9ff24ba3abd648fa7bf3dd6980474",
+      "internal/checker/symbol_completion_probe.go": "d01f76d696fa9d5b4c4d78be7691ce786b457d6e3a7da2780dbbffc8868f2a3d"
+    },
+    "checks": {
+      "control/default": {
+        "existing_and_archive_complete_diagnostics_equal": true,
+        "enabled_disabled_complete_diagnostics_equal": true,
+        "effective_options_and_loaded_scope_equal": true,
+        "input_contents_unchanged": true,
+        "actual_checked_identity_repeat_equal": false,
+        "getter_count_invariants": true
+      },
+      "control/single": {
+        "existing_and_archive_complete_diagnostics_equal": true,
+        "enabled_disabled_complete_diagnostics_equal": true,
+        "effective_options_and_loaded_scope_equal": true,
+        "input_contents_unchanged": true,
+        "actual_checked_identity_repeat_equal": false,
+        "getter_count_invariants": true
+      },
+      "nextjs/default": {
+        "existing_and_archive_complete_diagnostics_equal": true,
+        "enabled_disabled_complete_diagnostics_equal": true,
+        "effective_options_and_loaded_scope_equal": true,
+        "input_contents_unchanged": true,
+        "actual_checked_identity_repeat_equal": true,
+        "getter_count_invariants": true
+      },
+      "nextjs/single": {
+        "existing_and_archive_complete_diagnostics_equal": true,
+        "enabled_disabled_complete_diagnostics_equal": true,
+        "effective_options_and_loaded_scope_equal": true,
+        "input_contents_unchanged": true,
+        "actual_checked_identity_repeat_equal": true,
+        "getter_count_invariants": true
+      }
+    },
+    "runs": {
+      "control/default/existing_pin": {
+        "wall_seconds": 0.012901458976557478,
+        "user_seconds": 0.0094,
+        "system_seconds": 0.009377,
+        "peak_rss_bytes": 24199168,
+        "exit_code": 1,
+        "timed_out": false,
+        "diagnostic_count": 5,
+        "diagnostic_fingerprint": "265ff72a07d63284dbef5a924e7485fb09ea0bbe78c3482c59cc5780ba5f8033",
+        "loaded_count": 6,
+        "loaded_fingerprint": "1c6be30fe06603a20dd129156dc3167c2b78813809292de77fde19828ff96893",
+        "input_fingerprint": "d1220519763d79a8f08ad8da752ed7f9cf660a6f48c5dfe0fa6bc3748ef64238",
+        "effective_config_sha256": "12740032c1876f818ad41554aa8f7426a012b455dbe2a76a975c4789dbeef531"
+      },
+      "control/default/clean": {
+        "wall_seconds": 0.013008041016291827,
+        "user_seconds": 0.009670999999999999,
+        "system_seconds": 0.010195,
+        "peak_rss_bytes": 24444928,
+        "exit_code": 1,
+        "timed_out": false,
+        "diagnostic_count": 5,
+        "diagnostic_fingerprint": "265ff72a07d63284dbef5a924e7485fb09ea0bbe78c3482c59cc5780ba5f8033",
+        "loaded_count": 6,
+        "loaded_fingerprint": "1c6be30fe06603a20dd129156dc3167c2b78813809292de77fde19828ff96893",
+        "input_fingerprint": "d1220519763d79a8f08ad8da752ed7f9cf660a6f48c5dfe0fa6bc3748ef64238",
+        "effective_config_sha256": "12740032c1876f818ad41554aa8f7426a012b455dbe2a76a975c4789dbeef531"
+      },
+      "control/default/probe_disabled": {
+        "wall_seconds": 0.012981000007130206,
+        "user_seconds": 0.00933,
+        "system_seconds": 0.008988,
+        "peak_rss_bytes": 24313856,
+        "exit_code": 1,
+        "timed_out": false,
+        "diagnostic_count": 5,
+        "diagnostic_fingerprint": "265ff72a07d63284dbef5a924e7485fb09ea0bbe78c3482c59cc5780ba5f8033",
+        "loaded_count": 6,
+        "loaded_fingerprint": "1c6be30fe06603a20dd129156dc3167c2b78813809292de77fde19828ff96893",
+        "input_fingerprint": "d1220519763d79a8f08ad8da752ed7f9cf660a6f48c5dfe0fa6bc3748ef64238",
+        "effective_config_sha256": "12740032c1876f818ad41554aa8f7426a012b455dbe2a76a975c4789dbeef531"
+      },
+      "control/default/probe_enabled": {
+        "wall_seconds": 0.012711207993561402,
+        "user_seconds": 0.009953,
+        "system_seconds": 0.009627,
+        "peak_rss_bytes": 24477696,
+        "exit_code": 1,
+        "timed_out": false,
+        "diagnostic_count": 5,
+        "diagnostic_fingerprint": "265ff72a07d63284dbef5a924e7485fb09ea0bbe78c3482c59cc5780ba5f8033",
+        "loaded_count": 6,
+        "loaded_fingerprint": "1c6be30fe06603a20dd129156dc3167c2b78813809292de77fde19828ff96893",
+        "input_fingerprint": "d1220519763d79a8f08ad8da752ed7f9cf660a6f48c5dfe0fa6bc3748ef64238",
+        "effective_config_sha256": "12740032c1876f818ad41554aa8f7426a012b455dbe2a76a975c4789dbeef531",
+        "checkers_initialized": 4,
+        "getters": {
+          "getReferencedValueOrAliasSymbol": {
+            "entry_states": {
+              "alias": 0,
+              "declared": 0,
+              "nil": 0,
+              "unknown": 0,
+              "unresolved": 0
+            },
+            "queries": 0,
+            "result_states": {
+              "alias": 0,
+              "declared": 0,
+              "nil": 0,
+              "unknown": 0,
+              "unresolved": 0
+            },
+            "worker_branches": 0,
+            "completed_entry_hits": 0
+          },
+          "getResolvedSymbol": {
+            "entry_states": {
+              "alias": 12,
+              "declared": 1,
+              "nil": 4,
+              "unknown": 0,
+              "unresolved": 0
+            },
+            "queries": 17,
+            "result_states": {
+              "alias": 14,
+              "declared": 2,
+              "nil": 0,
+              "unknown": 1,
+              "unresolved": 0
+            },
+            "worker_branches": 4,
+            "completed_entry_hits": 13
+          },
+          "getSymbolFromTypeReference": {
+            "entry_states": {
+              "alias": 0,
+              "declared": 1,
+              "nil": 18,
+              "unknown": 0,
+              "unresolved": 0
+            },
+            "queries": 19,
+            "result_states": {
+              "alias": 0,
+              "declared": 17,
+              "nil": 0,
+              "unknown": 0,
+              "unresolved": 2
+            },
+            "worker_branches": 18,
+            "completed_entry_hits": 1
+          }
+        },
+        "checked_count": 3,
+        "checked_fingerprint": "0d81e605378e4199c16f0b25ed81748828dde9b9b7c9e81d67efd6607df7796f",
+        "checked_input_fingerprint": "e388b86a899d4ae822cb5a2773df6681d46de2c5233d1cf7b60d82faa56e35fd",
+        "check_worker_entries": 3
+      },
+      "control/single/existing_pin": {
+        "wall_seconds": 0.010269082995364442,
+        "user_seconds": 0.006944,
+        "system_seconds": 0.00404,
+        "peak_rss_bytes": 21741568,
+        "exit_code": 1,
+        "timed_out": false,
+        "diagnostic_count": 5,
+        "diagnostic_fingerprint": "265ff72a07d63284dbef5a924e7485fb09ea0bbe78c3482c59cc5780ba5f8033",
+        "loaded_count": 6,
+        "loaded_fingerprint": "1c6be30fe06603a20dd129156dc3167c2b78813809292de77fde19828ff96893",
+        "input_fingerprint": "d1220519763d79a8f08ad8da752ed7f9cf660a6f48c5dfe0fa6bc3748ef64238",
+        "effective_config_sha256": "12740032c1876f818ad41554aa8f7426a012b455dbe2a76a975c4789dbeef531"
+      },
+      "control/single/clean": {
+        "wall_seconds": 0.01171629101736471,
+        "user_seconds": 0.008506,
+        "system_seconds": 0.005199,
+        "peak_rss_bytes": 22593536,
+        "exit_code": 1,
+        "timed_out": false,
+        "diagnostic_count": 5,
+        "diagnostic_fingerprint": "265ff72a07d63284dbef5a924e7485fb09ea0bbe78c3482c59cc5780ba5f8033",
+        "loaded_count": 6,
+        "loaded_fingerprint": "1c6be30fe06603a20dd129156dc3167c2b78813809292de77fde19828ff96893",
+        "input_fingerprint": "d1220519763d79a8f08ad8da752ed7f9cf660a6f48c5dfe0fa6bc3748ef64238",
+        "effective_config_sha256": "12740032c1876f818ad41554aa8f7426a012b455dbe2a76a975c4789dbeef531"
+      },
+      "control/single/probe_disabled": {
+        "wall_seconds": 0.010259332979330793,
+        "user_seconds": 0.007075,
+        "system_seconds": 0.003872,
+        "peak_rss_bytes": 21807104,
+        "exit_code": 1,
+        "timed_out": false,
+        "diagnostic_count": 5,
+        "diagnostic_fingerprint": "265ff72a07d63284dbef5a924e7485fb09ea0bbe78c3482c59cc5780ba5f8033",
+        "loaded_count": 6,
+        "loaded_fingerprint": "1c6be30fe06603a20dd129156dc3167c2b78813809292de77fde19828ff96893",
+        "input_fingerprint": "d1220519763d79a8f08ad8da752ed7f9cf660a6f48c5dfe0fa6bc3748ef64238",
+        "effective_config_sha256": "12740032c1876f818ad41554aa8f7426a012b455dbe2a76a975c4789dbeef531"
+      },
+      "control/single/probe_enabled": {
+        "wall_seconds": 0.010980333987390622,
+        "user_seconds": 0.008262,
+        "system_seconds": 0.005225,
+        "peak_rss_bytes": 22511616,
+        "exit_code": 1,
+        "timed_out": false,
+        "diagnostic_count": 5,
+        "diagnostic_fingerprint": "265ff72a07d63284dbef5a924e7485fb09ea0bbe78c3482c59cc5780ba5f8033",
+        "loaded_count": 6,
+        "loaded_fingerprint": "1c6be30fe06603a20dd129156dc3167c2b78813809292de77fde19828ff96893",
+        "input_fingerprint": "d1220519763d79a8f08ad8da752ed7f9cf660a6f48c5dfe0fa6bc3748ef64238",
+        "effective_config_sha256": "12740032c1876f818ad41554aa8f7426a012b455dbe2a76a975c4789dbeef531",
+        "checkers_initialized": 1,
+        "getters": {
+          "getReferencedValueOrAliasSymbol": {
+            "entry_states": {
+              "alias": 0,
+              "declared": 0,
+              "nil": 0,
+              "unknown": 0,
+              "unresolved": 0
+            },
+            "queries": 0,
+            "result_states": {
+              "alias": 0,
+              "declared": 0,
+              "nil": 0,
+              "unknown": 0,
+              "unresolved": 0
+            },
+            "worker_branches": 0,
+            "completed_entry_hits": 0
+          },
+          "getResolvedSymbol": {
+            "entry_states": {
+              "alias": 12,
+              "declared": 1,
+              "nil": 4,
+              "unknown": 0,
+              "unresolved": 0
+            },
+            "queries": 17,
+            "result_states": {
+              "alias": 14,
+              "declared": 2,
+              "nil": 0,
+              "unknown": 1,
+              "unresolved": 0
+            },
+            "worker_branches": 4,
+            "completed_entry_hits": 13
+          },
+          "getSymbolFromTypeReference": {
+            "entry_states": {
+              "alias": 0,
+              "declared": 1,
+              "nil": 14,
+              "unknown": 0,
+              "unresolved": 0
+            },
+            "queries": 15,
+            "result_states": {
+              "alias": 0,
+              "declared": 13,
+              "nil": 0,
+              "unknown": 0,
+              "unresolved": 2
+            },
+            "worker_branches": 14,
+            "completed_entry_hits": 1
+          }
+        },
+        "checked_count": 3,
+        "checked_fingerprint": "0d81e605378e4199c16f0b25ed81748828dde9b9b7c9e81d67efd6607df7796f",
+        "checked_input_fingerprint": "e388b86a899d4ae822cb5a2773df6681d46de2c5233d1cf7b60d82faa56e35fd",
+        "check_worker_entries": 3
+      },
+      "nextjs/default/existing_pin": {
+        "wall_seconds": 3.783869125007186,
+        "user_seconds": 21.500788,
+        "system_seconds": 1.685157,
+        "peak_rss_bytes": 4937433088,
+        "exit_code": 0,
+        "timed_out": false,
+        "diagnostic_count": 0,
+        "diagnostic_fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "loaded_count": 13098,
+        "loaded_fingerprint": "b73592c048a6251b45fca7bfaae709caf450ecd90baa9da57f5ce17798b0e972",
+        "input_fingerprint": "3a567c9d2213aa7cc043d581b4acf9bec10b12ff37462fcd0aa7dc86a9be206e",
+        "effective_config_sha256": "6a594c47c40389e81b63f57978bbd4bc51f7a94f5beb48fde071b042f7a2291d"
+      },
+      "nextjs/default/clean": {
+        "wall_seconds": 3.877144166996004,
+        "user_seconds": 22.518208,
+        "system_seconds": 1.607368,
+        "peak_rss_bytes": 5074632704,
+        "exit_code": 0,
+        "timed_out": false,
+        "diagnostic_count": 0,
+        "diagnostic_fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "loaded_count": 13098,
+        "loaded_fingerprint": "b73592c048a6251b45fca7bfaae709caf450ecd90baa9da57f5ce17798b0e972",
+        "input_fingerprint": "3a567c9d2213aa7cc043d581b4acf9bec10b12ff37462fcd0aa7dc86a9be206e",
+        "effective_config_sha256": "6a594c47c40389e81b63f57978bbd4bc51f7a94f5beb48fde071b042f7a2291d"
+      },
+      "nextjs/default/probe_disabled": {
+        "wall_seconds": 3.8883472500019707,
+        "user_seconds": 21.818607,
+        "system_seconds": 1.752838,
+        "peak_rss_bytes": 4829151232,
+        "exit_code": 0,
+        "timed_out": false,
+        "diagnostic_count": 0,
+        "diagnostic_fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "loaded_count": 13098,
+        "loaded_fingerprint": "b73592c048a6251b45fca7bfaae709caf450ecd90baa9da57f5ce17798b0e972",
+        "input_fingerprint": "3a567c9d2213aa7cc043d581b4acf9bec10b12ff37462fcd0aa7dc86a9be206e",
+        "effective_config_sha256": "6a594c47c40389e81b63f57978bbd4bc51f7a94f5beb48fde071b042f7a2291d"
+      },
+      "nextjs/default/probe_enabled": {
+        "wall_seconds": 3.8707139999896754,
+        "user_seconds": 21.520912,
+        "system_seconds": 2.063575,
+        "peak_rss_bytes": 4982636544,
+        "exit_code": 0,
+        "timed_out": false,
+        "diagnostic_count": 0,
+        "diagnostic_fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "loaded_count": 13098,
+        "loaded_fingerprint": "b73592c048a6251b45fca7bfaae709caf450ecd90baa9da57f5ce17798b0e972",
+        "input_fingerprint": "3a567c9d2213aa7cc043d581b4acf9bec10b12ff37462fcd0aa7dc86a9be206e",
+        "effective_config_sha256": "6a594c47c40389e81b63f57978bbd4bc51f7a94f5beb48fde071b042f7a2291d",
+        "checkers_initialized": 4,
+        "getters": {
+          "getReferencedValueOrAliasSymbol": {
+            "entry_states": {
+              "alias": 0,
+              "declared": 0,
+              "nil": 0,
+              "unknown": 0,
+              "unresolved": 0
+            },
+            "queries": 0,
+            "result_states": {
+              "alias": 0,
+              "declared": 0,
+              "nil": 0,
+              "unknown": 0,
+              "unresolved": 0
+            },
+            "worker_branches": 0,
+            "completed_entry_hits": 0
+          },
+          "getResolvedSymbol": {
+            "entry_states": {
+              "alias": 1627779,
+              "declared": 2187325,
+              "nil": 207877,
+              "unknown": 0,
+              "unresolved": 0
+            },
+            "queries": 4022981,
+            "result_states": {
+              "alias": 1700711,
+              "declared": 2322270,
+              "nil": 0,
+              "unknown": 0,
+              "unresolved": 0
+            },
+            "worker_branches": 207877,
+            "completed_entry_hits": 3815104
+          },
+          "getSymbolFromTypeReference": {
+            "entry_states": {
+              "alias": 0,
+              "declared": 114618,
+              "nil": 194053,
+              "unknown": 0,
+              "unresolved": 0
+            },
+            "queries": 308671,
+            "result_states": {
+              "alias": 0,
+              "declared": 308654,
+              "nil": 0,
+              "unknown": 0,
+              "unresolved": 17
+            },
+            "worker_branches": 194053,
+            "completed_entry_hits": 114618
+          }
+        },
+        "checked_count": 1339,
+        "checked_fingerprint": "1900cbbcbcd2cf0c5b42b413a78904ac4b2f79864f6b111e5d340cb8f2748531",
+        "checked_input_fingerprint": "0e9bdcb18d4e50cca735f2c71aa368f3989d5ff680b5b1d4b497fd190c568cfc",
+        "check_worker_entries": 1339
+      },
+      "nextjs/default/probe_repeat": {
+        "wall_seconds": 4.010529958992265,
+        "user_seconds": 21.266446,
+        "system_seconds": 3.981415,
+        "peak_rss_bytes": 4998578176,
+        "exit_code": 0,
+        "timed_out": false,
+        "diagnostic_count": 0,
+        "diagnostic_fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "loaded_count": 13098,
+        "loaded_fingerprint": "b73592c048a6251b45fca7bfaae709caf450ecd90baa9da57f5ce17798b0e972",
+        "input_fingerprint": "3a567c9d2213aa7cc043d581b4acf9bec10b12ff37462fcd0aa7dc86a9be206e",
+        "effective_config_sha256": "6a594c47c40389e81b63f57978bbd4bc51f7a94f5beb48fde071b042f7a2291d",
+        "checkers_initialized": 4,
+        "getters": {
+          "getReferencedValueOrAliasSymbol": {
+            "entry_states": {
+              "alias": 0,
+              "declared": 0,
+              "nil": 0,
+              "unknown": 0,
+              "unresolved": 0
+            },
+            "queries": 0,
+            "result_states": {
+              "alias": 0,
+              "declared": 0,
+              "nil": 0,
+              "unknown": 0,
+              "unresolved": 0
+            },
+            "worker_branches": 0,
+            "completed_entry_hits": 0
+          },
+          "getResolvedSymbol": {
+            "entry_states": {
+              "alias": 1627779,
+              "declared": 2187325,
+              "nil": 207877,
+              "unknown": 0,
+              "unresolved": 0
+            },
+            "queries": 4022981,
+            "result_states": {
+              "alias": 1700711,
+              "declared": 2322270,
+              "nil": 0,
+              "unknown": 0,
+              "unresolved": 0
+            },
+            "worker_branches": 207877,
+            "completed_entry_hits": 3815104
+          },
+          "getSymbolFromTypeReference": {
+            "entry_states": {
+              "alias": 0,
+              "declared": 114618,
+              "nil": 194053,
+              "unknown": 0,
+              "unresolved": 0
+            },
+            "queries": 308671,
+            "result_states": {
+              "alias": 0,
+              "declared": 308654,
+              "nil": 0,
+              "unknown": 0,
+              "unresolved": 17
+            },
+            "worker_branches": 194053,
+            "completed_entry_hits": 114618
+          }
+        },
+        "checked_count": 1339,
+        "checked_fingerprint": "1900cbbcbcd2cf0c5b42b413a78904ac4b2f79864f6b111e5d340cb8f2748531",
+        "checked_input_fingerprint": "0e9bdcb18d4e50cca735f2c71aa368f3989d5ff680b5b1d4b497fd190c568cfc",
+        "check_worker_entries": 1339
+      },
+      "nextjs/single/existing_pin": {
+        "wall_seconds": 6.175028333993396,
+        "user_seconds": 9.664403,
+        "system_seconds": 0.5639339999999999,
+        "peak_rss_bytes": 2765750272,
+        "exit_code": 0,
+        "timed_out": false,
+        "diagnostic_count": 0,
+        "diagnostic_fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "loaded_count": 13098,
+        "loaded_fingerprint": "b73592c048a6251b45fca7bfaae709caf450ecd90baa9da57f5ce17798b0e972",
+        "input_fingerprint": "3a567c9d2213aa7cc043d581b4acf9bec10b12ff37462fcd0aa7dc86a9be206e",
+        "effective_config_sha256": "6a594c47c40389e81b63f57978bbd4bc51f7a94f5beb48fde071b042f7a2291d"
+      },
+      "nextjs/single/clean": {
+        "wall_seconds": 6.687392041989369,
+        "user_seconds": 9.693211,
+        "system_seconds": 0.627683,
+        "peak_rss_bytes": 2743910400,
+        "exit_code": 0,
+        "timed_out": false,
+        "diagnostic_count": 0,
+        "diagnostic_fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "loaded_count": 13098,
+        "loaded_fingerprint": "b73592c048a6251b45fca7bfaae709caf450ecd90baa9da57f5ce17798b0e972",
+        "input_fingerprint": "3a567c9d2213aa7cc043d581b4acf9bec10b12ff37462fcd0aa7dc86a9be206e",
+        "effective_config_sha256": "6a594c47c40389e81b63f57978bbd4bc51f7a94f5beb48fde071b042f7a2291d"
+      },
+      "nextjs/single/probe_disabled": {
+        "wall_seconds": 6.877699040982407,
+        "user_seconds": 9.772766,
+        "system_seconds": 0.727453,
+        "peak_rss_bytes": 2697412608,
+        "exit_code": 0,
+        "timed_out": false,
+        "diagnostic_count": 0,
+        "diagnostic_fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "loaded_count": 13098,
+        "loaded_fingerprint": "b73592c048a6251b45fca7bfaae709caf450ecd90baa9da57f5ce17798b0e972",
+        "input_fingerprint": "3a567c9d2213aa7cc043d581b4acf9bec10b12ff37462fcd0aa7dc86a9be206e",
+        "effective_config_sha256": "6a594c47c40389e81b63f57978bbd4bc51f7a94f5beb48fde071b042f7a2291d"
+      },
+      "nextjs/single/probe_enabled": {
+        "wall_seconds": 6.734250958979828,
+        "user_seconds": 9.660613,
+        "system_seconds": 0.690927,
+        "peak_rss_bytes": 2703851520,
+        "exit_code": 0,
+        "timed_out": false,
+        "diagnostic_count": 0,
+        "diagnostic_fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "loaded_count": 13098,
+        "loaded_fingerprint": "b73592c048a6251b45fca7bfaae709caf450ecd90baa9da57f5ce17798b0e972",
+        "input_fingerprint": "3a567c9d2213aa7cc043d581b4acf9bec10b12ff37462fcd0aa7dc86a9be206e",
+        "effective_config_sha256": "6a594c47c40389e81b63f57978bbd4bc51f7a94f5beb48fde071b042f7a2291d",
+        "checkers_initialized": 1,
+        "getters": {
+          "getReferencedValueOrAliasSymbol": {
+            "entry_states": {
+              "alias": 0,
+              "declared": 0,
+              "nil": 0,
+              "unknown": 0,
+              "unresolved": 0
+            },
+            "queries": 0,
+            "result_states": {
+              "alias": 0,
+              "declared": 0,
+              "nil": 0,
+              "unknown": 0,
+              "unresolved": 0
+            },
+            "worker_branches": 0,
+            "completed_entry_hits": 0
+          },
+          "getResolvedSymbol": {
+            "entry_states": {
+              "alias": 1007412,
+              "declared": 1674401,
+              "nil": 138939,
+              "unknown": 0,
+              "unresolved": 0
+            },
+            "queries": 2820752,
+            "result_states": {
+              "alias": 1048521,
+              "declared": 1772231,
+              "nil": 0,
+              "unknown": 0,
+              "unresolved": 0
+            },
+            "worker_branches": 138939,
+            "completed_entry_hits": 2681813
+          },
+          "getSymbolFromTypeReference": {
+            "entry_states": {
+              "alias": 0,
+              "declared": 35896,
+              "nil": 84280,
+              "unknown": 0,
+              "unresolved": 0
+            },
+            "queries": 120176,
+            "result_states": {
+              "alias": 0,
+              "declared": 120169,
+              "nil": 0,
+              "unknown": 0,
+              "unresolved": 7
+            },
+            "worker_branches": 84280,
+            "completed_entry_hits": 35896
+          }
+        },
+        "checked_count": 1339,
+        "checked_fingerprint": "1900cbbcbcd2cf0c5b42b413a78904ac4b2f79864f6b111e5d340cb8f2748531",
+        "checked_input_fingerprint": "0e9bdcb18d4e50cca735f2c71aa368f3989d5ff680b5b1d4b497fd190c568cfc",
+        "check_worker_entries": 1339
+      },
+      "nextjs/single/probe_repeat": {
+        "wall_seconds": 7.327103707997594,
+        "user_seconds": 9.824903,
+        "system_seconds": 0.6195809999999999,
+        "peak_rss_bytes": 2660843520,
+        "exit_code": 0,
+        "timed_out": false,
+        "diagnostic_count": 0,
+        "diagnostic_fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "loaded_count": 13098,
+        "loaded_fingerprint": "b73592c048a6251b45fca7bfaae709caf450ecd90baa9da57f5ce17798b0e972",
+        "input_fingerprint": "3a567c9d2213aa7cc043d581b4acf9bec10b12ff37462fcd0aa7dc86a9be206e",
+        "effective_config_sha256": "6a594c47c40389e81b63f57978bbd4bc51f7a94f5beb48fde071b042f7a2291d",
+        "checkers_initialized": 1,
+        "getters": {
+          "getReferencedValueOrAliasSymbol": {
+            "entry_states": {
+              "alias": 0,
+              "declared": 0,
+              "nil": 0,
+              "unknown": 0,
+              "unresolved": 0
+            },
+            "queries": 0,
+            "result_states": {
+              "alias": 0,
+              "declared": 0,
+              "nil": 0,
+              "unknown": 0,
+              "unresolved": 0
+            },
+            "worker_branches": 0,
+            "completed_entry_hits": 0
+          },
+          "getResolvedSymbol": {
+            "entry_states": {
+              "alias": 1007412,
+              "declared": 1674401,
+              "nil": 138939,
+              "unknown": 0,
+              "unresolved": 0
+            },
+            "queries": 2820752,
+            "result_states": {
+              "alias": 1048521,
+              "declared": 1772231,
+              "nil": 0,
+              "unknown": 0,
+              "unresolved": 0
+            },
+            "worker_branches": 138939,
+            "completed_entry_hits": 2681813
+          },
+          "getSymbolFromTypeReference": {
+            "entry_states": {
+              "alias": 0,
+              "declared": 35896,
+              "nil": 84280,
+              "unknown": 0,
+              "unresolved": 0
+            },
+            "queries": 120176,
+            "result_states": {
+              "alias": 0,
+              "declared": 120169,
+              "nil": 0,
+              "unknown": 0,
+              "unresolved": 7
+            },
+            "worker_branches": 84280,
+            "completed_entry_hits": 35896
+          }
+        },
+        "checked_count": 1339,
+        "checked_fingerprint": "1900cbbcbcd2cf0c5b42b413a78904ac4b2f79864f6b111e5d340cb8f2748531",
+        "checked_input_fingerprint": "0e9bdcb18d4e50cca735f2c71aa368f3989d5ff680b5b1d4b497fd190c568cfc",
+        "check_worker_entries": 1339
+      }
+    }
+  },
+  "cross_scope": {
+    "historical_tsr_checked_inputs_still_match": true,
+    "native_default_counts_repeat_equal": true,
+    "native_single_counts_repeat_equal": true,
+    "eligibility_source": "Program.SkipTypeChecking/canIncludeBindAndCheckDiagnostics; JSON excluded from full-check worker and typed lazily via getTypeOfVariableOrParameterOrPropertyWorker"
+  },
+  "tsr_only_check_worker_files": [
+    "packages/ui/src/shiki/themes/codemod-dark.json",
+    "packages/ui/src/shiki/themes/codemod-light.json"
+  ],
+  "native_only_check_worker_files": [],
+  "public_control_sources": {
+    "model.ts": "export interface Box<T> { item: T; }\nexport type Alias<T> = Box<T>;\nexport const box: Alias<string> = { item: \"ok\" };\n",
+    "tsconfig.json": "{\n  \"compilerOptions\": {\n    \"strict\": true,\n    \"noEmit\": true,\n    \"module\": \"esnext\",\n    \"moduleResolution\": \"bundler\",\n    \"target\": \"es2022\",\n    \"lib\": [\n      \"es5\"\n    ],\n    \"types\": [],\n    \"skipLibCheck\": true,\n    \"allowJs\": true,\n    \"checkJs\": true\n  },\n  \"include\": [\n    \"*.ts\",\n    \"*.js\"\n  ]\n}",
+    "index.ts": "import { box } from \"./model\";\nimport type { Alias } from \"./model\";\nnamespace Outer { export interface Inner { x: string } }\nconst good: Outer.Inner = { x: box.item };\nconst literal = { x: \"ok\" } as const;\ntype MissingAlias = Absent.Nested;\nlet missingType: MissingRoot;\nconst missingValue = missingName;\nlet bad: Alias<number> = { item: \"bad\" };\nlet rejected: number = box.item;\nclass Shadow<T> { value!: T; read(): T { return this.value; } }\nconst accepted: string = new Shadow<string>().read();\n",
+    "templates.js": "/** @template T @typedef {{value: T}} First */\n/** @template T @typedef {{value: T}} Second */\n/** @type {First<string>} */\nconst first = { value: \"ok\" };\n/** @type {Second<number>} */\nconst second = { value: 1 };\n"
+  },
+  "normal_tsr_validation": {
+    "source": "beb727be30930a7c0d3693551f163bd0e77a2c5f",
+    "binary_sha256": "f17379ff4b67b268e7893e060ac7872212e69d1cc8572f2f9b5803164cbd0c68",
+    "release_build_passed": true,
+    "probe_environment_variable_has_no_stderr": true,
+    "complete_public_control_diagnostics_match_native": true,
+    "diagnostic_fingerprint": "265ff72a07d63284dbef5a924e7485fb09ea0bbe78c3482c59cc5780ba5f8033",
+    "project_and_cwd_use_physical_paths": true,
+    "initial_logical_path_control": "Same diagnostic spans/messages but differing rendered path prefixes with /tmp vs /private/tmp; retained separately, not used as complete-output equality proof."
+  }
+}

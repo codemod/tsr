@@ -1,0 +1,135 @@
+--- a/internal/checker/checker.go
++++ b/internal/checker/checker.go
+@@ -902,0 +903,3 @@
++	if symbolProbeEnabled {
++		symbolProbeInitialized.Add(1)
++	}
+@@ -2199,0 +2203 @@
++		symbolProbeChecked(sourceFile)
+@@ -13891,0 +13896 @@
++	symbolProbeEntry(0, links.resolvedSymbol, c.unknownSymbol)
+@@ -13899,0 +13905 @@
++	symbolProbeResult(0, links.resolvedSymbol, c.unknownSymbol)
+@@ -13908,0 +13915 @@
++	symbolProbeEntry(1, resolvedSymbol, c.unknownSymbol)
+@@ -13909,0 +13917 @@
++		symbolProbeResult(1, resolvedSymbol, c.unknownSymbol)
+@@ -13912 +13920,3 @@
+-	return c.resolveName(reference, reference.Text(), ast.SymbolFlagsValue|ast.SymbolFlagsExportValue|ast.SymbolFlagsAlias, nil, false /*isUse*/, false /*excludeGlobals*/)
++	result := c.resolveName(reference, reference.Text(), ast.SymbolFlagsValue|ast.SymbolFlagsExportValue|ast.SymbolFlagsAlias, nil, false /*isUse*/, false /*excludeGlobals*/)
++	symbolProbeResult(1, result, c.unknownSymbol)
++	return result
+@@ -23078,0 +23089 @@
++	symbolProbeEntry(2, links.resolvedSymbol, c.unknownSymbol)
+@@ -23083,0 +23095 @@
++	symbolProbeResult(2, links.resolvedSymbol, c.unknownSymbol)
+--- a/cmd/tsgo/main.go
++++ b/cmd/tsgo/main.go
+@@ -8,0 +9 @@
++	"github.com/microsoft/typescript-go/internal/checker"
+@@ -29,0 +31 @@
++	defer checker.ReportSymbolCompletionProbe()
+--- /dev/null
++++ b/internal/checker/symbol_completion_probe.go
+@@ -0,0 +1,101 @@
++package checker
++
++import (
++	"encoding/json"
++	"fmt"
++	"os"
++	"sync"
++	"sync/atomic"
++
++	"github.com/microsoft/typescript-go/internal/ast"
++)
++
++var symbolProbeEnabled = os.Getenv("TSR_NATIVE_SYMBOL_PROBE") == "1"
++
++type symbolProbeCounters struct {
++	Queries atomic.Uint64
++	Workers atomic.Uint64
++	Entry   [5]atomic.Uint64
++	Result  [5]atomic.Uint64
++}
++
++var symbolProbeData [3]symbolProbeCounters
++var symbolProbeInitialized atomic.Uint64
++var symbolProbeFiles struct {
++	sync.Mutex
++	Counts map[string]uint64
++}
++
++func symbolProbeState(symbol, unknown *ast.Symbol) int {
++	switch {
++	case symbol == nil:
++		return 0
++	case symbol == unknown:
++		return 1
++	case symbol.CheckFlags&ast.CheckFlagsUnresolved != 0:
++		return 2
++	case symbol.Flags&ast.SymbolFlagsAlias != 0:
++		return 3
++	default:
++		return 4
++	}
++}
++
++func symbolProbeEntry(kind int, symbol, unknown *ast.Symbol) {
++	if !symbolProbeEnabled {
++		return
++	}
++	data := &symbolProbeData[kind]
++	data.Queries.Add(1)
++	state := symbolProbeState(symbol, unknown)
++	data.Entry[state].Add(1)
++	// The alias getter does not publish its fallback, and retries unknown.
++	if state == 0 || kind == 1 && state == 1 {
++		data.Workers.Add(1)
++	}
++}
++
++func symbolProbeResult(kind int, symbol, unknown *ast.Symbol) {
++	if !symbolProbeEnabled {
++		return
++	}
++	symbolProbeData[kind].Result[symbolProbeState(symbol, unknown)].Add(1)
++}
++
++func symbolProbeChecked(file *ast.SourceFile) {
++	if !symbolProbeEnabled {
++		return
++	}
++	symbolProbeFiles.Lock()
++	defer symbolProbeFiles.Unlock()
++	if symbolProbeFiles.Counts == nil {
++		symbolProbeFiles.Counts = make(map[string]uint64)
++	}
++	symbolProbeFiles.Counts[file.FileName()]++
++}
++
++// Called after CommandLine returns, with all normal checking workers joined.
++func ReportSymbolCompletionProbe() {
++	if !symbolProbeEnabled {
++		return
++	}
++	names := [3]string{"getResolvedSymbol", "getReferencedValueOrAliasSymbol", "getSymbolFromTypeReference"}
++	states := [5]string{"nil", "unknown", "unresolved", "alias", "declared"}
++	getters := make(map[string]any)
++	for i, name := range names {
++		data := &symbolProbeData[i]
++		entry, result := make(map[string]uint64), make(map[string]uint64)
++		for j, state := range states {
++			entry[state] = data.Entry[j].Load()
++			result[state] = data.Result[j].Load()
++		}
++		getters[name] = map[string]any{"queries": data.Queries.Load(), "worker_branches": data.Workers.Load(), "entry_states": entry, "result_states": result}
++	}
++	symbolProbeFiles.Lock()
++	defer symbolProbeFiles.Unlock()
++	payload, err := json.Marshal(map[string]any{"getters": getters, "checked_files": symbolProbeFiles.Counts, "checkers_initialized": symbolProbeInitialized.Load()})
++	if err != nil {
++		panic(err)
++	}
++	fmt.Fprintf(os.Stderr, "TSR_NATIVE_SYMBOL_PROBE\t%s\n", payload)
++}
