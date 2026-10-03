@@ -41,6 +41,8 @@ pub struct Intrinsics {
     /// it marks a type that could not be computed, and suppresses follow-on
     /// errors that `any` would not.
     pub error: TypeId,
+    /// Native unresolvedType: private unresolved aliases link to this distinct intrinsic.
+    pub unresolved: TypeId,
     /// `unknownType` — `checker.go:983`.
     pub unknown: TypeId,
     /// The empty anonymous object and unknown's distinct empty constituent
@@ -123,6 +125,7 @@ impl Intrinsics {
         // the two regular boolean literal types, so those must exist first.
         let any = store.new_intrinsic(TypeFlags::ANY, "any");
         let error = store.new_intrinsic(TypeFlags::ANY, "error");
+        let unresolved = store.new_intrinsic(TypeFlags::ANY, "unresolved");
         let unknown = store.new_intrinsic(TypeFlags::UNKNOWN, "unknown");
         let undefined = store.new_intrinsic(TypeFlags::UNDEFINED, "undefined");
         let undefined_widening = store.new_intrinsic(TypeFlags::UNDEFINED, "undefined");
@@ -154,6 +157,7 @@ impl Intrinsics {
             unknown_union,
             any,
             error,
+            unresolved,
             unknown,
             undefined,
             undefined_widening,

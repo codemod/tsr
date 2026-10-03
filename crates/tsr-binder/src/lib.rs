@@ -77,7 +77,7 @@ use tsr_diagnostics::Diagnostic;
 pub use binder::{is_declaration_file, is_external_module};
 pub use container::{ContainerFlags, container_flags};
 pub use flow::{Antecedents, FlowFlags, FlowId, FlowStore, ReduceLabel, SwitchClause};
-pub use symbol::{Symbol, SymbolFlags, SymbolId, SymbolStore, SymbolTable};
+pub use symbol::{Symbol, SymbolFlags, SymbolId, SymbolStore, SymbolStoreIdentity, SymbolTable};
 
 bitflags::bitflags! {
     /// Per-node conclusions the binder reaches on its way through.

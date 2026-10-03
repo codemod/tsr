@@ -1,0 +1,48 @@
+--- a/crates/tsr-execute/src/compile.rs
++++ b/crates/tsr-execute/src/compile.rs
+@@ -341,9 +341,17 @@
+                 },
+             );
+             checked_file_count += 1;
++            if std::env::var_os("TSR_SYMBOL_STORAGE_PROFILE").is_some() {
++                eprintln!("TSR_STORAGE_CHECKED\t{}", name);
++            }
++
+         }
+     }
+     let checking_finished = sys.since_start();
++    if std::env::var_os("TSR_SYMBOL_STORAGE_PROFILE").is_some() {
++        eprintln!("TSR_STORAGE_USAGE\t{:?}", checker.symbol_access().storage_usage());
++    }
++
+     if !options.no_check.is_true() {
+         for (file_id, diagnostic) in checker.diagnostics() {
+             if let Some(file) = program
+--- /dev/null
++++ b/crates/tsr-checker/examples/symbol_storage_cost_probe.rs
+@@ -0,0 +1,25 @@
++//! Temporary component costs; not a whole-CLI or native comparison.
++use std::hint::black_box;
++use std::time::Instant;
++use tsr_binder::SymbolStore;
++use tsr_checker::{Intrinsics, TypeStore};
++use tsr_checker::symbol_access::CheckerSymbols;
++
++fn main() {
++    let program = SymbolStore::new();
++    let mut types = TypeStore::new();
++    let unresolved = Intrinsics::create(&mut types).unresolved;
++    let iterations = 200_000;
++    let started = Instant::now();
++    for _ in 0..iterations { black_box(CheckerSymbols::new(&program, unresolved)); }
++    println!("construction_drop_ns\t{}", started.elapsed().as_nanos() / iterations);
++    let mut symbols = CheckerSymbols::new(&program, unresolved);
++    let handle = symbols.unknown();
++    let iterations = 2_000_000;
++    let started = Instant::now();
++    for _ in 0..iterations { black_box(handle.clone()); }
++    println!("handle_clone_drop_ns\t{}", started.elapsed().as_nanos() / iterations);
++    for index in 0..1000 { symbols.unresolved_path(&format!("Missing.Child{index}")); }
++    println!("retained_storage\t{:?}", symbols.storage_usage());
++    println!("symbol_ref_bytes\t{}", std::mem::size_of_val(&handle));
++}

@@ -51,6 +51,7 @@ pub(crate) type OptionalTupleKey = (Vec<(TypeId, bool)>, Vec<Option<String>>, bo
               independent compiler options."
 )]
 pub struct Checker<'a, 'n> {
+    pub(crate) symbols: crate::symbol_access::CheckerSymbols<'a>,
     pub(crate) store: TypeStore,
     pub(crate) intrinsics: Intrinsics,
     pub(crate) nodes: &'n NodeTable,
@@ -1134,6 +1135,12 @@ impl<'a, 'n> Checker<'a, 'n> {
         Self::with_module_host(binder, nodes, node_map, None)
     }
 
+    /// Read validated private and bound symbol ownership for this Checker.
+    #[must_use]
+    pub fn symbol_access(&self) -> &crate::symbol_access::CheckerSymbols<'a> {
+        &self.symbols
+    }
+
     /// Create a checker that can reach another file through `module_host`.
     ///
     /// `NewChecker(program)` (`internal/checker/checker.go:908`, where
@@ -1207,6 +1214,10 @@ impl<'a, 'n> Checker<'a, 'n> {
             symbol_types.insert(undefined, intrinsics.undefined);
         }
         Self {
+            symbols: crate::symbol_access::CheckerSymbols::new(
+                binder.symbols(),
+                intrinsics.unresolved,
+            ),
             store,
             intrinsics,
             nodes,

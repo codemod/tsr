@@ -15,6 +15,8 @@
 
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
+use std::hash::{Hash, Hasher};
+use std::sync::Arc;
 use tsr_ast::NodeId;
 
 /// Index of a symbol in a [`SymbolStore`].
@@ -326,18 +328,48 @@ pub struct Symbol<'a> {
 /// Names to symbols, within one scope.
 pub type SymbolTable<'a> = FxHashMap<&'a str, SymbolId>;
 
+/// Allocation identity of one bound Program symbol store.
+/// Retained handles keep only this stamp alive, never its symbols or AST.
+#[derive(Clone, Debug)]
+pub struct SymbolStoreIdentity(Arc<u8>);
+
+impl PartialEq for SymbolStoreIdentity {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+impl Eq for SymbolStoreIdentity {}
+impl Hash for SymbolStoreIdentity {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        Arc::as_ptr(&self.0).hash(state);
+    }
+}
+
 /// Every symbol the binder created, addressed by [`SymbolId`].
 ///
 /// Contiguous storage rather than individually allocated symbols, for the reason
 /// the checker spike measured: a handle into a `Vec` beats a reference into
 /// scattered memory for this access pattern. See
 /// [ADR-0013](../../../docs/adr/0013-checker-memoisation.md).
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct SymbolStore<'a> {
     symbols: Vec<Symbol<'a>>,
+    identity: SymbolStoreIdentity,
+}
+
+impl Default for SymbolStore<'_> {
+    fn default() -> Self {
+        Self { symbols: Vec::new(), identity: SymbolStoreIdentity(Arc::new(1)) }
+    }
 }
 
 impl<'a> SymbolStore<'a> {
+    /// Shared identity for Checkers reading this immutable bound store.
+    #[must_use]
+    pub fn identity(&self) -> &SymbolStoreIdentity {
+        &self.identity
+    }
+
     /// An empty store.
     #[must_use]
     pub fn new() -> Self {

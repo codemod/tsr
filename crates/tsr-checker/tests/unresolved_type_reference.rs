@@ -196,3 +196,23 @@ fn a_repeated_alias_body_reference_uses_each_instantiations_binding() {
     assert_eq!(annotation_queries(source, &[0, 1, 0, 1]), ["string", "number", "string", "number"]);
     assert_eq!(annotation_queries(source, &[1, 0, 1, 0]), ["number", "string", "number", "string"]);
 }
+
+#[test]
+fn checker_unknown_symbols_are_private_even_when_the_bound_program_is_shared() {
+    let arena = Arena::new();
+    let parsed = tsr_parser::parse(&arena, "let x: Missing.Child<string>;");
+    let bound = tsr_binder::bind(
+        &arena,
+        parsed.source_file,
+        &parsed.nodes,
+        tsr_binder::FileInfo { name: "t.ts", text: "let x: Missing.Child<string>;" },
+    );
+    let first = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+    let second = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+    let handle = first.symbol_access().unknown();
+    assert_eq!(first.symbol_access().view(&handle).unwrap().name(), "unknown");
+    assert!(matches!(
+        second.symbol_access().view(&handle),
+        Err(tsr_checker::symbol_access::SymbolAccessError::ForeignChecker)
+    ));
+}

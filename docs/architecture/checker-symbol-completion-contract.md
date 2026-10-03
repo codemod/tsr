@@ -40,9 +40,9 @@ const-assertion type-query path. Preserve the bypass.
 | Identity | Native owner | Current TSR boundary |
 |---|---|---|
 | Ordinary bound declaration | Program binding; the tested declaration is shared between two Checkers | `tsr_binder::SymbolId` indexes the immutable bound SymbolStore. |
-| Unknown sentinel | Private Checker | Intrinsic error/any TypeIds distinguish type outcomes, but are not a native unknown-symbol handle. |
-| Unresolved path and its parents | Private Checker synthetic symbols | `unresolved_type_reference` creates an error-like named TypeId and registers it in `unresolved_types`. This preserves tested printing/error propagation, not synthetic symbol identity. |
-| Merged/cloned transient symbols | Checker preparation/resolution as required by native | Direct clone/merge controls below establish private storage and redirects; full augmentation preparation remains `tsr-6.49` and `tsr-1yb.3.2`. |
+| Unknown sentinel | Private Checker | Production CheckerSymbols owns a private Property/Transient unknown handle, distinct from node uncomputed state. |
+| Unresolved path and its parents | Private Checker synthetic symbols | Production CheckerSymbols interns full-path private TypeAlias/Transient records with Unresolved CheckFlags, parents and distinct unresolvedType linkage. The reference consumer uses the symbol path, then creates the existing error-like presentation TypeId; error-type alias-owner migration remains .7.7.2. |
+| Merged/cloned transient symbols | Checker preparation/resolution as required by native | Production clone/redirect accessors preserve private ownership and shallow symbol edges; table-presence fidelity is .7.7.1.1 and full augmentation preparation remains `tsr-6.49` and `tsr-1yb.3.2`. |
 | Expression/type completion | Private Checker | `node_types`, `symbol_types` and instantiation tables store TypeIds. They do not substitute for static symbol completion. |
 
 Rust's opaque SymbolId contains a store index without a domain tag. SymbolStore
@@ -52,8 +52,10 @@ immutably. Appending synthetic ids to Program storage or passing private ids to
 `binder.symbols().get` would violate these boundaries.
 
 The design for **`tsr-1yb.4.1.6.1`** follows. It is a checked ownership layout
-and consumer migration contract, not a production implementation. Production
-reuse remains `tsr-1yb.7.7`.
+and consumer migration contract. The production storage foundation now implements
+its domain validation and unresolved-reference path; storage task .7.7.1 stays
+open for native absent/empty bound-table fidelity and further cost attribution. Consumer
+migration, alias completion and retained node reuse are .7.7.2/.7.7.3/.7.7.4.
 
 ## Handle and storage layout
 
@@ -85,8 +87,9 @@ explicit: this owned boundary handle is not `Copy`.
 The [executable ownership layout](../../crates/tsr-checker/tests/symbol_domain_contract.rs)
 uses actual binder SymbolIds and checks these domain rules, pointer-based
 hashing, owner-drop behavior, moving a Checker, unresolved parent paths and
-bound origins of private clones. Its small records are a layout proof; they do
-not implement native name resolution or certify production accessors.
+bound origins of private clones. It now exercises the production store, including
+cloning, redirects, immutable Program records and foreign-edge rejection. Full name/alias resolution and
+module preparation remain separate tasks.
 
 The private store contains a contiguous record vector, a full-path unresolved
 table and a merged-symbol redirect table. Its minimum record carries flags,
@@ -145,6 +148,14 @@ the very domain check this layout establishes.
 | `TypeData::Named.members`, `Anonymous.symbol`, Union/Intersection alias symbol and EnumLiteral owner/member | Replace reachable owner fields with `SymbolRef` and update factories/consumers. TypeData/TypeStore are nongeneric, so borrowed AST/store references cannot solve this channel. Preserve complete interning identity, constituent order and freshness; handle equality includes domain. No fake Program index or duplicate fallback side table. |
 | Checker `symbol_types`, `declared_types`, `this_types`, signature cache, `resolutions` and instantiation/alias target metadata | Migrate keys/values when their native operations can select private symbols; resolution stack keys must preserve property kind as well as symbol identity. Include `type_reference_targets` and deferred alias/mapper ownership channels in the call-site audit. |
 | Binder declaration lookup, bound assignment scans and bound declaration-check sets | Remain Program-id APIs where the operation really addresses a binder declaration. A private clone explicitly reaches its origin/declarations through the accessor; no unchecked demotion. Do not mechanically widen every SymbolId table. |
+
+The current bound SymbolStore stores member/export maps without a native
+nil/present distinction. Its production clone currently copies the actual Rust
+maps, including empty maps. Private records preserve absent tables, but this
+does not recover missing bound metadata or certify native clone/table
+publication. `tsr-1yb.7.7.1.1` owns the representation and mutation audit. Do not
+infer absence from emptiness or use has_member_table/has_export_table as a
+completed-member predicate.
 
 Owner changes to public TypeData variants/factories need a repository-wide
 caller audit and coordinated edits. Bound-only compatibility APIs do not
@@ -263,3 +274,28 @@ require complete diagnostics/performed scope, no previously RIGHT corpus losses
 and independently confirmed fresh-process full-project benefit. The release
 target stays verified TSR/native median wall ratio **at most 0.50**; these
 characterization controls do not establish it.
+
+
+## Production foundation verification
+
+The [production evidence](checker-symbol-production.md) records the first
+integrated ownership/storage prerequisite on b0475d3b. Fifteen domain controls
+exercise the real accessors, while a real Checker control verifies private
+unknown ownership across two Checkers sharing one Binder. The final AST-segment
+unresolved-reference implementation preserves all 474,251 type-result rows and
+10,570 diagnostic cases byte-for-byte. The unchanged app check retains the same
+1,341 checked identities and all 120 diagnostics.
+
+Two five-pair normal-CLI overhead comparisons have opposite signs; this is no
+confirmed performance gain or regression and establishes no native speed ratio.
+The read-only storage snapshot records retained capacities without publishing
+completion or counting allocation/clone events. Further production cost
+attribution and absent/empty bound-table fidelity remain in storage task .7.7.1;
+consumer migration, alias completion and node reuse stay separately gated.
+
+
+The delivery rebase onto `9a44a194` repeats the full preservation gate against
+its 459,549 RIGHT baseline, passes 140 focused tests with one retained ignored
+control and preserves every full diagnostic case. It also covers a native raw
+parent with an empty name. Separate rebase identities are recorded in the
+production evidence; initial timing/storage controls remain attributed to b047.

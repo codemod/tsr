@@ -1,0 +1,20 @@
+--- a/crates/tsr-execute/src/compile.rs
++++ b/crates/tsr-execute/src/compile.rs
+@@ -341,9 +341,17 @@
+                 },
+             );
+             checked_file_count += 1;
++            if std::env::var_os("TSR_SYMBOL_STORAGE_PROFILE").is_some() {
++                eprintln!("TSR_STORAGE_CHECKED\t{}", name);
++            }
++
+         }
+     }
+     let checking_finished = sys.since_start();
++    if std::env::var_os("TSR_SYMBOL_STORAGE_PROFILE").is_some() {
++        eprintln!("TSR_STORAGE_USAGE\tnot-present-in-baseline");
++    }
++
+     if !options.no_check.is_true() {
+         for (file_id, diagnostic) in checker.diagnostics() {
+             if let Some(file) = program

@@ -4161,7 +4161,11 @@ impl<'a> Checker<'a, '_> {
             // written print survives there.
             return self.intrinsics.error;
         }
-        let mut printed = text;
+        let symbol = self.unresolved_symbol_for_entity_name(node.type_name);
+        if symbol == self.symbols.unknown() {
+            return self.intrinsics.error;
+        }
+        let mut printed = self.symbols.symbol_path(&symbol).expect("own unresolved symbol");
         if !node.type_arguments.is_empty() {
             let arguments: Vec<String> = node
                 .type_arguments
@@ -4182,6 +4186,29 @@ impl<'a> Checker<'a, '_> {
         let id = self.store.new_named(TypeFlags::ANY, printed, None);
         self.unresolved_types.insert(id);
         id
+    }
+
+    /// Native getUnresolvedSymbolForEntityName follows the entity-name AST.
+    /// Splitting printed text would invent parents for a dotted identifier.
+    fn unresolved_symbol_for_entity_name(
+        &mut self,
+        name: Option<tsr_ast::EntityName<'a>>,
+    ) -> crate::symbol_access::SymbolRef {
+        let (text, left) = match name {
+            Some(tsr_ast::EntityName::Identifier(identifier)) => (identifier.text, None),
+            Some(tsr_ast::EntityName::QualifiedName(qualified)) => {
+                let Some(right) = qualified.right else {
+                    return self.symbols.unknown();
+                };
+                (right.text, qualified.left)
+            }
+            None => return self.symbols.unknown(),
+        };
+        if text.is_empty() {
+            return self.symbols.unknown();
+        }
+        let parent = left.map(|left| self.unresolved_symbol_for_entity_name(Some(left)));
+        self.symbols.unresolved_symbol(text, parent.as_ref()).expect("own unresolved parent")
     }
 
     /// §36's positional gate: upstream's node builder REUSES written
