@@ -1,6 +1,46 @@
 //! Overload and freshness controls checked against pinned tsgo declarations.
 use tsr_conformance::{TestCase, types_baseline::FileTypes, types_producer};
 
+/// Pinned tsgo rejects both recursive union orders and selects the fallback.
+/// A later valid recursive branch still selects the concrete overload.
+#[test]
+fn recursive_union_assumptions_do_not_select_an_inapplicable_overload() {
+    let source = r#"// @strict: true
+interface A { next: B; value: string }
+interface B { next: A }
+interface C { next: D; value: number }
+interface D { next: C }
+interface E { next: D; value: string }
+interface F { next: G; value: string }
+interface G { next: F }
+declare const a: A;
+declare function select(x: C | E): "invalid";
+declare function select(x: any): "fallback";
+declare function reverse(x: E | C): "invalid";
+declare function reverse(x: any): "fallback";
+declare function compatible(x: C | F): "recursive";
+declare function compatible(x: any): "fallback";
+export const rejected = select(a);
+export const reversed = reverse(a);
+export const accepted = compatible(a);
+"#;
+    let case = TestCase::parse("probe/recursive-union-overloads", "recursive-union.ts", source);
+    let expected: Vec<_> = case
+        .files
+        .iter()
+        .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
+        .collect();
+    let lines: Vec<_> = types_producer::assertions_for_case(&case, &expected, false)
+        .iter()
+        .flatten()
+        .map(types_producer::Assertion::line)
+        .collect();
+    for wanted in ["rejected : \"fallback\"", "reversed : \"fallback\"", "accepted : \"recursive\""]
+    {
+        assert!(lines.iter().any(|line| line == wanted), "missing {wanted}: {lines:?}");
+    }
+}
+
 #[test]
 fn structured_overloads_respect_freshness_and_inference_boundaries() {
     let source = r#"// @strict: true

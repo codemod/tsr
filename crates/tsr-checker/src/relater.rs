@@ -68,11 +68,11 @@
 //!   `tests/relater.rs::a_chain_deeper_than_the_cap_gives_up` — a 110-link chain
 //!   of interfaces — **aborts the process with a stack overflow**. The cap is
 //!   load-bearing for safety, not only for answers.
-//! - a **relation cache** keyed on the type pair, from upstream's `Relation`
-//!   results map, which both memoises and — by parking an in-progress pair as
-//!   *assumed related* — closes the co-recursive cycle the way
-//!   `recursiveTypeRelatedTo` does with `RelationComparisonResultReported`.
-//!   Deleting the park makes
+//! - completed **relation results** keyed on the type pair, separate from
+//!   native `maybeKeys`/`maybeKeysSet` recursive assumptions. Re-entering an
+//!   assumed pair returns an internal `Maybe`; failed branches discard their
+//!   dependent assumptions and successful proofs publish them together.
+//!   Deleting the assumption makes
 //!   `tests/relater.rs::mutually_recursive_interfaces_terminate` (`interface A
 //!   { x: B }` / `interface B { x: A }`) answer `false` instead of `true`. It
 //!   still *terminates*, in milliseconds, because the depth cap catches what the
@@ -82,11 +82,11 @@
 //! **Divergence, recorded:** upstream's `Relation` lives on the `Checker` and so
 //! persists across every call. Here it is created per top-level
 //! `is_type_assignable_to` call, because `checker.rs` is not this module's to add
-//! a field to. The *termination* guarantee is identical — a cycle is closed
-//! within the one walk that encounters it — and only the cross-call memo is
-//! lost. That is a cost in time, not in answers.
+//! a field to. Recursive proof publication follows native within each walk;
+//! extending results across calls additionally requires native key/context and
+//! checker-local metadata-lifetime contracts (tsr-1yb.4.1.3).
 
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::{checker::Checker, flags::TypeFlags, types::TypeData, types::TypeId};
 
@@ -100,12 +100,11 @@ pub const MAX_DEPTH: usize = 100;
 
 /// The answer to a relation question, including *"I could not tell"*.
 ///
-/// **This has no upstream counterpart, and that is the point.** Upstream's
-/// `checkTypeRelatedTo` returns a `Ternary` too (`internal/checker/relater.go`),
-/// but its third value is `TernaryMaybe`, which means *"assumed related while a
-/// cycle is open"* — an internal bookkeeping value, not an admission of
-/// ignorance. Upstream never needs one, because every arm this port omits is
-/// implemented there.
+/// **This has no upstream counterpart, and that is the point.** Native
+/// uses `TernaryMaybe` for recursive assumptions and `TernaryUnknown`
+/// for circular variance checks (`internal/checker/types.go`). Neither is this
+/// public port's admission that an arm is unimplemented. Recursive assumptions
+/// are tracked separately by the private `RelationResult`.
 ///
 /// Here the omissions are real, and six of them answer "not related" while
 /// meaning "not computed" — enumerated in `docs/architecture/checker-notes-assign.md`
@@ -114,8 +113,8 @@ pub const MAX_DEPTH: usize = 100;
 /// existing caller is unaffected; a caller that acts on a **negative** can
 /// instead ask [`Checker::relate_ternary`] and refuse the pair it cannot decide.
 ///
-/// The composition rules are Kleene's, not Go's: see [`Ternary::all`] and
-/// [`Ternary::any`].
+/// Unsupported-work composition retains the port's Kleene policy; internal
+/// recursive proofs additionally preserve native's assumption-dependent state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Ternary {
     /// The relation holds.
@@ -126,39 +125,63 @@ pub enum Ternary {
     Unknown,
 }
 
-impl Ternary {
-    /// Kleene conjunction over a sequence: `Related` only if every element is,
-    /// `NotRelated` if any element is, `Unknown` otherwise.
-    ///
-    /// The short circuit is on `NotRelated` and **not** on `Unknown`: an
-    /// `Unknown` early in the sequence must not mask a `NotRelated` later in
-    /// it, because a definite negative is a strictly better answer than "could
-    /// not tell" and this port would otherwise refuse pairs it can decide.
-    fn all(parts: impl IntoIterator<Item = Ternary>) -> Ternary {
-        let mut unknown = false;
-        for part in parts {
-            match part {
-                Ternary::NotRelated => return Ternary::NotRelated,
-                Ternary::Unknown => unknown = true,
-                Ternary::Related => {}
-            }
-        }
-        if unknown { Ternary::Unknown } else { Ternary::Related }
+/// Private proof state. Maybe depends on an open recursive assumption;
+/// Unknown retains the public port's unsupported/depth-refusal meaning.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RelationResult {
+    Related,
+    Maybe,
+    NotRelated,
+    Unknown,
+}
+
+impl RelationResult {
+    fn is_success(self) -> bool {
+        matches!(self, Self::Related | Self::Maybe)
     }
 
-    /// Kleene disjunction over a sequence: `Related` if any element is,
-    /// `NotRelated` only if every element is, `Unknown` otherwise. The dual of
-    /// [`Ternary::all`], short-circuiting on `Related` for the same reason.
-    fn any(parts: impl IntoIterator<Item = Ternary>) -> Ternary {
+    fn public_answer(self) -> Ternary {
+        match self {
+            Self::Related | Self::Maybe => Ternary::Related,
+            Self::NotRelated => Ternary::NotRelated,
+            Self::Unknown => Ternary::Unknown,
+        }
+    }
+
+    // A definite failure dominates unsupported work; unsupported work dominates
+    // assumptions. True & Maybe remains Maybe, as in native.
+    fn all(parts: impl IntoIterator<Item = Self>) -> Self {
+        let mut unknown = false;
+        let mut maybe = false;
+        for part in parts {
+            match part {
+                Self::NotRelated => return Self::NotRelated,
+                Self::Unknown => unknown = true,
+                Self::Maybe => maybe = true,
+                Self::Related => {}
+            }
+        }
+        if unknown {
+            Self::Unknown
+        } else if maybe {
+            Self::Maybe
+        } else {
+            Self::Related
+        }
+    }
+
+    // Native some-type walks retain the first successful proof's assumptions.
+    // The port also lets a later proof supersede an unsupported branch.
+    fn any(parts: impl IntoIterator<Item = Self>) -> Self {
         let mut unknown = false;
         for part in parts {
             match part {
-                Ternary::Related => return Ternary::Related,
-                Ternary::Unknown => unknown = true,
-                Ternary::NotRelated => {}
+                Self::Related | Self::Maybe => return part,
+                Self::Unknown => unknown = true,
+                Self::NotRelated => {}
             }
         }
-        if unknown { Ternary::Unknown } else { Ternary::NotRelated }
+        if unknown { Self::Unknown } else { Self::NotRelated }
     }
 }
 
@@ -404,23 +427,11 @@ pub enum Relation {
 struct Relater<'c, 'a, 'n> {
     checker: &'c mut Checker<'a, 'n>,
     relation: Relation,
-    /// `(source, target) -> related`, upstream's `Relation.results`.
-    ///
-    /// An entry is written **before** the recursive walk with the value
-    /// [`Ternary::Related`], which is what closes a cycle: re-entering the same
-    /// pair assumes the relation holds, exactly as upstream's
-    /// `recursiveTypeRelatedTo` does when it finds the pair already on the
-    /// stack. The assumption is discharged by the surrounding walk failing if
-    /// any *other* constituent fails.
-    ///
-    /// **The park stays `Related` and not `Unknown`.** Parking `Unknown` would
-    /// be the conservative-looking choice and it is the wrong one: every
-    /// mutually recursive interface pair — `interface A { x: B }` /
-    /// `interface B { x: A }`, which `tests/relater.rs` asserts — would then
-    /// answer `Unknown` rather than `Related`, turning upstream's termination
-    /// device into a mass refusal. The cycle assumption is a *proof technique*
-    /// (co-induction), not an inability to compute.
-    results: FxHashMap<(TypeId, TypeId), Ternary>,
+    /// Completed results only, scoped to this checker-local relation walk.
+    results: FxHashMap<(TypeId, TypeId), RelationResult>,
+    /// Native maybeKeys/maybeKeysSet: active and assumption-dependent proofs.
+    maybe_keys: Vec<(TypeId, TypeId)>,
+    maybe_keys_set: FxHashSet<(TypeId, TypeId)>,
     depth: usize,
     source_stack: Vec<TypeId>,
     target_stack: Vec<TypeId>,
@@ -607,6 +618,8 @@ impl Checker<'_, '_> {
             checker: self,
             relation,
             results: FxHashMap::default(),
+            maybe_keys: Vec::new(),
+            maybe_keys_set: FxHashSet::default(),
             depth: 0,
             source_stack: Vec::new(),
             target_stack: Vec::new(),
@@ -614,7 +627,7 @@ impl Checker<'_, '_> {
         };
         // Measurement only; a no-op unless `reasons::enable` was called.
         let outer = reasons::begin();
-        let answer = relater.is_related_to(source, target);
+        let answer = relater.is_related_to(source, target).public_answer();
         reasons::finish(outer, answer == Ternary::Unknown);
         answer
     }
@@ -628,12 +641,16 @@ impl Checker<'_, '_> {
             checker: self,
             relation: Relation::Assignable,
             results: FxHashMap::default(),
+            maybe_keys: Vec::new(),
+            maybe_keys_set: FxHashSet::default(),
             depth: 0,
             source_stack: Vec::new(),
             target_stack: Vec::new(),
             expanding: (false, false),
         };
-        relater.one_signature_related_to(source, target, false, false)
+        relater
+            .one_signature_related_to(source, target, false, false)
+            .map(RelationResult::public_answer)
     }
 }
 
@@ -641,7 +658,7 @@ impl Relater<'_, '_, '_> {
     /// The body of `isTypeRelatedTo`, minus the entry-point bookkeeping.
     ///
     /// Ported from `Checker.isTypeRelatedTo` (`internal/checker/relater.go`).
-    fn is_related_to(&mut self, source: TypeId, target: TypeId) -> Ternary {
+    fn is_related_to(&mut self, source: TypeId, target: TypeId) -> RelationResult {
         self.is_related_to_with_flags(source, target, RecursionFlags::BOTH)
     }
 
@@ -650,7 +667,7 @@ impl Relater<'_, '_, '_> {
         source: TypeId,
         target: TypeId,
         flags: RecursionFlags,
-    ) -> Ternary {
+    ) -> RelationResult {
         self.is_related_to_with_excess(source, target, true, flags)
     }
 
@@ -660,7 +677,7 @@ impl Relater<'_, '_, '_> {
         target: TypeId,
         check_excess: bool,
         flags: RecursionFlags,
-    ) -> Ternary {
+    ) -> RelationResult {
         // Upstream reduces a fresh literal to its regular form on both sides
         // before comparing identity, so that `"a"` fresh and `"a"` regular are
         // one type here even though they are two interned types.
@@ -670,14 +687,14 @@ impl Relater<'_, '_, '_> {
             && [sup, sub, other].contains(&target)
         {
             return if source == target || (source == sub && target == sup) {
-                Ternary::Related
+                RelationResult::Related
             } else {
-                Ternary::NotRelated
+                RelationResult::NotRelated
             };
         }
         let target = self.checker.get_regular_type_of_literal_type(target);
         if source == target {
-            return Ternary::Related;
+            return RelationResult::Related;
         }
         // isRelatedToWorker fast-paths a parameter's exact constraint before
         // decomposing a target union or considering simple negative verdicts
@@ -685,7 +702,7 @@ impl Relater<'_, '_, '_> {
         if self.checker.type_of(source).flags.contains(TypeFlags::TYPE_PARAMETER)
             && self.checker.type_parameter_constraint(source) == Some(target)
         {
-            return Ternary::Related;
+            return RelationResult::Related;
         }
         // `relater.go:181`/`:2661`: under the comparable relation the simple
         // arms are also tried REVERSED (target against source) first, unless
@@ -694,11 +711,11 @@ impl Relater<'_, '_, '_> {
             && !self.checker.type_of(target).flags.intersects(TypeFlags::NEVER)
             && self.is_simple_type_related_to(target, source) == Some(true)
         {
-            return Ternary::Related;
+            return RelationResult::Related;
         }
         match self.is_simple_type_related_to(source, target) {
-            Some(true) => return Ternary::Related,
-            Some(false) => return Ternary::NotRelated,
+            Some(true) => return RelationResult::Related,
+            Some(false) => return RelationResult::NotRelated,
             None => {}
         }
         // isRelatedToWorker / hasExcessProperties (relater.go:2667,2714).
@@ -710,16 +727,16 @@ impl Relater<'_, '_, '_> {
                 && self.target_exempts_excess_properties(target))
             && self.checker.fresh_literal_has_excess_property(source, target)
         {
-            return Ternary::NotRelated;
+            return RelationResult::NotRelated;
         }
         // anyFunctionType has no properties, and function expressions have
         // no own property requirements. Their call-signature relation is the
         // wildcard rule even when no symbol member table is attached.
         if self.checker.any_function_type == Some(source) && self.is_pure_signature_type(target) {
-            return Ternary::Related;
+            return RelationResult::Related;
         }
         if self.checker.any_function_type == Some(target) && self.is_pure_signature_type(source) {
-            return Ternary::NotRelated;
+            return RelationResult::NotRelated;
         }
         if self.is_pure_signature_type(source) && self.is_pure_signature_type(target) {
             return self.recursive_type_related_to(source, target, flags);
@@ -728,7 +745,7 @@ impl Relater<'_, '_, '_> {
         // nominal — NotRelated by the private-identity rule, decided from
         // syntax.
         if let Some(answer) = self.checker.nominal_class_pair_verdict(source, target) {
-            return if answer { Ternary::Related } else { Ternary::NotRelated };
+            return if answer { RelationResult::Related } else { RelationResult::NotRelated };
         }
         let composite = TypeFlags::UNION.union(TypeFlags::INTERSECTION);
         let s = self.checker.type_of(source).flags;
@@ -758,11 +775,12 @@ impl Relater<'_, '_, '_> {
                     return if matches!(self.relation, Relation::Subtype | Relation::StrictSubtype)
                         && self.has_members(apparent)
                         && self.has_members(target)
-                        && self.properties_related_to(apparent, target) == Ternary::NotRelated
+                        && self.properties_related_to(apparent, target)
+                            == RelationResult::NotRelated
                     {
-                        Ternary::NotRelated
+                        RelationResult::NotRelated
                     } else {
-                        Ternary::Unknown
+                        RelationResult::Unknown
                     };
                 }
                 return self.is_related_to(apparent, target);
@@ -808,7 +826,7 @@ impl Relater<'_, '_, '_> {
             && matches!(&self.checker.type_of(target).data,
                 TypeData::Named { text, .. } if text == "{}")
         {
-            return Ternary::Related;
+            return RelationResult::Related;
         }
         // §357: an OBJECT source against a decidable primitive target is a
         // decision, not an absence — upstream's `isSimpleTypeRelatedTo` has no
@@ -820,7 +838,7 @@ impl Relater<'_, '_, '_> {
         // is what lets a class-instance union carry its nullable constituent
         // through subtype reduction (`generatorTypeCheck22`).
         if s.intersects(TypeFlags::OBJECT) && self.flag_decidable(target) {
-            return Ternary::NotRelated;
+            return RelationResult::NotRelated;
         }
         // In strict mode unknown includes null and undefined, so it cannot
         // inhabit an object type, including the empty anonymous object.
@@ -829,7 +847,7 @@ impl Relater<'_, '_, '_> {
             && s.contains(TypeFlags::UNKNOWN)
             && t.intersects(TypeFlags::OBJECT | TypeFlags::NON_PRIMITIVE)
         {
-            return Ternary::NotRelated;
+            return RelationResult::NotRelated;
         }
         // A concrete object, primitive or unknown cannot inhabit an arbitrary
         // target parameter. The simple relation already handles any/never and
@@ -844,14 +862,14 @@ impl Relater<'_, '_, '_> {
             )
             && !self.checker.mapped_types.contains_key(&source)
         {
-            return Ternary::NotRelated;
+            return RelationResult::NotRelated;
         }
         if self.checker.strict_null_checks
             && s.intersects(TypeFlags::NULLABLE)
             && t.contains(TypeFlags::OBJECT)
             && matches!(self.relation, Relation::Subtype | Relation::StrictSubtype)
         {
-            return Ternary::NotRelated;
+            return RelationResult::NotRelated;
         }
         // A template always inhabits the string domain. Generic holes do not
         // make it overlap a decidable non-string primitive.
@@ -859,7 +877,7 @@ impl Relater<'_, '_, '_> {
             && self.flag_decidable(target)
             && !t.intersects(TypeFlags::STRING_LIKE)
         {
-            return Ternary::NotRelated;
+            return RelationResult::NotRelated;
         }
         // structuredTypeRelatedToWorker's template-source arm (relater.go:3772):
         // against a non-object, non-template target only a distinct base
@@ -870,14 +888,14 @@ impl Relater<'_, '_, '_> {
                 && constraint != source
             {
                 let result = self.is_related_to(constraint, target);
-                if result != Ternary::NotRelated {
+                if result != RelationResult::NotRelated {
                     return result;
                 }
             }
-            return Ternary::NotRelated;
+            return RelationResult::NotRelated;
         }
         if self.flag_decidable(source) && self.flag_decidable(target) {
-            Ternary::NotRelated
+            RelationResult::NotRelated
         } else {
             // Measurement only: say which of the two shapes above it was, per
             // undecidable side. An object type here is one with no members
@@ -894,7 +912,7 @@ impl Relater<'_, '_, '_> {
                     reasons::note_flags(flags.bits());
                 }
             }
-            Ternary::Unknown
+            RelationResult::Unknown
         }
     }
 
@@ -953,12 +971,12 @@ impl Relater<'_, '_, '_> {
     /// signaturesRelatedTo (relater.go:4441) compares call and construct sets
     /// independently. Index-only targets retain their separate relation path.
     /// None means signature resolution is unsupported, not a rejection.
-    fn related_signatures(&mut self, source: TypeId, target: TypeId) -> Option<Ternary> {
+    fn related_signatures(&mut self, source: TypeId, target: TypeId) -> Option<RelationResult> {
         if self.checker.any_function_type == Some(source) {
-            return Some(Ternary::Related);
+            return Some(RelationResult::Related);
         }
         if self.checker.any_function_type == Some(target) {
-            return Some(Ternary::NotRelated);
+            return Some(RelationResult::NotRelated);
         }
         if !self.declares_call_or_construct(target) {
             return None;
@@ -970,7 +988,7 @@ impl Relater<'_, '_, '_> {
             target,
             crate::signatures::SignatureKind::Construct,
         )?;
-        Some(Ternary::all([calls, constructs]))
+        Some(RelationResult::all([calls, constructs]))
     }
 
     /// signaturesRelatedTo (relater.go:4441), for either signature kind.
@@ -979,27 +997,27 @@ impl Relater<'_, '_, '_> {
         source: TypeId,
         target: TypeId,
         kind: crate::signatures::SignatureKind,
-    ) -> Option<Ternary> {
+    ) -> Option<RelationResult> {
         use crate::signatures::SignatureKind;
         let target_signatures = self.checker.signatures_of_type_kind(target, kind)?;
         if target_signatures.is_empty() {
-            return Some(Ternary::Related);
+            return Some(RelationResult::Related);
         }
         let source_signatures = self.checker.signatures_of_type_kind(source, kind)?;
         if source_signatures.is_empty() {
-            return Some(Ternary::NotRelated);
+            return Some(RelationResult::NotRelated);
         }
         if kind == SignatureKind::Construct {
             if source_signatures[0].kind == SignatureKind::AbstractConstruct
                 && target_signatures[0].kind != SignatureKind::AbstractConstruct
             {
-                return Some(Ternary::NotRelated);
+                return Some(RelationResult::NotRelated);
             }
             if !self.constructor_visibilities_are_compatible(
                 &source_signatures[0],
                 &target_signatures[0],
             ) {
-                return Some(Ternary::NotRelated);
+                return Some(RelationResult::NotRelated);
             }
         }
         // signaturesRelatedTo (relater.go:4441) erases generic signatures
@@ -1059,10 +1077,10 @@ impl Relater<'_, '_, '_> {
         let mut parts = Vec::new();
         for target_signature in &target_signatures {
             let Some(target_signature) = target_signature else {
-                parts.push(Ternary::Unknown);
+                parts.push(RelationResult::Unknown);
                 continue;
             };
-            let mut best = Ternary::NotRelated;
+            let mut best = RelationResult::NotRelated;
             for source_signature in &source_signatures {
                 let verdict = source_signature
                     .as_ref()
@@ -1074,15 +1092,15 @@ impl Relater<'_, '_, '_> {
                             false,
                         )
                     })
-                    .unwrap_or(Ternary::Unknown);
-                best = Ternary::any([best, verdict]);
-                if best == Ternary::Related {
+                    .unwrap_or(RelationResult::Unknown);
+                best = RelationResult::any([best, verdict]);
+                if best.is_success() {
                     break;
                 }
             }
             parts.push(best);
         }
-        Some(Ternary::all(parts))
+        Some(RelationResult::all(parts))
     }
 
     /// constructorVisibilitiesAreCompatible (relater.go:4520).
@@ -1155,15 +1173,15 @@ impl Relater<'_, '_, '_> {
         target_signature: &crate::signatures::Signature,
         callback: bool,
         bivariant_callback: bool,
-    ) -> Option<Ternary> {
+    ) -> Option<RelationResult> {
         let source_top = self.checker.signature_is_top(source_signature);
         let target_top = self.checker.signature_is_top(target_signature);
         let strict_top = matches!(self.relation, Relation::Subtype | Relation::StrictSubtype);
         if target_top && !(strict_top && source_top) {
-            return Some(Ternary::Related);
+            return Some(RelationResult::Related);
         }
         if strict_top && source_top && !target_top {
-            return Some(Ternary::NotRelated);
+            return Some(RelationResult::NotRelated);
         }
         let target_count = self.checker.signature_parameter_count(target_signature);
         let source_minimum = self.checker.signature_min_argument_count(source_signature);
@@ -1176,7 +1194,7 @@ impl Relater<'_, '_, '_> {
                 source_minimum > target_count
             }
         {
-            return Some(Ternary::NotRelated);
+            return Some(RelationResult::NotRelated);
         }
         let shared_type_parameters = if !source_signature.type_parameters.is_empty()
             && source_signature.type_parameters.len() == target_signature.type_parameters.len()
@@ -1234,12 +1252,22 @@ impl Relater<'_, '_, '_> {
             (&source_signature.this_parameter, &target_signature.this_parameter)
             && source_this.r#type != self.checker.intrinsics.void
         {
-            let reverse = self.is_related_to(target_this.r#type, source_this.r#type);
             parts.push(if strict_variance {
-                reverse
+                self.is_related_to(target_this.r#type, source_this.r#type)
             } else {
-                Ternary::any([self.is_related_to(source_this.r#type, target_this.r#type), reverse])
+                let forward = self.is_related_to(source_this.r#type, target_this.r#type);
+                if forward.is_success() {
+                    forward
+                } else {
+                    RelationResult::any([
+                        forward,
+                        self.is_related_to(target_this.r#type, source_this.r#type),
+                    ])
+                }
             });
+            if parts.last() == Some(&RelationResult::NotRelated) {
+                return Some(RelationResult::NotRelated);
+            }
         }
         for index in 0..parameter_count {
             let source_type = if rest_index == Some(index) {
@@ -1295,19 +1323,30 @@ impl Relater<'_, '_, '_> {
                     !strict_variance,
                 )?);
             } else {
-                let reverse = self.is_related_to(to, from);
                 parts.push(if callback || strict_variance {
-                    reverse
+                    self.is_related_to(to, from)
                 } else {
-                    Ternary::any([self.is_related_to(from, to), reverse])
+                    // compareSignaturesRelated tries the forward bivariant
+                    // proof first; the reverse walk is needed only if it fails.
+                    let forward = self.is_related_to(from, to);
+                    if forward.is_success() {
+                        forward
+                    } else {
+                        RelationResult::any([forward, self.is_related_to(to, from)])
+                    }
                 });
+            }
+            // compareSignaturesRelated returns on the first incompatible
+            // parameter, before comparing later parameters or return types.
+            if parts.last() == Some(&RelationResult::NotRelated) {
+                return Some(RelationResult::NotRelated);
             }
             if self.relation == Relation::StrictSubtype
                 && index >= source_minimum
                 && index < target_minimum
-                && self.is_related_to(from, to) != Ternary::NotRelated
+                && self.is_related_to(from, to) != RelationResult::NotRelated
             {
-                return Some(Ternary::NotRelated);
+                return Some(RelationResult::NotRelated);
             }
         }
         if target_signature.r#type != self.checker.intrinsics.void
@@ -1316,31 +1355,37 @@ impl Relater<'_, '_, '_> {
             if target_signature.predicate.is_some() {
                 if source_signature.predicate.is_some() {
                     if !source_signature.predicate_kinds_match(target_signature)? {
-                        return Some(Ternary::NotRelated);
+                        return Some(RelationResult::NotRelated);
                     }
                     let source = source_signature.predicate.as_ref()?.r#type;
                     let target = target_signature.predicate.as_ref()?.r#type;
                     parts.push(match (source, target) {
                         (Some(source), Some(target)) => self.is_related_to(source, target),
-                        (None, None) => Ternary::Related,
-                        _ => Ternary::NotRelated,
+                        (None, None) => RelationResult::Related,
+                        _ => RelationResult::NotRelated,
                     });
                 } else if !target_signature.predicate.as_ref()?.asserts {
-                    return Some(Ternary::NotRelated);
+                    return Some(RelationResult::NotRelated);
                 }
             } else {
-                let forward = self.is_related_to(source_signature.r#type, target_signature.r#type);
                 parts.push(if bivariant_callback {
-                    Ternary::any([
-                        self.is_related_to(target_signature.r#type, source_signature.r#type),
-                        forward,
-                    ])
+                    // Callback returns use the opposite native direction order.
+                    let reverse =
+                        self.is_related_to(target_signature.r#type, source_signature.r#type);
+                    if reverse.is_success() {
+                        reverse
+                    } else {
+                        RelationResult::any([
+                            reverse,
+                            self.is_related_to(source_signature.r#type, target_signature.r#type),
+                        ])
+                    }
                 } else {
-                    forward
+                    self.is_related_to(source_signature.r#type, target_signature.r#type)
                 });
             }
         }
-        Some(Ternary::all(parts))
+        Some(RelationResult::all(parts))
     }
 
     /// Whether `id` declares a CALL or CONSTRUCT signature — the half of
@@ -1374,10 +1419,14 @@ impl Relater<'_, '_, '_> {
 
     /// indexSignaturesRelatedTo / typeRelatedToIndexInfo (relater.go:4578).
     /// Semantic target infos apply independently of properties and signatures.
-    fn related_index_signatures(&mut self, source: TypeId, target: TypeId) -> Option<Ternary> {
+    fn related_index_signatures(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+    ) -> Option<RelationResult> {
         let target_infos = self.checker.get_index_infos_of_type(target)?;
         if target_infos.is_empty() {
-            return Some(Ternary::Related);
+            return Some(RelationResult::Related);
         }
         let target_has_string =
             target_infos.iter().any(|info| info.key == self.checker.intrinsics.string);
@@ -1399,7 +1448,7 @@ impl Relater<'_, '_, '_> {
                 && !self.checker.fresh_object_literal_types.contains(&source))
                 || !self.object_type_has_inferable_index(source)
             {
-                return Some(Ternary::NotRelated);
+                return Some(RelationResult::NotRelated);
             }
             let names = self.checker.get_property_names_of_type(source)?;
             for name in &names {
@@ -1438,7 +1487,7 @@ impl Relater<'_, '_, '_> {
                 }
             }
         }
-        Some(Ternary::all(parts))
+        Some(RelationResult::all(parts))
     }
 
     /// isObjectTypeWithInferableIndex (relater.go:4624): interfaces and classes
@@ -1661,7 +1710,7 @@ impl Relater<'_, '_, '_> {
         }
         let flags = self.checker.type_of(target).flags;
         if flags.contains(TypeFlags::STRING)
-            || self.is_related_to(source, target) != Ternary::NotRelated
+            || self.is_related_to(source, target) != RelationResult::NotRelated
         {
             return true;
         }
@@ -1694,7 +1743,7 @@ impl Relater<'_, '_, '_> {
             && parts.types.len() == 1
             && parts.texts.iter().all(String::is_empty)
         {
-            return self.is_related_to(parts.types[0], target) != Ternary::NotRelated;
+            return self.is_related_to(parts.types[0], target) != RelationResult::NotRelated;
         }
         false
     }
@@ -1706,24 +1755,22 @@ impl Relater<'_, '_, '_> {
         source: TypeId,
         target: TypeId,
         flags: RecursionFlags,
-    ) -> Ternary {
-        if let Some(&cached) = self.results.get(&(source, target)) {
+    ) -> RelationResult {
+        let key = (source, target);
+        if let Some(&cached) = self.results.get(&key) {
             return cached;
         }
-        if self.depth >= MAX_DEPTH {
-            // Upstream reports `Excessive_stack_depth_comparing_types_0_and_1`
-            // and records the pair as failed. There are no diagnostics in this
-            // crate (`bd tsr-5e7.6`), so the failure is silent — and it was a
-            // *failure*, never a permissive `true`. It is now `Unknown`: giving
-            // up at a depth cap is the plainest case of "not computed" on this
-            // page, and reporting it as a rejection is what row 4 of
-            // `checker-notes-assign.md` §2 objects to.
-            reasons::note(reasons::Site::DepthCap);
-            return Ternary::Unknown;
+        if self.maybe_keys_set.contains(&key) {
+            return RelationResult::Maybe;
         }
-        // Park the pair as *assumed related* before recursing. This is what
-        // terminates a co-recursive cycle; see the field docs on `results`.
-        self.results.insert((source, target), Ternary::Related);
+        if self.depth >= MAX_DEPTH {
+            // Depth refusal is uncomputed in the port, not reusable success.
+            reasons::note(reasons::Site::DepthCap);
+            return RelationResult::Unknown;
+        }
+        let maybe_start = self.maybe_keys.len();
+        self.maybe_keys.push(key);
+        self.maybe_keys_set.insert(key);
         self.depth += 1;
         let previous = self.expanding;
         if flags.contains(RecursionFlags::SOURCE) {
@@ -1735,7 +1782,7 @@ impl Relater<'_, '_, '_> {
             self.expanding.1 |= self.checker.is_deeply_nested_type(target, &self.target_stack, 3);
         }
         let related = if self.expanding == (true, true) {
-            Ternary::Related
+            RelationResult::Maybe
         } else {
             self.structured_type_related_to(source, target)
         };
@@ -1747,8 +1794,37 @@ impl Relater<'_, '_, '_> {
             self.target_stack.pop();
         }
         self.depth -= 1;
-        self.results.insert((source, target), related);
+        match related {
+            RelationResult::Related => self.reset_maybe_stack(maybe_start, true),
+            RelationResult::Maybe => {
+                if self.source_stack.is_empty() && self.target_stack.is_empty() {
+                    self.reset_maybe_stack(maybe_start, true);
+                }
+                // Otherwise retain assumptions for the enclosing proof.
+            }
+            RelationResult::NotRelated => {
+                // Failure under assumptions also fails without them.
+                self.results.insert(key, RelationResult::NotRelated);
+                self.reset_maybe_stack(maybe_start, false);
+            }
+            RelationResult::Unknown => {
+                // Unsupported work is not a circular proof: discard its scope
+                // even below depth zero. Another branch may supply a proof.
+                self.reset_maybe_stack(maybe_start, false);
+            }
+        }
         related
+    }
+
+    /// resetMaybeStack (internal/checker/relater.go). Publish dependent keys
+    /// only when the surrounding proof discharges their assumptions.
+    fn reset_maybe_stack(&mut self, start: usize, succeeded: bool) {
+        for key in self.maybe_keys.drain(start..) {
+            self.maybe_keys_set.remove(&key);
+            if succeeded {
+                self.results.insert(key, RelationResult::Related);
+            }
+        }
     }
 
     /// Union and intersection dispatch.
@@ -1762,10 +1838,10 @@ impl Relater<'_, '_, '_> {
     /// right, rather than by asking whether the whole source union is one of the
     /// target's constituents — which it is not, since union interning makes
     /// `"a" | "b"` a type the target's list does not contain.
-    fn structured_type_related_to(&mut self, source: TypeId, target: TypeId) -> Ternary {
+    fn structured_type_related_to(&mut self, source: TypeId, target: TypeId) -> RelationResult {
         let result = self.structured_type_related_to_worker(source, target);
         let target_is_union = self.checker.type_of(target).flags.contains(TypeFlags::UNION);
-        if result != Ternary::Related
+        if !result.is_success()
             && (self.checker.type_of(source).flags.contains(TypeFlags::INTERSECTION)
                 || (self.checker.type_of(source).flags.contains(TypeFlags::TYPE_PARAMETER)
                     && target_is_union))
@@ -1779,7 +1855,7 @@ impl Relater<'_, '_, '_> {
                 // structuredTypeRelatedTo (relater.go:3216) retries the combined
                 // constraint after the individual constituents fail. An unknown
                 // original relation is retained unless this supplies a proof.
-                return Ternary::any([
+                return RelationResult::any([
                     result,
                     self.is_related_to_with_flags(constraint, target, RecursionFlags::SOURCE),
                 ]);
@@ -1789,7 +1865,11 @@ impl Relater<'_, '_, '_> {
     }
 
     /// structuredTypeRelatedToWorker (internal/checker/relater.go).
-    fn structured_type_related_to_worker(&mut self, source: TypeId, target: TypeId) -> Ternary {
+    fn structured_type_related_to_worker(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+    ) -> RelationResult {
         // structuredTypeRelatedToWorker (relater.go:3443): S[K] relates to
         // T[J] when both its object and index relate. Keep this inside the
         // recursive pair cache for indexed members of recursive interfaces.
@@ -1798,10 +1878,10 @@ impl Relater<'_, '_, '_> {
             self.checker.deferred_indexed_access_types.get(&target),
         ) {
             let objects = self.is_related_to(source_object, target_object);
-            if objects != Ternary::NotRelated {
+            if objects != RelationResult::NotRelated {
                 let indexes = self.is_related_to(source_index, target_index);
-                let result = Ternary::all([objects, indexes]);
-                if result != Ternary::NotRelated {
+                let result = RelationResult::all([objects, indexes]);
+                if result != RelationResult::NotRelated {
                     return result;
                 }
             }
@@ -1811,14 +1891,14 @@ impl Relater<'_, '_, '_> {
             // Upstream's `eachTypeRelatedToType` — except under the
             // comparable relation, where SOME constituent suffices
             // (`relater.go:2870`, `someTypeRelatedToType`). §750.
-            let parts: Vec<_> = constituents
+            let comparable = matches!(self.relation, Relation::Comparable);
+            let parts = constituents
                 .iter()
-                .map(|&c| self.is_related_to_with_flags(c, target, RecursionFlags::SOURCE))
-                .collect();
-            return if matches!(self.relation, Relation::Comparable) {
-                Ternary::any(parts)
+                .map(|&c| self.is_related_to_with_flags(c, target, RecursionFlags::SOURCE));
+            return if comparable {
+                RelationResult::any(parts)
             } else {
-                Ternary::all(parts)
+                RelationResult::all(parts)
             };
         }
         if let Some(constituents) = self.intersection_constituents(target) {
@@ -1826,21 +1906,19 @@ impl Relater<'_, '_, '_> {
             // Upstream's `typeRelatedToEachType`, with IntersectionStateTarget.
             // The whole intersection's accepted names were checked already;
             // nested property comparisons still check their own fresh sources.
-            let parts: Vec<_> = constituents
+            let parts = constituents
                 .iter()
-                .map(|&c| self.is_related_to_with_excess(source, c, false, RecursionFlags::TARGET))
-                .collect();
-            return Ternary::all(parts);
+                .map(|&c| self.is_related_to_with_excess(source, c, false, RecursionFlags::TARGET));
+            return RelationResult::all(parts);
         }
         if let Some(constituents) = self.union_constituents(target) {
             // Related to *some* constituent of a target union.
             // Upstream's `typeRelatedToSomeType`.
             let source = self.checker.get_regular_type_of_object_literal(source);
-            let parts: Vec<_> = constituents
+            let parts = constituents
                 .iter()
-                .map(|&c| self.is_related_to_with_flags(source, c, RecursionFlags::TARGET))
-                .collect();
-            return Ternary::any(parts);
+                .map(|&c| self.is_related_to_with_flags(source, c, RecursionFlags::TARGET));
+            return RelationResult::any(parts);
         }
         if let Some(constituents) = self.intersection_constituents(source) {
             // *Some* constituent of a source intersection suffices.
@@ -1851,11 +1929,10 @@ impl Relater<'_, '_, '_> {
             // being related. That case needs the structural comparison this
             // module gaps, so it is a gap here for the same reason and not a
             // second one.
-            let parts: Vec<_> = constituents
+            let parts = constituents
                 .iter()
-                .map(|&c| self.is_related_to_with_flags(c, target, RecursionFlags::SOURCE))
-                .collect();
-            return Ternary::any(parts);
+                .map(|&c| self.is_related_to_with_flags(c, target, RecursionFlags::SOURCE));
+            return RelationResult::any(parts);
         }
         // The source-variable branch also explores an indexed access's
         // constraint, except when both operands are indexed accesses and the
@@ -1867,7 +1944,7 @@ impl Relater<'_, '_, '_> {
                 Some(constraint) if constraint != source => {
                     self.is_related_to_with_flags(constraint, target, RecursionFlags::SOURCE)
                 }
-                _ => Ternary::Unknown,
+                _ => RelationResult::Unknown,
             };
         }
         // Synthetic polymorphic this is a source type variable too, not the
@@ -1893,7 +1970,7 @@ impl Relater<'_, '_, '_> {
         {
             let mut constraint = if declaration.constraint.is_some() {
                 let Some(constraint) = self.checker.type_parameter_constraint(source) else {
-                    return Ternary::Unknown;
+                    return RelationResult::Unknown;
                 };
                 constraint
             } else {
@@ -1907,7 +1984,7 @@ impl Relater<'_, '_, '_> {
                 && self.checker.type_of(constraint).flags.contains(TypeFlags::TYPE_PARAMETER)
             {
                 if seen.contains(&constraint) {
-                    return Ternary::Unknown;
+                    return RelationResult::Unknown;
                 }
                 seen.push(constraint);
                 let Some(next) = self.checker.type_parameter_constraint(constraint) else { break };
@@ -1934,22 +2011,22 @@ impl Relater<'_, '_, '_> {
                 return if source_start[..start] != target_start[..start]
                     || source_end[source_end.len() - end..] != target_end[target_end.len() - end..]
                 {
-                    Ternary::NotRelated
+                    RelationResult::NotRelated
                 } else {
-                    Ternary::Related
+                    RelationResult::Related
                 };
             }
             let Some(matches) = self.checker.template_literal_inferences(source, &parts) else {
-                return Ternary::NotRelated;
+                return RelationResult::NotRelated;
             };
             return if matches
                 .into_iter()
                 .zip(parts.types)
                 .all(|(source, target)| self.valid_template_placeholder(source, target))
             {
-                Ternary::Related
+                RelationResult::Related
             } else {
-                Ternary::NotRelated
+                RelationResult::NotRelated
             };
         }
         if let Some((target_symbol, target_inner)) =
@@ -1961,13 +2038,13 @@ impl Relater<'_, '_, '_> {
                 return if source_symbol == target_symbol {
                     self.is_related_to(source_inner, target_inner)
                 } else {
-                    Ternary::NotRelated
+                    RelationResult::NotRelated
                 };
             }
             return if self.checker.is_member_of_string_mapping(source, target) {
-                Ternary::Related
+                RelationResult::Related
             } else {
-                Ternary::NotRelated
+                RelationResult::NotRelated
             };
         }
         if let Some(answer) = self.tuples_related_to(source, target) {
@@ -2001,7 +2078,7 @@ impl Relater<'_, '_, '_> {
             }
         }
         if self.is_pure_signature_type(source) && self.is_pure_signature_type(target) {
-            return self.related_signatures(source, target).unwrap_or(Ternary::Unknown);
+            return self.related_signatures(source, target).unwrap_or(RelationResult::Unknown);
         }
         // relateVariances (internal/checker/relater.go): shared reference
         // targets compare their arguments in the measured directions. Marker
@@ -2020,8 +2097,20 @@ impl Relater<'_, '_, '_> {
         {
             let measured = self.checker.inference_variances(source_symbol);
             let variances = match measured {
+                Some(variances)
+                    if variances.is_empty()
+                        && !source_arguments.is_empty()
+                        && self.checker.variance_in_progress.contains(&source_symbol) =>
+                {
+                    // Native getVariances signals this target's active
+                    // measurement with an empty slice. Re-entering its members
+                    // here would measure the same recursive occurrences again.
+                    return RelationResult::Unknown;
+                }
                 Some(variances) if variances.len() == source_arguments.len() => variances,
-                None if !self.checker.variance_in_progress.is_empty() => return Ternary::Unknown,
+                None if !self.checker.variance_in_progress.is_empty() => {
+                    return RelationResult::Unknown;
+                }
                 _ if self.checker.variance_in_progress.is_empty() => {
                     // Until Unmeasurable/Unreliable flags are represented, keep
                     // the existing default covariance for unmeasured targets.
@@ -2046,18 +2135,18 @@ impl Relater<'_, '_, '_> {
                         Variance::Invariant => {
                             let forward = self.is_related_to(source, target);
                             let reverse = self.is_related_to(target, source);
-                            Ternary::all([forward, reverse])
+                            RelationResult::all([forward, reverse])
                         }
                         Variance::Bivariant => {
                             let forward = self.is_related_to(source, target);
                             let reverse = self.is_related_to(target, source);
-                            Ternary::any([forward, reverse])
+                            RelationResult::any([forward, reverse])
                         }
-                        Variance::Independent => Ternary::Related,
+                        Variance::Independent => RelationResult::Related,
                     });
                 }
-                let result = Ternary::all(parts);
-                if result != Ternary::NotRelated || !allows_covariant_void {
+                let result = RelationResult::all(parts);
+                if result != RelationResult::NotRelated || !allows_covariant_void {
                     return result;
                 }
             }
@@ -2068,34 +2157,35 @@ impl Relater<'_, '_, '_> {
             // Index infos can be synthesized by literals or mapped types, so
             // inspecting only binder declarations misses a target requirement.
             let properties = self.properties_related_to(source, target);
-            if properties == Ternary::NotRelated {
+            if properties == RelationResult::NotRelated {
                 return properties;
             }
             let signatures = if self.declares_call_or_construct(target) {
                 self.related_signatures(source, target).unwrap_or_else(|| {
                     reasons::note(reasons::Site::SignatureBearing);
-                    Ternary::Unknown
+                    RelationResult::Unknown
                 })
             } else {
-                Ternary::Related
+                RelationResult::Related
             };
-            if signatures == Ternary::NotRelated {
+            if signatures == RelationResult::NotRelated {
                 return signatures;
             }
-            let indexes = self.related_index_signatures(source, target).unwrap_or(Ternary::Unknown);
-            return Ternary::all([properties, signatures, indexes]);
+            let indexes =
+                self.related_index_signatures(source, target).unwrap_or(RelationResult::Unknown);
+            return RelationResult::all([properties, signatures, indexes]);
         }
         // Reached only by a type whose *flags* say union or intersection while
         // its data says otherwise, which `is_related_to`'s gate lets through.
         // Nothing was compared, so nothing was decided.
         reasons::note(reasons::Site::CompositeShape);
-        Ternary::Unknown
+        RelationResult::Unknown
     }
 
     /// Fixed and concrete-rest tuples in propertiesRelatedTo
     /// (internal/checker/relater.go). Generic variadic operands still require
     /// base-constraint resolution and retain an unknown relation here.
-    fn tuples_related_to(&mut self, source: TypeId, target: TypeId) -> Option<Ternary> {
+    fn tuples_related_to(&mut self, source: TypeId, target: TypeId) -> Option<RelationResult> {
         let (target_elements, target_readonly) = self.tuple_relation_elements(target)?;
         let target_generic = target_elements.iter().any(|element| {
             element.spread && self.checker.tuple_spread_array_element(element.r#type).is_none()
@@ -2132,12 +2222,12 @@ impl Relater<'_, '_, '_> {
                 )
             };
         if source_readonly && !target_readonly {
-            return Some(Ternary::NotRelated);
+            return Some(RelationResult::NotRelated);
         }
         if source_elements.iter().chain(&target_elements).any(|element| {
             element.spread && self.checker.tuple_spread_array_element(element.r#type).is_none()
         }) {
-            return Some(Ternary::Unknown);
+            return Some(RelationResult::Unknown);
         }
         let source_rest = source_elements.iter().any(|element| element.spread);
         let target_rest = target_elements.iter().any(|element| element.spread);
@@ -2151,7 +2241,7 @@ impl Relater<'_, '_, '_> {
             || (!target_rest && target_arity < source_min)
             || (!target_rest && (source_rest || target_arity < source_arity))
         {
-            return Some(Ternary::NotRelated);
+            return Some(RelationResult::NotRelated);
         }
         let target_start = target_elements.iter().take_while(|element| !element.spread).count();
         let target_end = target_elements.iter().rev().take_while(|element| !element.spread).count();
@@ -2164,13 +2254,13 @@ impl Relater<'_, '_, '_> {
                 position
             };
             let Some(target_element) = target_elements.get(target_position) else {
-                return Some(Ternary::NotRelated);
+                return Some(RelationResult::NotRelated);
             };
             if !target_element.optional
                 && !target_element.spread
                 && (element.optional || element.spread)
             {
-                return Some(Ternary::NotRelated);
+                return Some(RelationResult::NotRelated);
             }
             let source_type = if element.spread {
                 self.checker.tuple_spread_array_element(element.r#type)?
@@ -2190,7 +2280,7 @@ impl Relater<'_, '_, '_> {
             };
             parts.push(self.is_related_to(source_type, target_type));
         }
-        Some(Ternary::all(parts))
+        Some(RelationResult::all(parts))
     }
 
     fn tuple_relation_elements(
@@ -2219,7 +2309,7 @@ impl Relater<'_, '_, '_> {
 
     /// structuredTypeRelatedTo's tuple-to-array index comparison
     /// (internal/checker/relater.go).
-    fn tuple_array_related_to(&mut self, source: TypeId, target: TypeId) -> Option<Ternary> {
+    fn tuple_array_related_to(&mut self, source: TypeId, target: TypeId) -> Option<RelationResult> {
         let fixed = self.checker.tuple_element_lists.get(&source).cloned();
         if fixed.is_none() && !self.checker.variadic_tuple_elements.contains_key(&source) {
             return None;
@@ -2236,7 +2326,7 @@ impl Relater<'_, '_, '_> {
             .global_type_symbol("ReadonlyArray")
             .map(|symbol| self.checker.binder.merged_symbol(symbol));
         if self.checker.tuple_is_readonly(source) && readonly_array != Some(target_symbol) {
-            return Some(Ternary::NotRelated);
+            return Some(RelationResult::NotRelated);
         }
         let source_element = if let Some((mut elements, _)) = fixed {
             if self.checker.strict_null_checks
@@ -2251,7 +2341,7 @@ impl Relater<'_, '_, '_> {
             self.checker.get_union_type(&elements)
         } else {
             let Some(element) = self.checker.variadic_tuple_index_union(source) else {
-                return Some(Ternary::Unknown);
+                return Some(RelationResult::Unknown);
             };
             element
         };
@@ -2271,23 +2361,23 @@ impl Relater<'_, '_, '_> {
     /// unfollowable members and protected-target checks remain Unknown. Privacy,
     /// optionality and strict-subtype readonly checks precede comparison of the
     /// resolved property types. Generic parameters use the ordinary relation.
-    fn properties_related_to(&mut self, source: TypeId, target: TypeId) -> Ternary {
+    fn properties_related_to(&mut self, source: TypeId, target: TypeId) -> RelationResult {
         let Some(names) = self.checker.get_property_names_of_type(target) else {
             // Row 1 of `checker-notes-assign.md` §2: the target's inherited
             // requirements could not be *enumerated*, so no verdict about them
             // is available in either direction.
             reasons::note(reasons::Site::UnfollowableBase);
-            return Ternary::Unknown;
+            return RelationResult::Unknown;
         };
         // propertiesRelatedTo (relater.go:4240): an object-literal target
         // requires actual named properties, even when it has an index signature.
         // Regularization retains ObjectLiteral; widening removes it.
         if self.checker.is_object_literal_type(target) {
             let Some(source_names) = self.checker.get_property_names_of_type(source) else {
-                return Ternary::Unknown;
+                return RelationResult::Unknown;
             };
             if source_names.iter().any(|name| !names.contains(name)) {
-                return Ternary::NotRelated;
+                return RelationResult::NotRelated;
             }
         }
         let mut parts = Vec::with_capacity(names.len());
@@ -2329,7 +2419,7 @@ impl Relater<'_, '_, '_> {
                     && (self.relation == Relation::Assignable
                         || self.checker.is_object_literal_type(source))
                 {
-                    parts.push(Ternary::Related);
+                    parts.push(RelationResult::Related);
                     continue;
                 }
                 // §387 narrows row 2: when the SOURCE's own member
@@ -2344,11 +2434,11 @@ impl Relater<'_, '_, '_> {
                 if self.checker.get_type_of_property_of_type(source, &name).is_none()
                     && self.checker.get_property_names_of_type(source).is_some()
                 {
-                    parts.push(Ternary::NotRelated);
+                    parts.push(RelationResult::NotRelated);
                     continue;
                 }
                 reasons::note(reasons::Site::AbsentProperty);
-                parts.push(Ternary::Unknown);
+                parts.push(RelationResult::Unknown);
                 continue;
             };
             // propertiesRelatedTo reads both sides through
@@ -2384,14 +2474,14 @@ impl Relater<'_, '_, '_> {
                     let target_declaration =
                         self.checker.binder.symbols().get(target_property).value_declaration;
                     if source_declaration != target_declaration || source_declaration.is_none() {
-                        parts.push(Ternary::NotRelated);
+                        parts.push(RelationResult::NotRelated);
                         continue;
                     }
                 } else if self.checker.property_has_modifier(target_property, protected) {
-                    parts.push(Ternary::Unknown);
+                    parts.push(RelationResult::Unknown);
                     continue;
                 } else if self.checker.property_has_modifier(source_property, protected) {
-                    parts.push(Ternary::NotRelated);
+                    parts.push(RelationResult::NotRelated);
                     continue;
                 }
             }
@@ -2408,7 +2498,7 @@ impl Relater<'_, '_, '_> {
             ) && self.checker.property_is_optional(source_property)
                 && !self.checker.property_is_optional(target_property)
             {
-                parts.push(Ternary::NotRelated);
+                parts.push(RelationResult::NotRelated);
                 continue;
             }
             // `readonly` orders the STRICT subtype relation and only that one
@@ -2426,7 +2516,7 @@ impl Relater<'_, '_, '_> {
                 && self.checker.is_readonly_property(source_property)
                 && !self.checker.is_readonly_property(target_property)
             {
-                parts.push(Ternary::NotRelated);
+                parts.push(RelationResult::NotRelated);
                 continue;
             }
             // isPropertySymbolTypeRelated (relater.go:4334) relates the
@@ -2435,7 +2525,7 @@ impl Relater<'_, '_, '_> {
             // a surviving parameter can be the intended semantic member type.
             parts.push(self.is_related_to(source_type, target_type));
         }
-        Ternary::all(parts)
+        RelationResult::all(parts)
     }
 
     /// The constituents of `id`, if it is a union.
@@ -2457,5 +2547,58 @@ impl Relater<'_, '_, '_> {
             TypeData::Intersection { types, .. } => Some(types.clone()),
             _ => None,
         }
+    }
+}
+#[cfg(test)]
+mod variance_recursion_tests {
+    use super::{Checker, Relation, Ternary};
+    use tsr_ast::Statement;
+    use tsr_core::Arena;
+
+    #[test]
+    fn active_generic_variance_is_uncomputed_and_recovers_after_measurement() {
+        let source = "type Box<T> = { value: T };
+            let text: Box<string>; let numeric: Box<number>; let literal: Box<'a'>;";
+        let arena = Arena::new();
+        let parsed = tsr_parser::parse(&arena, source);
+        assert!(parsed.diagnostics.is_empty());
+        let bound = tsr_binder::bind(
+            &arena,
+            parsed.source_file,
+            &parsed.nodes,
+            tsr_binder::FileInfo { name: "variance-recursion.ts", text: source },
+        );
+        let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+        let mut types = Vec::new();
+        for statement in parsed.source_file.statements.iter().skip(1) {
+            let Statement::VariableStatement(statement) = statement else {
+                panic!("variable annotation");
+            };
+            let annotation = statement
+                .declaration_list
+                .and_then(|list| list.declarations.first().copied())
+                .and_then(|declaration| declaration.r#type)
+                .expect("type annotation");
+            types.push(checker.get_type_from_type_node(annotation));
+        }
+        let symbol = checker.type_reference_targets[&types[0]].0;
+        checker.variance_in_progress.insert(symbol);
+        assert_eq!(
+            checker.relate_ternary(types[0], types[1], Relation::Assignable),
+            Ternary::Unknown
+        );
+        checker.variance_in_progress.remove(&symbol);
+        assert_eq!(
+            checker.relate_ternary(types[0], types[1], Relation::Assignable),
+            Ternary::NotRelated
+        );
+        assert_eq!(
+            checker.relate_ternary(types[2], types[0], Relation::Assignable),
+            Ternary::Related
+        );
+        assert_eq!(
+            checker.relate_ternary(types[0], types[2], Relation::Assignable),
+            Ternary::NotRelated
+        );
     }
 }

@@ -531,6 +531,23 @@ fn generic_reference_inputs_follow_measured_contravariance() {
 }
 
 #[test]
+fn recursive_generic_methods_preserve_covariant_values() {
+    let source = "interface Recursive<T> {
+        value: T; next: Recursive<T>;
+        map<U>(mapper: (value: T) => U): Recursive<U>;
+    }
+    let broad: Recursive<string>; let literal: Recursive<'a'>; let numeric: Recursive<number>;";
+    with_checker(source, |checker, statements| {
+        let broad = annotation_type(checker, statements, 1);
+        let literal = annotation_type(checker, statements, 2);
+        let numeric = annotation_type(checker, statements, 3);
+        assert!(checker.is_type_assignable_to(literal, broad));
+        assert!(!checker.is_type_assignable_to(broad, literal));
+        assert!(!checker.is_type_assignable_to(broad, numeric));
+    });
+}
+
+#[test]
 fn generic_reference_methods_follow_measured_bivariance() {
     let source = "interface Sink<T> { consume(value: T): void }
         let broad: Sink<string>; let narrow: Sink<'a'>;";
@@ -1061,8 +1078,8 @@ fn a_recursive_type_terminates() {
 /// again. Nothing about the *types* is recursive in a way the earlier fixture
 /// caught — the walk has to enter members for the cycle to exist.
 ///
-/// Reddened by: deleting the `self.results.insert((source, target), true)` that
-/// parks the pair before recursing in `recursive_type_related_to`. The test then
+/// Reddened by: removing the active pair from `maybe_keys_set` before recursing
+/// in `recursive_type_related_to`. The test then
 /// fails — and fails *fast*, in the same milliseconds, because
 /// [`tsr_checker::relater::MAX_DEPTH`] catches the walk the cache no longer
 /// closes and answers `false`. So the two guards are not interchangeable and
@@ -1078,6 +1095,77 @@ fn mutually_recursive_interfaces_terminate() {
         let a = annotation_type(checker, statements, 4);
         let a2 = annotation_type(checker, statements, 5);
         assert!(checker.is_type_assignable_to(a, a2), "A -> A2 through the cycle");
+    });
+}
+
+/// A recursive proof from a rejected union branch cannot prove a later branch.
+/// Pinned tsgo rejects both union orders: `next.next.value` eventually differs.
+#[test]
+fn failed_union_branch_discards_dependent_recursive_assumptions() {
+    use tsr_checker::relater::{Relation, Ternary};
+    for target in ["C | E", "E | C"] {
+        let source = format!(
+            "interface A {{ next: B; value: string }}\n\
+             interface B {{ next: A }}\n\
+             interface C {{ next: D; value: number }}\n\
+             interface D {{ next: C }}\n\
+             interface E {{ next: D; value: string }}\n\
+             let source: A; let target: {target};"
+        );
+        with_checker(&source, |checker, statements| {
+            let from = annotation_type(checker, statements, 5);
+            let to = annotation_type(checker, statements, 6);
+            assert_eq!(
+                checker.relate_ternary(from, to, Relation::Assignable),
+                Ternary::NotRelated,
+                "failed branch assumptions escaped into {target}"
+            );
+        });
+    }
+}
+
+#[test]
+fn failed_union_branch_preserves_a_later_valid_recursive_proof() {
+    use tsr_checker::relater::{Relation, Ternary};
+    let source = "interface A { next: B; value: string }\n\
+                  interface B { next: A }\n\
+                  interface C { next: D; value: number }\n\
+                  interface D { next: C }\n\
+                  interface E { next: F; value: string }\n\
+                  interface F { next: E }\n\
+                  let source: A; let target: C | E;";
+    with_checker(source, |checker, statements| {
+        let from = annotation_type(checker, statements, 6);
+        let to = annotation_type(checker, statements, 7);
+        assert_eq!(checker.relate_ternary(from, to, Relation::Assignable), Ternary::Related);
+    });
+}
+
+/// A depth refusal must not discharge a recursive child for a later branch.
+#[test]
+fn unknown_union_branch_discards_dependent_recursive_assumptions() {
+    use tsr_checker::relater::{Relation, Ternary};
+    let depth = tsr_checker::relater::MAX_DEPTH + 10;
+    let mut source = String::from("interface L0 { x: string }\ninterface R0 { x: string }\n");
+    for index in 1..=depth {
+        writeln!(source, "interface L{index} {{ x: L{} }}", index - 1).unwrap();
+        writeln!(source, "interface R{index} {{ x: R{} }}", index - 1).unwrap();
+    }
+    writeln!(
+        source,
+        "interface A {{ next: B; value: L{depth} }}\n\
+         interface B {{ next: A }}\n\
+         interface C {{ next: D; value: R{depth} }}\n\
+         interface D {{ next: C }}\n\
+         interface E {{ next: D; value: L{depth} }}\n\
+         let source: A; let target: C | E;"
+    )
+    .unwrap();
+    let annotations = 2 + 2 * depth + 5;
+    with_checker(&source, |checker, statements| {
+        let from = annotation_type(checker, statements, annotations);
+        let to = annotation_type(checker, statements, annotations + 1);
+        assert_eq!(checker.relate_ternary(from, to, Relation::Assignable), Ternary::Unknown);
     });
 }
 
