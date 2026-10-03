@@ -3241,6 +3241,18 @@ impl<'a, 'n> Checker<'a, 'n> {
             if let Some(locals) = self.binder.locals(node) {
                 tables.push(locals.iter().map(|(&name, &id)| (name, id)).collect());
             }
+            // `someSymbolTableInScope` visits a namespace declaration's
+            // exports immediately after its locals
+            // (`symbolaccessibility.go:746-775`). An `export import A = M`
+            // lives in that exports table, so a locals-only approximation
+            // misses `A.C` and falls back to the declaration name `M.C`.
+            if self.nodes.kind(node) == SyntaxKind::ModuleDeclaration
+                && let Some(module) = self.binder.symbol_of(node)
+            {
+                let module = self.binder.merged_symbol(module);
+                let exports = &self.binder.symbols().get(module).exports;
+                tables.push(exports.iter().map(|(&name, &id)| (name, id)).collect());
+            }
             current = self.nodes.parent(node);
         }
         tables.push(self.binder.globals().iter().map(|(&name, &id)| (name, id)).collect());

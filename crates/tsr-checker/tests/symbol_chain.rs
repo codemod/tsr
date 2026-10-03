@@ -384,3 +384,24 @@ fn a_value_of_the_same_name_does_not_shadow_a_type_question() {
     let source = "namespace M { export class C { p: number; } }\nvar C = 1;\nvar x = 1;\n";
     assert!(!shadowed_at(source, &["M", "C"], "x", 0, SymbolFlags::TYPE));
 }
+
+/// `getAccessibleSymbolChain` searches a namespace declaration's **exports**
+/// after its locals. An exported import-equals alias lives only in that table,
+/// and it can name an enclosing segment of the target chain.
+///
+/// This is the reduced `privacyImport` shape: the leaf is still `C`, but its
+/// container must print under the alias visible at the reference site.
+#[test]
+fn an_exported_import_equals_alias_names_a_chain_segment() {
+    let source = "namespace M { export class C { p: number; } }\nnamespace Use { export import Alias = M; export var x: Alias.C; }\n";
+    assert_eq!(declared_type_at(source, &["M"], "C", "x", 0, false), "Alias.C");
+}
+
+/// Scope tables remain independent: a nearer exported alias that reaches a
+/// different namespace does not stop the walk. The matching alias in the next
+/// enclosing namespace supplies the target's chain segment.
+#[test]
+fn a_non_matching_inner_alias_does_not_hide_an_outer_matching_alias() {
+    let source = "namespace M { export class C { p: number; } }\nnamespace N { export class C { q: string; } }\nnamespace Use { export import Wanted = M; export namespace Inner { export import Other = N; export var x: M.C; } }\n";
+    assert_eq!(declared_type_at(source, &["M"], "C", "x", 0, false), "Wanted.C");
+}
