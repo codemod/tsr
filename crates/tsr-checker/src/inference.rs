@@ -3521,9 +3521,9 @@ impl Checker<'_, '_> {
                 readonly: false,
                 name: "x".to_string(),
                 key: "string".to_string(),
-                value: resolved
-                    .and_then(|types| types.get(members.len()).cloned())
-                    .unwrap_or_else(|| "any".to_string()),
+                // createTypeNodesFromResolvedType always elides reverse
+                // mapped index values (nodebuilderimpl.go:2646).
+                value: "any".to_string(),
             });
         }
         crate::objects::render_object_type(&rendered)
@@ -3540,7 +3540,7 @@ impl Checker<'_, '_> {
             self.simplified_reverse_mapping(&pending).unwrap_or_else(|| {
                 (pending.target, pending.info.clone(), pending.operand, pending.constraint)
             });
-        let mut texts = Vec::with_capacity(members.len() + 1);
+        let mut texts = Vec::with_capacity(members.len());
         for member in &mut members {
             let anonymous = self.is_anonymous_object_type(member.r#type);
             self.reverse_property_anonymous.push(anonymous);
@@ -3555,22 +3555,28 @@ impl Checker<'_, '_> {
             member.printed_type.clone_from(&text);
             texts.push(text);
         }
-        let reversed_index = index.map(|index| crate::index_signatures::IndexInfo {
-            components: None,
-            declaration: None,
-            key: index.key,
-            readonly: false,
-            value: self.reverse_mapped_member_type(
+        let reversed_index = index.map(|index| {
+            // Native creates the reverse index value lazily, and its node
+            // builder prints `any` without reading that value's members.
+            // Keep a nested reverse object pending until an index consumer
+            // actually asks for its members, as we do for property placeholders.
+            self.reverse_property_anonymous.push(false);
+            let value = self.reverse_mapped_member_type(
                 index.value,
                 pending.target,
                 &pending.info,
                 pending.operand,
                 pending.constraint,
-            ),
+            );
+            self.reverse_property_anonymous.pop();
+            crate::index_signatures::IndexInfo {
+                components: None,
+                declaration: None,
+                key: index.key,
+                readonly: false,
+                value,
+            }
         });
-        if let Some(index) = &reversed_index {
-            texts.push(self.type_to_string(index.value));
-        }
         let text = Self::reverse_mapped_text(&members, reversed_index.as_ref(), Some(&texts));
 
         let owner = match self.store.get(pending.source).data {

@@ -126,3 +126,59 @@ export const written = numeric({ 1: { value: 1 }, "2": { value: "x" } });
     let wanted = "written : [{ 1: number; \"2\": string; }, \"1\" | \"2\"]";
     assert!(lines.iter().any(|line| line == wanted), "missing {wanted}: {lines:?}");
 }
+
+/// Reverse index display is a placeholder, not the semantic value type.
+/// Recursive index reads must resolve pending members instead of bottoming out
+/// at the expanding-stack guard during the creation of the outer object.
+#[test]
+fn reverse_mapped_indexes_elide_display_but_preserve_typed_reads() {
+    let source = r#"// @strict: true
+// @target: es2015
+type Box<T> = { value: T };
+type Image<T> = { [K in keyof T]: Box<T[K]> };
+declare function unbox<T>(value: Image<T>): T;
+declare const numbers: { [key: string]: Box<number> };
+declare const strings: { [key: string]: Box<string> };
+export const reversedNumbers = unbox(numbers);
+export const reversedStrings = unbox(strings);
+export const numberRead = reversedNumbers["first"];
+export const stringRead = reversedStrings.second;
+declare function inferRead<T>(value: { item: T }): T;
+export const inferredNumber = inferRead({ item: reversedNumbers["other"] });
+export const inferredString = inferRead({ item: reversedStrings.other });
+declare const ordinary: { [key: string]: number };
+export const ordinaryIndex = ordinary;
+interface Chain { [key: string]: Chain }
+type Deep<T> = { [K in keyof T]: Deep<T[K]> };
+declare function undeep<T>(value: Deep<T>): T;
+declare const chain: Chain;
+export const reversedChain = undeep(chain);
+export const oneRead = reversedChain.first;
+export const manyReads = reversedChain.first.second.third.fourth.fifth;
+"#;
+    let case = TestCase::parse("probe/reverse-index", "reverse-index.ts", source);
+    let expected: Vec<_> = case
+        .files
+        .iter()
+        .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
+        .collect();
+    let lines: Vec<_> = types_producer::assertions_for_case(&case, &expected, false)
+        .iter()
+        .flatten()
+        .map(types_producer::Assertion::line)
+        .collect();
+    for wanted in [
+        "reversedNumbers : { [x: string]: any; }",
+        "reversedStrings : { [x: string]: any; }",
+        "numberRead : number",
+        "stringRead : string",
+        "inferredNumber : number",
+        "inferredString : string",
+        "ordinaryIndex : { [key: string]: number; }",
+        "reversedChain : { [x: string]: any; }",
+        "oneRead : { [x: string]: any; }",
+        "manyReads : { [x: string]: any; }",
+    ] {
+        assert!(lines.iter().any(|line| line == wanted), "missing {wanted}: {lines:?}");
+    }
+}
