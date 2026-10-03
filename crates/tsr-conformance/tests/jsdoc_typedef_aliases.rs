@@ -66,7 +66,7 @@ const box = { value: "x" };
 fn complete_inline_generic_typedef_substitutes_member_types() {
     let got = lines(
         "probe/jsdoc-inline-generic-typedef",
-        r#"// @allowJs: true
+        r"// @allowJs: true
 // @checkJs: true
 // @strict: true
 // @filename: a.js
@@ -74,12 +74,13 @@ fn complete_inline_generic_typedef_substitutes_member_types() {
  * @template T
  * @typedef {{ value: T, items: T[] }} Box
  */
-/** @type {Box<string>} */
-const box = { value: "x", items: ["y"] };
-box.value;
-box.items;
-box.items[0];
-"#,
+/** @param {Box<string>} box */
+function read(box) {
+    box.value;
+    box.items;
+    box.items[0];
+}
+",
     );
     for expected in
         ["box : Box<string>", "box.value : string", "box.items : string[]", "box.items[0] : string"]

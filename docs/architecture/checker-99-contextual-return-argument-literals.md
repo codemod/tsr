@@ -51,5 +51,8 @@ unit; this call-inference change deliberately adds no `Awaited` special case.
 Full scorepair against 8f8f4e1a gains 47 assertions, all WRONG-to-RIGHT:
 21 in `inferFromGenericFunctionReturnTypes3`, 9 in `arrayLiteralInference`, 8
 in `contextualParamTypeVsNestedReturnTypeInference1`, and 9 across smaller
-cases. There are zero RIGHT losses, zero GAP transitions, and zero changed
-already-WRONG payloads.
+cases. There are zero RIGHT losses and zero GAP transitions. The earlier claim
+of zero changed already-WRONG payloads was unsupported: scorepair compares
+verdict statuses, not payloads. The combined eight-unit build has eight changed
+already-WRONG rows in `arrayLiteralInference` and `callChain.3`; retained worker
+artifacts do not establish whether these are unit-local or interactions.

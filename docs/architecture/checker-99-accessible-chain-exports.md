@@ -19,3 +19,6 @@ matching outer alias.
 At base `8f8f4e1a`, the full checker-types scorepair reports no corpus
 transitions. The change is retained because the native invariant is established
 independently by focused controls; no printed-result special case is involved.
+Those controls are correlated with the pinned source, not a fresh native
+executable run. The Rust `symbol_chain` suite passes all 14 tests, including
+both added controls. No Temporal assertion gain is claimed for this unit.
