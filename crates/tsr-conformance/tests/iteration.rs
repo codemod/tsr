@@ -476,3 +476,139 @@ fn optional_holes_hide_missing_but_not_explicit_undefined_in_tuple_display() {
         expect(&lines, &["explicitUndefined : readonly [1, undefined, false]"]);
     }
 }
+
+#[test]
+fn tuple_relations_remove_missing_only_at_optional_source_and_target_positions() {
+    let source = r#"
+declare function probe<T>(): T;
+export const holes = [,] as const;
+export const explicit = [undefined] as const;
+export const prefix = [17, , false] as const;
+declare const words: Iterable<string>;
+export const spreadHole = [17, , ...words] as const;
+export const holePresent = probe<[undefined] extends typeof holes ? true : false>();
+export const holeEmpty = probe<[] extends typeof holes ? true : false>();
+export const explicitPresent = probe<[undefined] extends typeof explicit ? true : false>();
+export const explicitEmpty = probe<[] extends typeof explicit ? true : false>();
+export const holeToOptionalNumber = probe<typeof holes extends readonly [37?] ? true : false>();
+export const holeToNumericRest = probe<typeof holes extends readonly [...37[]] ? true : false>();
+export const wrongPrefix = probe<[18, undefined, false] extends typeof prefix ? true : false>();
+export const explicitPrefixHole = probe<[17, undefined, false] extends typeof prefix ? true : false>();
+export const absentPrefixTail = probe<[17] extends typeof prefix ? true : false>();
+export const spreadPresent = probe<[17, undefined, "word"] extends typeof spreadHole ? true : false>();
+export const spreadEmpty = probe<[17] extends typeof spreadHole ? true : false>();
+export const spreadWrongRest = probe<[17, undefined, 73] extends typeof spreadHole ? true : false>();
+declare const optional: readonly [17, number?, ...string[]];
+declare const explicitOptional: readonly [17, (number | undefined)?, ...string[]];
+export const optionalSame = probe<typeof optional extends readonly [17, number?, ...string[]] ? true : false>();
+export const optionalExplicitTarget = probe<typeof optional extends typeof explicitOptional ? true : false>();
+export const optionalExplicitSource = probe<typeof explicitOptional extends typeof optional ? true : false>();
+export const optionalWrongHead = probe<typeof optional extends readonly [false, number?, ...string[]] ? true : false>();
+export const optionalWrongRest = probe<typeof optional extends readonly [17, number?, ...boolean[]] ? true : false>();
+export const optionalIntoNumberRest = probe<typeof optional extends readonly [17, ...(number | string)[]] ? true : false>();
+"#;
+    for exact in [false, true] {
+        let lines = assertions(&format!(
+            "// @strict: true\n// @target: es2015\n// @exactOptionalPropertyTypes: {exact}\n{source}"
+        ));
+        let present = if exact { "false" } else { "true" };
+        let empty = if exact { "true" } else { "false" };
+        expect(
+            &lines,
+            &[
+                &format!("holePresent : {present}"),
+                &format!("holeEmpty : {empty}"),
+                "explicitPresent : true",
+                "explicitEmpty : false",
+                "holeToOptionalNumber : true",
+                "holeToNumericRest : false",
+                "wrongPrefix : false",
+                &format!("explicitPrefixHole : {present}"),
+                &format!("absentPrefixTail : {empty}"),
+                &format!("spreadPresent : {present}"),
+                &format!("spreadEmpty : {empty}"),
+                "spreadWrongRest : false",
+                "optionalSame : true",
+                "optionalExplicitTarget : true",
+                &format!("optionalExplicitSource : {present}"),
+                "optionalWrongHead : false",
+                "optionalWrongRest : false",
+                "optionalIntoNumberRest : false",
+            ],
+        );
+    }
+}
+
+#[test]
+fn tuple_assignment_diagnostics_preserve_the_native_multiset_in_both_exact_modes() {
+    let source = r"export const holes = [,] as const;
+export const explicit = [undefined] as const;
+export const present: typeof holes = [undefined];
+export const absent: typeof holes = [];
+export const explicitOk: typeof explicit = [undefined];
+export const explicitBad: typeof explicit = [];
+declare const optional: readonly [17, number?, ...string[]];
+declare const explicitOptional: readonly [17, (number | undefined)?, ...string[]];
+export const implicitToExplicit: typeof explicitOptional = optional;
+export const explicitToImplicit: typeof optional = explicitOptional;
+function omittedAssignments(t: [number, string?, boolean?]) {
+    t = [42, ,];
+    t = [42, , ,];
+}
+";
+    for (exact, wanted) in [
+        (false, vec![(4, 14, 2322), (6, 14, 2322)]),
+        (true, vec![(3, 14, 2322), (6, 14, 2322), (10, 14, 2322)]),
+    ] {
+        let case = TestCase::parse(
+            "probe/tuple_assignments",
+            "iteration.ts",
+            &format!(
+                "// @strict: true\n// @target: es2015\n// @exactOptionalPropertyTypes: {exact}\n{source}"
+            ),
+        );
+        let diagnostics = tsr_conformance::diagnostics_suite::reported_for(&case);
+        assert!(diagnostics.iter().all(|diagnostic| diagnostic.file == "iteration.ts"));
+        let mut actual: Vec<_> = diagnostics
+            .iter()
+            .map(|diagnostic| (diagnostic.line, diagnostic.column, diagnostic.code))
+            .collect();
+        actual.sort_unstable();
+        assert_eq!(actual, wanted, "exactOptionalPropertyTypes: {exact}");
+    }
+}
+
+#[test]
+fn optional_tuple_check_types_preserve_named_enum_identity_and_reads() {
+    let source = r"declare function probe<T>(): T;
+enum First { Shared = 17, Tail = 37 }
+enum Other { Shared = 17, Tail = 37 }
+declare const optional: readonly [17, First?];
+declare const explicit: readonly [17, (First | undefined)?];
+export const same = probe<typeof optional extends readonly [17, First?] ? true : false>();
+export const different = probe<typeof optional extends readonly [17, Other?] ? true : false>();
+export const narrowRest = probe<typeof optional extends readonly [17, ...First[]] ? true : false>();
+export const wideRest = probe<typeof optional extends readonly [17, ...(First | undefined)[]] ? true : false>();
+export const differentRest = probe<typeof optional extends readonly [17, ...(Other | undefined)[]] ? true : false>();
+export const explicitSource = probe<typeof explicit extends typeof optional ? true : false>();
+export const read = optional[1];
+";
+    for exact in [false, true] {
+        let lines = assertions(&format!(
+            "// @strict: true\n// @target: es2015\n// @exactOptionalPropertyTypes: {exact}\n{source}"
+        ));
+        let explicit = if exact { "false" } else { "true" };
+        expect(
+            &lines,
+            &[
+                "same : true",
+                "different : false",
+                "narrowRest : false",
+                "wideRest : true",
+                "differentRest : false",
+                &format!("explicitSource : {explicit}"),
+                "read : First | undefined",
+            ],
+        );
+    }
+}

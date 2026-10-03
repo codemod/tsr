@@ -2262,12 +2262,23 @@ impl Relater<'_, '_, '_> {
             {
                 return Some(RelationResult::NotRelated);
             }
-            let source_type = if element.spread {
+            let mut source_type = if element.spread {
                 self.checker.tuple_spread_array_element(element.r#type)?
             } else {
                 element.r#type
             };
-            let target_type = if target_element.spread {
+            // Written tuples store optionality separately from the element
+            // TypeId. Native type arguments already include this marker; keep
+            // it when an optional source aligns with a non-optional rest.
+            if element.optional && self.checker.strict_null_checks {
+                let marker = if self.checker.exact_optional_property_types {
+                    self.checker.intrinsics.missing
+                } else {
+                    self.checker.intrinsics.undefined
+                };
+                source_type = self.checker.get_union_type_unprinted(&[source_type, marker]);
+            }
+            let mut target_type = if target_element.spread {
                 self.checker.tuple_spread_array_element(target_element.r#type)?
             } else if target_element.optional
                 && self.checker.strict_null_checks
@@ -2278,6 +2289,14 @@ impl Relater<'_, '_, '_> {
             } else {
                 target_element.r#type
             };
+            // propertiesRelatedTo removes target missing at optional positions,
+            // and source missing only when both positions are optional.
+            if self.checker.exact_optional_property_types && target_element.optional {
+                target_type = self.checker.remove_missing_type(target_type);
+                if element.optional {
+                    source_type = self.checker.remove_missing_type(source_type);
+                }
+            }
             parts.push(self.is_related_to(source_type, target_type));
         }
         Some(RelationResult::all(parts))
