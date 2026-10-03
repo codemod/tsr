@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics Summary:
 What a pass means: every diagnostic in upstream's .errors.txt reproduced exactly — same file, line, column and code, no more and no fewer — for cases that expect at least one; scanner, parser and binder only, with no checker (bd tsr-4sc)
-Passed         : 2808/5488 (51.17%)
-Failed         : 2680
+Passed         : 2838/5488 (51.71%)
+Failed         : 2650
 Skipped        : 6956 (excluded from the denominator)
 
   793  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -11,7 +11,7 @@ Skipped        : 6956 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   464  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 2680 failures:
+First 100 of 2650 failures:
 compiler/ClassDeclaration26
   2 unexpected (first TS1005 at ClassDeclaration26.ts(2,22)), 5 missing
 compiler/TransportStream
@@ -112,76 +112,24 @@ compiler/assignmentCompatBug5
   1 unexpected (first TS2345 at assignmentCompatBug5.ts(5,6)), 2 missing
 compiler/assignmentCompatFunctionsWithOptionalArgs
   2 missing (first TS2322 at assignmentCompatFunctionsWithOptionalArgs.ts(4,17))
-compiler/assignmentCompatability11
-  1 unexpected (first TS2322 at assignmentCompatability11.ts(2,141)), 0 missing
-compiler/assignmentCompatability12
-  1 unexpected (first TS2322 at assignmentCompatability12.ts(2,141)), 0 missing
-compiler/assignmentCompatability13
-  1 unexpected (first TS2322 at assignmentCompatability13.ts(2,141)), 0 missing
-compiler/assignmentCompatability14
-  1 unexpected (first TS2322 at assignmentCompatability14.ts(2,141)), 0 missing
-compiler/assignmentCompatability15
-  1 unexpected (first TS2322 at assignmentCompatability15.ts(2,141)), 0 missing
 compiler/assignmentCompatability16
-  1 unexpected (first TS2322 at assignmentCompatability16.ts(2,141)), 1 missing
-compiler/assignmentCompatability17
-  1 unexpected (first TS2322 at assignmentCompatability17.ts(2,141)), 0 missing
+  1 missing (first TS2322 at assignmentCompatability16.ts(9,1))
 compiler/assignmentCompatability18
-  1 unexpected (first TS2322 at assignmentCompatability18.ts(2,141)), 1 missing
-compiler/assignmentCompatability19
-  1 unexpected (first TS2322 at assignmentCompatability19.ts(2,141)), 0 missing
-compiler/assignmentCompatability2
-  1 unexpected (first TS2322 at assignmentCompatability2.ts(2,141)), 0 missing
+  1 missing (first TS2322 at assignmentCompatability18.ts(9,1))
 compiler/assignmentCompatability20
-  1 unexpected (first TS2322 at assignmentCompatability20.ts(2,141)), 1 missing
-compiler/assignmentCompatability21
-  1 unexpected (first TS2322 at assignmentCompatability21.ts(2,141)), 0 missing
+  1 missing (first TS2322 at assignmentCompatability20.ts(9,1))
 compiler/assignmentCompatability22
-  1 unexpected (first TS2322 at assignmentCompatability22.ts(2,141)), 1 missing
-compiler/assignmentCompatability23
-  1 unexpected (first TS2322 at assignmentCompatability23.ts(2,141)), 0 missing
-compiler/assignmentCompatability24
-  1 unexpected (first TS2322 at assignmentCompatability24.ts(2,141)), 0 missing
-compiler/assignmentCompatability25
-  1 unexpected (first TS2322 at assignmentCompatability25.ts(2,141)), 0 missing
-compiler/assignmentCompatability26
-  1 unexpected (first TS2322 at assignmentCompatability26.ts(2,141)), 0 missing
-compiler/assignmentCompatability27
-  1 unexpected (first TS2322 at assignmentCompatability27.ts(2,141)), 0 missing
-compiler/assignmentCompatability28
-  1 unexpected (first TS2322 at assignmentCompatability28.ts(2,141)), 0 missing
+  1 missing (first TS2322 at assignmentCompatability22.ts(9,1))
 compiler/assignmentCompatability29
-  1 unexpected (first TS2322 at assignmentCompatability29.ts(2,141)), 1 missing
+  1 missing (first TS2322 at assignmentCompatability29.ts(9,1))
 compiler/assignmentCompatability30
-  1 unexpected (first TS2322 at assignmentCompatability30.ts(2,141)), 1 missing
+  1 missing (first TS2322 at assignmentCompatability30.ts(9,1))
 compiler/assignmentCompatability31
-  1 unexpected (first TS2322 at assignmentCompatability31.ts(2,141)), 1 missing
+  1 missing (first TS2322 at assignmentCompatability31.ts(9,1))
 compiler/assignmentCompatability32
-  1 unexpected (first TS2322 at assignmentCompatability32.ts(2,141)), 1 missing
-compiler/assignmentCompatability33
-  1 unexpected (first TS2322 at assignmentCompatability33.ts(2,141)), 0 missing
-compiler/assignmentCompatability34
-  1 unexpected (first TS2322 at assignmentCompatability34.ts(2,141)), 0 missing
-compiler/assignmentCompatability35
-  1 unexpected (first TS2322 at assignmentCompatability35.ts(2,141)), 0 missing
-compiler/assignmentCompatability36
-  1 unexpected (first TS2322 at assignmentCompatability36.ts(2,141)), 0 missing
-compiler/assignmentCompatability37
-  1 unexpected (first TS2322 at assignmentCompatability37.ts(2,141)), 0 missing
-compiler/assignmentCompatability38
-  1 unexpected (first TS2322 at assignmentCompatability38.ts(2,141)), 0 missing
-compiler/assignmentCompatability39
-  1 unexpected (first TS2322 at assignmentCompatability39.ts(2,141)), 0 missing
-compiler/assignmentCompatability4
-  1 unexpected (first TS2322 at assignmentCompatability4.ts(2,141)), 0 missing
+  1 missing (first TS2322 at assignmentCompatability32.ts(9,1))
 compiler/assignmentCompatability40
-  1 unexpected (first TS2322 at assignmentCompatability40.ts(2,141)), 1 missing
-compiler/assignmentCompatability41
-  1 unexpected (first TS2322 at assignmentCompatability41.ts(2,141)), 0 missing
-compiler/assignmentCompatability42
-  1 unexpected (first TS2322 at assignmentCompatability42.ts(2,141)), 0 missing
-compiler/assignmentCompatability43
-  3 unexpected (first TS2322 at assignmentCompatability43.ts(2,141)), 0 missing
+  1 missing (first TS2322 at assignmentCompatability40.ts(9,1))
 compiler/assignmentCompatability46
   2 missing (first TS2345 at assignmentCompatability46.ts(3,4))
 compiler/assignmentCompatability_checking-apply-member-off-of-function-interface
@@ -212,3 +160,55 @@ compiler/augmentedTypesVar
   1 missing (first TS2403 at augmentedTypesVar.ts(10,5))
 compiler/autoLift2
   8 missing (first TS2339 at autoLift2.ts(5,14))
+compiler/autoTypeAssignedUsingDestructuringFromNeverNoCrash
+  1 missing (first TS2488 at autoTypeAssignedUsingDestructuringFromNeverNoCrash.ts(9,3))
+compiler/avoidListingPropertiesForTypesWithOnlyCallOrConstructSignatures
+  1 unexpected (first TS2322 at avoidListingPropertiesForTypesWithOnlyCallOrConstructSignatures.ts(7,12)), 1 missing
+compiler/awaitCallExpressionInSyncFunction
+  1 unexpected (first TS2304 at awaitCallExpressionInSyncFunction.ts(2,16)), 1 missing
+compiler/awaitUnionPromise
+  1 missing (first TS2322 at awaitUnionPromise.ts(13,11))
+compiler/awaitedType
+  3 missing (first TS2589 at awaitedType.ts(22,12))
+compiler/awaitedTypeNoLib
+  1 missing (first TS2345 at awaitedTypeNoLib.ts(18,27))
+compiler/awaitedTypeStrictNull
+  2 missing (first TS2589 at awaitedTypeStrictNull.ts(22,12))
+compiler/badArrayIndex
+  1 unexpected (first TS1109 at badArrayIndex.ts(1,22)), 2 missing
+compiler/badArraySyntax
+  6 unexpected (first TS1109 at badArraySyntax.ts(6,16)), 6 missing
+compiler/baseCheck
+  2 missing (first TS2554 at baseCheck.ts(17,53))
+compiler/baseClassImprovedMismatchErrors
+  2 unexpected (first TS2415 at baseClassImprovedMismatchErrors.ts(7,7)), 2 missing
+compiler/baseConstraintOfDecorator
+  1 unexpected (first TS2322 at baseConstraintOfDecorator.ts(12,5)), 2 missing
+compiler/baseExpressionTypeParameters
+  1 missing (first TS2562 at baseExpressionTypeParameters.ts(10,27))
+compiler/baseIndexSignatureResolution
+  1 unexpected (first TS2415 at baseIndexSignatureResolution.ts(2,7)), 1 missing
+compiler/baseTypePrivateMemberClash
+  1 unexpected (first TS2430 at baseTypePrivateMemberClash.ts(8,11)), 1 missing
+compiler/bases
+  9 missing (first TS2339 at bases.ts(7,14))
+compiler/bestCommonTypeReturnStatement
+  2 missing (first TS2322 at bestCommonTypeReturnStatement.ts(11,32))
+compiler/betterErrorForUnionCall
+  3 missing (first TS2349 at betterErrorForUnionCall.ts(2,1))
+compiler/bigIntWithTargetLessThanES2016
+  2 missing (first TS2791 at bigIntWithTargetLessThanES2016.ts(1,1))
+compiler/bigintArbirtraryIdentifier
+  7 unexpected (first TS1012 at badExport.ts(1,20)), 9 missing
+compiler/bigintIndex
+  4 missing (first TS2538 at a.ts(8,11))
+compiler/bigintPropertyName
+  34 unexpected (first TS1003 at a.ts(2,5)), 26 missing
+compiler/bigintWithLib
+  11 missing (first TS2350 at bigintWithLib.ts(4,1))
+compiler/bindingPatternCannotBeOnlyInferenceSource
+  5 missing (first TS2571 at bindingPatternCannotBeOnlyInferenceSource.ts(2,7))
+compiler/bitwiseCompoundAssignmentOperators
+  8 missing (first TS2447 at bitwiseCompoundAssignmentOperators.ts(3,3))
+compiler/blockScopedBindingUsedBeforeDef
+  6 missing (first TS2448 at blockScopedBindingUsedBeforeDef.ts(2,12))

@@ -22,7 +22,63 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
-### Current checker checkpoint — direct aliases and const elisions
+### Current checker checkpoint — optional flow, variance and combined intersections
+
+Measured production tree **`c435a6bd`**, against exact published `debb68b6`:
+**459,493/478,855 assertions (95.96%)**, **7,164/9,538 complete cases
+(75.11%)**. The 99% target requires 474,067 matches; **14,574 remain**.
+Pinned native `5b1047d1` and the denominator are unchanged. Aligned verdicts:
+**474,251 total; 459,493 RIGHT; 2,194 GAP; 12,564 WRONG**.
+
+The eight retained units add **42 matches and 14 complete cases**:
+41 WRONG→RIGHT and one GAP→RIGHT, with **zero RIGHT losses, GAP→WRONG,
+or new/removed rows**. Four remaining-WRONG payloads change; these are not gains.
+The multiline-aware combined audit measures the integrated source rather than
+adding worker claims.
+
+Native optional tuple comparisons preserve written undefined versus intrinsic
+missing. JSDoc optional parameters keep their declared write types while actual
+defaults narrow entry reads. Circular variance is non-false during active native
+measurement, distinct from unsupported/depth Unknown, and never publishes a
+top-level circular proof. Direct export priority and four-operand conditional
+inference are native-backed corpus-neutral regression units; mapped member
+controls add no production lookup recovery. Direct exact-optional write reporting
+corrects five expected TS2412 codes without changing assignment acceptance.
+Concrete source intersections now compare combined members, preserving readonly
+and optional metadata and rechecking optional targets after constituent success.
+Generic-source constraint/member synthesis remains a separate boundary (`tsr-tt6`);
+the existing constituent path preserves native-correlated inference there.
+
+Complete diagnostics cover **10,570 cases**, including **5,082 empty baselines**:
+**2,834 → 2,838 RIGHT/5,488**, **4,796 → 4,797 EMPTY_RIGHT**, with **zero
+correct-case or matched-occurrence losses and no new/removed cases**. Expected
+occurrence matches rise **20,596 → 20,606**; extras fall **3,911 → 3,897**.
+Three remaining-WRONG diagnostic payloads change. There are zero introduced
+extra positions, independently checked after removing code from diagnostic identity.
+One existing false guarded self-write at strictOptionalProperties1.ts(16,9)
+changes TS2322 → TS2412: a new extra code identity, but no new false-error site.
+Its presence-flow prerequisite remains `tsr-2i5`; no selector exception hides it.
+
+Configured JSDoc diagnostics remain held (`tsr-8se`): the consumer introduces
+a false TS2322 at jsdocTemplateTag8 a.js(37,1). Indexed-key delegation and
+nil-node recovery remain held (`tsr-wi6`): the last rejected lookup-only audit
+adds a false TS2322 at twiceNestedKeyofIndexInference.ts(32,7). They were not
+retested after this source-intersection prerequisite. Exact optional-source
+object rejection still selects TS2322 instead of native TS2375 (`tsr-npx`).
+
+Concurrent test/report commits through `e1a53848` are preserved. The rebased
+production tree is byte-identical to the audited tree. Parser, binder and all
+four declaration suites are unchanged. **2,688 release workspace tests
+across 232 result blocks**, **17 Python tests**, strict workspace/all-target
+clippy, fmt, **3,403 upstream references** and **16,631 section citations** pass.
+The issue-ID gate still reports **197 missing historical records**; Dolt has no
+configured remote, so local issue updates are not claimed as synced. The real
+Next.js application performance was not rerun. The intersection worker's paired
+shared-orb captures took 590.81 → 647.24 seconds for checker (+9.55%) and
+692.49 → 671.58 seconds for diagnostics (−3.02%); these are not isolated
+performance benchmarks or proof of an attributable regression.
+
+### Previous checker checkpoint — direct aliases and const elisions
 
 Measured on **`e83fac17`**, against published `4bf5fe96`:
 **459,451/478,855 assertions (95.95%)**, **7,150/9,538 complete cases

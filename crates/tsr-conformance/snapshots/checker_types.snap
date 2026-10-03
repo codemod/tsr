@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 7150/9538 (74.96%)
-Assertion lines: 459451/478855 (95.95%)  — a gradient, not a pass rate
-Failed         : 2388
+Passed         : 7164/9538 (75.11%)
+Assertion lines: 459493/478855 (95.96%)  — a gradient, not a pass rate
+Failed         : 2374
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -12,7 +12,7 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 2388 failures:
+First 100 of 2374 failures:
 compiler/ClassDeclaration26
   ClassDeclaration26.ts: 5 assertion(s), expected 6
 compiler/abstractClassInLocalScopeIsAbstract
@@ -69,28 +69,8 @@ compiler/arguments
   arguments.ts: >method : any — expected >method : (args: typeof arguments) => void
 compiler/argumentsAsPropertyName2
   argumentsAsPropertyName2.ts: >[].forEach : (callbackfn: (value: undefined, index: number, array: undefined[]) => void, thisArg?: any) => void — expected >[].forEach : (callbackfn: (value: any, index: number, array: any[]) => void, thisArg?: any) => void
-compiler/argumentsReferenceInConstructor1_Js
-  /a.js: >foo : object — expected >foo : object | undefined
-compiler/argumentsReferenceInConstructor2_Js
-  /a.js: >foo : object — expected >foo : object | undefined
-compiler/argumentsReferenceInConstructor3_Js
-  /a.js: >foo : object — expected >foo : object | undefined
-compiler/argumentsReferenceInConstructor4_Js
-  /a.js: >foo : object — expected >foo : object | undefined
-compiler/argumentsReferenceInConstructor5_Js
-  /a.js: >foo : object — expected >foo : object | undefined
 compiler/argumentsReferenceInFunction1_Js
   index.js: >debuglog : () => any — expected >debuglog : () => string
-compiler/argumentsReferenceInMethod1_Js
-  /a.js: >foo : object — expected >foo : object | undefined
-compiler/argumentsReferenceInMethod2_Js
-  /a.js: >foo : object — expected >foo : object | undefined
-compiler/argumentsReferenceInMethod3_Js
-  /a.js: >foo : object — expected >foo : object | undefined
-compiler/argumentsReferenceInMethod4_Js
-  /a.js: >foo : object — expected >foo : object | undefined
-compiler/argumentsReferenceInMethod5_Js
-  /a.js: >foo : object — expected >foo : object | undefined
 compiler/argumentsUsedInClassFieldInitializerOrStaticInitializationBlock
   argumentsUsedInClassFieldInitializerOrStaticInitializationBlock.ts: >a : any — expected >a : (x?: any) => void
 compiler/arrayBindingPatternOmittedExpressions
@@ -213,3 +193,23 @@ compiler/checkDestructuringShorthandAssigment
   bug25434.js: >Test : ({ b }?: {}) => void — expected >Test : ({ b }?: { b?: string | undefined; }) => void
 compiler/checkInheritedProperty
   checkInheritedProperty.ts: >BaseFactory : new () => Base & { c: string; } — expected >BaseFactory : Base & { c: string; }
+compiler/checkJsTypeDefNoUnusedLocalMarked
+  something.js: >module.exports : any — expected >module.exports : FooFun
+compiler/checkJsdocTypeTagOnExportAssignment1
+  b.js: >a : any — expected >a : import("./a").Foo
+compiler/checkJsdocTypeTagOnExportAssignment2
+  c.js: >b : any — expected >b : import("./a").Foo
+compiler/checkJsdocTypeTagOnExportAssignment5
+  b.js: >a : any — expected >a : import("./a").Foo
+compiler/checkJsdocTypeTagOnExportAssignment6
+  b.js: >a : any — expected >a : import("./a").Foo
+compiler/checkJsdocTypeTagOnExportAssignment8
+  a.js: >{    a: 'a',    b: 'b'} : { a: string; b: string; } — expected >{    a: 'a',    b: 'b'} : { a: string; b: "b"; }
+compiler/checkMergedGlobalUMDSymbol
+  global.d.ts: >THREE : typeof THREE — expected >THREE : typeof import("./global")
+compiler/checkSuperCallBeforeThisAccess
+  checkSuperCallBeforeThisAccess.ts: >e1 : { w: void | 0; } — expected >e1 : { w: void | number; }
+compiler/checkSwitchStatementIfCaseTypeIsString
+  checkSwitchStatementIfCaseTypeIsString.ts: >(v) => {            switch(v) {                case "test": use(this);            }        } : error — expected >(v) => {            switch(v) {                case "test": use(this);            }        } : (v: string) => void
+compiler/checkerInitializationCrash
+  /node_modules/@fullcalendar/core/index.d.ts: >VNode : any — expected >VNode : VNode
