@@ -3517,7 +3517,9 @@ impl Checker<'_, '_> {
         if flags.intersects(TypeFlags::ENUM_LIKE) {
             return self.get_base_type_of_enum_like_type(id);
         }
-        if flags.intersects(TypeFlags::STRING_LITERAL) {
+        if flags.intersects(
+            TypeFlags::STRING_LITERAL | TypeFlags::TEMPLATE_LITERAL | TypeFlags::STRING_MAPPING,
+        ) {
             return self.intrinsics.string;
         }
         if flags.intersects(TypeFlags::NUMBER_LITERAL) {

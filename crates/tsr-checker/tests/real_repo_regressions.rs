@@ -77,6 +77,48 @@ fn incompatible_object_assertions_still_report() {
 }
 
 #[test]
+fn template_assertions_widen_to_string_before_checking_overlap() {
+    assert_eq!(
+        codes(&[(
+            "/a.ts",
+            r#"declare const jobId: string;
+               const progress = `progress:${jobId}` as "progress";
+               const failed = <"failed">`failed:${jobId}`;
+               declare const pattern: `progress:${string}`;
+               const named = pattern as "progress";
+               type Uppercase<S extends string> = intrinsic;
+               declare const upper: Uppercase<string>;
+               const mapped = upper as "lower";"#
+        )]),
+        Vec::<String>::new()
+    );
+}
+
+#[test]
+fn template_assertions_to_non_strings_still_report() {
+    assert_eq!(
+        codes(&[(
+            "/a.ts",
+            r"declare const jobId: string;
+               const invalid = `progress:${jobId}` as number;"
+        )]),
+        vec!["TS2352".to_string()]
+    );
+}
+
+#[test]
+fn template_assignments_keep_their_pattern_type() {
+    assert_eq!(
+        codes(&[(
+            "/a.ts",
+            r#"declare const jobId: string;
+               const invalid: "progress" = `progress:${jobId}`;"#
+        )]),
+        vec!["TS2322".to_string()]
+    );
+}
+
+#[test]
 fn json_default_imports_preserve_the_exported_value_type() {
     assert!(codes(&[("/data.json", r#"{"name":"probe","count":1}"#), ("/a.ts", "import data from './data'; const name: string = data.name; const wrong: string = data.count;")]).contains(&"TS2322".to_string()));
     assert_eq!(
