@@ -285,3 +285,212 @@ fn a_union_containing_a_named_union_keeps_the_origin_spelling() {
         assert_eq!(types.len(), 3, "E.A, E.B, string — members stay flattened");
     });
 }
+
+/// Check the last variable's expression without declaration widening. This
+/// exercises `checkConditionalExpression`'s `UnionReductionSubtype` road.
+fn last_initializer(checker: &mut Checker, statements: &[Statement<'_>]) -> TypeId {
+    let Statement::VariableStatement(statement) = statements.last().expect("a statement") else {
+        panic!("last statement must declare a variable");
+    };
+    let initializer = statement
+        .declaration_list
+        .and_then(|list| list.declarations.first().copied())
+        .and_then(|declaration| declaration.initializer)
+        .expect("an initializer");
+    checker.check_expression(initializer)
+}
+
+#[test]
+fn subtype_elimination_precedes_named_origin_construction() {
+    // Native removeSubtypes compares flattened constituents, then
+    // getUnionTypeWorker restores Choice only when all its members survive.
+    // An unreduced Choice | Rich origin used to gap before comparison.
+    for branches in ["choice : rich", "rich : choice"] {
+        let source = format!(
+            "interface A {{ tag: 'a' }} interface B {{ tag: 'b' }}
+             interface Rich extends A {{ extra: number }}
+             type Choice = A | B;
+             declare const choice: Choice; declare const rich: Rich;
+             const result = true ? {branches};"
+        );
+        with_checker(&source, |checker, bound, statements| {
+            let alias = declared_type_id(checker, bound, statements, 3);
+            let result = last_initializer(checker, statements);
+            assert_eq!(result, alias, "fully surviving members recover the alias identity");
+            assert_eq!(checker.type_to_string(result), "Choice");
+        });
+    }
+}
+
+#[test]
+fn a_partly_removed_named_union_does_not_resurrect_its_alias() {
+    with_checker(
+        "interface Broad { tag: 'a' }
+         interface Narrow extends Broad { extra: number }
+         interface Other { tag: 'b' }
+         type Choice = Narrow | Other;
+         declare const choice: Choice; declare const broad: Broad;
+         const result = true ? choice : broad;",
+        |checker, bound, statements| {
+            let narrow = checker.get_declared_type_of_symbol(
+                bound.symbol_of(statements[1].node_id().unwrap()).unwrap(),
+            );
+            let result = last_initializer(checker, statements);
+            assert_eq!(checker.type_to_string(result), "Broad | Other");
+            let TypeData::Union { types, .. } = &checker.type_of(result).data else {
+                panic!("two survivors must remain");
+            };
+            assert_eq!(types.len(), 2);
+            assert!(!types.contains(&narrow), "the eliminated alias member must stay eliminated");
+        },
+    );
+}
+
+#[test]
+fn disjoint_named_unions_keep_aliases_in_native_union_order() {
+    with_checker(
+        "type Words = 'a' | 'b'; type Numbers = 1 | 2;
+         declare const words: Words; declare const numbers: Numbers;
+         const result = true ? words : numbers;",
+        |checker, _bound, statements| {
+            let result = last_initializer(checker, statements);
+            // Both origins have UNION flags: CompareTypes sorts their alias
+            // names, not their first flattened primitive's flag value.
+            assert_eq!(checker.type_to_string(result), "Numbers | Words");
+            let TypeData::Union { types, .. } = &checker.type_of(result).data else {
+                panic!("origins must retain flattened semantic members");
+            };
+            assert_eq!(types.len(), 4);
+        },
+    );
+}
+
+#[test]
+fn overlapping_named_unions_have_no_denormalized_origin() {
+    with_checker(
+        "type AB = 'a' | 'b'; type BC = 'b' | 'c';
+         declare const ab: AB; declare const bc: BC;
+         const result = true ? ab : bc;",
+        |checker, _bound, statements| {
+            let result = last_initializer(checker, statements);
+            assert_eq!(checker.type_to_string(result), "\"a\" | \"b\" | \"c\"");
+            let TypeData::Union { types, .. } = &checker.type_of(result).data else {
+                panic!("three distinct members");
+            };
+            assert_eq!(types.len(), 3, "shared b must occur once");
+        },
+    );
+}
+
+#[test]
+fn a_named_object_union_survives_beside_an_unrelated_literal() {
+    with_checker(
+        "type Choice = { tag: 'red'; payload: string } | { tag: 'blue'; payload: number };
+         declare const choice: Choice;
+         const result = true ? choice : 'other';",
+        |checker, _bound, statements| {
+            let result = last_initializer(checker, statements);
+            assert_eq!(checker.type_to_string(result), "\"other\" | Choice");
+            let TypeData::Union { types, .. } = &checker.type_of(result).data else {
+                panic!("the origin is not the member set");
+            };
+            assert_eq!(types.len(), 3);
+        },
+    );
+}
+
+#[test]
+fn disjoint_unit_properties_bypass_an_undecidable_protected_relation() {
+    // removeSubtypes' key precheck (checker.go:25970) rejects the pair without
+    // needing isValidOverrideOf for the protected member. The interface sources
+    // deliberately do not take the reducer's separate class-derivation gate.
+    with_checker(
+        "class Red { protected tag: 'red' = 'red' }
+         class Blue { protected tag: 'blue' = 'blue' }
+         interface RedLike extends Red {} interface BlueLike extends Blue {}
+         declare const red: RedLike; declare const blue: BlueLike;
+         const result = true ? red : blue;",
+        |checker, _bound, statements| {
+            let result = last_initializer(checker, statements);
+            assert_eq!(checker.type_to_string(result), "BlueLike | RedLike");
+            let TypeData::Union { types, .. } = &checker.type_of(result).data else {
+                panic!("different unit properties preserve both constituents");
+            };
+            assert_eq!(types.len(), 2);
+        },
+    );
+}
+
+#[test]
+fn an_alias_covering_every_survivor_keeps_its_original_identity() {
+    // Native's one-named-union/no-uncovered-types exit precedes its origin
+    // count check. Requiring every original member to survive loses Choice.
+    with_checker(
+        "interface A { id: number } interface Rich extends A { extra: string }
+         type Choice = A | Rich;
+         declare const choice: Choice; declare const a: A;
+         const result = true ? choice : a;",
+        |checker, bound, statements| {
+            let alias = declared_type_id(checker, bound, statements, 2);
+            let result = last_initializer(checker, statements);
+            assert_eq!(result, alias);
+            assert_eq!(checker.type_to_string(result), "Choice");
+        },
+    );
+}
+
+#[test]
+fn resolved_empty_interfaces_enable_primitive_subtype_elimination() {
+    // String's apparent wrapper is a real prerequisite for the primitive
+    // relation in this one-file harness. Its nonempty member list also ensures
+    // that only Empty, not the source wrapper, licenses primitive candidacy.
+    with_checker(
+        "interface String { length: number }
+         interface Empty {} interface DerivedEmpty extends Empty {}
+         declare const text: string; declare const empty: DerivedEmpty;
+         const result = true ? text : empty;",
+        |checker, _bound, statements| {
+            let empty = annotation_type(checker, statements, 4);
+            let result = last_initializer(checker, statements);
+            assert_eq!(result, empty, "eligibility must not canonicalize the interface to {{}}");
+            assert_eq!(checker.type_to_string(result), "DerivedEmpty");
+        },
+    );
+}
+
+#[test]
+fn signatures_and_indexes_make_zero_property_objects_nonempty() {
+    for (name, body) in [
+        ("CallOnly", "(): number"),
+        ("ConstructOnly", "new(): { n: number }"),
+        ("Indexed", "[key: string]: number"),
+    ] {
+        let source = format!(
+            "interface String {{ length: number }} interface {name} {{ {body} }}
+             declare const text: string; declare const other: {name};
+             const result = true ? text : other;"
+        );
+        with_checker(&source, |checker, _bound, statements| {
+            let result = last_initializer(checker, statements);
+            assert_eq!(checker.type_to_string(result), format!("string | {name}"));
+            let TypeData::Union { types, .. } = &checker.type_of(result).data else {
+                panic!("nonempty objects must not absorb the primitive");
+            };
+            assert_eq!(types.len(), 2);
+        });
+    }
+}
+
+#[test]
+fn resolved_empty_interfaces_do_not_absorb_strict_nullable_types() {
+    for (nullable, expected) in [("null", "Empty | null"), ("undefined", "Empty | undefined")] {
+        let source = format!(
+            "interface Empty {{}} declare const empty: Empty;
+             declare const nullable: {nullable}; const result = true ? nullable : empty;"
+        );
+        with_checker(&source, |checker, _bound, statements| {
+            let result = last_initializer(checker, statements);
+            assert_eq!(checker.type_to_string(result), expected);
+        });
+    }
+}

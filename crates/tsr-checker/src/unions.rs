@@ -1449,7 +1449,10 @@ impl crate::checker::Checker<'_, '_> {
         types: &[crate::types::TypeId],
     ) -> Option<crate::types::TypeId> {
         use crate::relater::Ternary;
-        let literal = self.get_union_type(types);
+        // getUnionTypeWorker reduces the flattened set BEFORE constructing its
+        // named-union origin (checker.go:25684, :25705). A printing decline on
+        // an unreduced origin must not hide a decidable subtype elimination.
+        let literal = self.get_union_type_unprinted(types);
         let constituents = match &self.store.get(literal).data {
             crate::types::TypeData::Union { types, .. } => types.clone(),
             // Zero or one constituent after literal reduction: nothing a
@@ -1492,8 +1495,10 @@ impl crate::checker::Checker<'_, '_> {
         // checker.go:25955). Without it a non-strict `undefined` beside a class
         // instance either got removed (the relater says Related) or declined
         // the whole reduction; upstream keeps it (`generatorTypeCheck22`'s
-        // `Bar | Baz | undefined`). Emptiness is recognised by the printed
-        // `{}` form, the same approximation `intersections.rs` records.
+        // `Bar | Baz | undefined`). Resolve properties, indexes and both
+        // signature kinds for represented objects (isEmptyResolvedType,
+        // checker.go:26481); a zero-property callable is not empty. This is
+        // removal eligibility only, never an empty-object identity rewrite.
         let structured_or_instantiable = crate::flags::TypeFlags::OBJECT
             | crate::flags::TypeFlags::UNION
             | crate::flags::TypeFlags::INTERSECTION
@@ -1507,6 +1512,22 @@ impl crate::checker::Checker<'_, '_> {
         let has_empty_object = constituents.iter().any(|&constituent| {
             matches!(&self.store.get(constituent).data,
                 crate::types::TypeData::Named { text, .. } if text == "{}")
+                || self.store.get(constituent).flags.contains(TypeFlags::OBJECT)
+                    && self
+                        .get_property_names_of_type(constituent)
+                        .is_some_and(|names| names.is_empty())
+                    && self
+                        .get_index_infos_of_type(constituent)
+                        .is_some_and(|infos| infos.is_empty())
+                    && [
+                        crate::signatures::SignatureKind::Call,
+                        crate::signatures::SignatureKind::Construct,
+                    ]
+                    .into_iter()
+                    .all(|kind| {
+                        self.signatures_of_type_kind(constituent, kind)
+                            .is_some_and(|signatures| signatures.is_empty())
+                    })
         });
         // Iterate exactly as upstream does — from the end, re-testing against
         // the surviving list — so removal order cannot differ.
@@ -1539,9 +1560,49 @@ impl crate::checker::Checker<'_, '_> {
                 }
                 continue;
             }
+            // removeSubtypes (checker.go:25970): different unit-valued keys
+            // disqualify a target before the general relation is consulted.
+            // Besides avoiding expensive comparisons, this keeps an unported
+            // member relation from blocking reduction of a disjoint union.
+            let keyed =
+                TypeFlags::OBJECT | TypeFlags::INTERSECTION | TypeFlags::INSTANTIABLE_NON_PRIMITIVE;
+            let key = if self.store.get(source).flags.intersects(keyed) {
+                self.get_property_names_of_type(source).and_then(|names| {
+                    names.into_iter().find_map(|name| {
+                        // A method's value is always an object, never a unit.
+                        // Resolving its signature just to discover that can
+                        // re-enter the return inference building this union.
+                        if self.get_property_of_type(source, &name).is_some_and(|symbol| {
+                            self.binder
+                                .symbols()
+                                .get(symbol)
+                                .flags
+                                .contains(tsr_binder::SymbolFlags::METHOD)
+                        }) {
+                            return None;
+                        }
+                        let ty = self.get_type_of_property_of_type(source, &name)?;
+                        self.store
+                            .get(ty)
+                            .flags
+                            .intersects(TypeFlags::UNIT)
+                            .then(|| (name, self.get_regular_type_of_literal_type(ty)))
+                    })
+                })
+            } else {
+                None
+            };
             let mut remove = false;
             for &target in &kept {
                 if target == source {
+                    continue;
+                }
+                if let Some((name, key_type)) = &key
+                    && self.store.get(target).flags.intersects(keyed)
+                    && let Some(target_key) = self.get_type_of_property_of_type(target, name)
+                    && self.store.get(target_key).flags.intersects(TypeFlags::UNIT)
+                    && self.get_regular_type_of_literal_type(target_key) != *key_type
+                {
                     continue;
                 }
                 // §357: upstream removes a class-instance source only when it
@@ -1597,7 +1658,69 @@ impl crate::checker::Checker<'_, '_> {
                 kept.remove(i);
             }
         }
-        Some(self.get_union_type(&kept))
+        Some(self.subtype_union_from_sorted_list(kept, types))
+    }
+
+    /// getUnionTypeWorker's post-reduction origin (checker.go:25705). A single
+    /// alias covering every survivor is retained, even if its original member
+    /// list has redundancy. Other origins require exact, non-overlapping counts.
+    fn subtype_union_from_sorted_list(&mut self, kept: Vec<TypeId>, source: &[TypeId]) -> TypeId {
+        let mut named = Vec::new();
+        self.add_named_unions(&mut named, source);
+        let mut entries: Vec<_> = kept
+            .iter()
+            .copied()
+            .filter(|part| {
+                !named.iter().any(|&id| {
+                    matches!(&self.store.get(id).data, TypeData::Union { types, .. }
+                        if types.contains(part))
+                })
+            })
+            .collect();
+        if named.len() == 1 && entries.is_empty() {
+            return named[0];
+        }
+        let named_count: usize = named
+            .iter()
+            .map(|&id| match &self.store.get(id).data {
+                TypeData::Union { types, .. } => types.len(),
+                _ => 0,
+            })
+            .sum();
+        if !named.is_empty() && named_count + entries.len() == kept.len() {
+            entries.extend(named);
+            entries.sort_by(|&a, &b| self.compare_types(a, b));
+            let text = format_union_types(&self.store, &entries).join(" | ");
+            let built =
+                create_union_with_text(&mut self.store, TypeFlags::empty(), kept, None, Some(text));
+            self.union_origin.entry(built).or_insert(entries);
+            return built;
+        }
+        self.get_union_type_from_sorted_list(kept, TypeFlags::empty(), None)
+    }
+
+    /// addNamedUnions (checker.go:25824): aliases are atomic entries; a union
+    /// origin is traversed, while a non-union origin keeps its enclosing union.
+    fn add_named_unions(&self, named: &mut Vec<TypeId>, source: &[TypeId]) {
+        for &id in source {
+            let TypeData::Union { symbol, .. } = &self.store.get(id).data else { continue };
+            let origin = self.union_origin.get(&id);
+            if symbol.is_some_and(|symbol| {
+                self.binder
+                    .symbols()
+                    .get(symbol)
+                    .flags
+                    .contains(tsr_binder::SymbolFlags::TYPE_ALIAS)
+            }) || origin.is_some_and(|entries| {
+                entries.len() == 1 && !self.store.get(entries[0]).flags.contains(TypeFlags::UNION)
+            }) {
+                if !named.contains(&id) {
+                    named.push(id);
+                }
+            } else if let Some(entries) = origin {
+                self.add_named_unions(named, entries);
+            }
+        }
     }
 
     /// §453's excess test: any member NAME of the fresh literal `source` that
