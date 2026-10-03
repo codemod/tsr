@@ -167,3 +167,35 @@ export const twoD = two.d;
         assert!(lines.iter().any(|line| line == wanted), "missing {wanted}: {lines:?}");
     }
 }
+
+#[test]
+fn indexed_callbacks_retain_native_negative_diagnostics_and_concrete_values() {
+    // Nil-node unknown recovery must not publish incomplete projections as
+    // usable callback types: it previously erased both assignment errors.
+    let source = r#"// @strict: true
+declare function missing<T extends Record<string, unknown>>(value: T, consume: (item: T["missing"]) => void): T;
+missing({ present: 1 }, missingValue => {
+    const rejected: string = missingValue;
+});
+declare function known<T extends { present: unknown }>(value: T, consume: (item: T["present"]) => void): T;
+known({ present: true }, knownValue => {
+    const rejected: string = knownValue;
+});
+declare const ordinary: { present: number };
+ordinary.absent;
+declare const dynamic: any;
+export const anyAccess = dynamic.absent;
+"#;
+    let case = TestCase::parse("probe/indexed-callback-diagnostics", "fixture.ts", source);
+    let mut diagnostics: Vec<_> = tsr_conformance::diagnostics_suite::reported_for(&case)
+        .iter()
+        .map(|diagnostic| (diagnostic.line, diagnostic.column, diagnostic.code))
+        .collect();
+    diagnostics.sort_unstable();
+    // TestCase removes the directive line; native sites are lines 4, 8, 11.
+    assert_eq!(diagnostics, [(3, 11, 2322), (7, 11, 2322), (10, 10, 2339)]);
+    let lines = lines_for_source(source);
+    for wanted in ["knownValue : boolean", "anyAccess : any"] {
+        assert!(lines.iter().any(|line| line == wanted), "missing {wanted}: {lines:?}");
+    }
+}
