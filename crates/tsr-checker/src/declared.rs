@@ -5004,6 +5004,21 @@ impl<'a> Checker<'a, '_> {
             Num(f64),
             Str(String),
         }
+        // jsnum.Number.toInt32 (jsnum.go:52): truncate, then wrap modulo
+        // 2^32. Rust's float-to-int cast saturates instead and is not the
+        // language's conversion. Non-finite values map to zero.
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            clippy::cast_possible_wrap,
+            reason = "ECMAScript ToInt32 truncates, wraps modulo 2^32, and reinterprets the sign bit"
+        )]
+        fn to_int32(value: f64) -> i32 {
+            if !value.is_finite() {
+                return 0;
+            }
+            value.trunc().rem_euclid(4_294_967_296.0) as u32 as i32
+        }
         // §55: fold the member's value. Identifier and same-enum
         // qualified references reach PRIOR members only.
         fn eval(
@@ -5016,12 +5031,23 @@ impl<'a> Checker<'a, '_> {
                     n.text.parse::<f64>().ok().map(MemberValue::Num)
                 }
                 tsr_ast::Expression::StringLiteral(s) => Some(MemberValue::Str(s.text.to_string())),
+                tsr_ast::Expression::NoSubstitutionTemplateLiteral(s) => {
+                    Some(MemberValue::Str(s.text.to_string()))
+                }
+                // evaluator.NewEvaluator always skips outer parentheses,
+                // but deliberately does not skip assertions/satisfies.
+                tsr_ast::Expression::ParenthesizedExpression(p) => {
+                    eval(p.expression.as_ref()?, enum_name, folded)
+                }
                 tsr_ast::Expression::PrefixUnaryExpression(u) => {
                     let inner =
                         u.operand.as_ref().and_then(|operand| eval(operand, enum_name, folded))?;
                     match (&inner, u.operator.kind) {
                         (MemberValue::Num(n), SyntaxKind::MinusToken) => Some(MemberValue::Num(-n)),
                         (MemberValue::Num(n), SyntaxKind::PlusToken) => Some(MemberValue::Num(*n)),
+                        (MemberValue::Num(n), SyntaxKind::TildeToken) => {
+                            Some(MemberValue::Num(f64::from(!to_int32(*n))))
+                        }
                         _ => None,
                     }
                 }
@@ -5048,19 +5074,13 @@ impl<'a> Checker<'a, '_> {
                     let (MemberValue::Num(a), MemberValue::Num(b)) = (&left, &right) else {
                         return None;
                     };
-                    #[expect(
-                        clippy::cast_possible_truncation,
-                        reason = "upstream's bitwise ops are defined on int32, per the language"
-                    )]
-                    let (ia, ib) = (*a as i32, *b as i32);
+                    let (ia, ib) = (to_int32(*a), to_int32(*b));
                     // The shift count is masked to 0..=31 first, so the `u32`
-                    // conversion cannot lose a sign; `>>>` is defined on the
-                    // unsigned reinterpretation and wraps back, which is the
-                    // language's own semantics rather than an accident.
+                    // conversion cannot lose a sign. `>>>` reinterprets its
+                    // left operand as unsigned and retains the unsigned result.
                     #[expect(
                         clippy::cast_sign_loss,
-                        clippy::cast_possible_wrap,
-                        reason = "ECMAScript shift semantics: masked count, int32 <-> uint32 reinterpretation"
+                        reason = "ECMAScript shift semantics: masked count and unsigned reinterpretation"
                     )]
                     let value = match token.kind {
                         SyntaxKind::PlusToken => a + b,
@@ -5079,7 +5099,7 @@ impl<'a> Checker<'a, '_> {
                             f64::from(ia.wrapping_shr((ib & 31) as u32))
                         }
                         SyntaxKind::GreaterThanGreaterThanGreaterThanToken => {
-                            f64::from(((ia as u32) >> ((ib & 31) as u32)) as i32)
+                            f64::from((ia as u32) >> ((ib & 31) as u32))
                         }
                         _ => return None,
                     };
@@ -5095,6 +5115,22 @@ impl<'a> Checker<'a, '_> {
                     }
                     let member_name = match access.name {
                         Some(tsr_ast::MemberName::Identifier(n)) => n.text,
+                        _ => return None,
+                    };
+                    folded.iter().rev().find(|(n, _)| n == member_name).and_then(|(_, v)| v.clone())
+                }
+                // evaluateEntity (checker.go:24060) accepts only a written
+                // string-literal-like element name, not a computed key value.
+                tsr_ast::Expression::ElementAccessExpression(access) => {
+                    let Some(tsr_ast::Expression::Identifier(receiver)) = access.expression else {
+                        return None;
+                    };
+                    if receiver.text != enum_name {
+                        return None;
+                    }
+                    let member_name = match access.argument_expression {
+                        Some(tsr_ast::Expression::StringLiteral(s)) => s.text,
+                        Some(tsr_ast::Expression::NoSubstitutionTemplateLiteral(s)) => s.text,
                         _ => return None,
                     };
                     folded.iter().rev().find(|(n, _)| n == member_name).and_then(|(_, v)| v.clone())

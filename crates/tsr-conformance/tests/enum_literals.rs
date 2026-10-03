@@ -275,3 +275,82 @@ export const indirect = Constant[key];
         ],
     );
 }
+
+#[test]
+fn constant_enum_expressions_reuse_the_first_value_member() {
+    // evaluator.NewEvaluator skips parentheses and folds ~; evaluateEntity
+    // accepts string-literal-like element names. constEnums.types supplies the
+    // same first-value-member expectation for W3/W4/W5.
+    expect(
+        r"// @strict: true
+enum E {
+    Base = 100,
+    Negative = -2,
+    Ref = E['Base'],
+    TemplateRef = E[`Base`],
+    Wrapped = (~1),
+    Text = 'word',
+    TemplateText = `word`,
+    ComputedKey = E['Ba' + 'se'],
+    Asserted = (100 as number),
+}
+const referenced = E.Ref;
+const templateReferenced = E.TemplateRef;
+const parenthesized = E.Wrapped;
+const templateText = E.TemplateText;
+const computedKey = E.ComputedKey;
+const asserted = E.Asserted;
+",
+        &[
+            "referenced : E.Base",
+            "templateReferenced : E.Base",
+            "parenthesized : E.Negative",
+            "templateText : E.Text",
+            "computedKey : E.ComputedKey",
+            "asserted : E.Asserted",
+        ],
+    );
+}
+
+#[test]
+fn constant_enum_bitwise_operations_use_javascript_integer_conversion() {
+    // Independent expected values follow jsnum.Number's ToInt32, ToUint32,
+    // and five-bit shift-count rules, not Rust's saturating float casts.
+    expect(
+        r"// @strict: true
+enum E {
+    Zero = 0, One = 1, MinusOne = -1,
+    UnsignedMax = 4294967295, SignedMax = 2147483647, SignedMin = -2147483648,
+    Wrapped = 4294967296 | 0,
+    NegativeWrapped = -4294967297 | 0,
+    Unsigned = -1 >>> 0,
+    Shift = -1 >>> 33,
+    Complement = ~4294967296,
+    Infinite = (1 / 0) | 0,
+    NotANumber = (0 / 0) | 0,
+    Fractional = 4294967297.9 | 0,
+    SignBoundary = 2147483648 | 0,
+}
+const wrapped = E.Wrapped;
+const negativeWrapped = E.NegativeWrapped;
+const unsigned = E.Unsigned;
+const shifted = E.Shift;
+const complement = E.Complement;
+const infinite = E.Infinite;
+const notANumber = E.NotANumber;
+const fractional = E.Fractional;
+const signBoundary = E.SignBoundary;
+",
+        &[
+            "wrapped : E.Zero",
+            "negativeWrapped : E.MinusOne",
+            "unsigned : E.UnsignedMax",
+            "shifted : E.SignedMax",
+            "complement : E.MinusOne",
+            "infinite : E.Zero",
+            "notANumber : E.Zero",
+            "fractional : E.One",
+            "signBoundary : E.SignedMin",
+        ],
+    );
+}

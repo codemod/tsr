@@ -153,3 +153,39 @@ Mutation logs: /tmp/tsr-99-enum-mutation-{flags,inference,specialized,context,lo
 Review receipt: /tmp/compound-engineering-501/ce-code-review/enum-literals/review.json.
 
 All six focused tests pass after restoration: /tmp/tsr-99-enum-restored-tests.log.
+
+## Constant-expression completion after 8f8f4e1a
+
+The per-enum duplicate-value cache already reuses the first member, but a
+constant never reaches that cache when the evaluator rejects its expression.
+The `constEnums` native baseline exposes this for same-enum literal element
+references. The bounded extension follows pinned `evaluator.NewEvaluator`
+(`internal/evaluator/evaluator.go:24`): skip parentheses, accept no-substitution
+template text, and fold unary complement. `evaluateEntity`
+(`checker.go:24024`) admits written string-literal-like element names; computed
+key expressions and assertions deliberately remain unevaluated.
+
+The same evaluator used Rust's saturating float-to-i32 conversion for bitwise
+operators. Native `jsnum.Number.toInt32` (`internal/jsnum/jsnum.go:52`) instead
+truncates and wraps modulo 2^32, mapping nonfinite inputs to zero. Unsigned
+right shift retains a uint32 result instead of converting it back to signed.
+An enum-local helper implements that conversion without changing general
+numeric spelling or the expression-checking and alias-instantiation workers'
+separate responsibilities.
+
+Two focused tests failed against the baseline and pass with the extension.
+They distinguish literal from computed element keys, parentheses from type
+assertions, positive and negative overflow, signed and unsigned boundaries,
+fractional truncation, shift-count masking, and nonfinite inputs. Expected
+bitwise values follow the pinned jsnum operations independently of the Rust
+implementation; a fresh native executable was not available in this orb.
+The complete enum suite passes 9/9. Cross-enum/imported constants, mixed
+string-number concatenation, and interpolated templates remain outside this
+bounded evaluator extension.
+
+The exact-base full scorepair moves 458,022 → 458,048 RIGHT among 474,244
+aligned rows: 26 WRONG→RIGHT (`constEnums` 13,
+`isolatedDeclarationErrorsEnums` 9, `constEnumPropertyAccess3` 4). GAP stays
+2,445 and WRONG falls to 13,751. Independent multiline row comparison finds
+zero RIGHT losses, added/removed rows, or same-verdict payload changes. This
+is the enum unit alone, not a sum with other workers' reported gains.
