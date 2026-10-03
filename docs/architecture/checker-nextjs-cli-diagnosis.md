@@ -6,8 +6,49 @@ evidence. Its implementation follow-up is recorded next.
 ## Implementation follow-up
 
 The follow-up fixes tsr-6.3.1, tsr-6.44, tsr-6.45 and tsr-6.46.
-The final numerical checkpoint is recorded after committing the source so that
-its measurements identify an exact compiler SHA.
+Measured at **6b42bfb5** against pinned tsgo
+`5b1047d10d32e7d5b446be4de56b126ff42f82bb`:
+
+- Assertions: **457,641/478,855 (95.57%)**; cases **7,021/9,538**.
+- Aligned verdicts: **457,641 RIGHT / 2,538 GAP / 14,064 WRONG**.
+- Compared with e6812e01: **48 RIGHT gains**, zero RIGHT losses,
+  five GAP-to-WRONG imported-name rows and nine changed already-WRONG rows.
+- Diagnostics corpus: **2,790/5,488**; binder **8,497/8,497**.
+- Full app: **130 TSR diagnostics**, versus **zero pinned-native diagnostics**.
+  All 13 prior subset false positives are cleared.
+
+The exact no-argument cargo command below took **30.004 seconds including a
+release rebuild**; cargo reported **21.37 seconds** for that build. A separate
+rebuild-free binary run completed in **7.760 seconds**, with the same 130
+diagnostics. Native completed in **3.325 seconds**. Pre-fix current-source checks were stopped after several
+minutes without a completed diagnostic pass; those historical measurements
+remain below. Builds and competing verification workloads must not be folded
+into a checker-only performance claim.
+
+```sh
+cd /Users/mohebifar/dev/codemod/app/apps/nextjs
+cargo run --release --manifest-path /Users/mohebifar/dev/tsr/Cargo.toml --bin tsr
+```
+
+The separate `/Users/mohebifar/dev/codemod/tsr` checkout was preserved for the
+user's concurrent agents; pull main there before using its manifest.
+
+| Remaining category at 6b42bfb5 | Codes | Count |
+|---|---|---:|
+| Assignment and argument comparison | TS2322, TS2345 | 58 |
+| Nullable/indexed access | TS18048, TS18047, TS2531 | 30 |
+| Imported/member lookup | TS2339 | 15 |
+| Comparison overlap | TS2367 | 10 |
+| Missing checker diagnostics under expect-error | TS2578 | 8 |
+| Callback context | TS7006 | 4 |
+| Export lookup and type-only use-site meaning | TS2305, TS1361 | 4 |
+| Array assertion overlap | TS2352 | 1 |
+
+These counts total the fresh full pass, not the older unversioned 196-error log.
+The remaining diagnostics and missing directive-covered errors are tracked by
+tsr-6.47. Release workspace tests, four CLI controls, clippy and formatting pass.
+Upstream-reference and section checks pass; the issue-id gate retains the
+historical unresolved-citation backlog (tsr-10).
 
 The blocking constructor is `new McpServer` in
 `packages/api/src/entries/hono/grep-mcp/server.ts`. Its `Implementation` parameter

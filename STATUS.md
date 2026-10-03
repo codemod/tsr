@@ -22,17 +22,40 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
-### Next.js integration fixes — implementation follow-up
+### Current checker checkpoint — Next.js integration
 
-The Next.js follow-up addresses error-like any expansion in recursive
-constructor types, external declaration-file import visibility, JSON module
-symbols and value types, CLI comment directives, and assertion regularization
-and widening. The exact committed-source measurement follows this code delivery.
-[CLI diagnosis and implementation](docs/architecture/checker-nextjs-cli-diagnosis.md)
-records native sites and the tested boundaries. Ambient namespace alias
-visibility remains tracked separately in tsr-6.44.1.
+Measured on **`6b42bfb5`**, based on 2004d00d: **457,641/478,855 assertions
+(95.57%)**, **7,021/9,538 complete cases (73.61%)**. The 99% target requires
+474,067 correct assertions; **16,426 remain**. Pinned oracle and denominator
+unchanged. Aligned verdicts: **474,243 total; 457,641 right; 2,538 gap; 14,064
+wrong**. Diagnostics **2,790/5,488**, six more complete cases. Binder remains
+**8,497/8,497 (100%)** at this source commit.
 
-### Current checker checkpoint — 2026-10-02
+The port gains **48 matching assertions and two complete cases** against
+e6812e01: 25 WRONG-to-RIGHT, 23 GAP-to-RIGHT, **zero RIGHT losses**. Five
+GAP-to-WRONG rows expose imported-class/return-alias naming in a workspace
+package fixture; tsr-6.44.2 tracks the remaining consuming-site rendering.
+Nine already-WRONG rows also change. The performance guard alone leaves every
+aligned verdict row unchanged; its value is finishing the real project.
+
+The full Next.js CLI check now completes in **7.760s without rebuilding**, with
+**130 diagnostics**; pinned tsgo completes in **3.325s with zero diagnostics**. The 13 previously isolated module/assertion errors are cleared.
+Error-like any expansion in the MCP recursive constructor is bounded,
+external declaration-file imports stay local, JSON imports preserve member
+types, the CLI honors comment directives and side-effect JS imports, and
+assertions compare regular and widened object forms as native does.
+[Implementation and comparison](docs/architecture/checker-nextjs-cli-diagnosis.md)
+records timings, categories, native sites and boundaries. Ambient namespace
+alias visibility remains in tsr-6.44.1; broader app flow/inference mismatches
+remain in tsr-6.47. The package follow-up parent tsr-6.44 stays open for its
+remaining child tasks; tsr-6.3.1, tsr-6.45 and tsr-6.46 are closed.
+
+Release workspace tests (220 result blocks), four CLI integration controls,
+clippy, formatting, 3,358 upstream references and 16,638 section citations pass.
+The issue-id gate retains 190 historical unresolved IDs with the Dolt CLI,
+tracked in tsr-10. Concurrent checkout work and local configuration were preserved.
+
+### Previous checker checkpoint — assignment conditions
 
 Measured on **`e6812e01`**, based on 5ca50fea: **457,593/478,855 assertions
 (95.56%)**, **7,019/9,538 complete cases (73.59%)**. The 99% target requires
@@ -1343,6 +1366,19 @@ rendering `any` for `errorType` (ADR-0038).
 ---
 
 ## 4. What is next — the scored board
+
+### Next.js follow-up at `6b42bfb5` — 2026-10-02
+
+The full app completes; 130 diagnostics remain against a clean pinned-native
+check. Prioritize contextual/structural assignment and argument comparisons
+(58), nullable/indexed access (30), imported members (15), comparisons (10),
+missing diagnostics beneath expect-error directives (8), callback context (4),
+module meaning/export lookup (4), and array assertion overlap (1). These are
+fresh full-project measurements at this SHA, replacing the unversioned
+historical 196-error log as the backlog evidence. Track in tsr-6.47.
+Ambient namespace imports and inferred module-qualified class names remain
+separate follow-ups (tsr-6.44.1 and tsr-6.44.2).
+
 
 ### Conditional chains note at `e68ea2ed` — 2026-10-02 (tsr-6.3/tsr-6.23)
 
@@ -4577,6 +4613,24 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+### Recursive error recovery and ambient alias scope — `6b42bfb5`
+
+The conditional evaluator's early error return must preserve the port's
+written-reference fallback. Returning intrinsic error instead of declining
+evaluation lost existing native conditional assertions and was rejected.
+Regularization alone also left the empty-object assertion control red;
+native's widened reverse comparison is required.
+
+The namespace-wide import-visibility candidate exposed unsupported deferred
+alias recovery in ramdaToolsNoInfinite2 and namespace naming/privacy fixtures.
+It failed the existing native fresh-signature regression. The shipped binder
+change ports the source-file arm only; the ambient namespace extension remains
+tracked in tsr-6.44.1. Recovery must be repaired before widening this scope.
+The final package candidate has zero RIGHT losses but five newly exposed
+GAP-to-WRONG imported-name rows (tsr-6.44.2); these are recorded, not treated as
+successful naming coverage.
+
 
 ### Assignment-condition composition at `5ca50fea` — corrected in `e6812e01`
 
@@ -10916,6 +10970,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
+| 2026-10-02 | `6b42bfb5` | **73.61%** | **7,021** | **457,641/478,855 assertions (95.57%).** +48 assertions, +2 cases, zero RIGHT losses; 25W→R, 23G→R, 5G→W naming rows, 9 changed W→W. | Error-like any guard ends MCP constructor expansion; package alias exports, JSON value modules, CLI comment directives/side-effect imports, native regular/widened assertion comparison. 130 full-app diagnostics remain versus native zero; targeted 13 cleared. Diagnostics 2,790/5,488, binder 100%; workspace tests, four CLI controls, clippy, fmt and citation gates verified. 16,426 remain to 99%. |
 | 2026-10-02 | `cd658415` | **72.50%** | **6,915** | **455,889/478,855 assertions (95.20%).** +14 since 9afcc9f3, +2 cases, zero RIGHT losses/new WRONG rows; 14W→R and 14 changed W→W. | Native primitive/unknown generic assignability with conditional deferral. Three relation tests and 11 conformance assertions; 212 workspace blocks, clippy, 3330 anchors; isolated verdict/source match. Fresh-signature and subtype prerequisites measured and deferred. 18,178 remain to 99%. |
 | 2026-10-02 | `9afcc9f3` | **72.48%** | **6,913** | **455,875/478,855 assertions (95.20%).** +2 since f557e254, zero RIGHT losses/new WRONG rows; 2W→R. | Native contextual initializer widening and optional/default comparison. 18 native outcomes; 211 workspace blocks, clippy, 3330 anchors; isolated verdict/source match. Broad contextual mapper deferred after 32 RIGHT losses. 18,192 remain to 99%. |
 | 2026-10-02 | `f557e254` | **72.48%** | **6,913** | **455,873/478,855 assertions (95.20%).** +35 since 0ba7ce80, zero RIGHT losses/new WRONG rows; 35W→R, 2 changed WRONG. | Dependent candidate constraints and native const signature tuples; blanket readonly transform removed. 22 native outcomes; 210 workspace blocks, clippy, 3330 anchors; isolated verdict/source match. 18,194 remain to 99%. |
