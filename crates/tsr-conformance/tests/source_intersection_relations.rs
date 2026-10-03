@@ -129,3 +129,78 @@ const second = <T extends { commonProperty: number; otherProperty: number }>(val
         &["second(withOther) : { commonProperty: number; otherProperty: number; }"],
     );
 }
+
+#[test]
+fn object_bounded_intersections_prove_combined_members_and_keep_inferred_candidates() {
+    for exact in [false, true] {
+        let source = format!(
+            r#"// @strict: true
+// @target: es2015
+// @exactOptionalPropertyTypes: {exact}
+interface State {{ a: string; d: boolean }}
+const identity = <T extends {{ a: string; d: boolean }}>(value: T) => value;
+export function bounded<T extends {{ a: string; tag: number }}>(value: T & {{ d: boolean }}) {{
+    const check: State = value;
+    return identity(value);
+}}
+export function reversed<T extends {{ a: string; tag: number }}>(value: {{ d: boolean }} & T) {{
+    const check: State = value;
+    return identity(value);
+}}
+export function requiredWins<T extends {{ a?: string }}>(value: T & {{ a: "ok" }} & {{ d: boolean }}) {{
+    const check: State = value;
+    return check;
+}}
+"#
+        );
+        expect(
+            &source,
+            &["identity(value) : T & { d: boolean; }", "identity(value) : { d: boolean; } & T"],
+        );
+        let case = TestCase::parse("probe/bounded-intersection", "fixture.ts", &source);
+        assert!(diagnostics_suite::reported_for(&case).is_empty(), "exact={exact}");
+    }
+}
+
+#[test]
+fn object_bounds_do_not_erase_missing_values_or_optional_source_requirements() {
+    for exact in [false, true] {
+        let source = format!(
+            r"// @strict: true
+// @exactOptionalPropertyTypes: {exact}
+interface State {{ a: string; d: boolean }}
+interface RequiredAny {{ a: any; d: boolean }}
+function missing<T extends {{ tag: number }}>(value: T & {{ d: boolean }}) {{ const check: State = value; }}
+function wrong<T extends {{ a: number }}>(value: T & {{ d: boolean }}) {{ const check: State = value; }}
+function reversed<T extends {{ a: number }}>(value: {{ d: boolean }} & T) {{ const check: State = value; }}
+function optional<T extends {{ a?: string }}>(value: T & {{ d: boolean }}) {{ const check: RequiredAny = value; }}
+"
+        );
+        let case = TestCase::parse("probe/bounded-intersection-negative", "fixture.ts", &source);
+        let mut actual: Vec<_> = diagnostics_suite::reported_for(&case)
+            .into_iter()
+            .map(|diagnostic| (diagnostic.line, diagnostic.column, diagnostic.code))
+            .collect();
+        actual.sort_unstable();
+        assert_eq!(
+            actual,
+            [(3, 80, 2322), (4, 76, 2322), (5, 79, 2322), (6, 80, 2322)],
+            "exact={exact}"
+        );
+    }
+}
+
+#[test]
+fn unsupported_combined_members_do_not_accept_an_inference_candidate() {
+    expect(
+        r"// @strict: true
+// @target: es2015
+class NominalState { protected a!: string; d!: boolean }
+const identity = <T extends NominalState>(value: T) => value;
+export function unknownProof<T extends { a: string }>(value: T & { d: boolean }) {
+    return identity(value);
+}
+",
+        &["identity(value) : NominalState"],
+    );
+}

@@ -1958,12 +1958,7 @@ impl Relater<'_, '_, '_> {
                 }
                 return result;
             }
-            // Generic source intersections still need native constraint/member
-            // synthesis before combining their object members. Preserve the
-            // existing constituent path for that separately unsupported boundary.
-            if !self.has_members(target)
-                || self.checker.spread_generic_flags(source, &mut Vec::new()).0
-            {
+            if !self.has_members(target) {
                 return result;
             }
             Some(result)
@@ -2116,6 +2111,29 @@ impl Relater<'_, '_, '_> {
         if self.is_pure_signature_type(source) && self.is_pure_signature_type(target) {
             return self.related_signatures(source, target).unwrap_or(RelationResult::Unknown);
         }
+        // Native's late apparent-source phase (relater.go:3814) combines an
+        // intersection's instantiable constraints before comparing members.
+        // A union-shaped apparent source does not re-enter union dispatch here;
+        // the structural gate only admits objects and intersections. Open
+        // generic mapped members still need native synthesis; retain their
+        // constituent verdict instead of exposing unsupported Unknown to calls.
+        let generic_source = source_intersection_result.is_some()
+            && self.checker.spread_generic_flags(source, &mut Vec::new()).0;
+        let source = if let Some(intersection_result) = source_intersection_result {
+            let apparent = self.checker.apparent_type(source);
+            if !self
+                .checker
+                .type_of(apparent)
+                .flags
+                .intersects(TypeFlags::OBJECT | TypeFlags::INTERSECTION)
+                || self.checker.spread_generic_flags(apparent, &mut Vec::new()).0
+            {
+                return intersection_result;
+            }
+            apparent
+        } else {
+            source
+        };
         // relateVariances (internal/checker/relater.go): shared reference
         // targets compare their arguments in the measured directions. Marker
         // instances and an active recursive measurement compare structurally.
@@ -2216,6 +2234,12 @@ impl Relater<'_, '_, '_> {
             let indexes =
                 self.related_index_signatures(source, target).unwrap_or(RelationResult::Unknown);
             let result = RelationResult::all([properties, signatures, indexes]);
+            // Only a completed comparison widens the generic source boundary.
+            // Unsupported members (e.g. protected-target checks) must not turn
+            // its previous constituent rejection into a non-false inference.
+            if generic_source && result == RelationResult::Unknown {
+                return source_intersection_result.unwrap();
+            }
             return RelationResult::any(source_intersection_result.into_iter().chain([result]));
         }
         // Reached only by a type whose *flags* say union or intersection while
