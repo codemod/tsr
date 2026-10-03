@@ -336,12 +336,12 @@ impl TypeStore {
     /// `isFreshLiteralType` the way pointer identity does upstream. They print
     /// the same string, exactly as `anyType` and `errorType` do.
     pub fn intern_literal(&mut self, flags: TypeFlags, data: TypeData, fresh: bool) -> TypeId {
-        if let Some(&existing) = self.interned.get(&(flags, data.clone(), fresh)) {
-            return existing;
-        }
-        let id = self.push(Type { flags, data: data.clone(), fresh });
-        self.interned.insert((flags, data, fresh), id);
-        id
+        let types = &mut self.types;
+        *self.interned.entry((flags, data, fresh)).or_insert_with_key(|(flags, data, fresh)| {
+            let id = TypeId(u32::try_from(types.len()).expect("type count fits in u32"));
+            types.push(Type { flags: *flags, data: data.clone(), fresh: *fresh });
+            id
+        })
     }
 
     /// Create or reuse a union type.

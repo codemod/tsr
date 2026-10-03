@@ -1,0 +1,1495 @@
+{
+  "kind": "TypeStore owned-payload clone-site accounting, not allocator totals or a speed claim",
+  "source": {
+    "source": "39fcbfc1366d97b6f46d9ee42cbfc293de4929ee",
+    "baseline_sha256": "f17379ff4b67b268e7893e060ac7872212e69d1cc8572f2f9b5803164cbd0c68",
+    "original": {
+      "crates/tsr-checker/src/types.rs": "390b268fca40b4eae8afa39f787238a7197ec23c9a26e3218977c6f3f58fd5c7",
+      "crates/tsr-execute/src/compile.rs": "129d3c400d9e054048682ae81b8a7edb8703b32c16475223bf5233770e91a11d"
+    },
+    "instrumented": {
+      "crates/tsr-checker/src/types.rs": "95cc29d180dd7be90c0c04d33d0cc1e5a182be4f0e8f973ce43a6a0bc928e9d4",
+      "crates/tsr-execute/src/compile.rs": "eac7ce560af8b2d4299e3393af872d808043eb0d558984ae63e74d3ac5a44ccc"
+    }
+  },
+  "native_source": "5b1047d10d32e7d5b446be4de56b126ff42f82bb",
+  "native_anchors": [
+    "getStringLiteralType",
+    "getNumberLiteralType",
+    "getBigIntLiteralType",
+    "getFreshTypeOfLiteralType",
+    "getUnionTypeFromSortedList",
+    "getIntersectionTypeEx"
+  ],
+  "probe_sha256": "403c85263ab5ad8c8833ea1438fd93e26d9f59ad9f76e2538e010cb0fac3818d",
+  "columns": [
+    "intern_calls",
+    "hits",
+    "misses",
+    "lookup_clone_payload_bytes",
+    "miss_clone_payload_bytes",
+    "intern_clone_nonempty_buffers",
+    "complete_object_clones",
+    "complete_object_clone_payload_bytes",
+    "complete_object_clone_nonempty_buffers"
+  ],
+  "summary_columns": [
+    "type_count",
+    "type_capacity",
+    "interned_entries",
+    "interned_capacity",
+    "type_owned_payload_capacity_bytes",
+    "intern_key_owned_payload_capacity_bytes"
+  ],
+  "limits": [
+    "Payload byte counts cover Strings and TypeId Vec buffers at these clone sites only; scalar/struct copies, allocator metadata and allocations elsewhere are excluded.",
+    "Nonempty buffer clone count is a standard-library allocation-request estimate, not an instrumented allocator count.",
+    "Retained capacities exclude hash control bytes, row padding, mapper/member tables and all unrelated storage.",
+    "One locating wall observation per variant is instrumentation-overhead evidence only."
+  ],
+  "summary": {
+    "intern_calls": 244303,
+    "hits": 209821,
+    "misses": 34482,
+    "avoidable_lookup_clone_payload_bytes": 6700371,
+    "retained_miss_clone_payload_bytes": 1904785,
+    "top_lookup_copy_sites": [
+      [
+        "union",
+        4017555
+      ],
+      [
+        "string",
+        1365896
+      ],
+      [
+        "intersection",
+        1293288
+      ]
+    ],
+    "production_source_restored": true
+  },
+  "accounting_scope": "TypeStore clone sites only; mapper keys and member projection copying remain unmeasured in .16.",
+  "workloads": {
+    "literal": {
+      "config_sha256": "484c856c47d22afc68b0a1263396e4e63f88bdb02c237390aeceaf78045da6f2",
+      "effective_config_fingerprint": "1c0a26a3c41dfe1e8944428f091c71f3db0feeaa9e49ab61598cd31a4e8e040c",
+      "loaded_count": 4,
+      "loaded_fingerprint": "e102e13d33ff1003e452f7408018e95af553705d6271decd20a2ddc1e222b8ac",
+      "input_fingerprint": "a0116acdbd72b2acafe18038984586cb332fd44dfde2968e719f61ff6b4670d2",
+      "checks": {
+        "effective_options_and_loaded_scope_equal": true,
+        "complete_diagnostics_equal": true,
+        "probe_actual_checked_scope_equal": true,
+        "enabled_counts_repeat_equal": true,
+        "input_contents_unchanged": true
+      },
+      "runs": {
+        "baseline": {
+          "pid": 14662,
+          "started_at_unix_ns": 1791055255023117000,
+          "wall_seconds": 0.00782616701326333,
+          "user_seconds": 0.0039499999999999995,
+          "system_seconds": 0.001989,
+          "peak_rss_bytes": 7045120,
+          "exit_code": 1,
+          "timed_out": false,
+          "accounting": null,
+          "diagnostics": {
+            "count": 1,
+            "fingerprint": "268b6df782430c47eb0503857bd24cff2a5e46a39119252b7478ad4acf1075cd"
+          },
+          "actual_checked_count": null,
+          "actual_checked_fingerprint": null
+        },
+        "disabled": {
+          "pid": 14663,
+          "started_at_unix_ns": 1791055255066113000,
+          "wall_seconds": 0.007179874985013157,
+          "user_seconds": 0.0032489999999999997,
+          "system_seconds": 0.001635,
+          "peak_rss_bytes": 7028736,
+          "exit_code": 1,
+          "timed_out": false,
+          "accounting": null,
+          "diagnostics": {
+            "count": 1,
+            "fingerprint": "268b6df782430c47eb0503857bd24cff2a5e46a39119252b7478ad4acf1075cd"
+          },
+          "actual_checked_count": 1,
+          "actual_checked_fingerprint": "4a781336181d7b42e566dc922c03a563412dfd59161d087beedbc586a2d7ccc0"
+        },
+        "enabled": {
+          "pid": 14666,
+          "started_at_unix_ns": 1791055255107200000,
+          "wall_seconds": 0.008475084003293887,
+          "user_seconds": 0.0033729999999999997,
+          "system_seconds": 0.001633,
+          "peak_rss_bytes": 7077888,
+          "exit_code": 1,
+          "timed_out": false,
+          "accounting": {
+            "stores": [
+              [
+                33,
+                64,
+                15,
+                28,
+                100,
+                96
+              ]
+            ],
+            "summary": [
+              33,
+              64,
+              15,
+              28,
+              100,
+              96
+            ],
+            "rows": {
+              "boolean": [
+                4,
+                0,
+                4,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "string": [
+                168,
+                160,
+                8,
+                510,
+                30,
+                176,
+                0,
+                0,
+                0
+              ],
+              "union": [
+                3,
+                0,
+                3,
+                66,
+                66,
+                12,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          "diagnostics": {
+            "count": 1,
+            "fingerprint": "268b6df782430c47eb0503857bd24cff2a5e46a39119252b7478ad4acf1075cd"
+          },
+          "actual_checked_count": 1,
+          "actual_checked_fingerprint": "4a781336181d7b42e566dc922c03a563412dfd59161d087beedbc586a2d7ccc0"
+        },
+        "repeat": {
+          "pid": 14667,
+          "started_at_unix_ns": 1791055255151790000,
+          "wall_seconds": 0.007053999986965209,
+          "user_seconds": 0.003352,
+          "system_seconds": 0.001354,
+          "peak_rss_bytes": 7045120,
+          "exit_code": 1,
+          "timed_out": false,
+          "accounting": {
+            "stores": [
+              [
+                33,
+                64,
+                15,
+                28,
+                100,
+                96
+              ]
+            ],
+            "summary": [
+              33,
+              64,
+              15,
+              28,
+              100,
+              96
+            ],
+            "rows": {
+              "boolean": [
+                4,
+                0,
+                4,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "string": [
+                168,
+                160,
+                8,
+                510,
+                30,
+                176,
+                0,
+                0,
+                0
+              ],
+              "union": [
+                3,
+                0,
+                3,
+                66,
+                66,
+                12,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          "diagnostics": {
+            "count": 1,
+            "fingerprint": "268b6df782430c47eb0503857bd24cff2a5e46a39119252b7478ad4acf1075cd"
+          },
+          "actual_checked_count": 1,
+          "actual_checked_fingerprint": "4a781336181d7b42e566dc922c03a563412dfd59161d087beedbc586a2d7ccc0"
+        }
+      },
+      "public_sources": {
+        "config": "{\n  \"compilerOptions\": {\n    \"strict\": true,\n    \"noEmit\": true,\n    \"incremental\": false,\n    \"composite\": false,\n    \"pretty\": false,\n    \"skipLibCheck\": true,\n    \"types\": [],\n    \"lib\": [\n      \"es5\"\n    ],\n    \"target\": \"es2022\",\n    \"module\": \"esnext\",\n    \"moduleResolution\": \"bundler\"\n  },\n  \"files\": [\n    \"index.ts\"\n  ]\n}\n",
+        "source": "type Labels = \"one\" | \"two\" | \"three\";\nconst v0: Labels = \"one\"; const n0 = 42; const b0 = true; const k0 = 1n;\nconst v1: Labels = \"one\"; const n1 = 42; const b1 = true; const k1 = 1n;\nconst v2: Labels = \"one\"; const n2 = 42; const b2 = true; const k2 = 1n;\nconst v3: Labels = \"one\"; const n3 = 42; const b3 = true; const k3 = 1n;\nconst v4: Labels = \"one\"; const n4 = 42; const b4 = true; const k4 = 1n;\nconst v5: Labels = \"one\"; const n5 = 42; const b5 = true; const k5 = 1n;\nconst v6: Labels = \"one\"; const n6 = 42; const b6 = true; const k6 = 1n;\nconst v7: Labels = \"one\"; const n7 = 42; const b7 = true; const k7 = 1n;\nconst v8: Labels = \"one\"; const n8 = 42; const b8 = true; const k8 = 1n;\nconst v9: Labels = \"one\"; const n9 = 42; const b9 = true; const k9 = 1n;\nconst v10: Labels = \"one\"; const n10 = 42; const b10 = true; const k10 = 1n;\nconst v11: Labels = \"one\"; const n11 = 42; const b11 = true; const k11 = 1n;\nconst v12: Labels = \"one\"; const n12 = 42; const b12 = true; const k12 = 1n;\nconst v13: Labels = \"one\"; const n13 = 42; const b13 = true; const k13 = 1n;\nconst v14: Labels = \"one\"; const n14 = 42; const b14 = true; const k14 = 1n;\nconst v15: Labels = \"one\"; const n15 = 42; const b15 = true; const k15 = 1n;\nconst v16: Labels = \"one\"; const n16 = 42; const b16 = true; const k16 = 1n;\nconst v17: Labels = \"one\"; const n17 = 42; const b17 = true; const k17 = 1n;\nconst v18: Labels = \"one\"; const n18 = 42; const b18 = true; const k18 = 1n;\nconst v19: Labels = \"one\"; const n19 = 42; const b19 = true; const k19 = 1n;\nconst v20: Labels = \"one\"; const n20 = 42; const b20 = true; const k20 = 1n;\nconst v21: Labels = \"one\"; const n21 = 42; const b21 = true; const k21 = 1n;\nconst v22: Labels = \"one\"; const n22 = 42; const b22 = true; const k22 = 1n;\nconst v23: Labels = \"one\"; const n23 = 42; const b23 = true; const k23 = 1n;\nconst v24: Labels = \"one\"; const n24 = 42; const b24 = true; const k24 = 1n;\nconst v25: Labels = \"one\"; const n25 = 42; const b25 = true; const k25 = 1n;\nconst v26: Labels = \"one\"; const n26 = 42; const b26 = true; const k26 = 1n;\nconst v27: Labels = \"one\"; const n27 = 42; const b27 = true; const k27 = 1n;\nconst v28: Labels = \"one\"; const n28 = 42; const b28 = true; const k28 = 1n;\nconst v29: Labels = \"one\"; const n29 = 42; const b29 = true; const k29 = 1n;\nconst v30: Labels = \"one\"; const n30 = 42; const b30 = true; const k30 = 1n;\nconst v31: Labels = \"one\"; const n31 = 42; const b31 = true; const k31 = 1n;\nconst v32: Labels = \"one\"; const n32 = 42; const b32 = true; const k32 = 1n;\nconst v33: Labels = \"one\"; const n33 = 42; const b33 = true; const k33 = 1n;\nconst v34: Labels = \"one\"; const n34 = 42; const b34 = true; const k34 = 1n;\nconst v35: Labels = \"one\"; const n35 = 42; const b35 = true; const k35 = 1n;\nconst v36: Labels = \"one\"; const n36 = 42; const b36 = true; const k36 = 1n;\nconst v37: Labels = \"one\"; const n37 = 42; const b37 = true; const k37 = 1n;\nconst v38: Labels = \"one\"; const n38 = 42; const b38 = true; const k38 = 1n;\nconst v39: Labels = \"one\"; const n39 = 42; const b39 = true; const k39 = 1n;\nconst v40: Labels = \"one\"; const n40 = 42; const b40 = true; const k40 = 1n;\nconst v41: Labels = \"one\"; const n41 = 42; const b41 = true; const k41 = 1n;\nconst v42: Labels = \"one\"; const n42 = 42; const b42 = true; const k42 = 1n;\nconst v43: Labels = \"one\"; const n43 = 42; const b43 = true; const k43 = 1n;\nconst v44: Labels = \"one\"; const n44 = 42; const b44 = true; const k44 = 1n;\nconst v45: Labels = \"one\"; const n45 = 42; const b45 = true; const k45 = 1n;\nconst v46: Labels = \"one\"; const n46 = 42; const b46 = true; const k46 = 1n;\nconst v47: Labels = \"one\"; const n47 = 42; const b47 = true; const k47 = 1n;\nconst v48: Labels = \"one\"; const n48 = 42; const b48 = true; const k48 = 1n;\nconst v49: Labels = \"one\"; const n49 = 42; const b49 = true; const k49 = 1n;\nconst v50: Labels = \"one\"; const n50 = 42; const b50 = true; const k50 = 1n;\nconst v51: Labels = \"one\"; const n51 = 42; const b51 = true; const k51 = 1n;\nconst v52: Labels = \"one\"; const n52 = 42; const b52 = true; const k52 = 1n;\nconst v53: Labels = \"one\"; const n53 = 42; const b53 = true; const k53 = 1n;\nconst v54: Labels = \"one\"; const n54 = 42; const b54 = true; const k54 = 1n;\nconst v55: Labels = \"one\"; const n55 = 42; const b55 = true; const k55 = 1n;\nconst v56: Labels = \"one\"; const n56 = 42; const b56 = true; const k56 = 1n;\nconst v57: Labels = \"one\"; const n57 = 42; const b57 = true; const k57 = 1n;\nconst v58: Labels = \"one\"; const n58 = 42; const b58 = true; const k58 = 1n;\nconst v59: Labels = \"one\"; const n59 = 42; const b59 = true; const k59 = 1n;\nconst v60: Labels = \"one\"; const n60 = 42; const b60 = true; const k60 = 1n;\nconst v61: Labels = \"one\"; const n61 = 42; const b61 = true; const k61 = 1n;\nconst v62: Labels = \"one\"; const n62 = 42; const b62 = true; const k62 = 1n;\nconst v63: Labels = \"one\"; const n63 = 42; const b63 = true; const k63 = 1n;\nconst v64: Labels = \"one\"; const n64 = 42; const b64 = true; const k64 = 1n;\nconst v65: Labels = \"one\"; const n65 = 42; const b65 = true; const k65 = 1n;\nconst v66: Labels = \"one\"; const n66 = 42; const b66 = true; const k66 = 1n;\nconst v67: Labels = \"one\"; const n67 = 42; const b67 = true; const k67 = 1n;\nconst v68: Labels = \"one\"; const n68 = 42; const b68 = true; const k68 = 1n;\nconst v69: Labels = \"one\"; const n69 = 42; const b69 = true; const k69 = 1n;\nconst v70: Labels = \"one\"; const n70 = 42; const b70 = true; const k70 = 1n;\nconst v71: Labels = \"one\"; const n71 = 42; const b71 = true; const k71 = 1n;\nconst v72: Labels = \"one\"; const n72 = 42; const b72 = true; const k72 = 1n;\nconst v73: Labels = \"one\"; const n73 = 42; const b73 = true; const k73 = 1n;\nconst v74: Labels = \"one\"; const n74 = 42; const b74 = true; const k74 = 1n;\nconst v75: Labels = \"one\"; const n75 = 42; const b75 = true; const k75 = 1n;\nconst v76: Labels = \"one\"; const n76 = 42; const b76 = true; const k76 = 1n;\nconst v77: Labels = \"one\"; const n77 = 42; const b77 = true; const k77 = 1n;\nconst v78: Labels = \"one\"; const n78 = 42; const b78 = true; const k78 = 1n;\nconst v79: Labels = \"one\"; const n79 = 42; const b79 = true; const k79 = 1n;\nconst bad: Labels = \"four\";\n"
+      },
+      "native_complete_diagnostics_equal": true,
+      "native_diagnostics": {
+        "count": 1,
+        "fingerprint": "268b6df782430c47eb0503857bd24cff2a5e46a39119252b7478ad4acf1075cd"
+      }
+    },
+    "generic": {
+      "config_sha256": "484c856c47d22afc68b0a1263396e4e63f88bdb02c237390aeceaf78045da6f2",
+      "effective_config_fingerprint": "1c0a26a3c41dfe1e8944428f091c71f3db0feeaa9e49ab61598cd31a4e8e040c",
+      "loaded_count": 4,
+      "loaded_fingerprint": "6187f9a157d4dfb633e72535e4b04b1d896f305c511510509db8b8acb20b1833",
+      "input_fingerprint": "0b5bb6a65dc897037b9091a7c34469f47f6fc2ec5be40cbf38032a024863775a",
+      "checks": {
+        "effective_options_and_loaded_scope_equal": true,
+        "complete_diagnostics_equal": true,
+        "probe_actual_checked_scope_equal": true,
+        "enabled_counts_repeat_equal": true,
+        "input_contents_unchanged": true
+      },
+      "runs": {
+        "baseline": {
+          "pid": 14673,
+          "started_at_unix_ns": 1791055255358448000,
+          "wall_seconds": 0.008046792005188763,
+          "user_seconds": 0.003951,
+          "system_seconds": 0.0016029999999999998,
+          "peak_rss_bytes": 7602176,
+          "exit_code": 1,
+          "timed_out": false,
+          "accounting": null,
+          "diagnostics": {
+            "count": 1,
+            "fingerprint": "7283355761827604f591edc5f7e012cfb25d030e71c709278498a7875bec9cdb"
+          },
+          "actual_checked_count": null,
+          "actual_checked_fingerprint": null
+        },
+        "disabled": {
+          "pid": 14674,
+          "started_at_unix_ns": 1791055255400704000,
+          "wall_seconds": 0.008126833010464907,
+          "user_seconds": 0.0040669999999999994,
+          "system_seconds": 0.001573,
+          "peak_rss_bytes": 7536640,
+          "exit_code": 1,
+          "timed_out": false,
+          "accounting": null,
+          "diagnostics": {
+            "count": 1,
+            "fingerprint": "7283355761827604f591edc5f7e012cfb25d030e71c709278498a7875bec9cdb"
+          },
+          "actual_checked_count": 1,
+          "actual_checked_fingerprint": "ca505b46a18b8857f69c71077c2cda4d2421cd5641daecf49ab3d294d0edeb65"
+        },
+        "enabled": {
+          "pid": 14675,
+          "started_at_unix_ns": 1791055255443262000,
+          "wall_seconds": 0.007735667022643611,
+          "user_seconds": 0.003993,
+          "system_seconds": 0.0013729999999999999,
+          "peak_rss_bytes": 7536640,
+          "exit_code": 1,
+          "timed_out": false,
+          "accounting": {
+            "stores": [
+              [
+                110,
+                128,
+                8,
+                14,
+                2684,
+                55
+              ]
+            ],
+            "summary": [
+              110,
+              128,
+              8,
+              14,
+              2684,
+              55
+            ],
+            "rows": {
+              "boolean": [
+                4,
+                0,
+                4,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "string": [
+                81,
+                79,
+                2,
+                165,
+                7,
+                83,
+                0,
+                0,
+                0
+              ],
+              "union": [
+                2,
+                0,
+                2,
+                48,
+                48,
+                8,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          "diagnostics": {
+            "count": 1,
+            "fingerprint": "7283355761827604f591edc5f7e012cfb25d030e71c709278498a7875bec9cdb"
+          },
+          "actual_checked_count": 1,
+          "actual_checked_fingerprint": "ca505b46a18b8857f69c71077c2cda4d2421cd5641daecf49ab3d294d0edeb65"
+        },
+        "repeat": {
+          "pid": 14676,
+          "started_at_unix_ns": 1791055255484805000,
+          "wall_seconds": 0.007641209027497098,
+          "user_seconds": 0.003951,
+          "system_seconds": 0.0013009999999999999,
+          "peak_rss_bytes": 7536640,
+          "exit_code": 1,
+          "timed_out": false,
+          "accounting": {
+            "stores": [
+              [
+                110,
+                128,
+                8,
+                14,
+                2684,
+                55
+              ]
+            ],
+            "summary": [
+              110,
+              128,
+              8,
+              14,
+              2684,
+              55
+            ],
+            "rows": {
+              "boolean": [
+                4,
+                0,
+                4,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "string": [
+                81,
+                79,
+                2,
+                165,
+                7,
+                83,
+                0,
+                0,
+                0
+              ],
+              "union": [
+                2,
+                0,
+                2,
+                48,
+                48,
+                8,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          "diagnostics": {
+            "count": 1,
+            "fingerprint": "7283355761827604f591edc5f7e012cfb25d030e71c709278498a7875bec9cdb"
+          },
+          "actual_checked_count": 1,
+          "actual_checked_fingerprint": "ca505b46a18b8857f69c71077c2cda4d2421cd5641daecf49ab3d294d0edeb65"
+        }
+      },
+      "public_sources": {
+        "config": "{\n  \"compilerOptions\": {\n    \"strict\": true,\n    \"noEmit\": true,\n    \"incremental\": false,\n    \"composite\": false,\n    \"pretty\": false,\n    \"skipLibCheck\": true,\n    \"types\": [],\n    \"lib\": [\n      \"es5\"\n    ],\n    \"target\": \"es2022\",\n    \"module\": \"esnext\",\n    \"moduleResolution\": \"bundler\"\n  },\n  \"files\": [\n    \"index.ts\"\n  ]\n}\n",
+        "source": "interface Box<T> { item: T }\nconst box0: Box<string> = {item:\"ok\"}; const value0: string = box0.item;\nconst box1: Box<string> = {item:\"ok\"}; const value1: string = box1.item;\nconst box2: Box<string> = {item:\"ok\"}; const value2: string = box2.item;\nconst box3: Box<string> = {item:\"ok\"}; const value3: string = box3.item;\nconst box4: Box<string> = {item:\"ok\"}; const value4: string = box4.item;\nconst box5: Box<string> = {item:\"ok\"}; const value5: string = box5.item;\nconst box6: Box<string> = {item:\"ok\"}; const value6: string = box6.item;\nconst box7: Box<string> = {item:\"ok\"}; const value7: string = box7.item;\nconst box8: Box<string> = {item:\"ok\"}; const value8: string = box8.item;\nconst box9: Box<string> = {item:\"ok\"}; const value9: string = box9.item;\nconst box10: Box<string> = {item:\"ok\"}; const value10: string = box10.item;\nconst box11: Box<string> = {item:\"ok\"}; const value11: string = box11.item;\nconst box12: Box<string> = {item:\"ok\"}; const value12: string = box12.item;\nconst box13: Box<string> = {item:\"ok\"}; const value13: string = box13.item;\nconst box14: Box<string> = {item:\"ok\"}; const value14: string = box14.item;\nconst box15: Box<string> = {item:\"ok\"}; const value15: string = box15.item;\nconst box16: Box<string> = {item:\"ok\"}; const value16: string = box16.item;\nconst box17: Box<string> = {item:\"ok\"}; const value17: string = box17.item;\nconst box18: Box<string> = {item:\"ok\"}; const value18: string = box18.item;\nconst box19: Box<string> = {item:\"ok\"}; const value19: string = box19.item;\nconst box20: Box<string> = {item:\"ok\"}; const value20: string = box20.item;\nconst box21: Box<string> = {item:\"ok\"}; const value21: string = box21.item;\nconst box22: Box<string> = {item:\"ok\"}; const value22: string = box22.item;\nconst box23: Box<string> = {item:\"ok\"}; const value23: string = box23.item;\nconst box24: Box<string> = {item:\"ok\"}; const value24: string = box24.item;\nconst box25: Box<string> = {item:\"ok\"}; const value25: string = box25.item;\nconst box26: Box<string> = {item:\"ok\"}; const value26: string = box26.item;\nconst box27: Box<string> = {item:\"ok\"}; const value27: string = box27.item;\nconst box28: Box<string> = {item:\"ok\"}; const value28: string = box28.item;\nconst box29: Box<string> = {item:\"ok\"}; const value29: string = box29.item;\nconst box30: Box<string> = {item:\"ok\"}; const value30: string = box30.item;\nconst box31: Box<string> = {item:\"ok\"}; const value31: string = box31.item;\nconst box32: Box<string> = {item:\"ok\"}; const value32: string = box32.item;\nconst box33: Box<string> = {item:\"ok\"}; const value33: string = box33.item;\nconst box34: Box<string> = {item:\"ok\"}; const value34: string = box34.item;\nconst box35: Box<string> = {item:\"ok\"}; const value35: string = box35.item;\nconst box36: Box<string> = {item:\"ok\"}; const value36: string = box36.item;\nconst box37: Box<string> = {item:\"ok\"}; const value37: string = box37.item;\nconst box38: Box<string> = {item:\"ok\"}; const value38: string = box38.item;\nconst box39: Box<string> = {item:\"ok\"}; const value39: string = box39.item;\nconst box40: Box<string> = {item:\"ok\"}; const value40: string = box40.item;\nconst box41: Box<string> = {item:\"ok\"}; const value41: string = box41.item;\nconst box42: Box<string> = {item:\"ok\"}; const value42: string = box42.item;\nconst box43: Box<string> = {item:\"ok\"}; const value43: string = box43.item;\nconst box44: Box<string> = {item:\"ok\"}; const value44: string = box44.item;\nconst box45: Box<string> = {item:\"ok\"}; const value45: string = box45.item;\nconst box46: Box<string> = {item:\"ok\"}; const value46: string = box46.item;\nconst box47: Box<string> = {item:\"ok\"}; const value47: string = box47.item;\nconst box48: Box<string> = {item:\"ok\"}; const value48: string = box48.item;\nconst box49: Box<string> = {item:\"ok\"}; const value49: string = box49.item;\nconst box50: Box<string> = {item:\"ok\"}; const value50: string = box50.item;\nconst box51: Box<string> = {item:\"ok\"}; const value51: string = box51.item;\nconst box52: Box<string> = {item:\"ok\"}; const value52: string = box52.item;\nconst box53: Box<string> = {item:\"ok\"}; const value53: string = box53.item;\nconst box54: Box<string> = {item:\"ok\"}; const value54: string = box54.item;\nconst box55: Box<string> = {item:\"ok\"}; const value55: string = box55.item;\nconst box56: Box<string> = {item:\"ok\"}; const value56: string = box56.item;\nconst box57: Box<string> = {item:\"ok\"}; const value57: string = box57.item;\nconst box58: Box<string> = {item:\"ok\"}; const value58: string = box58.item;\nconst box59: Box<string> = {item:\"ok\"}; const value59: string = box59.item;\nconst box60: Box<string> = {item:\"ok\"}; const value60: string = box60.item;\nconst box61: Box<string> = {item:\"ok\"}; const value61: string = box61.item;\nconst box62: Box<string> = {item:\"ok\"}; const value62: string = box62.item;\nconst box63: Box<string> = {item:\"ok\"}; const value63: string = box63.item;\nconst box64: Box<string> = {item:\"ok\"}; const value64: string = box64.item;\nconst box65: Box<string> = {item:\"ok\"}; const value65: string = box65.item;\nconst box66: Box<string> = {item:\"ok\"}; const value66: string = box66.item;\nconst box67: Box<string> = {item:\"ok\"}; const value67: string = box67.item;\nconst box68: Box<string> = {item:\"ok\"}; const value68: string = box68.item;\nconst box69: Box<string> = {item:\"ok\"}; const value69: string = box69.item;\nconst box70: Box<string> = {item:\"ok\"}; const value70: string = box70.item;\nconst box71: Box<string> = {item:\"ok\"}; const value71: string = box71.item;\nconst box72: Box<string> = {item:\"ok\"}; const value72: string = box72.item;\nconst box73: Box<string> = {item:\"ok\"}; const value73: string = box73.item;\nconst box74: Box<string> = {item:\"ok\"}; const value74: string = box74.item;\nconst box75: Box<string> = {item:\"ok\"}; const value75: string = box75.item;\nconst box76: Box<string> = {item:\"ok\"}; const value76: string = box76.item;\nconst box77: Box<string> = {item:\"ok\"}; const value77: string = box77.item;\nconst box78: Box<string> = {item:\"ok\"}; const value78: string = box78.item;\nconst box79: Box<string> = {item:\"ok\"}; const value79: string = box79.item;\nconst bad: Box<number> = {item:\"wrong\"};\n"
+      },
+      "native_complete_diagnostics_equal": true,
+      "native_diagnostics": {
+        "count": 1,
+        "fingerprint": "7283355761827604f591edc5f7e012cfb25d030e71c709278498a7875bec9cdb"
+      }
+    },
+    "mapped-recursive": {
+      "config_sha256": "484c856c47d22afc68b0a1263396e4e63f88bdb02c237390aeceaf78045da6f2",
+      "effective_config_fingerprint": "1c0a26a3c41dfe1e8944428f091c71f3db0feeaa9e49ab61598cd31a4e8e040c",
+      "loaded_count": 4,
+      "loaded_fingerprint": "1415b9a0565e653064d8b618ecdf07150cb1e1874d354cfeab1805ec67766550",
+      "input_fingerprint": "0b2062b99b1f8db986392202029f9f55d1be8eb0b38ed6748cec497d9c7dbf50",
+      "checks": {
+        "effective_options_and_loaded_scope_equal": true,
+        "complete_diagnostics_equal": true,
+        "probe_actual_checked_scope_equal": true,
+        "enabled_counts_repeat_equal": true,
+        "input_contents_unchanged": true
+      },
+      "runs": {
+        "baseline": {
+          "pid": 14682,
+          "started_at_unix_ns": 1791055255626761000,
+          "wall_seconds": 0.007630165986483917,
+          "user_seconds": 0.003871,
+          "system_seconds": 0.0013579999999999998,
+          "peak_rss_bytes": 7438336,
+          "exit_code": 1,
+          "timed_out": false,
+          "accounting": null,
+          "diagnostics": {
+            "count": 1,
+            "fingerprint": "b43a9440fec40b735bbfbd25b5516602c0829d6e6fda7b7ffc29a135b1ea9228"
+          },
+          "actual_checked_count": null,
+          "actual_checked_fingerprint": null
+        },
+        "disabled": {
+          "pid": 14683,
+          "started_at_unix_ns": 1791055255668444000,
+          "wall_seconds": 0.0076865000010002404,
+          "user_seconds": 0.003914,
+          "system_seconds": 0.00129,
+          "peak_rss_bytes": 7389184,
+          "exit_code": 1,
+          "timed_out": false,
+          "accounting": null,
+          "diagnostics": {
+            "count": 1,
+            "fingerprint": "b43a9440fec40b735bbfbd25b5516602c0829d6e6fda7b7ffc29a135b1ea9228"
+          },
+          "actual_checked_count": 1,
+          "actual_checked_fingerprint": "6fcadf5130d476ce25a2f85d9944a313c38230f857beb3a6e526a5c8fefe194e"
+        },
+        "enabled": {
+          "pid": 14684,
+          "started_at_unix_ns": 1791055255712708000,
+          "wall_seconds": 0.008616000006441027,
+          "user_seconds": 0.004475,
+          "system_seconds": 0.001545,
+          "peak_rss_bytes": 7389184,
+          "exit_code": 1,
+          "timed_out": false,
+          "accounting": {
+            "stores": [
+              [
+                88,
+                128,
+                13,
+                14,
+                1862,
+                148
+              ]
+            ],
+            "summary": [
+              88,
+              128,
+              13,
+              14,
+              1862,
+              148
+            ],
+            "rows": {
+              "boolean": [
+                4,
+                0,
+                4,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "string": [
+                153,
+                149,
+                4,
+                513,
+                15,
+                157,
+                0,
+                0,
+                0
+              ],
+              "union": [
+                303,
+                298,
+                5,
+                8475,
+                133,
+                616,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          "diagnostics": {
+            "count": 1,
+            "fingerprint": "b43a9440fec40b735bbfbd25b5516602c0829d6e6fda7b7ffc29a135b1ea9228"
+          },
+          "actual_checked_count": 1,
+          "actual_checked_fingerprint": "6fcadf5130d476ce25a2f85d9944a313c38230f857beb3a6e526a5c8fefe194e"
+        },
+        "repeat": {
+          "pid": 14685,
+          "started_at_unix_ns": 1791055255756562000,
+          "wall_seconds": 0.007770708005409688,
+          "user_seconds": 0.003849,
+          "system_seconds": 0.001487,
+          "peak_rss_bytes": 7389184,
+          "exit_code": 1,
+          "timed_out": false,
+          "accounting": {
+            "stores": [
+              [
+                88,
+                128,
+                13,
+                14,
+                1862,
+                148
+              ]
+            ],
+            "summary": [
+              88,
+              128,
+              13,
+              14,
+              1862,
+              148
+            ],
+            "rows": {
+              "boolean": [
+                4,
+                0,
+                4,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "string": [
+                153,
+                149,
+                4,
+                513,
+                15,
+                157,
+                0,
+                0,
+                0
+              ],
+              "union": [
+                303,
+                298,
+                5,
+                8475,
+                133,
+                616,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          "diagnostics": {
+            "count": 1,
+            "fingerprint": "b43a9440fec40b735bbfbd25b5516602c0829d6e6fda7b7ffc29a135b1ea9228"
+          },
+          "actual_checked_count": 1,
+          "actual_checked_fingerprint": "6fcadf5130d476ce25a2f85d9944a313c38230f857beb3a6e526a5c8fefe194e"
+        }
+      },
+      "public_sources": {
+        "config": "{\n  \"compilerOptions\": {\n    \"strict\": true,\n    \"noEmit\": true,\n    \"incremental\": false,\n    \"composite\": false,\n    \"pretty\": false,\n    \"skipLibCheck\": true,\n    \"types\": [],\n    \"lib\": [\n      \"es5\"\n    ],\n    \"target\": \"es2022\",\n    \"module\": \"esnext\",\n    \"moduleResolution\": \"bundler\"\n  },\n  \"files\": [\n    \"index.ts\"\n  ]\n}\n",
+        "source": "type Patch<T> = {[K in keyof T]?: T[K]}; interface Link<T> {item:T; next?:Link<T>}; type Choice<T> = T extends string ? \"text\" : \"other\";\nconst p0: Patch<Link<string>> = {item:\"ok\"}; const c0: Choice<string> = \"text\";\nconst p1: Patch<Link<string>> = {item:\"ok\"}; const c1: Choice<string> = \"text\";\nconst p2: Patch<Link<string>> = {item:\"ok\"}; const c2: Choice<string> = \"text\";\nconst p3: Patch<Link<string>> = {item:\"ok\"}; const c3: Choice<string> = \"text\";\nconst p4: Patch<Link<string>> = {item:\"ok\"}; const c4: Choice<string> = \"text\";\nconst p5: Patch<Link<string>> = {item:\"ok\"}; const c5: Choice<string> = \"text\";\nconst p6: Patch<Link<string>> = {item:\"ok\"}; const c6: Choice<string> = \"text\";\nconst p7: Patch<Link<string>> = {item:\"ok\"}; const c7: Choice<string> = \"text\";\nconst p8: Patch<Link<string>> = {item:\"ok\"}; const c8: Choice<string> = \"text\";\nconst p9: Patch<Link<string>> = {item:\"ok\"}; const c9: Choice<string> = \"text\";\nconst p10: Patch<Link<string>> = {item:\"ok\"}; const c10: Choice<string> = \"text\";\nconst p11: Patch<Link<string>> = {item:\"ok\"}; const c11: Choice<string> = \"text\";\nconst p12: Patch<Link<string>> = {item:\"ok\"}; const c12: Choice<string> = \"text\";\nconst p13: Patch<Link<string>> = {item:\"ok\"}; const c13: Choice<string> = \"text\";\nconst p14: Patch<Link<string>> = {item:\"ok\"}; const c14: Choice<string> = \"text\";\nconst p15: Patch<Link<string>> = {item:\"ok\"}; const c15: Choice<string> = \"text\";\nconst p16: Patch<Link<string>> = {item:\"ok\"}; const c16: Choice<string> = \"text\";\nconst p17: Patch<Link<string>> = {item:\"ok\"}; const c17: Choice<string> = \"text\";\nconst p18: Patch<Link<string>> = {item:\"ok\"}; const c18: Choice<string> = \"text\";\nconst p19: Patch<Link<string>> = {item:\"ok\"}; const c19: Choice<string> = \"text\";\nconst p20: Patch<Link<string>> = {item:\"ok\"}; const c20: Choice<string> = \"text\";\nconst p21: Patch<Link<string>> = {item:\"ok\"}; const c21: Choice<string> = \"text\";\nconst p22: Patch<Link<string>> = {item:\"ok\"}; const c22: Choice<string> = \"text\";\nconst p23: Patch<Link<string>> = {item:\"ok\"}; const c23: Choice<string> = \"text\";\nconst p24: Patch<Link<string>> = {item:\"ok\"}; const c24: Choice<string> = \"text\";\nconst p25: Patch<Link<string>> = {item:\"ok\"}; const c25: Choice<string> = \"text\";\nconst p26: Patch<Link<string>> = {item:\"ok\"}; const c26: Choice<string> = \"text\";\nconst p27: Patch<Link<string>> = {item:\"ok\"}; const c27: Choice<string> = \"text\";\nconst p28: Patch<Link<string>> = {item:\"ok\"}; const c28: Choice<string> = \"text\";\nconst p29: Patch<Link<string>> = {item:\"ok\"}; const c29: Choice<string> = \"text\";\nconst p30: Patch<Link<string>> = {item:\"ok\"}; const c30: Choice<string> = \"text\";\nconst p31: Patch<Link<string>> = {item:\"ok\"}; const c31: Choice<string> = \"text\";\nconst p32: Patch<Link<string>> = {item:\"ok\"}; const c32: Choice<string> = \"text\";\nconst p33: Patch<Link<string>> = {item:\"ok\"}; const c33: Choice<string> = \"text\";\nconst p34: Patch<Link<string>> = {item:\"ok\"}; const c34: Choice<string> = \"text\";\nconst p35: Patch<Link<string>> = {item:\"ok\"}; const c35: Choice<string> = \"text\";\nconst p36: Patch<Link<string>> = {item:\"ok\"}; const c36: Choice<string> = \"text\";\nconst p37: Patch<Link<string>> = {item:\"ok\"}; const c37: Choice<string> = \"text\";\nconst p38: Patch<Link<string>> = {item:\"ok\"}; const c38: Choice<string> = \"text\";\nconst p39: Patch<Link<string>> = {item:\"ok\"}; const c39: Choice<string> = \"text\";\nconst p40: Patch<Link<string>> = {item:\"ok\"}; const c40: Choice<string> = \"text\";\nconst p41: Patch<Link<string>> = {item:\"ok\"}; const c41: Choice<string> = \"text\";\nconst p42: Patch<Link<string>> = {item:\"ok\"}; const c42: Choice<string> = \"text\";\nconst p43: Patch<Link<string>> = {item:\"ok\"}; const c43: Choice<string> = \"text\";\nconst p44: Patch<Link<string>> = {item:\"ok\"}; const c44: Choice<string> = \"text\";\nconst p45: Patch<Link<string>> = {item:\"ok\"}; const c45: Choice<string> = \"text\";\nconst p46: Patch<Link<string>> = {item:\"ok\"}; const c46: Choice<string> = \"text\";\nconst p47: Patch<Link<string>> = {item:\"ok\"}; const c47: Choice<string> = \"text\";\nconst p48: Patch<Link<string>> = {item:\"ok\"}; const c48: Choice<string> = \"text\";\nconst p49: Patch<Link<string>> = {item:\"ok\"}; const c49: Choice<string> = \"text\";\nconst bad: Link<number> = {item:\"wrong\"};\n"
+      },
+      "native_complete_diagnostics_equal": true,
+      "native_diagnostics": {
+        "count": 1,
+        "fingerprint": "b43a9440fec40b735bbfbd25b5516602c0829d6e6fda7b7ffc29a135b1ea9228"
+      }
+    },
+    "nextjs": {
+      "config_sha256": "b4b750e84eff33acac9c4917e880660f65064643863759eda3b804f1b804a870",
+      "effective_config_fingerprint": "be6bb3cb300e9cd8e75620e4a0514091435a3e28bb3fa14e3ebf67ec141a5aa9",
+      "loaded_count": 13097,
+      "loaded_fingerprint": "7ffb6eb6de272445848f5afd7442ed0f50fc9517a9a8ceb1017467fa108015d4",
+      "input_fingerprint": "395a32b083501c1cac01a17c6585385849f997fc10a3faab37b2f3d2d7bd9b16",
+      "checks": {
+        "effective_options_and_loaded_scope_equal": true,
+        "complete_diagnostics_equal": true,
+        "probe_actual_checked_scope_equal": true,
+        "enabled_counts_repeat_equal": true,
+        "input_contents_unchanged": true
+      },
+      "runs": {
+        "baseline": {
+          "pid": 14691,
+          "started_at_unix_ns": 1791055261410036000,
+          "wall_seconds": 3.634203624998918,
+          "user_seconds": 3.261508,
+          "system_seconds": 0.36821899999999996,
+          "peak_rss_bytes": 1050656768,
+          "exit_code": 1,
+          "timed_out": false,
+          "accounting": null,
+          "diagnostics": {
+            "count": 120,
+            "fingerprint": "8e3fc93ad4fccfe7b8b27225e0e62fd0987683316ecf6928f70ecca3a9524d9d"
+          },
+          "actual_checked_count": null,
+          "actual_checked_fingerprint": null
+        },
+        "disabled": {
+          "pid": 14692,
+          "started_at_unix_ns": 1791055265086861000,
+          "wall_seconds": 3.660841540986439,
+          "user_seconds": 3.26126,
+          "system_seconds": 0.38754,
+          "peak_rss_bytes": 1099939840,
+          "exit_code": 1,
+          "timed_out": false,
+          "accounting": null,
+          "diagnostics": {
+            "count": 120,
+            "fingerprint": "8e3fc93ad4fccfe7b8b27225e0e62fd0987683316ecf6928f70ecca3a9524d9d"
+          },
+          "actual_checked_count": 1341,
+          "actual_checked_fingerprint": "7f7c78069408fb904e9e28c72ca6ec4f9e0008a0f778e4bd253239455de16d69"
+        },
+        "enabled": {
+          "pid": 14695,
+          "started_at_unix_ns": 1791055268796320000,
+          "wall_seconds": 3.677675916987937,
+          "user_seconds": 3.287735,
+          "system_seconds": 0.383161,
+          "peak_rss_bytes": 1114341376,
+          "exit_code": 1,
+          "timed_out": false,
+          "accounting": {
+            "stores": [
+              [
+                184603,
+                262144,
+                34482,
+                57344,
+                15962354,
+                1909621
+              ]
+            ],
+            "summary": [
+              184603,
+              262144,
+              34482,
+              57344,
+              15962354,
+              1909621
+            ],
+            "rows": {
+              "anonymous": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                1,
+                43,
+                1
+              ],
+              "bigint": [
+                2,
+                0,
+                2,
+                2,
+                2,
+                4,
+                0,
+                0,
+                0
+              ],
+              "boolean": [
+                4374,
+                4370,
+                4,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "enum": [
+                266,
+                0,
+                266,
+                7107,
+                7107,
+                1064,
+                0,
+                0,
+                0
+              ],
+              "intersection": [
+                25998,
+                12940,
+                13058,
+                1293288,
+                751662,
+                78112,
+                0,
+                0,
+                0
+              ],
+              "named": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                9034,
+                975731,
+                9034
+              ],
+              "number": [
+                12832,
+                12425,
+                407,
+                16523,
+                1244,
+                13239,
+                0,
+                0,
+                0
+              ],
+              "string": [
+                141426,
+                127951,
+                13475,
+                1365896,
+                425471,
+                154079,
+                0,
+                0,
+                0
+              ],
+              "union": [
+                59405,
+                52135,
+                7270,
+                4017555,
+                719299,
+                133350,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          "diagnostics": {
+            "count": 120,
+            "fingerprint": "8e3fc93ad4fccfe7b8b27225e0e62fd0987683316ecf6928f70ecca3a9524d9d"
+          },
+          "actual_checked_count": 1341,
+          "actual_checked_fingerprint": "7f7c78069408fb904e9e28c72ca6ec4f9e0008a0f778e4bd253239455de16d69"
+        },
+        "repeat": {
+          "pid": 14708,
+          "started_at_unix_ns": 1791055272523706000,
+          "wall_seconds": 3.677396332990611,
+          "user_seconds": 3.285977,
+          "system_seconds": 0.387125,
+          "peak_rss_bytes": 1071300608,
+          "exit_code": 1,
+          "timed_out": false,
+          "accounting": {
+            "stores": [
+              [
+                184603,
+                262144,
+                34482,
+                57344,
+                15962354,
+                1909621
+              ]
+            ],
+            "summary": [
+              184603,
+              262144,
+              34482,
+              57344,
+              15962354,
+              1909621
+            ],
+            "rows": {
+              "anonymous": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                1,
+                43,
+                1
+              ],
+              "bigint": [
+                2,
+                0,
+                2,
+                2,
+                2,
+                4,
+                0,
+                0,
+                0
+              ],
+              "boolean": [
+                4374,
+                4370,
+                4,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "enum": [
+                266,
+                0,
+                266,
+                7107,
+                7107,
+                1064,
+                0,
+                0,
+                0
+              ],
+              "intersection": [
+                25998,
+                12940,
+                13058,
+                1293288,
+                751662,
+                78112,
+                0,
+                0,
+                0
+              ],
+              "named": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                9034,
+                975731,
+                9034
+              ],
+              "number": [
+                12832,
+                12425,
+                407,
+                16523,
+                1244,
+                13239,
+                0,
+                0,
+                0
+              ],
+              "string": [
+                141426,
+                127951,
+                13475,
+                1365896,
+                425471,
+                154079,
+                0,
+                0,
+                0
+              ],
+              "union": [
+                59405,
+                52135,
+                7270,
+                4017555,
+                719299,
+                133350,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          "diagnostics": {
+            "count": 120,
+            "fingerprint": "8e3fc93ad4fccfe7b8b27225e0e62fd0987683316ecf6928f70ecca3a9524d9d"
+          },
+          "actual_checked_count": 1341,
+          "actual_checked_fingerprint": "7f7c78069408fb904e9e28c72ca6ec4f9e0008a0f778e4bd253239455de16d69"
+        }
+      }
+    }
+  },
+  "corpus": {
+    "baseline": {
+      "kind": "baseline",
+      "path": "/tmp/tsr-type-copy-39fc/baseline-types.tsv",
+      "binary_sha256": "d90d42ead6b799fd1b14aba30c4afa712c8e5f334069b146e4d5482bff3367ce",
+      "rows": 474251,
+      "verdict_counts": {
+        "RIGHT": 459493,
+        "WRONG": 12564,
+        "GAP": 2194
+      },
+      "output_sha256": "597675021541281a78f7c0c7df08e36915247d41d4c4024a6d82b6cd947e5aea",
+      "wall_seconds": null,
+      "exit_code": 0,
+      "filtered": false,
+      "reused_completed_capture": true,
+      "source_sha": "39fcbfc1366d97b6f46d9ee42cbfc293de4929ee",
+      "types_source_sha256": "390b268fca40b4eae8afa39f787238a7197ec23c9a26e3218977c6f3f58fd5c7"
+    },
+    "candidate": {
+      "kind": "candidate",
+      "path": "/tmp/tsr-type-copy-39fc/candidate-types.tsv",
+      "binary_sha256": "34ff5e59c5620f61da32c282a96cda5d40118e206d564d2f9496ed9a3f620827",
+      "rows": 474251,
+      "verdict_counts": {
+        "RIGHT": 459493,
+        "WRONG": 12564,
+        "GAP": 2194
+      },
+      "output_sha256": "597675021541281a78f7c0c7df08e36915247d41d4c4024a6d82b6cd947e5aea",
+      "wall_seconds": 19.755284457991365,
+      "exit_code": 0,
+      "filtered": false,
+      "reused_completed_capture": false,
+      "source_sha": "39fcbfc1366d97b6f46d9ee42cbfc293de4929ee",
+      "types_source_sha256": "3b86a117fa71666c33d23e2c0b43fe4dd69d0e54c7f48dc24ba6f121fac6a3f4",
+      "byte_identical": true,
+      "previous_right_losses": 0
+    }
+  },
+  "candidate_identity": {
+    "source_sha": "39fcbfc1366d97b6f46d9ee42cbfc293de4929ee",
+    "candidate_binary_sha256": "7f4632b4357c33b38799f11ffd859766d1c9ab48c6a4661fdddc8fe244c0150a",
+    "candidate_source_sha256": "3b86a117fa71666c33d23e2c0b43fe4dd69d0e54c7f48dc24ba6f121fac6a3f4",
+    "candidate_patch_sha256": "79a93405aa174671d6b7747e507517b7bdab46ce3e7f271b61e9d086fb5b965c"
+  },
+  "entry_experiment": {
+    "id": "type-store-entry-interning",
+    "task": "tsr-1yb.7.8",
+    "opportunity": {
+      "workload": "Current Next.js full CLI plus literal/generic/mapped-recursive public controls",
+      "baseline": "39fcbfc1 production binary f17379ff4b67b268e7893e060ac7872212e69d1cc8572f2f9b5803164cbd0c68",
+      "evidence": "Actual repeated counts: 244303 intern calls, 209821 hits, 34482 misses. Lookup clones copy 6700371 owned payload bytes; union/string/intersection largest. No answer/key changes in locating controls.",
+      "expected_benefit": "Removes one TypeData clone per intern call and redundant occupied/vacant lookup work. Wall benefit unknown; bytes do not imply time. Cheapest decision: bounded entry implementation and fresh five-pair CLI comparison.",
+      "confidence": "High on avoidable copied work; wall benefit unmeasured.",
+      "cost_and_risk": "Small stable entry-API edit, no dependency or cache expansion. Preserve key/TypeId insertion order, exact private ownership and complete corpus/CLI output. Full identity and freshness negative controls."
+    },
+    "comparisons": [
+      {
+        "kind": "Same-source TSR baseline versus entry candidate; tsgo slot is saved TSR, not native.",
+        "artifact": "/private/tmp/tsr-type-copy-39fc/paired.json",
+        "identity": {
+          "source_sha": "39fcbfc1366d97b6f46d9ee42cbfc293de4929ee",
+          "candidate_binary_sha256": "7f4632b4357c33b38799f11ffd859766d1c9ab48c6a4661fdddc8fe244c0150a",
+          "candidate_source_sha256": "3b86a117fa71666c33d23e2c0b43fe4dd69d0e54c7f48dc24ba6f121fac6a3f4",
+          "candidate_patch_sha256": "79a93405aa174671d6b7747e507517b7bdab46ce3e7f271b61e9d086fb5b965c"
+        },
+        "reference_summary": {
+          "wall_seconds": {
+            "median": 3.731048457993893,
+            "p95": 3.772930125007406,
+            "min": 3.703237584006274,
+            "max": 3.772930125007406
+          },
+          "user_seconds": {
+            "median": 3.31427,
+            "p95": 3.328713,
+            "min": 3.297067,
+            "max": 3.328713
+          },
+          "system_seconds": {
+            "median": 0.410774,
+            "p95": 0.448103,
+            "min": 0.39408,
+            "max": 0.448103
+          },
+          "peak_rss_bytes": {
+            "median": 1121304576,
+            "p95": 1164230656,
+            "min": 1062682624,
+            "max": 1164230656
+          }
+        },
+        "candidate_summary": {
+          "wall_seconds": {
+            "median": 3.7098028330074158,
+            "p95": 3.7939327920030337,
+            "min": 3.7045271249953657,
+            "max": 3.7939327920030337
+          },
+          "user_seconds": {
+            "median": 3.307891,
+            "p95": 3.331551,
+            "min": 3.275923,
+            "max": 3.331551
+          },
+          "system_seconds": {
+            "median": 0.422657,
+            "p95": 0.46362699999999996,
+            "min": 0.39088999999999996,
+            "max": 0.46362699999999996
+          },
+          "peak_rss_bytes": {
+            "median": 1063747584,
+            "p95": 1102118912,
+            "min": 1049100288,
+            "max": 1102118912
+          }
+        },
+        "reference_binary_sha256": "f17379ff4b67b268e7893e060ac7872212e69d1cc8572f2f9b5803164cbd0c68",
+        "candidate_binary_sha256": "7f4632b4357c33b38799f11ffd859766d1c9ab48c6a4661fdddc8fe244c0150a",
+        "options_match": true,
+        "loaded_scope_match": true,
+        "complete_diagnostics_match": true,
+        "inputs_unchanged": true,
+        "no_previous_right_losses": true,
+        "decision": {
+          "decision": "keep",
+          "eligible": true,
+          "next_measurement": "none",
+          "target_reached": false,
+          "improved_objectives": [
+            "wall_seconds"
+          ],
+          "violated_objectives": [],
+          "comparisons": {
+            "wall_seconds": {
+              "verdict": "improved",
+              "delta": 0.021245624986477196,
+              "relative": 0.005694277419784712,
+              "violated": false
+            }
+          },
+          "primary_delta": 0.021245624986477196,
+          "rank_score": 0.005694277419784712,
+          "reason": "improved wall_seconds without violating other required objectives"
+        },
+        "wall_samples": {
+          "reference": [
+            3.7304078330053017,
+            3.731048457993893,
+            3.703237584006274,
+            3.77167816698784,
+            3.772930125007406
+          ],
+          "candidate": [
+            3.7761220000102185,
+            3.7070719999901485,
+            3.7098028330074158,
+            3.7045271249953657,
+            3.7939327920030337
+          ]
+        }
+      },
+      {
+        "kind": "Same-source TSR baseline versus entry candidate; tsgo slot is saved TSR, not native.",
+        "artifact": "/private/tmp/tsr-type-copy-39fc/confirmation.json",
+        "identity": {
+          "source_sha": "39fcbfc1366d97b6f46d9ee42cbfc293de4929ee",
+          "candidate_binary_sha256": "7f4632b4357c33b38799f11ffd859766d1c9ab48c6a4661fdddc8fe244c0150a",
+          "candidate_source_sha256": "3b86a117fa71666c33d23e2c0b43fe4dd69d0e54c7f48dc24ba6f121fac6a3f4",
+          "candidate_patch_sha256": "79a93405aa174671d6b7747e507517b7bdab46ce3e7f271b61e9d086fb5b965c"
+        },
+        "reference_summary": {
+          "wall_seconds": {
+            "median": 3.785392082994804,
+            "p95": 3.8309720830002334,
+            "min": 3.6976981250045355,
+            "max": 3.8309720830002334
+          },
+          "user_seconds": {
+            "median": 3.326399,
+            "p95": 3.359364,
+            "min": 3.283394,
+            "max": 3.359364
+          },
+          "system_seconds": {
+            "median": 0.418963,
+            "p95": 0.45422599999999996,
+            "min": 0.40965199999999996,
+            "max": 0.45422599999999996
+          },
+          "peak_rss_bytes": {
+            "median": 1079558144,
+            "p95": 1103724544,
+            "min": 1046544384,
+            "max": 1103724544
+          }
+        },
+        "candidate_summary": {
+          "wall_seconds": {
+            "median": 3.7146247919881716,
+            "p95": 3.8336547079961747,
+            "min": 3.706126667006174,
+            "max": 3.8336547079961747
+          },
+          "user_seconds": {
+            "median": 3.301306,
+            "p95": 3.337609,
+            "min": 3.293984,
+            "max": 3.337609
+          },
+          "system_seconds": {
+            "median": 0.413578,
+            "p95": 0.44696199999999997,
+            "min": 0.40340299999999996,
+            "max": 0.44696199999999997
+          },
+          "peak_rss_bytes": {
+            "median": 1116749824,
+            "p95": 1169833984,
+            "min": 1034158080,
+            "max": 1169833984
+          }
+        },
+        "reference_binary_sha256": "f17379ff4b67b268e7893e060ac7872212e69d1cc8572f2f9b5803164cbd0c68",
+        "candidate_binary_sha256": "7f4632b4357c33b38799f11ffd859766d1c9ab48c6a4661fdddc8fe244c0150a",
+        "options_match": true,
+        "loaded_scope_match": true,
+        "complete_diagnostics_match": true,
+        "inputs_unchanged": true,
+        "no_previous_right_losses": true,
+        "decision": {
+          "decision": "keep",
+          "eligible": true,
+          "next_measurement": "none",
+          "target_reached": false,
+          "improved_objectives": [
+            "wall_seconds"
+          ],
+          "violated_objectives": [],
+          "comparisons": {
+            "wall_seconds": {
+              "verdict": "improved",
+              "delta": 0.07076729100663215,
+              "relative": 0.018694837801489977,
+              "violated": false
+            }
+          },
+          "primary_delta": 0.07076729100663215,
+          "rank_score": 0.018694837801489977,
+          "reason": "improved wall_seconds without violating other required objectives"
+        },
+        "wall_samples": {
+          "reference": [
+            3.6976981250045355,
+            3.7492113330226857,
+            3.785392082994804,
+            3.8309720830002334,
+            3.8069027080200613
+          ],
+          "candidate": [
+            3.706126667006174,
+            3.8101713330252096,
+            3.8336547079961747,
+            3.7146247919881716,
+            3.712799000000814
+          ]
+        }
+      }
+    ],
+    "outcome": "measured",
+    "corpus": {
+      "kind": "candidate",
+      "path": "/tmp/tsr-type-copy-39fc/candidate-types.tsv",
+      "binary_sha256": "34ff5e59c5620f61da32c282a96cda5d40118e206d564d2f9496ed9a3f620827",
+      "rows": 474251,
+      "verdict_counts": {
+        "RIGHT": 459493,
+        "WRONG": 12564,
+        "GAP": 2194
+      },
+      "output_sha256": "597675021541281a78f7c0c7df08e36915247d41d4c4024a6d82b6cd947e5aea",
+      "wall_seconds": 19.755284457991365,
+      "exit_code": 0,
+      "filtered": false,
+      "reused_completed_capture": false,
+      "source_sha": "39fcbfc1366d97b6f46d9ee42cbfc293de4929ee",
+      "types_source_sha256": "3b86a117fa71666c33d23e2c0b43fe4dd69d0e54c7f48dc24ba6f121fac6a3f4",
+      "byte_identical": true,
+      "previous_right_losses": 0
+    },
+    "resource_validation": {
+      "kind": "All two predetermined five-pair sets, without selection",
+      "summary": {
+        "tsgo": {
+          "samples": 10,
+          "total_cpu_seconds_median": 3.752867,
+          "peak_rss_bytes_median": 1082294272.0,
+          "peak_rss_bytes_min": 1046544384,
+          "peak_rss_bytes_max": 1164230656,
+          "cpu_samples": [
+            3.722777,
+            3.7177429999999996,
+            3.698113,
+            3.762373,
+            3.766985,
+            3.693046,
+            3.743361,
+            3.7806249999999997,
+            3.7746779999999998,
+            3.795379
+          ],
+          "rss_samples": [
+            1064206336,
+            1121304576,
+            1062682624,
+            1164230656,
+            1130676224,
+            1071857664,
+            1085030400,
+            1103724544,
+            1079558144,
+            1046544384
+          ]
+        },
+        "tsr": {
+          "samples": 10,
+          "total_cpu_seconds_median": 3.7071594999999995,
+          "peak_rss_bytes_median": 1089667072.0,
+          "peak_rss_bytes_min": 1034158080,
+          "peak_rss_bytes_max": 1169833984,
+          "cpu_samples": [
+            3.754208,
+            3.702527,
+            3.6987810000000003,
+            3.696696,
+            3.784772,
+            3.698534,
+            3.762582,
+            3.783033,
+            3.704709,
+            3.7096099999999996
+          ],
+          "rss_samples": [
+            1102118912,
+            1060765696,
+            1077215232,
+            1049100288,
+            1063747584,
+            1116749824,
+            1169833984,
+            1102348288,
+            1141719040,
+            1034158080
+          ]
+        }
+      },
+      "total_cpu_candidate_ratio": 0.987820644856319,
+      "peak_rss_candidate_ratio": 1.006812195343486,
+      "limits": "Per-set RSS medians move in opposite directions. Combined medians describe these samples only; no claim of a proven allocation/RSS percentage saving.",
+      "identical_binary_rss_control": {
+        "odd_median": 1095041024,
+        "even_median": 1109934080,
+        "observed_identical_binary_median_ratio": 1.0136004548446944,
+        "min_rss": 1059946496,
+        "max_rss": 1204273152,
+        "limitation": "The same-binary control demonstrates run-to-run variation; it does not prove an exact zero RSS change from the candidate."
+      },
+      "identical_binary_rss_control_artifact": "/tmp/tsr-type-copy-39fc/rss-identical-binary-control.json"
+    },
+    "retained_validation": {
+      "artifact": "/private/tmp/tsr-type-copy-39fc/retained-results.json",
+      "matched_workloads": {
+        "literal": {
+          "summary": [
+            [
+              33,
+              64,
+              15,
+              28,
+              100,
+              96
+            ]
+          ],
+          "checks": {
+            "retained_capacities_identical": true,
+            "actual_checked_identities_equal": true,
+            "complete_diagnostics_equal": true,
+            "input_contents_unchanged": true
+          },
+          "checked_count": 1,
+          "checked_fingerprint": "4a781336181d7b42e566dc922c03a563412dfd59161d087beedbc586a2d7ccc0"
+        },
+        "generic": {
+          "summary": [
+            [
+              110,
+              128,
+              8,
+              14,
+              2684,
+              55
+            ]
+          ],
+          "checks": {
+            "retained_capacities_identical": true,
+            "actual_checked_identities_equal": true,
+            "complete_diagnostics_equal": true,
+            "input_contents_unchanged": true
+          },
+          "checked_count": 1,
+          "checked_fingerprint": "ca505b46a18b8857f69c71077c2cda4d2421cd5641daecf49ab3d294d0edeb65"
+        },
+        "mapped-recursive": {
+          "summary": [
+            [
+              88,
+              128,
+              13,
+              14,
+              1862,
+              148
+            ]
+          ],
+          "checks": {
+            "retained_capacities_identical": true,
+            "actual_checked_identities_equal": true,
+            "complete_diagnostics_equal": true,
+            "input_contents_unchanged": true
+          },
+          "checked_count": 1,
+          "checked_fingerprint": "6fcadf5130d476ce25a2f85d9944a313c38230f857beb3a6e526a5c8fefe194e"
+        },
+        "nextjs": {
+          "summary": [
+            [
+              184603,
+              262144,
+              34482,
+              57344,
+              15962354,
+              1909621
+            ]
+          ],
+          "checks": {
+            "retained_capacities_identical": true,
+            "actual_checked_identities_equal": true,
+            "complete_diagnostics_equal": true,
+            "input_contents_unchanged": true
+          },
+          "checked_count": 1341,
+          "checked_fingerprint": "7f7c78069408fb904e9e28c72ca6ec4f9e0008a0f778e4bd253239455de16d69"
+        }
+      }
+    }
+  },
+  "probe_patch_sha256": "09d0ace7b5b24f0ce1356051b2eab4e256b3784936eece4384c913d2dc96f85c",
+  "verification": {
+    "probe_patch_reproduces_both_source_hashes": true,
+    "counts_and_fingerprints_match_raw": true,
+    "private_app_sources_exported": false,
+    "retained_patch_reproduces_both_source_hashes": true
+  },
+  "retained_probe": {
+    "source": {
+      "crates/tsr-checker/src/types.rs": "322d79bcc396d9a1e704e3eca663e1effeeff3147afa52eb0026ac732d991e76",
+      "crates/tsr-execute/src/compile.rs": "eac7ce560af8b2d4299e3393af872d808043eb0d558984ae63e74d3ac5a44ccc"
+    },
+    "candidate_probe_sha256": "c111bb072d374957e67b60ecd76857a104bf68777ca111f598c98ab74c27cb22",
+    "reference_probe_sha256": "403c85263ab5ad8c8833ea1438fd93e26d9f59ad9f76e2538e010cb0fac3818d",
+    "production_source_restored": true,
+    "patch_sha256": "af48bd840a9632989025ee2150c2ece8549da6338db0363c99887658b3a50cca"
+  },
+  "normal_cli_verification": {
+    "binary_sha256": "7f4632b4357c33b38799f11ffd859766d1c9ab48c6a4661fdddc8fe244c0150a",
+    "instrumented_compiler_sources_restored": true,
+    "normal_binary_matches_timed_candidate": true,
+    "controls": {
+      "literal": {
+        "complete_diagnostics_match_native": true,
+        "removed_probe_envs_emit_no_stderr": true
+      },
+      "generic": {
+        "complete_diagnostics_match_native": true,
+        "removed_probe_envs_emit_no_stderr": true
+      },
+      "mapped-recursive": {
+        "complete_diagnostics_match_native": true,
+        "removed_probe_envs_emit_no_stderr": true
+      }
+    }
+  }
+}

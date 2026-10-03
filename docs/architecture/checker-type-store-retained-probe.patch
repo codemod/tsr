@@ -1,0 +1,41 @@
+--- a/crates/tsr-checker/src/types.rs
++++ b/crates/tsr-checker/src/types.rs
+@@ -391,0 +392,32 @@
++
++fn type_copy_payload(data: &TypeData) -> (&'static str, usize, usize, usize) {
++    match data {
++        TypeData::Intrinsic { .. } => ("intrinsic", 0, 0, 0),
++        TypeData::BooleanLiteral(_) => ("boolean", 0, 0, 0),
++        TypeData::StringLiteral(text) => ("string", text.len(), text.capacity(), usize::from(!text.is_empty())),
++        TypeData::NumberLiteral(text) => ("number", text.len(), text.capacity(), usize::from(!text.is_empty())),
++        TypeData::BigIntLiteral(text) => ("bigint", text.len(), text.capacity(), usize::from(!text.is_empty())),
++        TypeData::Named { text, .. } => ("named", text.len(), text.capacity(), usize::from(!text.is_empty())),
++        TypeData::Anonymous { text, .. } => ("anonymous", text.len(), text.capacity(), usize::from(!text.is_empty())),
++        TypeData::EnumLiteral { value, text, .. } => {
++            let value = match value { EnumLiteralValue::String(value) | EnumLiteralValue::Number(value) => value };
++            ("enum", text.len() + value.len(), text.capacity() + value.capacity(), usize::from(!text.is_empty()) + usize::from(!value.is_empty()))
++        }
++        TypeData::Union { text, types, .. } | TypeData::Intersection { text, types, .. } => {
++            let kind = if matches!(data, TypeData::Union { .. }) { "union" } else { "intersection" };
++            (kind, text.len() + types.len() * std::mem::size_of::<TypeId>(),
++                text.capacity() + types.capacity() * std::mem::size_of::<TypeId>(),
++                usize::from(!text.is_empty()) + usize::from(!types.is_empty()))
++        }
++    }
++}
++
++impl Drop for TypeStore {
++    fn drop(&mut self) {
++        if std::env::var_os("TSR_TYPE_RETAINED_PROBE").is_some() {
++            let type_payload_capacity: usize = self.types.iter().map(|ty| type_copy_payload(&ty.data).2).sum();
++            let key_payload_capacity: usize = self.interned.keys().map(|(_, data, _)| type_copy_payload(data).2).sum();
++            eprintln!("TSR_TYPE_STORE_SUMMARY\t{}\t{}\t{}\t{}\t{}\t{}", self.types.len(), self.types.capacity(), self.interned.len(), self.interned.capacity(), type_payload_capacity, key_payload_capacity);
++        }
++    }
++}
+--- a/crates/tsr-execute/src/compile.rs
++++ b/crates/tsr-execute/src/compile.rs
+@@ -307,0 +308 @@
++    let allocation_scope_probe = std::env::var_os("TSR_ALLOCATION_SCOPE_PROBE").is_some();
+@@ -343,0 +345 @@
++            if allocation_scope_probe { eprintln!("TSR_ALLOCATION_CHECKED\t{name}"); }
