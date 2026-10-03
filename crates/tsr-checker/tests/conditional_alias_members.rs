@@ -7,9 +7,9 @@
 //! that function at all — they are property accesses on a type REFERENCE, and
 //! they resolve through `type_reference_targets` on the `bd tsr-4qx` member seam.
 //!
-//! This file is the probe that should have come first. It asserts what the port
-//! answers today, so the next change to this road has a before-picture that is
-//! measured rather than recalled.
+//! This file is the probe that should have come first. Native enum-member
+//! arguments now resolve even on a cold declared-type lookup; the remaining
+//! bounded declines below retain their measured before-picture.
 //!
 //! The corpus shape is `recursiveArrayNotCircular`:
 //!
@@ -18,7 +18,7 @@
 //! ```
 //!
 //! and upstream answers `number` for `payload` on
-//! `Action<ActionType.Bar, number>` where this port answers `P`.
+//! `Action<ActionType.Bar, number>`.
 
 use tsr_ast::Statement;
 use tsr_checker::Checker;
@@ -118,21 +118,16 @@ const ACTION: &str = "enum ActionType { Foo, Bar }\n\
 #[test]
 fn a_property_of_a_conditional_alias_reference() {
     let source = format!("{ACTION}declare const a: Action<ActionType.Bar, number>;\na.payload;\n");
-    // Pinned as it behaves: **`error`**, a gap. Upstream answers `number`.
-    //
-    // Note the corpus answers `P` rather than `error` for the same shape, and
-    // that difference is itself informative: in `recursiveArrayNotCircular` the
-    // access goes through a UNION of these references narrowed by
-    // `switch (action.type)`, so the `P` arrives on the narrowed-union road. The
-    // direct reference declines outright.
-    assert_eq!(type_of_last_expression(&source), "error");
+    // Pinned native 5b1047d emits payload: number without diagnostics.
+    // Narrowed unions in recursiveArrayNotCircular remain a separate road.
+    assert_eq!(type_of_last_expression(&source), "number");
 }
 
-/// The sibling property fails identically — upstream answers `ActionType.Bar`.
+/// The sibling property retains the instantiated enum-member identity.
 #[test]
-fn the_other_property_fails_identically() {
+fn the_other_property_retains_its_enum_member() {
     let source = format!("{ACTION}declare const a: Action<ActionType.Bar, number>;\na.type;\n");
-    assert_eq!(type_of_last_expression(&source), "error");
+    assert_eq!(type_of_last_expression(&source), "ActionType.Bar");
 }
 
 /// **The control that localises the defect.** The same member access on an alias
@@ -164,30 +159,13 @@ fn a_conditional_alias_reference_answers_from_its_branch() {
     assert_eq!(type_of_last_expression(source), "number");
 }
 
-/// **A LIMIT OF THIS HARNESS, not of the checker — corrected after it was first
-/// written up the other way.**
-///
-/// `Action<ActionType.Bar, number>` answers `error` here while
-/// `Action<string, number>` answers `number`, and §823 first recorded that as a
-/// checker defect: *"an enum member as a type argument does not resolve"*.
-/// **That claim is false**, and the corpus refutes it flatly: **5,723 RIGHT
-/// lines carry a dotted enum-member answer** (`ambientEnum1` → `E1.y`,
-/// `assignToEnum` → `A.foo`, and so on), and 14,133 RIGHT lines carry a dotted
-/// answer of any kind.
-///
-/// So what fails is this fixture, not the road it was meant to probe. This
-/// harness is `Checker::new` over **one file with no `lib.d.ts` and no
-/// `ModuleHost`**, and it does not go through `types_producer`'s position rules
-/// either — so it is a usable oracle for *"does this arm fire"* and **not** for
-/// *"can the port express this"*.
-///
-/// Kept, with the caveat, because the asymmetry against the test above is still
-/// the thing to re-check if anyone touches the argument road — but the next
-/// question is what THIS fixture lacks, not what the checker lacks.
+/// Enum-member declared-type dispatch forces its parent enum before caching the
+/// member type. This works without a lib or ModuleHost; the historical gap was
+/// the missing dispatch, not an inherent limitation of this harness.
 #[test]
-fn an_enum_argument_fails_in_this_harness_only() {
+fn an_enum_argument_resolves_without_a_module_host() {
     let source = format!("{ACTION}declare const a: Action<ActionType.Bar, number>;\na.payload;\n");
-    assert_eq!(type_of_last_expression(&source), "error");
+    assert_eq!(type_of_last_expression(&source), "number");
 }
 
 /// A chosen object branch retains member types captured under its alias mapper,
