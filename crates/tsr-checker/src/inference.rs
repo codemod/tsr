@@ -5107,6 +5107,9 @@ impl Checker<'_, '_> {
         if self.mapped_conditionals.contains_key(&id) {
             return self.instantiate_mapped_conditional(id, map, parameters, names);
         }
+        if self.conditional_inference_nodes.contains_key(&id) {
+            return self.instantiate_conditional_node(id, map, parameters, names);
+        }
         if let Some((symbol, target)) = self.string_mapping_types.get(&id).copied() {
             let target = self.instantiate_type(target, map, parameters, names);
             return self.get_string_mapping_type(symbol, target);
@@ -6097,6 +6100,219 @@ mod tests {
 
     use super::mentions_identifier;
     use crate::Checker;
+
+    #[test]
+    fn dependent_conditional_constraint_uses_the_inferred_outer_mapper() {
+        use crate::relater::{Relation, Ternary};
+
+        let arena = Arena::new();
+        let source = r#"enum First { A = "a", B = "b" }
+enum Second { A = "a", C = "c" }
+declare function owner<U, T extends U extends string ? First : number>(value: T, other: U): [T];
+const value = First.A;"#;
+        let parsed = tsr_parser::parse(&arena, source);
+        assert!(parsed.diagnostics.is_empty());
+        let bound = tsr_binder::bind(
+            &arena,
+            parsed.source_file,
+            &parsed.nodes,
+            tsr_binder::FileInfo { name: "test.ts", text: source },
+        );
+        let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+        checker.set_strict_null_checks(true);
+        let Statement::FunctionDeclaration(owner) = parsed.source_file.statements[2] else {
+            panic!("owner function");
+        };
+        let signature = checker
+            .get_signatures_of_symbol(bound.symbol_of(owner.node_id.unwrap()).unwrap())
+            .unwrap()
+            .remove(0);
+        let parameters = checker.type_parameter_types(&signature).unwrap();
+        let constraint = signature.type_parameters[1].constraint.unwrap();
+        assert!(checker.conditional_inference_nodes.contains_key(&constraint));
+        let Statement::VariableStatement(variable) = parsed.source_file.statements[3] else {
+            panic!("enum member candidate");
+        };
+        let expression = variable.declaration_list.unwrap().declarations[0].initializer.unwrap();
+        let candidate = checker.check_expression(expression);
+        let mut infos = Vec::new();
+        for (parameter, value) in
+            [(parameters[0], checker.intrinsics.string), (parameters[1], candidate)]
+        {
+            super::add_directional_candidate(
+                &mut infos,
+                parameter,
+                value,
+                false,
+                super::InferencePriority::NONE,
+            );
+        }
+        let mut map = Vec::new();
+        let inferred_u = checker.resolve_inference_with_constraints(
+            (&signature, &infos),
+            0,
+            &parameters,
+            &[],
+            &mut map,
+            super::InferenceFlags::NONE,
+        );
+        assert_eq!(inferred_u, checker.intrinsics.string);
+        let branch = checker.instantiate_type(constraint, &map, &parameters, &["U", "T"]);
+        assert_eq!(checker.type_to_string(branch), "First");
+        let inferred_t = checker.resolve_inference_with_constraints(
+            (&signature, &infos),
+            1,
+            &parameters,
+            &[],
+            &mut map,
+            super::InferenceFlags::NONE,
+        );
+        assert_eq!(checker.type_to_string(inferred_t), "First.A");
+        assert!(!checker.generic_argument_is_inapplicable(candidate, inferred_t));
+        let numeric = checker.instantiate_type(
+            constraint,
+            &[(parameters[0], checker.intrinsics.boolean)],
+            &parameters,
+            &["U", "T"],
+        );
+        assert_eq!(numeric, checker.intrinsics.number);
+        assert!(checker.generic_argument_is_inapplicable(candidate, numeric));
+        let Statement::EnumDeclaration(second) = parsed.source_file.statements[1] else {
+            panic!("foreign enum");
+        };
+        let foreign =
+            checker.get_declared_type_of_symbol(bound.symbol_of(second.node_id.unwrap()).unwrap());
+        assert_eq!(
+            checker.relate_ternary(candidate, foreign, Relation::Assignable),
+            Ternary::NotRelated
+        );
+
+        // Compose, rather than discard, a root's previously captured U := T
+        // binding when the subsequent mapper supplies T := string.
+        let Some(tsr_ast::TypeNode::ConditionalTypeNode(node)) =
+            owner.type_parameters[1].constraint
+        else {
+            panic!("retained conditional root");
+        };
+        let mut bindings = rustc_hash::FxHashMap::default();
+        bindings.insert(checker.type_parameter_symbols[&parameters[0]], parameters[1]);
+        checker.alias_evaluation_bindings.push(bindings);
+        let captured =
+            checker.get_type_from_type_node(tsr_ast::TypeNode::ConditionalTypeNode(node));
+        checker.alias_evaluation_bindings.pop();
+        let composed = checker.instantiate_type(
+            captured,
+            &[(parameters[1], checker.intrinsics.string)],
+            &parameters,
+            &["U", "T"],
+        );
+        assert_eq!(checker.type_to_string(composed), "First");
+
+        let unsupported = checker.store.new_named(
+            crate::flags::TypeFlags::CONDITIONAL,
+            "U extends string ? First : number".to_string(),
+            None,
+        );
+        assert_eq!(
+            checker.instantiate_type(unsupported, &map, &parameters, &["U", "T"]),
+            checker.intrinsics.error,
+        );
+        assert_eq!(
+            checker.instantiate_conditional_node(unsupported, &map, &parameters, &["U", "T"]),
+            checker.intrinsics.error,
+        );
+    }
+
+    #[test]
+    fn conditional_constraint_slice_refuses_deferred_default_and_return_roots() {
+        use crate::{flags::TypeFlags, types::TypeData};
+
+        let arena = Arena::new();
+        let source = r#"enum First { A = "a", B = "b" }
+declare function owner<U,
+    T extends ((U extends string ? U extends "only" ? First : number : boolean)),
+    D = U extends string ? First : number>(): U extends string ? First : number;
+declare function deferred<U, V,
+    T extends (U extends string ? V extends number ? First : number : boolean)>(): void;"#;
+        let parsed = tsr_parser::parse(&arena, source);
+        assert!(parsed.diagnostics.is_empty());
+        let bound = tsr_binder::bind(
+            &arena,
+            parsed.source_file,
+            &parsed.nodes,
+            tsr_binder::FileInfo { name: "test.ts", text: source },
+        );
+        let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+        checker.set_strict_null_checks(true);
+        let Statement::FunctionDeclaration(owner) = parsed.source_file.statements[1] else {
+            panic!("owner function");
+        };
+        let signature = checker
+            .get_signatures_of_symbol(bound.symbol_of(owner.node_id.unwrap()).unwrap())
+            .unwrap()
+            .remove(0);
+        let parameters = checker.type_parameter_types(&signature).unwrap();
+        let names = ["U", "T", "D"];
+        let constraint = signature.type_parameters[1].constraint.unwrap();
+        for (text, expected) in [("only", "First"), ("other", "number")] {
+            let argument = checker.store.intern_literal(
+                TypeFlags::STRING_LITERAL,
+                TypeData::StringLiteral(text.to_string()),
+                false,
+            );
+            let result = checker.instantiate_type(
+                constraint,
+                &[(parameters[0], argument)],
+                &parameters,
+                &names,
+            );
+            assert_eq!(checker.type_to_string(result), expected);
+        }
+        for root in [signature.type_parameters[2].default.unwrap(), signature.r#type] {
+            // Native can instantiate these too. This dependent-constraint unit
+            // keeps their unsupported consumers on the pre-existing gap path.
+            assert_eq!(
+                checker.instantiate_type(
+                    root,
+                    &[(parameters[0], checker.intrinsics.string)],
+                    &parameters,
+                    &names
+                ),
+                checker.intrinsics.error,
+            );
+        }
+        // Native retains a mapped deferred conditional here; the port must not
+        // emit the original written U instead of the substituted T.
+        assert_eq!(
+            checker.instantiate_type(
+                constraint,
+                &[(parameters[0], parameters[1])],
+                &parameters,
+                &names
+            ),
+            checker.intrinsics.error,
+        );
+        let Statement::FunctionDeclaration(deferred) = parsed.source_file.statements[2] else {
+            panic!("deferred branch owner");
+        };
+        let deferred = checker
+            .get_signatures_of_symbol(bound.symbol_of(deferred.node_id.unwrap()).unwrap())
+            .unwrap()
+            .remove(0);
+        let parameters = checker.type_parameter_types(&deferred).unwrap();
+        // Selecting the outer true branch still cannot serialize the inner V
+        // conditional under its captured mapper. Do not expose written syntax.
+        assert_eq!(
+            checker.instantiate_type(
+                deferred.type_parameters[2].constraint.unwrap(),
+                &[(parameters[0], checker.intrinsics.string)],
+                &parameters,
+                &["U", "V", "T"]
+            ),
+            checker.intrinsics.error,
+        );
+        assert!(checker.alias_evaluation_bindings.is_empty());
+    }
 
     #[test]
     fn conditional_default_primitive_test_does_not_follow_distributive_or_variable_constraints() {

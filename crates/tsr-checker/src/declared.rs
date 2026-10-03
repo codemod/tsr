@@ -6269,6 +6269,63 @@ impl<'a> Checker<'a, '_> {
         })
     }
 
+    /// getConditionalTypeInstantiation maps a retained ordinary conditional's
+    /// outer bindings before evaluating its root. Keep the existing evaluator's
+    /// distribution and infer-target ordering rather than reading extends here.
+    pub(crate) fn instantiate_conditional_node(
+        &mut self,
+        id: TypeId,
+        map: &[(TypeId, TypeId)],
+        parameters: &[TypeId],
+        names: &[&str],
+    ) -> TypeId {
+        let Some(info) = self.conditional_inference_nodes.get(&id).cloned() else {
+            return self.intrinsics.error;
+        };
+        let Some(Node::ConditionalTypeNode(node)) = self.node_map.get(info.declaration) else {
+            return self.intrinsics.error;
+        };
+        // This unit admits direct declared constraints only. Return/default
+        // consumers and mapper-applied deferred node building remain separate
+        // prerequisites; opening them propagates unsupported consumer types.
+        let mut root = info.declaration;
+        let in_constraint = loop {
+            let Some(parent) = self.nodes.parent(root) else { break false };
+            match self.node_map.get(parent) {
+                Some(Node::ConditionalTypeNode(_) | Node::ParenthesizedTypeNode(_)) => {
+                    root = parent;
+                }
+                Some(Node::TypeParameterDeclaration(parameter)) => {
+                    break parameter
+                        .constraint
+                        .is_some_and(|constraint| Node::from(constraint).node_id() == Some(root));
+                }
+                _ => break false,
+            }
+        };
+        if !in_constraint {
+            return self.intrinsics.error;
+        }
+        let mut bindings = info.bindings;
+        for value in bindings.values_mut() {
+            *value = self.instantiate_type(*value, map, parameters, names);
+        }
+        for &(parameter, value) in map {
+            if let Some(&symbol) = self.type_parameter_symbols.get(&parameter) {
+                bindings.insert(symbol, value);
+            }
+        }
+        self.alias_evaluation_bindings.push(bindings);
+        // A deferred result needs a mapper-applied semantic node builder.
+        // The written-node fallback would expose the original operands.
+        let result = self
+            .evaluate_conditional_node(node, None)
+            .filter(|result| !self.conditional_inference_nodes.contains_key(result))
+            .unwrap_or(self.intrinsics.error);
+        self.alias_evaluation_bindings.pop();
+        result
+    }
+
     /// getConditionalTypeInstantiation composes the outer mapper before
     /// testing the check type or distributing its substituted constituents.
     pub(crate) fn instantiate_mapped_conditional(

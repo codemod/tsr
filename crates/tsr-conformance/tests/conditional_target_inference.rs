@@ -242,3 +242,78 @@ export const variableControl = variableOnly("variable", "key", "marker");
         ],
     );
 }
+
+#[test]
+fn dependent_conditional_calls_map_branches_before_applicability() {
+    // Pinned conditionalApplicabilityWave6.types: argument order and a forward
+    // constraint reference must not change inference. Equal string payloads
+    // from a foreign enum owner still recover to First, never Second.A.
+    expect(
+        r#"// @strict: true
+// @target: es2015
+enum First { A = "a", B = "b" }
+enum Second { A = "a", C = "c" }
+declare function enumChoice<U, T extends U extends string ? First : number>(value: T, other: U): [T];
+declare function keyed<U, T extends U extends string ? First : number>(other: U, value: T): [T];
+declare function forward<T extends U extends string ? First : number, U>(value: T, other: U): [T];
+export const held = enumChoice(First.A, "key");
+export const numeric = enumChoice(37, false);
+export const keyedValue = keyed("key", First.B);
+export const forwardValue = forward(First.B, "key");
+export const foreignOwner = enumChoice(Second.A, "key");
+export const falseBranchEnum = enumChoice(First.A, false);
+"#,
+        &[
+            "held : [First.A]",
+            "numeric : [37]",
+            "keyedValue : [First.B]",
+            "forwardValue : [First.B]",
+            "foreignOwner : [First]",
+            "falseBranchEnum : [number]",
+        ],
+    );
+}
+
+#[test]
+fn dependent_conditionals_preserve_captured_alias_bindings_and_distribution() {
+    // The alias captures X := First while its call supplies U. A substituted
+    // string | boolean check must distribute, rather than choose only number.
+    expect(
+        r#"// @strict: true
+// @target: es2015
+enum First { A = "a", B = "b" }
+enum Second { A = "a", C = "c" }
+type Factory<X> = <U, T extends U extends string ? X : number>(value: T, other: U) => [T];
+declare const captured: Factory<First>;
+declare function enumChoice<U, T extends U extends string ? First : number>(value: T, other: U): [T];
+declare const unionKey: string | boolean;
+export const capturedValue = captured(First.B, "key");
+export const capturedForeign = captured(Second.A, "key");
+export const distributedEnum = enumChoice(First.B, unionKey);
+export const distributedNumber = enumChoice(53, unionKey);
+"#,
+        &[
+            "capturedValue : [First.B]",
+            "capturedForeign : [First]",
+            "distributedEnum : [First.B]",
+            "distributedNumber : [53]",
+        ],
+    );
+}
+
+#[test]
+fn nested_parenthesized_conditional_constraints_keep_both_branch_boundaries() {
+    // Pinned conditionalWave6_constraintWrappers.types. Scope admission must
+    // follow transparent wrappers without swapping or skipping the inner test.
+    expect(
+        r#"// @strict: true
+// @target: es2015
+enum First { A = "a", B = "b" }
+declare function nested<const U, T extends ((U extends string ? U extends "only" ? First : number : boolean))>(value: T, other: U): [T];
+export const outerAndInner = nested(First.A, "only");
+export const innerFalse = nested(37, "other");
+export const outerFalse = nested(true, false);
+"#,
+        &["outerAndInner : [First.A]", "innerFalse : [37]", "outerFalse : [true]"],
+    );
+}
