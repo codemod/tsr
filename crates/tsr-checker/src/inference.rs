@@ -5821,7 +5821,23 @@ impl Checker<'_, '_> {
         parameters: &[TypeId],
         names: &[&str],
     ) -> bool {
-        self.mentions_type_parameter_inner(id, parameters, names, &mut Vec::new())
+        self.mentions_type_parameter_inner(
+            id,
+            &|candidate| parameters.contains(&candidate),
+            names,
+            &mut Vec::new(),
+        )
+    }
+
+    /// The same graph walk with membership in this checker's current registry.
+    /// Avoids materializing all registered identities for every conditional.
+    pub(crate) fn mentions_registered_type_parameter(&self, id: TypeId) -> bool {
+        self.mentions_type_parameter_inner(
+            id,
+            &|candidate| self.type_parameter_symbols.contains_key(&candidate),
+            &[],
+            &mut Vec::new(),
+        )
     }
 
     /// Type-parameter identity through the type graph, including bound generic
@@ -5830,11 +5846,11 @@ impl Checker<'_, '_> {
     fn mentions_type_parameter_inner(
         &self,
         id: TypeId,
-        parameters: &[TypeId],
+        is_parameter: &impl Fn(TypeId) -> bool,
         names: &[&str],
         visited: &mut Vec<TypeId>,
     ) -> bool {
-        if parameters.contains(&id) {
+        if is_parameter(id) {
             return true;
         }
         if visited.contains(&id) {
@@ -5842,13 +5858,13 @@ impl Checker<'_, '_> {
         }
         visited.push(id);
         if let Some((_, target)) = self.string_mapping_types.get(&id) {
-            return self.mentions_type_parameter_inner(*target, parameters, names, visited);
+            return self.mentions_type_parameter_inner(*target, is_parameter, names, visited);
         }
         if let Some(parts) = self.template_literal_parts.get(&id) {
             return parts
                 .types
                 .iter()
-                .any(|&ty| self.mentions_type_parameter_inner(ty, parameters, names, visited));
+                .any(|&ty| self.mentions_type_parameter_inner(ty, is_parameter, names, visited));
         }
         let ty = self.store.get(id);
         if ty.flags.intersects(
@@ -5860,34 +5876,42 @@ impl Checker<'_, '_> {
             return false;
         }
         if let Some(&operand) = self.deferred_keyof_operands.get(&id) {
-            return self.mentions_type_parameter_inner(operand, parameters, names, visited);
+            return self.mentions_type_parameter_inner(operand, is_parameter, names, visited);
         }
         if let Some(&(object, index, _)) = self.deferred_indexed_access_types.get(&id) {
-            return self.mentions_type_parameter_inner(object, parameters, names, visited)
-                || self.mentions_type_parameter_inner(index, parameters, names, visited);
+            return self.mentions_type_parameter_inner(object, is_parameter, names, visited)
+                || self.mentions_type_parameter_inner(index, is_parameter, names, visited);
         }
         if let Some((_, arguments)) = self.type_reference_targets.get(&id) {
             return arguments
                 .iter()
-                .any(|&ty| self.mentions_type_parameter_inner(ty, parameters, names, visited));
+                .any(|&ty| self.mentions_type_parameter_inner(ty, is_parameter, names, visited));
         }
         if let Some(info) = self.mapped_conditionals.get(&id) {
             return info
                 .operands
                 .iter()
-                .any(|&ty| self.mentions_type_parameter_inner(ty, parameters, names, visited));
+                .any(|&ty| self.mentions_type_parameter_inner(ty, is_parameter, names, visited));
         }
         if let Some(info) = self.mapped_types.get(&id) {
-            return self.mentions_type_parameter_inner(info.constraint, parameters, names, visited)
-                || self.mentions_type_parameter_inner(info.template, parameters, names, visited)
-                || info.name_type.is_some_and(|ty| {
-                    self.mentions_type_parameter_inner(ty, parameters, names, visited)
-                });
+            return self.mentions_type_parameter_inner(
+                info.constraint,
+                is_parameter,
+                names,
+                visited,
+            ) || self.mentions_type_parameter_inner(
+                info.template,
+                is_parameter,
+                names,
+                visited,
+            ) || info.name_type.is_some_and(|ty| {
+                self.mentions_type_parameter_inner(ty, is_parameter, names, visited)
+            });
         }
         if self.object_literal_index_infos.get(&id).is_some_and(|infos| {
             infos.iter().any(|info| {
-                self.mentions_type_parameter_inner(info.key, parameters, names, visited)
-                    || self.mentions_type_parameter_inner(info.value, parameters, names, visited)
+                self.mentions_type_parameter_inner(info.key, is_parameter, names, visited)
+                    || self.mentions_type_parameter_inner(info.value, is_parameter, names, visited)
             })
         }) {
             return true;
@@ -5907,25 +5931,30 @@ impl Checker<'_, '_> {
                             .iter()
                             .flat_map(|p| [p.constraint, p.default].into_iter().flatten()),
                     )
-                    .any(|ty| self.mentions_type_parameter_inner(ty, parameters, names, visited))
+                    .any(|ty| self.mentions_type_parameter_inner(ty, is_parameter, names, visited))
             }) {
                 return true;
             }
             return self.anonymous_properties.get(&id).is_some_and(|(properties, _)| {
                 properties.iter().any(|property| {
-                    self.mentions_type_parameter_inner(property.r#type, parameters, names, visited)
+                    self.mentions_type_parameter_inner(
+                        property.r#type,
+                        is_parameter,
+                        names,
+                        visited,
+                    )
                 })
             });
         }
         if let Some((properties, _)) = self.anonymous_properties.get(&id) {
             return properties.iter().any(|property| {
-                self.mentions_type_parameter_inner(property.r#type, parameters, names, visited)
+                self.mentions_type_parameter_inner(property.r#type, is_parameter, names, visited)
             });
         }
         if let Some((elements, _)) = self.tuple_element_lists.get(&id) {
             return elements
                 .iter()
-                .any(|&ty| self.mentions_type_parameter_inner(ty, parameters, names, visited));
+                .any(|&ty| self.mentions_type_parameter_inner(ty, is_parameter, names, visited));
         }
         let constituents: &[TypeId] = match &ty.data {
             TypeData::Union { types, .. } | TypeData::Intersection { types, .. } => types,
@@ -5934,7 +5963,7 @@ impl Checker<'_, '_> {
         if !constituents.is_empty() {
             return constituents
                 .iter()
-                .any(|&t| self.mentions_type_parameter_inner(t, parameters, names, visited));
+                .any(|&t| self.mentions_type_parameter_inner(t, is_parameter, names, visited));
         }
         let text = crate::printing::type_to_string(ty);
         names.iter().any(|name| mentions_identifier(&text, name))
@@ -6003,6 +6032,101 @@ mod tests {
 
     use super::mentions_identifier;
     use crate::Checker;
+
+    #[test]
+    fn registered_parameter_membership_preserves_identity_graphs_and_current_registry() {
+        use crate::flags::TypeFlags;
+
+        let arena = Arena::new();
+        let source = "function owner<T>(value: T): T { return value; }";
+        let parsed = tsr_parser::parse(&arena, source);
+        let bound = tsr_binder::bind(
+            &arena,
+            parsed.source_file,
+            &parsed.nodes,
+            tsr_binder::FileInfo { name: "test.ts", text: source },
+        );
+        let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+        let Statement::FunctionDeclaration(declaration) = parsed.source_file.statements[0] else {
+            panic!("the fixture must declare a function");
+        };
+        let owner = bound.symbol_of(declaration.node_id.unwrap()).unwrap();
+        let signature = checker.get_signatures_of_symbol(owner).unwrap().remove(0);
+        let registered = signature.parameters[0].r#type;
+        assert!(checker.type_parameter_symbols.contains_key(&registered));
+        let unregistered = checker.store.new_named(TypeFlags::TYPE_PARAMETER, "T".into(), None);
+        assert_ne!(registered, unregistered);
+        let number = checker.intrinsics().number;
+        let fallback = checker.store.new_named(TypeFlags::OBJECT, "Fallback<T>".into(), None);
+
+        // A cycle must not hide the later registered argument, and an unrelated
+        // same-named parameter must never match through printed-name recovery.
+        let positive_cycle = checker.store.new_named(TypeFlags::OBJECT, "Positive".into(), None);
+        checker
+            .type_reference_targets
+            .insert(positive_cycle, (owner, vec![positive_cycle, registered]));
+        let negative_cycle = checker.store.new_named(TypeFlags::OBJECT, "Negative".into(), None);
+        checker
+            .type_reference_targets
+            .insert(negative_cycle, (owner, vec![negative_cycle, unregistered]));
+
+        let callable = checker.store.new_named(TypeFlags::OBJECT, "Callable".into(), None);
+        let mut nested = signature.clone();
+        nested.parameters[0].r#type = positive_cycle;
+        nested.r#type = number;
+        checker.signature_types.insert(callable, vec![nested]);
+
+        let constrained = checker.store.new_named(TypeFlags::OBJECT, "Constrained".into(), None);
+        let mut nested = signature.clone();
+        nested.parameters[0].r#type = number;
+        nested.r#type = number;
+        nested.type_parameters[0].constraint = Some(registered);
+        checker.signature_types.insert(constrained, vec![nested]);
+
+        let defaulted = checker.store.new_named(TypeFlags::OBJECT, "Defaulted".into(), None);
+        let mut nested = signature.clone();
+        nested.parameters[0].r#type = number;
+        nested.r#type = number;
+        nested.type_parameters[0].default = Some(registered);
+        checker.signature_types.insert(defaulted, vec![nested]);
+
+        let shadow = checker.store.new_named(TypeFlags::OBJECT, "Shadow".into(), None);
+        let mut nested = signature;
+        nested.parameters[0].r#type = unregistered;
+        nested.r#type = unregistered;
+        checker.signature_types.insert(shadow, vec![nested]);
+
+        let cases = [
+            (registered, true),
+            (unregistered, false),
+            (number, false),
+            (fallback, false),
+            (positive_cycle, true),
+            (negative_cycle, false),
+            (callable, true),
+            (constrained, true),
+            (defaulted, true),
+            (shadow, false),
+        ];
+        let parameters: Vec<_> = checker.type_parameter_symbols.keys().copied().collect();
+        for (ty, expected) in cases {
+            assert_eq!(checker.mentions_registered_type_parameter(ty), expected, "{ty:?}");
+            assert_eq!(checker.mentions_type_parameter(ty, &parameters, &[]), expected);
+        }
+        assert!(checker.mentions_type_parameter(fallback, &[], &["T"]));
+        assert!(!checker.mentions_type_parameter(unregistered, &[registered], &["T"]));
+
+        // Registry changes are visible immediately, without caching an answer
+        // obtained before the semantic graph finished being populated.
+        checker.type_parameter_symbols.remove(&registered);
+        for (ty, _) in cases {
+            assert!(!checker.mentions_registered_type_parameter(ty), "{ty:?}");
+        }
+        checker.type_parameter_symbols.insert(unregistered, owner);
+        assert!(checker.mentions_registered_type_parameter(negative_cycle));
+        assert!(checker.mentions_registered_type_parameter(shadow));
+        assert!(!checker.mentions_registered_type_parameter(positive_cycle));
+    }
 
     /// Ask [`Checker::check_generic_call`] directly, with the signature of
     /// `function` and the arguments of the call the last statement initialises.

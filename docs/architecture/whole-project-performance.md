@@ -265,3 +265,50 @@ the saved **TSR reference binary**, not native tsgo. This is an isolated TSR
 comparison and does not prove the overall 0.50 target. The full-app CLI trace
 control emitted zero bytes on both versions and is invalid as trace evidence;
 trace forwarding is tracked in `tsr-1yb.1.1.1`.
+
+## Registered type-parameter membership
+
+A symbolized sample delayed into checking on source `52585a08` located a large
+allocation cost: 853 of 3,482 main-thread samples were in registry-vector
+collection called by conditional evaluation. Temporary counters found that
+conditional, mapped-context and conditional-extends queries copied **795 million
+parameter IDs** across 37,629 requests. The registry reached 42,150 entries,
+while the largest visited type graph had 299 nodes. These samples and counters
+locate the cost; their instrumented durations are not throughput measurements.
+
+Conditional and mapped-context predicates now query the existing checker-owned
+registry directly. Conditional-extends evaluation only collects candidate IDs
+after the graph confirms it contains a registered parameter. Both predicates
+use the same graph walk, traversal order and cycle guard as explicit inference
+parameter queries; those explicit queries retain their printed-name fallback.
+No answers are memoized, so changes to the current registry remain visible.
+
+Five alternating fresh-process pairs compared the clean saved `52585a08` TSR
+binary with this change, with one warmup per binary:
+
+| Measurement | Before | Direct membership |
+|---|---:|---:|
+| Median wall | 6.452 s | 4.987 s |
+| Wall range | 6.380–6.606 s | 4.951–4.997 s |
+| Median user CPU | 6.051 s | 4.564 s |
+| Median system CPU | 0.400 s | 0.388 s |
+| Median peak RSS | 1.132 GB | 1.083 GB |
+
+This is a **22.7% wall reduction** against the saved TSR reference. Both sides
+retain the same 13,097 files, effective options, input-content fingerprints and
+123 diagnostics. All 474,251 assertion rows are byte-identical: 458,472 RIGHT,
+2,436 GAP and 13,343 WRONG, with zero previously RIGHT losses.
+
+Focused controls cover registered versus unregistered same-named parameters,
+cyclic references, nested signatures, constraints/defaults, primitives, explicit
+printed-name recovery and registry updates. The bounded unresolved Flatten
+fixture produces the same diagnostic as pinned native; the MCP fixture checks
+clean with all three binaries. The public generic-imports fixture retains the
+same three TSR diagnostics and three actual checked files; its existing native
+comparison reports one diagnostic, so that fixture does not establish parity.
+
+Local evidence is `/tmp/tsr-1yb-parameter-membership-paired.json` and
+`/tmp/tsr-1yb-parameter-membership-assertion-audit.json`. The benchmark's `tsgo`
+slot contains the saved **TSR reference**, not native tsgo. This confirms the
+isolated optimization, while the native 0.50 target remains unverified and
+workload alignment remains open.

@@ -125,12 +125,11 @@ impl<'a> Checker<'a, '_> {
                 return None;
             }
         }
-        let parameters: Vec<_> = self.type_parameter_symbols.keys().copied().collect();
         let constraints =
             info.constraint_intersection.clone().unwrap_or_else(|| vec![info.constraint]);
         if !constraints
             .iter()
-            .any(|&constraint| self.mentions_type_parameter(constraint, &parameters, &[]))
+            .any(|&constraint| self.mentions_registered_type_parameter(constraint))
         {
             return None;
         }

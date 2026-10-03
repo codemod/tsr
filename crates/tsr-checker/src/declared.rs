@@ -6130,10 +6130,9 @@ impl<'a> Checker<'a, '_> {
             }
             // A deferred check must stay under its conditional mapper. Walk
             // semantic operands, including keyof and deeply nested references.
-            let parameters: Vec<_> = self.type_parameter_symbols.keys().copied().collect();
             if !self.signature_types.contains_key(&check)
                 && (self.store.get(check).flags.intersects(TypeFlags::INSTANTIABLE_NON_PRIMITIVE)
-                    || self.mentions_type_parameter(check, &parameters, &[]))
+                    || self.mentions_registered_type_parameter(check))
             {
                 return None;
             }
@@ -6417,10 +6416,10 @@ impl<'a> Checker<'a, '_> {
     /// wildcard's relation. A failed instantiation answers `error` for both,
     /// which [`Checker::definite_conditional_outcome`] defers.
     fn conditional_extends_instantiations(&mut self, extends: TypeId) -> Option<(TypeId, TypeId)> {
-        let candidates: Vec<TypeId> = self.type_parameter_symbols.keys().copied().collect();
-        if !self.mentions_type_parameter(extends, &candidates, &[]) {
+        if !self.mentions_registered_type_parameter(extends) {
             return None;
         }
+        let candidates: Vec<TypeId> = self.type_parameter_symbols.keys().copied().collect();
         let mentioned: Vec<TypeId> = candidates
             .into_iter()
             .filter(|&parameter| self.mentions_type_parameter(extends, &[parameter], &[]))
