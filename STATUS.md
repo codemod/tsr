@@ -22,7 +22,54 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
-### Current checker checkpoint — generic await, presence reads and JSDoc diagnostics
+### Current checker checkpoint — nonfinite literals and cold mapped producers
+
+Measured production tree **`dea5ee4e`**, against published `d881bd20`:
+**459,594/478,855 assertions (95.98%)**, **7,173/9,538 complete cases
+(75.20%)**. The 99% target requires 474,067 matches; **14,473 remain**.
+Pinned native `5b1047d1` and both denominators are unchanged. Aligned verdicts:
+**474,251 total; 459,594 RIGHT; 2,183 GAP; 12,474 WRONG**.
+
+Nonfinite numeric values now use the existing ECMAScript formatter when interned
+as literals, negated literals and enum payloads. Finite formatting and scanner
+recovery are unchanged. Native controls distinguish overflow from a shadowed
+`Infinity` binding, preserve negative zero and finite values, and keep enum-owner
+identity in both assignment directions. Composed unary `-(-2e999)` still widens
+to `number`, matching native. The full audit adds **45 WRONG→RIGHT** in
+`fakeInfinity1/2/3` and `deferredConditionalTypes2`, with **zero RIGHT losses,
+GAP→WRONG, changed remaining-WRONG payloads, or new/removed records**. Three whole
+cases improve; the 45 assertions are not 45 cases.
+
+Cold bounded homomorphic mapped queries expose guaranteed names, modifiers,
+declaration roots and deferred values. Open-key and union enumeration stay
+unsupported rather than publishing complete empty tables. This producer and
+the preserved concurrent private-symbol foundation `77eebd5b` are corpus-neutral
+on fresh combined-source audits. Mapped modifier comparison, generic admission
+and missing-member heads remain separate consumer work; no held consumer is in
+this measured tree.
+
+Complete duplicate-aware diagnostics are byte-identical to `d881bd20` across
+**10,570 cases**, including all **5,082 empty baselines**:
+**2,840 RIGHT / 2,648 WRONG / 4,797 EMPTY_RIGHT / 285 EMPTY_WRONG**;
+**20,617 matched occurrences / 3,891 extras**. There are no correct-case,
+expected-occurrence, empty-positive, payload or population losses.
+
+**2,755 release workspace tests across 236 result blocks**, six existing ignores,
+strict release workspace/all-target Clippy, formatting and diff checks pass.
+Unfiltered scorepair agrees with the multiline-aware audit and accepts the new
+baseline; checker and diagnostics snapshots are refreshed after strict Clippy.
+The real Next.js performance workload was not rerun. Dolt has no configured
+remote, so local issue updates are not claimed as synced.
+
+The standalone intrinsic-error negation patch is held despite 11 gains: three
+GAP→WRONG rows require constrained-parameter truthiness and loop-flow/binding
+prerequisites. Its complete diagnostics are unchanged, and both negation and
+the rejected unresolved supplier are restored. Class-module-clone, bounded
+conditional-constraint and semantic signature-position work still requires
+combined integration audits. The 99% goal is not reached; this is a checkpoint,
+not completion.
+
+### Previous checker checkpoint — generic await, presence reads and JSDoc diagnostics
 
 Measured production tree **`6b2c5147`**, against published `6a09be4e`:
 **459,549/478,855 assertions (95.97%)**, **7,170/9,538 complete cases
