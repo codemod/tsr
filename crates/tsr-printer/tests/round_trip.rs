@@ -201,18 +201,18 @@ fn a_digit_starting_escape_is_a_scan_error_like_upstream() {
     // character, and `u0031a` is the identifier. The old assertion was pinning
     // this port's own over-consumption.
     //
-    // This port prints `var ;` — neither the old spelling nor upstream's, and
-    // the difference is NOT the scanner's. Reaching `var u0031a;` needs
+    // This port used to print `var ;` — neither the old spelling nor upstream's,
+    // and the difference was NOT the scanner's. Reaching `var u0031a;` needs
     // `parseDelimitedList`'s third recovery arm: at the `\`,
     // `isListElement(PCVariableDeclarations)` is false and `isListTerminator`
     // is false, so upstream reports `Variable_declaration_expected`, **skips
-    // one token and retries**, and only then finds `u0031a`. That arm is
-    // §191's named wall and needs the `parsingContexts` bitmask
-    // (`docs/architecture/checker-notes-nearmiss.md`). Pinned as what this
-    // port does, with the distance to upstream stated, rather than left
-    // asserting a spelling the scanner no longer produces.
+    // one token and retries**, and only then finds `u0031a`. §1045 ports the
+    // decidable `Unknown`-token slice of that arm. The native evidence is the
+    // pinned `invalidUnicodeEscapeSequance4.js` baseline quoted above; this
+    // assertion independently verifies parser recovery reaches the printer as
+    // the same declaration upstream emits. No printer production code changed.
     let output = printed(r"var \u0031a;");
-    assert!(output.contains("var ;"), "{output}");
+    assert!(output.contains("var u0031a;"), "{output}");
     // The neighbouring line of the same upstream case is the control, and it
     // is why §208 is a correction rather than a loosening: a VALID escape
     // inside an identifier is still CONSUMED, so the identifier is one token

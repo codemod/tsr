@@ -582,7 +582,40 @@ impl<'a> Parser<'a> {
         let mut declarations = Vec::new();
         let mut trailing_comma = false;
         loop {
+            // **An invalid character is skipped, and the list goes on.**
+            // `parseDelimitedList` (`parser.go:649`) hands a token that is
+            // neither a list element nor a terminator to
+            // `abortParsingListOrMoveToNextToken` (`parser.go:728`), which
+            // aborts only if some *enclosing* context would take the token.
+            // `SyntaxKind::Unknown` — what the scanner returns for `\` without
+            // a valid escape — is an element or terminator of no context at
+            // all, so upstream always reports it (at the scanner's own TS1127
+            // position, where the sink's same-position guard swallows it) and
+            // skips it. `var arg\u003` is therefore `var arg, u003` upstream
+            // (its `.js` emit says so); this loop used to end at the `\` and
+            // leave `u003` to become an expression statement and an extra
+            // TS2304. Restricted to `Unknown` because every other token's
+            // abort decision needs `isInSomeParsingContext`, which this parser
+            // does not track. `checker-notes-diag2.md` §1045.
+            let mut recovered_unknown = false;
+            while self.at(SyntaxKind::Unknown) {
+                recovered_unknown = true;
+                self.error_at_current(&messages::VARIABLE_DECLARATION_EXPECTED);
+                self.next_token();
+            }
+            if (recovered_unknown || !declarations.is_empty())
+                && !self.is_binding_identifier_or_private_identifier_or_pattern()
+            {
+                break;
+            }
             declarations.push(self.parse_variable_declaration());
+            if self.at(SyntaxKind::Unknown) {
+                // `parseExpected(KindCommaToken)` (`parser.go:676`): the list
+                // was not terminated, so a separator is reported missing and
+                // the loop retries at the top, where the token is skipped.
+                self.error_at_current_with(&messages::_0_EXPECTED, &[","]);
+                continue;
+            }
             if !self.eat(SyntaxKind::CommaToken) {
                 break;
             }

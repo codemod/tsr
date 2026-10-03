@@ -50444,3 +50444,54 @@ export default async(() => await(Promise.resolve(1)));
 
 The remaining line is `await` used at top level in a *different* module of the
 same fixture, at a position this arm does not reach.
+
+## §1045 — invalid Unicode escapes stay inside a declaration list: **+3/−0**
+
+Three `extraonly` cases had the same shape:
+
+```ts
+var arg\u003
+var arg\uxxxx
+var \u0031a
+```
+
+Upstream reports only the scanner's TS1127 on the invalid backslash. Its emitted
+JavaScript for the first case is `var arg, u003;`, and its `.symbols` baseline
+declares both names. `parseDelimitedList` (`parser.go:649`) hands a token that is
+neither a list element nor a terminator to
+`abortParsingListOrMoveToNextToken` (`parser.go:728`); `isInSomeParsingContext`
+finds no context that owns `KindUnknown`, so the parser skips it and retries the
+variable-declaration list. The missing separator report and scanner error share
+the same start, so the parser sink's same-position guard keeps TS1127 only.
+
+This parser does not model upstream's parsing-context bitset. The port is
+therefore deliberately restricted to `SyntaxKind::Unknown`, which can be an
+element or terminator of no list: after one declaration, report the missing
+comma, then at the top of the loop report/recover the invalid token and continue.
+Every other token keeps the existing conservative list exit.
+
+Before this change, the variable list ended at `arg`; `u003` became an expression
+statement and checker traversal emitted an extra TS2304 one column after TS1127.
+
+Measured against clean `cec7cef5` in the same checkout:
+
+```text
+diagnostics    2,790 → 2,793   (+3/−0)
+GAINED         invalidUnicodeEscapeSequance, invalidUnicodeEscapeSequance2,
+               invalidUnicodeEscapeSequance4
+checker_types  no transitions; total assertions 474,243 → 474,244,
+               right 457,641 → 457,642 (one new declaration assertion)
+```
+
+An initial “baseline 2,798” was invalid and is retracted: the discarded
+TS2683/TS2564 experiment was still staged in the checkout used by `diagpass`,
+and a cross-worktree binary resolved `repo_root()` back to that checkout. After
+`git restore --staged --worktree` removed every candidate, both `diagpass` and
+the tracked diagnostics snapshot read **2,790**; unfiltered `scorepair --accept`
+produced the baseline numbers above. No `TSR_*` environment variable was set.
+
+Five parser-native controls pin the three invalid tails, exact TS1127-only
+diagnostics, an invalid token at EOF (no manufactured declaration), and an
+ordinary comma-separated declaration list. The existing printer control now
+expects `var u0031a;`, independently anchored to upstream's checked-in
+`invalidUnicodeEscapeSequance4.js`; no printer implementation changed.
