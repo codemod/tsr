@@ -681,19 +681,18 @@ impl tsr_checker::resolution::ModuleHost for Program<'_> {
     }
 
     fn jsx_factory_namespace(&self, file: tsr_ast::NodeId) -> Option<String> {
-        self.root_and_referenced_files()
-            .iter()
-            .find(|candidate| candidate.source_file().node_id == Some(file))?
-            .file_references()
-            .jsx_factory_namespace
-            .clone()
+        let &index = self.files_by_source_file.get(&file)?;
+        if index < self.lib_file_count {
+            return None;
+        }
+        self.files[index].file_references().jsx_factory_namespace.clone()
     }
 
     fn is_declaration_file(&self, file: tsr_ast::NodeId) -> bool {
-        self.root_and_referenced_files()
-            .iter()
-            .find(|candidate| candidate.source_file().node_id == Some(file))
-            .is_some_and(|candidate| tsr_binder::is_declaration_file(candidate.file_name()))
+        self.files_by_source_file.get(&file).is_some_and(|&index| {
+            index >= self.lib_file_count
+                && tsr_binder::is_declaration_file(self.files[index].file_name())
+        })
     }
 }
 
@@ -914,6 +913,76 @@ mod tests {
     }
 
     #[test]
+    fn file_metadata_queries_use_source_identity_instead_of_canonical_path() {
+        use tsr_checker::resolution::ModuleHost;
+
+        let arena = Arena::new();
+        let program = program(
+            &arena,
+            &[
+                ("same.tsx", "/** @jsx First.createElement */ export {};"),
+                ("./same.tsx", "/** @jsx Second.createElement */ export {};"),
+                ("types.d.ts", "export interface T {}"),
+                ("types.d.mts", "export interface U {}"),
+                ("types.d.cts", "export interface V {}"),
+                ("plain.ts", "export const value = 1;"),
+            ],
+        );
+        let roots: Vec<_> =
+            program.source_files().iter().map(|file| file.source_file().node_id.unwrap()).collect();
+        assert_eq!(program.files_by_source_file.len(), roots.len());
+        assert_ne!(roots[0], roots[1], "same-path inputs have distinct parsed identities");
+        assert_eq!(program.jsx_factory_namespace(roots[0]).as_deref(), Some("First"));
+        assert_eq!(program.jsx_factory_namespace(roots[1]).as_deref(), Some("Second"));
+        for (index, id) in roots.iter().enumerate() {
+            assert_eq!(program.is_declaration_file(*id), (2..=4).contains(&index));
+        }
+        assert_eq!(program.jsx_factory_namespace(roots[5]), None);
+        let unknown = NodeId::new(u32::MAX - 1);
+        assert_eq!(program.jsx_factory_namespace(unknown), None);
+        assert!(!program.is_declaration_file(unknown));
+    }
+
+    #[test]
+    fn file_metadata_queries_keep_the_root_and_referenced_file_boundary() {
+        use tsr_checker::resolution::ModuleHost;
+
+        let arena = Arena::new();
+        let host = host(&[
+            ("/root.tsx".into(), "/** @jsx Root.createElement */ import './reference';".into()),
+            (
+                "/reference.d.ts".into(),
+                "/** @jsx Ref.createElement */ export interface T {}".into(),
+            ),
+            ("/libs/lib.d.ts".into(), "/** @jsx Lib.createElement */ interface Object {}".into()),
+        ]);
+        let program = Program::from_root_files(
+            &arena,
+            &host,
+            LoadOptions {
+                compiler_options: CompilerOptions {
+                    target: tsr_core::ScriptTarget::ES5,
+                    ..Default::default()
+                },
+                root_file_names: vec!["/root.tsx".into()],
+                default_library_path: "/libs".into(),
+            },
+        );
+        assert_eq!(program.lib_files().len(), 1);
+        assert_eq!(program.root_and_referenced_files().len(), 2);
+        let root = file_id(&program, "/root.tsx");
+        let reference = file_id(&program, "/reference.d.ts");
+        let lib = file_id(&program, "/libs/lib.d.ts");
+        assert_eq!(program.jsx_factory_namespace(root).as_deref(), Some("Root"));
+        assert_eq!(program.jsx_factory_namespace(reference).as_deref(), Some("Ref"));
+        assert!(!program.is_declaration_file(root));
+        assert!(program.is_declaration_file(reference));
+        // These host queries previously searched only root/referenced files.
+        assert_eq!(program.jsx_factory_namespace(lib), None);
+        assert!(!program.is_declaration_file(lib));
+    }
+
+    #[test]
     fn the_options_reach_the_program() {
         let arena = Arena::new();
         let program = Program::in_arena(
@@ -1018,6 +1087,11 @@ mod tests {
             Some(target)
         );
         assert_eq!(file_id(&program, "/b/node_modules/shared/index.d.ts"), target);
+        assert!(tsr_checker::resolution::ModuleHost::is_declaration_file(&program, target));
+        assert_eq!(
+            tsr_checker::resolution::ModuleHost::jsx_factory_namespace(&program, target),
+            None
+        );
         assert_eq!(program.source_files().len(), 3);
         assert!(program.source_file("/b/node_modules/shared/copy-only.d.ts").is_none());
     }

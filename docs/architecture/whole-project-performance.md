@@ -312,3 +312,49 @@ Local evidence is `/tmp/tsr-1yb-parameter-membership-paired.json` and
 slot contains the saved **TSR reference**, not native tsgo. This confirms the
 isolated optimization, while the native 0.50 target remains unverified and
 workload alignment remains open.
+
+## Indexed Program file metadata
+
+After the registry change, a delayed symbolized sample on `cfcbcfab` still
+attributed 148 self samples to `Program::jsx_factory_namespace`, with another
+13 inclusive samples in declaration-file lookup. The sampled main thread had
+2,563 samples across the end of loading, checking, reporting and teardown.
+Those counts locate the repeated scans; they are not whole-process cost shares.
+
+Both host queries now use the existing immutable `files_by_source_file` index.
+They preserve the old root/referenced-file boundary, which excludes the bundled
+lib prefix. Missing IDs still yield no namespace and a false declaration-file
+answer. Each constructor allocates source roots in the program's shared node
+table, so distinct parsed files have distinct IDs even when their paths
+canonicalize alike. Package redirects query the canonical retained file's ID.
+
+Five alternating fresh-process pairs compared saved `cfcbcfab` TSR with this
+change, with one warmup per binary:
+
+| Measurement | Before | Indexed |
+|---|---:|---:|
+| Median wall | 5.043 s | 4.842 s |
+| Wall range | 5.012–5.234 s | 4.791–4.849 s |
+| Median user CPU | 4.590 s | 4.417 s |
+| Median system CPU | 0.437 s | 0.415 s |
+| Median peak RSS | 1.096 GB | 1.112 GB |
+
+The isolated wall reduction is **4.0%**. RSS ranges overlap; this result does
+not establish a memory change. Both sides retain the same 13,097 loaded files,
+effective options, stable content fingerprints and 123 diagnostics.
+
+Controls cover distinct per-file JSX pragmas, same-path inputs with different
+source IDs, TS/TSX and `.d.ts`/`.d.mts`/`.d.cts` classification, imported files,
+the bundled-lib boundary, unknown IDs and canonical package redirects. The
+excluded bundled-lib metadata domain is a preexisting fidelity question tracked
+in `tsr-1yb.7.2.1`, under the checker port epic; this lookup experiment preserves
+it rather than using a semantic change as performance evidence.
+
+All 474,251 assertion rows are byte-identical to the same-source reference:
+458,472 RIGHT, 2,436 GAP and 13,343 WRONG, with zero previously RIGHT losses.
+The 84 affected compiler/execute tests, including the shared-Program ownership
+controls, pass, as do all-target clippy and formatting checks.
+
+Local evidence is `/tmp/tsr-1yb-program-file-queries-paired.json`; its `tsgo`
+slot contains the saved **TSR reference**, not native tsgo. The isolated gain
+does not verify the overall native 0.50 target.
