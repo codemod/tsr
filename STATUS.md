@@ -22,7 +22,66 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
-### Current checker checkpoint — optional flow, variance and combined intersections
+### Current checker checkpoint — generic await, presence reads and JSDoc diagnostics
+
+Measured production tree **`6b2c5147`**, against published `6a09be4e`:
+**459,549/478,855 assertions (95.97%)**, **7,170/9,538 complete cases
+(75.17%)**. The 99% target requires 474,067 matches; **14,518 remain**.
+Pinned native `5b1047d1` and the denominator are unchanged. Aligned verdicts:
+**474,251 total; 459,549 RIGHT; 2,183 GAP; 12,519 WRONG**.
+
+This prefix adds **12 WRONG→RIGHT**, all in `strictOptionalProperties1`, with
+**zero RIGHT losses, GAP→WRONG, changed remaining-WRONG payloads, or new/removed
+rows**. Cumulatively against the exact `dfd9e8c6` wave baseline, the combined
+source adds **56 matches: 45 WRONG→RIGHT and 11 GAP→RIGHT**, with the same zero-loss
+and unchanged-population guarantees. Whole-case gains are six, not 56.
+
+Structural thenable fulfillment and generic `Awaited` creation now preserve
+native alias distribution, async return parameter identity and primitive
+intersection bounds. Nongeneric import-equals class bases use declared-instance
+meaning with bounded pure-alias cycle traversal; namespace module-clone identity
+remains separate. Complete named empty-object constraints are a native-backed,
+corpus-neutral regression unit, retaining private/inherited members and both
+signature kinds. Conditional default primitive constraints, sibling JSDoc member
+completeness, declared/measured variance and bounded apparent object-source
+intersections are also corpus-neutral prerequisites, not claimed full mapped
+proofs.
+
+Presence guards narrow property **reads**, not definite write targets. Native
+exact/non-exact `in`/`hasOwnProperty`, reset, shadow, receiver/key and explicit
+undefined/null controls pass. The false guarded TS2412 at
+`strictOptionalProperties1.ts(16,9)` is removed without reporter exceptions.
+Whole-object exact-optional failures select native TS2375 at 99:7, 111:7 and 195:1.
+
+Configured JSDoc diagnostics now use the producer's tables and options. Complete
+diagnostics cover **10,570 cases**, including **5,082 empty baselines**:
+**2,840 RIGHT / 2,648 WRONG / 4,797 EMPTY_RIGHT / 285 EMPTY_WRONG**.
+Against `6a09be4e`, matches rise **20,609 → 20,617** and extras fall
+**3,894 → 3,891**; against `dfd9e8c6`, they rise **20,606 → 20,617** and fall
+**3,897 → 3,891**. There are **zero correct-case or duplicate expected-occurrence
+losses, introduced extras or population changes**. Six remaining-WRONG diagnostic
+payloads change; two complete diagnostic cases improve. Tag8 rejects 36:1 and
+accepts 37:1 without suppression; its missing TS1274 at 59:14 remains grammar scope.
+
+Rejected broad alias recovery, indexed-key delegation and nil-node recovery stay
+excluded. The latter two still add false TS2322 at `twiceNestedKeyofIndexInference`
+32:7; recovery also erases reduced native unknown/boolean-to-string negatives.
+Native reader controls return non-nil error-any at all 71 query nodes; writer-nil
+positions are excluded assertion population, not `any`-to-gap opportunities.
+The same raw error identity renders `error` or `any` according to the existing
+error-baseline flag. Genuine any remains distinct.
+
+**2,740 release workspace tests across 236 result blocks**, six existing ignores,
+strict release workspace/all-target Clippy, formatting and diff checks pass.
+The issue-ID gate's **197 historical missing records** and absent Dolt remote
+remain unchanged; local task updates are not claimed as synced. The real Next.js
+performance workload was not rerun. Open generic mapped proofs (`tsr-tt6`), lazy
+mapped exposure (`tsr-mc5`), class module clones (`tsr-i34`), conditional mapper
+instantiation (`tsr-rf1`), unresolved-identifier suppliers (`tsr-1nu`) and effective
+signature positions (`tsr-0ku`) remain independently owned ongoing work. The 99%
+goal is not reached; this is a checkpoint, not completion.
+
+### Previous checker checkpoint — optional flow, variance and combined intersections
 
 Measured production tree **`c435a6bd`**, against exact published `debb68b6`:
 **459,493/478,855 assertions (95.96%)**, **7,164/9,538 complete cases
