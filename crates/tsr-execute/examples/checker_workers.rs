@@ -13,6 +13,9 @@ use tsr_diagnostics::{Diagnostic, format::DiagnosticFile};
 use tsr_execute::{OsSystem, system::System};
 use tsr_vfs::{CachedFileSystem, FileSystem};
 
+#[path = "checker_workers/diagnostics.rs"]
+mod worker_diagnostics;
+
 struct Host<'a> {
     fs: &'a dyn FileSystem,
     directory: &'a str,
@@ -163,7 +166,13 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
             .collect::<Vec<_>>()
     });
     let checked = Instant::now();
-    let raw: Vec<_> = results.iter().flat_map(|worker| &worker.diagnostics).collect();
+    let mut raw: Vec<_> = results.iter().flat_map(|worker| worker.diagnostics.clone()).collect();
+    let file_names: std::collections::HashMap<_, _> = program
+        .source_files()
+        .iter()
+        .filter_map(|file| file.source_file().node_id.map(|id| (id.as_u32(), file.file_name())))
+        .collect();
+    worker_diagnostics::normalize(&mut raw, |id| file_names[&id]);
     let mut diagnostics = Vec::new();
     let files: Vec<_> = program
         .root_and_referenced_files()

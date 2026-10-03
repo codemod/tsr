@@ -191,6 +191,61 @@ Type counts are not allocation bytes, and expression computations are not all
 generic instantiations. Measure external process wall/CPU/peak RSS separately.
 The probe is not a replacement for CLI config, parse/bind diagnostics or emit.
 
+### Affinity, diagnostic merging and query ownership
+
+Pinned `internal/compiler/checkerpool.go:createCheckers` associates every source
+file with `checkers[index % checkerCount]` before filtering checked files.
+The probe and ownership controls preserve that full-array index, including the
+bundled-lib prefix and
+skipped declaration files. Filtering first changes private cache affinity.
+Within a group, files retain Program order.
+
+Native `GetChecker` grants exclusive access to one mutable checker; a nil file
+hint selects the first checker. Its nonexclusive emit access is valid only when
+the caller guarantees no concurrent access. TSR's scoped seam constructs,
+checks and queries each checker in its worker, then returns owned strings and
+diagnostics. It does not require `Checker: Send`, share mutable type caches, or
+transfer `TypeId` values. A future retained pool must preserve exclusive access
+for queries after checking, even if checking itself has finished.
+
+Every private checker calls `report_merge_conflicts` once. Disjoint file groups
+therefore still produce duplicate program-wide conflicts. The probe coordinator
+now sorts and deduplicates raw diagnostics before applying comment directives,
+using the supported portion of native `ast/diagnostic.go:CompareDiagnostics`
+and `compiler/program.go:SortAndDeduplicateDiagnostics`: file name, full span,
+code and message arguments. Node identity or rendered text alone is insufficient.
+TSR's current Diagnostic has no message-chain or related-information fields;
+their comparison and native related-information union must extend this seam
+when those fields are ported. This is not full diagnostic-model parity.
+
+The expanded controls compare complete formatted output with the existing
+serial CLI at 1/2/3/4 workers. Passing controls cover cross-file generic imports,
+constructors and merged globals; actual duplicate merge conflicts; a skewed
+96-error file; directives and queries after checking; a nonempty lib prefix
+with skipped declarations; and `noCheck`. A standalone merge fixture also
+produces byte-identical output from the CLI, probe at 1/2/4 workers and pinned
+tsgo. Local evidence is `/tmp/tsr-1yb-worker-controls/results.json`.
+
+A separate full-app correctness replay retains all 123 complete diagnostics,
+13,097 loaded files and 1,341 checks at 1/2/4 workers, matching the fresh serial
+CLI. Input contents are unchanged before and after the runs. This replay is
+not a throughput benchmark; evidence is
+`/tmp/tsr-1yb-worker-merge-nextjs.json`.
+
+The same external controls establish stable TSR output for recursive generic
+imports and module augmentation, but expose existing native differences:
+`tsr-6.48` leaves recursive imported members as `T`, and `tsr-6.49` does not
+expose augmented interface members to imports. Their native-expectation tests
+remain explicitly ignored with those issue IDs, not counted as passing worker
+readiness. Both block `tsr-1yb.3.2`, which still precedes production workers.
+
+Checker-backed declaration emit cannot yet be exercised: the CLI behaves as
+`noEmit`, and `tsr-declarations` uses `SyntacticResolver` while mutating its
+syntax node table. `tsr-fe9` tracks the missing CheckerResolver. Future semantic
+emit must query its exclusive owning checker and keep mutable emit storage
+separate from the frozen Program; the existing syntax emitter does not prove
+worker/emit equivalence.
+
 After fixing diagnostic normalization (`tsr-1yb.1.4`), the exploratory probe's
 complete 123 diagnostics match the saved serial CLI, including multiline
 messages. The normalizer now strips ANSI decoration and ends message
