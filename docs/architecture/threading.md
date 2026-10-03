@@ -191,16 +191,47 @@ Type counts are not allocation bytes, and expression computations are not all
 generic instantiations. Measure external process wall/CPU/peak RSS separately.
 The probe is not a replacement for CLI config, parse/bind diagnostics or emit.
 
-One exploratory fresh-process Next.js run per probe mode on source `8a65762e`
-observed 4.789/3.715/3.351 seconds at 1/2/4 workers, with process peak RSS
-1.047/0.990/1.002 GB. Each checked the same 1,341 files from 13,097 loaded files
-with stable input fingerprints; all three had identical complete diagnostic
-fingerprints. All 123 diagnostic headers also matched the serial CLI. Its
-complete fingerprint differs because the harness attaches summary lines to the
-last diagnostic (`tsr-1yb.1.4`); header equality is not a substitute for fixing
-that comparison. These single observations establish no retained speedup,
-memory reduction, production default or native 2x result.
+After fixing diagnostic normalization (`tsr-1yb.1.4`), the exploratory probe's
+complete 123 diagnostics match the saved serial CLI, including multiline
+messages. The normalizer now strips ANSI decoration and ends message
+continuations at summary/phase headings; it does not attach summary table rows
+to the last diagnostic. Negative controls retain changes to messages, related
+information, locations and codes.
 
-Local evidence is `/tmp/tsr-1yb-worker-scaling-exploratory.json`. Repeated scaling
-and memory policy remain in `tsr-1yb.3.1`; diagnostic merging and query/emit
-ownership controls are `tsr-1yb.3.2`. Both must precede production scheduling.
+Five fresh-process samples per mode on source `23563207`, after one warmup per
+mode and with rotated order, measured the same Next.js workload:
+
+| Workers | Median wall | Wall range | Median CPU | Median peak RSS | Program | Check/join |
+|---|---:|---:|---:|---:|---:|---:|
+| 1 | 4.733 s | 4.668–4.948 s | 4.728 s | 1.040 GB | 2.327 s | 2.214 s |
+| 2 | 3.823 s | 3.698–3.926 s | 5.052 s | 1.073 GB | 2.355 s | 1.275 s |
+| 4 | 3.363 s | 3.306–3.426 s | 5.311 s | 1.046 GB | 2.325 s | 0.833 s |
+
+Every run checked the same 1,341 files from 13,097 loaded files, with stable
+content fingerprints and the same complete diagnostics as a fresh serial CLI
+control. Four workers reduced probe wall time by **28.9%** against one worker,
+while CPU rose 12.3%. RSS ranges overlap, so this establishes no memory
+reduction or exact private-worker memory bound. Median worker initialization
+totals were below 1.1 ms; lazy checking, not construction, creates most private types.
+
+Summed final type counts were 187,759/230,491/280,423 at 1/2/4 workers, and actual
+expression computations were 247,852/264,017/278,122. These counts were stable
+across samples. Four workers create 49.4% more final type entries and perform
+12.2% more expression computations than one. Balanced file counts still yield
+skew: in one four-worker sample, checking ranged from 0.492 to 0.761 s and one
+worker retained 104,752 types versus 50,693 in another. These are checker-local
+counts, not independent memory estimates or native instantiation counters.
+
+The evidence supports evaluating a default of at most four workers, bounded by
+available CPUs and files, with `singleThreaded` forcing one. It does not approve
+the production default: broader augmentation/recursion/emit/query controls and
+constrained-memory behavior remain in `tsr-1yb.3.1` and `tsr-1yb.3.2`. Explicit
+native `checkers` overrides must be audited separately from the probe's four-worker
+limit. Both tasks precede production scheduling.
+
+Loading remains about 2.3 s, already above half the previously observed native
+total of 3.305 s. Checker parallelism alone cannot reach the overall 2x target.
+This is a TSR probe comparison; the CLI remains serial and native scope/config
+alignment remains incomplete. Local evidence is
+`/tmp/tsr-1yb-worker-scaling-repeated.json` and
+`/tmp/tsr-1yb-worker-diagnostic-normalization.json`.

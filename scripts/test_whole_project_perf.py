@@ -26,6 +26,49 @@ class BenchmarkEvidenceTests(unittest.TestCase):
             self.assertNotEqual(file_identity("lib.es5.d.ts", root),
                                 file_identity("bundled:///libs/lib.es5.d.ts", root))
 
+    def test_diagnostic_summary_and_phase_rows_are_not_message_continuations(self):
+        output = "a.ts(1,1): error TS2322: incompatible\n  nested detail\n"
+        expected = diagnostics(output, Path("/repo"))
+        for suffix in (
+            "\nFound 1 error in a.ts\x1b[90m:1\x1b[0m\n\n",
+            "\nFound 2 errors in the same file, starting at: a.ts:1\n\n",
+            "\nFound 2 errors in 2 files.\n\nErrors  Files\n     1  a.ts:1\n     1  b.ts:2\n",
+            "\nErrors  Files\n     1  a.ts:1\n",
+            "\nFiles: 123\n  Total time: 1.0s\n",
+        ):
+            with self.subTest(suffix=suffix):
+                self.assertEqual(diagnostics(output + suffix, Path("/repo")), expected)
+
+    def test_diagnostic_ansi_paths_and_related_information_remain_significant(self):
+        plain = ("/repo/a.ts(1,1): error TS2322: incompatible\n"
+                 "  /repo/b.ts(2,3): The expected type comes from this declaration.\n")
+        colored = plain.replace("error", "\x1b[91merror\x1b[0m")
+        colored = colored.replace("declaration", "\x1b[1mdeclaration\x1b[0m")
+        expected = diagnostics(plain, Path("/repo"))
+        self.assertEqual(diagnostics(colored, Path("/repo")), expected)
+        self.assertIn("  <project>/b.ts(2,3):", expected["entries"][0])
+        for original, replacement in (
+            ("a.ts", "c.ts"), ("(1,1)", "(1,2)"), ("TS2322", "TS2345"),
+            ("incompatible", "different"), ("declaration", "other declaration"),
+        ):
+            with self.subTest(original=original):
+                self.assertNotEqual(diagnostics(plain.replace(original, replacement), Path("/repo"))
+                                    ["fingerprint"], expected["fingerprint"])
+
+    def test_error_text_inside_a_continuation_does_not_start_another_diagnostic(self):
+        output = ("error TS2322: incompatible\n"
+                  "  This message quotes error TS2345: argument.\n")
+        result = diagnostics(output, Path("/repo"))
+        self.assertEqual(result["count"], 1)
+        self.assertIn("quotes error TS2345:", result["entries"][0])
+
+    def test_missing_or_truncated_diagnostics_change_the_fingerprint(self):
+        output = "a.ts(1,1): error TS2322: incompatible\n  nested detail\n"
+        expected = diagnostics(output, Path("/repo"))["fingerprint"]
+        for truncated in ("", "a.ts(1,1): error TS2322: incom", output.splitlines()[0]):
+            with self.subTest(truncated=truncated):
+                self.assertNotEqual(diagnostics(truncated, Path("/repo"))["fingerprint"], expected)
+
     def test_option_differences_preserve_missing_semantics(self):
         self.assertEqual(option_differences(
             {"compilerOptions": {"lib": ["ES2022"]}},

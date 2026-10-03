@@ -26,6 +26,9 @@ import time
 
 ROOT = Path(__file__).resolve().parents[1]
 DIAGNOSTIC = re.compile(r"(?:error|warning) TS\d+:")
+DIAGNOSTIC_START = re.compile(r"^(?:.+\(\d+,\d+\): )?(?:error|warning) TS\d+:")
+ANSI_CSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+ERROR_SUMMARY = re.compile(r"^Found \d+ errors?\b|^\s*Errors\s+Files\s*$")
 
 
 def fingerprint(value: object) -> str:
@@ -82,11 +85,21 @@ def process(command: list[str], cwd: Path, timeout: float) -> dict:
 def diagnostics(output: str, cwd: Path) -> dict:
     # Preserve multiline messages; sort complete diagnostics, never their lines.
     entries: list[str] = []
-    for line in output.splitlines():
-        if DIAGNOSTIC.search(line):
-            entries.append(line.replace(str(cwd) + "/", "<project>/").rstrip())
-        elif entries and line[:1].isspace():
+    in_diagnostic = False
+    for line in ANSI_CSI.sub("", output).splitlines():
+        line = line.replace(str(cwd) + "/", "<project>/").rstrip()
+        if DIAGNOSTIC_START.match(line):
+            entries.append(line)
+            in_diagnostic = True
+        elif ERROR_SUMMARY.match(line):
+            in_diagnostic = False
+        elif in_diagnostic and line[:1].isspace():
             entries[-1] += "\n" + line.rstrip()
+        elif line:
+            # Plain diagnostics have indented continuations. An unindented
+            # summary/phase heading ends that block; its subsequent indented
+            # rows must not become part of the preceding diagnostic.
+            in_diagnostic = False
     return {"count": len(entries), "fingerprint": fingerprint(sorted(entries)), "entries": entries}
 
 
