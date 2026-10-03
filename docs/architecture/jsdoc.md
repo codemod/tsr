@@ -143,8 +143,25 @@ be asserting documentation rather than behaviour. The test says so explicitly.
   the checker sees an ordinary typed program. That is the whole of JSDoc's
   semantics for JavaScript and belongs with the checker; parsing is a prerequisite,
   not a substitute. Filed as a `bd` issue under the parser epic.
-- **`@typedef` with nested `@property` tags**, where following tags synthesise a
-  type literal. Needs the reparser's machinery for the same reason.
+- **`@typedef {Object}` with nested `@property` tags.** Complete inline type
+  literals now enter the normal alias-body checker seam, and sibling `@template`
+  tags supply that alias's type parameters; inline `T` and `T[]` members are
+  consequently instantiated by the ordinary alias mapper. Alias names are
+  retained only for top-level JSDoc typedefs, matching
+  `determineIfDeclarationIsVisible`'s JSDoc arm — this is lexical host
+  visibility, not ordering by source offsets. Upstream instead gathers the
+  property tags under a synthetic `JSTypeAliasDeclaration`; in this immutable
+  AST they remain flat siblings with no lexical parent. A correct direct-port
+  replacement must resolve every property annotation under the alias mapper so
+  `T`, `T[]`, nested object types, and alias references all see the same scope.
+  A member-lookup adapter for bare `T` would only conceal that missing ownership.
+  Optional properties also need both exact and non-exact optional controls when
+  this is built.
+- **JSDoc template modifiers are parsed, not enforced as variance.** The parser
+  follows `parseTemplateTagTypeParameter`/`parseModifiersEx`: `in`, `out`,
+  `in out`, and `const` precede the actual parameter name. The checker currently
+  consumes the parameter identity for typedef aliases; variance checking remains
+  part of the broader generic relation implementation.
 - ~~**`@import { Foo } from "./types"`** — the tag is not parsed at all …
   Do the reparse list first.~~ **BUILT — §269 (superseding §218), 2026-08-13,
   +22 cases / 228 W→R.** §218's finding that the parse alone converts zero
@@ -164,8 +181,10 @@ be asserting documentation rather than behaviour. The test says so explicitly.
   tree moved unrelated lines in three fixtures. `@import { Foo as F }`
   (renames) and `@import * as ns` remain declined — both are the alias-name
   printing wall (`bd tsr-e2u`).
-- **`@callback` and `@overload` signatures** — the tags parse, but
-  `JSDocSignature` is not built.
+- **`@callback` and `@overload` signatures** — `@callback` remains an unknown tag
+  rather than being consumed through the typedef path, and `JSDocSignature` is
+  not built. Callback parser/signature work therefore stays independent of the
+  typedef alias-body bridge.
 - **JSDoc-only type syntax**: `*` (`JSDocAllType`), `?T`, `!T`, `T=`, `...T`. These
   are `.js` conveniences; the nodes are generated and unused.
 

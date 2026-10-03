@@ -6,7 +6,7 @@
 //! late, because JSDoc diagnostics are discarded and the wrong type is still *a*
 //! type. Checking the type's source span is what catches that.
 
-use tsr_ast::{EntityName, JSDocComment, JSDocTag, Node, NodeTable};
+use tsr_ast::{EntityName, JSDocComment, JSDocTag, ModifierLike, Node, NodeTable, SyntaxKind};
 use tsr_core::Arena;
 use tsr_parser::{JSDocTable, ParsedSourceFile};
 
@@ -281,6 +281,49 @@ fn template_parameters_share_one_constraint() {
         tag.type_parameters.iter().map(|p| p.name.map_or("-", |n| n.text)).collect();
     assert_eq!(names, ["T", "U"]);
     assert!(tag.constraint.is_some(), "the `{{object}}` constrains both");
+}
+
+#[test]
+fn template_variance_modifiers_precede_the_actual_name() {
+    let arena = Arena::new();
+    let source = "/** @template in A, out B, in out C, D */\nfunction f() {}";
+    let parsed = parse(&arena, source);
+    let tags = tags(&parsed);
+    let JSDocTag::JSDocTemplateTag(tag) = tags[0] else { panic!("expected @template") };
+    let parameters: Vec<_> = tag
+        .type_parameters
+        .iter()
+        .map(|parameter| {
+            let modifiers: Vec<_> = parameter
+                .modifiers
+                .iter()
+                .map(|modifier| match modifier {
+                    ModifierLike::Token(token) => token.kind,
+                    ModifierLike::Decorator(_) => panic!("variance is a token modifier"),
+                })
+                .collect();
+            (parameter.name.expect("name").text, modifiers)
+        })
+        .collect();
+    assert_eq!(
+        parameters,
+        [
+            ("A", vec![SyntaxKind::InKeyword]),
+            ("B", vec![SyntaxKind::OutKeyword]),
+            ("C", vec![SyntaxKind::InKeyword, SyntaxKind::OutKeyword]),
+            ("D", vec![]),
+        ]
+    );
+}
+
+#[test]
+fn callback_remains_outside_the_typedef_parser_path() {
+    let arena = Arena::new();
+    let parsed = parse(&arena, "/** @callback C */\nlet value;");
+    assert!(matches!(
+        tags(&parsed).as_slice(),
+        [JSDocTag::JSDocUnknownTag(tag)] if tag.tag_name.text == "callback"
+    ));
 }
 
 #[test]

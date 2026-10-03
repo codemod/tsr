@@ -1525,6 +1525,26 @@ impl<'a> Checker<'a, '_> {
                 return error;
             }
             let declared = self.get_declared_type_of_symbol(symbol);
+            // The alias branch of native's node builder is gated by
+            // `IsTypeSymbolAccessible` (`nodebuilderimpl.go:3362`). Its
+            // declaration-visibility predicate admits a JSDoc typedef only
+            // when its comment host is directly under a SourceFile
+            // (`emitresolver.go:128-135`). This is a lexical ownership test,
+            // not a comparison of file-relative spans: `typedefOnStatements`
+            // keeps top-level A..Q named but expands function-local Alpha.
+            if self.is_visible_jsdoc_type_alias(symbol)
+                && matches!(self.store.get(declared).data, crate::types::TypeData::Named { .. })
+            {
+                let key = (symbol, Vec::new());
+                if let Some(&cached) = self.instantiations.get(&key) {
+                    return cached;
+                }
+                let name = self.binder.symbols().get(symbol).name.to_string();
+                let members = self.alias_body_literal_symbol(symbol);
+                let named = self.store.new_named(self.store.get(declared).flags, name, members);
+                self.instantiations.insert(key, named);
+                return named;
+            }
             return self.get_regular_type_of_literal_type(declared);
         }
         self.get_instantiated_type_reference(node, symbol, parameters)
@@ -4689,11 +4709,7 @@ impl<'a> Checker<'a, '_> {
         if !self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_ALIAS) {
             return None;
         }
-        let declaration = self.binder.symbols().get(symbol).declarations.first().copied()?;
-        let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration) else {
-            return None;
-        };
-        let Some(TypeNode::TypeLiteralNode(literal)) = alias.r#type else { return None };
+        let TypeNode::TypeLiteralNode(literal) = self.type_alias_body(symbol)? else { return None };
         self.binder.symbol_of(literal.node_id?)
     }
 
@@ -5607,19 +5623,7 @@ impl<'a> Checker<'a, '_> {
                 None,
             );
         }
-        let Some(declaration) = self.binder.symbols().get(symbol).declarations.first().copied()
-        else {
-            return error;
-        };
-        let Some(annotation) = self.node_map.get(declaration).and_then(|node| node.type_id())
-        else {
-            return error;
-        };
-        let Some(type_node) =
-            self.node_map.get(annotation).and_then(|n| TypeNode::try_from(n).ok())
-        else {
-            return error;
-        };
+        let Some(type_node) = self.type_alias_body(symbol) else { return error };
         // getDeclaredTypeOfTypeAlias / getBuiltinIteratorReturnType
         // (checker.go:23857,6400): this intrinsic follows the strict-family
         // option, independently of strictNullChecks.
@@ -5671,6 +5675,43 @@ impl<'a> Checker<'a, '_> {
             return error;
         }
         resolved
+    }
+
+    /// The body of a written or JSDoc type alias.
+    ///
+    /// Native reparses `@typedef {T} Name` as a `JSTypeAliasDeclaration`
+    /// before binding (`parser/reparser.go:62`), so
+    /// `getDeclaredTypeOfTypeAlias` reads its body through the same `Type()`
+    /// field as an ordinary alias. This port keeps the parsed JSDoc tag instead
+    /// of synthesising an AST declaration; this is the equivalent projection
+    /// at the checker boundary.
+    fn type_alias_body(&self, symbol: SymbolId) -> Option<TypeNode<'a>> {
+        let declarations = &self.binder.symbols().get(symbol).declarations;
+        // A written alias wins in a merged symbol. Native's reparser creates a
+        // JSTypeAliasDeclaration, but its checker still finds the ordinary
+        // TypeAliasDeclaration body first for this merged shape.
+        for &declaration in declarations {
+            if let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration) {
+                return alias.r#type;
+            }
+        }
+        // Same-named JSDoc aliases in distinct function scopes are currently
+        // merged in file locals by the direct binder. Do not pick one body for
+        // all of them; their existing initializer fallback is scope-correct.
+        let [declaration] = declarations.as_slice() else { return None };
+        let Some(Node::JSDocTypedefTag(typedef)) = self.node_map.get(*declaration) else {
+            return None;
+        };
+        let body = match typedef.type_expression? {
+            Node::JSDocTypeExpression(expression) => expression.r#type?,
+            node => TypeNode::try_from(node).ok()?,
+        };
+        // A parsed type literal is complete in this AST. `@typedef {Object}`
+        // needs sibling-property synthesis and an effective lexical parent for
+        // its annotations; that remains a follow-up, so Object/primitive/
+        // function bodies keep declining rather than replacing stronger
+        // initializer inference.
+        matches!(body, TypeNode::TypeLiteralNode(_)).then_some(body)
     }
 
     /// §33: whether an alias body is a function type, constructor type, or
@@ -7100,8 +7141,46 @@ impl<'a> Checker<'a, '_> {
             Some(Node::ClassExpression(node)) => node.type_parameters,
             Some(Node::InterfaceDeclaration(node)) => node.type_parameters,
             Some(Node::TypeAliasDeclaration(node)) => node.type_parameters,
+            Some(Node::JSDocTypedefTag(_)) => self
+                .jsdoc_alias_doc(symbol)
+                .and_then(|doc| {
+                    doc.tags.iter().find_map(|tag| match tag {
+                        tsr_ast::JSDocTag::JSDocTemplateTag(template) => {
+                            Some(template.type_parameters)
+                        }
+                        _ => None,
+                    })
+                })
+                .unwrap_or(&[]),
             _ => &[],
         }
+    }
+
+    /// The original JSDoc block whose typedef tag declares `symbol`.
+    ///
+    /// Native's reparser makes this association structural by parenting the
+    /// gathered template/property nodes under a synthetic alias. The immutable
+    /// source AST keeps tags flat, so recover the same association from the
+    /// sparse host table, requiring the alias declaration's exact node id.
+    fn jsdoc_alias_doc(&self, symbol: SymbolId) -> Option<&'a tsr_ast::JSDoc<'a>> {
+        let declaration = self.binder.symbols().get(symbol).declarations.first().copied()?;
+        self.jsdoc_entries.values().flat_map(|docs| docs.iter().copied()).find(|doc| {
+            doc.tags.iter().any(|tag| match tag {
+                tsr_ast::JSDocTag::JSDocTypedefTag(tag) => tag.node_id == Some(declaration),
+                _ => false,
+            })
+        })
+    }
+
+    /// `EmitResolver.determineIfDeclarationIsVisible`'s JSDoc typedef arm
+    /// (`internal/checker/emitresolver.go:128-135`).
+    fn is_visible_jsdoc_type_alias(&self, symbol: SymbolId) -> bool {
+        let Some(doc) = self.jsdoc_alias_doc(symbol) else { return false };
+        let Some(doc_id) = doc.node_id else { return false };
+        let Some(&host) = self.jsdoc_hosts.get(&doc_id) else { return false };
+        self.nodes
+            .parent(host)
+            .is_some_and(|parent| self.nodes.kind(parent) == SyntaxKind::SourceFile)
     }
 
     /// The names of those type parameters, in order.

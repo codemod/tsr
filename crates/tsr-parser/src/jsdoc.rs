@@ -550,23 +550,31 @@ impl<'a> Parser<'a> {
         loop {
             self.skip_whitespace_or_asterisk();
             let parameter_start = self.pos();
+            let mut word_start = parameter_start;
             let mut name = self.parse_jsdoc_identifier_name();
-            // `@template const T` — upstream's `parseTemplateTagTypeParameter`
-            // reads a `const` MODIFIER ahead of the name; without this arm the
-            // modifier was parsed AS the name and `T` was dropped
-            // (`jsdocTemplateTag6` printed `<const>`).
-            let mut modifiers: &'a [tsr_ast::ModifierLike<'a>] = &[];
-            if name.text == "const" {
+            // `parseTemplateTagTypeParameter` delegates to `parseModifiersEx`
+            // (`parser/jsdoc.go:1259`), so `const`, `in`, `out`, and `in out`
+            // precede the actual parameter name. Parsing only `const` made
+            // `@template out T` declare a parameter literally named `out`
+            // and discard T (`jsdocTemplateTag8`).
+            let mut modifiers = Vec::new();
+            while let Some(kind) = match name.text {
+                "const" => Some(SyntaxKind::ConstKeyword),
+                "in" => Some(SyntaxKind::InKeyword),
+                "out" => Some(SyntaxKind::OutKeyword),
+                _ => None,
+            } {
+                let modifier_end = self.pos();
                 self.skip_whitespace();
-                if self.at_jsdoc(SyntaxKind::Identifier) {
-                    let token = self.alloc_token(
-                        SyntaxKind::ConstKeyword,
-                        tsr_core::Span::new(parameter_start, self.pos()),
-                    );
-                    modifiers = self.arena.alloc_slice(&[tsr_ast::ModifierLike::Token(token)]);
-                    name = self.parse_jsdoc_identifier_name();
+                if !self.at_jsdoc_identifier() {
+                    break;
                 }
+                let token = self.alloc_token(kind, tsr_core::Span::new(word_start, modifier_end));
+                modifiers.push(tsr_ast::ModifierLike::Token(token));
+                word_start = self.pos();
+                name = self.parse_jsdoc_identifier_name();
             }
+            let modifiers = self.arena.alloc_slice(&modifiers);
             let default = if self.at_jsdoc(SyntaxKind::EqualsToken) {
                 self.next_jsdoc_token();
                 Some(self.parse_jsdoc_type_expression(true))
