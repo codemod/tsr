@@ -5897,11 +5897,12 @@ impl Checker<'_, '_> {
         if visited.contains(&id) {
             return false;
         }
-        visited.push(id);
         if let Some((_, target)) = self.string_mapping_types.get(&id) {
+            visited.push(id);
             return self.mentions_type_parameter_inner(*target, is_parameter, names, visited);
         }
         if let Some(parts) = self.template_literal_parts.get(&id) {
+            visited.push(id);
             return parts
                 .types
                 .iter()
@@ -5916,6 +5917,8 @@ impl Checker<'_, '_> {
         ) {
             return false;
         }
+        // Terminal leaves have no followed edges and need no cycle marker.
+        visited.push(id);
         if let Some(&operand) = self.deferred_keyof_operands.get(&id) {
             return self.mentions_type_parameter_inner(operand, is_parameter, names, visited);
         }
