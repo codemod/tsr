@@ -62,3 +62,44 @@ fn generic_extends_operands_defer_and_invalid_callbacks_keep_native_inference() 
         ],
     );
 }
+
+/// Recursive variance stops only the circular occurrence, not the independent
+/// input/output evidence. Pinned native rejects exactly the five negative
+/// assignments; the asymmetric positive twins remain diagnostic-free.
+#[test]
+fn recursive_variance_diagnostics_preserve_asymmetric_assignments() {
+    let source = r"// @strict: true
+// @target: es2015
+interface Phantom<T> { next: Phantom<T[]> }
+interface Derived<T> extends Phantom<T> {}
+declare const phantom: Phantom<{ left: string }>;
+declare const derived: Derived<{ right: number }>;
+const phantomForward: Phantom<{ left: string }> = derived;
+const phantomReverse: Derived<{ right: number }> = phantom;
+interface Value<T> { value: T; next: Value<(input: T) => void> }
+declare const text: Value<string>;
+declare const literal: Value<'a'>;
+const valuePositive: Value<string> = literal;
+const valueNegative: Value<'a'> = text;
+const valueUnrelated: Value<number> = text;
+interface Invariant<T> { value: T; next: { consume: (input: T) => void; recurse: Invariant<(input: T) => void> } }
+declare const invariantText: Invariant<string>;
+const invariantNegative: Invariant<unknown> = invariantText;
+interface Fn<A, B> { (a: A): B; then<C>(next: Fn<B, C>): Fn<A, C> }
+declare const fn: Fn<string, number>;
+const inputNegative: Fn<unknown, number> = fn;
+const inputPositive: Fn<'a', number> = fn;
+const outputPositive: Fn<string, unknown> = fn;
+const outputNegative: Fn<string, 0> = fn;
+";
+    let case = TestCase::parse("probe/recursive-variance", "recursive-variance.ts", source);
+    let mut diagnostics: Vec<_> = tsr_conformance::diagnostics_suite::reported_for(&case)
+        .iter()
+        .map(|diagnostic| (diagnostic.line, diagnostic.column, diagnostic.code))
+        .collect();
+    diagnostics.sort_unstable();
+    assert_eq!(
+        diagnostics,
+        vec![(11, 7, 2322), (12, 7, 2322), (15, 7, 2322), (18, 7, 2322), (21, 7, 2322)]
+    );
+}

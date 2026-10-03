@@ -126,43 +126,50 @@ pub enum Ternary {
 }
 
 /// Private proof state. Maybe depends on an open recursive assumption;
+/// `CircularVariance` is native's non-false but unpublishable `TernaryUnknown`.
 /// Unknown retains the public port's unsupported/depth-refusal meaning.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RelationResult {
     Related,
     Maybe,
+    CircularVariance,
     NotRelated,
     Unknown,
 }
 
 impl RelationResult {
     fn is_success(self) -> bool {
-        matches!(self, Self::Related | Self::Maybe)
+        matches!(self, Self::Related | Self::Maybe | Self::CircularVariance)
     }
 
     fn public_answer(self) -> Ternary {
         match self {
-            Self::Related | Self::Maybe => Ternary::Related,
+            Self::Related | Self::Maybe | Self::CircularVariance => Ternary::Related,
             Self::NotRelated => Ternary::NotRelated,
             Self::Unknown => Ternary::Unknown,
         }
     }
 
     // A definite failure dominates unsupported work; unsupported work dominates
-    // assumptions. True & Maybe remains Maybe, as in native.
+    // circular variance, which dominates assumptions. Native's circular result
+    // is non-false during measurement, but cannot independently publish a proof.
     fn all(parts: impl IntoIterator<Item = Self>) -> Self {
         let mut unknown = false;
+        let mut circular = false;
         let mut maybe = false;
         for part in parts {
             match part {
                 Self::NotRelated => return Self::NotRelated,
                 Self::Unknown => unknown = true,
+                Self::CircularVariance => circular = true,
                 Self::Maybe => maybe = true,
                 Self::Related => {}
             }
         }
         if unknown {
             Self::Unknown
+        } else if circular {
+            Self::CircularVariance
         } else if maybe {
             Self::Maybe
         } else {
@@ -176,7 +183,7 @@ impl RelationResult {
         let mut unknown = false;
         for part in parts {
             match part {
-                Self::Related | Self::Maybe => return part,
+                Self::Related | Self::Maybe | Self::CircularVariance => return part,
                 Self::Unknown => unknown = true,
                 Self::NotRelated => {}
             }
@@ -1802,6 +1809,13 @@ impl Relater<'_, '_, '_> {
                 }
                 // Otherwise retain assumptions for the enclosing proof.
             }
+            RelationResult::CircularVariance => {
+                if self.source_stack.is_empty() && self.target_stack.is_empty() {
+                    self.reset_maybe_stack(maybe_start, false);
+                }
+                // Native retains nested circular keys for an enclosing proof,
+                // but never publishes a top-level circular result as true.
+            }
             RelationResult::NotRelated => {
                 // Failure under assumptions also fails without them.
                 self.results.insert(key, RelationResult::NotRelated);
@@ -2105,7 +2119,7 @@ impl Relater<'_, '_, '_> {
                     // Native getVariances signals this target's active
                     // measurement with an empty slice. Re-entering its members
                     // here would measure the same recursive occurrences again.
-                    return RelationResult::Unknown;
+                    return RelationResult::CircularVariance;
                 }
                 Some(variances) if variances.len() == source_arguments.len() => variances,
                 None if !self.checker.variance_in_progress.is_empty() => {
@@ -2570,12 +2584,13 @@ impl Relater<'_, '_, '_> {
 }
 #[cfg(test)]
 mod variance_recursion_tests {
-    use super::{Checker, Relation, Ternary};
+    use super::{Checker, RecursionFlags, Relater, Relation, RelationResult, Ternary};
+    use rustc_hash::{FxHashMap, FxHashSet};
     use tsr_ast::Statement;
     use tsr_core::Arena;
 
     #[test]
-    fn active_generic_variance_is_uncomputed_and_recovers_after_measurement() {
+    fn circular_variance_is_non_false_unpublished_and_recovers_after_measurement() {
         let source = "type Box<T> = { value: T };
             let text: Box<string>; let numeric: Box<number>; let literal: Box<'a'>;";
         let arena = Arena::new();
@@ -2602,10 +2617,26 @@ mod variance_recursion_tests {
         }
         let symbol = checker.type_reference_targets[&types[0]].0;
         checker.variance_in_progress.insert(symbol);
-        assert_eq!(
-            checker.relate_ternary(types[0], types[1], Relation::Assignable),
-            Ternary::Unknown
-        );
+        {
+            let mut relater = Relater {
+                checker: &mut checker,
+                relation: Relation::Assignable,
+                results: FxHashMap::default(),
+                maybe_keys: Vec::new(),
+                maybe_keys_set: FxHashSet::default(),
+                depth: 0,
+                source_stack: Vec::new(),
+                target_stack: Vec::new(),
+                expanding: (false, false),
+            };
+            let circular =
+                relater.recursive_type_related_to(types[0], types[1], RecursionFlags::BOTH);
+            assert_eq!(circular, RelationResult::CircularVariance);
+            assert_eq!(circular.public_answer(), Ternary::Related);
+            assert!(relater.results.is_empty(), "circular variance must not publish a proof");
+            assert!(relater.maybe_keys.is_empty());
+            assert!(relater.maybe_keys_set.is_empty());
+        }
         checker.variance_in_progress.remove(&symbol);
         assert_eq!(
             checker.relate_ternary(types[0], types[1], Relation::Assignable),
@@ -2619,5 +2650,16 @@ mod variance_recursion_tests {
             checker.relate_ternary(types[0], types[2], Relation::Assignable),
             Ternary::NotRelated
         );
+    }
+
+    #[test]
+    fn unsupported_work_is_not_circular_variance() {
+        use RelationResult::{CircularVariance, Maybe, NotRelated, Related, Unknown};
+        assert_eq!(RelationResult::all([Related, Maybe, CircularVariance]), CircularVariance);
+        assert_eq!(RelationResult::all([CircularVariance, Unknown]), Unknown);
+        assert_eq!(RelationResult::all([CircularVariance, NotRelated]), NotRelated);
+        assert_eq!(RelationResult::any([NotRelated, CircularVariance]), CircularVariance);
+        assert_eq!(RelationResult::any([Unknown, NotRelated]), Unknown);
+        assert_eq!(Unknown.public_answer(), Ternary::Unknown);
     }
 }

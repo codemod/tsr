@@ -35,12 +35,14 @@ tuple, variance and union/intersection composition preserve `Maybe`, rather
 than turning it into an independent success. Public `Ternary` remains the
 existing three-state API.
 
-The public port's `Unknown` covers unsupported work, depth refusal and an
-uncomputed circular variance comparison. Native's `TernaryUnknown` describes
-circular variance, rather than an unimplemented arm. TSR retains its existing
-Kleene policy and discards an uncomputed scope without publishing it. Native
-retains nested circular-variance keys with reliability flags; porting that
-distinction and its reuse obligations remains part of the relation contract.
+The public port's `Unknown` covers unsupported work and depth refusal. Native's
+`TernaryUnknown` describes circular variance, rather than an unimplemented arm.
+TSR represents that result privately as `CircularVariance`: it is non-false
+during measurement, dominates recursive assumptions in conjunctions, and retains
+nested keys for an enclosing proof. At depth zero its keys are discarded, never
+published as completed successes. Unsupported work retains the existing Kleene
+policy and discards its scope even below depth zero. Native reliability flags
+and their reuse obligations remain part of the relation contract.
 The depth-refusal regression checks that such a branch cannot supply a
 successful recursive child to a later union branch.
 
@@ -67,8 +69,13 @@ generic target. `structuredTypeRelatedToWorker` (`relater.go:3834`) stops with
 `inference_variances` for that active target, but fell back to its members.
 The fix stops only the active target with nonempty type arguments. It does
 not cache the uncomputed result or treat an unsupported target as successful.
-The regression fails without the rule; after measurement ends, it also checks
-that real rejection and directional literal covariance recover.
+The circular result must be non-false during measurement: otherwise recursive
+occurrences obscure direct witnesses, and an independent parameter incorrectly
+falls back to covariance. This distinction restores native acceptance in
+`checkInfiniteExpansionTermination` and `recursiveTypeComparison`, and native
+input contravariance in `varianceMeasurement`. The regression checks that the
+circular result publishes no proof; after measurement ends, real rejection and
+directional literal covariance recover.
 
 Two isolated counter runs with the rule agreed on 43,395 worker executions,
 2,041 repeated pair executions and 12 active-target refusals. These counts
@@ -160,3 +167,19 @@ CPU/RSS, binary hashes and scope checks are in
 The full-project TSR/pinned-tsgo median wall target remains ≤0.50 on equivalent
 semantic work. These are TSR before/after comparisons; they do not establish
 the required native ratio or erase the remaining diagnostic-parity gaps.
+
+## Circular-variance correction against debb68b6
+
+The fresh 10,570-case diagnostic audit includes all 5,082 empty baselines and
+compares duplicate-aware occurrences. Exactly three cases improve:
+`checkInfiniteExpansionTermination` becomes `EMPTY_RIGHT`; `recursiveTypeComparison`
+and `varianceMeasurement` become `RIGHT`. Expected matches increase from 20,596
+to 20,597; extras decrease from 3,911 to 3,908. No previously correct case or
+matched occurrence is lost, and no extra diagnostic or population change appears.
+
+Fresh pinned-native execution confirms the three cases and asymmetric recursive
+controls by diagnostic code and location. The full unfiltered checker audit is
+byte-identical at 474,251 rows: 459,451 RIGHT, 2,195 GAP and 12,605 WRONG. The
+checker/execute release suite passes 1,305 tests with three ignored tests; six
+conformance controls, formatting and strict workspace/all-target Clippy pass.
+This follow-up does not repeat the real-app performance measurements above.

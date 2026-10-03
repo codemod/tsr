@@ -200,9 +200,14 @@ mod tests {
                 {
                     alias.node_id.and_then(|id| bound.symbol_of(id))
                 }
+                tsr_ast::Statement::InterfaceDeclaration(interface)
+                    if interface.name.is_some_and(|id| id.text == name) =>
+                {
+                    interface.node_id.and_then(|id| bound.symbol_of(id))
+                }
                 _ => None,
             })
-            .expect("declared type alias");
+            .expect("declared generic type");
         checker.inference_variances(symbol)
     }
 
@@ -263,6 +268,38 @@ mod tests {
             type Thing<T> = { value: T; pipe<A, B>(opA: Op<T, A>, opB: Op<A, B>): Thing<B> };";
         assert_eq!(
             measured(source, "Op"),
+            Some(vec![Variance::Contravariant, Variance::Covariant])
+        );
+    }
+
+    #[test]
+    fn circular_occurrences_do_not_obscure_witnessed_variance() {
+        for source in [
+            "type Foo<T> = { x: T; y: Foo<(arg: T) => void> };",
+            "interface Foo<T> { x: T; y: Foo<(arg: T) => void> }",
+        ] {
+            assert_eq!(measured(source, "Foo"), Some(vec![Variance::Covariant]), "{source}");
+        }
+        for source in [
+            "type Foo<T> = { x: T; y: { x: (arg: T) => void; y: Foo<(arg: T) => void> } };",
+            "interface Foo<T> { x: T; y: { x: (arg: T) => void; y: Foo<(arg: T) => void> } }",
+        ] {
+            assert_eq!(measured(source, "Foo"), Some(vec![Variance::Invariant]), "{source}");
+        }
+    }
+
+    #[test]
+    fn exclusively_circular_occurrences_are_independent() {
+        assert_eq!(
+            measured("interface Foo<T> { next: Foo<T[]> }", "Foo"),
+            Some(vec![Variance::Independent])
+        );
+    }
+
+    #[test]
+    fn circular_callable_members_preserve_input_and_output_directions() {
+        assert_eq!(
+            measured("interface Fn<A, B> { (a: A): B; then<C>(next: Fn<B, C>): Fn<A, C> }", "Fn"),
             Some(vec![Variance::Contravariant, Variance::Covariant])
         );
     }
