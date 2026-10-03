@@ -195,6 +195,15 @@ The new cases in `tests/union_key_element_access.rs` retain these outcomes:
 - `T & Empty`, with `type Empty = {}`: `keyof (T & Empty)`.
 - Generic `Box<T>` with two ordinary properties: `keyof Box<T>`.
 - Generic `Box<T>` with one property `value`: `"value"`.
+- A generic alias with a deferred key remapping retains `keyof Alias<K>`;
+  substituting `"_a" | "b"` into an underscore-key filter yields `"_a"`.
+
+The first raw-row audit exposed expanded mapped bodies at seven still-wrong
+alias-key positions. Retaining the original mapped alias as the deferred
+operand, just as for an empty-object intersection, repairs those positions
+and six downstream rows. This is operand metadata, not a printed-text rewrite;
+the concrete-call regression checks that subsequent substitution still computes
+the filtered key set.
 
 The same native run corrected an older regression expectation:
 `keyof P<O>` for a homomorphic optional mapping retains `keyof O`, not the
@@ -204,6 +213,27 @@ cycle without a depth cap. Its native error-any key set and circularity
 diagnostics remain unported, explicitly pinned as a gap rather than a native
 expectation. Remaining computed-symbol and recursive mapped-key failures are
 tracked in tsr-6.43.
+
+Full-corpus measurement against exact starting main `cfcbcfab`, after rebasing
+onto the independent compiler-host performance changes, yields **458,508 of
+478,855 matching assertion lines (95.75%)**, up 36. The 474,251 aligned rows
+contain 458,508 RIGHT, 2,433 GAP and 13,310 WRONG: 34 WRONG→RIGHT,
+2 GAP→RIGHT, one GAP→WRONG, zero RIGHT losses, and no added or removed rows.
+Seventeen already-WRONG payloads changed: fifteen in
+`mappedTypeIndexedAccessConstraint`, one in `mappedTypeNotMistakenlyHomomorphic`,
+and one in `mappedTypeConstraints2`. The exposed wrong row is
+`compiler/computedTypesKeyofNoIndexSignatureType:0:14`: expected `"bar" | "foo"`,
+received `never`. It remains in tsr-6.43 rather than being excluded.
+
+`target/release/coverage checker_types diagnostics` retains 7,084/9,538 complete
+checker cases and 2,800/5,488 diagnostic cases. Verification on the rebased
+source: `cargo test --release --workspace --locked --no-fail-fast` passes all
+227 result blocks; the targeted union-key suite passes 13 tests; strict release
+workspace clippy and formatting pass. Anchor checks resolve all 3,400 anchors,
+and section checks resolve all 16,642 citations. The existing issue-ID gate
+still reports 197 missing historical records, and Dolt sync is blocked by the
+unconfigured remote; publishing that history has not been approved. The 99%
+target remains 15,559 matching lines away.
 
 ## Limits
 

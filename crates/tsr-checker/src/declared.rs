@@ -6814,7 +6814,11 @@ impl<'a> Checker<'a, '_> {
                     && self.signature_parameter_type_is_generic(info.constraint)
             })
         {
-            let operand_type = if deferred_intersection { original } else { target };
+            let operand_type = if deferred_intersection || self.mapped_types.contains_key(&target) {
+                original
+            } else {
+                target
+            };
             let operand = self.type_to_string(operand_type);
             let operand = if deferred_intersection
                 && self.store.get(operand_type).flags.contains(TypeFlags::INTERSECTION)

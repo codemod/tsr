@@ -174,6 +174,21 @@ fn generic_object_alias_keys_retain_their_origin() {
     assert_eq!(type_of_last(single), "<T>(key: keyof Box<T>) => \"value\"");
 }
 
+/// getIndexTypeForGenericType retains a remapped alias as the deferred operand,
+/// rather than spelling the anonymous mapped body returned by alias expansion.
+#[test]
+fn deferred_remapped_keys_preserve_the_alias() {
+    let source = "type Wrapped<K extends string> = \
+                  { [P in K as P extends `_${string}` ? P : never]: P };\n\
+                  function f<K extends string>(key: keyof Wrapped<K>) { return key; }";
+    assert_eq!(
+        type_of_last(source),
+        "<K extends string>(key: keyof Wrapped<K>) => keyof Wrapped<K>"
+    );
+    let instantiated = format!("{source}\nconst value = f<\"_a\" | \"b\">(\"_a\");");
+    assert_eq!(type_of_last(&instantiated), "\"_a\"");
+}
+
 /// `shouldDeferIndexType` requires an instantiable constituent as well as an
 /// empty anonymous object. Concrete and concretely substituted mapped operands
 /// therefore resolve their keys, while redundant parentheses do not change a
