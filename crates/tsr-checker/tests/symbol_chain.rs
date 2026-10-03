@@ -103,6 +103,11 @@ fn declared_type_at(
     let site = *sites.get(site_index).expect("the site identifier occurs that many times");
 
     let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+    // Enum member spellings are assigned when the parent enum is forced.
+    // Keep this naming fixture independent of the cold quoted-member dispatch.
+    if bound.symbols().get(member).flags.intersects(SymbolFlags::ENUM_MEMBER) {
+        checker.get_declared_type_of_symbol(symbol);
+    }
     let id = if of_value {
         checker.get_type_of_symbol(member)
     } else {
@@ -404,4 +409,190 @@ fn an_exported_import_equals_alias_names_a_chain_segment() {
 fn a_non_matching_inner_alias_does_not_hide_an_outer_matching_alias() {
     let source = "namespace M { export class C { p: number; } }\nnamespace N { export class C { q: string; } }\nnamespace Use { export import Wanted = M; export namespace Inner { export import Other = N; export var x: M.C; } }\n";
     assert_eq!(declared_type_at(source, &["M"], "C", "x", 0, false), "Wanted.C");
+}
+
+/// Pinned native executable (5b1047d1): `instance : Local.C`, but
+/// `object : typeof Hidden`. The alias's exports provide the leaf's chain;
+/// the direct name Hidden only wins when naming the namespace itself.
+#[test]
+fn a_private_container_alias_names_the_leaf_not_the_namespace_object() {
+    let source = "namespace Outer { namespace Hidden { export class C { p: number; } } import Local = Hidden; export let instance = new Local.C(); export let object = Local; }";
+    let arena = Arena::new();
+    let parsed = tsr_parser::parse(&arena, source);
+    let bound = tsr_binder::bind(
+        &arena,
+        parsed.source_file,
+        &parsed.nodes,
+        tsr_binder::FileInfo { name: "t.ts", text: source },
+    );
+    let mut sites = Vec::new();
+    identifiers(&parsed.node_map, parsed.source_file.node_id.unwrap(), "instance", &mut sites);
+    let hidden = bound
+        .resolve_name(&parsed.nodes, &parsed.node_map, sites[0], "Hidden", SymbolFlags::NAMESPACE)
+        .unwrap();
+    let class = *bound.symbols().get(hidden).exports.get("C").unwrap();
+    let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+    let instance = checker.get_declared_type_of_symbol(class);
+    let object = checker.get_type_of_symbol(hidden);
+    assert_eq!(checker.type_to_string_at(instance, sites[0]).unwrap(), "Local.C");
+    assert_eq!(checker.type_to_string_at(object, sites[0]).unwrap(), "typeof Hidden");
+}
+
+/// A qualified import-equals aliases the leaf itself, unlike the unqualified
+/// namespace-object control above. Native prints `item : Renamed` and
+/// `Renamed : typeof Renamed` for this exact asymmetric source.
+#[test]
+fn a_qualified_import_equals_can_name_the_class_itself() {
+    let source = "namespace Source { export class C { p: number; } } namespace Use { export import Renamed = Source.C; export let item = new Renamed(); }";
+    assert_eq!(declared_type_at(source, &["Source"], "C", "item", 0, false), "Renamed");
+    assert_eq!(declared_type_at(source, &["Source"], "C", "item", 0, true), "typeof Renamed");
+}
+
+/// This queries the value alias at its declaration and at its use. It fails
+/// when namespace exports reject ALIAS flags before the checker can resolve it.
+#[test]
+fn an_exported_qualified_alias_resolves_as_a_value_inside_its_namespace() {
+    let source = "namespace Source { export class C { p: number; } } namespace Use { export import Renamed = Source.C; export let item = new Renamed(); }";
+    let arena = Arena::new();
+    let parsed = tsr_parser::parse(&arena, source);
+    let bound = tsr_binder::bind(
+        &arena,
+        parsed.source_file,
+        &parsed.nodes,
+        tsr_binder::FileInfo { name: "t.ts", text: source },
+    );
+    let mut sites = Vec::new();
+    identifiers(&parsed.node_map, parsed.source_file.node_id.unwrap(), "Renamed", &mut sites);
+    let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+    for site in sites {
+        let symbol = bound
+            .resolve_name(&parsed.nodes, &parsed.node_map, site, "Renamed", SymbolFlags::VALUE)
+            .unwrap();
+        let ty = checker.get_type_of_symbol(symbol);
+        assert_eq!(checker.type_to_string_at(ty, site).unwrap(), "typeof Renamed");
+    }
+}
+
+/// Native prints the accessible enum owner in both the bare single-member
+/// enum and an indexed member name. Neither rule changes enum values.
+#[test]
+fn an_enum_owner_alias_applies_to_single_and_quoted_member_spellings() {
+    let source = "namespace Source { export enum Single { Only = 19 } export enum E { First = 3, 'odd-key' = 11 } } namespace Use { export import One = Source.Single; export import Mode = Source.E; export const single = One.Only; export const quoted = Mode['odd-key']; }";
+    assert_eq!(declared_type_at(source, &["Source"], "Single", "single", 0, false), "One");
+    assert_eq!(
+        declared_type_at(source, &["Source", "Single"], "Only", "single", 0, true),
+        "One.Only"
+    );
+    assert_eq!(
+        declared_type_at(source, &["Source", "E"], "odd-key", "quoted", 0, true),
+        "(typeof Mode)[\"odd-key\"]"
+    );
+}
+
+/// The direct leaf name wins over an alias's export route in the same scope.
+#[test]
+fn an_alias_to_the_container_does_not_qualify_an_in_scope_leaf() {
+    let source = "namespace M { export class C { p: number; } import Local = M; export let item = new C(); }";
+    assert_eq!(declared_type_at(source, &["M"], "C", "item", 0, false), "C");
+}
+
+/// Native accepts the class alias as a constructor, but the interface alias
+/// has no value meaning (`TypeOnly` and `new TypeOnly()` recover as any).
+/// This port declines that invalid value expression rather than inventing a
+/// constructor type from the qualified spelling.
+#[test]
+fn a_qualified_type_only_alias_does_not_acquire_a_value_meaning() {
+    let source = "namespace Source { export interface Shape { tag: string; } export class C { count: number; } } namespace Use { export import TypeOnly = Source.Shape; export import Value = Source.C; export let good = new Value(); export let bad = new TypeOnly(); }";
+    let arena = Arena::new();
+    let parsed = tsr_parser::parse(&arena, source);
+    let bound = tsr_binder::bind(
+        &arena,
+        parsed.source_file,
+        &parsed.nodes,
+        tsr_binder::FileInfo { name: "t.ts", text: source },
+    );
+    let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+    for (name, expected) in [("Value", Some("typeof Value")), ("TypeOnly", None)] {
+        let mut sites = Vec::new();
+        identifiers(&parsed.node_map, parsed.source_file.node_id.unwrap(), name, &mut sites);
+        let site = *sites.last().unwrap();
+        let symbol = bound
+            .resolve_name(&parsed.nodes, &parsed.node_map, site, name, SymbolFlags::VALUE)
+            .unwrap();
+        let ty = checker.get_type_of_symbol(symbol);
+        if let Some(expected) = expected {
+            assert_eq!(checker.type_to_string_at(ty, site).unwrap(), expected);
+        } else {
+            assert_eq!(ty, checker.intrinsics().error, "a type-only alias has no value type");
+            let Some(Node::NewExpression(expression)) =
+                parsed.node_map.get(parsed.nodes.parent(site).unwrap())
+            else {
+                panic!("the last alias use is a constructor expression");
+            };
+            let constructed =
+                checker.check_expression(tsr_ast::Expression::NewExpression(expression));
+            assert_eq!(
+                constructed,
+                checker.intrinsics().error,
+                "a type-only alias cannot be constructed"
+            );
+        }
+    }
+}
+
+/// The same enum member type must be named independently at the two sites.
+/// Pinned native prints `First.E.A` and `Second.E.B` (values 5 and 17).
+#[test]
+fn enum_export_routes_are_chosen_at_each_site() {
+    let source = "namespace Source { export enum E { A = 5, B = 17 } } namespace FirstUse { import First = Source; export const first = First.E.A; } namespace SecondUse { import Second = Source; export const second = Second.E.B; }";
+    assert_eq!(declared_type_at(source, &["Source", "E"], "A", "first", 0, true), "First.E.A");
+    assert_eq!(declared_type_at(source, &["Source", "E"], "B", "second", 0, true), "Second.E.B");
+}
+
+/// An enum alias can also have the same name as its target. Native prints the
+/// member bare under that alias in App, but still qualifies it outside App.
+#[test]
+fn a_same_name_enum_alias_stops_the_owner_qualifier_only_in_its_scope() {
+    let source = "namespace Keyboard { export enum Key { UP = 5, DOWN = 17 } } namespace App { import Key = Keyboard.Key; export const selected = Key.UP; } const outside = Keyboard.Key.DOWN;";
+    assert_eq!(declared_type_at(source, &["Keyboard", "Key"], "UP", "selected", 0, true), "Key.UP");
+    assert_eq!(
+        declared_type_at(source, &["Keyboard", "Key"], "DOWN", "outside", 0, true),
+        "Keyboard.Key.DOWN"
+    );
+}
+
+/// A same-name pure alias is usable, while the namespace it shadows still
+/// needs its container. Native records `M : typeof A.M` at the namespace
+/// declaration and `M : typeof M` at the expression below.
+#[test]
+fn an_equal_name_alias_does_not_hide_the_namespaces_own_meaning() {
+    let source = "namespace Z.M { export function bar() { return ''; } } namespace A.M { export import M = Z.M; export function bar() {} M.bar(); }";
+    assert_eq!(declared_type_at(source, &["Z"], "M", "M", 4, true), "typeof M");
+    assert_eq!(declared_type_at(source, &["A"], "M", "M", 1, true), "typeof A.M");
+}
+
+/// Native's baseline flags retain `unique symbol` for an explicitly preserved
+/// identity and widen an inferred copy to `symbol`. Neither becomes a typeof
+/// export name just because the namespace has an accessible alias.
+#[test]
+fn an_export_alias_does_not_rename_or_preserve_a_copied_unique_symbol() {
+    let source = "namespace Source { export declare const brand: unique symbol; } namespace Use { import Local = Source; export const identity: typeof Source.brand = Local.brand; export const copy = Local.brand; }";
+    let arena = Arena::new();
+    let parsed = tsr_parser::parse(&arena, source);
+    let bound = tsr_binder::bind(
+        &arena,
+        parsed.source_file,
+        &parsed.nodes,
+        tsr_binder::FileInfo { name: "t.ts", text: source },
+    );
+    let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+    for (name, expected) in [("identity", "unique symbol"), ("copy", "symbol")] {
+        let mut sites = Vec::new();
+        identifiers(&parsed.node_map, parsed.source_file.node_id.unwrap(), name, &mut sites);
+        let symbol = bound
+            .resolve_name(&parsed.nodes, &parsed.node_map, sites[0], name, SymbolFlags::VALUE)
+            .unwrap();
+        let ty = checker.get_type_of_symbol(symbol);
+        assert_eq!(checker.type_to_string_at(ty, sites[0]).unwrap(), expected);
+    }
 }

@@ -2163,7 +2163,7 @@ impl<'a, 'n> Checker<'a, 'n> {
         let named = if let Some(better) = self.best_name(target, reference, false)
             && better != target_name
         {
-            better.to_string()
+            better
         } else if let Some(qualifier) =
             // **`TYPE`, not `TYPE | VALUE`** — §7.3's correction, at the second
             // site that had the same bug. This function renders a generic TYPE
@@ -2249,38 +2249,46 @@ impl<'a, 'n> Checker<'a, 'n> {
             if let Some(&owner) = self.enum_member_owners.get(&id) {
                 let owner = self.binder.merged_symbol(owner);
                 let owner_name = self.binder.symbols().get(owner).name;
-                // §673: the enum's OWN type is registered in
-                // `enum_member_owners` too — §55.1's divergent twins put the
-                // regular spelling there — and it prints as the bare enum name
-                // with no `{enum}.` prefix to rename. The guard below needs a
-                // prefix (`printed.len() > owner_name.len()`), so `Mode` fell
-                // straight through unqualified while `Mode.Open` right beside it
-                // was qualified. `import f = require('./m')` wants `f.Mode` at
-                // every one of those positions (`enumFromExternalModule`).
-                if printed == owner_name
-                    && let Some(qualifier) = self.symbol_chain(
-                        owner,
-                        reference,
-                        SymbolFlags::TYPE | SymbolFlags::VALUE,
-                        0,
-                    )
-                {
-                    let mut out = String::with_capacity(printed.len() + qualifier.len());
-                    out.push_str(&qualifier);
-                    out.push_str(&printed);
-                    return Some(out);
+                // Enum member names can be indexed accesses too. Rename the
+                // owner at the site without changing the member's literal type
+                // or its fresh/regular identity (nodebuilderimpl.go:821).
+                let name_start = if printed == owner_name {
+                    Some(0)
+                } else if printed.starts_with(&format!("(typeof {owner_name})[")) {
+                    Some("(typeof ".len())
+                } else {
+                    None
+                };
+                if let Some(start) = name_start {
+                    let named = self
+                        .best_name(owner, reference, false)
+                        .filter(|name| name != owner_name)
+                        .unwrap_or_else(|| {
+                            match self.symbol_chain(owner, reference, SymbolFlags::TYPE, 0) {
+                                Some(prefix) => format!("{prefix}{owner_name}"),
+                                None => owner_name.to_string(),
+                            }
+                        });
+                    return Some(format!(
+                        "{}{named}{}",
+                        &printed[..start],
+                        &printed[start + owner_name.len()..]
+                    ));
                 }
                 if printed.len() > owner_name.len()
                     && printed.starts_with(owner_name)
                     && printed.as_bytes()[owner_name.len()] == b'.'
                 {
-                    if let Some(better) = self.best_name(owner, reference, false)
-                        && better != owner_name
-                    {
-                        let mut out = String::with_capacity(printed.len() + better.len());
-                        out.push_str(better);
-                        out.push_str(&printed[owner_name.len()..]);
-                        return Some(out);
+                    if let Some(better) = self.best_name(owner, reference, false) {
+                        if better != owner_name {
+                            let mut out = String::with_capacity(printed.len() + better.len());
+                            out.push_str(&better);
+                            out.push_str(&printed[owner_name.len()..]);
+                            return Some(out);
+                        }
+                        if self.own_name_alias_at(owner, reference) {
+                            return Some(printed);
+                        }
                     }
                     // §457: the same baked `{enum}.` prefix, owed a
                     // QUALIFIER rather than a rename — the owner segment
@@ -2316,14 +2324,17 @@ impl<'a, 'n> Checker<'a, 'n> {
         // first table that reaches the symbol. Measured over every printed
         // line in the corpus before building: it changes zero of them — its
         // whole population is lines that gap today.
-        if let Some(better) = self.best_name(symbol, reference, false)
-            && better != name
-        {
-            let mut out = String::with_capacity(printed.len() + better.len());
-            out.push_str(&printed[..suffix_at - name.len()]);
-            out.push_str(better);
-            out.push_str(&printed[suffix_at..]);
-            return Some(out);
+        if let Some(better) = self.best_name(symbol, reference, false) {
+            if better != name {
+                let mut out = String::with_capacity(printed.len() + better.len());
+                out.push_str(&printed[..suffix_at - name.len()]);
+                out.push_str(&better);
+                out.push_str(&printed[suffix_at..]);
+                return Some(out);
+            }
+            if self.own_name_alias_at(symbol, reference) {
+                return Some(printed);
+            }
         }
         // The §10.9 segment rename, applied to a **baked** prefix: an enum
         // member's text is created as `{enum}.{member}` (`declared.rs`,
@@ -2345,7 +2356,7 @@ impl<'a, 'n> Checker<'a, 'n> {
                 && better != parent_name
             {
                 let mut out = String::with_capacity(printed.len() + better.len());
-                out.push_str(better);
+                out.push_str(&better);
                 out.push_str(&printed[parent_name.len()..]);
                 return Some(out);
             }
@@ -2627,7 +2638,12 @@ impl<'a, 'n> Checker<'a, 'n> {
         // filter, falling back to the segment's own name.
         let parent_name = self
             .best_name(parent, reference, true)
-            .unwrap_or(self.binder.symbols().get(parent).name);
+            .unwrap_or_else(|| self.binder.symbols().get(parent).name.to_string());
+        // A multi-segment accessible alias route is already rooted in scope.
+        // Recursing on the declared parent would qualify it a second time.
+        if parent_name.contains('.') {
+            return Some(format!("{parent_name}."));
+        }
         Some(match self.symbol_chain(parent, reference, SymbolFlags::NAMESPACE, depth + 1) {
             Some(prefix) => format!("{prefix}{parent_name}."),
             // The container itself resolves bare here: the chain stops, which
@@ -3241,7 +3257,7 @@ impl<'a, 'n> Checker<'a, 'n> {
         symbol: SymbolId,
         reference: NodeId,
         admit_local_import_equals: bool,
-    ) -> Option<&'a str> {
+    ) -> Option<String> {
         let own = self.binder.symbols().get(symbol).name;
         let target = self.binder.merged_symbol(symbol);
         let mut tables: Vec<Vec<(&'a str, SymbolId)>> = Vec::new();
@@ -3255,8 +3271,10 @@ impl<'a, 'n> Checker<'a, 'n> {
             // (`symbolaccessibility.go:746-775`). An `export import A = M`
             // lives in that exports table, so a locals-only approximation
             // misses `A.C` and falls back to the declaration name `M.C`.
-            if self.nodes.kind(node) == SyntaxKind::ModuleDeclaration
-                && let Some(module) = self.binder.symbol_of(node)
+            if matches!(
+                self.nodes.kind(node),
+                SyntaxKind::ModuleDeclaration | SyntaxKind::SourceFile
+            ) && let Some(module) = self.binder.symbol_of(node)
             {
                 let module = self.binder.merged_symbol(module);
                 let exports = &self.binder.symbols().get(module).exports;
@@ -3267,11 +3285,18 @@ impl<'a, 'n> Checker<'a, 'n> {
         tables.push(self.binder.globals().iter().map(|(&name, &id)| (name, id)).collect());
         for table in tables {
             if let Some(&(_, hit)) = table.iter().find(|&&(name, _)| name == own)
-                && self.binder.merged_symbol(hit) == target
+                && (self.binder.merged_symbol(hit) == target
+                    || self
+                        .binder
+                        .symbols()
+                        .get(hit)
+                        .export_symbol
+                        .is_some_and(|exported| self.binder.merged_symbol(exported) == target))
             {
-                return Some(own);
+                return Some(own.to_string());
             }
-            let mut found: Option<&'a str> = None;
+            let mut found: Option<String> = None;
+            let mut qualified = Vec::new();
             for (name, candidate) in table {
                 if !self.binder.symbols().get(candidate).flags.intersects(SymbolFlags::ALIAS) {
                     continue;
@@ -3299,20 +3324,29 @@ impl<'a, 'n> Checker<'a, 'n> {
                 // a namespace re-export (`export * as ns from "m"`) is omitted
                 // on a local-name lookup (`:571`), which every call here is.
                 let excluded = declarations.iter().any(|&declaration| {
-                    matches!(
-                        self.node_map.get(declaration),
-                        Some(Node::ExportSpecifier(_) | Node::NamespaceExport(_))
-                    ) || (!admit_local_import_equals
+                    !admit_local_import_equals
                         && matches!(
                             self.node_map.get(declaration),
                             Some(Node::ImportEqualsDeclaration(node))
-                                if !matches!(
+                                if matches!(
                                     node.module_reference,
-                                    Some(tsr_ast::ModuleReference::ExternalModuleReference(_))
+                                    Some(tsr_ast::ModuleReference::Identifier(_))
                                 )
-                        ))
+                        )
                 });
-                if excluded {
+                if declarations.iter().any(|&declaration| {
+                    matches!(
+                        self.node_map.get(declaration),
+                        Some(Node::ExportSpecifier(_) | Node::NamespaceExport(_))
+                    )
+                        // trySymbolTable excludes UMD aliases in external
+                        // module files (symbolaccessibility.go:568).
+                        || (self.nodes.kind(declaration) == SyntaxKind::NamespaceExportDeclaration
+                            && self.source_file_of_for_diagnostics(reference)
+                                .and_then(|file| self.node_map.get(file))
+                                .is_some_and(|file| matches!(file, Node::SourceFile(source)
+                                    if tsr_binder::is_external_module(source))))
+                }) {
                     continue;
                 }
                 // §501: the candidate may resolve to an `export=` link whose
@@ -3321,27 +3355,81 @@ impl<'a, 'n> Checker<'a, 'n> {
                 // `export = __React`).
                 let resolved = self.resolve_alias(candidate);
                 let reaches = resolved.map(|t| self.binder.merged_symbol(t)) == Some(target)
-                    || resolved
-                        .map(|t| {
-                            let full = self.resolve_alias_fully(t);
-                            self.binder.merged_symbol(full)
-                        })
-                        .map(Some)
-                        == Some(Some(target));
-                if !reaches {
-                    continue;
+                    || resolved.is_some_and(|t| {
+                        let full = self.resolve_alias_fully(t);
+                        self.binder.merged_symbol(full) == target
+                    });
+                if reaches && !excluded {
+                    match &found {
+                        Some(existing) if existing == name => {}
+                        Some(_) => return None,
+                        None => found = Some(name.to_string()),
+                    }
                 }
-                match found {
-                    Some(existing) if existing == name => {}
-                    Some(_) => return None,
-                    None => found = Some(name),
+                // getCandidateListForSymbol looks through an alias's exports
+                // before consulting the outer scope (symbolaccessibility.go:630).
+                // The container's own direct name must not preempt this route:
+                // a private namespace Hidden may be in scope, but C is reached
+                // through Local = Hidden and therefore prints Local.C.
+                if let Some(resolved) = resolved {
+                    let resolved = self.resolve_alias_fully(resolved);
+                    let exports: Vec<_> = self
+                        .binder
+                        .symbols()
+                        .get(resolved)
+                        .exports
+                        .iter()
+                        .map(|(&key, &value)| (key, value))
+                        .collect();
+                    for (export_name, exported) in exports {
+                        if export_name == "export=" {
+                            continue;
+                        }
+                        let exported_target = self.resolve_alias_fully(exported);
+                        if self.binder.merged_symbol(exported_target) == target
+                            && !self.is_shadowed_at(
+                                candidate,
+                                name,
+                                reference,
+                                SymbolFlags::NAMESPACE,
+                            )
+                        {
+                            qualified.push((candidate, exported, format!("{name}.{export_name}")));
+                        }
+                    }
                 }
             }
             if found.is_some() {
                 return found;
             }
+            qualified.sort_by(|a, b| {
+                self.compare_symbols(a.0, b.0).then_with(|| self.compare_symbols(a.1, b.1))
+            });
+            if let Some((_, _, name)) = qualified.into_iter().next() {
+                return Some(name);
+            }
         }
         None
+    }
+
+    /// An accessible pure alias with the target's own name stops qualification
+    /// (`symbolaccessibility.go:656-684`). Merged namespace/alias symbols have
+    /// their own meaning too: following their entire alias chain would hide a
+    /// real shadow, so compare only the immediate target here.
+    fn own_name_alias_at(&mut self, symbol: SymbolId, reference: NodeId) -> bool {
+        let name = self.binder.symbols().get(symbol).name;
+        let Some(hit) = self.binder.resolve_name(
+            self.nodes,
+            self.node_map,
+            reference,
+            name,
+            SymbolFlags::TYPE | SymbolFlags::VALUE,
+        ) else {
+            return false;
+        };
+        self.binder.symbols().get(hit).flags == SymbolFlags::ALIAS
+            && self.resolve_alias(hit).map(|target| self.binder.merged_symbol(target))
+                == Some(self.binder.merged_symbol(symbol))
     }
 
     /// Whether any in-scope alias resolves to `target` itself at `reference` —

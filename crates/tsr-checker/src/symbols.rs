@@ -559,44 +559,9 @@ impl<'a> Checker<'a, '_> {
                 return any;
             }
         }
-        // §145 (`checker-notes-narrow.md`): a QUALIFIED ImportEquals whose
-        // chain RESOLVES answers the target under the ALIAS'S OWN NAME —
-        // `aliasBug.types` wants `typeof booz`, and the alias name is in
-        // hand here (the tsr-4jk constraint's key). A NAMESPACE-flagged leaf
-        // takes the typeof-mint (member reads flow through the target's
-        // exports); a VALUE leaf types through get_type_of_symbol as any
-        // resolved alias does.
-        if let Some(declaration) = self.declaration_of_alias_symbol(symbol)
-            && let Some(Node::ImportEqualsDeclaration(node)) = self.node_map.get(declaration)
-            && let Some(ModuleReference::QualifiedName(qualified)) = node.module_reference
-            && let Some(target) = self.resolve_qualified_entity(qualified)
-        {
-            // Iteration 2 measured the namespace typeof-mint 182-side
-            // adverse (per-site spellings: `aliasBug` wants the ALIAS name,
-            // `typeofInternalModules` the TARGET chain - the naming wall's
-            // seventh appearance) and iteration 3 the same wall for CLASS
-            // and ENUM leaves (their texts embed their own names). Only
-            // NAMELESS-text leaves - functions, variables, properties -
-            // answer here; the rest keep the gap.
-            let flags = self.binder.symbols().get(self.binder.merged_symbol(target)).flags;
-            // §156 + retry (`checker-notes-narrow.md`): the class-leaf
-            // constructor mint measured 58:34, then 33:34 over §157's landed
-            // instance half — the coupling is NOT instance annotations but
-            // the EXPRESSION road: typing the alias unlocks property-access
-            // prints (`x.c` sites) with written/qualified texts where
-            // upstream prints the target's SHORT name (`typeof c`), the
-            // best_name preference at expression positions. Classes keep the
-            // gap until that print road exists.
-            if !flags.intersects(SymbolFlags::NAMESPACE | SymbolFlags::CLASS | SymbolFlags::ENUM)
-                && self.get_symbol_flags(target).intersects(SymbolFlags::VALUE)
-            {
-                let computed = self.get_type_of_symbol(target);
-                let computed =
-                    if self.resolutions.pop() { computed } else { self.intrinsics.error };
-                self.symbol_types.insert(symbol, computed);
-                return computed;
-            }
-        }
+        // getTypeOfAlias (checker.go:18612) uses the target's value type.
+        // Qualified import-equals names are selected at the serialization
+        // site by best_name, not baked into a second type for the alias.
         let target = self.resolve_alias(symbol);
         // `checker.go:18612`, and the `SymbolFlags::VALUE` test is the
         // stack-overflow guard, not a nicety. It is taken over
@@ -984,20 +949,17 @@ impl<'a> Checker<'a, '_> {
                 }
                 self.resolve_alias(resolved)
             }
-            // A qualified name RESOLVES fine and prints wrong, for want of
-            // symbol accessibility. Unchanged, and not the same problem as the
-            // arm above: the name it would print is a *declared* one this port
-            // cannot reach, not a module object it cannot spell.
-            ModuleReference::QualifiedName(_) => None,
+            // getSymbolOfPartOfRightHandSideOfImportEquals (checker.go:14493):
+            // the complete qualified entity accepts value, type or namespace.
+            ModuleReference::QualifiedName(name) => self.resolve_qualified_entity(name),
         }
     }
 
     /// The target of `import a = b.c`, for callers that need its **flags** and
     /// not its name.
     ///
-    /// [`Checker::resolve_alias`] declines this shape for the printer's sake;
-    /// see §686. Resolution itself is `resolveEntityName`, which this port
-    /// already has.
+    /// Resolution is `resolveEntityName`; serialization chooses the alias's
+    /// accessible name separately at the reference site.
     pub(crate) fn qualified_alias_target(&mut self, symbol: SymbolId) -> Option<SymbolId> {
         let declaration = self.declaration_of_alias_symbol(symbol)?;
         let Node::ImportEqualsDeclaration(node) = self.node_map.get(declaration)? else {

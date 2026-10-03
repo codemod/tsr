@@ -730,7 +730,31 @@ impl<'a> BindResult<'a> {
             if let Some(mask) = exported
                 && let Some(symbol) = self.symbol_of(node)
                 && let Some(&found) = self.symbols.get(self.merged_symbol(symbol)).exports.get(name)
-                && self.symbols.get(self.merged_symbol(found)).flags.intersects(meaning & mask)
+                && (self.symbols.get(self.merged_symbol(found)).flags.intersects(meaning & mask)
+                    // getSymbol (checker.go:2183) admits aliases by their
+                    // target meaning. The checker validates this qualified
+                    // import-equals target in get_type_of_alias; the binder
+                    // only supplies the symbol. Other exported aliases and
+                    // ambient namespaces still need deferred-alias recovery
+                    // (tsr-6.44.1), so keep this prerequisite bounded.
+                    || (!nodes.flags(node).contains(tsr_ast::NodeFlags::AMBIENT)
+                        && self.symbols.get(self.merged_symbol(found)).flags
+                            .intersects(SymbolFlags::ALIAS)
+                        && self.symbols.get(self.merged_symbol(found)).declarations.iter().any(|&d| {
+                            matches!(
+                                node_map.get(d),
+                                Some(tsr_ast::Node::ImportEqualsDeclaration(alias))
+                                    if matches!(alias.module_reference,
+                                        Some(tsr_ast::ModuleReference::QualifiedName(_)))
+                            )
+                        })))
+                && (self.symbols.get(self.merged_symbol(found)).flags != SymbolFlags::ALIAS
+                    || !self.symbols.get(self.merged_symbol(found)).declarations.iter().any(|&d| {
+                        matches!(
+                            nodes.kind(d),
+                            SyntaxKind::ExportSpecifier | SyntaxKind::NamespaceExport
+                        )
+                    }))
                 // An `export { X }` specifier's own symbol lives in the file's
                 // **exports**, not its `locals`, so the exclusion belongs on
                 // this arm too — §836's first measurement found the specifier

@@ -29,7 +29,8 @@ fn type_of_declaration(source: &str, name: &str) -> String {
 
     let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
     let id = checker.get_type_of_symbol(symbol);
-    checker.type_to_string(id)
+    let site = bound.symbols().get(symbol).declarations[0];
+    checker.type_to_string_at(id, site).expect("nameable type")
 }
 
 #[test]
@@ -98,25 +99,15 @@ fn an_alias_to_a_non_value_or_an_unresolvable_target_is_any() {
 }
 
 #[test]
-fn a_qualified_alias_is_a_gap_because_its_printed_name_is_its_own() {
-    // Resolving `foo.bar.baz` is a walk over `exports` and would succeed. The
-    // answer would still be wrong, because `compiler/aliasBug.types` records
-    //
-    //     import booz = foo.bar.baz;
-    //     >booz : typeof booz
-    //
-    // the ALIAS's name, where the bare form one line above prints the TARGET's.
-    // Upstream emits the shortest accessible chain to the symbol and an alias
-    // declaration is always a one-link chain: `foo` is already one link and
-    // wins, `foo.bar.baz` is three and loses to `booz`. This port has no symbol
-    // accessibility, so it would print `typeof baz` — a wrong line where a
-    // missing one belongs.
+fn a_qualified_alias_has_the_targets_type_named_at_the_site() {
+    // `compiler/aliasBug.types`: the one-link alias names the target at this
+    // site (`booz : typeof booz`), unlike the unqualified alias control above.
     assert_eq!(
         type_of_declaration(
             "namespace foo { export namespace bar { export namespace baz { export class boo {} } } }\nimport booz = foo.bar.baz;",
             "booz"
         ),
-        "error"
+        "typeof booz"
     );
 }
 
