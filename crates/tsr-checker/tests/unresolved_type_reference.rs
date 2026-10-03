@@ -126,3 +126,73 @@ fn an_unresolved_arithmetic_operand_answers_number_and_addition_keeps_the_gap() 
     let id = checker.check_expression(initialiser);
     assert_eq!(checker.type_to_string(id), "number");
 }
+
+fn annotation_queries(source: &str, order: &[usize]) -> Vec<String> {
+    let arena = Arena::new();
+    let parsed = tsr_parser::parse(&arena, source);
+    assert!(parsed.diagnostics.is_empty(), "fixture must parse");
+    let bound = tsr_binder::bind(
+        &arena,
+        parsed.source_file,
+        &parsed.nodes,
+        tsr_binder::FileInfo { name: "t.ts", text: source },
+    );
+    let annotations: Vec<_> = parsed
+        .source_file
+        .statements
+        .iter()
+        .filter_map(|statement| {
+            let Statement::VariableStatement(statement) = statement else { return None };
+            statement.declaration_list?.declarations.first()?.r#type
+        })
+        .collect();
+    let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+    order
+        .iter()
+        .map(|&index| {
+            let id = checker.get_type_from_type_node(annotations[index]);
+            checker.type_to_string(id)
+        })
+        .collect()
+}
+
+// Native completion interns unresolved symbols by full parent path; type
+// arguments belong to the type reference, not that static symbol identity.
+#[test]
+fn unresolved_paths_and_arguments_survive_repeated_and_reordered_queries() {
+    let source = "let a: Missing.Child; let b: Other.Child; let c: Missing.Child; \
+                  let d: MissingFoo<string>; let e: MissingFoo<number>;";
+    assert_eq!(
+        annotation_queries(source, &[0, 1, 2, 3, 4, 0, 4, 3]),
+        [
+            "Missing.Child",
+            "Other.Child",
+            "Missing.Child",
+            "MissingFoo<string>",
+            "MissingFoo<number>",
+            "Missing.Child",
+            "MissingFoo<number>",
+            "MissingFoo<string>",
+        ]
+    );
+    assert_eq!(
+        annotation_queries(source, &[4, 3, 2, 1, 0]),
+        [
+            "MissingFoo<number>",
+            "MissingFoo<string>",
+            "Missing.Child",
+            "Other.Child",
+            "Missing.Child"
+        ]
+    );
+}
+
+// Both instantiations visit the same alias-body reference to T. Symbol
+// completion must leave its current substitution outside the static memo.
+#[test]
+#[ignore = "tsr-6.57: generic identity alias retains its reference instead of native primitive result"]
+fn a_repeated_alias_body_reference_uses_each_instantiations_binding() {
+    let source = "type Identity<T> = T; let a: Identity<string>; let b: Identity<number>;";
+    assert_eq!(annotation_queries(source, &[0, 1, 0, 1]), ["string", "number", "string", "number"]);
+    assert_eq!(annotation_queries(source, &[1, 0, 1, 0]), ["number", "string", "number", "string"]);
+}

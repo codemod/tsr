@@ -1,0 +1,274 @@
+--- /dev/null
++++ b/internal/checker/symbol_completion_contract_probe.go
+@@ -0,0 +1,34 @@
++package checker
++
++import "github.com/microsoft/typescript-go/internal/ast"
++
++// Scratch-only access to actual native getter state, with no replacement answer.
++type CompletionObservation struct {
++	Before, After, Result                *ast.Symbol
++	BeforeState, AfterState, ResultState string
++	ErrorsBefore, ErrorsAfter            int
++	WorkerBranches                       uint64
++}
++
++func (c *Checker) ObserveCompletion(kind int, node *ast.Node, file *ast.SourceFile) CompletionObservation {
++	states := [5]string{"nil", "unknown", "unresolved", "alias", "declared"}
++	before := c.symbolNodeLinks.Get(node).resolvedSymbol
++	result := CompletionObservation{Before: before, BeforeState: states[symbolProbeState(before, c.unknownSymbol)], ErrorsBefore: len(c.diagnostics.GetDiagnosticsForFile(file.FileName()))}
++	workers := symbolProbeData[kind].Workers.Load()
++	switch kind {
++	case 0:
++		result.Result = c.getResolvedSymbol(node)
++	case 1:
++		result.Result = c.getReferencedValueOrAliasSymbol(node)
++	case 2:
++		result.Result = c.getSymbolFromTypeReference(node)
++	default:
++		panic("invalid completion getter")
++	}
++	result.After = c.symbolNodeLinks.Get(node).resolvedSymbol
++	result.AfterState = states[symbolProbeState(result.After, c.unknownSymbol)]
++	result.ResultState = states[symbolProbeState(result.Result, c.unknownSymbol)]
++	result.ErrorsAfter = len(c.diagnostics.GetDiagnosticsForFile(file.FileName()))
++	result.WorkerBranches = symbolProbeData[kind].Workers.Load() - workers
++	return result
++}
+--- /dev/null
++++ b/cmd/symbol-completion-contract/main.go
+@@ -0,0 +1,234 @@
++package main
++
++import (
++	"context"
++	"encoding/json"
++	"fmt"
++	"reflect"
++
++	"github.com/microsoft/typescript-go/internal/ast"
++	"github.com/microsoft/typescript-go/internal/bundled"
++	"github.com/microsoft/typescript-go/internal/checker"
++	"github.com/microsoft/typescript-go/internal/compiler"
++	"github.com/microsoft/typescript-go/internal/core"
++	"github.com/microsoft/typescript-go/internal/tsoptions"
++	"github.com/microsoft/typescript-go/internal/vfs/vfstest"
++)
++
++func runSymbolCompletionContract(t *contractCheck) {
++	source := `import type { Original as Renamed } from "./model";
++import { original as renamedValue } from "./model";
++interface TypeOnly { t: string }
++const ValueOnly = 1;
++let goodType: TypeOnly;
++const wrongValue = TypeOnly;
++let wrongType: ValueOnly;
++const goodValue = ValueOnly;
++let missingA: Missing.Child;
++let missingB: Missing.Child;
++let missingC: Other.Child;
++const missingRead = noSuch;
++{ const ValueOnly = "inner"; const inside = ValueOnly; }
++const outside = ValueOnly;
++let incomplete = ;
++const assertion = {} as const;
++let aliasType: Renamed;
++const aliasValue = renamedValue;
++type Identity<T> = T;
++let frameString: Identity<string>;
++let frameNumber: Identity<number>;
++let displayA: MissingFoo<string>;
++let displayB: MissingFoo<number>;`
++	fs := vfstest.FromMap(map[string]string{
++		"/contract.ts":   source,
++		"/model.ts":      `export interface Original { value: string } export const original = 1;`,
++		"/tsconfig.json": `{"compilerOptions":{"strict":true,"singleThreaded":true,"noLib":true,"noEmit":true,"module":"esnext","moduleResolution":"bundler"},"files":["contract.ts","model.ts"]}`,
++	}, true)
++	host := compiler.NewCompilerHost("/", bundled.WrapFS(fs), bundled.LibPath(), nil, nil)
++	parsed, errors := tsoptions.GetParsedCommandLineOfConfigFile("/tsconfig.json", &core.CompilerOptions{}, nil, host, nil)
++	if len(errors) != 0 {
++		t.Fatal(errors)
++	}
++	p := compiler.NewProgram(compiler.ProgramOptions{Config: parsed, Host: host})
++	p.BindSourceFiles()
++	c, done := p.GetTypeChecker(t.Context())
++	defer done()
++	file := p.GetSourceFile("/contract.ts")
++	decls := map[string]*ast.Node{}
++	var visit func(*ast.Node)
++	visit = func(node *ast.Node) {
++		if node.Kind == ast.KindVariableDeclaration {
++			decls[node.Name().Text()] = node
++		}
++		node.ForEachChild(func(child *ast.Node) bool { visit(child); return false })
++	}
++	visit(file.AsNode())
++	observe := func(kind int, name string, annotation bool) checker.CompletionObservation {
++		node := decls[name]
++		if node == nil {
++			t.Fatalf("missing declaration %s", name)
++		}
++		if annotation {
++			node = node.Type()
++		} else {
++			node = node.Initializer()
++		}
++		if name == "assertion" {
++			node = node.Type()
++		}
++		if node == nil {
++			t.Fatalf("missing query node %s", name)
++		}
++		return c.ObserveCompletion(kind, node, file)
++	}
++	type row struct {
++		Name                      string
++		Before, After, Result     string
++		WorkerBranches            uint64
++		ErrorsBefore, ErrorsAfter int
++	}
++	rows := []row{}
++	check := func(name string, got checker.CompletionObservation, before, after, result string, workers uint64) {
++		t.Helper()
++		if got.BeforeState != before || got.AfterState != after || got.ResultState != result || got.WorkerBranches != workers {
++			t.Fatalf("%s: %+v", name, got)
++		}
++		rows = append(rows, row{name, got.BeforeState, got.AfterState, got.ResultState, got.WorkerBranches, got.ErrorsBefore, got.ErrorsAfter})
++	}
++	a := observe(0, "missingRead", false)
++	check("unknown-first", a, "nil", "unknown", "unknown", 1)
++	b := observe(0, "missingRead", false)
++	check("unknown-repeat", b, "unknown", "unknown", "unknown", 0)
++	if a.Result != b.Result || a.ErrorsAfter != b.ErrorsAfter || a.ErrorsAfter != a.ErrorsBefore+1 {
++		t.Fatal("unknown lookup must report once and reuse identity")
++	}
++	u := observe(1, "missingRead", false)
++	check("alias-after-unknown", u, "unknown", "unknown", "nil", 1)
++	if u.ErrorsAfter != u.ErrorsBefore {
++		t.Fatal("alias fallback must not report a missing-name error")
++	}
++	u = observe(1, "missingRead", false)
++	check("alias-after-unknown-repeat", u, "unknown", "unknown", "nil", 1)
++
++	x := observe(2, "missingA", true)
++	check("qualified-unresolved-first", x, "nil", "unresolved", "unresolved", 1)
++	y := observe(2, "missingA", true)
++	check("qualified-unresolved-repeat", y, "unresolved", "unresolved", "unresolved", 0)
++	z := observe(2, "missingB", true)
++	check("qualified-unresolved-second-node", z, "nil", "unresolved", "unresolved", 1)
++	w := observe(2, "missingC", true)
++	check("qualified-unresolved-other-parent", w, "nil", "unresolved", "unresolved", 1)
++	if x.Result != y.Result || x.Result != z.Result || x.Result == w.Result || x.Result.Parent == w.Result.Parent || x.Result.Parent == nil {
++		t.Fatal("qualified unresolved identity must follow full parent path")
++	}
++
++	typeSide := observe(2, "goodType", true)
++	check("type-meaning", typeSide, "nil", "declared", "declared", 1)
++	valueSide := observe(0, "wrongValue", false)
++	check("same-name-value-meaning", valueSide, "nil", "unknown", "unknown", 1)
++	if typeSide.Result == valueSide.Result {
++		t.Fatal("type-only symbol must not resolve with value meaning")
++	}
++	wrongType := observe(2, "wrongType", true)
++	check("value-used-as-type", wrongType, "nil", "unresolved", "unresolved", 1)
++	goodValue := observe(0, "goodValue", false)
++	check("value-meaning", goodValue, "nil", "declared", "declared", 1)
++	inside := observe(0, "inside", false)
++	check("shadowed-value", inside, "nil", "declared", "declared", 1)
++	outside := observe(0, "outside", false)
++	check("outer-value", outside, "nil", "declared", "declared", 1)
++	if inside.Result == outside.Result || goodValue.Result != outside.Result {
++		t.Fatal("same spelling must retain lexical identity")
++	}
++
++	missing := observe(0, "incomplete", false)
++	check("missing-syntax", missing, "nil", "unknown", "unknown", 1)
++	if missing.ErrorsAfter != missing.ErrorsBefore {
++		t.Fatal("missing syntax must not add name resolution errors")
++	}
++	missing = observe(0, "incomplete", false)
++	check("missing-syntax-repeat", missing, "unknown", "unknown", "unknown", 0)
++
++	alias := observe(1, "aliasValue", false)
++	check("alias-uncomputed-fallback", alias, "nil", "nil", "alias", 1)
++	aliasAgain := observe(1, "aliasValue", false)
++	check("alias-uncomputed-fallback-repeat", aliasAgain, "nil", "nil", "alias", 1)
++	if alias.Result != aliasAgain.Result {
++		t.Fatal("bound alias identity must be stable")
++	}
++	alias = observe(0, "aliasValue", false)
++	check("value-publishes-local-alias", alias, "nil", "alias", "alias", 1)
++	aliasAgain = observe(1, "aliasValue", false)
++	check("alias-after-value-completion", aliasAgain, "alias", "alias", "alias", 0)
++	if alias.Result != aliasAgain.Result {
++		t.Fatal("completed alias must be reused")
++	}
++	target := observe(2, "aliasType", true)
++	check("type-reference-resolves-alias-target", target, "nil", "declared", "declared", 1)
++	if target.Result.Flags&ast.SymbolFlagsAlias != 0 || target.Result.Name != "Original" {
++		t.Fatal("type reference must cache actual alias target")
++	}
++
++	constant := observe(2, "assertion", false)
++	check("const-symbol-query", constant, "nil", "unresolved", "unresolved", 1)
++	if constant.ErrorsBefore != constant.ErrorsAfter {
++		t.Fatal("const assertion must not report cannot-find-name")
++	}
++	constant = observe(2, "assertion", false)
++	check("const-symbol-query-repeat", constant, "unresolved", "unresolved", "unresolved", 0)
++
++	other, _ := checker.NewChecker(p, nil)
++	otherNode := decls["missingA"].Type()
++	otherUnresolved := other.ObserveCompletion(2, otherNode, file)
++	check("second-checker-unresolved", otherUnresolved, "nil", "unresolved", "unresolved", 1)
++	if otherUnresolved.Result == x.Result || other.GetUnknownSymbol() == c.GetUnknownSymbol() {
++		t.Fatal("synthetic results must belong to private checker domains")
++	}
++	otherBound := other.ObserveCompletion(2, decls["goodType"].Type(), file)
++	check("second-checker-bound", otherBound, "nil", "declared", "declared", 1)
++	if otherBound.Result != typeSide.Result {
++		t.Fatal("ordinary bound declaration must retain Program identity")
++	}
++	queryNames := []string{"frameString", "frameNumber", "frameString", "frameNumber", "missingA", "missingB", "missingC", "displayA", "displayB", "displayA"}
++	typePrints := []string{}
++	for _, name := range queryNames {
++		typePrints = append(typePrints, c.TypeToString(c.GetTypeFromTypeNode(decls[name].Type())))
++	}
++	expectedPrints := []string{"string", "number", "string", "number", "Missing.Child", "Missing.Child", "Other.Child", "MissingFoo<string>", "MissingFoo<number>", "MissingFoo<string>"}
++	if !reflect.DeepEqual(typePrints, expectedPrints) {
++		t.Fatalf("forward type queries: %v", typePrints)
++	}
++	reverse, _ := checker.NewChecker(p, nil)
++	reverseNames := []string{"displayB", "displayA", "missingC", "missingB", "missingA", "frameNumber", "frameString", "frameNumber", "frameString"}
++	reversePrints := []string{}
++	for _, name := range reverseNames {
++		reversePrints = append(reversePrints, reverse.TypeToString(reverse.GetTypeFromTypeNode(decls[name].Type())))
++	}
++	expectedReverse := []string{"MissingFoo<number>", "MissingFoo<string>", "Other.Child", "Missing.Child", "Missing.Child", "number", "string", "number", "string"}
++	if !reflect.DeepEqual(reversePrints, expectedReverse) {
++		t.Fatalf("reverse type queries: %v", reversePrints)
++	}
++	reverseData, err := json.Marshal(reversePrints)
++	if err != nil {
++		t.Fatal(err)
++	}
++	fmt.Printf("SYMBOL_COMPLETION_REVERSE_TYPES\t%s\n", reverseData)
++	typeData, err := json.Marshal(typePrints)
++	if err != nil {
++		t.Fatal(err)
++	}
++	fmt.Printf("SYMBOL_COMPLETION_TYPES\t%s\n", typeData)
++	data, err := json.Marshal(rows)
++	if err != nil {
++		t.Fatal(err)
++	}
++	fmt.Printf("SYMBOL_COMPLETION_CONTRACT\t%s\n", data)
++}
++
++type contractCheck struct{}
++
++func (*contractCheck) Helper()                           {}
++func (*contractCheck) Context() context.Context          { return context.Background() }
++func (*contractCheck) Fatal(args ...any)                 { panic(fmt.Sprint(args...)) }
++func (*contractCheck) Fatalf(format string, args ...any) { panic(fmt.Sprintf(format, args...)) }
++func main()                                              { runSymbolCompletionContract(&contractCheck{}) }

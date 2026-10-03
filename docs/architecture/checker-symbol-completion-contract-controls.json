@@ -1,0 +1,334 @@
+{
+  "native_source": "5b1047d10d32e7d5b446be4de56b126ff42f82bb",
+  "base_probe_patch": "checker-symbol-completion-probe.patch",
+  "delta_probe_patch": "checker-symbol-completion-contract-probe.patch",
+  "delta_probe_patch_sha256": "a59366c4f73d446334dc69528ec4b10c37d7ee36f1e0ee1dbad4ef0b11e25df2",
+  "source_file_sha256": {
+    "internal/checker/symbol_completion_contract_probe.go": "13a3f2652896a7850daa25b137a1c2655d4988edeab1b9e8eacff13dff3bf70d",
+    "cmd/symbol-completion-contract/main.go": "25ba5db77793fbc5c71c3dd5f6f8480a38c8a0a2c86dee3ad4ef20534c5b34a9"
+  },
+  "samples": [
+    {
+      "pid": 96370,
+      "started_at_unix_ns": 1791053592152616000,
+      "command": [
+        "/private/tmp/tsr-native-symbol-completion-5b/contract-control"
+      ],
+      "wall_seconds": 0.2489026250259485,
+      "user_seconds": 0.003075,
+      "system_seconds": 0.006767,
+      "peak_rss_bytes": 10960896,
+      "exit_code": 0,
+      "timed_out": false,
+      "stdout": "SYMBOL_COMPLETION_CONTRACT\t[{\"Name\":\"unknown-first\",\"Before\":\"nil\",\"After\":\"unknown\",\"Result\":\"unknown\",\"WorkerBranches\":1,\"ErrorsBefore\":0,\"ErrorsAfter\":1},{\"Name\":\"unknown-repeat\",\"Before\":\"unknown\",\"After\":\"unknown\",\"Result\":\"unknown\",\"WorkerBranches\":0,\"ErrorsBefore\":1,\"ErrorsAfter\":1},{\"Name\":\"alias-after-unknown\",\"Before\":\"unknown\",\"After\":\"unknown\",\"Result\":\"nil\",\"WorkerBranches\":1,\"ErrorsBefore\":1,\"ErrorsAfter\":1},{\"Name\":\"alias-after-unknown-repeat\",\"Before\":\"unknown\",\"After\":\"unknown\",\"Result\":\"nil\",\"WorkerBranches\":1,\"ErrorsBefore\":1,\"ErrorsAfter\":1},{\"Name\":\"qualified-unresolved-first\",\"Before\":\"nil\",\"After\":\"unresolved\",\"Result\":\"unresolved\",\"WorkerBranches\":1,\"ErrorsBefore\":1,\"ErrorsAfter\":2},{\"Name\":\"qualified-unresolved-repeat\",\"Before\":\"unresolved\",\"After\":\"unresolved\",\"Result\":\"unresolved\",\"WorkerBranches\":0,\"ErrorsBefore\":2,\"ErrorsAfter\":2},{\"Name\":\"qualified-unresolved-second-node\",\"Before\":\"nil\",\"After\":\"unresolved\",\"Result\":\"unresolved\",\"WorkerBranches\":1,\"ErrorsBefore\":2,\"ErrorsAfter\":3},{\"Name\":\"qualified-unresolved-other-parent\",\"Before\":\"nil\",\"After\":\"unresolved\",\"Result\":\"unresolved\",\"WorkerBranches\":1,\"ErrorsBefore\":3,\"ErrorsAfter\":4},{\"Name\":\"type-meaning\",\"Before\":\"nil\",\"After\":\"declared\",\"Result\":\"declared\",\"WorkerBranches\":1,\"ErrorsBefore\":4,\"ErrorsAfter\":4},{\"Name\":\"same-name-value-meaning\",\"Before\":\"nil\",\"After\":\"unknown\",\"Result\":\"unknown\",\"WorkerBranches\":1,\"ErrorsBefore\":4,\"ErrorsAfter\":5},{\"Name\":\"value-used-as-type\",\"Before\":\"nil\",\"After\":\"unresolved\",\"Result\":\"unresolved\",\"WorkerBranches\":1,\"ErrorsBefore\":5,\"ErrorsAfter\":6},{\"Name\":\"value-meaning\",\"Before\":\"nil\",\"After\":\"declared\",\"Result\":\"declared\",\"WorkerBranches\":1,\"ErrorsBefore\":6,\"ErrorsAfter\":6},{\"Name\":\"shadowed-value\",\"Before\":\"nil\",\"After\":\"declared\",\"Result\":\"declared\",\"WorkerBranches\":1,\"ErrorsBefore\":6,\"ErrorsAfter\":6},{\"Name\":\"outer-value\",\"Before\":\"nil\",\"After\":\"declared\",\"Result\":\"declared\",\"WorkerBranches\":1,\"ErrorsBefore\":6,\"ErrorsAfter\":6},{\"Name\":\"missing-syntax\",\"Before\":\"nil\",\"After\":\"unknown\",\"Result\":\"unknown\",\"WorkerBranches\":1,\"ErrorsBefore\":6,\"ErrorsAfter\":6},{\"Name\":\"missing-syntax-repeat\",\"Before\":\"unknown\",\"After\":\"unknown\",\"Result\":\"unknown\",\"WorkerBranches\":0,\"ErrorsBefore\":6,\"ErrorsAfter\":6},{\"Name\":\"alias-uncomputed-fallback\",\"Before\":\"nil\",\"After\":\"nil\",\"Result\":\"alias\",\"WorkerBranches\":1,\"ErrorsBefore\":6,\"ErrorsAfter\":6},{\"Name\":\"alias-uncomputed-fallback-repeat\",\"Before\":\"nil\",\"After\":\"nil\",\"Result\":\"alias\",\"WorkerBranches\":1,\"ErrorsBefore\":6,\"ErrorsAfter\":6},{\"Name\":\"value-publishes-local-alias\",\"Before\":\"nil\",\"After\":\"alias\",\"Result\":\"alias\",\"WorkerBranches\":1,\"ErrorsBefore\":6,\"ErrorsAfter\":6},{\"Name\":\"alias-after-value-completion\",\"Before\":\"alias\",\"After\":\"alias\",\"Result\":\"alias\",\"WorkerBranches\":0,\"ErrorsBefore\":6,\"ErrorsAfter\":6},{\"Name\":\"type-reference-resolves-alias-target\",\"Before\":\"nil\",\"After\":\"declared\",\"Result\":\"declared\",\"WorkerBranches\":1,\"ErrorsBefore\":6,\"ErrorsAfter\":6},{\"Name\":\"const-symbol-query\",\"Before\":\"nil\",\"After\":\"unresolved\",\"Result\":\"unresolved\",\"WorkerBranches\":1,\"ErrorsBefore\":6,\"ErrorsAfter\":6},{\"Name\":\"const-symbol-query-repeat\",\"Before\":\"unresolved\",\"After\":\"unresolved\",\"Result\":\"unresolved\",\"WorkerBranches\":0,\"ErrorsBefore\":6,\"ErrorsAfter\":6},{\"Name\":\"second-checker-unresolved\",\"Before\":\"nil\",\"After\":\"unresolved\",\"Result\":\"unresolved\",\"WorkerBranches\":1,\"ErrorsBefore\":0,\"ErrorsAfter\":1},{\"Name\":\"second-checker-bound\",\"Before\":\"nil\",\"After\":\"declared\",\"Result\":\"declared\",\"WorkerBranches\":1,\"ErrorsBefore\":1,\"ErrorsAfter\":1}]\n",
+      "stderr": "",
+      "native_source": "5b1047d10d32e7d5b446be4de56b126ff42f82bb",
+      "binary_sha256": "5dbb59c548123fe132dce457483e16ae942b04f488f660f7db46a9d4bb2ced43"
+    },
+    {
+      "pid": 1725,
+      "started_at_unix_ns": 1791053943234478000,
+      "command": [
+        "/private/tmp/tsr-native-symbol-completion-5b/contract-control-types"
+      ],
+      "wall_seconds": 0.2578157919924706,
+      "user_seconds": 0.004665,
+      "system_seconds": 0.011859,
+      "peak_rss_bytes": 11517952,
+      "exit_code": 0,
+      "timed_out": false,
+      "stdout": "SYMBOL_COMPLETION_TYPES\t[\"string\",\"number\",\"string\",\"number\",\"Missing.Child\",\"Missing.Child\",\"Other.Child\",\"MissingFoo\\u003cstring\\u003e\",\"MissingFoo\\u003cnumber\\u003e\",\"MissingFoo\\u003cstring\\u003e\"]\nSYMBOL_COMPLETION_CONTRACT\t[{\"Name\":\"unknown-first\",\"Before\":\"nil\",\"After\":\"unknown\",\"Result\":\"unknown\",\"WorkerBranches\":1,\"ErrorsBefore\":0,\"ErrorsAfter\":1},{\"Name\":\"unknown-repeat\",\"Before\":\"unknown\",\"After\":\"unknown\",\"Result\":\"unknown\",\"WorkerBranches\":0,\"ErrorsBefore\":1,\"ErrorsAfter\":1},{\"Name\":\"alias-after-unknown\",\"Before\":\"unknown\",\"After\":\"unknown\",\"Result\":\"nil\",\"WorkerBranches\":1,\"ErrorsBefore\":1,\"ErrorsAfter\":1},{\"Name\":\"alias-after-unknown-repeat\",\"Before\":\"unknown\",\"After\":\"unknown\",\"Result\":\"nil\",\"WorkerBranches\":1,\"ErrorsBefore\":1,\"ErrorsAfter\":1},{\"Name\":\"qualified-unresolved-first\",\"Before\":\"nil\",\"After\":\"unresolved\",\"Result\":\"unresolved\",\"WorkerBranches\":1,\"ErrorsBefore\":1,\"ErrorsAfter\":2},{\"Name\":\"qualified-unresolved-repeat\",\"Before\":\"unresolved\",\"After\":\"unresolved\",\"Result\":\"unresolved\",\"WorkerBranches\":0,\"ErrorsBefore\":2,\"ErrorsAfter\":2},{\"Name\":\"qualified-unresolved-second-node\",\"Before\":\"nil\",\"After\":\"unresolved\",\"Result\":\"unresolved\",\"WorkerBranches\":1,\"ErrorsBefore\":2,\"ErrorsAfter\":3},{\"Name\":\"qualified-unresolved-other-parent\",\"Before\":\"nil\",\"After\":\"unresolved\",\"Result\":\"unresolved\",\"WorkerBranches\":1,\"ErrorsBefore\":3,\"ErrorsAfter\":4},{\"Name\":\"type-meaning\",\"Before\":\"nil\",\"After\":\"declared\",\"Result\":\"declared\",\"WorkerBranches\":1,\"ErrorsBefore\":4,\"ErrorsAfter\":4},{\"Name\":\"same-name-value-meaning\",\"Before\":\"nil\",\"After\":\"unknown\",\"Result\":\"unknown\",\"WorkerBranches\":1,\"ErrorsBefore\":4,\"ErrorsAfter\":5},{\"Name\":\"value-used-as-type\",\"Before\":\"nil\",\"After\":\"unresolved\",\"Result\":\"unresolved\",\"WorkerBranches\":1,\"ErrorsBefore\":5,\"ErrorsAfter\":6},{\"Name\":\"value-meaning\",\"Before\":\"nil\",\"After\":\"declared\",\"Result\":\"declared\",\"WorkerBranches\":1,\"ErrorsBefore\":6,\"ErrorsAfter\":6},{\"Name\":\"shadowed-value\",\"Before\":\"nil\",\"After\":\"declared\",\"Result\":\"declared\",\"WorkerBranches\":1,\"ErrorsBefore\":6,\"ErrorsAfter\":6},{\"Name\":\"outer-value\",\"Before\":\"nil\",\"After\":\"declared\",\"Result\":\"declared\",\"WorkerBranches\":1,\"ErrorsBefore\":6,\"ErrorsAfter\":6},{\"Name\":\"missing-syntax\",\"Before\":\"nil\",\"After\":\"unknown\",\"Result\":\"unknown\",\"WorkerBranches\":1,\"ErrorsBefore\":6,\"ErrorsAfter\":6},{\"Name\":\"missing-syntax-repeat\",\"Before\":\"unknown\",\"After\":\"unknown\",\"Result\":\"unknown\",\"WorkerBranches\":0,\"ErrorsBefore\":6,\"ErrorsAfter\":6},{\"Name\":\"alias-uncomputed-fallback\",\"Before\":\"nil\",\"After\":\"nil\",\"Result\":\"alias\",\"WorkerBranches\":1,\"ErrorsBefore\":6,\"ErrorsAfter\":6},{\"Name\":\"alias-uncomputed-fallback-repeat\",\"Before\":\"nil\",\"After\":\"nil\",\"Result\":\"alias\",\"WorkerBranches\":1,\"ErrorsBefore\":6,\"ErrorsAfter\":6},{\"Name\":\"value-publishes-local-alias\",\"Before\":\"nil\",\"After\":\"alias\",\"Result\":\"alias\",\"WorkerBranches\":1,\"ErrorsBefore\":6,\"ErrorsAfter\":6},{\"Name\":\"alias-after-value-completion\",\"Before\":\"alias\",\"After\":\"alias\",\"Result\":\"alias\",\"WorkerBranches\":0,\"ErrorsBefore\":6,\"ErrorsAfter\":6},{\"Name\":\"type-reference-resolves-alias-target\",\"Before\":\"nil\",\"After\":\"declared\",\"Result\":\"declared\",\"WorkerBranches\":1,\"ErrorsBefore\":6,\"ErrorsAfter\":6},{\"Name\":\"const-symbol-query\",\"Before\":\"nil\",\"After\":\"unresolved\",\"Result\":\"unresolved\",\"WorkerBranches\":1,\"ErrorsBefore\":6,\"ErrorsAfter\":6},{\"Name\":\"const-symbol-query-repeat\",\"Before\":\"unresolved\",\"After\":\"unresolved\",\"Result\":\"unresolved\",\"WorkerBranches\":0,\"ErrorsBefore\":6,\"ErrorsAfter\":6},{\"Name\":\"second-checker-unresolved\",\"Before\":\"nil\",\"After\":\"unresolved\",\"Result\":\"unresolved\",\"WorkerBranches\":1,\"ErrorsBefore\":0,\"ErrorsAfter\":1},{\"Name\":\"second-checker-bound\",\"Before\":\"nil\",\"After\":\"declared\",\"Result\":\"declared\",\"WorkerBranches\":1,\"ErrorsBefore\":1,\"ErrorsAfter\":1}]\n",
+      "stderr": "",
+      "native_source": "5b1047d10d32e7d5b446be4de56b126ff42f82bb",
+      "binary_sha256": "ecb82e2f7dac1c3a2e8b03c9a71a5fae34acabfb4dfee07126349013302d55bd"
+    },
+    {
+      "command": [
+        "/private/tmp/tsr-native-symbol-completion-5b/contract-control-reordered"
+      ],
+      "started_at_unix_ns": 1791054453020643000,
+      "wall_seconds": 0.2586979999905452,
+      "user_seconds": 0.005346,
+      "system_seconds": 0.012138,
+      "peak_rss_bytes": 11681792,
+      "exit_code": 0,
+      "stdout": "SYMBOL_COMPLETION_REVERSE_TYPES\t[\"MissingFoo\\u003cnumber\\u003e\",\"MissingFoo\\u003cstring\\u003e\",\"Other.Child\",\"Missing.Child\",\"Missing.Child\",\"number\",\"string\",\"number\",\"string\"]\nSYMBOL_COMPLETION_TYPES\t[\"string\",\"number\",\"string\",\"number\",\"Missing.Child\",\"Missing.Child\",\"Other.Child\",\"MissingFoo\\u003cstring\\u003e\",\"MissingFoo\\u003cnumber\\u003e\",\"MissingFoo\\u003cstring\\u003e\"]\nSYMBOL_COMPLETION_CONTRACT\t[{\"Name\":\"unknown-first\",\"Before\":\"nil\",\"After\":\"unknown\",\"Result\":\"unknown\",\"WorkerBranches\":1,\"ErrorsBefore\":0,\"ErrorsAfter\":1},{\"Name\":\"unknown-repeat\",\"Before\":\"unknown\",\"After\":\"unknown\",\"Result\":\"unknown\",\"WorkerBranches\":0,\"ErrorsBefore\":1,\"ErrorsAfter\":1},{\"Name\":\"alias-after-unknown\",\"Before\":\"unknown\",\"After\":\"unknown\",\"Result\":\"nil\",\"WorkerBranches\":1,\"ErrorsBefore\":1,\"ErrorsAfter\":1},{\"Name\":\"alias-after-unknown-repeat\",\"Before\":\"unknown\",\"After\":\"unknown\",\"Result\":\"nil\",\"WorkerBranches\":1,\"ErrorsBefore\":1,\"ErrorsAfter\":1},{\"Name\":\"qualified-unresolved-first\",\"Before\":\"nil\",\"After\":\"unresolved\",\"Result\":\"unresolved\",\"WorkerBranches\":1,\"ErrorsBefore\":1,\"ErrorsAfter\":2},{\"Name\":\"qualified-unresolved-repeat\",\"Before\":\"unresolved\",\"After\":\"unresolved\",\"Result\":\"unresolved\",\"WorkerBranches\":0,\"ErrorsBefore\":2,\"ErrorsAfter\":2},{\"Name\":\"qualified-unresolved-second-node\",\"Before\":\"nil\",\"After\":\"unresolved\",\"Result\":\"unresolved\",\"WorkerBranches\":1,\"ErrorsBefore\":2,\"ErrorsAfter\":3},{\"Name\":\"qualified-unresolved-other-parent\",\"Before\":\"nil\",\"After\":\"unresolved\",\"Result\":\"unresolved\",\"WorkerBranches\":1,\"ErrorsBefore\":3,\"ErrorsAfter\":4},{\"Name\":\"type-meaning\",\"Before\":\"nil\",\"After\":\"declared\",\"Result\":\"declared\",\"WorkerBranches\":1,\"ErrorsBefore\":4,\"ErrorsAfter\":4},{\"Name\":\"same-name-value-meaning\",\"Before\":\"nil\",\"After\":\"unknown\",\"Result\":\"unknown\",\"WorkerBranches\":1,\"ErrorsBefore\":4,\"ErrorsAfter\":5},{\"Name\":\"value-used-as-type\",\"Before\":\"nil\",\"After\":\"unresolved\",\"Result\":\"unresolved\",\"WorkerBranches\":1,\"ErrorsBefore\":5,\"ErrorsAfter\":6},{\"Name\":\"value-meaning\",\"Before\":\"nil\",\"After\":\"declared\",\"Result\":\"declared\",\"WorkerBranches\":1,\"ErrorsBefore\":6,\"ErrorsAfter\":6},{\"Name\":\"shadowed-value\",\"Before\":\"nil\",\"After\":\"declared\",\"Result\":\"declared\",\"WorkerBranches\":1,\"ErrorsBefore\":6,\"ErrorsAfter\":6},{\"Name\":\"outer-value\",\"Before\":\"nil\",\"After\":\"declared\",\"Result\":\"declared\",\"WorkerBranches\":1,\"ErrorsBefore\":6,\"ErrorsAfter\":6},{\"Name\":\"missing-syntax\",\"Before\":\"nil\",\"After\":\"unknown\",\"Result\":\"unknown\",\"WorkerBranches\":1,\"ErrorsBefore\":6,\"ErrorsAfter\":6},{\"Name\":\"missing-syntax-repeat\",\"Before\":\"unknown\",\"After\":\"unknown\",\"Result\":\"unknown\",\"WorkerBranches\":0,\"ErrorsBefore\":6,\"ErrorsAfter\":6},{\"Name\":\"alias-uncomputed-fallback\",\"Before\":\"nil\",\"After\":\"nil\",\"Result\":\"alias\",\"WorkerBranches\":1,\"ErrorsBefore\":6,\"ErrorsAfter\":6},{\"Name\":\"alias-uncomputed-fallback-repeat\",\"Before\":\"nil\",\"After\":\"nil\",\"Result\":\"alias\",\"WorkerBranches\":1,\"ErrorsBefore\":6,\"ErrorsAfter\":6},{\"Name\":\"value-publishes-local-alias\",\"Before\":\"nil\",\"After\":\"alias\",\"Result\":\"alias\",\"WorkerBranches\":1,\"ErrorsBefore\":6,\"ErrorsAfter\":6},{\"Name\":\"alias-after-value-completion\",\"Before\":\"alias\",\"After\":\"alias\",\"Result\":\"alias\",\"WorkerBranches\":0,\"ErrorsBefore\":6,\"ErrorsAfter\":6},{\"Name\":\"type-reference-resolves-alias-target\",\"Before\":\"nil\",\"After\":\"declared\",\"Result\":\"declared\",\"WorkerBranches\":1,\"ErrorsBefore\":6,\"ErrorsAfter\":6},{\"Name\":\"const-symbol-query\",\"Before\":\"nil\",\"After\":\"unresolved\",\"Result\":\"unresolved\",\"WorkerBranches\":1,\"ErrorsBefore\":6,\"ErrorsAfter\":6},{\"Name\":\"const-symbol-query-repeat\",\"Before\":\"unresolved\",\"After\":\"unresolved\",\"Result\":\"unresolved\",\"WorkerBranches\":0,\"ErrorsBefore\":6,\"ErrorsAfter\":6},{\"Name\":\"second-checker-unresolved\",\"Before\":\"nil\",\"After\":\"unresolved\",\"Result\":\"unresolved\",\"WorkerBranches\":1,\"ErrorsBefore\":0,\"ErrorsAfter\":1},{\"Name\":\"second-checker-bound\",\"Before\":\"nil\",\"After\":\"declared\",\"Result\":\"declared\",\"WorkerBranches\":1,\"ErrorsBefore\":1,\"ErrorsAfter\":1}]\n",
+      "stderr": "",
+      "native_source": "5b1047d10d32e7d5b446be4de56b126ff42f82bb",
+      "binary_sha256": "1f547c0f140deff50646e30a20a14ca43870bbda83633c93d85c52cc1bec091c"
+    }
+  ],
+  "assertions": {
+    "pointer_identity": true,
+    "report_once": true,
+    "checker_private_synthetic_symbols": true,
+    "forward_and_reverse_type_queries": true
+  },
+  "control_payload": {
+    "SYMBOL_COMPLETION_REVERSE_TYPES": [
+      "MissingFoo<number>",
+      "MissingFoo<string>",
+      "Other.Child",
+      "Missing.Child",
+      "Missing.Child",
+      "number",
+      "string",
+      "number",
+      "string"
+    ],
+    "SYMBOL_COMPLETION_TYPES": [
+      "string",
+      "number",
+      "string",
+      "number",
+      "Missing.Child",
+      "Missing.Child",
+      "Other.Child",
+      "MissingFoo<string>",
+      "MissingFoo<number>",
+      "MissingFoo<string>"
+    ],
+    "SYMBOL_COMPLETION_CONTRACT": [
+      {
+        "Name": "unknown-first",
+        "Before": "nil",
+        "After": "unknown",
+        "Result": "unknown",
+        "WorkerBranches": 1,
+        "ErrorsBefore": 0,
+        "ErrorsAfter": 1
+      },
+      {
+        "Name": "unknown-repeat",
+        "Before": "unknown",
+        "After": "unknown",
+        "Result": "unknown",
+        "WorkerBranches": 0,
+        "ErrorsBefore": 1,
+        "ErrorsAfter": 1
+      },
+      {
+        "Name": "alias-after-unknown",
+        "Before": "unknown",
+        "After": "unknown",
+        "Result": "nil",
+        "WorkerBranches": 1,
+        "ErrorsBefore": 1,
+        "ErrorsAfter": 1
+      },
+      {
+        "Name": "alias-after-unknown-repeat",
+        "Before": "unknown",
+        "After": "unknown",
+        "Result": "nil",
+        "WorkerBranches": 1,
+        "ErrorsBefore": 1,
+        "ErrorsAfter": 1
+      },
+      {
+        "Name": "qualified-unresolved-first",
+        "Before": "nil",
+        "After": "unresolved",
+        "Result": "unresolved",
+        "WorkerBranches": 1,
+        "ErrorsBefore": 1,
+        "ErrorsAfter": 2
+      },
+      {
+        "Name": "qualified-unresolved-repeat",
+        "Before": "unresolved",
+        "After": "unresolved",
+        "Result": "unresolved",
+        "WorkerBranches": 0,
+        "ErrorsBefore": 2,
+        "ErrorsAfter": 2
+      },
+      {
+        "Name": "qualified-unresolved-second-node",
+        "Before": "nil",
+        "After": "unresolved",
+        "Result": "unresolved",
+        "WorkerBranches": 1,
+        "ErrorsBefore": 2,
+        "ErrorsAfter": 3
+      },
+      {
+        "Name": "qualified-unresolved-other-parent",
+        "Before": "nil",
+        "After": "unresolved",
+        "Result": "unresolved",
+        "WorkerBranches": 1,
+        "ErrorsBefore": 3,
+        "ErrorsAfter": 4
+      },
+      {
+        "Name": "type-meaning",
+        "Before": "nil",
+        "After": "declared",
+        "Result": "declared",
+        "WorkerBranches": 1,
+        "ErrorsBefore": 4,
+        "ErrorsAfter": 4
+      },
+      {
+        "Name": "same-name-value-meaning",
+        "Before": "nil",
+        "After": "unknown",
+        "Result": "unknown",
+        "WorkerBranches": 1,
+        "ErrorsBefore": 4,
+        "ErrorsAfter": 5
+      },
+      {
+        "Name": "value-used-as-type",
+        "Before": "nil",
+        "After": "unresolved",
+        "Result": "unresolved",
+        "WorkerBranches": 1,
+        "ErrorsBefore": 5,
+        "ErrorsAfter": 6
+      },
+      {
+        "Name": "value-meaning",
+        "Before": "nil",
+        "After": "declared",
+        "Result": "declared",
+        "WorkerBranches": 1,
+        "ErrorsBefore": 6,
+        "ErrorsAfter": 6
+      },
+      {
+        "Name": "shadowed-value",
+        "Before": "nil",
+        "After": "declared",
+        "Result": "declared",
+        "WorkerBranches": 1,
+        "ErrorsBefore": 6,
+        "ErrorsAfter": 6
+      },
+      {
+        "Name": "outer-value",
+        "Before": "nil",
+        "After": "declared",
+        "Result": "declared",
+        "WorkerBranches": 1,
+        "ErrorsBefore": 6,
+        "ErrorsAfter": 6
+      },
+      {
+        "Name": "missing-syntax",
+        "Before": "nil",
+        "After": "unknown",
+        "Result": "unknown",
+        "WorkerBranches": 1,
+        "ErrorsBefore": 6,
+        "ErrorsAfter": 6
+      },
+      {
+        "Name": "missing-syntax-repeat",
+        "Before": "unknown",
+        "After": "unknown",
+        "Result": "unknown",
+        "WorkerBranches": 0,
+        "ErrorsBefore": 6,
+        "ErrorsAfter": 6
+      },
+      {
+        "Name": "alias-uncomputed-fallback",
+        "Before": "nil",
+        "After": "nil",
+        "Result": "alias",
+        "WorkerBranches": 1,
+        "ErrorsBefore": 6,
+        "ErrorsAfter": 6
+      },
+      {
+        "Name": "alias-uncomputed-fallback-repeat",
+        "Before": "nil",
+        "After": "nil",
+        "Result": "alias",
+        "WorkerBranches": 1,
+        "ErrorsBefore": 6,
+        "ErrorsAfter": 6
+      },
+      {
+        "Name": "value-publishes-local-alias",
+        "Before": "nil",
+        "After": "alias",
+        "Result": "alias",
+        "WorkerBranches": 1,
+        "ErrorsBefore": 6,
+        "ErrorsAfter": 6
+      },
+      {
+        "Name": "alias-after-value-completion",
+        "Before": "alias",
+        "After": "alias",
+        "Result": "alias",
+        "WorkerBranches": 0,
+        "ErrorsBefore": 6,
+        "ErrorsAfter": 6
+      },
+      {
+        "Name": "type-reference-resolves-alias-target",
+        "Before": "nil",
+        "After": "declared",
+        "Result": "declared",
+        "WorkerBranches": 1,
+        "ErrorsBefore": 6,
+        "ErrorsAfter": 6
+      },
+      {
+        "Name": "const-symbol-query",
+        "Before": "nil",
+        "After": "unresolved",
+        "Result": "unresolved",
+        "WorkerBranches": 1,
+        "ErrorsBefore": 6,
+        "ErrorsAfter": 6
+      },
+      {
+        "Name": "const-symbol-query-repeat",
+        "Before": "unresolved",
+        "After": "unresolved",
+        "Result": "unresolved",
+        "WorkerBranches": 0,
+        "ErrorsBefore": 6,
+        "ErrorsAfter": 6
+      },
+      {
+        "Name": "second-checker-unresolved",
+        "Before": "nil",
+        "After": "unresolved",
+        "Result": "unresolved",
+        "WorkerBranches": 1,
+        "ErrorsBefore": 0,
+        "ErrorsAfter": 1
+      },
+      {
+        "Name": "second-checker-bound",
+        "Before": "nil",
+        "After": "declared",
+        "Result": "declared",
+        "WorkerBranches": 1,
+        "ErrorsBefore": 1,
+        "ErrorsAfter": 1
+      }
+    ]
+  },
+  "timing_role": "Locating control observations only; no optimization gain or whole-project ratio.",
+  "test_framework_status": "Offline go test could not run: uncached gotest.tools/v3. Standalone assertion executable built with existing dependencies; no dependency installed.",
+  "limits": [
+    "No late augmentation/merge characterization; tracked tsr-6.49.",
+    "Direct symbol query for const differs from normal type-query bypass.",
+    "Pointer tests cover ordinary bound symbols, not all merged/cloned symbols."
+  ],
+  "source_hash_scope": "Final reordered/asserting runner only; first two sample binaries are historical revisions.",
+  "verification": {
+    "base_and_delta_patch_dry_run": true,
+    "base_and_delta_reproduce_source_hashes": true,
+    "verified_files": 5,
+    "artifact_readback": true,
+    "production_compiler_changed": false
+  }
+}
