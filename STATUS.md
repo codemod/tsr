@@ -22,7 +22,45 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
-### Current checker checkpoint — third eight-orb integration
+### Current checker checkpoint — direct aliases and const elisions
+
+Measured on **`e83fac17`**, against published `4bf5fe96`:
+**459,451/478,855 assertions (95.95%)**, **7,150/9,538 complete cases
+(74.96%)**. The 99% target requires 474,067 matches; **14,616 remain**.
+Pinned native `5b1047d1` and the denominator are unchanged. Aligned verdicts:
+**474,251 total; 459,451 RIGHT; 2,195 GAP; 12,605 WRONG**.
+
+The two retained units add **70 matches and three complete cases**:
+67 WRONG→RIGHT and three GAP→RIGHT, with **zero RIGHT losses,
+GAP→WRONG, or new/removed rows**. Two already-WRONG interop spellings
+change from `typeof Foo` to `typeof z9` while native still wants `typeof y9`;
+these are residuals, not gains. The combined multiline audit confirms the
+result independently of worker totals.
+
+Direct aliases use native declaration order within the innermost table,
+preserving direct own-name priority. Array elisions preserve optional missing
+elements in exact mode and required undefined otherwise; optional tuple
+display removes only intrinsic missing. Native-correlated asymmetric controls
+cover declaration versus lexical order, scope priority, spread positions,
+lengths, reads, and explicit undefined.
+
+Diagnostics remain **2,808/5,488**. A separate audit also covers **5,082
+empty-baseline cases**: **zero correct-case or matched-occurrence losses,
+zero introduced extras, and no new/removed cases**. Matched diagnostic
+occurrences stay 20,595; false occurrences fall **3,972 → 3,968** in
+optionalTupleElements1. Two other worker candidates are held because this
+positive-control audit caught false diagnostics; their checker-only gains
+are not delivered.
+
+Concurrent test/documentation commits through `074f60a7` are preserved.
+Parser, binder and all four declaration suites are unchanged. **2,644 release
+workspace tests across 229 result blocks**, strict workspace/all-target
+clippy, fmt, **3,400 upstream references** and **16,632 section citations**
+pass. The issue-ID gate still reports **197 missing historical records**;
+Dolt has no configured remote, so local issue updates are not claimed as
+synced. This corpus wave does not rerun the real Next.js application.
+
+### Previous checker checkpoint — third eight-orb integration
 
 Measured on **`19677867`**, against exact `8a65762e`:
 **459,381/478,855 assertions (95.93%)**, **7,147/9,538 complete cases
@@ -1494,18 +1532,31 @@ rendering `any` for `errorType` (ADR-0038).
   instead of widened intrinsic arguments; two contextualTypeSelfReferencing
   rows widen a cyclic tuple context to an array. Conditional-source four-operand
   inference and defaulted alias chains remain unported.
-- **Accessible alias roots** (tsr-jwe): 12
-  collisionExportsRequireAndInternalModuleAliasInGlobalFile rows need the
-  intermediate `exports` alias; declFileAliasUseBeforeDeclaration2 still prints
-  `typeof E` instead of `E`. Recursive accessible export chains and ambient
-  exported-alias visibility remain separate from nonambient qualified aliases.
+- **Accessible alias roots** (tsr-pjz): direct-alias tie selection now resolves
+  the `exports`/`require` collision rows (tsr-jwe). Early declaration uses
+  still print `typeof E` instead of `E`; two es6ExportEqualsInterop rows want
+  `typeof y9` but get `typeof z9`. Recursive accessible export chains and
+  ambient exported-alias visibility remain separate from nonambient aliases.
 - **JSDoc consumers** (tsr-yix, tsr-5iz): diagnostics traversal does not install
-  the JSDoc table; suffix-optional parameter/default-initializer flow still
-  blocks global optionality parity. Qualified sibling paths, stray `@type`
-  body replacement, callbacks and merged local typedefs remain declined.
-- **Const elisions alongside spreads** (tsr-dlz): a separate iterable follow-up
-  is investigating exact-optional missing holes versus required undefined.
-  Tuple normalization and inference functions are not part of its reservation.
+  the JSDoc table. Setup-only `configured_checker` gained two diagnostic cases
+  but lost an empty-baseline RIGHT in paramTagBracketsAddOptionalUndefined:
+  native-valid undefined writes falsely emit TS2322 at a.js 7:5, 8:5, 11:5.
+  jsdocPostfixEqualsAddsOptionality also gains a false TS2322 at 5:5.
+  Candidate `6b24e952` is rejected until optional/default parameter flow is
+  fixed. TS2412 emission and sibling-alias member completeness remain separate
+  (tsr-qe2, tsr-61g). Qualified sibling paths, stray `@type` body replacement,
+  callbacks and merged local typedefs remain declined.
+- **Const elision write relations** (tsr-0sp): missing-hole normalization,
+  lengths, reads and display are now ported (tsr-dlz). Exact-mode
+  `[undefined] extends typeof holes` for `holes = [,] as const` still returns
+  true in Rust where native returns false. Tuple relation code is unchanged.
+- **Node-less indexed instantiation** (tsr-4hl, tsr-6.9): native missing lookup
+  returns unknown rather than error. Candidate `0576853e` gained 21 checker
+  matches without checker RIGHT losses, but introduces a false TS2322 at
+  twiceNestedKeyofIndexInference.ts 32:7 in an empty-baseline RIGHT case.
+  It is rejected pending mapped/alias lookup and relation completeness, not
+  retained with diagnostic suppression. Four exposed GAP→WRONG and seven
+  changed-WRONG checker payloads belong to the rejected candidate only.
 - **Enum union order and combined symbol meanings** (tsr-n3t, tsr-15w): four
   logicalOrOperatorWithEveryType payloads still place the enum first; separate
   value/type export symbols need native synthetic combination. No enum-as-alias
@@ -11265,6 +11316,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
+| 2026-10-03 | `e83fac17` | **95.95%** | **7,150/9,538** | **459,451/478,855 assertions.** +70 matches, +3 complete cases vs `4bf5fe96`; 67W→R, 3G→R, zero RIGHT losses/G→W/population changes, two changed WRONG payloads. | Direct-alias declaration-order ties and exact/nonexact const elisions. Full positive diagnostics audit has zero correct-case/occurrence losses or new extras, removing four false errors. JSDoc setup and node-less indexed recovery candidates are rejected for false errors in previously clean cases. Concurrent test/docs through `074f60a7` preserved; 2,644 workspace tests, strict clippy/fmt, 3,400 anchors, 16,632 citations pass. Historical issue-ID gate remains blocked by 197 records; 14,616 remain to 99%. |
 | 2026-10-02 | `6b42bfb5` | **73.61%** | **7,021** | **457,641/478,855 assertions (95.57%).** +48 assertions, +2 cases, zero RIGHT losses; 25W→R, 23G→R, 5G→W naming rows, 9 changed W→W. | Error-like any guard ends MCP constructor expansion; package alias exports, JSON value modules, CLI comment directives/side-effect imports, native regular/widened assertion comparison. 130 full-app diagnostics remain versus native zero; targeted 13 cleared. Diagnostics 2,790/5,488, binder 100%; workspace tests, four CLI controls, clippy, fmt and citation gates verified. 16,426 remain to 99%. |
 | 2026-10-02 | `cd658415` | **72.50%** | **6,915** | **455,889/478,855 assertions (95.20%).** +14 since 9afcc9f3, +2 cases, zero RIGHT losses/new WRONG rows; 14W→R and 14 changed W→W. | Native primitive/unknown generic assignability with conditional deferral. Three relation tests and 11 conformance assertions; 212 workspace blocks, clippy, 3330 anchors; isolated verdict/source match. Fresh-signature and subtype prerequisites measured and deferred. 18,178 remain to 99%. |
 | 2026-10-02 | `9afcc9f3` | **72.48%** | **6,913** | **455,875/478,855 assertions (95.20%).** +2 since f557e254, zero RIGHT losses/new WRONG rows; 2W→R. | Native contextual initializer widening and optional/default comparison. 18 native outcomes; 211 workspace blocks, clippy, 3330 anchors; isolated verdict/source match. Broad contextual mapper deferred after 32 RIGHT losses. 18,192 remain to 99%. |
