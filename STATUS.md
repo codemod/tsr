@@ -22,13 +22,26 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
-### Current checker checkpoint — mapped modifiers and guarded missing-member heads
+### Current checker checkpoint — certified source-never and distributive reduction
 
-Measured production tree **`3b08c400`**, against published `31b00461`:
-**459,627/478,855 assertions (95.98%)**, **7,176/9,538 complete cases
-(75.24%)**. The 99% target requires 474,067 matches; **14,440 remain**.
+Measured production tree **`9cdca98a`**, against published `c1ffade9`:
+**459,629/478,855 assertions (95.99%)**, **7,176/9,538 complete cases
+(75.24%)**. The 99% target requires 474,067 matches; **14,438 remain**.
 Pinned native `5b1047d1` and both denominators are unchanged. Aligned verdicts:
-**474,251 total; 459,627 RIGHT; 2,182 GAP; 12,442 WRONG**.
+**474,251 total; 459,629 RIGHT; 2,182 GAP; 12,440 WRONG**.
+
+Certified whole-never source intersections now use their reduced apparent view
+before simple relations; substituted naked-parameter conditional checks reduce
+before distribution. Written identities and property readers remain unchanged.
+Native controls distinguish literal/private conflicts from optional conflicts,
+plain never-valued properties, same private origins and genuinely absent names,
+in both exact modes and source orders. Distributive Ex1/Ex2/Ex3 remain
+`never`/`false`/`true`; wrapped checks use ordinary branch evaluation. Against
+`c1ffade9`, the combined audit gains **two WRONG→RIGHT**, with zero RIGHT losses,
+GAP→WRONG, changed WRONG payloads or new/removed rows. No complete case is added.
+All 20,683 diagnostic matches remain; three false diagnostics disappear at
+`intersectionReduction:41:5`, `intersectionReductionStrict:41:5` and
+`objectSpread:121:5`, with zero occurrence losses or introduced extras.
 
 Captured mapped optional/readonly flags now participate in structural relations.
 Complete mapped-reference tables and ordinary multi-property lists report native
@@ -37,7 +50,7 @@ certified target lookup before this reporting path runs; spread-inherited keys
 are not treated as written excess keys. Unrepresented optional constructor
 parameter-property metadata remains refused. These guards preserve all five
 previously exposed false TS2322→TS2741 transitions as their original rows, with
-no selector exceptions. The combined checker capture is byte-identical to
+no selector exceptions. The mapped-modifier/missing-head capture is byte-identical to
 `31b00461`. Complete diagnostics gain **28 matched occurrences**, remove **28
 extras**, and turn **nine WRONG and two EMPTY_WRONG cases correct**, with zero
 correct-case/occurrence losses, introduced extras or population changes. The two
@@ -100,8 +113,8 @@ retain their previous callback-context path, while open-key, union-bound and
 nominally unsupported shapes stay undecided. Object-, union- and mapped-bound
 identity-call controls retain their native results. Against `382ee882`, the
 checker is byte-identical and `mappedTypeRelationships` gains two matched TS2322
-occurrences without new extras. Contradictory whole-intersection `never`
-normalization remains a separate consumer prerequisite. Mapped modifier
+occurrences without new extras. Certified whole-intersection `never`
+normalization is now included alongside its distributive prerequisite. Mapped modifier
 comparison and guarded missing-member heads are now included in this checkpoint.
 
 Declared conditional constraints now compose captured and inferred outer bindings
@@ -114,9 +127,9 @@ remains held for GAP→WRONG transitions and changed WRONG payloads.
 
 Complete duplicate-aware diagnostics improve against `d881bd20` across
 **10,570 cases**, including all **5,082 empty baselines**:
-**2,855 RIGHT / 2,633 WRONG / 4,801 EMPTY_RIGHT / 281 EMPTY_WRONG**;
-**20,683 matched occurrences / 3,861 extras**, up from 20,617 matches and down
-from 3,891 extras. Fifteen wrong cases and four empty-positive cases become correct.
+**2,855 RIGHT / 2,633 WRONG / 4,802 EMPTY_RIGHT / 280 EMPTY_WRONG**;
+**20,683 matched occurrences / 3,858 extras**, up from 20,617 matches and down
+from 3,891 extras. Fifteen wrong cases and five empty-positive cases become correct.
 There are no correct-case, expected-occurrence, empty-positive or population
 losses, and no introduced extras. Two still-WRONG generic-signature diagnostic
 payloads gain expected TS2430 occurrences; one still-WRONG mapped-relationship
@@ -124,7 +137,7 @@ payload gains the two expected TS2322 occurrences. Function copies remove the
 false TS2339 at `esModuleInteropImportNamespace/index.ts:2:5` without losing a
 matched occurrence.
 
-**2,782 release workspace tests across 239 result blocks**, six existing ignores,
+**2,786 release workspace tests across 239 result blocks**, six existing ignores,
 strict release workspace/all-target Clippy, formatting and diff checks pass.
 Unfiltered scorepair agrees with the multiline-aware audit and accepts the new
 baseline; checker and diagnostics snapshots are refreshed after strict Clippy.
@@ -136,11 +149,16 @@ GAP→WRONG rows require constrained-parameter truthiness and loop-flow/binding
 prerequisites. Its complete diagnostics are unchanged, and both negation and
 the rejected unresolved supplier are restored. Nullable-union provenance is also
 held: nine gains come with three GAP→WRONG array-widening rows and two changed
-WRONG payloads, despite byte-identical complete diagnostics. Whole-source never
-reduction is held for one RIGHT loss until distributive conditional checks reduce
-their mapped intersection before distribution. Generic argument reporting,
-empty-Function applicability, nullable widening and contextual alias representation remain separate
-native-first units with fresh combined audits required.
+WRONG payloads, despite byte-identical complete diagnostics. The earlier
+relater-only source-never candidate remains rejected for one RIGHT loss; the
+accepted replacement includes reduction before distributive conditional checks.
+Generic argument reporting, empty-Function applicability and nullable widening
+remain separate native-first units with fresh combined audits required.
+Generic union-alias admission is held: the candidate OOMs on the variance cohort
+(3.1 GiB versus 45 MiB parent/85 MiB native), mishandles invalid recursive aliases
+and regresses `Wrapped<T>=T|any`. Nested indexed lowering is correct; anonymous
+union-origin admission and expansion stabilization are unimplemented prerequisites.
+No complete candidate delta or retention claim exists for that unit.
 The 99% goal is not reached; this is a checkpoint, not completion.
 
 ### Previous checker checkpoint — generic await, presence reads and JSDoc diagnostics
