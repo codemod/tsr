@@ -1055,6 +1055,12 @@ impl<'a> Checker<'a, '_> {
                 let annotation = declaration.r#type?;
                 Some(self.get_type_from_type_node(annotation))
             }
+            Node::BindingElement(element) => {
+                if element.initializer.and_then(|initializer| initializer.node_id()) != Some(node) {
+                    return None;
+                }
+                self.contextual_type_for_binding_element(parent)
+            }
             // §154 (`checker-notes-ctx.md`): the assertion family — `x as T`
             // and `<T>x` answer the asserted type as context, EXCEPT `as
             // const` (isConstContext's business, not a contextual type);
@@ -1524,6 +1530,55 @@ impl<'a> Checker<'a, '_> {
             })
         });
         supported.then(|| arguments.get(slot).copied()).flatten()
+    }
+
+    /// getContextualTypeForBindingElement (`checker.go:29583`), restricted to
+    /// annotated object holders. This is declared projection, not binding
+    /// inference: defaults do not remove undefined or supply a parent type.
+    /// Array projection needs the separate unknown-length/missing-type reader.
+    fn contextual_type_for_binding_element(&mut self, declaration: NodeId) -> Option<TypeId> {
+        let Node::BindingElement(element) = self.node_map.get(declaration)? else { return None };
+        // Native rejects pattern-valued names and computed nonliteral syntax
+        // before entering the holder's contextual lookup.
+        let name = match element.property_name {
+            Some(PropertyName::Identifier(name)) => name.text.to_string(),
+            Some(PropertyName::StringLiteral(name)) => name.text.to_string(),
+            Some(PropertyName::NumericLiteral(name)) => {
+                crate::printing::normalise_number(name.text)
+            }
+            Some(PropertyName::ComputedPropertyName(name)) => {
+                let expression = name.expression?;
+                if !matches!(
+                    expression,
+                    Expression::StringLiteral(_)
+                        | Expression::NumericLiteral(_)
+                        | Expression::NoSubstitutionTemplateLiteral(_)
+                ) {
+                    return None;
+                }
+                let name_type = self.check_expression(expression);
+                self.property_name_from_index(name_type)?
+            }
+            Some(_) => return None,
+            None => match element.name? {
+                BindingName::Identifier(name) => name.text.to_string(),
+                BindingName::BindingPattern(_) => return None,
+            },
+        };
+        let pattern = self.nodes.parent(declaration)?;
+        if self.nodes.kind(pattern) != tsr_ast::SyntaxKind::ObjectBindingPattern {
+            return None;
+        }
+        let holder = self.nodes.parent(pattern)?;
+        let parent_type = if self.nodes.kind(holder) == tsr_ast::SyntaxKind::BindingElement {
+            self.contextual_type_for_binding_element(holder)?
+        } else {
+            let annotation = self.type_annotation_of(holder)?;
+            self.get_type_from_type_node(annotation)
+        };
+        // Ordinary projection intentionally refuses a nullable outer holder;
+        // contextual_property_type's nullable mapping would change that contract.
+        self.get_type_of_property_of_type(parent_type, &name)
     }
 
     /// Ported from Checker.getContextualTypeForBinaryOperand
@@ -2610,5 +2665,104 @@ mod tests {
             .as_deref(),
             Some("\"left\"")
         );
+    }
+
+    fn binding_contexts(
+        source: &str,
+        strict: bool,
+        exact: bool,
+        warm: bool,
+    ) -> Vec<Option<String>> {
+        let arena = tsr_core::Arena::new();
+        let parsed = tsr_parser::parse(&arena, source);
+        assert!(parsed.diagnostics.is_empty(), "{source}");
+        let bound = tsr_binder::bind(
+            &arena,
+            parsed.source_file,
+            &parsed.nodes,
+            tsr_binder::FileInfo { name: "t.ts", text: source },
+        );
+        let mut checker = crate::Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+        checker.set_strict_null_checks(strict);
+        checker.exact_optional_property_types = exact;
+        let mut initializers = Vec::new();
+        for index in 0..parsed.nodes.len() {
+            #[allow(clippy::cast_possible_truncation)]
+            let id = NodeId::new(index as u32);
+            if let Some(Node::BindingElement(element)) = parsed.node_map.get(id)
+                && let Some(initializer) = element.initializer
+            {
+                if let Some(name) = element.name.and_then(|name| name.node_id()) {
+                    assert_eq!(checker.get_contextual_type(name), None, "initializer context only");
+                }
+                if warm {
+                    checker.get_type_for_binding_element(id);
+                }
+                initializers.push(initializer.node_id().expect("registered initializer"));
+            }
+        }
+        initializers
+            .into_iter()
+            .map(|id| checker.get_contextual_type(id).map(|ty| checker.type_to_string(ty)))
+            .collect()
+    }
+
+    #[test]
+    fn annotated_object_binding_defaults_project_names_without_default_adjustment() {
+        let source = r#"
+            declare let input: { right?: "right"; left: "left"; 1: "numeric"; };
+            const { right: chosen = "wrong", left = "wrong", [1.0]: digit = "wrong" }:
+                { right?: "right"; left: "left"; 1: "numeric"; } = input;
+        "#;
+        for (strict, exact) in [(false, false), (true, false), (true, true)] {
+            for warm in [false, true] {
+                assert_eq!(
+                    binding_contexts(source, strict, exact, warm),
+                    vec![
+                        Some(if strict { "\"right\" | undefined" } else { "\"right\"" }.into()),
+                        Some("\"left\"".into()),
+                        Some("\"numeric\"".into()),
+                    ],
+                    "strict={strict} exact={exact} warm={warm}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn annotated_nested_object_binding_context_does_not_strip_nullable_holders() {
+        for warm in [false, true] {
+            let required = r#"declare let input: { outer: { c: "right" } };
+                let { outer: { c: chosen = "wrong" } }: { outer: { c: "right" } } = input;"#;
+            assert_eq!(
+                binding_contexts(required, true, false, warm),
+                vec![Some("\"right\"".into())]
+            );
+            let optional = r#"declare let input: { outer?: { c: "right" } };
+                let { outer: { c: chosen = "wrong" } = { c: "right" } }:
+                    { outer?: { c: "right" } } = input;"#;
+            for exact in [false, true] {
+                let contexts = binding_contexts(optional, true, exact, warm);
+                assert_eq!(
+                    contexts,
+                    vec![None, Some("{ c: \"right\"; } | undefined".into())],
+                    "inner context must not strip outer undefined"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn object_binding_context_preserves_unannotated_array_and_dynamic_boundaries() {
+        for source in [
+            "const { c = 'right' } = {};",
+            "let [chosen = 'right']: ['right'?] = [];",
+            "declare const key: 'c'; let { [key]: chosen = 'right' }: { c: 'right' } = { c: 'right' };",
+            "let { missing: chosen = 'right' }: { c: 'right' } = { c: 'right' };",
+        ] {
+            assert_eq!(binding_contexts(source, true, false, false), vec![None], "{source}");
+        }
+        let literal = "let { ['c']: chosen = 'wrong' }: { c: 'right' } = { c: 'right' };";
+        assert_eq!(binding_contexts(literal, true, false, false), vec![Some("\"right\"".into())]);
     }
 }
