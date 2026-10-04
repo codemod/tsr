@@ -19,15 +19,13 @@
 //! it anyway — not by claiming something unported, but by applying a rule
 //! incompletely.
 //!
-//! # `strictNullChecks` is assumed **on**
+//! # Optionality is added only with `strictNullChecks`
 //!
-//! `addOptionalityEx` is gated on it, and there is no compiler-options plumbing
-//! in the checker yet. Assuming it on matches [`crate::unions`], which made the
-//! same assumption for the same reason and counted the cost: 2,170 of 12,444
-//! corpus cases set it explicitly. **This is the assumption to revisit first if
-//! this rule starts producing wrong answers**, because with `strictNullChecks`
-//! off upstream adds nothing at all and every line this module changes would be
-//! wrong in the other direction.
+//! `addOptionalityEx` checks both the configured null-check mode and the written
+//! `?`. With null checks off it preserves the input identity, including ordinary
+//! nullable types and the distinct widening `undefined`. Calling `getOptionalType`
+//! in that mode can erase a widening identity or turn ordinary `null` into an
+//! error when the loose union constructor drops nullable constituents.
 //!
 //! # What is deliberately narrower than upstream
 //!
@@ -117,10 +115,14 @@ impl Checker<'_, '_> {
 
     /// Ported from `Checker.addOptionalityEx` (`checker.go:18633`).
     ///
-    /// The `strictNullChecks` half of upstream's guard is the assumption
-    /// recorded in the module docs; the `isOptional` half is real.
+    /// Loose mode preserves the supplied identity; only strict optional
+    /// declarations add a nullable constituent.
     fn add_optionality_ex(&mut self, ty: TypeId, is_property: bool, is_optional: bool) -> TypeId {
-        if is_optional { self.get_optional_type(ty, is_property) } else { ty }
+        if self.strict_null_checks && is_optional {
+            self.get_optional_type(ty, is_property)
+        } else {
+            ty
+        }
     }
 
     /// Ported from `Checker.getOptionalType` (`checker.go:18640`).
@@ -282,6 +284,49 @@ impl Checker<'_, '_> {
                 self.nodes.kind(declaration) == SyntaxKind::JSDocPropertyTag
             }
             _ => false,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{checker::Checker, types::TypeData};
+
+    #[test]
+    fn optionality_preserves_identity_unless_strict_and_optional() {
+        for strict in [false, true] {
+            let arena = tsr_core::Arena::new();
+            let parsed = tsr_parser::parse(&arena, "");
+            let bound = tsr_binder::bind(
+                &arena,
+                parsed.source_file,
+                &parsed.nodes,
+                tsr_binder::FileInfo { name: "test.ts", text: "" },
+            );
+            let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+            checker.set_strict_null_checks(strict);
+            let i = checker.intrinsics;
+            for input in
+                [i.undefined_widening, i.undefined, i.null, i.number, i.never, i.any, i.error]
+            {
+                assert_eq!(checker.add_optionality_ex(input, false, false), input);
+                if !strict {
+                    // Native addOptionalityEx returns the supplied identity;
+                    // neither nullable flags nor printed spelling can replace it.
+                    assert_eq!(checker.add_optionality_ex(input, false, true), input);
+                }
+            }
+            if strict {
+                for input in [i.null, i.number] {
+                    let optional = checker.add_optionality_ex(input, false, true);
+                    let TypeData::Union { types, .. } = &checker.store.get(optional).data else {
+                        panic!("strict optional nullable/numeric input must gain undefined");
+                    };
+                    assert_eq!(types.as_slice(), &[i.undefined, input]);
+                }
+                assert_eq!(checker.add_optionality_ex(i.undefined, false, true), i.undefined);
+                assert_eq!(checker.add_optionality_ex(i.never, false, true), i.undefined);
+            }
         }
     }
 }

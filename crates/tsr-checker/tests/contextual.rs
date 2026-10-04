@@ -1079,3 +1079,44 @@ fn a_non_callable_union_constituent_does_not_remove_the_callable_context() {
     let source = "const callback: ((value: number) => void) | undefined = item => item;";
     assert_eq!(type_of(source, "item"), "number");
 }
+
+#[test]
+fn optional_annotated_iife_parameters_respect_null_check_mode() {
+    let null = "((observed?: null) => observed)(null as null);";
+    let undefined = "((observed?: undefined) => observed)(undefined as undefined);";
+    let number = "((observed?: number) => observed)(101);";
+    for (strict, null_type, number_type) in
+        [(false, "null", "number"), (true, "null | undefined", "number | undefined")]
+    {
+        assert_eq!(type_of_with_null_checks(null, "observed", strict), null_type);
+        assert_eq!(type_of_with_null_checks(undefined, "observed", strict), "undefined");
+        assert_eq!(type_of_with_null_checks(number, "observed", strict), number_type);
+    }
+}
+
+#[test]
+fn required_provided_and_defaulted_iife_parameters_do_not_gain_optionality() {
+    for strict in [false, true] {
+        for source in [
+            "((observed: null) => observed)(null as null);",
+            "((observed: null = null as null) => observed)();",
+        ] {
+            assert_eq!(type_of_with_null_checks(source, "observed", strict), "null");
+        }
+        assert_eq!(
+            type_of_with_null_checks(
+                "((observed: undefined) => observed)(undefined as undefined);",
+                "observed",
+                strict,
+            ),
+            "undefined"
+        );
+        for source in [
+            "((observed) => observed)(101);",
+            "((observed = 10) => observed)();",
+            "((observed: number = 10) => observed)(undefined);",
+        ] {
+            assert_eq!(type_of_with_null_checks(source, "observed", strict), "number");
+        }
+    }
+}
