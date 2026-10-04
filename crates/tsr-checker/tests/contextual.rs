@@ -1120,3 +1120,113 @@ fn required_provided_and_defaulted_iife_parameters_do_not_gain_optionality() {
         }
     }
 }
+
+fn iife_parameter_ids(
+    source: &str,
+    name: &str,
+    strict: bool,
+) -> (tsr_checker::types::TypeId, tsr_checker::types::TypeId, tsr_checker::Intrinsics) {
+    let arena = Arena::new();
+    let parsed = tsr_parser::parse(&arena, source);
+    assert!(parsed.diagnostics.is_empty());
+    let bound = tsr_binder::bind(
+        &arena,
+        parsed.source_file,
+        &parsed.nodes,
+        tsr_binder::FileInfo { name: "test.ts", text: source },
+    );
+    let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+    checker.apply_compiler_options(&tsr_core::CompilerOptions {
+        strict: tsr_core::Tristate::False,
+        strict_null_checks: if strict {
+            tsr_core::Tristate::True
+        } else {
+            tsr_core::Tristate::False
+        },
+        ..Default::default()
+    });
+    for index in 0..parsed.nodes.len() {
+        let id = tsr_ast::NodeId::new(u32::try_from(index).unwrap());
+        if let Some(tsr_ast::Node::ParameterDeclaration(parameter)) = parsed.node_map.get(id)
+            && matches!(parameter.name, Some(tsr_ast::BindingName::Identifier(n)) if n.text == name)
+        {
+            let function = parsed.node_map.get(parsed.nodes.parent(id).unwrap()).unwrap();
+            let function_type =
+                checker.check_expression(tsr_ast::Expression::try_from(function).unwrap());
+            // Public signatures already carry declaration-widened parameter
+            // types. Raw helper identities are tested inside contextual.rs.
+            let signature_type = checker.signatures_of_type(function_type).unwrap()[0]
+                .parameters
+                .iter()
+                .find(|p| p.name == name)
+                .unwrap()
+                .r#type;
+            let symbol_type = checker.get_type_of_symbol(bound.symbol_of(id).unwrap());
+            return (signature_type, symbol_type, *checker.intrinsics());
+        }
+    }
+    panic!("parameter {name} not found");
+}
+
+#[test]
+fn omitted_iife_parameter_consumers_keep_their_null_mode_images() {
+    for strict in [false, true] {
+        for (source, name) in [
+            ("((observed) => 42)();", "observed"),
+            ("((observed?) => 42)();", "observed"),
+            ("((observed) => 42)(...([] as []));", "observed"),
+            ("((observed?) => 42)(...([] as []));", "observed"),
+            ("((first, observed?) => 42)(73);", "observed"),
+            ("((first, observed?) => 42)(...([73] as [number]));", "observed"),
+            ("(function(undefined) { return 42; })();", "undefined"),
+            ("(function(undefined?) { return 42; })(...([] as []));", "undefined"),
+        ] {
+            let (signature, parameter, i) = iife_parameter_ids(source, name, strict);
+            assert_eq!(signature, if strict { i.undefined } else { i.any }, "{source}");
+            assert_eq!(parameter, if strict { i.undefined } else { i.any });
+        }
+    }
+}
+
+#[test]
+fn provided_iife_identities_and_omitted_defaults_remain_separate_from_missing_arguments() {
+    for strict in [false, true] {
+        for source in [
+            "((observed) => observed)(undefined as undefined);",
+            "((observed?) => observed)(undefined as undefined);",
+            "((observed?) => observed)(...([undefined as undefined] as [undefined]));",
+            "((observed = 37) => observed)(undefined as undefined);",
+            // The synthetic global still supplies ordinary undefined. Its
+            // loose native widening identity is a separate, held prerequisite.
+            "((observed?) => observed)(undefined);",
+        ] {
+            let (signature, parameter, i) = iife_parameter_ids(source, "observed", strict);
+            // Native ordinary assertions stay undefined even loose. The
+            // current declaration consumer widens them to genuine any; this
+            // known residual must not be mistaken for a raw supplier result.
+            let expected = if strict { i.undefined } else { i.any };
+            assert_eq!(signature, expected, "strict={strict}: {source}");
+            assert_eq!(parameter, expected);
+        }
+        for (source, name) in [
+            ("((observed = 37) => observed)();", "observed"),
+            ("((observed = 37) => observed)(...([] as []));", "observed"),
+            ("(function(undefined) { return undefined; })(101);", "undefined"),
+            ("(function(undefined = 37) { return undefined; })();", "undefined"),
+        ] {
+            let (contextual, parameter, i) = iife_parameter_ids(source, name, strict);
+            assert_eq!(contextual, i.number, "strict={strict}: {source}");
+            assert_eq!(parameter, i.number);
+        }
+        // The raw contextual argument is number in either mode, but the
+        // optional public parameter also includes undefined in strict mode.
+        assert_eq!(
+            type_of_with_null_checks(
+                "(function(undefined?) { return undefined; })(...([101] as [number]));",
+                "undefined",
+                strict,
+            ),
+            if strict { "number | undefined" } else { "number" },
+        );
+    }
+}

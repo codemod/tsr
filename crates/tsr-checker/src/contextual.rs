@@ -272,7 +272,10 @@ impl<'a> Checker<'a, '_> {
                     Some(self.signature_rest_type_at_position(&signature, index))
                 } else {
                     self.signature_type_at_position(&signature, index).or_else(|| {
-                        parameters[index].initializer.is_none().then_some(self.intrinsics.undefined)
+                        parameters[index]
+                            .initializer
+                            .is_none()
+                            .then_some(self.intrinsics.undefined_widening)
                     })
                 }?;
                 return (contextual != self.intrinsics.error).then_some(contextual);
@@ -301,7 +304,7 @@ impl<'a> Checker<'a, '_> {
             if parameters[index].initializer.is_some() {
                 return None;
             }
-            return Some(self.intrinsics.undefined);
+            return Some(self.intrinsics.undefined_widening);
         }
         let parameters = self.contextualisable_parameters(function)?;
 
@@ -2590,6 +2593,7 @@ fn is_this_parameter(parameter: &ParameterDeclaration<'_>) -> bool {
 mod tests {
     use tsr_ast::{Node, NodeId};
 
+    use super::{BindingName, Checker};
     use crate::types::TypeData;
 
     fn field_context(source: &str) -> Option<String> {
@@ -2965,5 +2969,84 @@ mod tests {
                 assert_eq!(tuple_context(source, mode, warm, 0, None, (None, None)), None);
             }
         }
+    }
+
+    #[test]
+    fn omitted_iife_raw_contexts_distinguish_active_ordinary_and_absent_values() {
+        let mut mismatches = Vec::new();
+        for strict in [false, true] {
+            for (source, name, kind) in [
+                ("((observed) => 42)();", "observed", "active"),
+                ("((observed?) => 42)();", "observed", "active"),
+                ("((observed) => 42)(...([] as []));", "observed", "active"),
+                ("((observed?) => 42)(...([] as []));", "observed", "active"),
+                ("((first, observed?) => 42)(73);", "observed", "active"),
+                ("((first, observed?) => 42)(...([73] as [number]));", "observed", "active"),
+                ("(function(undefined) { return 42; })();", "undefined", "active"),
+                ("(function(undefined?) { return 42; })(...([] as []));", "undefined", "active"),
+                ("((observed) => observed)(undefined as undefined);", "observed", "ordinary"),
+                ("((observed?) => observed)(undefined as undefined);", "observed", "ordinary"),
+                (
+                    "((observed?) => observed)(...([undefined as undefined] as [undefined]));",
+                    "observed",
+                    "ordinary",
+                ),
+                ("((observed = 37) => observed)(undefined as undefined);", "observed", "ordinary"),
+                // Global reseeding remains held: the actual supplied argument
+                // is ordinary undefined, unlike native's loose global.
+                ("((observed?) => observed)(undefined);", "observed", "ordinary"),
+                ("((observed = 37) => observed)();", "observed", "absent"),
+                ("((observed = 37) => observed)(...([] as []));", "observed", "absent"),
+                ("(function(undefined = 37) { return undefined; })();", "undefined", "absent"),
+                ("(function(undefined) { return undefined; })(101);", "undefined", "number"),
+                (
+                    "(function(undefined?) { return undefined; })(...([101] as [number]));",
+                    "undefined",
+                    "number",
+                ),
+            ] {
+                let arena = tsr_core::Arena::new();
+                let parsed = tsr_parser::parse(&arena, source);
+                assert!(parsed.diagnostics.is_empty());
+                let bound = tsr_binder::bind(
+                    &arena,
+                    parsed.source_file,
+                    &parsed.nodes,
+                    tsr_binder::FileInfo { name: "test.ts", text: source },
+                );
+                let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+                checker.apply_compiler_options(&tsr_core::CompilerOptions {
+                    strict: tsr_core::Tristate::False,
+                    strict_null_checks: if strict {
+                        tsr_core::Tristate::True
+                    } else {
+                        tsr_core::Tristate::False
+                    },
+                    ..Default::default()
+                });
+                let i = *checker.intrinsics();
+                let expected = match kind {
+                    "active" => Some(i.undefined_widening),
+                    "ordinary" => Some(i.undefined),
+                    "number" => Some(i.number),
+                    "absent" => None,
+                    _ => unreachable!(),
+                };
+                let id = (0..parsed.nodes.len())
+                    .map(|index| tsr_ast::NodeId::new(u32::try_from(index).unwrap()))
+                    .find(|&id| matches!(parsed.node_map.get(id),
+                        Some(Node::ParameterDeclaration(parameter))
+                            if matches!(parameter.name, Some(BindingName::Identifier(n)) if n.text == name)))
+                    .unwrap();
+                let actual = checker.get_contextually_typed_parameter_type(id);
+                println!(
+                    "RAW_CONTEXT\tstrict={strict}\tkind={kind}\tname={name}\t{source:?}\tactual={actual:?}\texpected={expected:?}"
+                );
+                if actual != expected {
+                    mismatches.push((strict, source, actual, expected));
+                }
+            }
+        }
+        assert!(mismatches.is_empty(), "raw identity mismatches: {mismatches:?}");
     }
 }
