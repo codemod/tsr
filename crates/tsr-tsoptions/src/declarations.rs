@@ -57,6 +57,11 @@ pub struct OptionDeclaration {
     pub name: &'static str,
     /// The value shape it accepts.
     pub kind: OptionKind,
+    /// Minimum accepted command-line integer (JSON conversion is separate).
+    pub min_value: isize,
+    /// Preserve a native CLI integer when JSON's floating representation loses
+    /// precision. Absent means the regular numeric setter handles both paths.
+    pub apply_cli_integer: Option<fn(&mut CompilerOptions, isize)>,
     /// Whether the value is a path, and so is made absolute against the config's
     /// directory before it is stored (`CommandLineOption.IsFilePath`).
     pub is_file_path: bool,
@@ -99,6 +104,8 @@ impl OptionDeclaration {
     pub const DEFAULT: Self = Self {
         name: "",
         kind: OptionKind::Boolean,
+        min_value: 0,
+        apply_cli_integer: None,
         is_file_path: false,
         apply: |_, _| false,
         short_name: None,
@@ -909,7 +916,14 @@ pub static COMPILER_OPTIONS: &[OptionDeclaration] = &[
     OptionDeclaration {
         name: "singleThreaded",
         kind: OptionKind::Boolean,
-        apply: |options, value| tristate(options, value, |o| &mut o.single_threaded),
+        apply: |options, value| {
+            if matches!(value, ConfigValue::Null) {
+                options.single_threaded = Tristate::Unknown;
+                true
+            } else {
+                tristate(options, value, |o| &mut o.single_threaded)
+            }
+        },
         ..OptionDeclaration::DEFAULT
     },
     OptionDeclaration {
@@ -1208,11 +1222,17 @@ pub static COMPILER_OPTIONS: &[OptionDeclaration] = &[
     OptionDeclaration {
         name: "checkers",
         kind: OptionKind::Number,
+        min_value: 1,
+        apply_cli_integer: Some(|options, count| options.checkers = Some(count)),
         apply: |options, value| {
+            if matches!(value, ConfigValue::Null) {
+                options.checkers = None;
+                return true;
+            }
             let ConfigValue::Number(count) = value else { return false };
             #[allow(clippy::cast_possible_truncation)]
             {
-                options.checkers = Some(*count as i32);
+                options.checkers = Some(*count as isize);
             }
             true
         },

@@ -465,14 +465,21 @@ intervals range 0.569–0.706 s. RSS ranges overlap. None of these counts is a
 per-checker byte bound, and builds/tests were serial outside measurements;
 other agents' host activity was not controlled.
 
-The config transport control is deliberately **not native-equivalent**:
-a base config with `checkers: 8, singleThreaded: true` and an own config with
-`2, false` yields native `2, false`, but TSR retains `8, true` and selects one.
-`tsr-1yb.3.1.1.2` owns this missing field merge and the separate numeric CLI
-carrier audit, and now directly blocks production `.6`. The standalone probe's
-positive-i32 override is not the native numeric CLI contract: native accepts
-`2147483648` and caps the pool at 256. The portable success cases and count
-fixture do not turn this failing transport case into a passing readiness gate.
+At the measured source above, the config transport control was
+**not native-equivalent**: a base config with `checkers: 8, singleThreaded: true`
+and an own config with `2, false` yielded native `2, false`, while TSR retained
+`8, true` and selected one. This historical failure remains in the measurement
+artifact.
+
+The follow-up `tsr-1yb.3.1.1.2` corrects config/CLI transport: own and CLI worker
+values replace inherited values, and explicit null clears them. Compiler CLI
+counts use native machine-width integer parsing and the minimum of one, without
+rounding large integers through JSON's floating representation. The standalone
+probe still accepts only positive-i32 positional overrides; wider parsed project
+counts use the native full-file/256 pool clamp. See the
+[transport contract and reproduction](worker-option-transport.md) and its
+[public controls](worker-option-transport-controls.py). This prerequisite does
+not establish memory admission or enable production checker scheduling.
 
 Reproduce the count matrix by overlaying
 [the native Go helper](worker-selection-native_test.go) as a compiler-package

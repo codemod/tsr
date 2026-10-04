@@ -524,6 +524,7 @@ fn copy_option(into: &mut CompilerOptions, from: &CompilerOptions, name: &str) {
         "traceResolution" => trace_resolution,
         "extendedDiagnostics" => extended_diagnostics,
         "singleThreaded" => single_threaded,
+        "checkers" => checkers,
         "deduplicatePackages" => deduplicate_packages,
     }
 }
@@ -672,5 +673,45 @@ mod directive_tests {
         let (status, output) = compile("import value from './empty.js'; value;");
         assert_eq!(status, ExitStatus::DiagnosticsPresentOutputsSkipped);
         assert!(output.contains("TS7016"), "{output}");
+    }
+    #[test]
+    fn command_line_worker_overrides_replace_or_clear_project_values() {
+        let fs = tsr_vfs::InMemoryFileSystem::new([], [], true);
+        for (args, count, single) in [
+            (
+                vec!["--checkers", "2", "--singleThreaded", "false"],
+                Some(2),
+                tsr_core::Tristate::False,
+            ),
+            (vec!["--checkers", "null"], None, tsr_core::Tristate::True),
+            (vec!["--singleThreaded", "false"], Some(8), tsr_core::Tristate::False),
+            (vec![], Some(8), tsr_core::Tristate::True),
+            (
+                vec![
+                    "--checkers",
+                    "2",
+                    "--checkers",
+                    "null",
+                    "--singleThreaded",
+                    "true",
+                    "--singleThreaded",
+                    "null",
+                ],
+                None,
+                tsr_core::Tristate::Unknown,
+            ),
+        ] {
+            let args: Vec<_> = args.into_iter().map(str::to_string).collect();
+            let cli = tsr_tsoptions::command_line::parse_command_line(&args, &fs, "/");
+            assert!(cli.errors.is_empty());
+            let mut options = tsr_core::CompilerOptions {
+                checkers: Some(8),
+                single_threaded: tsr_core::Tristate::True,
+                ..Default::default()
+            };
+            super::apply_command_line_over_config(&mut options, &cli);
+            assert_eq!(options.checkers, count);
+            assert_eq!(options.single_threaded, single);
+        }
     }
 }

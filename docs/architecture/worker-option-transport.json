@@ -1,0 +1,1066 @@
+{
+  "task": "tsr-1yb.3.1.1.2",
+  "kind": "correctness prerequisite; no speed claim",
+  "isolated_stage_base": "45053bc09bde8f1ecf61a447061968aae629467b",
+  "final_integration_base": "230403260a416fc5e38cac3073ef920edbc4c108",
+  "production_cli_parallel": false,
+  "native_target_verified": false,
+  "final_owned_code_sha256": {
+    "crates/tsr-core/src/options.rs": "a330055b920581bb17d58a299e4daa792be6c4beae20649a5dfa28bdc075b1df",
+    "crates/tsr-tsoptions/src/command_line.rs": "28ee27e2fe801536a5c9189989ddcbe181a0a655341685b292c29070deb42e1b",
+    "crates/tsr-tsoptions/src/declarations.rs": "e52de92ce060cf6d2245e1cf52d055435d9c64d5086d7de641505d44c230f40e",
+    "crates/tsr-tsoptions/src/lib.rs": "62e26686a1f7df0ada8c80d2755091961fe370a6703ab6f16b3b4c5ae9ab66cc",
+    "crates/tsr-execute/src/compile.rs": "6e0cfd5c110ba27f13f9dbfd03645a20a6399c6dfe6618f84d7e896eece42af0",
+    "crates/tsr-execute/examples/checker_workers/selection.rs": "15f5d72c4d87608068b6acfc4fca7671926592ea327c8fc08697c6381064fc69",
+    "crates/tsr-execute/examples/checker_workers/native-selection-cases.rs": "aa92b2623bcff850f2053825fa542ca8d45bd4e17079e3ec001c66f232d2269c"
+  },
+  "final_binary_sha256": {
+    "tsr": "e401c99a1f3a3a18fe839690100d239098da8ede558914205c1ec63c8abd7589",
+    "examples/checker_workers": "7b81717ded8a3355d8aaee502331badeff51400ae42743d2db5bcfc59bdfb4fb",
+    "examples/verdictdump": "4d3a0c2e1c17810f2f33e4eacf0107d4f532828eb835421627cc68c87df5b715",
+    "examples/diagverdictdump": "80db077688916e37edd7042e4fc95ea71e2d928a86dbc14fc4b6462fcb236e82"
+  },
+  "native_source_audit": {
+    "native_source": "5b1047d10d32e7d5b446be4de56b126ff42f82bb",
+    "original_go_and_module_files_verified": 4990,
+    "restored_originals_via_overlay": [
+      "internal/checker/checker.go",
+      "cmd/tsgo/main.go"
+    ],
+    "mismatches": [],
+    "test_scope": "isolated compiler oracle only; unrelated compiler tests blanked by overlay"
+  },
+  "native_numeric_controls": [
+    {
+      "input": "0",
+      "cli": false,
+      "checkers": 0,
+      "errors": []
+    },
+    {
+      "input": "0",
+      "cli": true,
+      "checkers": null,
+      "errors": [
+        {
+          "code": 5002,
+          "args": [
+            "checkers",
+            "1"
+          ]
+        }
+      ]
+    },
+    {
+      "input": "-1",
+      "cli": false,
+      "checkers": -1,
+      "errors": []
+    },
+    {
+      "input": "-1",
+      "cli": true,
+      "checkers": null,
+      "errors": [
+        {
+          "code": 5002,
+          "args": [
+            "checkers",
+            "1"
+          ]
+        }
+      ]
+    },
+    {
+      "input": "1.5",
+      "cli": false,
+      "checkers": 1,
+      "errors": []
+    },
+    {
+      "input": "1.5",
+      "cli": true,
+      "checkers": null,
+      "errors": [
+        {
+          "code": 6044,
+          "args": [
+            "checkers",
+            "number"
+          ]
+        }
+      ]
+    },
+    {
+      "input": "1",
+      "cli": false,
+      "checkers": 1,
+      "errors": []
+    },
+    {
+      "input": "1",
+      "cli": true,
+      "checkers": 1,
+      "errors": []
+    },
+    {
+      "input": "2",
+      "cli": false,
+      "checkers": 2,
+      "errors": []
+    },
+    {
+      "input": "2",
+      "cli": true,
+      "checkers": 2,
+      "errors": []
+    },
+    {
+      "input": "2147483648",
+      "cli": false,
+      "checkers": 2147483648,
+      "errors": []
+    },
+    {
+      "input": "2147483648",
+      "cli": true,
+      "checkers": 2147483648,
+      "errors": []
+    },
+    {
+      "input": "9007199254740993",
+      "cli": false,
+      "checkers": 9007199254740992,
+      "errors": []
+    },
+    {
+      "input": "9007199254740993",
+      "cli": true,
+      "checkers": 9007199254740993,
+      "errors": []
+    },
+    {
+      "input": "9223372036854775807",
+      "cli": false,
+      "checkers": 9223372036854775807,
+      "errors": []
+    },
+    {
+      "input": "9223372036854775807",
+      "cli": true,
+      "checkers": 9223372036854775807,
+      "errors": []
+    },
+    {
+      "input": "9223372036854775808",
+      "cli": false,
+      "checkers": 9223372036854775807,
+      "errors": []
+    },
+    {
+      "input": "9223372036854775808",
+      "cli": true,
+      "checkers": null,
+      "errors": [
+        {
+          "code": 6044,
+          "args": [
+            "checkers",
+            "number"
+          ]
+        }
+      ]
+    },
+    {
+      "input": "1e300",
+      "cli": false,
+      "checkers": 9223372036854775807,
+      "errors": []
+    },
+    {
+      "input": "1e300",
+      "cli": true,
+      "checkers": null,
+      "errors": [
+        {
+          "code": 6044,
+          "args": [
+            "checkers",
+            "number"
+          ]
+        }
+      ]
+    },
+    {
+      "input": "null",
+      "cli": false,
+      "checkers": null,
+      "errors": []
+    },
+    {
+      "input": "null",
+      "cli": true,
+      "checkers": null,
+      "errors": []
+    },
+    {
+      "input": "\"many\"",
+      "cli": false,
+      "checkers": null,
+      "errors": [
+        {
+          "code": 5024,
+          "args": [
+            "checkers",
+            "number"
+          ]
+        }
+      ]
+    },
+    {
+      "input": "\"many\"",
+      "cli": true,
+      "checkers": null,
+      "errors": [
+        {
+          "code": 6044,
+          "args": [
+            "checkers",
+            "number"
+          ]
+        }
+      ]
+    }
+  ],
+  "native_merge_and_pool_controls": [
+    {
+      "case": "absent",
+      "checkers": null,
+      "single": 0,
+      "files": 0,
+      "workers": 1,
+      "errors": []
+    },
+    {
+      "case": "absent",
+      "checkers": null,
+      "single": 0,
+      "files": 1,
+      "workers": 1,
+      "errors": []
+    },
+    {
+      "case": "absent",
+      "checkers": null,
+      "single": 0,
+      "files": 2,
+      "workers": 2,
+      "errors": []
+    },
+    {
+      "case": "absent",
+      "checkers": null,
+      "single": 0,
+      "files": 17,
+      "workers": 4,
+      "errors": []
+    },
+    {
+      "case": "root",
+      "checkers": 8,
+      "single": 2,
+      "files": 0,
+      "workers": 1,
+      "errors": []
+    },
+    {
+      "case": "root",
+      "checkers": 8,
+      "single": 2,
+      "files": 1,
+      "workers": 1,
+      "errors": []
+    },
+    {
+      "case": "root",
+      "checkers": 8,
+      "single": 2,
+      "files": 2,
+      "workers": 1,
+      "errors": []
+    },
+    {
+      "case": "root",
+      "checkers": 8,
+      "single": 2,
+      "files": 17,
+      "workers": 1,
+      "errors": []
+    },
+    {
+      "case": "inherited",
+      "checkers": 8,
+      "single": 2,
+      "files": 0,
+      "workers": 1,
+      "errors": []
+    },
+    {
+      "case": "inherited",
+      "checkers": 8,
+      "single": 2,
+      "files": 1,
+      "workers": 1,
+      "errors": []
+    },
+    {
+      "case": "inherited",
+      "checkers": 8,
+      "single": 2,
+      "files": 2,
+      "workers": 1,
+      "errors": []
+    },
+    {
+      "case": "inherited",
+      "checkers": 8,
+      "single": 2,
+      "files": 17,
+      "workers": 1,
+      "errors": []
+    },
+    {
+      "case": "own",
+      "checkers": 2,
+      "single": 1,
+      "files": 0,
+      "workers": 1,
+      "errors": []
+    },
+    {
+      "case": "own",
+      "checkers": 2,
+      "single": 1,
+      "files": 1,
+      "workers": 1,
+      "errors": []
+    },
+    {
+      "case": "own",
+      "checkers": 2,
+      "single": 1,
+      "files": 2,
+      "workers": 2,
+      "errors": []
+    },
+    {
+      "case": "own",
+      "checkers": 2,
+      "single": 1,
+      "files": 17,
+      "workers": 2,
+      "errors": []
+    },
+    {
+      "case": "own-null",
+      "checkers": null,
+      "single": 0,
+      "files": 0,
+      "workers": 1,
+      "errors": []
+    },
+    {
+      "case": "own-null",
+      "checkers": null,
+      "single": 0,
+      "files": 1,
+      "workers": 1,
+      "errors": []
+    },
+    {
+      "case": "own-null",
+      "checkers": null,
+      "single": 0,
+      "files": 2,
+      "workers": 2,
+      "errors": []
+    },
+    {
+      "case": "own-null",
+      "checkers": null,
+      "single": 0,
+      "files": 17,
+      "workers": 4,
+      "errors": []
+    },
+    {
+      "case": "cli-two-false",
+      "checkers": 2,
+      "single": 1,
+      "files": 0,
+      "workers": 1,
+      "errors": []
+    },
+    {
+      "case": "cli-two-false",
+      "checkers": 2,
+      "single": 1,
+      "files": 1,
+      "workers": 1,
+      "errors": []
+    },
+    {
+      "case": "cli-two-false",
+      "checkers": 2,
+      "single": 1,
+      "files": 2,
+      "workers": 2,
+      "errors": []
+    },
+    {
+      "case": "cli-two-false",
+      "checkers": 2,
+      "single": 1,
+      "files": 17,
+      "workers": 2,
+      "errors": []
+    },
+    {
+      "case": "cli-null",
+      "checkers": null,
+      "single": 2,
+      "files": 0,
+      "workers": 1,
+      "errors": []
+    },
+    {
+      "case": "cli-null",
+      "checkers": null,
+      "single": 2,
+      "files": 1,
+      "workers": 1,
+      "errors": []
+    },
+    {
+      "case": "cli-null",
+      "checkers": null,
+      "single": 2,
+      "files": 2,
+      "workers": 1,
+      "errors": []
+    },
+    {
+      "case": "cli-null",
+      "checkers": null,
+      "single": 2,
+      "files": 17,
+      "workers": 1,
+      "errors": []
+    },
+    {
+      "case": "cli-false",
+      "checkers": 8,
+      "single": 1,
+      "files": 0,
+      "workers": 1,
+      "errors": []
+    },
+    {
+      "case": "cli-false",
+      "checkers": 8,
+      "single": 1,
+      "files": 1,
+      "workers": 1,
+      "errors": []
+    },
+    {
+      "case": "cli-false",
+      "checkers": 8,
+      "single": 1,
+      "files": 2,
+      "workers": 2,
+      "errors": []
+    },
+    {
+      "case": "cli-false",
+      "checkers": 8,
+      "single": 1,
+      "files": 17,
+      "workers": 8,
+      "errors": []
+    },
+    {
+      "case": "cli-repeated-null",
+      "checkers": null,
+      "single": 0,
+      "files": 0,
+      "workers": 1,
+      "errors": []
+    },
+    {
+      "case": "cli-repeated-null",
+      "checkers": null,
+      "single": 0,
+      "files": 1,
+      "workers": 1,
+      "errors": []
+    },
+    {
+      "case": "cli-repeated-null",
+      "checkers": null,
+      "single": 0,
+      "files": 2,
+      "workers": 2,
+      "errors": []
+    },
+    {
+      "case": "cli-repeated-null",
+      "checkers": null,
+      "single": 0,
+      "files": 17,
+      "workers": 4,
+      "errors": []
+    },
+    {
+      "case": "array-last",
+      "checkers": 4,
+      "single": 1,
+      "files": 0,
+      "workers": 1,
+      "errors": []
+    },
+    {
+      "case": "array-last",
+      "checkers": 4,
+      "single": 1,
+      "files": 1,
+      "workers": 1,
+      "errors": []
+    },
+    {
+      "case": "array-last",
+      "checkers": 4,
+      "single": 1,
+      "files": 2,
+      "workers": 2,
+      "errors": []
+    },
+    {
+      "case": "array-last",
+      "checkers": 4,
+      "single": 1,
+      "files": 17,
+      "workers": 4,
+      "errors": []
+    },
+    {
+      "case": "array-own",
+      "checkers": 2,
+      "single": 2,
+      "files": 0,
+      "workers": 1,
+      "errors": []
+    },
+    {
+      "case": "array-own",
+      "checkers": 2,
+      "single": 2,
+      "files": 1,
+      "workers": 1,
+      "errors": []
+    },
+    {
+      "case": "array-own",
+      "checkers": 2,
+      "single": 2,
+      "files": 2,
+      "workers": 1,
+      "errors": []
+    },
+    {
+      "case": "array-own",
+      "checkers": 2,
+      "single": 2,
+      "files": 17,
+      "workers": 1,
+      "errors": []
+    },
+    {
+      "case": "array-null",
+      "checkers": null,
+      "single": 0,
+      "files": 0,
+      "workers": 1,
+      "errors": []
+    },
+    {
+      "case": "array-null",
+      "checkers": null,
+      "single": 0,
+      "files": 1,
+      "workers": 1,
+      "errors": []
+    },
+    {
+      "case": "array-null",
+      "checkers": null,
+      "single": 0,
+      "files": 2,
+      "workers": 2,
+      "errors": []
+    },
+    {
+      "case": "array-null",
+      "checkers": null,
+      "single": 0,
+      "files": 17,
+      "workers": 4,
+      "errors": []
+    },
+    {
+      "case": "array-derived-clear",
+      "checkers": 8,
+      "single": 2,
+      "files": 0,
+      "workers": 1,
+      "errors": []
+    },
+    {
+      "case": "array-derived-clear",
+      "checkers": 8,
+      "single": 2,
+      "files": 1,
+      "workers": 1,
+      "errors": []
+    },
+    {
+      "case": "array-derived-clear",
+      "checkers": 8,
+      "single": 2,
+      "files": 2,
+      "workers": 1,
+      "errors": []
+    },
+    {
+      "case": "array-derived-clear",
+      "checkers": 8,
+      "single": 2,
+      "files": 17,
+      "workers": 1,
+      "errors": []
+    }
+  ],
+  "final_public_controls": {
+    "binary_sha256": {
+      "normal": "e401c99a1f3a3a18fe839690100d239098da8ede558914205c1ec63c8abd7589",
+      "probe": "7b81717ded8a3355d8aaee502331badeff51400ae42743d2db5bcfc59bdfb4fb",
+      "tsgo": "6340b230f887095fb7c82fedb41eecadd7dc49e4baa65a05ef4abb8ab4b74bc4"
+    },
+    "production_cli_parallel": false,
+    "native_target_verified": false,
+    "config_controls": [
+      {
+        "case": "absent",
+        "policy": {
+          "requested": "default",
+          "effective": 4,
+          "single": false
+        },
+        "loaded_count": 59,
+        "checked_count": 2,
+        "diagnostics": {
+          "count": 1,
+          "fingerprint": "3bccf9d372222ddeb84118b651af077277999e411857b32fe5ef75833e7d1db5",
+          "entries": [
+            "main.ts(2,7): error TS2322: Type 'string' is not assignable to type 'number'."
+          ]
+        },
+        "input_fingerprint": "a886ea718d48f10ec7e390c1049b7eaa97070c81b50b4090acfcdb2ff2c5b75a",
+        "config_sha256": "d0728297846edae9c4071be81533f1cc63a605ec271b7a4d9899d442cb9388b1"
+      },
+      {
+        "case": "root",
+        "policy": {
+          "requested": "8",
+          "effective": 1,
+          "single": true
+        },
+        "loaded_count": 59,
+        "checked_count": 2,
+        "diagnostics": {
+          "count": 1,
+          "fingerprint": "3bccf9d372222ddeb84118b651af077277999e411857b32fe5ef75833e7d1db5",
+          "entries": [
+            "main.ts(2,7): error TS2322: Type 'string' is not assignable to type 'number'."
+          ]
+        },
+        "input_fingerprint": "ef6acc9828aa538ca168d56dc2970f624a238833072bd4d33972b84b87d9e19b",
+        "config_sha256": "604a7306876dadd7685db4818535ab5340684f7f5c7f49787481c48658c45d06"
+      },
+      {
+        "case": "inherited",
+        "policy": {
+          "requested": "8",
+          "effective": 1,
+          "single": true
+        },
+        "loaded_count": 59,
+        "checked_count": 2,
+        "diagnostics": {
+          "count": 1,
+          "fingerprint": "3bccf9d372222ddeb84118b651af077277999e411857b32fe5ef75833e7d1db5",
+          "entries": [
+            "main.ts(2,7): error TS2322: Type 'string' is not assignable to type 'number'."
+          ]
+        },
+        "input_fingerprint": "5efdb413cbc948533302f8a821d9fc6d4376af05a2efd7d58f8b717d15ac58cb",
+        "config_sha256": "0060e7c7f8bf901219acef952806579922ed22e3c984fc1e9bc3883a2006e94d"
+      },
+      {
+        "case": "own",
+        "policy": {
+          "requested": "2",
+          "effective": 2,
+          "single": false
+        },
+        "loaded_count": 59,
+        "checked_count": 2,
+        "diagnostics": {
+          "count": 1,
+          "fingerprint": "3bccf9d372222ddeb84118b651af077277999e411857b32fe5ef75833e7d1db5",
+          "entries": [
+            "main.ts(2,7): error TS2322: Type 'string' is not assignable to type 'number'."
+          ]
+        },
+        "input_fingerprint": "2ca1c10a9596720b5fbf9eec1623cebd3f1c24148d3c956855edebb76b7fcadb",
+        "config_sha256": "e240f34dee65a7c559b9b48e86e138b51a90f59017853fa87d6bf34d3e4fff91"
+      },
+      {
+        "case": "own-null",
+        "policy": {
+          "requested": "default",
+          "effective": 4,
+          "single": false
+        },
+        "loaded_count": 59,
+        "checked_count": 2,
+        "diagnostics": {
+          "count": 1,
+          "fingerprint": "3bccf9d372222ddeb84118b651af077277999e411857b32fe5ef75833e7d1db5",
+          "entries": [
+            "main.ts(2,7): error TS2322: Type 'string' is not assignable to type 'number'."
+          ]
+        },
+        "input_fingerprint": "13273def0f3151649d230d8e6d61c652aad0575b8d7a161093e1300eeee8fef4",
+        "config_sha256": "26e155dd88feb017f74991b8770156258e937d313a3cc586990ba5aa866c4d05"
+      },
+      {
+        "case": "tiny",
+        "policy": {
+          "requested": "8",
+          "effective": 1,
+          "single": false
+        },
+        "loaded_count": 1,
+        "checked_count": 1,
+        "diagnostics": {
+          "count": 0,
+          "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "entries": []
+        },
+        "input_fingerprint": "8bd51420d3fb1cf69afeb7df12c5549b92d4a843f50ff4cc3071dca2de927bfd",
+        "config_sha256": "80834b37a1f1462eb5ead8342e040715ca4e70a056cc07f9fbcac2e01e4c82d6"
+      },
+      {
+        "case": "array-last",
+        "policy": {
+          "requested": "4",
+          "effective": 4,
+          "single": false
+        },
+        "loaded_count": 59,
+        "checked_count": 2,
+        "diagnostics": {
+          "count": 1,
+          "fingerprint": "3bccf9d372222ddeb84118b651af077277999e411857b32fe5ef75833e7d1db5",
+          "entries": [
+            "main.ts(2,7): error TS2322: Type 'string' is not assignable to type 'number'."
+          ]
+        },
+        "input_fingerprint": "a2e6b06f1db19c7952dc59f2fdaca5c750398c0f568ec3ac30d39890b370faeb",
+        "config_sha256": "21aa5f9d9221bd0711c4c6351015c087f5b81c64b2c22a27c67bd386c8856144"
+      },
+      {
+        "case": "array-own",
+        "policy": {
+          "requested": "2",
+          "effective": 1,
+          "single": true
+        },
+        "loaded_count": 59,
+        "checked_count": 2,
+        "diagnostics": {
+          "count": 1,
+          "fingerprint": "3bccf9d372222ddeb84118b651af077277999e411857b32fe5ef75833e7d1db5",
+          "entries": [
+            "main.ts(2,7): error TS2322: Type 'string' is not assignable to type 'number'."
+          ]
+        },
+        "input_fingerprint": "bbb4196f62ac4214eb14391fe01c0b0dd200278935348a42081620e17fd867a6",
+        "config_sha256": "0f8eb39c953c5626eb9dea74c791695d12017e90c7efc191d26bfaaf40d6c13a"
+      },
+      {
+        "case": "array-null",
+        "policy": {
+          "requested": "default",
+          "effective": 4,
+          "single": false
+        },
+        "loaded_count": 59,
+        "checked_count": 2,
+        "diagnostics": {
+          "count": 1,
+          "fingerprint": "3bccf9d372222ddeb84118b651af077277999e411857b32fe5ef75833e7d1db5",
+          "entries": [
+            "main.ts(2,7): error TS2322: Type 'string' is not assignable to type 'number'."
+          ]
+        },
+        "input_fingerprint": "27f5e3fbc94cb92b83b0871880a5cbae2a53fd5b64ebd2b9b0429d34a3265bf0",
+        "config_sha256": "ab0ed74fd1a80fb5ee74bb6da02dd0b6d8e17c4acf293c4de4ff55e00f1cb480"
+      },
+      {
+        "case": "array-derived-clear",
+        "policy": {
+          "requested": "8",
+          "effective": 1,
+          "single": true
+        },
+        "loaded_count": 59,
+        "checked_count": 2,
+        "diagnostics": {
+          "count": 1,
+          "fingerprint": "3bccf9d372222ddeb84118b651af077277999e411857b32fe5ef75833e7d1db5",
+          "entries": [
+            "main.ts(2,7): error TS2322: Type 'string' is not assignable to type 'number'."
+          ]
+        },
+        "input_fingerprint": "5b3881b4b5c812e9d3ab96fa4de2e63e98d9084413ad2aa7c734cdbec7b139a5",
+        "config_sha256": "a18cd243c86ac163c261ac62016540dcaf38d0fd0d97e270a24b2349f535b3d0"
+      }
+    ],
+    "cli_controls": [
+      {
+        "value": "0",
+        "exit_code": 1,
+        "diagnostics": {
+          "count": 1,
+          "fingerprint": "4c0d7bca5cee224ad3a95f9e4c9115a3b109d3295b00ab400cafb23865f2fcda",
+          "entries": [
+            "error TS5002: Option 'checkers' requires value to be greater than '1'."
+          ]
+        },
+        "complete_stdout_match": true,
+        "known_footer_issue": null,
+        "stdout_sha256": [
+          "93eaf43120a8b2da46c9fee40243ead488f77270972a498482db48640129c82e",
+          "93eaf43120a8b2da46c9fee40243ead488f77270972a498482db48640129c82e"
+        ]
+      },
+      {
+        "value": "-1",
+        "exit_code": 1,
+        "diagnostics": {
+          "count": 1,
+          "fingerprint": "4c0d7bca5cee224ad3a95f9e4c9115a3b109d3295b00ab400cafb23865f2fcda",
+          "entries": [
+            "error TS5002: Option 'checkers' requires value to be greater than '1'."
+          ]
+        },
+        "complete_stdout_match": true,
+        "known_footer_issue": null,
+        "stdout_sha256": [
+          "93eaf43120a8b2da46c9fee40243ead488f77270972a498482db48640129c82e",
+          "93eaf43120a8b2da46c9fee40243ead488f77270972a498482db48640129c82e"
+        ]
+      },
+      {
+        "value": "1.5",
+        "exit_code": 1,
+        "diagnostics": {
+          "count": 1,
+          "fingerprint": "f0f9daa47109d53ba732bbb770b624d9b17de2a319daa72260b25f62e5605635",
+          "entries": [
+            "error TS6044: Compiler option 'checkers' expects an argument."
+          ]
+        },
+        "complete_stdout_match": true,
+        "known_footer_issue": null,
+        "stdout_sha256": [
+          "30cdb23cad2dfe4c4b4dada961a61fd41e2267febb0a67daca07487b3b944234",
+          "30cdb23cad2dfe4c4b4dada961a61fd41e2267febb0a67daca07487b3b944234"
+        ]
+      },
+      {
+        "value": "many",
+        "exit_code": 1,
+        "diagnostics": {
+          "count": 1,
+          "fingerprint": "f0f9daa47109d53ba732bbb770b624d9b17de2a319daa72260b25f62e5605635",
+          "entries": [
+            "error TS6044: Compiler option 'checkers' expects an argument."
+          ]
+        },
+        "complete_stdout_match": true,
+        "known_footer_issue": null,
+        "stdout_sha256": [
+          "30cdb23cad2dfe4c4b4dada961a61fd41e2267febb0a67daca07487b3b944234",
+          "30cdb23cad2dfe4c4b4dada961a61fd41e2267febb0a67daca07487b3b944234"
+        ]
+      },
+      {
+        "value": "2",
+        "exit_code": 1,
+        "diagnostics": {
+          "count": 1,
+          "fingerprint": "3bccf9d372222ddeb84118b651af077277999e411857b32fe5ef75833e7d1db5",
+          "entries": [
+            "main.ts(2,7): error TS2322: Type 'string' is not assignable to type 'number'."
+          ]
+        },
+        "complete_stdout_match": false,
+        "known_footer_issue": "tsr-6.60",
+        "stdout_sha256": [
+          "ca3ce2abad5bb7f61cdc90902f1cb18e5b2dfc339bb846668ec604771e514bcb",
+          "97255daa7a5d950aa8edca89871d3e994657bbfcf82e4ca3c21c5ed1eb0901fb"
+        ]
+      },
+      {
+        "value": "2147483648",
+        "exit_code": 1,
+        "diagnostics": {
+          "count": 1,
+          "fingerprint": "3bccf9d372222ddeb84118b651af077277999e411857b32fe5ef75833e7d1db5",
+          "entries": [
+            "main.ts(2,7): error TS2322: Type 'string' is not assignable to type 'number'."
+          ]
+        },
+        "complete_stdout_match": false,
+        "known_footer_issue": "tsr-6.60",
+        "stdout_sha256": [
+          "ca3ce2abad5bb7f61cdc90902f1cb18e5b2dfc339bb846668ec604771e514bcb",
+          "97255daa7a5d950aa8edca89871d3e994657bbfcf82e4ca3c21c5ed1eb0901fb"
+        ]
+      },
+      {
+        "value": "9007199254740993",
+        "exit_code": 1,
+        "diagnostics": {
+          "count": 1,
+          "fingerprint": "3bccf9d372222ddeb84118b651af077277999e411857b32fe5ef75833e7d1db5",
+          "entries": [
+            "main.ts(2,7): error TS2322: Type 'string' is not assignable to type 'number'."
+          ]
+        },
+        "complete_stdout_match": false,
+        "known_footer_issue": "tsr-6.60",
+        "stdout_sha256": [
+          "ca3ce2abad5bb7f61cdc90902f1cb18e5b2dfc339bb846668ec604771e514bcb",
+          "97255daa7a5d950aa8edca89871d3e994657bbfcf82e4ca3c21c5ed1eb0901fb"
+        ]
+      },
+      {
+        "value": "null",
+        "exit_code": 1,
+        "diagnostics": {
+          "count": 1,
+          "fingerprint": "3bccf9d372222ddeb84118b651af077277999e411857b32fe5ef75833e7d1db5",
+          "entries": [
+            "main.ts(2,7): error TS2322: Type 'string' is not assignable to type 'number'."
+          ]
+        },
+        "complete_stdout_match": false,
+        "known_footer_issue": "tsr-6.60",
+        "stdout_sha256": [
+          "ca3ce2abad5bb7f61cdc90902f1cb18e5b2dfc339bb846668ec604771e514bcb",
+          "97255daa7a5d950aa8edca89871d3e994657bbfcf82e4ca3c21c5ed1eb0901fb"
+        ]
+      }
+    ],
+    "complete": true
+  },
+  "quality_gates": {
+    "workspace_tests": {
+      "result_blocks": 246,
+      "passed": 2845,
+      "failed": 0,
+      "ignored": 6
+    },
+    "strict_workspace_all_target_clippy": true,
+    "formatting": true
+  },
+  "known_limits": [
+    "Native extreme JSON float-to-int observations are darwin/arm64 only.",
+    "The native pool controls count slots without constructing checker state or binding the synthetic file arrays.",
+    "tsr-6.60: valid CLI controls pin an existing extra colored TSR summary; complete diagnostics remain enabled and match native.",
+    "tsr-6.61: ordinary compiler-option extends-array/selection merging remains separately open.",
+    "No per-checker byte bound, production parallelism or comparable TSR/tsgo <=0.50 acceptance is established."
+  ],
+  "validation_complete": true,
+  "corpus": {
+    "fresh_baseline_source": "45053bc09bde8f1ecf61a447061968aae629467b",
+    "final_main_base": "23040326",
+    "tests": "Unfiltered one-Rayon-thread complete assertion rows and eligible diagnostic tuples; duplicate occurrences retained",
+    "scope_limit": "Diagnostic tuples are file/line/column/code, not formatted messages; varied/known-divergence cases are excluded. Input hash boundary began after baseline and before candidate.",
+    "suites": {
+      "types": {
+        "rows": 474251,
+        "baseline_sha256": "9530dbdea8faa834cccd1f0a3dd93024927a5a2fa5ad20c41a8fcd835359348b",
+        "final_sha256": "9530dbdea8faa834cccd1f0a3dd93024927a5a2fa5ad20c41a8fcd835359348b",
+        "byte_identical": true,
+        "verdicts": {
+          "RIGHT": 459974,
+          "WRONG": 12183,
+          "GAP": 2094
+        },
+        "prior_RIGHT_losses": 0
+      },
+      "diagnostics": {
+        "rows": 10570,
+        "baseline_sha256": "ad15bd37d9b4f7b2baf1fef6801e4fe70f4b8fca0d9bfb6c34c9401782cebe9b",
+        "final_sha256": "ad15bd37d9b4f7b2baf1fef6801e4fe70f4b8fca0d9bfb6c34c9401782cebe9b",
+        "byte_identical": true,
+        "verdicts": {
+          "EMPTY_RIGHT": 4804,
+          "RIGHT": 2856,
+          "WRONG": 2632,
+          "EMPTY_WRONG": 278
+        },
+        "prior_RIGHT_losses": 0
+      }
+    },
+    "input_boundary": {
+      "files": 57236,
+      "fingerprint": "a9009143c0fadecfe6d9b9b7e1f62756059335ce1628c5e880e7b98482b165a4",
+      "unchanged_after_final": true,
+      "start": "after baseline, before isolated candidate"
+    }
+  },
+  "physical_pinned_bundled_libraries_verified": 108,
+  "real_project_control": {
+    "complete": true,
+    "scope_match": true,
+    "diagnostics_match": true,
+    "effective_options_match": true,
+    "input_fingerprint": "b11dee2b68ffbe4c79c7a03a9ca045e9a259c3c2ad1aa8c09dff8bfe507eec4f",
+    "loaded_count": 14015,
+    "diagnostics": 122,
+    "kind": "fresh project correctness control; not a scored speed comparison",
+    "scope_limit": "Normal CLI lists loaded files but does not expose their actual checked identities here. Concurrent checker fixes are included in final main230; these runs do not isolate transport-only cost or prove native parity."
+  },
+  "final_artifact_sha256": {
+    "docs/architecture/worker-option-transport-controls.py": "91adb4450a6f68eb3771faea4dae1bf660ce575186c0b90b033d4db32a45d3e5",
+    "docs/architecture/worker-option-transport-native_test.go": "bc6aa5b9355a61bed6a22d175cdf7e27ca79fc03b22def1370df354a7cc40677",
+    "docs/architecture/worker-option-transport.md": "1081e6928a1f63f72eedf97375dcf3685fe3e3e034ff84ba6daca0a8b104a370",
+    "docs/architecture/threading.md": "a546e6f204528b9542c4505e3e4ce38856fb950c49fa48f4c028b25f275bf27b"
+  }
+}

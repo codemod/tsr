@@ -1,5 +1,5 @@
 // Captured from pinned native newCheckerPool; see worker-selection-policy.json.
-const NATIVE_CASES: &[(Option<i32>, usize, bool, usize)] = &[
+const NATIVE_CASES: &[(Option<isize>, usize, bool, usize)] = &[
     (None, 0, false, 1),
     (None, 0, true, 1),
     (Some(-3), 0, false, 1),

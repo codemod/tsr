@@ -596,7 +596,8 @@ pub struct CompilerOptions {
     /// How a file is decided to be a module.
     pub module_detection: ModuleDetectionKind,
     /// How many checker instances to run. Parsed; this port has one.
-    pub checkers: Option<i32>,
+    // Native uses a machine-width int; CLI values must survive the pool clamp.
+    pub checkers: Option<isize>,
 
     // ---- The rest of upstream's declared surface. Added wholesale so a
     // ---- `tsconfig.json` writing any of these is *accepted* rather than

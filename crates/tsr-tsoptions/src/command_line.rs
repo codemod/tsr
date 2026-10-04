@@ -282,16 +282,34 @@ impl Parser<'_> {
 
         let argument = args[index].clone();
         if argument == "null" {
-            // `--outDir null` clears the option rather than setting it to the
-            // string "null".
-            self.result.set_options.push(option.name.to_string());
+            // Worker controls clear an earlier CLI occurrence as well as the
+            // inherited project value; native keeps the final raw null.
+            if matches!(option.name, "checkers" | "singleThreaded") {
+                self.set(option, &ConfigValue::Null);
+            } else {
+                self.result.set_options.push(option.name.to_string());
+            }
             return index + 1;
         }
 
         match option.kind {
             OptionKind::Number => {
-                if let Ok(number) = argument.parse::<f64>() {
-                    self.set(option, &ConfigValue::Number(number));
+                if let Ok(number) = argument.parse::<isize>() {
+                    if number < option.min_value {
+                        self.result.errors.push(Diagnostic::with_args(
+                            &messages::OPTION_0_REQUIRES_VALUE_TO_BE_GREATER_THAN_1,
+                            tsr_core::Span::new(0, 0),
+                            [option.name.to_string(), option.min_value.to_string()],
+                        ));
+                    } else if let Some(apply) = option.apply_cli_integer {
+                        // Native CLI integers must not round through JSON's f64
+                        // representation (e.g. 9007199254740993 on 64-bit hosts).
+                        apply(&mut self.result.compiler_options, number);
+                        self.result.set_options.push(option.name.to_string());
+                    } else {
+                        #[allow(clippy::cast_precision_loss)]
+                        self.set(option, &ConfigValue::Number(number as f64));
+                    }
                 } else {
                     self.result.errors.push(Diagnostic::with_args(
                         &messages::COMPILER_OPTION_0_EXPECTS_AN_ARGUMENT,
@@ -790,5 +808,58 @@ mod tests {
         let parsed = parse(&["", "a.ts"]);
         assert_eq!(parsed.file_names, ["a.ts"]);
         assert!(parsed.errors.is_empty());
+    }
+    #[test]
+    // Extreme float-to-int JSON conversions are implementation-dependent in Go.
+    // These oracle rows were observed on the pinned darwin/arm64 toolchain.
+    #[cfg(all(target_pointer_width = "64", target_arch = "aarch64"))]
+    fn checker_numbers_match_pinned_native_cli_and_json_controls() {
+        type Expected<'a> = (&'a str, bool, Option<isize>, &'a [(u32, &'a [&'a str])]);
+        let cases: &[Expected<'_>] = &[
+            ("0", false, Some(0_isize), &[]),
+            ("0", true, None, &[(5002, &["checkers", "1"])]),
+            ("-1", false, Some(-1_isize), &[]),
+            ("-1", true, None, &[(5002, &["checkers", "1"])]),
+            ("1.5", false, Some(1_isize), &[]),
+            ("1.5", true, None, &[(6044, &["checkers", "number"])]),
+            ("1", false, Some(1_isize), &[]),
+            ("1", true, Some(1_isize), &[]),
+            ("2", false, Some(2_isize), &[]),
+            ("2", true, Some(2_isize), &[]),
+            ("2147483648", false, Some(2_147_483_648_isize), &[]),
+            ("2147483648", true, Some(2_147_483_648_isize), &[]),
+            ("9007199254740993", false, Some(9_007_199_254_740_992_isize), &[]),
+            ("9007199254740993", true, Some(9_007_199_254_740_993_isize), &[]),
+            ("9223372036854775807", false, Some(9_223_372_036_854_775_807_isize), &[]),
+            ("9223372036854775807", true, Some(9_223_372_036_854_775_807_isize), &[]),
+            ("9223372036854775808", false, Some(9_223_372_036_854_775_807_isize), &[]),
+            ("9223372036854775808", true, None, &[(6044, &["checkers", "number"])]),
+            ("1e300", false, Some(9_223_372_036_854_775_807_isize), &[]),
+            ("1e300", true, None, &[(6044, &["checkers", "number"])]),
+            ("null", false, None, &[]),
+            ("null", true, None, &[]),
+            ("\"many\"", false, None, &[(5024, &["checkers", "number"])]),
+            ("\"many\"", true, None, &[(6044, &["checkers", "number"])]),
+        ];
+        for &(input, cli, expected, errors) in cases {
+            let (actual, diagnostics) = if cli {
+                let argument = input.trim_matches('"');
+                let parsed = parse(&["--checkers", argument]);
+                (parsed.compiler_options.checkers, parsed.errors)
+            } else {
+                let config =
+                    format!(r#"{{"compilerOptions":{{"checkers":{input}}},"files":["main.ts"]}}"#);
+                let parsed = crate::parse_config_file("/tsconfig.json", &config, "/", &empty_fs());
+                (parsed.compiler_options.checkers, parsed.errors)
+            };
+            assert_eq!(actual, expected, "input={input}, cli={cli}");
+            let observed: Vec<_> = diagnostics
+                .iter()
+                .map(|d| (d.message.code(), d.args.iter().map(String::as_str).collect::<Vec<_>>()))
+                .collect();
+            let expected: Vec<_> =
+                errors.iter().map(|(code, args)| (*code, args.to_vec())).collect();
+            assert_eq!(observed, expected, "input={input}, cli={cli}");
+        }
     }
 }

@@ -52,7 +52,7 @@ pub mod file_names;
 pub mod libs;
 pub mod value;
 
-use tsr_core::{CompilerOptions, OrderedMap};
+use tsr_core::{CompilerOptions, OrderedMap, Tristate};
 use tsr_diagnostics::{Diagnostic, messages};
 use tsr_parser::{ParseOptions, ScriptKind, parse_with_options};
 use tsr_path::{
@@ -198,16 +198,29 @@ fn parse_config_file_at_depth(
     let (extended, mut extend_errors) =
         extended_configs(&raw, config_file_name, &base_path_for_file_names, fs, depth, config_dir);
     errors.append(&mut extend_errors);
+    // Native parseConfig merges bases left-to-right, then the real own fields.
+    // Do not treat a previously inherited worker value as an own override.
+    let own_workers = (compiler_options.checkers, compiler_options.single_threaded);
+    let mut inherited_workers = (None, Tristate::Unknown);
     let mut raw = raw;
     for base in extended {
+        inherited_workers = merge_worker_options(
+            inherited_workers,
+            (base.compiler_options.checkers, base.compiler_options.single_threaded),
+            &base.raw,
+        );
         for (key, value) in base.raw.entries() {
-            if !raw.contains_key(key) {
+            // Native raw compilerOptions describes this config, including its
+            // explicit nulls; ancestor nulls must not become own nulls.
+            if key != "compilerOptions" && !raw.contains_key(key) {
                 raw.set(key.to_string(), value.clone());
             }
         }
         compiler_options = merge_options(base.compiler_options, compiler_options);
         errors.splice(0..0, base.errors);
     }
+    (compiler_options.checkers, compiler_options.single_threaded) =
+        merge_worker_options(inherited_workers, own_workers, &raw);
 
     if !config_file_name.is_empty() {
         compiler_options.config_file_path = normalize_slashes(config_file_name);
@@ -485,6 +498,23 @@ fn merge_options(base: CompilerOptions, own: CompilerOptions) -> CompilerOptions
         merged.max_node_module_js_depth = own.max_node_module_js_depth;
     }
     merged
+}
+
+/// Native worker-field merge, including nulls belonging to this source config.
+fn merge_worker_options(
+    (base_checkers, base_single): (Option<isize>, Tristate),
+    (own_checkers, own_single): (Option<isize>, Tristate),
+    raw: &OrderedMap<ConfigValue>,
+) -> (Option<isize>, Tristate) {
+    let is_null = |name| matches!(raw.get("compilerOptions"), Some(ConfigValue::Map(options)) if matches!(options.get(name), Some(ConfigValue::Null)));
+    (
+        if own_checkers.is_some() || is_null("checkers") { own_checkers } else { base_checkers },
+        if !own_single.is_unknown() || is_null("singleThreaded") {
+            own_single
+        } else {
+            base_single
+        },
+    )
 }
 
 /// What reading the config's own properties produced
@@ -847,5 +877,60 @@ mod tests {
         );
         assert_eq!(parsed.compiler_options.paths.keys().collect::<Vec<_>>(), ["z/*", "a/*"]);
         assert_eq!(parsed.compiler_options.paths_base_path, "/project");
+    }
+    #[test]
+    fn own_worker_options_replace_base_values_and_explicit_false_survives() {
+        let fs = InMemoryFileSystem::new([
+            ("/base.json".into(), r#"{"compilerOptions":{"checkers":8,"singleThreaded":true},"files":["main.ts"]}"#.into()),
+            ("/main.ts".into(), String::new()),
+        ], [], true);
+        let inherited =
+            parse_config_file("/tsconfig.json", r#"{"extends":"./base.json"}"#, "/", &fs);
+        assert!(inherited.errors.is_empty());
+        assert_eq!(inherited.compiler_options.checkers, Some(8));
+        assert_eq!(inherited.compiler_options.single_threaded, Tristate::True);
+        let own = parse_config_file(
+            "/tsconfig.json",
+            r#"{"extends":"./base.json","compilerOptions":{"checkers":2,"singleThreaded":false}}"#,
+            "/",
+            &fs,
+        );
+        assert!(own.errors.is_empty());
+        assert_eq!(own.compiler_options.checkers, Some(2));
+        assert_eq!(own.compiler_options.single_threaded, Tristate::False);
+        let cleared = parse_config_file(
+            "/tsconfig.json",
+            r#"{"extends":"./base.json","compilerOptions":{"checkers":null,"singleThreaded":null}}"#,
+            "/",
+            &fs,
+        );
+        assert!(cleared.errors.is_empty());
+        assert_eq!(cleared.compiler_options.checkers, None);
+        assert_eq!(cleared.compiler_options.single_threaded, Tristate::Unknown);
+    }
+    #[test]
+    fn worker_options_keep_last_base_order_and_declaring_null_origin() {
+        let fs = InMemoryFileSystem::new([
+            ("/base.json".into(), r#"{"compilerOptions":{"checkers":8,"singleThreaded":true},"files":["main.ts"]}"#.into()),
+            ("/second.json".into(), r#"{"compilerOptions":{"checkers":4,"singleThreaded":false}}"#.into()),
+            ("/clear.json".into(), r#"{"compilerOptions":{"checkers":null,"singleThreaded":null}}"#.into()),
+            ("/derived-clear.json".into(), r#"{"extends":"./clear.json"}"#.into()),
+            ("/main.ts".into(), String::new()),
+        ], [], true);
+        for (text, count, single) in [
+            (r#"{"extends":["./base.json","./second.json"]}"#, Some(4), Tristate::False),
+            (
+                r#"{"extends":["./base.json","./second.json"],"compilerOptions":{"checkers":2,"singleThreaded":true}}"#,
+                Some(2),
+                Tristate::True,
+            ),
+            (r#"{"extends":["./base.json","./clear.json"]}"#, None, Tristate::Unknown),
+            (r#"{"extends":["./base.json","./derived-clear.json"]}"#, Some(8), Tristate::True),
+        ] {
+            let parsed = parse_config_file("/tsconfig.json", text, "/", &fs);
+            assert!(parsed.errors.is_empty(), "{text}: {:?}", parsed.errors);
+            assert_eq!(parsed.compiler_options.checkers, count, "{text}");
+            assert_eq!(parsed.compiler_options.single_threaded, single, "{text}");
+        }
     }
 }
