@@ -106,3 +106,68 @@ export function numeric(u:N<number>){const {kind,0:value}=u;if(kind==="a")return
         &["numeric : (u: N<number>) => number", "computed : (u: U<number>) => number"],
     );
 }
+
+#[test]
+fn contextual_tuple_parameters_share_only_const_like_sibling_flow() {
+    expect(
+        r#"// @strict: true
+// @target: es2015
+type Pair = ["left", number] | ["right", string];
+declare function accept(callback: (...args: Pair) => void): void;
+accept((tag, value) => {
+    if (tag === "left") { const leftCall = value; }
+    else { const rightCall = value; }
+});
+accept(function(tag, value) {
+    if (tag === "right") { const rightFunction = value; }
+    else { const leftFunction = value; }
+});
+type Method = {run(...args: Pair): void};
+const object: Method = {run(tag, value) {
+    if (tag === "left") { const leftMethod = value; }
+    else { const rightMethod = value; }
+}};
+const assigned: (...args: [1, 2] | [3, 4]) => void = (tag, value) => {
+    if (tag === 1) { const assignedBefore = value; }
+    value = 4;
+};
+const reassignedTag: (...args: Pair) => void = (tag, value) => {
+    tag = "left";
+    if (tag === "left") { const mutableTag = value; }
+};
+accept((tag = "left", value) => {
+    if (tag === "left") { const defaultedTag = value; }
+});
+declare function ordinary(callback: (tag: "left" | "right", value: string | number) => void): void;
+ordinary((tag, value) => {
+    if (tag === "left") { const uncorrelated = value; }
+});
+const independent: (...args: Pair) => void = (tag, value) => {
+    if (tag === "left") { accept((tag, value) => {
+        if (tag === "right") { const nestedRight = value; }
+    }); const outerLeft = value; }
+};
+declare function shortened(callback: (...args: ["left", number] | ["right"]) => void): void;
+shortened((tag, value) => {
+    if (tag === "right") { const absentRight = value; }
+    else { const presentLeft = value; }
+});
+"#,
+        &[
+            "leftCall : number",
+            "rightCall : string",
+            "rightFunction : string",
+            "leftFunction : number",
+            "leftMethod : number",
+            "rightMethod : string",
+            "assignedBefore : 2 | 4",
+            "mutableTag : string | number",
+            "defaultedTag : string | number",
+            "uncorrelated : string | number",
+            "nestedRight : string",
+            "outerLeft : number",
+            "absentRight : undefined",
+            "presentLeft : number",
+        ],
+    );
+}

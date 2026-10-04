@@ -1,5 +1,6 @@
 //! Native 5b1047d real-Program masks/consumers archived in object-facts-wave27.
-//! Mode selection changes; category, primitive and bare-query gaps stay held.
+//! Mode selection changes; category and primitive gaps stay held.
+//! Bare receiver queries now share native runtime receiver flow (wave47).
 use crate::Checker;
 use tsr_ast::{Node, NodeId, SyntaxKind};
 
@@ -124,7 +125,11 @@ fn ordinary_and_runtime_this_false_branches_preserve_negation_limitation() {
             checker.type_to_string(query),
             if null { "never" } else { r#"{ p: "right"; q: 23; }"# }
         );
-        assert_eq!(alias_type(checker, "Held"), checker.intrinsics.error);
+        let receiver_query = alias_type(checker, "Held");
+        assert_eq!(
+            checker.type_to_string(receiver_query),
+            if null { "never" } else { r#"{ p: "left"; q: 17; }"# }
+        );
         for index in 0..checker.nodes.len() {
             let id = NodeId::new(u32::try_from(index).expect("node count fits"));
             let kind = checker.nodes.kind(id);
@@ -171,7 +176,7 @@ fn object_fact_mode_selection_preserves_wrong_assignment_anchors() {
             .collect();
         assert_eq!(diagnostics, [(2322, 109, 3), (2322, 134, 7)]);
         let query = alias_type(checker, "T");
-        assert_eq!(query, checker.intrinsics.error);
+        assert_eq!(checker.type_to_string(query), r#"{ p: "left"; q: 17; }"#);
         assert_ne!(query, checker.intrinsics.any);
     });
 }

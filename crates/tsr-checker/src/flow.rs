@@ -532,7 +532,11 @@ impl Checker<'_, '_> {
             discriminant_pattern: None,
             is_auto_array: symbol.is_some_and(|symbol| self.is_auto_array_declaration(symbol)),
             outer_reference: self.is_outer_reference(reference, symbol),
-            flow_container: self.extended_flow_container(reference, symbol),
+            // checkIdentifier supplies its explicit variable bound. Receiver
+            // and access callers use native getFlowTypeOfReference's nil bound;
+            // the START arm decides which creation-site edges they may follow.
+            flow_container: symbol
+                .and_then(|symbol| self.extended_flow_container(reference, Some(symbol))),
             shared_flow_start: self.shared_flows.len(),
             element_dedupe_mark: 0,
             depth: 0,
@@ -831,10 +835,18 @@ impl Checker<'_, '_> {
                 // bound was extended in `extended_flow_container` only for
                 // constants and past-last-assignment mutables — everything
                 // else stops here exactly as before.
+                // flow.go's START arm: access expressions never follow a
+                // creation-site edge; runtime this follows arrows only.
+                // Query-this is an identifier, as in the native AST, and its
+                // receiver was already selected by checkThisExpression.
                 if let Some(container) = binder.flow().node(flow)
-                    && state.flow_container.is_some()
                     && state.flow_container != Some(container)
-                    && state.symbol.is_some()
+                    && !matches!(
+                        self.nodes.kind(state.reference),
+                        SyntaxKind::PropertyAccessExpression | SyntaxKind::ElementAccessExpression
+                    )
+                    && !(self.nodes.kind(state.reference) == SyntaxKind::ThisKeyword
+                        && self.nodes.kind(container) != SyntaxKind::ArrowFunction)
                     && let Some(outer) = binder.flow_of(container)
                 {
                     flow = outer;
@@ -1543,7 +1555,7 @@ impl Checker<'_, '_> {
 
     /// `ast.IsThisInTypeQuery`: only the leftmost identifier in the entity
     /// name is query `this`; a property named `this` is an ordinary identifier.
-    fn is_this_in_type_query(&self, node: NodeId) -> bool {
+    pub(crate) fn is_this_in_type_query(&self, node: NodeId) -> bool {
         if !matches!(self.node_map.get(node), Some(Node::Identifier(name)) if name.text == "this") {
             return false;
         }

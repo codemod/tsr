@@ -99,14 +99,11 @@ fn typeof_a_namespace_and_a_qualified_export() {
     assert_eq!(type_of_declaration(source, "r7"), "string");
 }
 
-// The refusals, asserted as the PAIR the conventions require: the unported
-// case and the ported one, so a fixture standing in for "unported" cannot
-// silently acquire a dependency on that staying true.
-//
-// `typeof this` (20 corpus lines) routes through `checkThisExpression`
-// (`checker.go:10652`) — refused whole-construct, notes page §4.
+// Native 5b1047d: `typeof this` routes through `checkThisExpression`
+// (`checker.go:10652`). queryThisWave47(strict=true).types confirms a class
+// instance method's receiver is the polymorphic `this`, not `typeof C`.
 #[test]
-fn typeof_this_stays_a_gap_while_typeof_a_name_does_not() {
+fn typeof_this_reads_the_instance_receiver_while_typeof_the_class_reads_its_value() {
     let source = "class C { m() { var v: typeof this; var w: typeof C; } }";
     let arena = Arena::new();
     let parsed = tsr_parser::parse(&arena, source);
@@ -129,7 +126,7 @@ fn typeof_this_stays_a_gap_while_typeof_a_name_does_not() {
         }
     }
     answers.sort();
-    assert_eq!(answers, ["error", "typeof C"]);
+    assert_eq!(answers, ["this", "typeof C"]);
 }
 
 // `typeof a` over a PARAMETER computes as upstream computes it, and the

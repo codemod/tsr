@@ -1,5 +1,5 @@
 //! Native 5b1047d real-Program controls archived in typeof-this-wave25.
-//! These tests exercise private flow matching; bare-query admission stays held.
+//! Matching controls also cover the wave47 receiver-query admission boundary.
 use crate::Checker;
 use tsr_ast::{Node, NodeId, SyntaxKind, TypeNode};
 
@@ -145,7 +145,7 @@ fn property_named_this_is_not_a_query_this_root_and_ordinary_matching_is_retaine
 }
 
 #[test]
-fn dotted_query_narrows_but_bare_query_admission_stays_held() {
+fn dotted_and_bare_queries_read_their_native_receiver_flow() {
     let source = r#"function f(this: {p: "left" | undefined; q: 17}) {
         if (this.p) {type P = typeof this.p; type Q = typeof this.q; type T = typeof this;}}
     "#;
@@ -161,6 +161,54 @@ fn dotted_query_narrows_but_bare_query_admission_stays_held() {
         let ty = checker.get_type_from_type_node(
             TypeNode::try_from(checker.node_map.get(id).unwrap()).unwrap(),
         );
-        assert_eq!(ty, checker.intrinsics.error);
+        assert!(checker.store.get(ty).flags.contains(crate::flags::TypeFlags::OBJECT));
+        let property = checker.get_type_of_property_of_type(ty, "q").expect("receiver property");
+        assert_eq!(checker.type_to_string(property), "17");
+        let query = query_reference(checker, source, "typeof this");
+        let Some(Node::Identifier(identifier)) = checker.node_map.get(query) else {
+            unreachable!()
+        };
+        assert_eq!(checker.check_expression(tsr_ast::Expression::Identifier(identifier)), ty);
+        let runtime = node(checker, source, SyntaxKind::ThisKeyword, "this");
+        assert_eq!(checker.check_this_expression(runtime), ty, "native receiver identity");
+    });
+}
+
+#[test]
+fn receiver_query_follows_arrow_creation_flow_but_not_an_opaque_receiver() {
+    let source = r"type Wrong = {value: number}; type Right = {name: string};
+        declare function isRight(value: any): value is Right;
+        declare function accept(callback: () => void): void;
+        function f(this: Right | Wrong) {
+            if (!isRight(this)) return;
+            accept(() => {type Arrow = typeof this;});
+            accept(function() {type Opaque = typeof this;});
+        }";
+    with_checker(source, |checker| {
+        for (alias, expected) in [("Arrow", "Right"), ("Opaque", "any")] {
+            let declaration = node(
+                checker,
+                source,
+                SyntaxKind::TypeAliasDeclaration,
+                &format!("type {alias} = typeof this;"),
+            );
+            let Some(Node::TypeAliasDeclaration(alias)) = checker.node_map.get(declaration) else {
+                unreachable!()
+            };
+            let ty = checker.get_type_from_type_node(alias.r#type.expect("query annotation"));
+            assert_eq!(checker.type_to_string(ty), expected);
+        }
+    });
+}
+
+#[test]
+fn circular_receiver_query_uses_symbol_resolution_instead_of_reentering_annotation() {
+    let source = "function f(this: typeof this) { type T = typeof this; this; }";
+    with_checker(source, |checker| {
+        let query = node(checker, source, SyntaxKind::TypeQuery, "typeof this");
+        let ty = checker.get_type_from_type_node(
+            TypeNode::try_from(checker.node_map.get(query).unwrap()).unwrap(),
+        );
+        assert_eq!(checker.type_to_string(ty), "any");
     });
 }

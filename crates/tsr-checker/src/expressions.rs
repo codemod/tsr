@@ -516,8 +516,8 @@ impl Checker<'_, '_> {
         (projected != self.intrinsics.error).then_some(projected)
     }
 
-    /// §50.3's arm: an unannotated parameter of a function whose VARIABLE
-    /// annotation is a single-rest function type over a union of tuples;
+    /// `getNarrowedTypeOfSymbol`'s contextual parameter arm: an unannotated
+    /// const-like parameter whose contextual signature has one tuple-union rest;
     /// the function node is the pseudo-reference and the answer indexes the
     /// narrowed union at the parameter's position (`checker.go:13806`,
     /// `checker-notes-narrow.md` §50.3).
@@ -539,38 +539,47 @@ impl Checker<'_, '_> {
         let parameters = match self.node_map.get(fn_id)? {
             Node::ArrowFunction(function) => function.parameters,
             Node::FunctionExpression(function) => function.parameters,
+            Node::MethodDeclaration(function)
+                if self.nodes.parent(fn_id).is_some_and(|parent| {
+                    self.nodes.kind(parent) == SyntaxKind::ObjectLiteralExpression
+                }) =>
+            {
+                function.parameters
+            }
             _ => return None,
         };
-        if parameters.len() < 2 {
+        if parameters.len() < 2 || !self.is_context_sensitive_function_like(fn_id) {
             return None;
         }
-        let index = parameters.iter().position(|p| p.node_id == Some(declaration))?;
-        // The written-annotation slice of `getContextualSignature`: the
-        // function is the DIRECT initializer of a variable whose annotation
-        // is syntactically a function type with one `...rest` parameter.
-        let holder = self.nodes.parent(fn_id)?;
-        let Node::VariableDeclaration(variable) = self.node_map.get(holder)? else {
+        let signature = self.contextual_signature(fn_id)?;
+        let [rest] = signature.parameters.as_slice() else {
             return None;
         };
-        if variable.initializer.and_then(|e| e.node_id()) != Some(fn_id) {
+        if !rest.rest {
             return None;
         }
-        let tsr_ast::TypeNode::FunctionTypeNode(annotation) = variable.r#type? else {
-            return None;
-        };
-        let [rest] = annotation.parameters else { return None };
-        rest.dot_dot_dot_token?;
-        let rest_type = self.get_type_from_type_node(rest.r#type?);
-        if !self.store.get(rest_type).flags.intersects(TypeFlags::UNION) {
-            return None;
-        }
+        // contextual_signature applies the existing live non-fixing mapper
+        // for a generic rest. Resolve its apparent constraint and alias image
+        // before checking the tuple-union shape, as getReducedApparentType does.
+        let rest_type = self.apparent_type(rest.r#type);
+        let rest_type = self.binding_type_alias_body(rest_type);
         let TypeData::Union { types, .. } = &self.store.get(rest_type).data else {
             return None;
         };
         let constituents = types.clone();
-        if !constituents.iter().all(|t| self.tuple_element_lists.contains_key(t)) {
+        if !constituents.iter().all(|t| self.tuple_element_lists.contains_key(t))
+            || parameters
+                .iter()
+                .filter_map(|parameter| parameter.node_id)
+                .any(|parameter| self.is_some_symbol_assigned(parameter))
+        {
             return None;
         }
+        let index = parameters.iter().position(|p| p.node_id == Some(declaration))?
+            - usize::from(parameters.first().is_some_and(|parameter| {
+                matches!(parameter.name, Some(tsr_ast::BindingName::Identifier(name))
+                    if name.text == "this")
+            }));
         let narrowed = self.narrow_destructured_parent(reference, fn_id, rest_type);
         if narrowed == rest_type {
             return None;
@@ -650,6 +659,11 @@ impl Checker<'_, '_> {
             // one (`bd tsr-4sc.11`).
             Expression::Identifier(node) => {
                 let Some(id) = node.node_id else { return self.intrinsics.error };
+                // checkIdentifier's first branch: the query's leftmost `this`
+                // identifier is a receiver read, not value-name resolution.
+                if self.is_this_in_type_query(id) {
+                    return self.check_this_expression(id);
+                }
                 // `SymbolFlags::VALUE` is upstream's meaning for an identifier
                 // expression (`checkIdentifier` -> `getResolvedSymbol`). It is
                 // what keeps an enclosing class's type parameter from being
@@ -1732,6 +1746,14 @@ impl Checker<'_, '_> {
                 {
                     return self.intrinsics.any;
                 }
+                // GetThisContainer also stops at declaration-only members.
+                // An explicit signature receiver was read above; otherwise
+                // these containers have no this type, even in a script file.
+                SyntaxKind::PropertySignature
+                | SyntaxKind::MethodSignature
+                | SyntaxKind::CallSignature
+                | SyntaxKind::ConstructSignature
+                | SyntaxKind::IndexSignature => return self.intrinsics.any,
                 SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression => {
                     let Some(symbol) = self.binder.symbol_of(id) else {
                         return self.intrinsics.error;
@@ -1874,6 +1896,10 @@ impl Checker<'_, '_> {
             Node::FunctionDeclaration(node) => node.parameters,
             Node::FunctionExpression(node) => node.parameters,
             Node::MethodDeclaration(node) => node.parameters,
+            Node::MethodSignatureDeclaration(node) => node.parameters,
+            Node::CallSignatureDeclaration(node) => node.parameters,
+            Node::ConstructSignatureDeclaration(node) => node.parameters,
+            Node::IndexSignatureDeclaration(node) => node.parameters,
             Node::GetAccessorDeclaration(node) => node.parameters,
             Node::SetAccessorDeclaration(node) => node.parameters,
             Node::ConstructorDeclaration(node) => node.parameters,
@@ -1905,7 +1931,15 @@ impl Checker<'_, '_> {
         // answering `nil` is what sends `tryGetThisTypeAtEx` (`checker.go:12146`)
         // on to `ast.IsClassLike(container.Parent)`. "We could not read the
         // annotation" is this port's `nil`.
-        let resolved = self.get_type_from_type_node(annotation);
+        // getThisTypeOfSignature reads the parameter symbol's type. Its
+        // canonical resolution stack detects `this: typeof this` before
+        // entering the annotation again; a direct type-node read bypasses it.
+        let resolved = if let Some(symbol) = first.node_id.and_then(|id| self.binder.symbol_of(id))
+        {
+            self.get_type_of_symbol(symbol)
+        } else {
+            self.get_type_from_type_node(annotation)
+        };
         (resolved != self.intrinsics.error).then_some(resolved)
     }
 

@@ -1197,12 +1197,8 @@ impl<'a> Checker<'a, '_> {
     /// type position is the *expression* type of the entity name, then
     /// `getRegularTypeOfLiteralType(getWidenedType(t))`.
     ///
-    /// Two refusals, whole-construct rather than approximated
-    /// (`docs/architecture/checker-notes-tquery.md` §4 sizes both):
-    ///
-    /// - **`typeof this`** (20 corpus lines): upstream routes it through
-    ///   `checkThisExpression` (`checker.go:10652`), whose per-container answer
-    ///   this port only partially has.
+    /// The remaining refusal is whole-construct rather than approximated
+    /// (`docs/architecture/checker-notes-tquery.md` §4):
     /// - **Instantiation expressions** `typeof f<string>` (10 lines): with type
     ///   arguments present, `getInstantiationExpressionType`
     ///   (`checker.go:10660`) filters signatures by arity and instantiates
@@ -1229,17 +1225,12 @@ impl<'a> Checker<'a, '_> {
         // which is where every one of those wrong lines was printed. The
         // computation below is upstream's for every entity-name form.
         let id = match name {
-            // Upstream's `isThisIdentifier` dispatch (`checker.go:10651`). The
-            // guard does not currently bite under mutation — `check_expression`
-            // answers `errorType` for a `this` identifier anyway, because
-            // `resolve_name` finds no such value — and it stays because it is
-            // upstream's dispatch, with the same standing as the
-            // `SymbolFlags::VALUE` test `checker-notes-symbols.md` §5 records:
-            // it becomes observable the moment `check_expression` learns
-            // `this`, and whoever adds that should re-run the mutation and
-            // expect `type_query.rs` red.
+            // checkExpressionWithTypeArguments dispatches the query identifier
+            // through checkThisExpression, retaining its original flow location
+            // and receiver identity rather than resolving a value named "this".
             tsr_ast::EntityName::Identifier(identifier) if identifier.text == "this" => {
-                return error;
+                let Some(location) = identifier.node_id else { return error };
+                self.check_this_expression(location)
             }
             tsr_ast::EntityName::Identifier(identifier) => {
                 self.check_expression(Expression::Identifier(identifier))
