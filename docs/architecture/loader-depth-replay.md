@@ -96,9 +96,11 @@ which package lookups other task work has warmed.
 TSR emits **zero** requested trace lines in every control. Its loader stores
 them, but `Program::from_root_files` does not retain `LoadedFiles.traces`,
 and `run_compilation` does not forward them. Existing bug `tsr-1yb.1.1.1`
-now has P1 priority and blocks the replay proof. This audit records empty
-traces as a failure; it supplies no claim that Rust internal trace buffers
-match native. Under `noResolve`, native still resolves and traces imports;
+now has P1 priority and directly blocks production loader concurrency. The
+loader-level replay controls can proceed independently using internal trace
+buffers. This audit records empty CLI traces as a failure; it supplies no
+claim that Rust internal trace buffers match native. Under `noResolve`, native
+still resolves and traces imports;
 it suppresses adding their files. The explicit-root control asserts the
 loaded-file behavior without assuming an empty native trace.
 
