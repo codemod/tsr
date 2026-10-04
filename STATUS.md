@@ -22,6 +22,19 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
+Documentation-only optimization update (`tsr-1yb.18`), inspected against
+`08f2487b`: new checker ports record native operation, identity/owner,
+publication, receiver/presentation and expensive-work boundaries. The
+[convention](docs/conventions.md#checker-ports-preserve-ownership-and-work-boundaries)
+and [current relation audit](docs/architecture/checker-relation-publication.md#applying-the-port-convention)
+retain unfinished contract/counting obligations. No new corpus or timing
+measurement was taken; the measured checker checkpoint below keeps its source.
+Verification: 83 relation integration controls and two internal circular-variance
+controls pass; 3,405 upstream anchors and 16,630 section citations resolve.
+The issue-ID check retains 190 unresolved historical IDs (`tsr-10`); all new
+task references were checked directly. The verified equivalent-work TSR/tsgo
+median wall target remains <=0.50.
+
 ### Current checker checkpoint — query-this flow matching
 
 Measured production tree **`a82ed94c`**, against published `93ea330a`:
@@ -2047,6 +2060,13 @@ gap to 70%               CROSSED (70.003%; the threshold was 335,268)
 
 ## 3. What is ported
 
+The checker port convention is mirrored in `AGENTS.md` and `CLAUDE.md`
+(`tsr-1yb.18`). It links existing ownership/cache contracts and requires an
+explicit expensive-work boundary for new caches, mappers and graph traversals.
+The relation-walk example distinguishes implemented per-walk publication from
+unfinished persistent key/lifetime and diagnostic-context audits. This is
+documentation guidance; no runtime cache or production scheduling was added.
+
 Per-crate, by what the conformance suites actually assert — not by what exists.
 
 | subsystem | state | evidence |
@@ -2231,6 +2251,12 @@ rendering `any` for `errorType` (ADR-0038).
 ---
 
 ## 4. What is next — the scored board
+
+Early convention task `tsr-1yb.18` is delivered as documentation. Its audit
+keeps relation key equivalence (`tsr-1yb.4.1.4`), lifetime/publication
+(`tsr-1yb.4.1.3`) and current expensive-work accounting (`tsr-1yb.11.1`) with
+their existing owners. Checker/read allocation measurements and byte admission
+remain `tsr-1yb.3.1.1.3`, `tsr-1yb.19.2.1` and `tsr-1yb.19.2.2`.
 
 ### Bounded follow-ups from the third eight-orb wave (tsr-lv3)
 
@@ -12023,6 +12049,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
+| 2026-10-04 | `08f2487b` (inspected source) | not remeasured | not remeasured | Documentation only; no speed claim or new refusal | `tsr-1yb.18`: mirror the checker port convention and audit current relation publication. 83 integration/two internal controls, 3,405 anchors and 16,630 section citations pass; 190 historical issue IDs remain unresolved (`tsr-10`), with new task references checked directly. Persistent key/context, forcing/lifetime and expensive-execution evidence remain in existing tasks; release TSR/tsgo median <=0.50 remains unverified. |
 | 2026-10-03 | `e83fac17` | **95.95%** | **7,150/9,538** | **459,451/478,855 assertions.** +70 matches, +3 complete cases vs `4bf5fe96`; 67W→R, 3G→R, zero RIGHT losses/G→W/population changes, two changed WRONG payloads. | Direct-alias declaration-order ties and exact/nonexact const elisions. Full positive diagnostics audit has zero correct-case/occurrence losses or new extras, removing four false errors. JSDoc setup and node-less indexed recovery candidates are rejected for false errors in previously clean cases. Concurrent test/docs through `074f60a7` preserved; 2,644 workspace tests, strict clippy/fmt, 3,400 anchors, 16,632 citations pass. Historical issue-ID gate remains blocked by 197 records; 14,616 remain to 99%. |
 | 2026-10-02 | `6b42bfb5` | **73.61%** | **7,021** | **457,641/478,855 assertions (95.57%).** +48 assertions, +2 cases, zero RIGHT losses; 25W→R, 23G→R, 5G→W naming rows, 9 changed W→W. | Error-like any guard ends MCP constructor expansion; package alias exports, JSON value modules, CLI comment directives/side-effect imports, native regular/widened assertion comparison. 130 full-app diagnostics remain versus native zero; targeted 13 cleared. Diagnostics 2,790/5,488, binder 100%; workspace tests, four CLI controls, clippy, fmt and citation gates verified. 16,426 remain to 99%. |
 | 2026-10-02 | `cd658415` | **72.50%** | **6,915** | **455,889/478,855 assertions (95.20%).** +14 since 9afcc9f3, +2 cases, zero RIGHT losses/new WRONG rows; 14W→R and 14 changed W→W. | Native primitive/unknown generic assignability with conditional deferral. Three relation tests and 11 conformance assertions; 212 workspace blocks, clippy, 3330 anchors; isolated verdict/source match. Fresh-signature and subtype prerequisites measured and deferred. 18,178 remain to 99%. |

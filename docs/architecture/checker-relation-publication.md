@@ -6,6 +6,33 @@ bounded execution experiments under `tsr-1yb.15`. Relation-cache contract
 `738b1a797a65c62a418da34d27daad591b1599de`, against pinned tsgo
 `5b1047d10d32e7d5b446be4de56b126ff42f82bb`.
 
+## Applying the port convention
+
+This documentation-only audit inspected TSR `08f2487b` and native
+`5b1047d10d32e7d5b446be4de56b126ff42f82bb`. It applies the
+[checker port convention](../conventions.md#checker-ports-preserve-ownership-and-work-boundaries)
+to the existing recursive relation walk; it adds no runtime reuse or new timing
+measurement. The historical experiments below retain their original sources.
+
+| Boundary | Current evidence and remaining obligation |
+|---|---|
+| Native operation | `internal/checker/relater.go::recursiveTypeRelatedTo` and `resetMaybeStack` distinguish persistent relation results from dependent assumptions. `internal/checker/checker.go::getRelationKey` includes intersection context and eligible generic-reference equivalence; error elaboration can re-execute a cached failure. |
+| Identity and owner | Rust `Relater` owns ordered `(source TypeId, target TypeId)` results and assumptions for one walk, borrowing one private Checker with a fixed relation kind. `relate_ternary` and `compare_signature_ternary` construct fresh stores. This does not prove those keys sufficient for checker-wide reuse. |
+| Publication | `recursive_type_related_to` returns `Maybe` on active re-entry. `reset_maybe_stack` promotes a successful dependent scope; failed and unsupported scopes discard assumptions. Top-level `CircularVariance` remains unpublishable. The public `Unknown` is unsupported/depth-refused work, distinct from native circular variance. |
+| Receiver and presentation | `properties_related_to_with_optionals` reads through `get_type_of_property_of_type` on the concrete source/target, retaining the original intersection receiver. Declaration-symbol types cannot replace those reads. Relation results do not certify a reusable diagnostic elaboration or alias/display image. |
+| Expensive work | A completed hit skips that walk's structured comparison; an active hit supplies only an assumption. Count executed structured/property/signature/variance work separately from repeated API calls. Historical counters with rejected property exits are not current production counts. |
+| Controls | `tests/relater.rs` covers both invalid union orders, a valid later recursive proof, depth-refusal assumption discard, generic variance and strict-function option changes. Internal circular-variance controls check that no top-level proof is published. These do not certify native persistent key equivalence or all metadata-forcing contexts. |
+
+The concrete omissions already have owners: `tsr-1yb.4.1.4` must specify generic
+key equivalence, constraints, direction and intersection context;
+`tsr-1yb.4.1.3` must settle persistent lifetime, metadata forcing,
+diagnostic/reliability flags and publication; `tsr-1yb.11.1` must provide current
+expensive-worker counts and overhead evidence. These tasks remain open or in
+progress. The audit creates no competing implementation task and selects no key
+encoding or cache lifetime. Repeated ordered pairs alone cannot discharge those
+obligations. Query/emit worker ownership remains `tsr-1yb.3.2`, while concrete
+receiver API coverage remains `tsr-1yb.4.1.5`.
+
 ## The failed proof
 
 The regression in `tests/relater.rs` compares mutually recursive `A/B` with

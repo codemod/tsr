@@ -2,6 +2,17 @@
 
 This file provides instructions and context for AI coding agents working on this project.
 
+## Checker port boundaries
+
+When a port adds a semantic cache, mutable side table, mapper, member image or
+graph traversal, follow [the checker port convention](docs/conventions.md#checker-ports-preserve-ownership-and-work-boundaries).
+Record the pinned native operation, key identity and owner, publication states,
+receiver/alias context, and expensive work boundary. Use the existing contracts;
+track an unresolved boundary in Beads before extending reuse. Routine fixes do
+not require a whole-project benchmark. A correctness prerequisite is not a speed
+win; the release target remains verified TSR/tsgo median wall ratio <=0.50 on
+equivalent complete work, with no previously RIGHT losses.
+
 <!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:7510c1e2 -->
 ## Beads Issue Tracker
 

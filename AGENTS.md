@@ -5,6 +5,17 @@
 Always commit and push verified changes to `main`, as requested by the user.
 Preserve unrelated local configuration and work.
 
+## Checker port boundaries
+
+When a port adds a semantic cache, mutable side table, mapper, member image or
+graph traversal, follow [the checker port convention](docs/conventions.md#checker-ports-preserve-ownership-and-work-boundaries).
+Record the pinned native operation, key identity and owner, publication states,
+receiver/alias context, and expensive work boundary. Use the existing contracts;
+track an unresolved boundary in Beads before extending reuse. Routine fixes do
+not require a whole-project benchmark. A correctness prerequisite is not a speed
+win; the release target remains verified TSR/tsgo median wall ratio <=0.50 on
+equivalent complete work, with no previously RIGHT losses.
+
 This project uses **bd** (beads) for issue tracking. Run `bd prime` for full workflow context.
 
 > **Architecture in one line:** Issues live in a local Dolt database

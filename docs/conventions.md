@@ -52,6 +52,63 @@ Coverage is reported per crate but does **not** fail the build: most crates are
 near zero, and a gate that always fails gets deleted rather than fixed. Raising
 that rate is a ratchet, not a gate.
 
+## Checker ports preserve ownership and work boundaries
+
+Fidelity ports can make optimization harder by introducing eager repeated walks,
+duplicate caches or identities whose owner is implicit. Record these boundaries
+when a change adds a semantic cache, mutable side table, mapper, member image or
+graph traversal. A short comment or entry in the existing subsystem document is
+enough; this is not a new architecture document for every port.
+
+- **Native operation:** name the pinned typescript-go commit, function and
+  consumer. Read its writers and re-entry behavior as well as the getter.
+- **Identity and owner:** state the key/value domains, Program or private Checker
+  owner, lifetime and relevant options. Include ordered arguments, mapper/fixing
+  context and relation kind where they affect answers. Printed names, raw IDs
+  from different stores and equal empty tables do not prove equivalence.
+- **Publication:** distinguish uncomputed, active/provisional, completed success
+  or failure, and unsupported work. State which computation publishes completion and
+  what metadata forcing or preparation it depends on. A recursive assumption is
+  not a completed success; a completed unknown can differ from an absent entry.
+- **Consumer context:** preserve concrete receiver `this`, static/instance side,
+  written alias/origin and diagnostic policy where required. Sharing a structural
+  image does not automatically share its presentation or access result.
+- **Work boundary:** identify the expensive worker or traversal and existing
+  reuse. Separate query counts, completed hits, active repeats, actual worker
+  executions and result-copy bytes. Link a counter/fixture or file a bounded Beads
+  follow-up when these are unmeasured; do not add a duplicate cache on intuition.
+- **Evidence:** use focused native-supported controls for the changed boundary,
+  including a case that must stay distinct. For an optimization claim, preserve
+  complete diagnostics and actual checked scope, record source/binary/options/
+  input identities, require no previously RIGHT losses, and confirm fresh-process
+  whole-project benefit beyond the experiment's stated threshold. Keep builds,
+  instrumentation overhead and fixture setup outside timed samples.
+
+Use the canonical contracts: [worker ownership](architecture/threading.md)
+(`tsr-1yb.3`/`tsr-1yb.3.2`),
+[structured members](architecture/checker-member-cache-contract.md)
+(`tsr-1yb.4.1.1`),
+[relation publication](architecture/checker-relation-publication.md)
+(`tsr-1yb.4.1.3`), and
+[node-symbol completion](architecture/checker-symbol-completion-contract.md)
+(`tsr-1yb.4.1.6`). The broad cache inventory, mapper identity, relation key
+equivalence and concrete-receiver API audits remain open in `tsr-1yb.4.1`,
+`tsr-1yb.4.1.2`, `tsr-1yb.4.1.4` and `tsr-1yb.4.1.5`. Completed contract slices
+do not certify broader reuse or production workers. Extend the applicable
+contract and track a missing boundary before broadening its reuse surface.
+
+Expensive-work attribution remains `tsr-1yb.11`/`tsr-1yb.11.1`; reporting and
+representative CI enforcement are `tsr-1yb.8`/`tsr-1yb.13`. A correctness
+prerequisite, an instrumentation count or a synthetic-fixture agreement is not
+an accepted speed win. Routine fixes use relevant tests without blanket
+whole-project timing. The release target stays **verified TSR/pinned-tsgo median
+wall ratio <=0.50 on equivalent complete work**, as described in
+[whole-project performance](architecture/whole-project-performance.md).
+
+The [current relation-walk audit](architecture/checker-relation-publication.md#applying-the-port-convention)
+shows how to record implemented boundaries and concrete omissions without
+inventing a new cache or choosing an unmeasured layout.
+
 ## Generated code is never hand-edited
 
 `crates/tsr-ast/src/generated/` is produced by `cargo xtask codegen`. It is checked
