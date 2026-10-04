@@ -95,3 +95,92 @@ fn a_let_initialised_with_undefined_records_a_known_divergence() {
     assert_eq!(type_of_declaration("let x = undefined;", "x"), "undefined");
     assert_eq!(type_of_declaration("var x = undefined;", "x"), "undefined");
 }
+
+fn other_intrinsic_indices(i: &tsr_checker::Intrinsics) -> [usize; 24] {
+    [
+        i.any,
+        i.error,
+        i.unresolved,
+        i.unknown,
+        i.undefined,
+        i.missing,
+        i.null,
+        i.string,
+        i.number,
+        i.bigint,
+        i.regular_false,
+        i.false_type,
+        i.regular_true,
+        i.true_type,
+        i.boolean,
+        i.empty_object,
+        i.unknown_empty_object,
+        i.unknown_union,
+        i.es_symbol,
+        i.void,
+        i.never,
+        i.implicit_never,
+        i.unreachable_never,
+        i.non_primitive,
+    ]
+    .map(tsr_checker::types::TypeId::index)
+}
+
+#[test]
+fn intrinsic_construction_defaults_to_strict_without_moving_other_allocations() {
+    let mut store = tsr_checker::types::TypeStore::new();
+    let i = tsr_checker::Intrinsics::create(&mut store);
+    // The loose identity still occupies slot 5; the active strict slot aliases
+    // ordinary undefined. All following intrinsic allocations keep their IDs.
+    assert_eq!(store.len(), 25);
+    assert_eq!(
+        other_intrinsic_indices(&i),
+        [0, 1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24]
+    );
+    assert_eq!(i.undefined_widening, i.undefined);
+}
+
+#[test]
+fn undefined_slot_reselection_is_allocation_free_and_does_not_reseed_the_global() {
+    for apply_options in [false, true] {
+        let arena = Arena::new();
+        let parsed = tsr_parser::parse(&arena, "");
+        let bound = tsr_binder::bind(
+            &arena,
+            parsed.source_file,
+            &parsed.nodes,
+            tsr_binder::FileInfo { name: "test.ts", text: "" },
+        );
+        let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+        let ordinary = checker.intrinsics().undefined;
+        let other_ids = other_intrinsic_indices(checker.intrinsics());
+        assert_eq!(checker.intrinsics().undefined_widening, ordinary);
+        for strict in [true, false, false, true, true, false, true] {
+            if apply_options {
+                checker.apply_compiler_options(&tsr_core::CompilerOptions {
+                    strict_null_checks: if strict {
+                        tsr_core::Tristate::True
+                    } else {
+                        tsr_core::Tristate::False
+                    },
+                    ..tsr_core::CompilerOptions::default()
+                });
+            } else {
+                checker.set_strict_null_checks(strict);
+            }
+            let i = checker.intrinsics();
+            assert_eq!(i.undefined_widening.index(), if strict { 4 } else { 5 });
+            assert_eq!(checker.type_count(), 25);
+            assert_eq!(other_intrinsic_indices(i), other_ids);
+            assert_eq!(
+                checker.type_of(i.undefined_widening).flags,
+                tsr_checker::TypeFlags::UNDEFINED
+            );
+        }
+        // Select loose only after the identity/allocation checks, then query:
+        // global reseeding is a separate prerequisite, deliberately not fixed.
+        checker.set_strict_null_checks(false);
+        assert_eq!(checker.get_type_of_symbol(bound.undefined_symbol().unwrap()), ordinary);
+        assert_ne!(checker.intrinsics().undefined_widening, ordinary);
+    }
+}

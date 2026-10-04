@@ -1494,7 +1494,7 @@ impl<'a, 'n> Checker<'a, 'n> {
     pub fn apply_compiler_options(&mut self, options: &tsr_core::CompilerOptions) {
         let previous_strict_function_types = self.strict_function_types;
         // The strict family (`checker.go:919-926`).
-        self.strict_null_checks = options.strict_option_value(options.strict_null_checks);
+        self.set_strict_null_checks(options.strict_option_value(options.strict_null_checks));
         self.strict_builtin_iterator_return =
             options.strict_option_value(options.strict_builtin_iterator_return);
         self.strict_function_types = options.strict_option_value(options.strict_function_types);
@@ -1586,6 +1586,7 @@ impl<'a, 'n> Checker<'a, 'n> {
     /// types exist would leave a mixed store.
     pub fn set_strict_null_checks(&mut self, on: bool) {
         self.strict_null_checks = on;
+        self.intrinsics.select_strict_null_checks(on);
     }
 
     /// Set [`Checker::no_unchecked_side_effect_imports`] from a case's compiler

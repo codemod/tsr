@@ -54,8 +54,10 @@ pub struct Intrinsics {
     pub unknown_union: TypeId,
     /// `undefinedType` — `checker.go:984`.
     pub undefined: TypeId,
-    /// `undefinedWideningType` — the empty-array element in non-strict mode.
+    /// `undefinedWideningType` — aliases ordinary undefined in strict mode.
     pub undefined_widening: TypeId,
+    /// Retained loose-mode identity, selected without allocating new types.
+    loose_undefined_widening: TypeId,
     /// `missingType` — `checker.go:986`; see `exactOptionalPropertyTypes`.
     pub missing: TypeId,
     /// `nullType` — `checker.go:989`.
@@ -128,7 +130,7 @@ impl Intrinsics {
         let unresolved = store.new_intrinsic(TypeFlags::ANY, "unresolved");
         let unknown = store.new_intrinsic(TypeFlags::UNKNOWN, "unknown");
         let undefined = store.new_intrinsic(TypeFlags::UNDEFINED, "undefined");
-        let undefined_widening = store.new_intrinsic(TypeFlags::UNDEFINED, "undefined");
+        let loose_undefined_widening = store.new_intrinsic(TypeFlags::UNDEFINED, "undefined");
         // `missingType` (`checker.go:986`): a DISTINCT undefined used for the
         // optionality a `?` adds under `exactOptionalPropertyTypes`; prints
         // `undefined`, removed at write positions.
@@ -160,7 +162,8 @@ impl Intrinsics {
             unresolved,
             unknown,
             undefined,
-            undefined_widening,
+            undefined_widening: undefined,
+            loose_undefined_widening,
             missing,
             null,
             string,
@@ -178,5 +181,10 @@ impl Intrinsics {
             true_type,
             false_type,
         }
+    }
+
+    /// Select the active identity before semantic queries (`checker.go:25027`).
+    pub(crate) fn select_strict_null_checks(&mut self, on: bool) {
+        self.undefined_widening = if on { self.undefined } else { self.loose_undefined_widening };
     }
 }
