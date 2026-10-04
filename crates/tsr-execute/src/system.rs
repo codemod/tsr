@@ -47,6 +47,17 @@ pub trait System {
     /// opt-in statistics report remains deterministic in virtual-filesystem tests.
     fn since_start(&self) -> Duration;
 
+    /// An independent opt-in work sink. Baseline hosts remain uninstrumented.
+    #[cfg(feature = "work-trace")]
+    fn work_trace(&self) -> Option<std::sync::Arc<crate::work_trace::WorkTrace>> {
+        None
+    }
+
+    /// Report probe failure separately from compiler diagnostic output.
+    /// Hosts exposing a sink must surface this warning to any trace consumer.
+    #[cfg(feature = "work-trace")]
+    fn work_trace_warning(&mut self, _message: &str) {}
+
     /// The version this compiler reports.
     ///
     /// A method rather than a constant because upstream's test harness pins it

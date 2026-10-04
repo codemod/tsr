@@ -35,6 +35,8 @@ impl<'a> Checker<'a, '_> {
     /// distinguishable from a computed answer or the conformance suite cannot
     /// tell a gap from a result.
     pub fn get_type_of_symbol(&mut self, symbol: SymbolId) -> TypeId {
+        #[cfg(feature = "work-trace")]
+        let _work = self.trace_symbol_work(crate::work_trace::Operation::SymbolTypeQuery, symbol);
         let flags = self.binder.symbols().get(symbol).flags;
         // `checker.go:16506`, and it is the **first** flags branch upstream
         // takes — before variable/property and before function/method.
@@ -3727,6 +3729,9 @@ impl<'a> Checker<'a, '_> {
     /// Ported from `Checker.getTypeOfVariableOrParameterOrPropertyWorker`
     /// (`checker.go:16578`).
     fn get_type_of_variable_or_parameter_or_property_worker(&mut self, symbol: SymbolId) -> TypeId {
+        #[cfg(feature = "work-trace")]
+        let _work =
+            self.trace_symbol_work(crate::work_trace::Operation::VariableTypeWorker, symbol);
         let Some(declaration) = self.binder.symbols().get(symbol).value_declaration else {
             return self.intrinsics.error;
         };

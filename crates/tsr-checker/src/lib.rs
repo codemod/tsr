@@ -172,6 +172,8 @@ pub mod unions;
 pub mod unused;
 mod variances;
 mod widening;
+#[cfg(feature = "work-trace")]
+pub mod work_trace;
 
 pub use checker::Checker;
 pub use flags::TypeFlags;

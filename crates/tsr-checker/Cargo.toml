@@ -8,6 +8,9 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 
+[features]
+work-trace = []
+
 [dependencies]
 bitflags = { workspace = true }
 rustc-hash = { workspace = true }

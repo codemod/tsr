@@ -5063,6 +5063,8 @@ impl<'a> Checker<'a, '_> {
     /// type `C` and *has* the type `typeof C`; asking the wrong one is how a
     /// baseline line ends up plausible and wrong.
     pub fn get_declared_type_of_symbol(&mut self, symbol: SymbolId) -> TypeId {
+        #[cfg(feature = "work-trace")]
+        let _work = self.trace_symbol_work(crate::work_trace::Operation::DeclaredTypeQuery, symbol);
         if let Some(&cached) = self.declared_types.get(&symbol) {
             return cached;
         }

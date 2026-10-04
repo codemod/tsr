@@ -136,6 +136,8 @@ impl Checker<'_, '_> {
     /// **every property of every `declare class` in the corpus**, ~25 of the 86
     /// wrong lines that measurement produced.
     pub fn check_source_file(&mut self, file: NodeId, context: FileContext) {
+        #[cfg(feature = "work-trace")]
+        let _work = self.trace_file_work(file);
         // Program-scoped, not file-scoped: the binder's cross-file merge
         // conflicts are reported once, on whichever file is checked first, and
         // each diagnostic carries its own declaration's file. §159.

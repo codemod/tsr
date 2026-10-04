@@ -20,6 +20,8 @@ pub struct OsSystem {
     default_library_path: String,
     started: Instant,
     output: std::io::Stdout,
+    #[cfg(feature = "work-trace")]
+    work_trace: Option<std::sync::Arc<crate::work_trace::WorkTrace>>,
 }
 
 impl OsSystem {
@@ -41,6 +43,8 @@ impl OsSystem {
             default_library_path: default_library_path(),
             started: Instant::now(),
             output: std::io::stdout(),
+            #[cfg(feature = "work-trace")]
+            work_trace: open_work_trace(),
         }
     }
 }
@@ -94,6 +98,48 @@ impl System for OsSystem {
     fn since_start(&self) -> Duration {
         self.started.elapsed()
     }
+
+    #[cfg(feature = "work-trace")]
+    fn work_trace(&self) -> Option<std::sync::Arc<crate::work_trace::WorkTrace>> {
+        self.work_trace.clone()
+    }
+
+    #[cfg(feature = "work-trace")]
+    fn work_trace_warning(&mut self, message: &str) {
+        let _ = writeln!(std::io::stderr(), "warning: TSR work trace incomplete: {message}");
+    }
+}
+
+#[cfg(feature = "work-trace")]
+fn open_work_trace() -> Option<std::sync::Arc<crate::work_trace::WorkTrace>> {
+    use crate::work_trace::{TraceIdentity, WorkTrace};
+
+    let path = std::env::var_os("TSR_WORK_TRACE")?;
+    if path.is_empty() {
+        return None;
+    }
+    // Never overwrite inputs or reuse a previous invocation's completion marker.
+    let file = match std::fs::OpenOptions::new().write(true).create_new(true).open(path) {
+        Ok(file) => file,
+        Err(error) => {
+            let _ = writeln!(std::io::stderr(), "warning: TSR work trace not started: {error}");
+            return None;
+        }
+    };
+    let pid = std::process::id();
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    Some(std::sync::Arc::new(WorkTrace::new(
+        Box::new(std::io::BufWriter::with_capacity(64 * 1024, file)),
+        TraceIdentity {
+            pid,
+            invocation_id: format!("{pid}-{nonce}"),
+            source_sha_claim: option_env!("TSR_WORK_TRACE_BUILD_SHA").map(str::to_owned),
+            binary_sha256_claim: std::env::var("TSR_WORK_TRACE_BINARY_SHA256").ok(),
+        },
+    )))
 }
 
 /// Where `lib.*.d.ts` is expected to be found.

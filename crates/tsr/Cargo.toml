@@ -8,9 +8,16 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 
+[features]
+work-trace = ["tsr-execute/work-trace"]
+
 [[bin]]
 name = "tsr"
 path = "src/main.rs"
+
+[[test]]
+name = "work_trace_cli"
+required-features = ["work-trace"]
 
 [dependencies]
 tsr-execute.workspace = true

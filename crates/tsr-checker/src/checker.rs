@@ -827,6 +827,8 @@ pub struct Checker<'a, 'n> {
     /// that must not report about a **library** type. See
     /// [`Checker::set_checked_files`].
     pub(crate) checked_files: rustc_hash::FxHashSet<NodeId>,
+    #[cfg(feature = "work-trace")]
+    pub(crate) work_observer: Option<std::sync::Arc<dyn crate::work_trace::WorkObserver>>,
     /// Blocks that have already reported
     /// `Statements are not allowed in ambient contexts`.
     ///
@@ -1382,6 +1384,8 @@ impl<'a, 'n> Checker<'a, 'n> {
             referenced_member_names: crate::unused::MemberNames::default(),
             file_is_ambient: false,
             checked_files: rustc_hash::FxHashSet::default(),
+            #[cfg(feature = "work-trace")]
+            work_observer: None,
             ambient_statement_reported: rustc_hash::FxHashSet::default(),
             enum_checked: rustc_hash::FxHashSet::default(),
             merged_spaces_checked: rustc_hash::FxHashSet::default(),

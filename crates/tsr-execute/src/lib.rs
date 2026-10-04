@@ -28,6 +28,8 @@ pub mod help_all;
 pub mod os_system;
 pub mod show_config;
 pub mod system;
+#[cfg(feature = "work-trace")]
+pub mod work_trace;
 
 use tsr_diagnostics::{Diagnostic, format::LocatedDiagnostic, messages};
 use tsr_path::{combine_paths, for_each_ancestor_directory, normalize_path};
@@ -40,6 +42,23 @@ pub use system::{System, VERSION};
 ///
 /// The process's exit code is this value.
 pub fn command_line(sys: &mut dyn System, args: &[String]) -> ExitStatus {
+    #[cfg(feature = "work-trace")]
+    let trace = sys.work_trace();
+    #[cfg(feature = "work-trace")]
+    if let Some(trace) = &trace {
+        trace.start(args);
+    }
+    let status = command_line_worker(sys, args);
+    #[cfg(feature = "work-trace")]
+    if let Some(trace) = trace {
+        if let Some(error) = trace.finish(status.code()) {
+            sys.work_trace_warning(&error);
+        }
+    }
+    status
+}
+
+fn command_line_worker(sys: &mut dyn System, args: &[String]) -> ExitStatus {
     // `-b` must be the *first* argument to mean build mode; anywhere else it is
     // an ordinary unknown option, which the parser's did-you-mean handles.
     if let Some(first) = args.first() {

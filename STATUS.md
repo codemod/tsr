@@ -46,6 +46,18 @@ a normal diagnostic exit. [Source boundaries](docs/architecture/native-check-tra
 keep lazy forcing, budget/provenance and producer completion unverified. No
 production checker change or speed claim follows from these counts.
 
+TSR's opt-in `work-trace` producer (`tsr-1yb.1.2.3`), pre-work `7762af68` plus
+the recorded patch manifest, now emits actual source/query/variable-worker
+entries, Program-file eligibility and serial checker construction. Fifteen
+public off/on/repeat runs preserve complete output and 68 loaded identities:
+TSR performs 4 normal/0 noCheck/5 declaration-enabled full checks versus pinned
+native 3/0/67. New P1 `tsr-1yb.1.1.2` owns CLI eligibility alignment. Worker
+requests still create one TSR checker; admission and full forcing remain
+unverified. Seven virtual and two physical controls cover write/flush failure,
+stale files and killed invocations. The ordinary build ignores the trace env;
+instrumentation and paired small-fixture overhead stay outside speed acceptance.
+[Producer boundaries and receipts](docs/architecture/tsr-work-trace-producer.md).
+
 ### Current checker checkpoint — four parallel native fidelity ports
 
 Production revision **`7942ce47`**, pinned native **`5b1047d`**:
@@ -2631,6 +2643,14 @@ rendering `any` for `errorType` (ADR-0038).
 ---
 
 ## 4. What is next — the scored board
+
+Performed-work producer `.1.2.3` has a verified, feature-gated Rust slice;
+broader native forcing, qualified provenance and admission evidence remain in
+progress. Independently ready P1 `.1.1.2` aligns the observed JSON/library
+eligibility mismatch before any comparable ratio is accepted. Preserve current
+mapper/receiver/worker claims and keep `.1.2.2` input coverage, `.1.2.4` trace
+validation and representative-workload gates separate. The median TSR/native
+wall requirement <=0.50 remains unmet and unverified.
 
 Observational publication `.8.1` is complete: fixed run `37232944393` passed,
 and its downloaded artifact contains five complete pairs per mode. The earlier
@@ -6028,6 +6048,18 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+### Source/query entry counts as complete work — probe patch on `7762af68`
+
+The permanent bounded producer reports 4 normal and 5 declaration-enabled TSR
+full-file entries on the 68-file public control; native reports 3 and 67.
+JSON/libraries and one actual TSR instance expose different work despite matching
+loaded identities and complete diagnostics. Three symbol queries/two declared
+queries include hits and cannot stand for all recomputation or lazy forcing.
+Even parseable end records require no trace warning and a normal child outcome;
+the final-flush failure control preserves end records while warning. Do not set
+work/input/provenance comparability or infer a native speed ratio from this
+slice. `.1.1.2` owns semantic scope alignment; broader `.1.2.3`/`.1.2.4` remain.
 
 ### Performed work from loaded/tracer counts — inspected `8209086f`, native `5b1047d`
 
@@ -12545,6 +12577,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
+| 2026-10-04 | `7762af68` plus qualified producer patch | not remeasured | not remeasured | Opt-in actual-work producer; no speed claim | `tsr-1yb.1.2.3`: 15 public off/on/repeat children preserve 68 loaded identities/output, 4/0/5 TSR full checks versus native 3/0/67, one actual serial instance. Seven virtual/two physical controls cover write/flush, stale-file and abort boundaries; 2,924 feature-enabled release workspace tests/258 blocks, strict Clippy both modes and formatting. Forty separate paired overhead children preserve output. Ordinary build ignores observer environment. New P1 `.1.1.2` owns eligibility alignment; forcing/provenance/input/worker admission and native median <=0.50 remain unverified. |
 | 2026-10-04 | `8209086f` (CI fix; native trace inspection) | not remeasured | not remeasured | CI publication verified and native work boundary evidence | Portable status fix pushed with45 script passes; fixed run37232944393 passed, downloaded reports verify5pairs/mode,20measuredPIDs,66loaded/1diagnostic. Publication8.1 completed. Native15 off/on/repeat controls preserve68loaded/output, count3/0/67fullchecks; a16th proves trace I/O failure can return normal diagnostic exit. Native synthetic IDs/type dumps cannot certify forcing/budgets; no checker corpus or speed claim. |
 | 2026-10-04 | `02fafbc0` (frozen compiler; reporting changes separately reviewed) | not remeasured | not remeasured | Whole-project observational CI plumbing | `tsr-1yb.8.1`: 44 script tests, workflow syntax/order guards and five public pairs per mode; 66 loaded files and one complete diagnostic match. Warmup/preflight failures persist child evidence; setup failure cannot reuse stale output. Remote workflow/artifact verification remains pending. No representative throughput, corpus delta or verified native <=0.50 claim. |
 | 2026-10-04 | `9c176c03` (base plus hashed helper) | unchanged | unchanged | CJS component-vector removal; isolated speed gain | `tsr-1yb.2.1.3.1.2`: normal paired5+5 gains1.04%/1.52%, median saves43.423/63.893ms;474251type rows and10570eligible diagnostics byte-identical,460045RIGHT preserved.45852native path pairs,1364checked identities/order,14015loaded,122complete app diagnostics;204release tests/1existingignore, strictClippy/format, native95resolver/96loader snapshots unchanged. Observed51018inputs stable; no RSS or comparable native<=0.50 claim. |

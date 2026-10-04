@@ -246,6 +246,19 @@ pub fn run_compilation(
         },
     );
     let program_finished = sys.since_start();
+    #[cfg(feature = "work-trace")]
+    let work_trace = sys.work_trace();
+    #[cfg(feature = "work-trace")]
+    if let Some(trace) = &work_trace {
+        trace.program(
+            &program,
+            &options,
+            &root_files,
+            &raw,
+            &current_directory,
+            sys.fs().use_case_sensitive_file_names(),
+        );
+    }
 
     // A root file the loader could not reach is a diagnostic, not silence.
     // Upstream reports it from `processAllProgramFiles`
@@ -291,6 +304,11 @@ pub fn run_compilation(
         Some(&program),
     );
     checker.apply_compiler_options(&options);
+    #[cfg(feature = "work-trace")]
+    if let Some(trace) = work_trace {
+        trace.checker_created(&options);
+        checker.set_work_observer(trace);
+    }
 
     // Only the program's own files are checked, never the libraries — upstream
     // reports nothing in `lib.*.d.ts` under any configuration, and a diagnostic

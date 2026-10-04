@@ -8,7 +8,15 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 
+[features]
+work-trace = ["dep:serde_json", "tsr-checker/work-trace"]
+
+[[test]]
+name = "work_trace"
+required-features = ["work-trace"]
+
 [dependencies]
+serde_json = { workspace = true, optional = true }
 tsr-core.workspace = true
 tsr-compiler.workspace = true
 tsr-checker.workspace = true
