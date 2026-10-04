@@ -22,9 +22,9 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
-### Current checker checkpoint — mode-selected undefined widening identity
+### Current checker checkpoint — contextual tuple length and optional prefix
 
-Measured production tree **`73add1f8`**, against published `4e1a8311`:
+Measured production tree **`ea3b3e69`**, against published `a0df934c`:
 **459,938/478,855 assertions (96.05%)**, **7,188/9,538 complete cases
 (75.36%)**. The 99% target requires 474,067 matches; **14,129 remain**.
 Pinned native `5b1047d1` and both denominators are unchanged. Aligned verdicts:
@@ -33,6 +33,20 @@ The static-context/class-copy prefix `ef3b10a5` is production-identical to audit
 `f6b00125`; rebasing preserved concurrent documentation-only `bc27fae2` and
 the exact `crates` tree. Parameter-context publication preserved documentation-only
 `a7901196`, with source `302573c6` identical to measured `2def452d`.
+
+The contextual tuple element reader now distinguishes unknown source length
+from a known suffix position. Exact-optional fixed-prefix reads remove implicit
+missing while preserving explicit undefined. The shared optional closure,
+ending/slice reads, union completeness and index/iteration refusal paths remain
+unchanged; current callers mechanically pass known lengths. Four focused tests
+pass on this prefix, and the archived 108 native Program controls distinguish
+prefix/suffix/slice contexts and raw missing versus real undefined in three
+modes and query orders. Both full checker and complete diagnostic captures are
+**byte-identical** to `a0df934c`, with zero transitions, payload or population
+changes. This prerequisite claims no corpus gain or general generic optional-tail
+representation parity. Annotated array-binding admission remains separate;
+no binding/default-adjustment or static caller is added. Evidence is retained in
+`target/array-context-wave26-evidence.tar.gz`.
 
 The active undefined-widening slot now aliases ordinary undefined in strict mode
 and selects the retained distinct undefined identity in loose mode. Selection
@@ -271,7 +285,7 @@ payload gains the two expected TS2322 occurrences. Function copies remove the
 false TS2339 at `esModuleInteropImportNamespace/index.ts:2:5` without losing a
 matched occurrence.
 
-**2,816 release workspace tests across 242 result blocks**, six existing ignores;
+**2,820 release workspace tests across 242 result blocks**, six existing ignores;
 the preceding object-binding checkpoint also passed **2,816 all-target release
 tests across 343 result blocks**, four ignores. Current
 strict release workspace/all-target Clippy, formatting and diff checks pass.
