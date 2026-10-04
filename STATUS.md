@@ -22,17 +22,44 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
-### Current checker checkpoint — instantiated anonymous property context
+### Current checker checkpoint — annotated non-rest array binding contexts
 
-Measured production tree **`d7b56928`**, against published `e260f7e0`:
-**459,962/478,855 assertions (96.05%)**, **7,189/9,538 complete cases
-(75.37%)**. The 99% target requires 474,067 matches; **14,105 remain**.
+Measured production tree **`24b62d91`**, against published `30d5e218`:
+**459,974/478,855 assertions (96.06%)**, **7,190/9,538 complete cases
+(75.38%)**. The 99% target requires 474,067 matches; **14,093 remain**.
 Pinned native `5b1047d1` and both denominators are unchanged. Aligned verdicts:
-**474,251 total; 459,962 RIGHT; 2,094 GAP; 12,195 WRONG**.
+**474,251 total; 459,974 RIGHT; 2,094 GAP; 12,183 WRONG**.
 The static-context/class-copy prefix `ef3b10a5` is production-identical to audited
 `f6b00125`; rebasing preserved concurrent documentation-only `bc27fae2` and
 the exact `crates` tree. Parameter-context publication preserved documentation-only
 `a7901196`, with source `302573c6` identical to measured `2def452d`.
+
+Annotated non-rest array binding initializers now project the declaration index,
+including holes, through the existing unknown-length contextual element reader.
+Name gates, annotation-holder recursion, ordinary object projection and all
+reader/default-adjustment/inference/fallback/cache bodies remain unchanged.
+Fresh full captures add **12 WRONG→RIGHT**: six each in
+`contextualTypingArrayDestructuringWithDefaults` and
+`staticFieldWithInterfaceContext`. All transition keys and complete before/after
+payloads match the worker. There are **zero RIGHT losses, GAP→WRONG, changed
+remaining-WRONG payloads or population changes**. One complete checker case
+improves. All **10,570 complete diagnostic records are byte-identical**, including
+duplicates and empty-positive cases: **20,685 matches, 3,838 extras**.
+Independent archived native replay passes **53 fixtures, 954 Program runs and
+312 TS2322 occurrences**; this is not a fresh Go execution or Rust generic-tail
+representation-parity claim. All **16 contextual tests** pass. Workspace release
+passes **2,830 tests, zero failures, six existing ignores**, plus six loader
+controls. Formatting, strict release workspace/all-target Clippy, scorepair and
+coverage pass. The diagnostics snapshot is unchanged. Initialized rest and
+unannotated/implied holders remain unsupported, not native refusals. A wrong
+literal remains `"wrong"` under the new `"right"` context; its pre-existing missing
+TS2322 is separately investigated read-only in tsr-4m7, with the failed exploratory
+diagnostic pin retained. Evidence is in `target/array-binding-wave30-evidence.tar.gz`.
+Publication preserves upstream `30d5e218`'s metadata/trace documentation and
+`030f2d26`'s deprecated-script removal/passive issue export, plus `46c904d7`/
+`143b2eed`'s loader-depth replay documentation. Rebased compiler/test sources are
+byte-identical to measured `24b62d91` outside the refreshed checker snapshot. Post-rebase
+contextual and loader controls, formatting and strict all-target Clippy pass.
 
 An existing named property of an already-instantiated anonymous, nonreference
 context now supplies its substituted semantic value instead of rereading the
@@ -41,7 +68,7 @@ mapped/intersection/union priority and later reference/inference substitution
 are unchanged. No producer, member API, mapper, readiness, cache or reporter
 changes are included. The worker consumer/private test/conformance bodies are
 byte-identical after integration; all existing contextual tests were retained.
-Fresh full captures add **13 WRONG→RIGHT and 11 GAP→RIGHT**, with **zero RIGHT
+Against `e260f7e0`, fresh full captures add **13 WRONG→RIGHT and 11 GAP→RIGHT**, with **zero RIGHT
 losses, GAP→WRONG, changed checker payloads or population changes**. Complete
 10,570-case diagnostics retain all **20,685 matched occurrences** and reduce
 extras **3,841→3,838**. `coAndContraVariantInferences7` becomes EMPTY_RIGHT.
@@ -68,8 +95,17 @@ unchanged and no supplier repair is included. Bundle/raw SHA256 are
 `cf773e353dc23093f2b699a15125e3c11062938a0eb24ba81920cda3c028f605` /
 `fd778c45ed9ffb80488e35600ba2d6274cbc68e147c104154d99767531c9d704`.
 Native copies JSDoc into declaration.Type before auto classification; the
-effective-annotation prerequisite is read-only tsr-h5u, not a production
-reservation. Annotated array-binding tsr-1gr is a separate pending candidate.
+read-only tsr-h5u census verifies **48 configurations and 4,176 raw rows per
+implementation**, retaining disagreements. It disproves reusing the current
+reader as an auto guard: native uses the last hosted document and sequential
+first-still-untyped declaration ownership; Rust exposes the first tag to every
+declaration. Direct hosts and mixed typedef/callback trees also differ. Evidence
+SHA256 is `0c4a69156bb5f82c58da37b476c4d288c25c71ce55996566bb04cf0c2ac5a88d`.
+Only direct variable-declaration doc capture is separately reserved in tsr-yx3;
+effective annotation selection and flow/loop admission remain unreserved.
+Supported module-alias shadow accessibility is separately reserved in tsr-ovt,
+with VALUE versus NAMESPACE meaning preserved; qualified chains, internal alias
+admission and synthetic-default target resolution remain outside that unit.
 
 The two omitted/no-initializer IIFE contextual parameter fallbacks now select
 active undefined-widening, including an empty effective tuple spread. Supplied
@@ -96,8 +132,8 @@ prefix/suffix/slice contexts and raw missing versus real undefined in three
 modes and query orders. Both full checker and complete diagnostic captures are
 **byte-identical** to `a0df934c`, with zero transitions, payload or population
 changes. This prerequisite claims no corpus gain or general generic optional-tail
-representation parity. Annotated array-binding admission remains separate;
-no binding/default-adjustment or static caller is added. Evidence is retained in
+representation parity. Annotated non-rest array-binding admission is now included
+above; no binding/default adjustment or broader static reader is added. Evidence is retained in
 `target/array-context-wave26-evidence.tar.gz`.
 
 Publication preserves upstream `533f50dc`'s loader-read example and performance
@@ -125,7 +161,8 @@ without invoking destructure inference, default evaluation or undefined strippin
 Initializer-only reads retain renamed/literal/numeric keys and reject computed
 nonliteral syntax before recursion. Nested nullable holders intentionally have
 no inner context; ordinary object lookup is not nullable contextual mapping.
-Arrays and unannotated-root inference remain unsupported. Against `30499bbf`,
+Annotated non-rest arrays are now included above; initialized rest and
+unannotated-root inference remain unsupported. Against `30499bbf`,
 this adds **47 WRONG→RIGHT and 11 GAP→RIGHT**, with **zero RIGHT losses,
 GAP→WRONG, changed checker payloads or population changes**; no complete case is
 added. All 10,570 complete diagnostic records are **byte-identical**. Three
@@ -177,9 +214,9 @@ unique-symbol names remain unsupported. The unit adds **42 WRONG→RIGHT**, with
 GAP→WRONG, changed checker payloads or population changes**; one complete case
 improves. `staticFieldWithInterfaceContext` gains 18 of its 45 mismatches and
 loses six false TS2322 diagnostics, but retains 27 mismatches and three false
-diagnostics at the static-only prefix. Written parameter defaults are now
-included above; array bindings, unannotated defaults and broader static readers
-remain separate.
+diagnostics at the static-only prefix. Written parameter defaults and annotated
+non-rest array bindings are now included above; unannotated defaults and broader
+static readers remain separate.
 
 Known class-source module copies now filter lookup and enumeration through the
 existing spreadable-property predicate on winning raw symbols after shadowing.

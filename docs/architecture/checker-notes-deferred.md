@@ -3010,6 +3010,19 @@ is included here. Preservation evidence:
 `target/wsb-dc16a8de-held-evidence.tar.gz`, SHA256
 `fd778c45ed9ffb80488e35600ba2d6274cbc68e147c104154d99767531c9d704`.
 
+Read-only tsr-h5u on published `e260f7e0` rejects an immediate reuse of Rust's
+JSDoc reader in the auto guard. Native reparses only the last hosted document;
+each standalone `@type` owns the first still-untyped declaration. Rust's reader
+scans all statement docs and exposes one tag to every declaration, so that guard
+would incorrectly freeze an unowned automatic variable. Direct declaration docs
+are missing from Rust's host table, and mixed typedef/callback ownership is not
+equivalent. The 48 configurations and 4,176 raw rows per implementation retain
+all disagreements; successful probes do not imply parity. Evidence SHA256:
+`0c4a69156bb5f82c58da37b476c4d288c25c71ce55996566bb04cf0c2ac5a88d`.
+Only direct-doc producer capture is separately reserved in tsr-yx3, through the
+existing sparse JSDocTable with no doc-parent edge. Annotation selection and
+flow/loop admission remain separate and unreserved.
+
 `compiler/parsingDeepParenthensizedExpression` heads the wrong-line board outside the
 priced subsystems at **137 WRONG**, and **136 of those want exactly `error`**. It is
 the whole of the "oracle itself says `error`" population: across the corpus only
