@@ -307,7 +307,6 @@ impl Checker<'_, '_> {
         if self.strict_null_checks
             && let Some(declaration) =
                 symbol.and_then(|symbol| self.binder.symbols().get(symbol).value_declaration)
-            && self.jsdoc_parameter_annotation(declaration).is_some()
             && let Some(Node::ParameterDeclaration(parameter)) = self.node_map.get(declaration)
             && let Some(initializer) = parameter.initializer
             && self.get_type_facts(declared_type).contains(TypeFacts::IS_UNDEFINED)

@@ -2576,6 +2576,39 @@ impl Checker<'_, '_> {
             let concrete: Signature = if candidate.type_parameters.is_empty() {
                 candidate.clone()
             } else {
+                // A missing required array member rejects every element-type
+                // instantiation before inference. Identity alone is not proof:
+                // an empty global Array<T> can accept primitives under noLib.
+                if argument_types.iter().enumerate().any(|(index, &argument)| {
+                    let flags = self.store.get(argument).flags;
+                    if self.is_context_sensitive_argument(&arguments[index])
+                        || !flags.intersects(TypeFlags::PRIMITIVE)
+                        || flags.intersects(
+                            TypeFlags::NULLABLE | TypeFlags::UNION | TypeFlags::ANY_OR_UNKNOWN,
+                        )
+                    {
+                        return false;
+                    }
+                    let Some(parameter) = self.signature_type_at_position(candidate, index) else {
+                        return false;
+                    };
+                    if self.signature_array_element(parameter).is_none() {
+                        return false;
+                    }
+                    let apparent = self.apparent_type(argument);
+                    if self.get_property_names_of_type(apparent).is_none() {
+                        return false;
+                    }
+                    self.get_property_names_of_type(parameter).is_some_and(|names| {
+                        names.iter().any(|name| {
+                            self.get_property_of_type(parameter, name)
+                                .is_some_and(|property| !self.property_is_optional(property))
+                                && self.get_property_of_type(apparent, name).is_none()
+                        })
+                    })
+                }) {
+                    continue;
+                }
                 // inferTypeArguments re-checks every argument with this
                 // candidate's parameter type as context; an array literal's
                 // tuple-ness depends on it, so a previous candidate's (or the
