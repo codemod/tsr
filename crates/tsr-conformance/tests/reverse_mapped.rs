@@ -182,3 +182,54 @@ export const manyReads = reversedChain.first.second.third.fourth.fifth;
         assert!(lines.iter().any(|line| line == wanted), "missing {wanted}: {lines:?}");
     }
 }
+
+/// Native `resolveReverseMappedTypeMembers` filters by the source name type,
+/// including computed names whose semantic key has no raw binder member.
+/// Numeric-looking string keys must not pass the number constraint.
+#[test]
+fn reverse_mapped_filters_use_captured_computed_name_origins() {
+    let source = r"// @strict: true
+// @target: es2015
+type Box<T> = { value: T };
+declare function numbers<T>(value: { [K in keyof T & number]: Box<T[K]> }): T;
+declare function strings<T>(value: { [K in keyof T & string]: Box<T[K]> }): T;
+declare const positive: 3;
+declare const negative: -4;
+declare const quoted: '8';
+const input = {
+    [positive]: { value: 23 },
+    [negative]: { value: 'negative' },
+    [quoted]: { value: false },
+    '01': { value: 37 },
+    0: { value: 'zero' },
+    4294967294: { value: true },
+    '4294967295': { value: 'boundary' }
+};
+export const numericResult = numbers(input);
+export const stringResult = strings(input);
+declare const ordinary: { 3: Box<boolean>; '8': Box<string> };
+export const ordinaryNumbers = numbers(ordinary);
+export const ordinaryStrings = strings(ordinary);
+";
+    let case = TestCase::parse("probe/reverse-captured-keys", "reverse-captured-keys.ts", source);
+    let expected: Vec<_> = case
+        .files
+        .iter()
+        .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
+        .collect();
+    let lines: Vec<_> = types_producer::assertions_for_case(&case, &expected, false)
+        .iter()
+        .flatten()
+        .map(types_producer::Assertion::line)
+        .collect();
+    // Independently checked with tsgo 5b1047d declarations, --strict --target es2015.
+    for wanted in [
+        "numericResult : { 3: number; [-4]: string; 0: string; 4294967294: boolean; }",
+        "stringResult : { \"8\": boolean; '01': number; '4294967295': string; }",
+        "ordinaryNumbers : { 3: boolean; }",
+        "ordinaryStrings : { '8': string; }",
+    ] {
+        assert!(lines.iter().any(|line| line == wanted), "missing {wanted}: {lines:?}");
+    }
+    assert!(tsr_conformance::diagnostics_suite::reported_for(&case).is_empty());
+}

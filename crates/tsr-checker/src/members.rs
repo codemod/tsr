@@ -2259,7 +2259,7 @@ impl Checker<'_, '_> {
     /// deliberately withholds the prototype road there (TS2748-family, the
     /// §117 fallback's own recorded gate), so `E.toString`'s error-any IS
     /// the established answer (constEnumNoObjectPrototypePropertyAccess 14).
-    fn miss_is_established(&mut self, receiver: TypeId, name: &str) -> bool {
+    pub(crate) fn miss_is_established(&mut self, receiver: TypeId, name: &str) -> bool {
         // §125, re-measured 2026-08-10 as §161 (`checker-notes-narrow.md`):
         // the union per-constituent arm re-refused at 63:213 — the same
         // ~1:3.4 as the original 39:164 despite the flow arc's +170. The

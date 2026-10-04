@@ -322,18 +322,31 @@ impl Checker<'_, '_> {
         at
     }
 
-    /// Constant-variable slice of `evaluateEntity` (checker.go:24024).
+    /// Constant-variable/global-number slice of `evaluateEntity` (checker.go:24024).
     /// Each initializer becomes the location for its recursive evaluation, so
     /// forward references and self/dependent initializer cycles cannot fold.
     fn evaluate_template_constant(
-        &self,
+        &mut self,
         expression: &Expression<'_>,
         location: NodeId,
         active: &mut Vec<NodeId>,
     ) -> Option<EvaluatedValue> {
         evaluate_constant_expression_with(expression, &mut |entity| {
-            let symbol = self.constant_entity_symbol(entity)?;
+            let symbol = self.constant_entity_symbol(entity, SymbolFlags::VALUE)?;
             let symbol = self.binder.merged_symbol(symbol);
+            // Pinned 5b1047d: evaluateEntity recognizes these numbers only
+            // through global-symbol identity, never a property's spelling or
+            // a shadowing/imported variable with the same name.
+            if let Expression::Identifier(identifier) = entity
+                && matches!(identifier.text, "Infinity" | "NaN")
+                && self.binder.global(identifier.text) == Some(symbol)
+            {
+                return Some(EvaluatedValue::Number(if identifier.text == "Infinity" {
+                    f64::INFINITY
+                } else {
+                    f64::NAN
+                }));
+            }
             if !self.is_constant_variable(symbol) {
                 return None;
             }
@@ -360,19 +373,27 @@ impl Checker<'_, '_> {
         })
     }
 
-    /// Resolve only entity-name expressions. Object property values are not
-    /// constant variables; namespace exports retain their declaration symbol.
-    fn constant_entity_symbol(&self, expression: &Expression<'_>) -> Option<tsr_binder::SymbolId> {
-        match expression {
+    /// `resolveEntityName` (pinned 5b1047d checker.go:15772), ignoring errors.
+    /// Object properties are not namespace exports. Alias targets use the
+    /// existing checker-owned resolver (including its unresolved-chain bound),
+    /// not a value/type cache; the caller evaluates each terminal declaration
+    /// with its own location and evaluation-local active declaration stack.
+    fn constant_entity_symbol(
+        &mut self,
+        expression: &Expression<'_>,
+        meaning: SymbolFlags,
+    ) -> Option<tsr_binder::SymbolId> {
+        let symbol = match expression {
             Expression::Identifier(identifier) => self.binder.resolve_name(
                 self.nodes,
                 self.node_map,
                 identifier.node_id?,
                 identifier.text,
-                SymbolFlags::VALUE,
+                meaning,
             ),
             Expression::PropertyAccessExpression(access) => {
-                let owner = self.constant_entity_symbol(&access.expression?)?;
+                let owner =
+                    self.constant_entity_symbol(&access.expression?, SymbolFlags::NAMESPACE)?;
                 let name = match access.name? {
                     tsr_ast::MemberName::Identifier(identifier) => identifier.text,
                     tsr_ast::MemberName::PrivateIdentifier(_) => return None,
@@ -385,7 +406,14 @@ impl Checker<'_, '_> {
                     .copied()
             }
             _ => None,
-        }
+        }?;
+        let symbol = self.binder.merged_symbol(symbol);
+        let symbol = if self.binder.symbols().get(symbol).flags.intersects(meaning) {
+            symbol
+        } else {
+            self.resolve_alias_fully(symbol)
+        };
+        self.binder.symbols().get(symbol).flags.intersects(meaning).then_some(symbol)
     }
 
     /// The §50 shape test + pseudo-narrow + re-projection
@@ -3034,7 +3062,7 @@ impl Checker<'_, '_> {
 
     /// getAwaitedTypeEx/createAwaitedTypeIfNeeded (checker.go): concrete
     /// unwrapping precedes the optional global Awaited<T> alias instantiation.
-    fn awaited_type(&mut self, id: TypeId) -> Option<TypeId> {
+    pub(crate) fn awaited_type(&mut self, id: TypeId) -> Option<TypeId> {
         let awaited = self.awaited_type_no_alias(id)?;
         if self.is_awaited_type_needed(awaited)?
             && let Some(symbol) = self.global_type_symbol_with_arity("Awaited", 1)

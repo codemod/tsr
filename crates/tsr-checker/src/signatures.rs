@@ -5775,12 +5775,14 @@ impl<'a> Checker<'a, '_> {
         // composite arm keeps the assertion anchor: its per-site layouts
         // ([T,T_1] vs [T_1,T]) are the decoded evidence for it.
         let site_anchor = signature.declaration;
+        let names_depth = self.render_type_parameter_names.allocations.len();
         let signature =
             &self.rename_type_parameters_for_site(signature.clone(), site_anchor, &mut throwaway);
         let scope_depth = self.render_type_parameter_scope.len();
         self.push_render_type_parameter_scope(signature);
         let out = self.signature_to_string_at_inner(signature, reference);
         self.render_type_parameter_scope.truncate(scope_depth);
+        self.render_type_parameter_names.allocations.truncate(names_depth);
         out
     }
 

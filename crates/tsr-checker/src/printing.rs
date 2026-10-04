@@ -13,9 +13,115 @@
 //! are handled explicitly below rather than left to `Display`.
 
 use crate::{
+    checker::Checker,
     flags::TypeFlags,
-    types::{Type, TypeData},
+    types::{Type, TypeData, TypeId},
 };
+
+/// Pinned tsgo 5b1047d: typeParameterToName / cloneNodeBuilderContext.
+/// Private Checker display state, keyed by semantic `TypeId` in this store.
+/// An absent entry is unallocated; only a completed name is published. No
+/// provisional entry or failure is cached. The outer `type_to_string_at` call
+/// clears allocations on success or refusal; signatures truncate to their
+/// inherited allocation depth so nested slots share names but siblings do not.
+/// Resolution uses the current print site and render scope, never a receiver
+/// mapper or alias spelling. Stored semantic types are not rewritten. Allocation
+/// scans only names in this print; union rendering walks existing constituents
+/// under `rendering_composites`, without forcing members or adding semantic reuse.
+#[derive(Default)]
+pub(crate) struct TypeParameterNames {
+    pub(crate) depth: usize,
+    pub(crate) allocations: Vec<(TypeId, String)>,
+}
+
+impl Checker<'_, '_> {
+    pub(crate) fn allocate_type_parameter_name(
+        &mut self,
+        id: TypeId,
+        symbol: tsr_binder::SymbolId,
+        enclosing: tsr_ast::NodeId,
+    ) -> String {
+        if let Some((_, name)) =
+            self.render_type_parameter_names.allocations.iter().find(|(owner, _)| *owner == id)
+        {
+            return name.clone();
+        }
+        if let Some((name, _)) =
+            self.render_type_parameter_scope.iter().rev().find(|(_, owner)| *owner == symbol)
+        {
+            return name.clone();
+        }
+        let raw = self.type_to_string(id);
+        let taken = |text: &str| {
+            self.render_type_parameter_scope.iter().any(|(name, _)| name == text)
+                || self.render_type_parameter_names.allocations.iter().any(|(_, name)| name == text)
+                || self
+                    .binder
+                    .resolve_name(
+                        self.nodes,
+                        self.node_map,
+                        enclosing,
+                        text,
+                        tsr_binder::SymbolFlags::TYPE,
+                    )
+                    .is_some_and(|found| {
+                        found != symbol
+                            && self
+                                .binder
+                                .symbols()
+                                .get(found)
+                                .flags
+                                .contains(tsr_binder::SymbolFlags::TYPE_PARAMETER)
+                    })
+        };
+        let mut text = raw.clone();
+        let mut suffix = 0usize;
+        while taken(&text) {
+            suffix += 1;
+            text = format!("{raw}_{suffix}");
+        }
+        self.render_type_parameter_names.allocations.push((id, text.clone()));
+        text
+    }
+
+    pub(crate) fn shadowed_parameter_union_text_at(
+        &mut self,
+        id: TypeId,
+        reference: tsr_ast::NodeId,
+    ) -> Option<String> {
+        let TypeData::Union { types, symbol: None, .. } = &self.store.get(id).data else {
+            return None;
+        };
+        // Origin-bearing unions already use their written entries. This seam
+        // only needs inferred unions with site-sensitive declared parameters.
+        if !types.iter().any(|member| self.type_parameter_symbols.contains_key(member))
+            || !self.rendering_composites.insert(id)
+        {
+            return None;
+        }
+        let parts = crate::unions::union_print_parts(&self.store, types);
+        let result = parts
+            .into_iter()
+            .map(|part| {
+                let member = match part {
+                    crate::unions::UnionPrintPart::Type(member) => member,
+                    crate::unions::UnionPrintPart::Keyword(text) => return Some(text.to_string()),
+                };
+                let text = self.type_to_string_at(member, reference)?;
+                let ty = self.store.get(member);
+                let parentheses = !prints_as_a_single_token(ty)
+                    && matches!(
+                        ty.data,
+                        TypeData::Intersection { .. } | TypeData::Anonymous { signature: true, .. }
+                    );
+                Some(if parentheses { format!("({text})") } else { text })
+            })
+            .collect::<Option<Vec<_>>>()
+            .map(|parts| parts.join(" | "));
+        self.rendering_composites.remove(&id);
+        result
+    }
+}
 
 /// Render a type.
 ///

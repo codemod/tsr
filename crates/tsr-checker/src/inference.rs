@@ -3673,9 +3673,20 @@ impl Checker<'_, '_> {
     /// used when a reverse mapped intersection constraint filters source keys.
     pub(crate) fn literal_type_of_property(&mut self, source: TypeId, name: &str) -> TypeId {
         use crate::flags::TypeFlags;
-        let declaration = self
-            .get_property_of_type(source, name)
-            .and_then(|symbol| self.binder.symbols().get(symbol).value_declaration);
+        // Native 5b1047d getLiteralTypeFromProperty reads the concrete source
+        // symbol's nameType before its valueDeclaration. A computed literal's
+        // semantic name need not exist in the raw binder table: its declaration
+        // is retained by the Checker-local member image. Use that origin before
+        // ordinary symbol lookup; do not infer a key type from printed_name.
+        // This reads the existing image; it publishes no additional member table.
+        let origin = self
+            .anonymous_properties
+            .get(&source)
+            .and_then(|(properties, _)| properties.iter().find(|property| property.name == name))
+            .and_then(|property| property.origin)
+            .or_else(|| self.get_property_of_type(source, name));
+        let declaration =
+            origin.and_then(|symbol| self.binder.symbols().get(symbol).value_declaration);
         let property =
             declaration.and_then(|id| self.node_map.get(id)).and_then(|node| match node {
                 tsr_ast::Node::PropertyAssignment(p) => Some(p.name),
@@ -5505,13 +5516,10 @@ impl Checker<'_, '_> {
     /// §102's print-only clone, the DECODED two-mechanism form
     /// (`promisePermutations` lines 6/15/24/33/62 are the proof set):
     ///
-    /// - SHADOW (`typeParameterShadowsOtherTypeParameterInScope`,
-    ///   `nodebuilderimpl.go:1396`): a parameter whose name resolves at the
-    ///   print SITE to a DIFFERENT type-parameter symbol renames — uniformly
-    ///   `name_1`, however many collide, and without claiming the suffix.
-    /// - BYTEXT (`:1420`): at a site where the name resolves to nothing, a
-    ///   LATER signature's same-named distinct parameter takes the first
-    ///   free `name_n` and claims it.
+    /// A shadowed parameter uses the shared node-builder allocation, skipping
+    /// inherited names and names that resolve to other parameter symbols.
+    /// The substitution below remains a print-only clone; stored signatures
+    /// and their parameter identities are untouched.
     ///
     /// The site's own signature always prints plain — its name resolves to
     /// itself. Falls back unchanged where identities cannot be established.
@@ -5586,7 +5594,9 @@ impl Checker<'_, '_> {
             // [T_1,T] and [T_1,T_1] per site, and asyncFunctionReturnType
             // holds ZERO renames at neutral sites — the byText half does not
             // exist in this corpus and regressed 763 lines when built.
-            let fresh_name = shadowed.then(|| format!("{}_1", parameter.name));
+            let fresh_name = shadowed.then(|| {
+                self.allocate_type_parameter_name(own_type, own_symbol.unwrap(), reference)
+            });
             if let Some(fresh_name) = fresh_name {
                 let fresh = self.store.new_named(
                     crate::flags::TypeFlags::TYPE_PARAMETER,

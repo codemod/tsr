@@ -4479,6 +4479,61 @@ impl<'a> Checker<'a, '_> {
         (!yields.is_empty()).then(|| self.get_union_type(&yields))
     }
 
+    /// `ForAwaitOf`'s async-first getIterationTypesOfIterableWorker and
+    /// getAsyncFromSyncIterationTypes (pinned tsgo 5b1047d, checker.go:6288).
+    /// Resolve each iterable union constituent before combining its yields.
+    /// Preserve async absence; decline sync absence (the pinned native
+    /// getAsyncFromSyncIterationTypes currently panics on its nil yield).
+    fn for_await_of_yield_types(&mut self, mut source: TypeId) -> Option<Vec<TypeId>> {
+        let mut seen = Vec::new();
+        while self.store.get(source).flags.contains(TypeFlags::TYPE_PARAMETER) {
+            if seen.contains(&source) {
+                return None;
+            }
+            seen.push(source);
+            source = self.type_parameter_constraint(source)?;
+        }
+        if source == self.intrinsics.error {
+            return None;
+        }
+        if source == self.intrinsics.any {
+            return Some(vec![source]);
+        }
+        if let crate::types::TypeData::Union { types, .. } = self.store.get(source).data.clone() {
+            let yields = types
+                .into_iter()
+                .map(|part| self.for_await_of_yield_types(part))
+                .collect::<Option<Vec<_>>>()?;
+            return Some(yields.into_iter().flatten().collect());
+        }
+        // getIterationTypesOfIterableFast uses global symbol identity, not
+        // written names. The async resolver awaits its generic yield slot.
+        if let Some((target, arguments)) = self.type_reference_targets.get(&source).cloned()
+            && let Some(&yield_type) = arguments.first()
+            && [
+                "AsyncIterable",
+                "AsyncIteratorObject",
+                "AsyncIterableIterator",
+                "AsyncGenerator",
+                "ReadableStreamAsyncIterator",
+            ]
+            .into_iter()
+            .filter_map(|name| self.binder.globals().get(name).copied())
+            .any(|symbol| self.binder.merged_symbol(symbol) == self.binder.merged_symbol(target))
+        {
+            return Some(vec![self.awaited_type(yield_type)?]);
+        }
+        if let Some(yields) = self.semantic_iterable_yield_types(source, true).ok()? {
+            return Some(yields);
+        }
+        let yields = self.for_of_yield_types(source)?;
+        if yields.is_empty() {
+            return None;
+        }
+        let yield_type = self.get_union_type(&yields);
+        Some(vec![self.awaited_type(yield_type)?])
+    }
+
     /// None is an invalid or unresolved protocol; an empty vector is a valid
     /// iterator with no yield. Consumers choose their own absent-yield recovery.
     /// A real never yield remains a one-element vector containing never.
@@ -4593,7 +4648,7 @@ impl<'a> Checker<'a, '_> {
         {
             return Some(vec![self.intrinsics.string]);
         }
-        if let Some(yield_type) = self.semantic_iterable_yield_types(iterated) {
+        if let Ok(Some(yield_type)) = self.semantic_iterable_yield_types(iterated, false) {
             return Some(yield_type);
         }
         // Preserve the declaration-based fallback while callable return types
@@ -4612,13 +4667,28 @@ impl<'a> Checker<'a, '_> {
         None
     }
 
-    /// The synchronous getIterationTypesOfIterableSlow/getIterationTypesOfMethod
-    /// path (checker.go:6460, :6541). Member reads carry inherited substitutions.
-    fn semantic_iterable_yield_types(&mut self, source: TypeId) -> Option<Vec<TypeId>> {
+    /// getIterationTypesOfIterableSlow/getIterationTypesOfMethod (:6460, :6541).
+    /// Ok(None) is decidably absent iteration types; Err is unsupported work,
+    /// never evidence permitting async-to-sync fallback. Ok(Some([])) has
+    /// iteration types but no yield; [never] is a real never yield.
+    ///
+    /// Private Checker owns the existing `TypeId` active set (no completed cache).
+    /// Async/sync queries run sequentially; re-entry declines, and removing the
+    /// active key publishes no reusable success or failure. Expensive work is
+    /// the member/signature/IteratorResult walk below, reusing inherited member
+    /// substitution and alias identities. No receiver or presentation image is
+    /// copied. Async absence reuses the existing per-name `miss_is_established`
+    /// class/interface contract, not a module or augmentation completeness claim.
+    /// Existing member-work attribution is tracked in tsr-1yb.11.1.
+    fn semantic_iterable_yield_types(
+        &mut self,
+        source: TypeId,
+        is_async: bool,
+    ) -> Result<Option<Vec<TypeId>>, ()> {
         if !self.resolving_iteration_types.insert(source) {
-            return None;
+            return Err(());
         }
-        let result = self.semantic_iterable_yield_types_worker(source);
+        let result = self.semantic_iterable_yield_types_worker(source, is_async);
         self.resolving_iteration_types.remove(&source);
         result
     }
@@ -4636,57 +4706,86 @@ impl<'a> Checker<'a, '_> {
         self.get_type_of_property_of_type(source, name)
     }
 
-    fn semantic_iterable_yield_types_worker(&mut self, source: TypeId) -> Option<Vec<TypeId>> {
+    fn semantic_iterable_yield_types_worker(
+        &mut self,
+        source: TypeId,
+        is_async: bool,
+    ) -> Result<Option<Vec<TypeId>>, ()> {
         if let crate::types::TypeData::Union { types, .. } = self.store.get(source).data.clone() {
             let types = types
                 .into_iter()
                 .map(|part| self.for_of_yield_types(part))
-                .collect::<Option<Vec<_>>>()?;
-            return Some(types.into_iter().flatten().collect());
+                .collect::<Option<Vec<_>>>()
+                .ok_or(())?;
+            return Ok(Some(types.into_iter().flatten().collect()));
         }
-        let iterator = self.iteration_property_type(source, "[Symbol.iterator]")?;
+        let name = if is_async { "[Symbol.asyncIterator]" } else { "[Symbol.iterator]" };
+        let Some(iterator) = self.iteration_property_type(source, name) else {
+            if self.get_property_of_type(source, name).is_some() {
+                return Err(());
+            }
+            return if self.declared_property_table(source).is_some()
+                || self.miss_is_established(source, name)
+                || self.store.get(source).flags.intersects(TypeFlags::PRIMITIVE)
+            {
+                Ok(None)
+            } else {
+                Err(())
+            };
+        };
         if self.is_error(iterator) {
-            return None;
+            return Err(());
         }
         if iterator == self.intrinsics.any {
-            return Some(vec![iterator]);
+            return Ok(Some(vec![iterator]));
         }
         if self
-            .get_property_of_type(source, "[Symbol.iterator]")
+            .get_property_of_type(source, name)
             .is_some_and(|symbol| self.property_is_optional(symbol))
         {
-            return None;
+            return Ok(None);
         }
-        let signatures = self.call_signatures_of_type(iterator)?;
+        let signatures = if self.store.get(iterator).flags.intersects(TypeFlags::PRIMITIVE) {
+            Vec::new()
+        } else {
+            self.call_signatures_of_type(iterator).ok_or(())?
+        };
         let mut returns = Vec::new();
         for signature in signatures {
             if self.signature_min_argument_count(&signature) == 0 {
                 if self.is_error(signature.r#type) {
-                    return None;
+                    return Err(());
                 }
                 returns.push(signature.r#type);
             }
         }
         if returns.is_empty() {
-            return None;
+            return Ok(None);
         }
         let iterator = self.get_intersection_type(&returns, None);
         if iterator == self.intrinsics.any {
-            return Some(vec![iterator]);
+            return Ok(Some(vec![iterator]));
         }
         let mut yields = Vec::new();
         let mut has_iteration_types = false;
         for name in ["next", "return", "throw"] {
             let Some(mut method) = self.iteration_property_type(iterator, name) else {
+                if is_async
+                    && (self.get_property_of_type(iterator, name).is_some()
+                        || (self.declared_property_table(iterator).is_none()
+                            && !self.miss_is_established(iterator, name)))
+                {
+                    return Err(());
+                }
                 if name == "next" && self.declared_property_table(iterator).is_none() {
-                    return None;
+                    return Err(());
                 }
                 // getIterationTypesOfMethod returns absent iteration types
                 // for a missing method. Other methods may still yield.
                 continue;
             };
             if self.is_error(method) {
-                return None;
+                return Err(());
             }
             if name == "next"
                 && self
@@ -4699,12 +4798,12 @@ impl<'a> Checker<'a, '_> {
                 method = self.get_non_nullable_type(method);
             }
             if method == self.intrinsics.any {
-                return Some(vec![method]);
+                return Ok(Some(vec![method]));
             }
             let signatures = if self.store.get(method).flags.intersects(TypeFlags::PRIMITIVE) {
                 Vec::new()
             } else {
-                self.call_signatures_of_type(method)?
+                self.call_signatures_of_type(method).ok_or(())?
             };
             if signatures.is_empty() {
                 // Native reports a diagnostic but contributes no iteration
@@ -4714,9 +4813,13 @@ impl<'a> Checker<'a, '_> {
             has_iteration_types = true;
             let returns: Vec<_> = signatures.iter().map(|signature| signature.r#type).collect();
             if returns.iter().any(|&ty| self.is_error(ty)) {
-                return None;
+                return Err(());
             }
             let mut result = self.get_intersection_type(&returns, None);
+            if is_async {
+                // Async slow awaits the method's IteratorResult, not its value.
+                result = self.awaited_type(result).ok_or(())?;
+            }
             // Native aliases already carry their body's union identity. Resolve
             // this port's named alias before separating yield and return arms.
             let mut visited = Vec::new();
@@ -4737,7 +4840,7 @@ impl<'a> Checker<'a, '_> {
                 _ => vec![result],
             };
             if parts.contains(&self.intrinsics.any) {
-                return Some(vec![self.intrinsics.any]);
+                return Ok(Some(vec![self.intrinsics.any]));
             }
             // getIterationTypesOfIteratorResult filters yield and return
             // constituents separately, then reads value on each entire union.
@@ -4756,11 +4859,11 @@ impl<'a> Checker<'a, '_> {
                         .get_type_of_property_of_type(part, "done")
                         .unwrap_or(self.intrinsics.false_type);
                     if self.is_error(done) {
-                        return None;
+                        return Err(());
                     }
                     match self.relate_ternary(truth, done, crate::relater::Relation::Assignable) {
                         crate::relater::Ternary::NotRelated => {}
-                        crate::relater::Ternary::Unknown => return None,
+                        crate::relater::Ternary::Unknown => return Err(()),
                         crate::relater::Ternary::Related => results.push(part),
                     }
                 }
@@ -4771,7 +4874,7 @@ impl<'a> Checker<'a, '_> {
                 let value = self.get_type_of_property_of_type(result, "value");
                 if let Some(value) = value {
                     if self.is_error(value) {
-                        return None;
+                        return Err(());
                     }
                     values[index] = Some(value);
                 } else if !results.iter().all(|&part| {
@@ -4780,7 +4883,7 @@ impl<'a> Checker<'a, '_> {
                             TypeFlags::PRIMITIVE | TypeFlags::NON_PRIMITIVE | TypeFlags::UNKNOWN,
                         )
                 }) {
-                    return None;
+                    return Err(());
                 }
             }
             if let Some(value) = values[0] {
@@ -4794,7 +4897,7 @@ impl<'a> Checker<'a, '_> {
         // combineIterationTypes preserves absence until all iterable union
         // constituents have contributed their yield types. No method types
         // at all is an invalid protocol, not a completed-only iterator.
-        has_iteration_types.then_some(yields)
+        Ok(has_iteration_types.then_some(yields))
     }
 
     /// Whether an iterator provably contributes no next/return/throw types.
@@ -5030,13 +5133,22 @@ impl<'a> Checker<'a, '_> {
             && let Some(statement) = self.nodes.parent(list)
             && self.nodes.kind(statement) == SyntaxKind::ForOfStatement
             && let Some(Node::ForInOrOfStatement(for_of)) = self.node_map.get(statement)
-            // `for await` iterates the AWAITED element — unported, and the
-            // non-async-position error renders `any` upstream; both decline.
-            && for_of.await_modifier.is_none()
             && let Some(expression) = for_of.expression
         {
+            let is_async = for_of.await_modifier.is_some();
             let iterated = self.check_expression(expression);
-            if let Some(element) = self.for_of_element_type(iterated) {
+            let element = if is_async {
+                self.for_await_of_yield_types(iterated).map(|yields| {
+                    if yields.is_empty() {
+                        self.intrinsics.any
+                    } else {
+                        self.get_union_type(&yields)
+                    }
+                })
+            } else {
+                self.for_of_element_type(iterated)
+            };
+            if let Some(element) = element {
                 let widened = self.get_widened_literal_type(element);
                 return Some(widened);
             }

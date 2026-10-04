@@ -790,6 +790,8 @@ pub struct Checker<'a, 'n> {
     /// §107: the RENDER scope — (name, symbol) of each signature's own type
     /// parameters, pushed for the duration of its slot rendering.
     pub(crate) render_type_parameter_scope: Vec<(String, tsr_binder::SymbolId)>,
+    /// Private node-builder allocations; never part of a semantic mapper.
+    pub(crate) render_type_parameter_names: crate::printing::TypeParameterNames,
     /// §91: the conditional-alias evaluator's binding frames — type-parameter
     /// symbol → the argument it is bound to during one body evaluation. Empty
     /// outside evaluation, which is the gate on the evaluator's node arms.
@@ -1363,6 +1365,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             jsdoc_hosts: FxHashMap::default(),
             identity_unmapped_type_parameters: false,
             render_type_parameter_scope: Vec::new(),
+            render_type_parameter_names: crate::printing::TypeParameterNames::default(),
             alias_body_evaluations: FxHashMap::default(),
             type_literal_types: FxHashMap::default(),
             type_literal_origins: FxHashMap::default(),
@@ -1751,36 +1754,14 @@ impl<'a, 'n> Checker<'a, 'n> {
     /// first free `name_n` is used. A parameter already allocated in an
     /// enclosing render answers that allocation — upstream's by-id cache.
     /// `docs/architecture/checker-99-shadowed-names.md`.
-    fn type_parameter_name_at(&self, id: TypeId, symbol: SymbolId, reference: NodeId) -> String {
-        let raw = self.type_to_string(id);
-        if let Some((name, _)) =
-            self.render_type_parameter_scope.iter().rev().find(|(_, owner)| *owner == symbol)
-        {
-            return name.clone();
-        }
+    pub(crate) fn type_parameter_name_at(
+        &mut self,
+        id: TypeId,
+        symbol: SymbolId,
+        reference: NodeId,
+    ) -> String {
         let enclosing = self.nodes.parent(reference).unwrap_or(reference);
-        let taken = |text: &str| {
-            self.render_type_parameter_scope.iter().any(|(name, _)| name == text)
-                || self
-                    .binder
-                    .resolve_name(self.nodes, self.node_map, enclosing, text, SymbolFlags::TYPE)
-                    .is_some_and(|found| {
-                        found != symbol
-                            && self
-                                .binder
-                                .symbols()
-                                .get(found)
-                                .flags
-                                .contains(SymbolFlags::TYPE_PARAMETER)
-                    })
-        };
-        let mut text = raw.clone();
-        let mut suffix = 0usize;
-        while taken(&text) {
-            suffix += 1;
-            text = format!("{raw}_{suffix}");
-        }
-        text
+        self.allocate_type_parameter_name(id, symbol, enclosing)
     }
 
     /// Chain-depth cap for [`Checker::symbol_chain`]. Upstream has none.
@@ -1839,6 +1820,16 @@ impl<'a, 'n> Checker<'a, 'n> {
     /// §14.
     #[must_use]
     pub fn type_to_string_at(&mut self, id: TypeId, reference: NodeId) -> Option<String> {
+        self.render_type_parameter_names.depth += 1;
+        let result = self.type_to_string_at_worker(id, reference);
+        self.render_type_parameter_names.depth -= 1;
+        if self.render_type_parameter_names.depth == 0 {
+            self.render_type_parameter_names.allocations.clear();
+        }
+        result
+    }
+
+    fn type_to_string_at_worker(&mut self, id: TypeId, reference: NodeId) -> Option<String> {
         if let Some(&symbol) = self.type_parameter_symbols.get(&id) {
             return Some(self.type_parameter_name_at(id, symbol, reference));
         }
@@ -1963,6 +1954,7 @@ impl<'a, 'n> Checker<'a, 'n> {
                 let mut site_renamed = false;
                 let mut out = String::from("{ ");
                 for signature in &signatures {
+                    let names_depth = self.render_type_parameter_names.allocations.len();
                     let rendered = self.rename_type_parameters_for_site(
                         signature.clone(),
                         reference,
@@ -1979,6 +1971,7 @@ impl<'a, 'n> Checker<'a, 'n> {
                     self.push_render_type_parameter_scope(&rendered);
                     out.push_str(&self.signature_member_text_at(&rendered, reference));
                     self.render_type_parameter_scope.truncate(scope_depth);
+                    self.render_type_parameter_names.allocations.truncate(names_depth);
                     out.push_str("; ");
                 }
                 out.push('}');
@@ -2023,6 +2016,12 @@ impl<'a, 'n> Checker<'a, 'n> {
                 if complete {
                     return Some(parts.join(" | "));
                 }
+            }
+            // An inferred union can have no written origin. Its semantic
+            // constituents, rather than its baked `T | T`, carry the distinct
+            // parameter identities needed by typeParameterToName.
+            if let Some(out) = self.shadowed_parameter_union_text_at(id, reference) {
+                return Some(out);
             }
             // §95 (`checker-notes-narrow.md`): a GENERIC reference re-renders
             // its ARGUMENT slots at the site — the baked argument text was

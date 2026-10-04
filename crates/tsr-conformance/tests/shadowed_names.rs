@@ -3,6 +3,7 @@
 //! declarationEmitShadowing,contextualSignatureInstantiation2}.types` and
 //! `conformance/conditionalTypes1.types`).
 use tsr_conformance::{TestCase, types_baseline::FileTypes, types_producer};
+use tsr_core::Idx;
 
 fn lines(source: &str) -> Vec<String> {
     let case = TestCase::parse("probe/shadowed_names", "probe.ts", source);
@@ -43,6 +44,51 @@ export declare namespace Promise {
         &[
             "try : { <R>(fn: () => Promise.Thenable<R>): Promise<R>; <R_1>(fn: () => R_1): Promise<R_1>; }",
             "try : { <R_1>(fn: () => Promise.Thenable<R_1>): Promise<R_1>; <R>(fn: () => R): Promise<R>; }",
+        ],
+    );
+}
+
+/// Allocation skips both written names and inherited display allocations.
+/// Sibling signatures restore their inherited naming state.
+#[test]
+fn suffixes_and_siblings_do_not_capture_parameter_names() {
+    expect(
+        r"// @strict: true
+// @target: es2015
+function suffixes<T, T_1>(value: T, reserved: T_1) {
+    return function inner<T>(local: T) { return Math.random() ? value : local; };
+}
+function siblings<T>(value: T) {
+    return {
+        first<T>(local: T) { return Math.random() ? value : local; },
+        second<T>(local: T) { return Math.random() ? value : local; }
+    };
+}
+",
+        &[
+            "suffixes : <T, T_1>(value: T, reserved: T_1) => <T_2>(local: T_2) => T | T_2",
+            "inner : <T>(local: T) => T_2 | T",
+            "first : <T>(local: T) => T_1 | T",
+            "second : <T>(local: T) => T_1 | T",
+        ],
+    );
+}
+
+/// Constraints/defaults reference the outer identity even though their written
+/// alias resolves to a same-spelled type parameter.
+#[test]
+fn constraints_and_defaults_keep_outer_parameter_names() {
+    expect(
+        r"// @strict: true
+// @target: es2015
+function constraints<T>(value: T) {
+    type Outer = T;
+    return function inner<T extends Outer = Outer>(local: T): Outer | T { return Math.random() ? value : local; };
+}
+",
+        &[
+            "constraints : <T>(value: T) => <T_1 extends T = T>(local: T_1) => T | T_1",
+            "inner : <T extends T_1 = T_1>(local: T) => T_1 | T",
         ],
     );
 }
@@ -107,5 +153,124 @@ fn retained_overloads_allocate_shadowed_names_at_the_print_site() {
     assert!(
         retained.iter().all(|line| !line.contains("R1_2") && !line.contains("R2_2")),
         "an overload scope leaked into its sibling or nested signature: {retained:?}"
+    );
+}
+
+/// A union must render its distinct semantic parameters at the print site,
+/// not repeat their identical mint-time spelling. Pinned native `TestLocal`
+/// control `tsrShadowedNameProbe.ts` under strict/es2015.
+#[test]
+fn uninstantiated_shadowed_unions_allocate_names() {
+    expect(
+        r"// @strict: true
+// @target: es2015
+class Holder<T> {
+    value!: T;
+    choose<T>(other: T) { return Math.random() ? this.value : other; }
+}
+function outer<T>(value: T) {
+    return function inner<T>(local: T) { return Math.random() ? value : local; };
+}
+",
+        &[
+            "choose : <T>(other: T) => T_1 | T",
+            "inner : <T>(local: T) => T_1 | T",
+            "Math.random() ? this.value : other : T_1 | T",
+            "Math.random() ? value : local : T_1 | T",
+        ],
+    );
+}
+
+/// Three distinct same-spelled identities need three names in one union, but
+/// the single-parameter reads each start a fresh allocation. Reversed and warm
+/// queries distinguish print-scoped state from a Checker-lifetime name cache.
+#[test]
+fn repeated_serialization_resets_allocations_without_changing_types() {
+    let source = r"// @strict: true
+// @target: es2015
+function triple<T>(outer: T) {
+    return function middle<T>(mid: T) {
+        return function inner<T>(local: T) {
+            const mix = Math.random() ? outer : Math.random() ? mid : local;
+            mix; outer; mid; local; mix;
+        };
+    };
+}
+";
+    let case = TestCase::parse("probe/shadowed_names", "probe.ts", source);
+    let arena = tsr_core::Arena::new();
+    let program = types_producer::program_for_case(&arena, &case);
+    let mut checker = types_producer::configured_checker(&program);
+    let mut sites = (0..program.nodes().len())
+        .filter_map(|index| {
+            let id = tsr_ast::NodeId::from_usize(index);
+            let tsr_ast::Node::Identifier(identifier) = program.node_map().get(id)? else {
+                return None;
+            };
+            let parent = program.nodes().parent(id)?;
+            (program.nodes().kind(parent) == tsr_ast::SyntaxKind::ExpressionStatement)
+                .then_some((id, identifier))
+        })
+        .collect::<Vec<_>>();
+    sites.sort_by_key(|(id, _)| program.nodes().span(*id).start);
+    let types: Vec<_> = sites
+        .iter()
+        .map(|(_, identifier)| {
+            checker.check_expression(tsr_ast::Expression::Identifier(identifier))
+        })
+        .collect();
+    let semantic: Vec<_> = types.iter().map(|id| checker.type_of(*id).clone()).collect();
+    for reversed in [false, true, false] {
+        let indices: Vec<_> =
+            if reversed { (0..sites.len()).rev().collect() } else { (0..sites.len()).collect() };
+        for index in indices {
+            let (id, identifier) = sites[index];
+            let expected = match identifier.text {
+                "mix" => "T_1 | T_2 | T",
+                "outer" | "mid" => "T_1",
+                "local" => "T",
+                other => panic!("unexpected reference {other}"),
+            };
+            assert_eq!(checker.type_to_string_at(types[index], id).as_deref(), Some(expected));
+            assert_eq!(checker.type_of(types[index]), &semantic[index]);
+            assert_eq!(
+                checker.check_expression(tsr_ast::Expression::Identifier(identifier)),
+                types[index],
+                "serialization changed the semantic type"
+            );
+        }
+    }
+    let tsr_checker::types::TypeData::Union { types: constituents, .. } = &semantic[0].data else {
+        panic!("mix must retain a semantic union");
+    };
+    assert_eq!(constituents.len(), 3);
+    assert!(constituents.iter().all(|id| checker.type_to_string(*id) == "T"));
+    assert_eq!(types[0], types[4]);
+}
+
+/// Reopening a semantic union must retain the existing display plan's boolean
+/// collapse and nullable ordering. Pinned native strict/es2015 control.
+#[test]
+fn shadowed_unions_keep_nullable_order_and_boolean_collapse() {
+    expect(
+        r"// @strict: true
+// @target: es2015
+function formats<T>(value: T, nullable: T | null | undefined, bool: boolean | T) {
+    nullable; bool;
+    return function inner<T>(local: T) {
+        const choice = Math.random() ? value : local;
+        const optional = Math.random() ? choice : undefined;
+        const booleanChoice = Math.random() ? choice : true as boolean;
+        choice; optional; booleanChoice;
+    };
+}
+",
+        &[
+            "nullable : T | null | undefined",
+            "bool : boolean | T",
+            "choice : T_1 | T",
+            "optional : T_1 | T | undefined",
+            "booleanChoice : boolean | T_1 | T",
+        ],
     );
 }
