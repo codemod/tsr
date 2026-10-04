@@ -6599,6 +6599,10 @@ impl<'a> Checker<'a, '_> {
                 // a branch that must remain open for later instantiations.
                 if extends != error
                     && !self.conditional_extends_is_generic(extends)
+                    // getConditionalType also defers generic check types. A
+                    // retained keyof operand (including polymorphic this) need
+                    // not contain a registered type parameter in this port.
+                    && !self.indexed_access_index_is_generic(check)
                     && !self.mentions_any_type_parameter(check, 2)
                 {
                     let extends_is_any_or_unknown = self

@@ -5078,21 +5078,23 @@ impl Checker<'_, '_> {
                     let TypeData::Anonymous { symbol: class_symbol, .. } =
                         self.store.get(callee_type).data
                     else {
-                        // SS162v2, TRANSCRIBED (flow.go:833-843 + 966-980):
-                        // a callee with construct signatures is
-                        // Function-derived by construction; its instance is
-                        // the PROTOTYPE property's type (non-any) - the
-                        // erased-construct-return and emptyObject legs
-                        // decline in this slice. The any-vs-global guard and
-                        // the false-branch nonempty-object guard verbatim;
-                        // then the checkDerived worker.
-                        let has_construct = self
-                            .signature_candidates_of_named_type(
-                                callee_type,
-                                crate::signatures::SignatureKind::Construct,
-                            )
-                            .is_some_and(|candidates| !candidates.is_empty());
-                        if !has_construct {
+                        // Native 5b1047d narrowTypeByInstanceof admits a
+                        // Function-derived callee, not only a constructor.
+                        // isFunctionObjectType reads completed call OR construct
+                        // signatures, or bind plus a Function subtype proof.
+                        // A plain prototype-bearing object cannot pass this
+                        // gate. Use the existing declaration/receiver-owned
+                        // signature lookup; publish no new member or flow cache.
+                        let has_signature = [
+                            crate::signatures::SignatureKind::Call,
+                            crate::signatures::SignatureKind::Construct,
+                        ]
+                        .into_iter()
+                        .any(|kind| {
+                            self.signature_candidates_of_named_type(callee_type, kind)
+                                .is_some_and(|candidates| !candidates.is_empty())
+                        });
+                        if !has_signature && !self.is_bind_bearing_function_subtype(callee_type) {
                             return t;
                         }
                         let prototype_instance = self

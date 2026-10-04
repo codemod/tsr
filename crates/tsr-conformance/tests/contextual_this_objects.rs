@@ -546,3 +546,60 @@ export const numericValue = readonlyBox.value;
         &["modelPrototype : Model", "numericValue : number"],
     );
 }
+
+#[test]
+fn callable_prototypes_narrow_without_admitting_plain_prototype_objects() {
+    // Native callableInstanceofWave47.types: call-only and construct-only
+    // interfaces are Function-derived; the prototype is the instance type.
+    // A subtype prototype narrows the true branch but cannot exclude its base
+    // from the false branch. Merely owning a prototype property is insufficient.
+    expect(
+        r#"// @strict: true
+// @target: es2015
+interface Parent { left: 17; }
+interface Child extends Parent { right: 23; }
+interface Other { other: "other"; }
+interface Callable { (): unknown; prototype: Parent; }
+interface DerivedCallable extends Callable { prototype: Child; }
+interface Constructable { new(): Parent; }
+declare const callable: Callable;
+declare const derivedCallable: DerivedCallable;
+declare const constructable: Constructable;
+declare const plain: { prototype: Parent };
+function callBranches(value: Parent | Other) {
+    if (value instanceof callable) { const callTrue = value; }
+    else { const callFalse = value; }
+}
+function inheritedBranches(value: Parent | Other) {
+    if (value instanceof derivedCallable) { const derivedTrue = value; }
+    else { const derivedFalse = value; }
+}
+function constructBranches(value: Parent | Other) {
+    if (value instanceof constructable) { const constructTrue = value; }
+    else { const constructFalse = value; }
+}
+function plainBranches(value: Parent | Other) {
+    if (value instanceof plain) { const plainTrue = value; }
+    else { const plainFalse = value; }
+}
+function broad(value: unknown, loose: any) {
+    if (value instanceof callable) { const unknownTrue = value; }
+    if (loose instanceof Object) { const objectAny = loose; }
+    if (loose instanceof Function) { const functionAny = loose; }
+}
+"#,
+        &[
+            "callTrue : Parent",
+            "callFalse : Other",
+            "derivedTrue : Child",
+            "derivedFalse : Other | Parent",
+            "constructTrue : Parent",
+            "constructFalse : Other",
+            "plainTrue : Other | Parent",
+            "plainFalse : Other | Parent",
+            "unknownTrue : Parent",
+            "objectAny : any",
+            "functionAny : any",
+        ],
+    );
+}

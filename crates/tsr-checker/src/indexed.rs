@@ -744,7 +744,27 @@ impl Checker<'_, '_> {
             }
         }
         let apparent = self.apparent_type(object);
-        if let Some(info) = self.get_applicable_index_info(apparent, index) {
+        let info = self.get_applicable_index_info(apparent, index).or_else(|| {
+            // getPropertyTypeForIndexType (checker.go:27085): a string
+            // signature is the fallback for every non-null property key,
+            // including symbols. This matters when a generic indexed type's
+            // base constraint projects keyof T to string | number | symbol.
+            if self.store.get(index).flags.intersects(TypeFlags::NULLABLE) {
+                return None;
+            }
+            let keys = self.get_union_type(&[
+                self.intrinsics.string,
+                self.intrinsics.number,
+                self.intrinsics.es_symbol,
+            ]);
+            if !self.is_type_assignable_to(index, keys) {
+                return None;
+            }
+            self.get_index_infos_of_type(apparent)?
+                .into_iter()
+                .find(|info| info.key == self.intrinsics.string)
+        });
+        if let Some(info) = info {
             return Some(self.include_unchecked_undefined(
                 info.value,
                 include_undefined,
@@ -860,43 +880,21 @@ impl Checker<'_, '_> {
         index_type: TypeId,
         include_undefined: bool,
     ) -> Option<TypeId> {
-        use crate::flags::TypeFlags;
         let error = self.intrinsics.error;
         if object_type == error || index_type == error {
             return None;
         }
-        // Generic indexing is valid when the key constraint belongs to this
-        // object. Preserve the deferred keyof operand identity; concrete key
-        // constraints can instead be checked against the object's semantic keys.
-        // `keyof (A & B)` is `keyof A | keyof B` (getIndexType over an
-        // intersection), so a key of one intersection constituent keys the
-        // whole object: `obj[key]` with `obj: NonNullable<T>` (`T & {}`) and
-        // `key: K extends keyof T` defers to `NonNullable<T>[K]`.
-        let keys_this_object = |checker: &Self, candidate: TypeId| {
-            let Some(&operand) = checker.deferred_keyof_operands.get(&candidate) else {
-                return false;
-            };
-            operand == object_type
-                || matches!(&checker.store.get(object_type).data,
-                    TypeData::Intersection { types, .. } if types.contains(&operand))
-        };
-        let index_is_generic = if keys_this_object(self, index_type) {
-            true
-        } else if self.store.get(index_type).flags.contains(TypeFlags::TYPE_PARAMETER) {
-            self.type_parameter_constraint(index_type).is_some_and(|constraint| {
-                if keys_this_object(self, constraint) {
-                    return true;
-                }
-                if self.indexed_access_index_is_generic(constraint) {
-                    return false;
-                }
-                self.resolved_keyof_type(object_type)
-                    .is_some_and(|keys| self.is_type_assignable_to(constraint, keys))
-            })
-        } else {
-            false
-        };
-        if !index_is_generic {
+        // Native 5b1047d checkIndexedAccessIndexType admits a generic key by
+        // relating it to the concrete receiver's index type. This includes
+        // keyof T on U extends T and on an unremapped mapped image of T;
+        // equality of keyof operands is not the admission contract. The
+        // relation preserves receiver/mapper identity and cannot admit an
+        // unsupported proof merely because the rendered keys coincide.
+        if !self.indexed_access_index_is_generic(index_type)
+            || !self
+                .resolved_keyof_type(object_type)
+                .is_some_and(|keys| self.is_type_assignable_to(index_type, keys))
+        {
             return None;
         }
         self.resolved_indexed_access_type(object_type, index_type, include_undefined)

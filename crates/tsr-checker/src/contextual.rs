@@ -827,6 +827,38 @@ impl<'a> Checker<'a, '_> {
         self.contextual_call_signature(contextual, None)?.into_signature()
     }
 
+    /// JSX first discriminates the attributes' apparent union (jsx.go:275),
+    /// then reads a property with getTypeOfPropertyOfContextualType. That
+    /// discriminator is not yet ported here. Only publish a union callback
+    /// context if its callable constituents have the same input signature,
+    /// using getContextualSignature's existing identity check. An unresolved
+    /// signature or distinct inputs decline, rather than treating a missing
+    /// discrimination result as native's computed absence of a signature.
+    pub(crate) fn certified_jsx_property_context(
+        &mut self,
+        props: TypeId,
+        name: &str,
+    ) -> Option<TypeId> {
+        let field = self.contextual_property_type(props, name)?;
+        if let TypeData::Union { types, .. } = self.store.get(field).data.clone() {
+            let mut found: Option<Signature> = None;
+            for part in types {
+                let ContextualSignature::Present(signature) =
+                    self.contextual_call_signature(part, None)?
+                else {
+                    continue;
+                };
+                if let Some(previous) = &found
+                    && !Self::signatures_identical(previous, &signature)
+                {
+                    return None;
+                }
+                found = Some(*signature);
+            }
+        }
+        Some(field)
+    }
+
     fn contextual_call_signature(
         &mut self,
         contextual: TypeId,
@@ -1125,6 +1157,28 @@ impl<'a> Checker<'a, '_> {
                 };
                 self.get_type_of_property_of_type(contextual, &name)
             }
+            // getContextualTypeForJsxExpression/Attribute/ChildJsxExpression
+            // (pinned jsx.go): the wrapper is transparent, while body children
+            // index the semantic child list, not trivia/empty expressions.
+            // Native getContextualType also passes through a non-null
+            // assertion (checker.go:29394), without stripping its context.
+            Node::JsxExpression(_)
+            | Node::ParenthesizedExpression(_)
+            | Node::NonNullExpression(_) => self.get_contextual_type(parent),
+            Node::JsxAttribute(_) | Node::JsxSpreadAttribute(_) => {
+                self.jsx_attribute_context(parent)
+            }
+            Node::JsxElement(_) => self.jsx_child_context(parent, node),
+            Node::JsxOpeningElement(opening)
+                if opening.attributes.and_then(|attributes| attributes.node_id) == Some(node) =>
+            {
+                self.jsx_attributes_context(parent)
+            }
+            Node::JsxSelfClosingElement(opening)
+                if opening.attributes.and_then(|attributes| attributes.node_id) == Some(node) =>
+            {
+                self.jsx_attributes_context(parent)
+            }
             Node::CallExpression(call) => self.contextual_type_for_argument(call, node),
             Node::TemplateSpan(_) => {
                 let template_id = self.nodes.parent(parent)?;
@@ -1288,9 +1342,6 @@ impl<'a> Checker<'a, '_> {
             // expression's contextual type is the enclosing function's
             // declared return type. Rejected once at 26 functions;
             // `generatedContextualTyping` alone holds 62 aligned lines now.
-            // §68.1: `ParenthesizedExpression` (`checker.go:29392`) — the
-            // one-line recursion, un-rejected with §68's own argument.
-            Node::ParenthesizedExpression(_) => self.get_contextual_type(parent),
             // §68.2: an ARRAY LITERAL element's contextual type is the
             // array's contextual ELEMENT type
             // (`getContextualTypeForElementExpression`, `checker.go:29972`) —

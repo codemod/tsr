@@ -818,6 +818,8 @@ impl Relater<'_, '_, '_> {
             || (source_tuple && target_tuple)
             || tuple_array_pair
             || s.intersects(TypeFlags::TYPE_PARAMETER | TypeFlags::INDEXED_ACCESS)
+            || self.checker.deferred_keyof_operands.contains_key(&source)
+            || self.checker.deferred_keyof_operands.contains_key(&target)
             || t.contains(TypeFlags::STRING_MAPPING)
             || (t.contains(TypeFlags::TEMPLATE_LITERAL)
                 && s.intersects(
@@ -2000,6 +2002,41 @@ impl Relater<'_, '_, '_> {
         } else {
             None
         };
+        // Native 5b1047d structuredTypeRelatedToWorker (relater.go:3482):
+        // keyof S relates to keyof T contravariantly, through T -> S. Written
+        // keyof nodes and semantic IndexTypes share the retained operand, not
+        // their spelling. Keep the proof inside this Relater's pair/assumption
+        // scope; a circular Maybe is not a completed target-constraint proof.
+        if let Some(&operand) = self.checker.deferred_keyof_operands.get(&target) {
+            let direct = self
+                .checker
+                .deferred_keyof_operands
+                .get(&source)
+                .copied()
+                .map(|source_operand| self.is_related_to(operand, source_operand));
+            if direct.is_some_and(RelationResult::is_success) {
+                return direct.unwrap();
+            }
+            let constraint =
+                if self.checker.type_of(operand).flags.contains(TypeFlags::TYPE_PARAMETER) {
+                    self.checker.type_parameter_constraint(operand)
+                } else {
+                    self.checker.base_constraint_of_type(operand)
+                };
+            if let Some(constraint) = constraint.filter(|&constraint| constraint != operand)
+                && let Some(keys) = self.checker.resolved_keyof_type(constraint)
+            {
+                let result = self.is_related_to_with_flags(source, keys, RecursionFlags::TARGET);
+                if result == RelationResult::Related {
+                    return result;
+                }
+            }
+            // An unimplemented operand relation cannot become a definite
+            // negative merely by comparing the broad property-key domain.
+            if direct == Some(RelationResult::Unknown) {
+                return RelationResult::Unknown;
+            }
+        }
         // The source-variable branch also explores an indexed access's
         // constraint, except when both operands are indexed accesses and the
         // object/index comparison above owns the relation (relater.go:3665).
@@ -2057,6 +2094,16 @@ impl Relater<'_, '_, '_> {
                 constraint = next;
             }
             return self.is_related_to_with_flags(constraint, target, RecursionFlags::SOURCE);
+        }
+        // A deferred keyof without a target IndexType inhabits the property-key
+        // domain (relater.go:3694). The concrete operand/mapper stays intact.
+        if self.checker.deferred_keyof_operands.contains_key(&source) {
+            let keys = self.checker.get_union_type(&[
+                self.checker.intrinsics.string,
+                self.checker.intrinsics.number,
+                self.checker.intrinsics.es_symbol,
+            ]);
+            return self.is_related_to_with_flags(keys, target, RecursionFlags::SOURCE);
         }
         if let Some(parts) = self.checker.template_literal_parts.get(&target).cloned()
             && self.checker.type_of(source).flags.intersects(

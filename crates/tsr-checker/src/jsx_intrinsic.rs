@@ -45,6 +45,451 @@ fn is_intrinsic_jsx_name(name: &str) -> bool {
 }
 
 impl Checker<'_, '_> {
+    /// Pinned tsgo 5b1047d, jsx.go getJsxType/getJsxNamespaceAt. Factory
+    /// namespace selection precedes the global fallback, including Element.
+    pub(crate) fn jsx_type_symbol(&mut self, location: NodeId, name: &str) -> Option<SymbolId> {
+        let namespace = self
+            .jsx_namespace_symbol(location)
+            .or_else(|| self.binder.globals().get(JSX).copied())?;
+        let namespace = self.binder.merged_symbol(namespace);
+        self.binder.symbols().get(namespace).exports.get(name).copied()
+    }
+
+    fn jsx_container_property(&mut self, location: NodeId, name: &str) -> Option<String> {
+        let symbol = self.jsx_type_symbol(location, name)?;
+        let ty = self.get_declared_type_of_symbol(symbol);
+        let names = self.get_property_names_of_type(ty)?;
+        match names.as_slice() {
+            [] => Some(String::new()),
+            [name] => Some(name.clone()),
+            _ => None,
+        }
+    }
+
+    fn jsx_children_name(&mut self, location: NodeId) -> Option<String> {
+        if matches!(self.jsx_emit, tsr_core::JsxEmit::ReactJsx | tsr_core::JsxEmit::ReactJsxDev) {
+            return Some("children".to_string());
+        }
+        self.jsx_container_property(location, "ElementChildrenAttribute")
+            .filter(|name| !name.is_empty())
+    }
+
+    /// getContextualJsxElementAttributesType / inferJsxTypeArguments (jsx.go).
+    /// Private Checker tables use the opening-like `NodeId`, not the tag symbol:
+    /// the same component at two elements must have independent fixing state.
+    /// Active contexts are attached to the containing element (jsx.go moves
+    /// contextualInfos there so sibling body children can find the mapper).
+    /// Active entries expose the candidate's uninstantiated props; completed
+    /// signatures publish only after both passes and the final mapper succeed.
+    /// `resolving_signature_calls` blocks re-entry, never publishes an assumption.
+    /// The worker makes a skip-context-sensitive image, then checks attributes
+    /// and semantic children in source order. Completed attribute callbacks feed
+    /// the canonical intra-expression sites; `live_contextual_mapper` consumes
+    /// those sites before fixing an input. The context is removed on every exit.
+    /// Existing resolved signatures avoid repeating those walks. No new cache,
+    /// cross-Checker reuse, or performance claim; work attribution is tsr-1yb.11.
+    /// Overload/union selection and implicit runtime namespaces remain declined.
+    pub(crate) fn jsx_attributes_context(
+        &mut self,
+        opening: NodeId,
+    ) -> Option<crate::types::TypeId> {
+        let context_node = self.jsx_inference_context_node(opening);
+        if let Some(context) = self.active_inference_contexts.get(&context_node) {
+            return context.signature.parameters.first().map(|parameter| parameter.r#type);
+        }
+        if let Some(signature) = self.resolved_call_signatures.get(&opening) {
+            return signature.parameters.first().map(|parameter| parameter.r#type);
+        }
+        if !self.resolving_signature_calls.insert(opening) {
+            return None;
+        }
+        let result = self.resolve_jsx_attributes_context(opening);
+        self.resolving_signature_calls.remove(&opening);
+        result
+    }
+
+    fn jsx_inference_context_node(&self, opening: NodeId) -> NodeId {
+        match self.nodes.parent(opening).and_then(|parent| self.node_map.get(parent)) {
+            Some(Node::JsxElement(element))
+                if element.opening_element.and_then(|node| node.node_id) == Some(opening) =>
+            {
+                element.node_id.unwrap_or(opening)
+            }
+            _ => opening,
+        }
+    }
+
+    fn resolve_jsx_attributes_context(&mut self, opening: NodeId) -> Option<crate::types::TypeId> {
+        use crate::{
+            inference::{InferenceContextSnapshot, InferenceFlags},
+            signatures::SignatureKind,
+        };
+        use tsr_ast::{Expression, JsxTagNameExpression};
+        let (tag, arguments) = match self.node_map.get(opening)? {
+            Node::JsxOpeningElement(node) => (node.tag_name?, node.type_arguments),
+            Node::JsxSelfClosingElement(node) => (node.tag_name?, node.type_arguments),
+            _ => return None,
+        };
+        if let JsxTagNameExpression::Identifier(name) = tag
+            && is_intrinsic_jsx_name(name.text)
+        {
+            let symbol = self.jsx_type_symbol(opening, INTRINSIC_ELEMENTS)?;
+            let table = self.get_declared_type_of_symbol(symbol);
+            return self.get_type_of_property_of_type(table, name.text).or_else(|| {
+                self.get_applicable_index_info(table, self.intrinsics.string).map(|info| info.value)
+            });
+        }
+        let expression = Expression::try_from(Node::from(tag)).ok()?;
+        let ty = self.check_expression(expression);
+        let mut signatures = self.signatures_of_type_kind(ty, SignatureKind::Construct)?;
+        if signatures.is_empty() {
+            signatures = self.call_signatures_of_type(ty)?;
+        }
+        if signatures.len() != 1 {
+            return None;
+        }
+        let mut signature = signatures.remove(0);
+        let mut props = if matches!(signature.kind, SignatureKind::Construct) {
+            match self.jsx_container_property(opening, "ElementAttributesProperty") {
+                None => signature.parameters.first().map(|p| p.r#type),
+                Some(name) if name.is_empty() => Some(signature.r#type),
+                Some(name) => self.get_type_of_property_of_type(signature.r#type, &name),
+            }
+        } else {
+            signature.parameters.first().map(|p| p.r#type)
+        }
+        .unwrap_or(self.intrinsics.unknown);
+        if let Some(managed) = self.jsx_type_symbol(opening, "LibraryManagedAttributes") {
+            props = self.evaluate_alias_body(managed, &[ty, props])?;
+        }
+        if matches!(signature.kind, SignatureKind::Construct)
+            && let Some(intrinsic) = self.jsx_type_symbol(opening, "IntrinsicClassAttributes")
+        {
+            let intrinsic = match self.local_type_parameters_of(intrinsic).len() {
+                0 => self.get_declared_type_of_symbol(intrinsic),
+                1 => self.create_type_reference(intrinsic, vec![signature.r#type]),
+                _ => return None,
+            };
+            props = self.get_intersection_type(&[intrinsic, props], None);
+        }
+        if let Some(intrinsic) = self.jsx_type_symbol(opening, "IntrinsicAttributes") {
+            let intrinsic = self.get_declared_type_of_symbol(intrinsic);
+            props = self.get_intersection_type(&[intrinsic, props], None);
+        }
+        signature.parameters = vec![crate::signatures::Parameter {
+            name: "props".to_string(),
+            optional: false,
+            rest: false,
+            r#type: props,
+            written_text: None,
+        }];
+        if signature.type_parameters.is_empty() {
+            self.resolved_call_signatures.insert(opening, signature);
+            return Some(props);
+        }
+        let parameters = self.type_parameter_types(&signature)?;
+        let names: Vec<_> = signature.type_parameters.iter().map(|p| p.name.as_str()).collect();
+        if !arguments.is_empty() {
+            if arguments.len() != parameters.len() {
+                return None;
+            }
+            let map: Vec<_> = parameters
+                .iter()
+                .zip(arguments)
+                .map(|(&p, &t)| (p, self.get_type_from_type_node(t)))
+                .collect();
+            let mut resolved =
+                self.instantiate_signature(signature.clone(), &map, &parameters, &names)?;
+            resolved.type_parameters.clear();
+            let props = resolved.parameters[0].r#type;
+            self.resolved_call_signatures.insert(opening, resolved);
+            return Some(props);
+        }
+        let context_node = self.jsx_inference_context_node(opening);
+        self.active_inference_contexts.insert(
+            context_node,
+            InferenceContextSnapshot {
+                signature: signature.clone(),
+                inferences: Vec::new(),
+                return_inferences: Vec::new(),
+                flags: if self.in_js_file(opening) {
+                    InferenceFlags::ANY_DEFAULT
+                } else {
+                    InferenceFlags::NONE
+                },
+                inferential: false,
+                intra_expression_sites: Vec::new(),
+                outer_return_map: None,
+            },
+        );
+        let result = (|| {
+            let source = self.jsx_attributes_inference_type(opening, true)?;
+            let mut infos = Vec::new();
+            self.infer_from_types(source, props, &parameters, &mut infos, 0);
+            let context = self.active_inference_contexts.get_mut(&context_node)?;
+            context.inferences = infos;
+            context.inferential = true;
+            let source = self.jsx_attributes_inference_type(opening, false)?;
+            let context = self.active_inference_contexts.get(&context_node)?.clone();
+            let mut infos = context.inferences;
+            self.infer_from_types(source, props, &parameters, &mut infos, 0);
+            let map =
+                self.resolved_inference_map(&infos, &signature, &parameters, context.flags)?;
+            let mut resolved =
+                self.instantiate_signature(signature.clone(), &map, &parameters, &names)?;
+            resolved.type_parameters.clear();
+            let props = resolved.parameters[0].r#type;
+            self.resolved_call_signatures.insert(opening, resolved);
+            Some(props)
+        })();
+        self.active_inference_contexts.remove(&context_node);
+        result
+    }
+
+    fn jsx_inference_expression(
+        &mut self,
+        expression: tsr_ast::Expression<'_>,
+        skip: bool,
+    ) -> Option<crate::types::TypeId> {
+        if skip {
+            if let tsr_ast::Expression::JsxExpression(node) = expression {
+                return self.jsx_inference_expression(node.expression?, true);
+            }
+            if let Some(id) = expression.node_id()
+                && matches!(
+                    expression,
+                    tsr_ast::Expression::ArrowFunction(_)
+                        | tsr_ast::Expression::FunctionExpression(_)
+                )
+                && let Some(ty) = self.context_free_function_type(id)
+            {
+                // SkipContextSensitive checks a return-only producer without
+                // fixing its context. Its inferred return follows the ordinary
+                // function-return literal widening, not a fresh literal source.
+                if let Some(mut signatures) = self.signature_types.get(&ty).cloned() {
+                    for signature in &mut signatures {
+                        signature.r#type = self.get_widened_literal_type(signature.r#type);
+                    }
+                    self.signature_types.insert(ty, signatures);
+                }
+                return Some(ty);
+            }
+            return self.context_free_object_inference_type(expression);
+        }
+        let ty = self.check_expression_for_mutable_location(expression);
+        (ty != self.intrinsics.error).then_some(ty)
+    }
+
+    fn jsx_attributes_inference_type(
+        &mut self,
+        opening: NodeId,
+        skip: bool,
+    ) -> Option<crate::types::TypeId> {
+        use tsr_ast::{Expression, JsxAttributeLike, JsxAttributeName};
+        let attributes = match self.node_map.get(opening)? {
+            Node::JsxOpeningElement(node) => node.attributes?,
+            Node::JsxSelfClosingElement(node) => node.attributes?,
+            _ => return None,
+        };
+        let mut properties: Vec<crate::objects::AnonymousProperty> = Vec::new();
+        for attribute in attributes.properties {
+            let property = match attribute {
+                JsxAttributeLike::JsxAttribute(node) => {
+                    let JsxAttributeName::Identifier(name) = node.name? else { return None };
+                    let expression = node
+                        .initializer
+                        .and_then(|value| Expression::try_from(Node::from(value)).ok());
+                    let ty = match expression {
+                        Some(expression) => self.jsx_inference_expression(expression, skip)?,
+                        None => self.intrinsics.true_type,
+                    };
+                    if !skip
+                        && let Some(Expression::JsxExpression(wrapper)) = expression
+                        && let Some(inner) = wrapper.expression
+                        && self.is_context_sensitive_argument(&inner)
+                        && let Some(id) = inner.node_id()
+                    {
+                        self.add_intra_expression_inference_site(id, ty);
+                    }
+                    crate::objects::AnonymousProperty {
+                        name: name.text.to_string(),
+                        printed_name: name.text.to_string(),
+                        printed_type: self.type_to_string(ty),
+                        r#type: ty,
+                        origin: node.node_id.and_then(|id| self.binder.symbol_of(id)),
+                        optional: false,
+                        readonly: false,
+                        method: false,
+                        accessor_write: None,
+                    }
+                }
+                JsxAttributeLike::JsxSpreadAttribute(node) => {
+                    let ty = self.check_expression(node.expression?);
+                    let (spread, _) = self.spread_properties(ty, false)?;
+                    for property in spread {
+                        if let Some(index) = properties.iter().position(|p| p.name == property.name)
+                        {
+                            properties[index] = property;
+                        } else {
+                            properties.push(property);
+                        }
+                    }
+                    continue;
+                }
+            };
+            if let Some(index) = properties.iter().position(|p| p.name == property.name) {
+                properties[index] = property;
+            } else {
+                properties.push(property);
+            }
+        }
+        if let Some(parent) = self.nodes.parent(opening)
+            && let Some(Node::JsxElement(element)) = self.node_map.get(parent)
+            && element.opening_element.and_then(|node| node.node_id) == Some(opening)
+        {
+            let children: Vec<_> =
+                element.children.iter().copied().filter(semantic_jsx_child).collect();
+            let mut types = Vec::new();
+            for child in &children {
+                let ty = match child {
+                    tsr_ast::JsxChild::JsxText(_) => self.intrinsics.string,
+                    _ => self.jsx_inference_expression(
+                        Expression::try_from(Node::from(*child)).ok()?,
+                        skip,
+                    )?,
+                };
+                types.push(ty);
+            }
+            if !types.is_empty()
+                && let Some(name) = self.jsx_children_name(opening)
+            {
+                let ty = if types.len() == 1 {
+                    types[0]
+                } else {
+                    let props = self.jsx_attributes_context(opening)?;
+                    let field = self.get_type_of_property_of_type(props, &name);
+                    let parts = field
+                        .map(|field| match self.store.get(field).data.clone() {
+                            crate::types::TypeData::Union { types, .. } => types,
+                            _ => vec![field],
+                        })
+                        .unwrap_or_default();
+                    if parts.iter().any(|field| {
+                        self.tuple_element_lists.contains_key(field)
+                            || self.variadic_tuple_elements.contains_key(field)
+                    }) {
+                        self.create_tuple_type(types, false)
+                    } else {
+                        let element = self.get_union_type(&types);
+                        let array = self.global_type_symbol("Array")?;
+                        self.create_type_reference(array, vec![element])
+                    }
+                };
+                properties.retain(|p| p.name != name);
+                properties.push(crate::objects::AnonymousProperty {
+                    name: name.clone(),
+                    printed_name: name,
+                    printed_type: self.type_to_string(ty),
+                    r#type: ty,
+                    origin: None,
+                    optional: false,
+                    readonly: false,
+                    method: false,
+                    accessor_write: None,
+                });
+            }
+        }
+        let members = crate::callable_expandos::property_members(&properties);
+        let ty = self.store.new_named(
+            crate::flags::TypeFlags::OBJECT,
+            crate::objects::render_object_type(&members),
+            None,
+        );
+        self.anonymous_properties.insert(ty, (properties, true));
+        self.object_literal_members.insert(ty, members);
+        Some(ty)
+    }
+
+    pub(crate) fn jsx_attribute_context(
+        &mut self,
+        attribute: NodeId,
+    ) -> Option<crate::types::TypeId> {
+        let attributes = self.nodes.parent(attribute)?;
+        let opening = self.nodes.parent(attributes)?;
+        let props = self.jsx_attributes_context(opening)?;
+        let props = self.apparent_contextual_type(props);
+        if self.store.get(props).flags.contains(crate::flags::TypeFlags::ANY) {
+            return None;
+        }
+        match self.node_map.get(attribute)? {
+            Node::JsxAttribute(node) => {
+                let tsr_ast::JsxAttributeName::Identifier(name) = node.name? else { return None };
+                // Only context-sensitive expressions need callback-signature
+                // certification. A scalar source must keep its original
+                // generic context (e.g. C | undefined) for literal inference.
+                if node.initializer.is_some_and(|initializer| {
+                    tsr_ast::Expression::try_from(Node::from(initializer))
+                        .is_ok_and(|expression| self.is_context_sensitive_argument(&expression))
+                }) {
+                    self.certified_jsx_property_context(props, name.text)
+                } else {
+                    self.contextual_property_type(props, name.text)
+                }
+            }
+            Node::JsxSpreadAttribute(_) => Some(props),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn jsx_child_context(
+        &mut self,
+        element: NodeId,
+        child: NodeId,
+    ) -> Option<crate::types::TypeId> {
+        let Node::JsxElement(node) = self.node_map.get(element)? else { return None };
+        let opening = node.opening_element?.node_id?;
+        let children: Vec<_> =
+            node.children.iter().filter(|child| semantic_jsx_child(child)).collect();
+        let index = children.iter().position(|node| node.node_id() == Some(child))?;
+        let name = self.jsx_children_name(element)?;
+        let props = self.jsx_attributes_context(opening)?;
+        let props = self.apparent_contextual_type(props);
+        if self.store.get(props).flags.contains(crate::flags::TypeFlags::ANY) {
+            return None;
+        }
+        let field = if tsr_ast::Expression::try_from(Node::from(*children[index]))
+            .is_ok_and(|expression| self.is_context_sensitive_argument(&expression))
+        {
+            self.certified_jsx_property_context(props, &name)?
+        } else {
+            self.contextual_property_type(props, &name)?
+        };
+        if children.len() == 1 {
+            return Some(field);
+        }
+        let parts = match self.store.get(field).data.clone() {
+            crate::types::TypeData::Union { types, .. } => types,
+            _ => vec![field],
+        };
+        let index = self.store.intern_literal(
+            crate::flags::TypeFlags::NUMBER_LITERAL,
+            crate::types::TypeData::NumberLiteral(index.to_string()),
+            false,
+        );
+        let mut types = Vec::new();
+        for part in parts {
+            let array_like = self.tuple_element_lists.contains_key(&part)
+                || self.variadic_tuple_elements.contains_key(&part)
+                || self.tuple_spread_array_element(part).is_some();
+            types.push(if array_like {
+                self.resolved_indexed_access_type(part, index, false)?
+            } else {
+                part
+            });
+        }
+        Some(self.get_union_type_without_reduction(&types))
+    }
+
     /// One JSX opening-like element.
     ///
     /// **Opening-like only, and that bound is now known to be incomplete.**
@@ -365,5 +810,13 @@ impl Checker<'_, '_> {
         self.binder.symbols().get(namespace).exports.get(INTRINSIC_ELEMENTS).is_some_and(
             |&member| self.binder.symbols().get(member).flags.intersects(SymbolFlags::TYPE),
         )
+    }
+}
+
+fn semantic_jsx_child(child: &tsr_ast::JsxChild<'_>) -> bool {
+    match child {
+        tsr_ast::JsxChild::JsxText(text) => !text.contains_only_trivia_white_spaces,
+        tsr_ast::JsxChild::JsxExpression(expression) => expression.expression.is_some(),
+        _ => true,
     }
 }

@@ -1744,7 +1744,7 @@ impl Checker<'_, '_> {
     /// getInferredTypes/getMapperFromContext (internal/checker/inference.go).
     /// Fixed results are cache entries; other candidates resolve with the same
     /// recursive constraint/default mapper used by final call inference.
-    fn resolved_inference_map(
+    pub(crate) fn resolved_inference_map(
         &mut self,
         infos: &[InferenceInfo],
         signature: &Signature,
@@ -2819,7 +2819,7 @@ impl Checker<'_, '_> {
     /// whole call. The largest such family is object members
     /// (`{ keys: T[] }` against `{ keys: string[] }`) and it needs a members
     /// reverse index that does not exist.
-    fn infer_from_types(
+    pub(crate) fn infer_from_types(
         &mut self,
         source: TypeId,
         target: TypeId,

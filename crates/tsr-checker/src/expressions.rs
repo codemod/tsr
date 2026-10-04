@@ -1130,6 +1130,10 @@ impl Checker<'_, '_> {
             Expression::JsxElement(node) => self.check_jsx_element(node.node_id),
             Expression::JsxSelfClosingElement(node) => self.check_jsx_element(node.node_id),
             Expression::JsxFragment(node) => self.check_jsx_element(node.node_id),
+            Expression::JsxExpression(node) => node
+                .expression
+                .map_or(self.intrinsics.error, |expression| self.check_expression(expression)),
+            Expression::JsxText(_) => self.intrinsics.string,
             // `checkClassExpression` (`checker.go:11832`) is
             // `getTypeOfSymbol(getSymbolOfDeclaration(node))` — the class's
             // static side, printed `typeof C`.
@@ -1212,17 +1216,15 @@ impl Checker<'_, '_> {
         // the defect. A method with an inferred `any` return builds
         // `() => any` correctly — probed with
         // `declare const a: any; class C { m() { return a; } }`.
-        let Some(jsx) = self.binder.resolve_name(
-            self.nodes,
-            self.node_map,
-            id,
-            "JSX",
-            tsr_binder::SymbolFlags::NAMESPACE,
-        ) else {
-            return self.intrinsics.error;
+        let opening = match self.node_map.get(id) {
+            Some(Node::JsxElement(node)) => node.opening_element.and_then(|node| node.node_id),
+            Some(Node::JsxSelfClosingElement(_)) => Some(id),
+            _ => None,
         };
-        let jsx = self.binder.merged_symbol(jsx);
-        let Some(&element) = self.binder.symbols().get(jsx).exports.get("Element") else {
+        if let Some(opening) = opening {
+            self.jsx_attributes_context(opening);
+        }
+        let Some(element) = self.jsx_type_symbol(id, "Element") else {
             return self.intrinsics.error;
         };
         self.get_declared_type_of_symbol(element)
