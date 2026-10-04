@@ -22,6 +22,17 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
+Read-allocation prerequisite (`tsr-1yb.19.2.1`), measured at `30eded71`:
+14 public physical controls preserve complete Rust read/parse payloads across
+normal/disabled/enabled/repeated observations. A stale 9-byte hint reads 65,589
+bytes with 131,178 bytes of raw-plus-decoded capacity alive. UTF-16 expansion
+and unknown-size FIFO controls also expose the gap between slot limits and byte
+admission. The [contract](docs/architecture/loader-read-allocation-contract.md)
+requires an allocation-aware private operation and a lease that follows text.
+No production decoder/loader change, new corpus score or speed result is claimed;
+`tsr-34z` retains the native malformed-UTF-8 difference. The equivalent-work
+TSR/tsgo median wall target <=0.50 remains unproved.
+
 Documentation-only optimization update (`tsr-1yb.18`), inspected against
 `08f2487b`: new checker ports record native operation, identity/owner,
 publication, receiver/presentation and expensive-work boundaries. The
@@ -2101,6 +2112,12 @@ gap to 70%               CROSSED (70.003%; the threshold was 335,268)
 
 ## 3. What is ported
 
+Public `read_allocations` characterization helper and source-exact isolated
+probe reproduction (`tsr-1yb.19.2.1`, source `30eded71`) are retained. Main's
+filesystem/decoder is unchanged; logical capacity snapshots are separate from
+RSS, decoder three-buffer peaks and actual enforced admission. All 53 compiled
+native-reader module dependency files match pinned `5b1047d1`.
+
 The checker port convention is mirrored in `AGENTS.md` and `CLAUDE.md`
 (`tsr-1yb.18`). It links existing ownership/cache contracts and requires an
 explicit expensive-work boundary for new caches, mappers and graph traversals.
@@ -2296,8 +2313,13 @@ rendering `any` for `errorType` (ADR-0038).
 Early convention task `tsr-1yb.18` is delivered as documentation. Its audit
 keeps relation key equivalence (`tsr-1yb.4.1.4`), lifetime/publication
 (`tsr-1yb.4.1.3`) and current expensive-work accounting (`tsr-1yb.11.1`) with
-their existing owners. Checker/read allocation measurements and byte admission
-remain `tsr-1yb.3.1.1.3`, `tsr-1yb.19.2.1` and `tsr-1yb.19.2.2`.
+their existing owners. Checker live-store admission remains
+`tsr-1yb.3.1.1.3`. Finalized read-allocation characterization
+(`tsr-1yb.19.2.1`) hands off to the private reservation API
+(`tsr-1yb.19.2.3`), then pool admission/oversize/unwind (`tsr-1yb.19.2.2`).
+Native malformed-byte source/offset fidelity remains `tsr-34z`.
+JSDoc-specific attribution/ownership (`tsr-1yb.9.1`) can start independently;
+production deferral or measured no-change (`tsr-1yb.9.2`) follows that evidence.
 
 ### Bounded follow-ups from the third eight-orb wave (tsr-lv3)
 
@@ -5648,6 +5670,17 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+### Existing-read byte-cap claim — source `30eded71`
+
+The existing `read_file` call cannot be presented as enforcing the illustrative
+4,096-byte preparation budget. A 9-byte stale hint produced a 65,589-byte read
+and 131,178-byte raw-plus-decoded capacity snapshot; a UTF-16 expansion input
+of 8,300 bytes produced a 24,900-byte raw-plus-decoded snapshot. The budget was
+deliberately unenforced. These controls reject a metadata/slot-only cap claim,
+not an implemented admission candidate or a measured runtime improvement.
+Separate decoder snapshots do not prove a combined peak or hard RSS ceiling.
+[Evidence](docs/architecture/loader-read-allocation.json).
 
 ### Third-wave review refusals — exact worker base `8a65762e`
 
@@ -12090,6 +12123,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
+| 2026-10-04 | `30eded71` (measured binaries; later harness validation) | not remeasured | not remeasured | Read/decode allocation characterization; no speed claim | `tsr-1yb.19.2.1`: 14 physical cases, 56 Rust helper processes, 14 native reader controls and 22 CLI controls. Complete read/parse payloads, diagnostic fingerprints and two loaded identities preserved; malformed native UTF-8 byte mismatch retained in `tsr-34z`. Separate capacity snapshots require an allocation-aware leased preparation API (`.19.2.3`) before pool admission (`.19.2.2`); no hard RSS cap or production workers. VFS 37 tests pass at measured source; helper strict release Clippy passes after concurrent checker update; Rust/Go formatting and source/patch identity verified. |
 | 2026-10-04 | `08f2487b` (inspected source) | not remeasured | not remeasured | Documentation only; no speed claim or new refusal | `tsr-1yb.18`: mirror the checker port convention and audit current relation publication. 83 integration/two internal controls, 3,405 anchors and 16,630 section citations pass; 190 historical issue IDs remain unresolved (`tsr-10`), with new task references checked directly. Persistent key/context, forcing/lifetime and expensive-execution evidence remain in existing tasks; release TSR/tsgo median <=0.50 remains unverified. |
 | 2026-10-03 | `e83fac17` | **95.95%** | **7,150/9,538** | **459,451/478,855 assertions.** +70 matches, +3 complete cases vs `4bf5fe96`; 67W→R, 3G→R, zero RIGHT losses/G→W/population changes, two changed WRONG payloads. | Direct-alias declaration-order ties and exact/nonexact const elisions. Full positive diagnostics audit has zero correct-case/occurrence losses or new extras, removing four false errors. JSDoc setup and node-less indexed recovery candidates are rejected for false errors in previously clean cases. Concurrent test/docs through `074f60a7` preserved; 2,644 workspace tests, strict clippy/fmt, 3,400 anchors, 16,632 citations pass. Historical issue-ID gate remains blocked by 197 records; 14,616 remain to 99%. |
 | 2026-10-02 | `6b42bfb5` | **73.61%** | **7,021** | **457,641/478,855 assertions (95.57%).** +48 assertions, +2 cases, zero RIGHT losses; 25W→R, 23G→R, 5G→W naming rows, 9 changed W→W. | Error-like any guard ends MCP constructor expansion; package alias exports, JSON value modules, CLI comment directives/side-effect imports, native regular/widened assertion comparison. 130 full-app diagnostics remain versus native zero; targeted 13 cleared. Diagnostics 2,790/5,488, binder 100%; workspace tests, four CLI controls, clippy, fmt and citation gates verified. 16,426 remain to 99%. |

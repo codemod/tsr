@@ -1,0 +1,1229 @@
+{
+  "measurement": {
+    "kind": "read/decode allocation characterization; no speed claim",
+    "harness_checkout_source": "e7bbe0ac609d82e4b35e67bdb5505d774231858a",
+    "binary_sha256": {
+      "normal": "75eaebd1bb5f2a76a0c2f3195284bf5f9e315e63a8fbe3019349b8a029e3619b",
+      "probe": "cc611a5111744f05742c65af9f140b4bc1d5ffd37b7238d74311ef98940acef6",
+      "native-reader": "ada6675547edfde4881ab8362862827e0e08a4c865a62393dd9f27d73a91fcf2",
+      "normal-cli": "c60010157ddc05950a150caa36095dd90444bc4a65358c74f0fd61dc431638b5",
+      "tsgo": "6340b230f887095fb7c82fedb41eecadd7dc49e4baa65a05ef4abb8ab4b74bc4"
+    },
+    "harness_sha256": "6347ed9fcc685b5264a5b508ee250154bad7519c406b82cbbc47e78b2121ce4a",
+    "perf_helper_sha256": "bbd25dad108a64d6134c30a0f006c934a6e0a7729bd2998c1d5d08a3c3b8b142",
+    "budget_bytes": 4096,
+    "budget_enforced": false,
+    "logical_capacity_is_rss_bound": false,
+    "native_target_verified": false,
+    "cases": [
+      {
+        "name": "unknown-size",
+        "input_sha256": "ecad64f52424a26f179125b324a025b05a970fbd66751ee3c508155f951f20c4",
+        "initial_sha256": "ecad64f52424a26f179125b324a025b05a970fbd66751ee3c508155f951f20c4",
+        "metadata_hint_bytes": null,
+        "actual_raw_bytes": 49,
+        "expected_text_sha256": "ecad64f52424a26f179125b324a025b05a970fbd66751ee3c508155f951f20c4",
+        "runs": [
+          {
+            "wall_seconds": 0.0032054579933173954,
+            "user_seconds": 0.000797,
+            "system_seconds": 0.0008349999999999999,
+            "peak_rss_bytes": 1736704,
+            "role": "normal",
+            "observations": {},
+            "complete_output_sha256": "d2739a7a2aede2ba8f4bd4dd7abea2d0b87aa5178984114ff525f22e32dc0a2c"
+          },
+          {
+            "wall_seconds": 0.002213749976363033,
+            "user_seconds": 0.000723,
+            "system_seconds": 0.000683,
+            "peak_rss_bytes": 1753088,
+            "role": "disabled",
+            "observations": {},
+            "complete_output_sha256": "d2739a7a2aede2ba8f4bd4dd7abea2d0b87aa5178984114ff525f22e32dc0a2c"
+          },
+          {
+            "wall_seconds": 0.0021961660240776837,
+            "user_seconds": 0.000722,
+            "system_seconds": 0.0007199999999999999,
+            "peak_rss_bytes": 1753088,
+            "role": "enabled",
+            "observations": {
+              "read_allocation": [
+                49,
+                49,
+                49,
+                49
+              ]
+            },
+            "complete_output_sha256": "d2739a7a2aede2ba8f4bd4dd7abea2d0b87aa5178984114ff525f22e32dc0a2c"
+          },
+          {
+            "wall_seconds": 0.002012709010159597,
+            "user_seconds": 0.0006889999999999999,
+            "system_seconds": 0.0006439999999999999,
+            "peak_rss_bytes": 1753088,
+            "role": "repeat",
+            "observations": {
+              "read_allocation": [
+                49,
+                49,
+                49,
+                49
+              ]
+            },
+            "complete_output_sha256": "d2739a7a2aede2ba8f4bd4dd7abea2d0b87aa5178984114ff525f22e32dc0a2c"
+          }
+        ],
+        "raw_plus_decoded_live_capacity": 98,
+        "native_read_bytes_match": true,
+        "config_sha256": "f8472e7bc9010f241e861e826cfc9bb2d4c0e67824a53798527b7cb325589d0e",
+        "globals_sha256": "c78b2feb7d18b785b4df439beb9b0150326a83ea874d8e2f617961899edcac78",
+        "complete_diagnostics": {
+          "count": 1,
+          "fingerprint": "dcc3f46b756977b329d4f75e1fc55e9cce773f30f87b117ba9b3d35bc53c37f6",
+          "entries": [
+            "input.ts(2,7): error TS2322: Type 'string' is not assignable to type 'number'."
+          ]
+        },
+        "loaded_count": 2,
+        "loaded_identities": [
+          "/private/tmp/tsr-read-allocation/controls-v4/unknown-size/globals.d.ts",
+          "/private/tmp/tsr-read-allocation/controls-v4/unknown-size/input.ts"
+        ],
+        "cli_exit_codes": [
+          1,
+          1
+        ],
+        "cli_output_sha256": {
+          "normal-cli": "f2076f9bf54f21f714fb0b5359a000bf91db8237c13a77769971c1dde09e00a2",
+          "tsgo": "e2eda427082e4df468a1bf2d2aea1856c7dc767e8421fdd809c4fa6f2c17cab3"
+        }
+      },
+      {
+        "name": "unknown-stream",
+        "input_sha256": "ecad64f52424a26f179125b324a025b05a970fbd66751ee3c508155f951f20c4",
+        "initial_sha256": null,
+        "metadata_hint_bytes": null,
+        "actual_raw_bytes": 49,
+        "expected_text_sha256": "ecad64f52424a26f179125b324a025b05a970fbd66751ee3c508155f951f20c4",
+        "runs": [
+          {
+            "wall_seconds": 0.015178875008132309,
+            "user_seconds": 0.000753,
+            "system_seconds": 0.00077,
+            "peak_rss_bytes": 1736704,
+            "role": "normal",
+            "observations": {},
+            "complete_output_sha256": "d2739a7a2aede2ba8f4bd4dd7abea2d0b87aa5178984114ff525f22e32dc0a2c"
+          },
+          {
+            "wall_seconds": 0.01499320799484849,
+            "user_seconds": 0.0007869999999999999,
+            "system_seconds": 0.000883,
+            "peak_rss_bytes": 1818624,
+            "role": "disabled",
+            "observations": {},
+            "complete_output_sha256": "d2739a7a2aede2ba8f4bd4dd7abea2d0b87aa5178984114ff525f22e32dc0a2c"
+          },
+          {
+            "wall_seconds": 0.01504966602078639,
+            "user_seconds": 0.000802,
+            "system_seconds": 0.000985,
+            "peak_rss_bytes": 1818624,
+            "role": "enabled",
+            "observations": {
+              "read_allocation": [
+                49,
+                64,
+                49,
+                49
+              ]
+            },
+            "complete_output_sha256": "d2739a7a2aede2ba8f4bd4dd7abea2d0b87aa5178984114ff525f22e32dc0a2c"
+          },
+          {
+            "wall_seconds": 0.015155125001911074,
+            "user_seconds": 0.0008259999999999999,
+            "system_seconds": 0.0009,
+            "peak_rss_bytes": 1753088,
+            "role": "repeat",
+            "observations": {
+              "read_allocation": [
+                49,
+                64,
+                49,
+                49
+              ]
+            },
+            "complete_output_sha256": "d2739a7a2aede2ba8f4bd4dd7abea2d0b87aa5178984114ff525f22e32dc0a2c"
+          }
+        ],
+        "metadata_reported_size": 0,
+        "input_kind": "FIFO with controlled producer; no seekable size",
+        "raw_plus_decoded_live_capacity": 113,
+        "native_read_bytes_match": true
+      },
+      {
+        "name": "empty",
+        "input_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "initial_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "metadata_hint_bytes": 0,
+        "actual_raw_bytes": 0,
+        "expected_text_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "runs": [
+          {
+            "wall_seconds": 0.0024885830061975867,
+            "user_seconds": 0.0007379999999999999,
+            "system_seconds": 0.0008259999999999999,
+            "peak_rss_bytes": 1622016,
+            "role": "normal",
+            "observations": {},
+            "complete_output_sha256": "3367ed7c742da0a10fd626487f0e3cc3cee46126f192457fe9d2be90eb2a9f7a"
+          },
+          {
+            "wall_seconds": 0.002333334006834775,
+            "user_seconds": 0.0007509999999999999,
+            "system_seconds": 0.00077,
+            "peak_rss_bytes": 1638400,
+            "role": "disabled",
+            "observations": {},
+            "complete_output_sha256": "3367ed7c742da0a10fd626487f0e3cc3cee46126f192457fe9d2be90eb2a9f7a"
+          },
+          {
+            "wall_seconds": 0.0022672920022159815,
+            "user_seconds": 0.0007329999999999999,
+            "system_seconds": 0.0008039999999999999,
+            "peak_rss_bytes": 1638400,
+            "role": "enabled",
+            "observations": {
+              "read_allocation": [
+                0,
+                0,
+                0,
+                0
+              ]
+            },
+            "complete_output_sha256": "3367ed7c742da0a10fd626487f0e3cc3cee46126f192457fe9d2be90eb2a9f7a"
+          },
+          {
+            "wall_seconds": 0.0022381669841706753,
+            "user_seconds": 0.000717,
+            "system_seconds": 0.000731,
+            "peak_rss_bytes": 1638400,
+            "role": "repeat",
+            "observations": {
+              "read_allocation": [
+                0,
+                0,
+                0,
+                0
+              ]
+            },
+            "complete_output_sha256": "3367ed7c742da0a10fd626487f0e3cc3cee46126f192457fe9d2be90eb2a9f7a"
+          }
+        ],
+        "raw_plus_decoded_live_capacity": 0,
+        "native_read_bytes_match": true,
+        "config_sha256": "f8472e7bc9010f241e861e826cfc9bb2d4c0e67824a53798527b7cb325589d0e",
+        "globals_sha256": "c78b2feb7d18b785b4df439beb9b0150326a83ea874d8e2f617961899edcac78",
+        "complete_diagnostics": {
+          "count": 0,
+          "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "entries": []
+        },
+        "loaded_count": 2,
+        "loaded_identities": [
+          "/private/tmp/tsr-read-allocation/controls-v4/empty/globals.d.ts",
+          "/private/tmp/tsr-read-allocation/controls-v4/empty/input.ts"
+        ],
+        "cli_exit_codes": [
+          0,
+          0
+        ],
+        "cli_output_sha256": {
+          "normal-cli": "bc4a96578b05fa43bb49f68bb6985ccd4a6309cc8fddf698fb7ccf923cfe00a6",
+          "tsgo": "bc4a96578b05fa43bb49f68bb6985ccd4a6309cc8fddf698fb7ccf923cfe00a6"
+        }
+      },
+      {
+        "name": "utf8-bom",
+        "input_sha256": "a8c4b7986b18dc7b424be687f4bb26b9d8f61f68b6159f665e3ef9664e121f03",
+        "initial_sha256": "a8c4b7986b18dc7b424be687f4bb26b9d8f61f68b6159f665e3ef9664e121f03",
+        "metadata_hint_bytes": 52,
+        "actual_raw_bytes": 52,
+        "expected_text_sha256": "ecad64f52424a26f179125b324a025b05a970fbd66751ee3c508155f951f20c4",
+        "runs": [
+          {
+            "wall_seconds": 0.0023222909949254245,
+            "user_seconds": 0.000734,
+            "system_seconds": 0.000793,
+            "peak_rss_bytes": 1736704,
+            "role": "normal",
+            "observations": {},
+            "complete_output_sha256": "d2739a7a2aede2ba8f4bd4dd7abea2d0b87aa5178984114ff525f22e32dc0a2c"
+          },
+          {
+            "wall_seconds": 0.0023208339989650995,
+            "user_seconds": 0.000748,
+            "system_seconds": 0.0007869999999999999,
+            "peak_rss_bytes": 1753088,
+            "role": "disabled",
+            "observations": {},
+            "complete_output_sha256": "d2739a7a2aede2ba8f4bd4dd7abea2d0b87aa5178984114ff525f22e32dc0a2c"
+          },
+          {
+            "wall_seconds": 0.002191792009398341,
+            "user_seconds": 0.0007239999999999999,
+            "system_seconds": 0.000719,
+            "peak_rss_bytes": 1753088,
+            "role": "enabled",
+            "observations": {
+              "read_allocation": [
+                52,
+                52,
+                49,
+                49
+              ]
+            },
+            "complete_output_sha256": "d2739a7a2aede2ba8f4bd4dd7abea2d0b87aa5178984114ff525f22e32dc0a2c"
+          },
+          {
+            "wall_seconds": 0.0021917499834671617,
+            "user_seconds": 0.000713,
+            "system_seconds": 0.000748,
+            "peak_rss_bytes": 1753088,
+            "role": "repeat",
+            "observations": {
+              "read_allocation": [
+                52,
+                52,
+                49,
+                49
+              ]
+            },
+            "complete_output_sha256": "d2739a7a2aede2ba8f4bd4dd7abea2d0b87aa5178984114ff525f22e32dc0a2c"
+          }
+        ],
+        "raw_plus_decoded_live_capacity": 101,
+        "native_read_bytes_match": true,
+        "config_sha256": "f8472e7bc9010f241e861e826cfc9bb2d4c0e67824a53798527b7cb325589d0e",
+        "globals_sha256": "c78b2feb7d18b785b4df439beb9b0150326a83ea874d8e2f617961899edcac78",
+        "complete_diagnostics": {
+          "count": 1,
+          "fingerprint": "dcc3f46b756977b329d4f75e1fc55e9cce773f30f87b117ba9b3d35bc53c37f6",
+          "entries": [
+            "input.ts(2,7): error TS2322: Type 'string' is not assignable to type 'number'."
+          ]
+        },
+        "loaded_count": 2,
+        "loaded_identities": [
+          "/private/tmp/tsr-read-allocation/controls-v4/utf8-bom/globals.d.ts",
+          "/private/tmp/tsr-read-allocation/controls-v4/utf8-bom/input.ts"
+        ],
+        "cli_exit_codes": [
+          1,
+          1
+        ],
+        "cli_output_sha256": {
+          "normal-cli": "d359a31926e35e20acb9526934f31c527c87b8038cf4c21a2054837a5ed5dc31",
+          "tsgo": "fb0dcad2055f627b993b79dd8a87585e33ae839c7a1c576e3ff22137003c120e"
+        }
+      },
+      {
+        "name": "utf16-le",
+        "input_sha256": "3886a7b6ddfd71855dec8e9d8a04adc47a2f1bb929e03a8c6b2374b2c48a6ee1",
+        "initial_sha256": "3886a7b6ddfd71855dec8e9d8a04adc47a2f1bb929e03a8c6b2374b2c48a6ee1",
+        "metadata_hint_bytes": 100,
+        "actual_raw_bytes": 100,
+        "expected_text_sha256": "ecad64f52424a26f179125b324a025b05a970fbd66751ee3c508155f951f20c4",
+        "runs": [
+          {
+            "wall_seconds": 0.0023866659903433174,
+            "user_seconds": 0.000744,
+            "system_seconds": 0.000734,
+            "peak_rss_bytes": 1736704,
+            "role": "normal",
+            "observations": {},
+            "complete_output_sha256": "d2739a7a2aede2ba8f4bd4dd7abea2d0b87aa5178984114ff525f22e32dc0a2c"
+          },
+          {
+            "wall_seconds": 0.0020591249922290444,
+            "user_seconds": 0.000705,
+            "system_seconds": 0.0006709999999999999,
+            "peak_rss_bytes": 1753088,
+            "role": "disabled",
+            "observations": {},
+            "complete_output_sha256": "d2739a7a2aede2ba8f4bd4dd7abea2d0b87aa5178984114ff525f22e32dc0a2c"
+          },
+          {
+            "wall_seconds": 0.002095916017424315,
+            "user_seconds": 0.000692,
+            "system_seconds": 0.000667,
+            "peak_rss_bytes": 1753088,
+            "role": "enabled",
+            "observations": {
+              "decode_units": [
+                49,
+                49
+              ],
+              "read_allocation": [
+                100,
+                100,
+                49,
+                50
+              ]
+            },
+            "complete_output_sha256": "d2739a7a2aede2ba8f4bd4dd7abea2d0b87aa5178984114ff525f22e32dc0a2c"
+          },
+          {
+            "wall_seconds": 0.0021116670104674995,
+            "user_seconds": 0.0007149999999999999,
+            "system_seconds": 0.0006789999999999999,
+            "peak_rss_bytes": 1753088,
+            "role": "repeat",
+            "observations": {
+              "decode_units": [
+                49,
+                49
+              ],
+              "read_allocation": [
+                100,
+                100,
+                49,
+                50
+              ]
+            },
+            "complete_output_sha256": "d2739a7a2aede2ba8f4bd4dd7abea2d0b87aa5178984114ff525f22e32dc0a2c"
+          }
+        ],
+        "raw_plus_decoded_live_capacity": 150,
+        "raw_plus_units_capacity_at_decoder_entry": 198,
+        "native_read_bytes_match": true,
+        "config_sha256": "f8472e7bc9010f241e861e826cfc9bb2d4c0e67824a53798527b7cb325589d0e",
+        "globals_sha256": "c78b2feb7d18b785b4df439beb9b0150326a83ea874d8e2f617961899edcac78",
+        "complete_diagnostics": {
+          "count": 1,
+          "fingerprint": "dcc3f46b756977b329d4f75e1fc55e9cce773f30f87b117ba9b3d35bc53c37f6",
+          "entries": [
+            "input.ts(2,7): error TS2322: Type 'string' is not assignable to type 'number'."
+          ]
+        },
+        "loaded_count": 2,
+        "loaded_identities": [
+          "/private/tmp/tsr-read-allocation/controls-v4/utf16-le/globals.d.ts",
+          "/private/tmp/tsr-read-allocation/controls-v4/utf16-le/input.ts"
+        ],
+        "cli_exit_codes": [
+          1,
+          1
+        ],
+        "cli_output_sha256": {
+          "normal-cli": "b5f789ad56d777b0ed43fce0fecb9bedcc9dd7750bcdb8aed753c9b86f2bd55d",
+          "tsgo": "8d41be26c77e9d639db57277e3d3a6ceee1d52becbd5b564636027543d3c1325"
+        }
+      },
+      {
+        "name": "utf16-be",
+        "input_sha256": "b580f6a862862f15324a662343b5436a6cbca638045002a0bc456ca3f13c8cae",
+        "initial_sha256": "b580f6a862862f15324a662343b5436a6cbca638045002a0bc456ca3f13c8cae",
+        "metadata_hint_bytes": 100,
+        "actual_raw_bytes": 100,
+        "expected_text_sha256": "ecad64f52424a26f179125b324a025b05a970fbd66751ee3c508155f951f20c4",
+        "runs": [
+          {
+            "wall_seconds": 0.002266874973429367,
+            "user_seconds": 0.000745,
+            "system_seconds": 0.0007379999999999999,
+            "peak_rss_bytes": 1736704,
+            "role": "normal",
+            "observations": {},
+            "complete_output_sha256": "d2739a7a2aede2ba8f4bd4dd7abea2d0b87aa5178984114ff525f22e32dc0a2c"
+          },
+          {
+            "wall_seconds": 0.0019147919956594706,
+            "user_seconds": 0.000663,
+            "system_seconds": 0.0006309999999999999,
+            "peak_rss_bytes": 1753088,
+            "role": "disabled",
+            "observations": {},
+            "complete_output_sha256": "d2739a7a2aede2ba8f4bd4dd7abea2d0b87aa5178984114ff525f22e32dc0a2c"
+          },
+          {
+            "wall_seconds": 0.002042457985226065,
+            "user_seconds": 0.0006969999999999999,
+            "system_seconds": 0.0006789999999999999,
+            "peak_rss_bytes": 1753088,
+            "role": "enabled",
+            "observations": {
+              "decode_units": [
+                49,
+                49
+              ],
+              "read_allocation": [
+                100,
+                100,
+                49,
+                50
+              ]
+            },
+            "complete_output_sha256": "d2739a7a2aede2ba8f4bd4dd7abea2d0b87aa5178984114ff525f22e32dc0a2c"
+          },
+          {
+            "wall_seconds": 0.0020731250115204602,
+            "user_seconds": 0.00071,
+            "system_seconds": 0.000674,
+            "peak_rss_bytes": 1753088,
+            "role": "repeat",
+            "observations": {
+              "decode_units": [
+                49,
+                49
+              ],
+              "read_allocation": [
+                100,
+                100,
+                49,
+                50
+              ]
+            },
+            "complete_output_sha256": "d2739a7a2aede2ba8f4bd4dd7abea2d0b87aa5178984114ff525f22e32dc0a2c"
+          }
+        ],
+        "raw_plus_decoded_live_capacity": 150,
+        "raw_plus_units_capacity_at_decoder_entry": 198,
+        "native_read_bytes_match": true,
+        "config_sha256": "f8472e7bc9010f241e861e826cfc9bb2d4c0e67824a53798527b7cb325589d0e",
+        "globals_sha256": "c78b2feb7d18b785b4df439beb9b0150326a83ea874d8e2f617961899edcac78",
+        "complete_diagnostics": {
+          "count": 1,
+          "fingerprint": "dcc3f46b756977b329d4f75e1fc55e9cce773f30f87b117ba9b3d35bc53c37f6",
+          "entries": [
+            "input.ts(2,7): error TS2322: Type 'string' is not assignable to type 'number'."
+          ]
+        },
+        "loaded_count": 2,
+        "loaded_identities": [
+          "/private/tmp/tsr-read-allocation/controls-v4/utf16-be/globals.d.ts",
+          "/private/tmp/tsr-read-allocation/controls-v4/utf16-be/input.ts"
+        ],
+        "cli_exit_codes": [
+          1,
+          1
+        ],
+        "cli_output_sha256": {
+          "normal-cli": "0efd91e862224b80a18635ff9c3f8cb94349ad7f524c7fee291baddfa4085e65",
+          "tsgo": "66d1d69a1ad854dd6ca1b0ce91e783e1275f2f70a0fffff8b53ffc5af88d5058"
+        }
+      },
+      {
+        "name": "utf16-expansion",
+        "input_sha256": "502472a631747ab4235ca5c0efed90827ffdaa9cafbe41dd09550e706c0a132e",
+        "initial_sha256": "502472a631747ab4235ca5c0efed90827ffdaa9cafbe41dd09550e706c0a132e",
+        "metadata_hint_bytes": 8300,
+        "actual_raw_bytes": 8300,
+        "expected_text_sha256": "8c73eca56868b10c74d8fd1e4c7cf72ee45a384059ab9999bbd05862b4c295dc",
+        "runs": [
+          {
+            "wall_seconds": 0.0023504999990109354,
+            "user_seconds": 0.0008449999999999999,
+            "system_seconds": 0.0007559999999999999,
+            "peak_rss_bytes": 1835008,
+            "role": "normal",
+            "observations": {},
+            "complete_output_sha256": "52e550fe34c0f164bc2bb6c4778d1ec509cd59d9d55f784e3291c3961571ab5d"
+          },
+          {
+            "wall_seconds": 0.0022021670010872185,
+            "user_seconds": 0.00083,
+            "system_seconds": 0.000709,
+            "peak_rss_bytes": 1851392,
+            "role": "disabled",
+            "observations": {},
+            "complete_output_sha256": "52e550fe34c0f164bc2bb6c4778d1ec509cd59d9d55f784e3291c3961571ab5d"
+          },
+          {
+            "wall_seconds": 0.0021739579970017076,
+            "user_seconds": 0.00083,
+            "system_seconds": 0.0006749999999999999,
+            "peak_rss_bytes": 1851392,
+            "role": "enabled",
+            "observations": {
+              "decode_units": [
+                4149,
+                4149
+              ],
+              "read_allocation": [
+                8300,
+                8300,
+                12341,
+                16600
+              ]
+            },
+            "complete_output_sha256": "52e550fe34c0f164bc2bb6c4778d1ec509cd59d9d55f784e3291c3961571ab5d"
+          },
+          {
+            "wall_seconds": 0.002156542002921924,
+            "user_seconds": 0.000825,
+            "system_seconds": 0.0006659999999999999,
+            "peak_rss_bytes": 1851392,
+            "role": "repeat",
+            "observations": {
+              "decode_units": [
+                4149,
+                4149
+              ],
+              "read_allocation": [
+                8300,
+                8300,
+                12341,
+                16600
+              ]
+            },
+            "complete_output_sha256": "52e550fe34c0f164bc2bb6c4778d1ec509cd59d9d55f784e3291c3961571ab5d"
+          }
+        ],
+        "raw_plus_decoded_live_capacity": 24900,
+        "raw_plus_units_capacity_at_decoder_entry": 16598,
+        "native_read_bytes_match": true,
+        "config_sha256": "f8472e7bc9010f241e861e826cfc9bb2d4c0e67824a53798527b7cb325589d0e",
+        "globals_sha256": "c78b2feb7d18b785b4df439beb9b0150326a83ea874d8e2f617961899edcac78",
+        "complete_diagnostics": {
+          "count": 1,
+          "fingerprint": "039a7179d3db5fe0f90c381f6353d584ec3503c45261cbba9c4052068a827859",
+          "entries": [
+            "input.ts(3,7): error TS2322: Type 'string' is not assignable to type 'number'."
+          ]
+        },
+        "loaded_count": 2,
+        "loaded_identities": [
+          "/private/tmp/tsr-read-allocation/controls-v4/utf16-expansion/globals.d.ts",
+          "/private/tmp/tsr-read-allocation/controls-v4/utf16-expansion/input.ts"
+        ],
+        "cli_exit_codes": [
+          1,
+          1
+        ],
+        "cli_output_sha256": {
+          "normal-cli": "dda09cd0e125af04014dc2d00096a6b5dc94f2f007db64dd3973cbacb2562c44",
+          "tsgo": "ddad2f73e0fa95b0c7d39edeaf32d0d5e0d3aac02f28f455de88c7c10b8790ce"
+        }
+      },
+      {
+        "name": "utf16-surrogate",
+        "input_sha256": "8effba91f2b54c4ef34ded1f17154f569929c8550fcbc22fb79f12158500edd0",
+        "initial_sha256": "8effba91f2b54c4ef34ded1f17154f569929c8550fcbc22fb79f12158500edd0",
+        "metadata_hint_bytes": 110,
+        "actual_raw_bytes": 110,
+        "expected_text_sha256": "24c5b4714b37c0a5a9b7576d2aee31c3c875e0acfe8436f57207793f49373461",
+        "runs": [
+          {
+            "wall_seconds": 0.002239374996861443,
+            "user_seconds": 0.000754,
+            "system_seconds": 0.000731,
+            "peak_rss_bytes": 1736704,
+            "role": "normal",
+            "observations": {},
+            "complete_output_sha256": "0234b94357f0cd19933bd78f6b754154d5c9479fd212cc284e46247f344faccf"
+          },
+          {
+            "wall_seconds": 0.0020461670064833015,
+            "user_seconds": 0.000691,
+            "system_seconds": 0.000681,
+            "peak_rss_bytes": 1753088,
+            "role": "disabled",
+            "observations": {},
+            "complete_output_sha256": "0234b94357f0cd19933bd78f6b754154d5c9479fd212cc284e46247f344faccf"
+          },
+          {
+            "wall_seconds": 0.002055624994682148,
+            "user_seconds": 0.000685,
+            "system_seconds": 0.00071,
+            "peak_rss_bytes": 1753088,
+            "role": "enabled",
+            "observations": {
+              "decode_units": [
+                54,
+                54
+              ],
+              "read_allocation": [
+                110,
+                110,
+                56,
+                108
+              ]
+            },
+            "complete_output_sha256": "0234b94357f0cd19933bd78f6b754154d5c9479fd212cc284e46247f344faccf"
+          },
+          {
+            "wall_seconds": 0.0020586659957189113,
+            "user_seconds": 0.000677,
+            "system_seconds": 0.0006979999999999999,
+            "peak_rss_bytes": 1753088,
+            "role": "repeat",
+            "observations": {
+              "decode_units": [
+                54,
+                54
+              ],
+              "read_allocation": [
+                110,
+                110,
+                56,
+                108
+              ]
+            },
+            "complete_output_sha256": "0234b94357f0cd19933bd78f6b754154d5c9479fd212cc284e46247f344faccf"
+          }
+        ],
+        "raw_plus_decoded_live_capacity": 218,
+        "raw_plus_units_capacity_at_decoder_entry": 218,
+        "native_read_bytes_match": true,
+        "config_sha256": "f8472e7bc9010f241e861e826cfc9bb2d4c0e67824a53798527b7cb325589d0e",
+        "globals_sha256": "c78b2feb7d18b785b4df439beb9b0150326a83ea874d8e2f617961899edcac78",
+        "complete_diagnostics": {
+          "count": 1,
+          "fingerprint": "039a7179d3db5fe0f90c381f6353d584ec3503c45261cbba9c4052068a827859",
+          "entries": [
+            "input.ts(3,7): error TS2322: Type 'string' is not assignable to type 'number'."
+          ]
+        },
+        "loaded_count": 2,
+        "loaded_identities": [
+          "/private/tmp/tsr-read-allocation/controls-v4/utf16-surrogate/globals.d.ts",
+          "/private/tmp/tsr-read-allocation/controls-v4/utf16-surrogate/input.ts"
+        ],
+        "cli_exit_codes": [
+          1,
+          1
+        ],
+        "cli_output_sha256": {
+          "normal-cli": "a09c7f9f156543641a660135b7e469ddf24043a09aeb786b032c41af606b1188",
+          "tsgo": "fb69d461c158c3330db134e54199d557edf0fdc366cdaadc86a37686f94441c3"
+        }
+      },
+      {
+        "name": "utf16-odd",
+        "input_sha256": "2c959014648f131746b53c93d9a6dbce96bcda72034e2b20c48ff42c907ad1da",
+        "initial_sha256": "2c959014648f131746b53c93d9a6dbce96bcda72034e2b20c48ff42c907ad1da",
+        "metadata_hint_bytes": 101,
+        "actual_raw_bytes": 101,
+        "expected_text_sha256": "ecad64f52424a26f179125b324a025b05a970fbd66751ee3c508155f951f20c4",
+        "runs": [
+          {
+            "wall_seconds": 0.0022657090157736093,
+            "user_seconds": 0.0007289999999999999,
+            "system_seconds": 0.00074,
+            "peak_rss_bytes": 1736704,
+            "role": "normal",
+            "observations": {},
+            "complete_output_sha256": "d2739a7a2aede2ba8f4bd4dd7abea2d0b87aa5178984114ff525f22e32dc0a2c"
+          },
+          {
+            "wall_seconds": 0.0020891670137643814,
+            "user_seconds": 0.0006929999999999999,
+            "system_seconds": 0.0006969999999999999,
+            "peak_rss_bytes": 1753088,
+            "role": "disabled",
+            "observations": {},
+            "complete_output_sha256": "d2739a7a2aede2ba8f4bd4dd7abea2d0b87aa5178984114ff525f22e32dc0a2c"
+          },
+          {
+            "wall_seconds": 0.0021413750073406845,
+            "user_seconds": 0.000708,
+            "system_seconds": 0.0007019999999999999,
+            "peak_rss_bytes": 1753088,
+            "role": "enabled",
+            "observations": {
+              "decode_units": [
+                49,
+                49
+              ],
+              "read_allocation": [
+                101,
+                101,
+                49,
+                50
+              ]
+            },
+            "complete_output_sha256": "d2739a7a2aede2ba8f4bd4dd7abea2d0b87aa5178984114ff525f22e32dc0a2c"
+          },
+          {
+            "wall_seconds": 0.0021728749852627516,
+            "user_seconds": 0.000721,
+            "system_seconds": 0.000709,
+            "peak_rss_bytes": 1753088,
+            "role": "repeat",
+            "observations": {
+              "decode_units": [
+                49,
+                49
+              ],
+              "read_allocation": [
+                101,
+                101,
+                49,
+                50
+              ]
+            },
+            "complete_output_sha256": "d2739a7a2aede2ba8f4bd4dd7abea2d0b87aa5178984114ff525f22e32dc0a2c"
+          }
+        ],
+        "raw_plus_decoded_live_capacity": 151,
+        "raw_plus_units_capacity_at_decoder_entry": 199,
+        "native_read_bytes_match": true,
+        "config_sha256": "f8472e7bc9010f241e861e826cfc9bb2d4c0e67824a53798527b7cb325589d0e",
+        "globals_sha256": "c78b2feb7d18b785b4df439beb9b0150326a83ea874d8e2f617961899edcac78",
+        "complete_diagnostics": {
+          "count": 1,
+          "fingerprint": "dcc3f46b756977b329d4f75e1fc55e9cce773f30f87b117ba9b3d35bc53c37f6",
+          "entries": [
+            "input.ts(2,7): error TS2322: Type 'string' is not assignable to type 'number'."
+          ]
+        },
+        "loaded_count": 2,
+        "loaded_identities": [
+          "/private/tmp/tsr-read-allocation/controls-v4/utf16-odd/globals.d.ts",
+          "/private/tmp/tsr-read-allocation/controls-v4/utf16-odd/input.ts"
+        ],
+        "cli_exit_codes": [
+          1,
+          1
+        ],
+        "cli_output_sha256": {
+          "normal-cli": "b346bc26d0603d9d1d861a3e7c8d0b4152a0eb12f97b00d87e3117ba7e27c58e",
+          "tsgo": "07dee9b4116eedb5d0d953aa7946bafeca29d81ac7c43b34980f6087fed396aa"
+        }
+      },
+      {
+        "name": "malformed-utf8-comment",
+        "input_sha256": "583deb1f4413cd097060f0768a8bde80af10c03bdedf0587e1ec8b90d3c3685b",
+        "initial_sha256": "583deb1f4413cd097060f0768a8bde80af10c03bdedf0587e1ec8b90d3c3685b",
+        "metadata_hint_bytes": 85,
+        "actual_raw_bytes": 85,
+        "expected_text_sha256": "b4ce0dd6a51aa6af3030b7c9f64bc9a882cf557cce68bbc8638e320e76b8b553",
+        "runs": [
+          {
+            "wall_seconds": 0.002349375019548461,
+            "user_seconds": 0.0007559999999999999,
+            "system_seconds": 0.000788,
+            "peak_rss_bytes": 1736704,
+            "role": "normal",
+            "observations": {},
+            "complete_output_sha256": "76ec9db47f9d9a24ad1d5f83240831bd6fd5d8848e4a513c548ec8b3f8b46687"
+          },
+          {
+            "wall_seconds": 0.0022284589940682054,
+            "user_seconds": 0.0007369999999999999,
+            "system_seconds": 0.000743,
+            "peak_rss_bytes": 1753088,
+            "role": "disabled",
+            "observations": {},
+            "complete_output_sha256": "76ec9db47f9d9a24ad1d5f83240831bd6fd5d8848e4a513c548ec8b3f8b46687"
+          },
+          {
+            "wall_seconds": 0.002119540993589908,
+            "user_seconds": 0.000704,
+            "system_seconds": 0.0007109999999999999,
+            "peak_rss_bytes": 1753088,
+            "role": "enabled",
+            "observations": {
+              "read_allocation": [
+                85,
+                85,
+                149,
+                170
+              ]
+            },
+            "complete_output_sha256": "76ec9db47f9d9a24ad1d5f83240831bd6fd5d8848e4a513c548ec8b3f8b46687"
+          },
+          {
+            "wall_seconds": 0.002143582998542115,
+            "user_seconds": 0.0007459999999999999,
+            "system_seconds": 0.000718,
+            "peak_rss_bytes": 1753088,
+            "role": "repeat",
+            "observations": {
+              "read_allocation": [
+                85,
+                85,
+                149,
+                170
+              ]
+            },
+            "complete_output_sha256": "76ec9db47f9d9a24ad1d5f83240831bd6fd5d8848e4a513c548ec8b3f8b46687"
+          }
+        ],
+        "raw_plus_decoded_live_capacity": 255,
+        "native_read_bytes_match": false,
+        "config_sha256": "f8472e7bc9010f241e861e826cfc9bb2d4c0e67824a53798527b7cb325589d0e",
+        "globals_sha256": "c78b2feb7d18b785b4df439beb9b0150326a83ea874d8e2f617961899edcac78",
+        "complete_diagnostics": {
+          "count": 1,
+          "fingerprint": "039a7179d3db5fe0f90c381f6353d584ec3503c45261cbba9c4052068a827859",
+          "entries": [
+            "input.ts(3,7): error TS2322: Type 'string' is not assignable to type 'number'."
+          ]
+        },
+        "loaded_count": 2,
+        "loaded_identities": [
+          "/private/tmp/tsr-read-allocation/controls-v4/malformed-utf8-comment/globals.d.ts",
+          "/private/tmp/tsr-read-allocation/controls-v4/malformed-utf8-comment/input.ts"
+        ],
+        "cli_exit_codes": [
+          1,
+          1
+        ],
+        "cli_output_sha256": {
+          "normal-cli": "90d59a61c93c31fc069ccb0f58dc18d243cb9c96b3a3e754cbf9e0e7049e80d0",
+          "tsgo": "9bc9d40c1bc83a72de72f3f3729a9ae974798baa1705a9cc50f8aaee93470ba7"
+        }
+      },
+      {
+        "name": "oversized",
+        "input_sha256": "c6b18951a05cf4d5869c4a0581e5b79add6d90521d1bfa2e0220c8d20a04360b",
+        "initial_sha256": "c6b18951a05cf4d5869c4a0581e5b79add6d90521d1bfa2e0220c8d20a04360b",
+        "metadata_hint_bytes": 65589,
+        "actual_raw_bytes": 65589,
+        "expected_text_sha256": "c6b18951a05cf4d5869c4a0581e5b79add6d90521d1bfa2e0220c8d20a04360b",
+        "runs": [
+          {
+            "wall_seconds": 0.0030189999961294234,
+            "user_seconds": 0.0014039999999999999,
+            "system_seconds": 0.0008049999999999999,
+            "peak_rss_bytes": 2162688,
+            "role": "normal",
+            "observations": {},
+            "complete_output_sha256": "b8ad02ce4ea62875cc1c7d0d6fd99f6188781c538eef7872260b9dd73e359086"
+          },
+          {
+            "wall_seconds": 0.002906083012931049,
+            "user_seconds": 0.001369,
+            "system_seconds": 0.000799,
+            "peak_rss_bytes": 2179072,
+            "role": "disabled",
+            "observations": {},
+            "complete_output_sha256": "b8ad02ce4ea62875cc1c7d0d6fd99f6188781c538eef7872260b9dd73e359086"
+          },
+          {
+            "wall_seconds": 0.003016832983121276,
+            "user_seconds": 0.001371,
+            "system_seconds": 0.000897,
+            "peak_rss_bytes": 2179072,
+            "role": "enabled",
+            "observations": {
+              "read_allocation": [
+                65589,
+                65589,
+                65589,
+                65589
+              ]
+            },
+            "complete_output_sha256": "b8ad02ce4ea62875cc1c7d0d6fd99f6188781c538eef7872260b9dd73e359086"
+          },
+          {
+            "wall_seconds": 0.0028124169912189245,
+            "user_seconds": 0.001379,
+            "system_seconds": 0.0007369999999999999,
+            "peak_rss_bytes": 2179072,
+            "role": "repeat",
+            "observations": {
+              "read_allocation": [
+                65589,
+                65589,
+                65589,
+                65589
+              ]
+            },
+            "complete_output_sha256": "b8ad02ce4ea62875cc1c7d0d6fd99f6188781c538eef7872260b9dd73e359086"
+          }
+        ],
+        "raw_plus_decoded_live_capacity": 131178,
+        "native_read_bytes_match": true,
+        "config_sha256": "f8472e7bc9010f241e861e826cfc9bb2d4c0e67824a53798527b7cb325589d0e",
+        "globals_sha256": "c78b2feb7d18b785b4df439beb9b0150326a83ea874d8e2f617961899edcac78",
+        "complete_diagnostics": {
+          "count": 1,
+          "fingerprint": "039a7179d3db5fe0f90c381f6353d584ec3503c45261cbba9c4052068a827859",
+          "entries": [
+            "input.ts(3,7): error TS2322: Type 'string' is not assignable to type 'number'."
+          ]
+        },
+        "loaded_count": 2,
+        "loaded_identities": [
+          "/private/tmp/tsr-read-allocation/controls-v4/oversized/globals.d.ts",
+          "/private/tmp/tsr-read-allocation/controls-v4/oversized/input.ts"
+        ],
+        "cli_exit_codes": [
+          1,
+          1
+        ],
+        "cli_output_sha256": {
+          "normal-cli": "9cedbafe658820f86e9b3a7f6e465fa57092fb0ea791002d08b6b308ac73f859",
+          "tsgo": "9cfc093517d48bd4b0ce19862560dcd4a5b411e7f13fe9ed7a52335f5567406d"
+        }
+      },
+      {
+        "name": "size-growth",
+        "input_sha256": "c6b18951a05cf4d5869c4a0581e5b79add6d90521d1bfa2e0220c8d20a04360b",
+        "initial_sha256": "2025ccc07b79d7c44a7b283ce7ba9bd507443d640a4cd378dacd0db11aec116f",
+        "metadata_hint_bytes": 9,
+        "actual_raw_bytes": 65589,
+        "expected_text_sha256": "c6b18951a05cf4d5869c4a0581e5b79add6d90521d1bfa2e0220c8d20a04360b",
+        "runs": [
+          {
+            "wall_seconds": 0.0029714999836869538,
+            "user_seconds": 0.0013679999999999999,
+            "system_seconds": 0.000766,
+            "peak_rss_bytes": 2162688,
+            "role": "normal",
+            "observations": {},
+            "complete_output_sha256": "b8ad02ce4ea62875cc1c7d0d6fd99f6188781c538eef7872260b9dd73e359086"
+          },
+          {
+            "wall_seconds": 0.0029199999989941716,
+            "user_seconds": 0.001388,
+            "system_seconds": 0.000749,
+            "peak_rss_bytes": 2179072,
+            "role": "disabled",
+            "observations": {},
+            "complete_output_sha256": "b8ad02ce4ea62875cc1c7d0d6fd99f6188781c538eef7872260b9dd73e359086"
+          },
+          {
+            "wall_seconds": 0.002814500010572374,
+            "user_seconds": 0.001323,
+            "system_seconds": 0.0007289999999999999,
+            "peak_rss_bytes": 2179072,
+            "role": "enabled",
+            "observations": {
+              "read_allocation": [
+                65589,
+                65589,
+                65589,
+                65589
+              ]
+            },
+            "complete_output_sha256": "b8ad02ce4ea62875cc1c7d0d6fd99f6188781c538eef7872260b9dd73e359086"
+          },
+          {
+            "wall_seconds": 0.0027070000069215894,
+            "user_seconds": 0.001254,
+            "system_seconds": 0.0006979999999999999,
+            "peak_rss_bytes": 2179072,
+            "role": "repeat",
+            "observations": {
+              "read_allocation": [
+                65589,
+                65589,
+                65589,
+                65589
+              ]
+            },
+            "complete_output_sha256": "b8ad02ce4ea62875cc1c7d0d6fd99f6188781c538eef7872260b9dd73e359086"
+          }
+        ],
+        "raw_plus_decoded_live_capacity": 131178,
+        "native_read_bytes_match": true,
+        "config_sha256": "f8472e7bc9010f241e861e826cfc9bb2d4c0e67824a53798527b7cb325589d0e",
+        "globals_sha256": "c78b2feb7d18b785b4df439beb9b0150326a83ea874d8e2f617961899edcac78",
+        "complete_diagnostics": {
+          "count": 1,
+          "fingerprint": "039a7179d3db5fe0f90c381f6353d584ec3503c45261cbba9c4052068a827859",
+          "entries": [
+            "input.ts(3,7): error TS2322: Type 'string' is not assignable to type 'number'."
+          ]
+        },
+        "loaded_count": 2,
+        "loaded_identities": [
+          "/private/tmp/tsr-read-allocation/controls-v4/size-growth/globals.d.ts",
+          "/private/tmp/tsr-read-allocation/controls-v4/size-growth/input.ts"
+        ],
+        "cli_exit_codes": [
+          1,
+          1
+        ],
+        "cli_output_sha256": {
+          "normal-cli": "91018834d70f23b4d6cffc46243df48f4b59812b472e9267e4e247ac92ed68bd",
+          "tsgo": "5a956f09ebbe80b355fb79af49e62a23ae67d9c9194e4b6b4efff0167b186218"
+        }
+      },
+      {
+        "name": "missing",
+        "input_sha256": null,
+        "initial_sha256": null,
+        "metadata_hint_bytes": null,
+        "actual_raw_bytes": null,
+        "expected_text_sha256": null,
+        "runs": [
+          {
+            "wall_seconds": 0.0020390830177348107,
+            "user_seconds": 0.00066,
+            "system_seconds": 0.000633,
+            "peak_rss_bytes": 1376256,
+            "role": "normal",
+            "observations": {},
+            "complete_output_sha256": "6bbd052ab054ef222c1c87be60cd191addedd24cc882d1f5f7f7be61dc61bb3a"
+          },
+          {
+            "wall_seconds": 0.001954208011738956,
+            "user_seconds": 0.000658,
+            "system_seconds": 0.000598,
+            "peak_rss_bytes": 1392640,
+            "role": "disabled",
+            "observations": {},
+            "complete_output_sha256": "6bbd052ab054ef222c1c87be60cd191addedd24cc882d1f5f7f7be61dc61bb3a"
+          },
+          {
+            "wall_seconds": 0.0019212090119253844,
+            "user_seconds": 0.00066,
+            "system_seconds": 0.000605,
+            "peak_rss_bytes": 1392640,
+            "role": "enabled",
+            "observations": {},
+            "complete_output_sha256": "6bbd052ab054ef222c1c87be60cd191addedd24cc882d1f5f7f7be61dc61bb3a"
+          },
+          {
+            "wall_seconds": 0.001856416987720877,
+            "user_seconds": 0.000629,
+            "system_seconds": 0.0005729999999999999,
+            "peak_rss_bytes": 1392640,
+            "role": "repeat",
+            "observations": {},
+            "complete_output_sha256": "6bbd052ab054ef222c1c87be60cd191addedd24cc882d1f5f7f7be61dc61bb3a"
+          }
+        ],
+        "native_read_bytes_match": true
+      },
+      {
+        "name": "directory",
+        "input_sha256": null,
+        "initial_sha256": null,
+        "metadata_hint_bytes": null,
+        "actual_raw_bytes": null,
+        "expected_text_sha256": null,
+        "runs": [
+          {
+            "wall_seconds": 0.001994000020204112,
+            "user_seconds": 0.000677,
+            "system_seconds": 0.00065,
+            "peak_rss_bytes": 1376256,
+            "role": "normal",
+            "observations": {},
+            "complete_output_sha256": "6bbd052ab054ef222c1c87be60cd191addedd24cc882d1f5f7f7be61dc61bb3a"
+          },
+          {
+            "wall_seconds": 0.0018770000024233013,
+            "user_seconds": 0.0006399999999999999,
+            "system_seconds": 0.000605,
+            "peak_rss_bytes": 1392640,
+            "role": "disabled",
+            "observations": {},
+            "complete_output_sha256": "6bbd052ab054ef222c1c87be60cd191addedd24cc882d1f5f7f7be61dc61bb3a"
+          },
+          {
+            "wall_seconds": 0.0019396249845158309,
+            "user_seconds": 0.000645,
+            "system_seconds": 0.0006129999999999999,
+            "peak_rss_bytes": 1392640,
+            "role": "enabled",
+            "observations": {},
+            "complete_output_sha256": "6bbd052ab054ef222c1c87be60cd191addedd24cc882d1f5f7f7be61dc61bb3a"
+          },
+          {
+            "wall_seconds": 0.0018598340102471411,
+            "user_seconds": 0.0006259999999999999,
+            "system_seconds": 0.000572,
+            "peak_rss_bytes": 1392640,
+            "role": "repeat",
+            "observations": {},
+            "complete_output_sha256": "6bbd052ab054ef222c1c87be60cd191addedd24cc882d1f5f7f7be61dc61bb3a"
+          }
+        ],
+        "native_read_bytes_match": true
+      }
+    ],
+    "complete": true
+  },
+  "source_identity": {
+    "source": "30eded711ee561daf99d03db40399deb295aefcd",
+    "task": "tsr-1yb.19.2.1",
+    "helper_sha256": "af07c68691cf1d6f30a66a5e6a1dc6a6a5e1a03f367467b892e65db13d9013dc",
+    "original_vfs_sha256": {
+      "crates/tsr-vfs/src/lib.rs": "210a673b7a077cb2f6cd6fc8fc336c973ee1dd3e9e43ef75efb8a025db5b20a5",
+      "crates/tsr-vfs/src/os.rs": "51b949d2aa7c89e8434f7f01eafe738b5025e75c1f1f8ae2f818fb256e76e21c"
+    },
+    "probe_vfs_sha256": {
+      "crates/tsr-vfs/src/lib.rs": "1f55ad906e61781566891343f35a80b7bde04cb0e830df01bcb2b0ae894efb7f",
+      "crates/tsr-vfs/src/os.rs": "6c88e221f172676db97e7f2485f93917b9c949e715c90f04dc2d0d8955e9f265"
+    },
+    "patch_sha256": "1e7aab061fae73cff6522f04a09df90c014faf4b31e7f3985c28af3c61881997",
+    "native_reader_helper_sha256": "95193d415d6b666fac1a4e87ed21ca20289f4b5ad74beecfd645c4ca86b6c23a"
+  },
+  "native_dependency_identity": {
+    "native_source": "5b1047d10d32e7d5b446be4de56b126ff42f82bb",
+    "dependency_go_files": {
+      "internal/json/json.go": "702dd64fda7d0942b9b461cd290fcb3fae5c32f1ade5d3a61e980c389c149a5d",
+      "internal/collections/cow.go": "c5b864947d8ff9eb94a422fcf372af70cea3a551a1fe89c06427ad2e2eefc94a",
+      "internal/collections/multimap.go": "97402acb9a12f0f11a41da48edda387037429bb0f43555b045d28e6a1c3a1590",
+      "internal/collections/ordered_map.go": "57fec518ad9ad8236e83b6431e7bf2732d0de5cb4aec3338d6bc4c554ac64316",
+      "internal/collections/ordered_set.go": "04392cd94a87e795031f29391fd5291b20bb1c0a11313472c884003cba7a8d7d",
+      "internal/collections/set.go": "2de76c916ef54b6e0746d724827e74904be33fc82f7871913384e593fa0bbd46",
+      "internal/collections/syncmap.go": "73227a3bd71415b9b85c8715ef7c3ecac9e724d2579eec1c1a2340bb7149fa16",
+      "internal/collections/syncset.go": "2f038294145eff7f2e395de4d5a7ffe832998873d41cd219044220b9c0364664",
+      "internal/debug/debug.go": "dd3aca7541d9f41c2e40629d27d768c393d5f3d134f341388e89ebabb34a092d",
+      "internal/stringutil/compare.go": "532e42f123dbc846b8ef35b36feef12b8a1dd5d807ea8ce40f94d78eea44814a",
+      "internal/stringutil/generate.go": "8cbd7624ce7e20f3c9b5f1cfddd91116a3d087072106e7176924ec2db753b404",
+      "internal/stringutil/identifier.go": "e127bf574e83de35dff8f13d1a5078828415564b104bfd4a08ca79a04eec293a",
+      "internal/stringutil/identifier_parts_generated.go": "5fac39c9509df8bcd337dcfc9d148c8c94b0f4569a8e4df5022b2ecbcb0ff563",
+      "internal/stringutil/js_case.go": "07d6a3663c0aed68efd975cd39840a2139e56b36cde17104ce327cb1be5d82cf",
+      "internal/stringutil/js_case_generated.go": "c128df4cc0a8c4dd93679986a31bdf6087aa83e6fb0e9ced4ab8627072684b80",
+      "internal/stringutil/util.go": "e15d8030900518eb0d8bd926751df2f7c7cfda6d49c7a82da36d58daeed22b9e",
+      "internal/tspath/extension.go": "7c2fd65427a85495fc941e24691d7193d0170f096ddae39cccbd2ec5ef030f97",
+      "internal/tspath/ignoredpaths.go": "9c8082286065850de34ce7991d39182baf98dbe0ef2a4c28ca98fb8237ae8283",
+      "internal/tspath/path.go": "8c281de85cd6e8a4e7420055dcc383ebad195c8f76edf657cdfbc24e8118f6ce",
+      "internal/core/arena.go": "458d8ec91149253a731ec3dee8f9fad77e16566aa4877fe294ad9c7e723f6222",
+      "internal/core/bfs.go": "3711dc69699fec99bfe9af50fbbf76f5fe4f39f11df43a93635990117d8dc13e",
+      "internal/core/binarysearch.go": "0d965e9924f4c2364049638ed6569c5f9940515ab5e35583ddfb6fa6062e88ca",
+      "internal/core/buildoptions.go": "00f571e0f458749220988aa60d04d5dcbfcdd5ed91dd3413b02673a20e7071e4",
+      "internal/core/compileroptions.go": "0794dd74ffbecdda009f07e3dc515ae6ffe248e488dd7aea6fe88025b24a9e65",
+      "internal/core/context.go": "d34cd970b3d1b588923628f34c4eb9d241eeb7516e8f3a43d89bc129743386b9",
+      "internal/core/core.go": "10e493f632bfcd43e85285347fe724e89c0b9ba537e4fb131ff13b09f5b03ee3",
+      "internal/core/languagevariant.go": "8f739e1d0572d0538d052d428bfdf4c1aa50b72f3eea883da7a3ea7f2e99f639",
+      "internal/core/languagevariant_stringer_generated.go": "02cd1536f34587ef2a4666e59a278da9849a99e31a95bd6d22adde628473f7a8",
+      "internal/core/linkstore.go": "e63a7687c7145979ad689546f3f4b07f22e2a85791222fc190814fb64016ae33",
+      "internal/core/modulekind_stringer_generated.go": "72b233eb31e6269983549dad888820e1fb0466f2904b034e659ae9a380266931",
+      "internal/core/nodemodules.go": "48f2b6c2cade9277da82ea9cb8153cd5a7a6b42cc819500029106d9430739879",
+      "internal/core/parsedoptions.go": "00204e7e9b5082a0036c0288aea7546a2ec76b790c1a4eafc4d8b1d3a0b77f74",
+      "internal/core/pattern.go": "53c0fc3df09cb967338b3390c6f891089694d4976923acd1b6ba0765cbd33651",
+      "internal/core/projectreference.go": "1a4c826235f02616293f0a78fe22cbf7efb15b40dbfa7c31a574c53e44ad2eb7",
+      "internal/core/scriptkind.go": "90eb5fb9479d3aa34c2b5e8dce63149cb8938031ed8bbd48a0e6eefcaae5e47d",
+      "internal/core/scriptkind_stringer_generated.go": "00bf09b6c753524d2829af6473273a021d4438177911d145a5042a7518f80665",
+      "internal/core/scripttarget_stringer_generated.go": "c30f60f58280067d1a0322ba93746e53b7fd2e18f9021836fd1765bf0252b298",
+      "internal/core/semaphore.go": "8243c85cf47a20a861d80bd3ee7986bcf855de75f493e542e9a9045d0c0ba3b4",
+      "internal/core/stack.go": "8f8f00cd582fbe6798b5f1a9e53132eebe2b58c97c11ec18e192bd104e345f7d",
+      "internal/core/text.go": "dad1b4d0bb8fbd4a1c3c686a6a4fff940cfac17551c7c5ca564c33273e2277e4",
+      "internal/core/textchange.go": "09491c3d1d8c09a4b83d91f2c1cbda69dc956fce9f1535644b69dc4ce391c8c6",
+      "internal/core/tristate.go": "d078d8f1eb2078c67ba66e1e37f81be2a959c6700581dfbcc4505e021e7c06f2",
+      "internal/core/tristate_stringer_generated.go": "5df20fff035456af5d27d135c3c8b06335cb11566427cabd2dd487fdb950d744",
+      "internal/core/typeacquisition.go": "a064d7905d8cc78944faff22667433ddb2f1526a592aac78fb64dde555365bf5",
+      "internal/core/version.go": "db30d271c7537a95dc67302c56622e7915faf9d706bda452fad98e792817b7f1",
+      "internal/core/watchoptions.go": "cc5bf8d3a051c4fd11a136138f13d369726b4598acdf3525c6022e39d95e34fa",
+      "internal/core/workgroup.go": "3a7cdb6ec7932d1c7572dac0b4cec3ef937fbd941a0572c733f519547e3e9266",
+      "internal/nativepath/eintr_unix.go": "44c82827b2545858fe095bf4ae648b0262629c1800cc25f149def099a47cdeae",
+      "internal/nativepath/realpath_darwin.go": "f4e702625bee4c4d70aae1339020a8df8361184137afcc3232a39205432df764",
+      "internal/nativepath/symlink_other.go": "c32986379b3283822b2bfdc4d160b05835fbc7cdb8672b7e49f17a838dccd83f",
+      "internal/vfs/vfs.go": "a6d7306e3da4c4b3146d620b08bc405240c7cfb77a606cd202fc9f4adef5aeb2",
+      "internal/vfs/internal/internal.go": "ac00d31de66d1e23f7ff4c62970d2eeb0fbd38855ffc9171196ed5f2c2d94324",
+      "internal/vfs/osvfs/os.go": "87cac9319df76ac9a4950bde481ade54fa667bd6e05af14e58d909d94fd58405"
+    },
+    "source_files_verified": 53,
+    "validation_passed": true
+  },
+  "limits": {
+    "snapshots_not_global_high_water": true,
+    "native_malformed_utf8_gap": "tsr-34z",
+    "actual_native_checked_scope_not_observed": true,
+    "production_changed": false,
+    "capacity_not_rss": true
+  }
+}

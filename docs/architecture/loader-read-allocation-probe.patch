@@ -1,0 +1,23 @@
+diff --git a/crates/tsr-vfs/src/lib.rs b/crates/tsr-vfs/src/lib.rs
+--- a/crates/tsr-vfs/src/lib.rs
++++ b/crates/tsr-vfs/src/lib.rs
+@@ -83,2 +83,5 @@
+     // Upstream's `utf16.Decode` substitutes U+FFFD for an unpaired surrogate;
++    if std::env::var_os("TSR_READ_ALLOCATIONS").is_some_and(|value| value == "1") {
++        eprintln!("decode_units\t{}\t{}", units.len(), units.capacity());
++    }
+     // `decode_utf16_lossy` is not stable, so this is the same thing spelled out.
+diff --git a/crates/tsr-vfs/src/os.rs b/crates/tsr-vfs/src/os.rs
+--- a/crates/tsr-vfs/src/os.rs
++++ b/crates/tsr-vfs/src/os.rs
+@@ -184,3 +184,9 @@
+         assert_rooted(path);
+-        std::fs::read(path).ok().map(|bytes| decode_bytes(&bytes))
++        std::fs::read(path).ok().map(|bytes| {
++            let text = decode_bytes(&bytes);
++            if std::env::var_os("TSR_READ_ALLOCATIONS").is_some_and(|value| value == "1") {
++                eprintln!("read_allocation\t{}\t{}\t{}\t{}", bytes.len(), bytes.capacity(), text.len(), text.capacity());
++            }
++            text
++        })
+     }
