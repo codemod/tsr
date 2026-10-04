@@ -117,6 +117,7 @@ mod constraints;
 mod context_sensitive;
 pub mod contextual;
 pub mod declared;
+mod decorators;
 pub mod destructure;
 pub mod enum_member_name;
 pub mod expressions;

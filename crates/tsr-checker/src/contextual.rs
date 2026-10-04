@@ -1180,6 +1180,7 @@ impl<'a> Checker<'a, '_> {
                 self.jsx_attributes_context(parent)
             }
             Node::CallExpression(call) => self.contextual_type_for_argument(call, node),
+            Node::Decorator(_) => self.contextual_type_for_decorator(parent),
             Node::TemplateSpan(_) => {
                 let template_id = self.nodes.parent(parent)?;
                 let Node::TemplateExpression(template) = self.node_map.get(template_id)? else {

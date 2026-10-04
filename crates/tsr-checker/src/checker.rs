@@ -1022,6 +1022,8 @@ pub struct Checker<'a, 'n> {
     /// per distinct baked type; written where the text is rendered, because
     /// that is the last point the structure exists. `bd tsr-0hc`.
     pub(crate) signature_types: FxHashMap<TypeId, Vec<crate::signatures::Signature>>,
+    /// Native decorator signature links belong to the decorated declaration.
+    pub(crate) decorator_types: crate::decorators::DecoratorTypes,
     /// resolveAnonymousTypeMembers / getDefaultConstructSignatures (checker.go).
     /// None marks an active or unsupported class constructor resolution.
     pub(crate) class_construct_signatures:
@@ -1430,6 +1432,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             instantiated_type_parameters: FxHashMap::default(),
             reference_types_from_nodes: rustc_hash::FxHashSet::default(),
             signature_types: FxHashMap::default(),
+            decorator_types: crate::decorators::DecoratorTypes::default(),
             class_construct_signatures: FxHashMap::default(),
             instantiated_signatures: FxHashMap::default(),
             instantiated_signature_mappers: FxHashMap::default(),
