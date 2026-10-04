@@ -22,13 +22,24 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
-### Current checker checkpoint — certified source-never and distributive reduction
+### Current checker checkpoint — certified empty-Function module-copy calls
 
-Measured production tree **`9cdca98a`**, against published `c1ffade9`:
+Measured production tree **`5956a9fd`**, against published `a7bbb454`:
 **459,629/478,855 assertions (95.99%)**, **7,176/9,538 complete cases
 (75.24%)**. The 99% target requires 474,067 matches; **14,438 remain**.
 Pinned native `5b1047d1` and both denominators are unchanged. Aligned verdicts:
 **474,251 total; 459,629 RIGHT; 2,182 GAP; 12,440 WRONG**.
+
+Known module-copy calls return genuine `any` only through an independently
+certified empty arity-zero class/interface global `Function`. Failed direct or
+inherited interface signature construction now propagates incompleteness instead
+of proving an empty or partial candidate set. Pinned native controls distinguish
+empty targets from unreadable call/construct signatures in both null modes and
+cold alias orders, retaining source/default identities and `new Head()` errors.
+Missing, invalid, cyclic, generic and index applicability remains unsupported.
+Against `a7bbb454`, all 474,251 checker records and all 10,570 complete diagnostic
+records are **byte-identical**, including payloads and empty positives. This
+targeted correctness unit claims no existing-corpus gain.
 
 Certified whole-never source intersections now use their reduced apparent view
 before simple relations; substituted naked-parameter conditional checks reduce
@@ -66,8 +77,8 @@ GAP→RIGHT**, with zero RIGHT losses, GAP→WRONG or population changes, and tw
 complete cases. One remaining-WRONG synthetic-default qualifier changes to
 `moment.Moment`; native requires `_moment.Moment`. Raw controls retain the OBJECT
 return, default and call signatures, so this naming residue is not counted as a
-gain. Global `Function` applicability remains unsupported; native ordinary-any
-calls through an empty global `Function` are not claimed implemented.
+gain. Global `Function` applicability is now implemented only for the certified
+empty-target module-copy subset described above.
 
 Fixed signature positions include optional/default `undefined` under strict null
 checks without changing stored annotations, rest lookup or write targets.
@@ -137,7 +148,7 @@ payload gains the two expected TS2322 occurrences. Function copies remove the
 false TS2339 at `esModuleInteropImportNamespace/index.ts:2:5` without losing a
 matched occurrence.
 
-**2,786 release workspace tests across 239 result blocks**, six existing ignores,
+**2,788 release workspace tests across 239 result blocks**, six existing ignores,
 strict release workspace/all-target Clippy, formatting and diff checks pass.
 Unfiltered scorepair agrees with the multiline-aware audit and accepts the new
 baseline; checker and diagnostics snapshots are refreshed after strict Clippy.
@@ -152,8 +163,17 @@ held: nine gains come with three GAP→WRONG array-widening rows and two changed
 WRONG payloads, despite byte-identical complete diagnostics. The earlier
 relater-only source-never candidate remains rejected for one RIGHT loss; the
 accepted replacement includes reduction before distributive conditional checks.
-Generic argument reporting, empty-Function applicability and nullable widening
-remain separate native-first units with fresh combined audits required.
+Generic argument reporting remains held despite 20 extra matched diagnostics
+and a corpus-neutral checker capture: grouped, nested and aliased contextual
+`this` receivers gain false TS2345 diagnostics. Their ordinary type/signature
+identities also describe legitimately invalid written receivers. A lexical
+`ThisType` region refusal would hide valid negatives, including ready escaped
+calls; a producer readiness/substitution/provenance contract remains necessary.
+Nullable widening remains held: the combined native-backed producer, consumers
+and supplier gain 36 WRONG→RIGHT and nine GAP→RIGHT against 18 RIGHT→WRONG and
+two RIGHT→GAP, with six changed WRONG payloads. Fourteen losses concern
+contextually typed IIFEs and six concern written JSDoc returns. Passing targeted
+array/mode controls does not establish full retention.
 Generic union-alias admission is held: the candidate OOMs on the variance cohort
 (3.1 GiB versus 45 MiB parent/85 MiB native), mishandles invalid recursive aliases
 and regresses `Wrapped<T>=T|any`. Nested indexed lowering is correct; anonymous
