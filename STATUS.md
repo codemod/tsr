@@ -22,6 +22,17 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
+Leased-read API prerequisite (`tsr-1yb.19.2.3`), based on `258d699a`:
+new opt-in prepared text retains its byte charge through moves and releases it
+on actual drop. Fourteen public physical controls preserve complete read/parse
+images; 29 audits balance reservations across success, I/O and budget failure.
+A 4,096-byte budget rejects oversized/growing and UTF-16 expansion inputs with
+an explicit resource error. The [API witness](docs/architecture/loader-read-reservation-api.md)
+qualifies exact requested-layout accounting to inspected Rust 1.96.0; it is
+not a portable allocator or RSS bound. No production loading, new corpus score
+or whole-project speed result is claimed. The equivalent-work <=0.50 target
+remains unverified.
+
 Read-allocation prerequisite (`tsr-1yb.19.2.1`), measured at `30eded71`:
 14 public physical controls preserve complete Rust read/parse payloads across
 normal/disabled/enabled/repeated observations. A stale 9-byte hint reads 65,589
@@ -2112,6 +2123,12 @@ gap to 70%               CROSSED (70.003%; the threshold was 335,268)
 
 ## 3. What is ported
 
+Opt-in OS read preparation returns owned text with a non-cloneable RAII
+reservation (`tsr-1yb.19.2.3`, base `258d699a`). Raw/replacement, UTF-16 units
+and decoded requests are charged before growth; moved/retained text keeps its
+lease. Five ownership/failure/unwind controls and 14 public read/parse controls
+pass. Main's ordinary filesystem/decoder and production scheduler are unchanged.
+
 Public `read_allocations` characterization helper and source-exact isolated
 probe reproduction (`tsr-1yb.19.2.1`, source `30eded71`) are retained. Main's
 filesystem/decoder is unchanged; logical capacity snapshots are separate from
@@ -2315,8 +2332,11 @@ keeps relation key equivalence (`tsr-1yb.4.1.4`), lifetime/publication
 (`tsr-1yb.4.1.3`) and current expensive-work accounting (`tsr-1yb.11.1`) with
 their existing owners. Checker live-store admission remains
 `tsr-1yb.3.1.1.3`. Finalized read-allocation characterization
-(`tsr-1yb.19.2.1`) hands off to the private reservation API
-(`tsr-1yb.19.2.3`), then pool admission/oversize/unwind (`tsr-1yb.19.2.2`).
+(`tsr-1yb.19.2.1`) and the source-qualified private reservation API
+(`tsr-1yb.19.2.3`) hand off to pool admission/oversize/unwind
+(`tsr-1yb.19.2.2`). That pool work must retain allocator qualification,
+reservation-carrying ownership and explicit resource failures; production
+retention still requires full work/output fidelity and confirmed timing benefit.
 Native malformed-byte source/offset fidelity remains `tsr-34z`.
 JSDoc-specific attribution/ownership (`tsr-1yb.9.1`) can start independently;
 production deferral or measured no-change (`tsr-1yb.9.2`) follows that evidence.
@@ -5670,6 +5690,18 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+### Portable-capacity or speed claim for leased prototype — base `258d699a`
+
+The private example's public `reserve_exact` method name cannot establish a
+portable exact-capacity bound. Its requested-layout accounting is qualified to
+inspected Rust 1.96.0, with reported-capacity checks; unexpected excess is seen
+only after allocation and is not bounded by that guard. The 65,589-byte control
+has a conservative 196,661-byte requested-layout peak at 1 MiB, versus the
+ordinary source30eded71 131,178-byte raw-plus-decoded snapshot from a different
+read path. Neither quantity is total RSS or a valid measured memory/speed gain.
+The 4,096-byte run refuses before subsequent growth and releases all charges.
+[Evidence](docs/architecture/loader-read-reservation.json).
 
 ### Existing-read byte-cap claim — source `30eded71`
 
@@ -12123,6 +12155,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
+| 2026-10-04 | `258d699a` (base plus hashed owned prototype) | not remeasured | not remeasured | Leased read-preparation API; no runtime speed claim | `tsr-1yb.19.2.3`: 14 complete physical read/parse controls, 29 success/I/O/budget audits, five release ownership/failure/unwind controls; all reservations balance. Rust 1.96.0 source qualification and exact reported-capacity guards remain explicit; no portable allocator/RSS guarantee. Strict example Clippy/format and source identities verified. Native malformed UTF-8 remains `tsr-34z`; `.19.2.2` owns pool policy. Main production filesystem/decoder/workers unchanged; native median <=0.50 unproved. |
 | 2026-10-04 | `30eded71` (measured binaries; later harness validation) | not remeasured | not remeasured | Read/decode allocation characterization; no speed claim | `tsr-1yb.19.2.1`: 14 physical cases, 56 Rust helper processes, 14 native reader controls and 22 CLI controls. Complete read/parse payloads, diagnostic fingerprints and two loaded identities preserved; malformed native UTF-8 byte mismatch retained in `tsr-34z`. Separate capacity snapshots require an allocation-aware leased preparation API (`.19.2.3`) before pool admission (`.19.2.2`); no hard RSS cap or production workers. VFS 37 tests pass at measured source; helper strict release Clippy passes after concurrent checker update; Rust/Go formatting and source/patch identity verified. |
 | 2026-10-04 | `08f2487b` (inspected source) | not remeasured | not remeasured | Documentation only; no speed claim or new refusal | `tsr-1yb.18`: mirror the checker port convention and audit current relation publication. 83 integration/two internal controls, 3,405 anchors and 16,630 section citations pass; 190 historical issue IDs remain unresolved (`tsr-10`), with new task references checked directly. Persistent key/context, forcing/lifetime and expensive-execution evidence remain in existing tasks; release TSR/tsgo median <=0.50 remains unverified. |
 | 2026-10-03 | `e83fac17` | **95.95%** | **7,150/9,538** | **459,451/478,855 assertions.** +70 matches, +3 complete cases vs `4bf5fe96`; 67W→R, 3G→R, zero RIGHT losses/G→W/population changes, two changed WRONG payloads. | Direct-alias declaration-order ties and exact/nonexact const elisions. Full positive diagnostics audit has zero correct-case/occurrence losses or new extras, removing four false errors. JSDoc setup and node-less indexed recovery candidates are rejected for false errors in previously clean cases. Concurrent test/docs through `074f60a7` preserved; 2,644 workspace tests, strict clippy/fmt, 3,400 anchors, 16,632 citations pass. Historical issue-ID gate remains blocked by 197 records; 14,616 remain to 99%. |

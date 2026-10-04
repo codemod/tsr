@@ -73,7 +73,7 @@ including decoder temporaries, rather than infer a cap from these examples.
 
 ## Smallest enforceable preparation boundary
 
-The API prerequisite (`tsr-1yb.19.2.3`) needs a budget-aware **private preparation
+The API prerequisite (`tsr-1yb.19.2.3`) requires a budget-aware **private preparation
 operation** that owns read/decode allocation and returns text with its lease.
 It need not change the ordinary `FileSystem` trait or enable production workers.
 An external wrapper around the existing whole-file call is insufficient.
@@ -101,9 +101,11 @@ The operation must carry these contracts:
    controlled budget failure, needs timeout and unwind controls. A task waiting
    forever for more credits than the entire budget is not a policy.
 
-The admission prototype (`tsr-1yb.19.2.2`) consumes that API and tests pool
-progress, oversized inputs and unwind. This is an API obligation, not an
-implemented lease or a selected buffer layout.
+The [source-qualified API witness](loader-read-reservation-api.md) implements
+leased preparation in an opt-in example. The admission prototype
+(`tsr-1yb.19.2.2`) must consume that API and test pool progress, oversized inputs
+and unwind. The witness is not production integration or a portable allocator
+bound; its source and capacity assumptions remain explicit.
 An owned UTF-8 transfer could remove one copy, but would not solve unbounded
 reads, UTF-16 temporaries or malformed-input semantics. Any decoder transfer
 needs the native controls and current cost evidence in `tsr-1yb.2.1.3` first.
