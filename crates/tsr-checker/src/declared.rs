@@ -1578,7 +1578,7 @@ impl<'a> Checker<'a, '_> {
     /// property symbol — so it groups with the properties, not with the call
     /// signatures. That is why the grouping happens here, where the member kind
     /// is known, and not in the shared renderer.
-    fn type_literal_key(&self, node: tsr_ast::NodeId) -> TypeLiteralKey {
+    pub(crate) fn type_literal_key(&self, node: tsr_ast::NodeId) -> TypeLiteralKey {
         let bindings: rustc_hash::FxHashMap<_, _> = self
             .alias_evaluation_bindings
             .iter()

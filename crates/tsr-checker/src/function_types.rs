@@ -161,6 +161,12 @@ impl<'a> Checker<'a, '_> {
         // has none is a gap rather than a type with a synthetic identity — see
         // the note above.
         let Some(symbol) = self.binder.symbol_of(id) else { return error };
+        // Reuse successful nodes in the same captured-binding/template context,
+        // but only after the current signature and alias eligibility checks.
+        let key = self.type_literal_key(id);
+        if let Some(&ty) = self.type_literal_types.get(&key) {
+            return ty;
+        }
         // §447: the `signature` flag records which NODE KIND the node builder
         // would emit (`TypeData::Anonymous::signature`'s own contract), and an
         // alias-NAMED bake emits a `TypeReferenceNode` — highest precedence,
@@ -184,6 +190,256 @@ impl<'a> Checker<'a, '_> {
         // see `Checker::signature_types` (`bd tsr-0hc`). Recorded here because
         // this is the last point the `Signature` exists.
         self.signature_types.insert(built, vec![signature]);
+        self.type_literal_types.insert(key, built);
         built
+    }
+}
+
+#[cfg(test)]
+mod node_identity_tests {
+    use tsr_ast::{Node, SourceFile, Statement, TypeNode};
+
+    use super::*;
+    use crate::{signatures::SignatureKind, types::TypeData};
+
+    fn with_checker(
+        source: &str,
+        test: impl for<'a, 'b> FnOnce(&mut Checker<'a, 'b>, &[TypeNode<'a>], &'a SourceFile<'a>),
+    ) {
+        let arena = tsr_core::Arena::new();
+        let parsed = tsr_parser::parse(&arena, source);
+        assert!(parsed.diagnostics.is_empty());
+        let bound = tsr_binder::bind(
+            &arena,
+            parsed.source_file,
+            &parsed.nodes,
+            tsr_binder::FileInfo { name: "fixture.ts", text: source },
+        );
+        let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+        let mut pending = vec![Node::SourceFile(parsed.source_file)];
+        let mut types = Vec::new();
+        while let Some(node) = pending.pop() {
+            tsr_ast::push_children(node, &mut pending);
+            match node {
+                Node::FunctionTypeNode(node) => types.push(TypeNode::FunctionTypeNode(node)),
+                Node::ConstructorTypeNode(node) => types.push(TypeNode::ConstructorTypeNode(node)),
+                _ => {}
+            }
+        }
+        test(&mut checker, &types, parsed.source_file);
+    }
+
+    #[test]
+    fn raw_nodes_reuse_success_without_merging_foreign_parameters_or_kinds() {
+        with_checker(
+            "declare const first: <T>(value: T) => T;
+             declare const second: <T>(value: T) => T;
+             declare const make: new<T>(value: T) => { value: T };",
+            |checker, nodes, _| {
+                let mut identities = rustc_hash::FxHashSet::default();
+                let mut parameters = rustc_hash::FxHashSet::default();
+                for &node in nodes {
+                    let first = checker.get_type_from_type_node(node);
+                    assert_ne!(first, checker.intrinsics.error);
+                    let repeated = checker.get_type_from_type_node(node);
+                    println!(
+                        "RAW_NODE {:?} ids={first:?}/{repeated:?}",
+                        Node::from(node).node_id()
+                    );
+                    assert_eq!(first, repeated, "same node must retain identity");
+                    assert!(identities.insert(first), "different nodes must stay distinct");
+                    let signature = &checker.signature_types[&first][0];
+                    assert!(parameters.insert(signature.parameters[0].r#type));
+                    assert_eq!(checker.type_to_string(signature.parameters[0].r#type), "T");
+                    assert_eq!(
+                        signature.kind,
+                        if matches!(node, TypeNode::FunctionTypeNode(_)) {
+                            SignatureKind::Call
+                        } else {
+                            SignatureKind::Construct
+                        }
+                    );
+                }
+                assert_eq!(identities.len(), 3);
+                assert_eq!(parameters.len(), 3);
+            },
+        );
+    }
+
+    #[test]
+    fn binding_and_mapped_template_keys_are_separate_in_both_lookup_orders() {
+        for number_first in [false, true] {
+            with_checker(
+                "type Capture<T> = { call: (value: T) => T; make: new(value: T) => { value: T } };",
+                |checker, nodes, file| {
+                    let Statement::TypeAliasDeclaration(alias) = file.statements[0] else {
+                        panic!("Capture alias")
+                    };
+                    let symbol = checker
+                        .binder
+                        .symbol_of(alias.type_parameters[0].node_id.unwrap())
+                        .unwrap();
+                    let string = checker.intrinsics.string;
+                    let number = checker.store.intern_literal(
+                        TypeFlags::NUMBER_LITERAL,
+                        TypeData::NumberLiteral("37".into()),
+                        false,
+                    );
+                    let arguments = if number_first { [number, string] } else { [string, number] };
+                    let mut identities = rustc_hash::FxHashSet::default();
+                    let mut observations = Vec::new();
+                    for mapped_depth in [0, 1] {
+                        checker.mapped_template_depth = mapped_depth;
+                        for argument in arguments {
+                            checker
+                                .alias_evaluation_bindings
+                                .push([(symbol, argument)].into_iter().collect());
+                            for &node in nodes {
+                                let first = checker.get_type_from_type_node(node);
+                                let repeated = checker.get_type_from_type_node(node);
+                                println!(
+                                    "CONTEXT number_first={number_first} mapped={mapped_depth} argument={argument:?} node={:?} ids={first:?}/{repeated:?}",
+                                    Node::from(node).node_id()
+                                );
+                                assert_eq!(first, repeated, "warm context must reuse its node");
+                                assert!(
+                                    identities.insert(first),
+                                    "different contexts must not merge"
+                                );
+                                observations.push((mapped_depth, argument, node, first));
+                                let signature = checker.signature_types[&first][0].clone();
+                                assert_eq!(signature.parameters[0].r#type, argument);
+                                if signature.kind == SignatureKind::Call {
+                                    assert_eq!(signature.r#type, argument);
+                                } else {
+                                    assert_eq!(
+                                        checker.get_type_of_property_of_type(
+                                            signature.r#type,
+                                            "value"
+                                        ),
+                                        Some(argument)
+                                    );
+                                }
+                            }
+                            checker.alias_evaluation_bindings.pop();
+                        }
+                    }
+                    for (mapped_depth, argument, node, expected) in observations.into_iter().rev() {
+                        checker.mapped_template_depth = mapped_depth;
+                        checker
+                            .alias_evaluation_bindings
+                            .push([(symbol, argument)].into_iter().collect());
+                        assert_eq!(
+                            checker.get_type_from_type_node(node),
+                            expected,
+                            "older context must remain reusable"
+                        );
+                        checker.alias_evaluation_bindings.pop();
+                    }
+                    assert_eq!(identities.len(), 8);
+                },
+            );
+        }
+    }
+
+    #[test]
+    fn cached_generic_alias_success_never_bypasses_current_eligibility() {
+        with_checker(
+            "type FunctionAlias<T> = (value: T) => T;
+             type ConstructorAlias<T> = new(value: T) => { value: T };",
+            |checker, nodes, _| {
+                for &node in nodes {
+                    let id = Node::from(node).node_id().unwrap();
+                    let alias = checker.alias_symbol_for_type_node(id).unwrap();
+                    assert_eq!(checker.get_type_from_type_node(node), checker.intrinsics.error);
+                    assert_eq!(checker.cached_type_literal(id), None);
+                    checker.variadic_alias_in_progress.insert(alias);
+                    let success = checker.get_type_from_type_node(node);
+                    assert_ne!(success, checker.intrinsics.error);
+                    assert_eq!(checker.get_type_from_type_node(node), success);
+                    checker.variadic_alias_in_progress.remove(&alias);
+                    assert_eq!(checker.get_type_from_type_node(node), checker.intrinsics.error);
+                    checker.variadic_alias_in_progress.insert(alias);
+                    assert_eq!(checker.get_type_from_type_node(node), success);
+                    checker.variadic_alias_in_progress.remove(&alias);
+                }
+            },
+        );
+    }
+
+    #[test]
+    fn named_function_and_constructor_nodes_keep_alias_spelling_and_shape() {
+        with_checker(
+            "type NamedFunction = (value: 1) => \"out\";
+             type NamedConstructor = new(value: \"head\") => { tail: 37 };",
+            |checker, nodes, _| {
+                for &node in nodes {
+                    let first = checker.get_type_from_type_node(node);
+                    let repeated = checker.get_type_from_type_node(node);
+                    println!(
+                        "NAMED_NODE {:?} ids={first:?}/{repeated:?}",
+                        Node::from(node).node_id()
+                    );
+                    assert_eq!(first, repeated);
+                    let function = matches!(node, TypeNode::FunctionTypeNode(_));
+                    assert_eq!(
+                        checker.type_to_string(first),
+                        if function { "NamedFunction" } else { "NamedConstructor" }
+                    );
+                    assert!(checker.alias_named_signature_types.contains(&first));
+                    assert!(matches!(
+                        checker.store.get(first).data,
+                        TypeData::Anonymous { signature: false, .. }
+                    ));
+                    let signature = checker.signature_types[&first][0].clone();
+                    assert_eq!(
+                        checker.type_to_string(signature.parameters[0].r#type),
+                        if function { "1" } else { "\"head\"" }
+                    );
+                    if function {
+                        assert_eq!(signature.kind, SignatureKind::Call);
+                        assert_eq!(checker.type_to_string(signature.r#type), "\"out\"");
+                    } else {
+                        assert_eq!(signature.kind, SignatureKind::Construct);
+                        let tail =
+                            checker.get_type_of_property_of_type(signature.r#type, "tail").unwrap();
+                        assert_eq!(checker.type_to_string(tail), "37");
+                    }
+                }
+            },
+        );
+    }
+
+    #[test]
+    fn a_transient_failed_predicate_does_not_cache_success_or_poison_recovery() {
+        with_checker(
+            "type Guard<T> = { test: (value: unknown) => value is T };",
+            |checker, nodes, file| {
+                let Statement::TypeAliasDeclaration(alias) = file.statements[0] else {
+                    panic!("Guard alias")
+                };
+                let symbol =
+                    checker.binder.symbol_of(alias.type_parameters[0].node_id.unwrap()).unwrap();
+                let node = nodes[0];
+                let id = Node::from(node).node_id().unwrap();
+                checker
+                    .alias_evaluation_bindings
+                    .push([(symbol, checker.intrinsics.error)].into_iter().collect());
+                assert_eq!(checker.get_type_from_type_node(node), checker.intrinsics.error);
+                assert_eq!(checker.cached_type_literal(id), None);
+                checker.alias_evaluation_bindings.pop();
+                checker
+                    .alias_evaluation_bindings
+                    .push([(symbol, checker.intrinsics.string)].into_iter().collect());
+                let success = checker.get_type_from_type_node(node);
+                assert_ne!(success, checker.intrinsics.error);
+                assert_eq!(checker.get_type_from_type_node(node), success);
+                assert_eq!(
+                    checker.signature_types[&success][0].predicate.as_ref().unwrap().r#type,
+                    Some(checker.intrinsics.string)
+                );
+                checker.alias_evaluation_bindings.pop();
+            },
+        );
     }
 }
