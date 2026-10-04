@@ -22,13 +22,25 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
-### Current checker checkpoint — signature positions and bounded mapped proofs
+### Current checker checkpoint — declaration-function namespace copies
 
-Measured production tree **`3a932c03`**, against published `d881bd20`:
-**459,614/478,855 assertions (95.98%)**, **7,174/9,538 complete cases
-(75.21%)**. The 99% target requires 474,067 matches; **14,453 remain**.
+Measured production tree **`4905d37e`**, against published `d881bd20`:
+**459,627/478,855 assertions (95.98%)**, **7,176/9,538 complete cases
+(75.24%)**. The 99% target requires 474,067 matches; **14,440 remain**.
 Pinned native `5b1047d1` and both denominators are unchanged. Aligned verdicts:
-**474,251 total; 459,614 RIGHT; 2,183 GAP; 12,454 WRONG**.
+**474,251 total; 459,627 RIGHT; 2,182 GAP; 12,442 WRONG**.
+
+Declaration-function namespace imports now retain separate noncallable module
+copies, source members and callable synthetic defaults. Plain function copies
+print structurally; function/module copies keep their own `typeof` alias. Cold
+import-equals chains accept only known module copies with namespace-bearing
+sources. Against `3a932c03`, the combined audit adds **12 WRONG→RIGHT and one
+GAP→RIGHT**, with zero RIGHT losses, GAP→WRONG or population changes, and two
+complete cases. One remaining-WRONG synthetic-default qualifier changes to
+`moment.Moment`; native requires `_moment.Moment`. Raw controls retain the OBJECT
+return, default and call signatures, so this naming residue is not counted as a
+gain. Global `Function` applicability remains unsupported; native ordinary-any
+calls through an empty global `Function` are not claimed implemented.
 
 Fixed signature positions include optional/default `undefined` under strict null
 checks without changing stored annotations, rest lookup or write targets.
@@ -88,15 +100,17 @@ remains held for GAP→WRONG transitions and changed WRONG payloads.
 
 Complete duplicate-aware diagnostics improve against `d881bd20` across
 **10,570 cases**, including all **5,082 empty baselines**:
-**2,846 RIGHT / 2,642 WRONG / 4,798 EMPTY_RIGHT / 284 EMPTY_WRONG**;
-**20,655 matched occurrences / 3,890 extras**, up from 20,617 matches and down
-from 3,891 extras. Six wrong cases and one empty-positive case become correct.
+**2,846 RIGHT / 2,642 WRONG / 4,799 EMPTY_RIGHT / 283 EMPTY_WRONG**;
+**20,655 matched occurrences / 3,889 extras**, up from 20,617 matches and down
+from 3,891 extras. Six wrong cases and two empty-positive cases become correct.
 There are no correct-case, expected-occurrence, empty-positive or population
 losses, and no introduced extras. Two still-WRONG generic-signature diagnostic
 payloads gain expected TS2430 occurrences; one still-WRONG mapped-relationship
-payload gains the two expected TS2322 occurrences.
+payload gains the two expected TS2322 occurrences. Function copies remove the
+false TS2339 at `esModuleInteropImportNamespace/index.ts:2:5` without losing a
+matched occurrence.
 
-**2,775 release workspace tests across 238 result blocks**, six existing ignores,
+**2,776 release workspace tests across 238 result blocks**, six existing ignores,
 strict release workspace/all-target Clippy, formatting and diff checks pass.
 Unfiltered scorepair agrees with the multiline-aware audit and accepts the new
 baseline; checker and diagnostics snapshots are refreshed after strict Clippy.
@@ -106,9 +120,13 @@ remote, so local issue updates are not claimed as synced.
 The standalone intrinsic-error negation patch is held despite 11 gains: three
 GAP→WRONG rows require constrained-parameter truthiness and loop-flow/binding
 prerequisites. Its complete diagnostics are unchanged, and both negation and
-the rejected unresolved supplier are restored. Function-export namespace copies,
-nullable-union provenance and mapped consumers still require combined integration
-audits. Generic argument reporting remains a separate native-first consumer unit.
+the rejected unresolved supplier are restored. Nullable-union provenance is also
+held: nine gains come with three GAP→WRONG array-widening rows and two changed
+WRONG payloads, despite byte-identical complete diagnostics. Whole-source never
+reduction is held for one RIGHT loss until distributive conditional checks reduce
+their mapped intersection before distribution. Mapped modifiers/missing heads,
+generic argument reporting and contextual alias representation remain separate
+native-first units with fresh combined audits required.
 The 99% goal is not reached; this is a checkpoint, not completion.
 
 ### Previous checker checkpoint — generic await, presence reads and JSDoc diagnostics
