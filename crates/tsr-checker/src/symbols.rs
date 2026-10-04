@@ -1189,6 +1189,99 @@ impl<'a> Checker<'a, '_> {
         };
         let specifier = specifier?.node_id()?;
         let module = self.resolve_external_module_name(declaration, specifier)?;
+        self.module_default_target(module, declaration)
+    }
+
+    /// The default target shared by clauses and identifier-default specifiers.
+    /// New synthetic defaults retain the immediate `export=` link; only a
+    /// complete, uncloned plain-TS file-module chain establishes eligibility.
+    fn module_default_target(&mut self, module: SymbolId, declaration: NodeId) -> Option<SymbolId> {
+        let synthetic = (|| {
+            if self.module_kind != tsr_core::ModuleKind::CommonJS || self.in_js_file(declaration) {
+                return None;
+            }
+            let immediate = self.resolve_external_module_symbol(module);
+            if immediate == module {
+                return None;
+            }
+            let mut current = immediate;
+            let mut seen = Vec::new();
+            // Match the existing naming walk's bound, but establish completeness
+            // ourselves: resolve_alias_fully also returns partial/cyclic links.
+            for _ in 0..8 {
+                if !self.binder.symbols().get(current).flags.contains(SymbolFlags::ALIAS) {
+                    break;
+                }
+                if seen.contains(&current) {
+                    return None;
+                }
+                seen.push(current);
+                let link = self.declaration_of_alias_symbol(current)?;
+                let file = self.source_file_of(link)?;
+                if self.nodes.parent(link) != Some(file)
+                    || self.in_js_file(file)
+                    || self.nodes.flags(file).contains(NodeFlags::JSON_FILE)
+                    || self.module_host?.is_declaration_file(file)
+                {
+                    return None;
+                }
+                // Prefilter before resolving. In particular, resolve_alias on
+                // external import-equals can follow an unchecked export= link,
+                // and default/specifier aliases can reenter this reader.
+                current = match self.node_map.get(link)? {
+                    Node::ExportAssignment(node)
+                        if node.is_export_equals
+                            && matches!(node.expression, Some(Expression::Identifier(_))) =>
+                    {
+                        self.export_assignment_target(link)?
+                    }
+                    Node::ImportEqualsDeclaration(node) => {
+                        let ModuleReference::ExternalModuleReference(reference) =
+                            node.module_reference?
+                        else {
+                            return None;
+                        };
+                        let specifier = reference.expression?.node_id()?;
+                        let imported = self.resolve_external_module_name(link, specifier)?;
+                        self.resolve_external_module_symbol(imported)
+                    }
+                    _ => return None,
+                };
+                current = self.binder.merged_symbol(current);
+            }
+            let entry = self.binder.symbols().get(current);
+            let [file] = entry.declarations.as_slice() else { return None };
+            if entry.flags != SymbolFlags::VALUE_MODULE
+                || self.nodes.kind(*file) != SyntaxKind::SourceFile
+                || self.binder.symbol_of(*file) != Some(current)
+                || self.in_js_file(*file)
+                || self.nodes.flags(*file).contains(NodeFlags::JSON_FILE)
+                || self.module_host?.is_declaration_file(*file)
+            {
+                return None;
+            }
+            let value = self.get_type_of_symbol(current);
+            if !matches!(self.store.get(value).data,
+                crate::types::TypeData::Anonymous { symbol, signature: false, .. }
+                    if symbol == current)
+                || self.module_value_clones.contains_key(&value)
+                || !self.get_signatures_of_symbol(current)?.is_empty()
+            {
+                return None;
+            }
+            Some(immediate)
+        })();
+        if synthetic.is_some() {
+            return synthetic;
+        }
+        if self.nodes.kind(declaration) != SyntaxKind::ImportClause {
+            // Preserve the specifiers' existing real-default lookup, and their
+            // refusals outside the proven synthetic domain. Clause-only legacy
+            // JSON/JS/ambient behavior below must not expand those domains.
+            return (self.resolve_external_module_symbol(module) == module)
+                .then(|| self.get_export_of_module(module, "default"))
+                .flatten();
+        }
         if self
             .binder
             .symbols()
@@ -1335,6 +1428,15 @@ impl<'a> Checker<'a, '_> {
         let export = self.node_map.get(declaration_of_export)?;
         let Node::ExportDeclaration(export) = export else { return None };
         if export.module_specifier.is_some() {
+            if export.attributes.is_none()
+                && let Some(tsr_ast::ModuleExportName::Identifier(name)) =
+                    specifier.property_name.or(specifier.name)
+                && name.text == "default"
+            {
+                let module_specifier = export.module_specifier?.node_id()?;
+                let module = self.resolve_external_module_name(declaration, module_specifier)?;
+                return self.module_default_target(module, declaration);
+            }
             // `case exportDeclaration.ModuleSpecifier() != nil:
             // getExternalModuleMember(exportDeclaration, node, …)`
             // (`checker.go:14966`). The *export declaration* is the node the
@@ -1375,6 +1477,18 @@ impl<'a> Checker<'a, '_> {
         let named_imports = self.nodes.parent(declaration)?;
         let clause = self.nodes.parent(named_imports)?;
         let import = self.nodes.parent(clause)?;
+        if let Some(Node::ImportSpecifier(specifier)) = self.node_map.get(declaration)
+            && let Some(tsr_ast::ModuleExportName::Identifier(name)) = specifier
+                .property_name
+                .or(specifier.name.map(tsr_ast::ModuleExportName::Identifier))
+            && name.text == "default"
+            && let Some(Node::ImportDeclaration(node)) = self.node_map.get(import)
+            && node.attributes.is_none()
+        {
+            let module_specifier = node.module_specifier?.node_id()?;
+            let module = self.resolve_external_module_name(declaration, module_specifier)?;
+            return self.module_default_target(module, declaration);
+        }
         self.get_external_module_member(import, declaration)
     }
 
@@ -5382,8 +5496,8 @@ impl<'a> Checker<'a, '_> {
     /// reads — `/** @type {Map<string, V>} */ const cache = new Map()` takes
     /// the tag's type, not the initialiser's. Upstream is
     /// `getEffectiveTypeAnnotationNode`'s JSDoc arm again, the same door the
-    /// `@param` road above went through. The docs hang off the enclosing
-    /// `VariableStatement`, two parents up.
+    /// `@param` road above went through. Direct hosted tags precede statement
+    /// tags; statement tags each select the first still-untyped declaration.
     fn jsdoc_type_annotation(&self, declaration: NodeId) -> Option<TypeNode<'a>> {
         if !self.in_js_file(declaration) {
             return None;
@@ -5391,33 +5505,102 @@ impl<'a> Checker<'a, '_> {
         if self.nodes.kind(declaration) != SyntaxKind::VariableDeclaration {
             return None;
         }
-        let mut current = declaration;
-        for _ in 0..2 {
-            current = self.nodes.parent(current)?;
-        }
-        if self.nodes.kind(current) != SyntaxKind::VariableStatement {
-            return None;
-        }
-        let docs = self.jsdoc_entries.get(&current)?;
-        for doc in *docs {
-            // A `@type` inside a `@typedef`/`@callback` block belongs to that
-            // construct, not to the variable the block precedes —
-            // `typedefTagNested`'s `var intercessor = 1` under a typedef
-            // carrying a stray `@type {string}` stays `number`.
-            if doc.tags.iter().any(|tag| {
+        let list_id = self.nodes.parent(declaration)?;
+        let current = self.nodes.parent(list_id)?;
+        let tag_type = |tag: &tsr_ast::JSDocTag<'a>| {
+            if let tsr_ast::JSDocTag::JSDocTypeTag(tag) = tag
+                && let Some(Node::JSDocTypeExpression(expression)) = tag.type_expression
+            {
+                expression.r#type
+            } else {
+                None
+            }
+        };
+        // Retain the old reader for unrepresented/mixed or incomplete trees.
+        // This is not a native all-document exclusion policy or absence proof.
+        let legacy = || {
+            if self.nodes.kind(current) != SyntaxKind::VariableStatement {
+                return None;
+            }
+            for doc in *self.jsdoc_entries.get(&current)? {
+                if doc.tags.iter().any(|tag| {
+                    matches!(
+                        tag,
+                        tsr_ast::JSDocTag::JSDocTypedefTag(_)
+                            | tsr_ast::JSDocTag::JSDocCallbackTag(_)
+                    )
+                }) {
+                    continue;
+                }
+                for tag in doc.tags {
+                    if let tsr_ast::JSDocTag::JSDocTypeTag(tag) = tag
+                        && let Some(Node::JSDocTypeExpression(expression)) = tag.type_expression
+                    {
+                        return expression.r#type;
+                    }
+                }
+            }
+            None
+        };
+        let hosted_tags = |host| {
+            let docs = self.jsdoc_entries.get(&host).copied().unwrap_or(&[]);
+            if docs.iter().flat_map(|doc| doc.tags).any(|tag| {
                 matches!(
                     tag,
-                    tsr_ast::JSDocTag::JSDocTypedefTag(_) | tsr_ast::JSDocTag::JSDocCallbackTag(_)
-                )
+                    tsr_ast::JSDocTag::JSDocTypedefTag(_)
+                        | tsr_ast::JSDocTag::JSDocCallbackTag(_)
+                        | tsr_ast::JSDocTag::JSDocUnknownTag(_)
+                ) || (matches!(tag, tsr_ast::JSDocTag::JSDocTypeTag(_)) && tag_type(tag).is_none())
+                    // `missing_type` recovers an omitted type as a source-less
+                    // AnyKeyword. It is not a complete hosted annotation.
+                    || matches!(tag_type(tag), Some(TypeNode::KeywordTypeNode(node))
+                        if node.kind == SyntaxKind::AnyKeyword
+                            && node.node_id.is_none_or(|id| {
+                                let span = self.nodes.span(id);
+                                span.start >= span.end
+                            }))
             }) {
+                None
+            } else {
+                Some(docs.last().map_or(&[][..], |doc| doc.tags))
+            }
+        };
+        if !matches!(
+            self.nodes.kind(current),
+            SyntaxKind::VariableStatement | SyntaxKind::ForStatement
+        ) {
+            return legacy();
+        }
+        let Some(Node::VariableDeclarationList(list)) = self.node_map.get(list_id) else {
+            return legacy();
+        };
+        let statement_tags = if self.nodes.kind(current) == SyntaxKind::VariableStatement {
+            hosted_tags(current)
+        } else {
+            Some(&[][..])
+        };
+        let Some(statement_tags) = statement_tags else { return legacy() };
+        let mut direct = Vec::with_capacity(list.declarations.len());
+        for variable in list.declarations {
+            if !matches!(variable.name, Some(tsr_ast::BindingName::Identifier(_))) {
+                return legacy();
+            }
+            let Some(tags) = hosted_tags(variable.node_id?) else { return legacy() };
+            direct.push(tags.iter().find_map(tag_type));
+        }
+        let index =
+            list.declarations.iter().position(|variable| variable.node_id == Some(declaration))?;
+        if let Some(annotation) = direct[index] {
+            return Some(annotation);
+        }
+        let mut types = statement_tags.iter().filter_map(tag_type);
+        for (variable, direct) in list.declarations.iter().zip(direct) {
+            if variable.r#type.is_some() || direct.is_some() {
                 continue;
             }
-            for tag in doc.tags {
-                if let tsr_ast::JSDocTag::JSDocTypeTag(tag) = tag
-                    && let Some(Node::JSDocTypeExpression(expression)) = tag.type_expression
-                {
-                    return expression.r#type;
-                }
+            let annotation = types.next()?;
+            if variable.node_id == Some(declaration) {
+                return Some(annotation);
             }
         }
         None
