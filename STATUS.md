@@ -24,7 +24,7 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ### Current checker checkpoint — query-this flow matching
 
-Measured production tree **`588ba9a8`**, against published `93ea330a`:
+Measured production tree **`a82ed94c`**, against published `93ea330a`:
 **460,042/478,855 assertions (96.07%)**, **7,192/9,538 complete cases
 (75.40%)**. The 99% target requires 474,067 matches; **14,025 remain**.
 Pinned native `5b1047d1` and both denominators are unchanged. Aligned verdicts:
@@ -53,12 +53,15 @@ exact Test10 raw identities. All 16,084 worker payload hashes pass before and
 after replay. The 136 allocation-ID-only differences and native optional-member
 rendering discrepancy remain disclosed; bare error and module error-any gaps
 remain held. This is not fresh native execution or general Program parity.
-Four focused tests, **2,854 workspace release tests, zero failures, six existing
+Four focused tests, **2,857 workspace release tests, zero failures, six existing
 ignores**, six loader and six worker controls pass. Formatting, strict release
 workspace/all-target Clippy, unfiltered scorepair and fresh coverage pass; only
 the checker snapshot changes. The accepted baseline equals the fresh checker
-capture apart from its terminal newline. Evidence is
-in `target/query-this-flow-wave35-evidence.tar.gz`. Mapped-required supplier
+capture apart from its terminal newline. Concurrent worker-option transport
+`29e6a75c` is preserved; fresh rebuilt post-rebase full captures are byte-identical
+to the measured `588ba9a8` captures, and all release gates pass again. The original
+2,854-test run and pre-rebase archive remain preserved. Evidence is in
+`target/query-this-flow-wave35-post-rebase-evidence.tar.gz`. Mapped-required supplier
 integration remains separate; optional-add, broad module callability and JS loops
 remain held. The 99% task is not complete.
 
