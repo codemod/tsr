@@ -1,0 +1,102 @@
+diff --git a/crates/tsr-module/src/resolver.rs b/crates/tsr-module/src/resolver.rs
+index 07fd5b11..030fb253 100644
+--- a/crates/tsr-module/src/resolver.rs
++++ b/crates/tsr-module/src/resolver.rs
+@@ -1681,7 +1681,7 @@ impl<'a, 'host> ResolutionState<'a, 'host> {
+             // is tried verbatim first.
+             let extension_from_subst = try_get_extension_from_path(&subst);
+             if !extension_from_subst.is_empty()
+-                && let (path, true) = self.try_file(&candidate)
++                && let Some(path) = self.try_file(&candidate)
+             {
+                 return Some(Resolved {
+                     path,
+@@ -1857,13 +1857,12 @@ impl<'a, 'host> ResolutionState<'a, 'host> {
+         } else {
+             known
+         };
+-        let original_extension = candidate[extensionless.len()..].to_string();
+-        let extensionless = extensionless.to_string();
++        let original_extension = &candidate[extensionless.len()..];
+         self.trace(
+             &messages::FILE_NAME_0_HAS_A_1_EXTENSION_STRIPPING_IT,
+-            &[candidate, &original_extension],
++            &[candidate, original_extension],
+         );
+-        self.try_adding_extensions(&extensionless, extensions, &original_extension)
++        self.try_adding_extensions(extensionless, extensions, original_extension)
+     }
+ 
+     /// `resolutionState.tryAddingExtensions`.
+@@ -1876,8 +1875,8 @@ impl<'a, 'host> ResolutionState<'a, 'host> {
+         extensions: Extensions,
+         original_extension: &str,
+     ) -> Search {
+-        let directory = get_directory_path(extensionless).to_string();
+-        if !directory.is_empty() && !self.fs().directory_exists(&directory) {
++        let directory = get_directory_path(extensionless);
++        if !directory.is_empty() && !self.fs().directory_exists(directory) {
+             return continue_searching();
+         }
+ 
+@@ -1989,33 +1988,33 @@ impl<'a, 'host> ResolutionState<'a, 'host> {
+     ) -> Search {
+         let file_name = format!("{extensionless}{extension}");
+         match self.try_file(&file_name) {
+-            (path, true) => Some(Resolved {
++            Some(path) => Some(Resolved {
+                 path,
+                 extension: extension.to_string(),
+                 resolved_using_ts_extension: !self.candidate_ending_is_from_config
+                     && resolved_using_ts_extension,
+                 ..Resolved::default()
+             }),
+-            _ => continue_searching(),
++            None => continue_searching(),
+         }
+     }
+ 
+     /// `resolutionState.tryFile`, applying `moduleSuffixes`.
+-    fn try_file(&mut self, file_name: &str) -> (String, bool) {
+-        let suffixes = self.options().module_suffixes.clone();
++    fn try_file(&mut self, file_name: &str) -> Option<String> {
++        let resolver = self.resolver;
++        let suffixes = &resolver.compiler_options.module_suffixes;
+         if suffixes.is_empty() {
+-            let exists = self.try_file_lookup(file_name);
+-            return (file_name.to_string(), exists);
++            return self.try_file_lookup(file_name).then(|| file_name.to_string());
+         }
+         let extension = try_get_extension_from_path(file_name);
+-        let stem = remove_extension(file_name, extension).to_string();
++        let stem = remove_extension(file_name, extension);
+         for suffix in suffixes {
+             let path = format!("{stem}{suffix}{extension}");
+             if self.try_file_lookup(&path) {
+-                return (path, true);
++                return Some(path);
+             }
+         }
+-        (file_name.to_string(), false)
++        None
+     }
+ 
+     /// `resolutionState.tryFileLookup` — the probe every baseline is made of.
+@@ -2147,7 +2146,7 @@ impl<'a, 'host> ResolutionState<'a, 'host> {
+             || (extensions.intersects(Extensions::DECLARATION)
+                 && is_declaration_file_name(candidate))
+         {
+-            if let (path, true) = self.try_file(candidate) {
++            if let Some(path) = self.try_file(candidate) {
+                 let extension = try_extract_ts_extension(&path);
+                 // True only when the pattern ended in `*` *and* the candidate has
+                 // a TypeScript extension — meaning the star matched it, rather
+@@ -2167,7 +2166,7 @@ impl<'a, 'host> ResolutionState<'a, 'host> {
+         if self.is_config_lookup
+             && extensions.intersects(Extensions::JSON)
+             && file_extension_is(candidate, EXTENSION_JSON)
+-            && let (path, true) = self.try_file(candidate)
++            && let Some(path) = self.try_file(candidate)
+         {
+             return Some(Resolved {
+                 path,

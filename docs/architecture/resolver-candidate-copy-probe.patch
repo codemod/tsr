@@ -1,0 +1,142 @@
+diff --git a/crates/tsr-execute/src/compile.rs b/crates/tsr-execute/src/compile.rs
+index c8388078..51a287bc 100644
+--- a/crates/tsr-execute/src/compile.rs
++++ b/crates/tsr-execute/src/compile.rs
+@@ -304,6 +304,7 @@ pub fn run_compilation(
+     let checker_initialized = sys.since_start();
+ 
+     let mut diagnostics: Vec<(String, Diagnostic)> = Vec::new();
++    let capture_scope = std::env::var_os("TSR_META_SCOPE").is_some();
+     let mut checked_file_count = 0;
+     if !options.no_check.is_true() {
+         for file in program.root_and_referenced_files() {
+@@ -333,6 +334,7 @@ pub fn run_compilation(
+             if options.skip_default_lib_check.is_true() && is_default_library(&program, file) {
+                 continue;
+             }
++            if capture_scope { eprintln!("TSR_META_CHECKED\t{name}"); }
+             checker.check_source_file(
+                 id,
+                 tsr_checker::check::FileContext {
+diff --git a/crates/tsr-module/src/resolver.rs b/crates/tsr-module/src/resolver.rs
+index 07fd5b11..3e7dd6e3 100644
+--- a/crates/tsr-module/src/resolver.rs
++++ b/crates/tsr-module/src/resolver.rs
+@@ -33,7 +33,7 @@
+ //! why 46 of the corpus's 155 `@traceResolution` cases have no baseline at all.
+ //! See `docs/architecture/module-resolution.md`.
+ 
+-use std::{cell::RefCell, rc::Rc};
++use std::{cell::RefCell, rc::Rc, time::Instant};
+ 
+ use rustc_hash::FxHashMap;
+ use tsr_core::{CompilerOptions, ModuleResolutionKind, OrderedMap, ResolutionMode, Tristate};
+@@ -181,6 +181,23 @@ pub struct Resolver<'host> {
+     module_resolution_cache: RefCell<FxHashMap<ModuleResolutionCacheKey, ResolvedModule>>,
+     type_reference_cache: RefCell<FxHashMap<TypeReferenceCacheKey, ResolvedTypeReferenceDirective>>,
+     parsed_patterns_for_paths: ParsedPatterns,
++    copy_probe: Option<RefCell<CopyProbe>>,
++}
++
++#[derive(Default)]
++struct CopyProbe {
++    calls: [u64; 7],
++    bytes: [u64; 7],
++    nanos: [u128; 7],
++}
++
++impl Drop for Resolver<'_> {
++    fn drop(&mut self) {
++        if let Some(probe) = &self.copy_probe {
++            let p = probe.borrow();
++            eprintln!("TSR_RESOLVER_COPY\t{{\"calls\":{:?},\"bytes\":{:?},\"nanos\":{:?}}}", p.calls, p.bytes, p.nanos);
++        }
++    }
+ }
+ 
+ impl<'host> Resolver<'host> {
+@@ -195,6 +212,7 @@ impl<'host> Resolver<'host> {
+             module_resolution_cache: RefCell::new(FxHashMap::default()),
+             type_reference_cache: RefCell::new(FxHashMap::default()),
+             parsed_patterns_for_paths,
++            copy_probe: std::env::var_os("TSR_RESOLVER_COPY").map(|_| RefCell::default()),
+         }
+     }
+ 
+@@ -510,6 +528,20 @@ impl<'a, 'host> ResolutionState<'a, 'host> {
+         }
+     }
+ 
++    fn copy_started(&self) -> Option<Instant> {
++        self.resolver.copy_probe.as_ref().map(|_| Instant::now())
++    }
++
++    fn copied(&self, site: usize, bytes: usize, started: Option<Instant>) {
++        if let Some(started) = started {
++            let nanos = started.elapsed().as_nanos();
++            let mut p = self.resolver.copy_probe.as_ref().unwrap().borrow_mut();
++            p.calls[site] += 1;
++            p.bytes[site] += bytes as u64;
++            p.nanos[site] += nanos;
++        }
++    }
++
+     fn options(&self) -> &CompilerOptions {
+         &self.resolver.compiler_options
+     }
+@@ -1857,8 +1889,12 @@ impl<'a, 'host> ResolutionState<'a, 'host> {
+         } else {
+             known
+         };
++        let started = self.copy_started();
+         let original_extension = candidate[extensionless.len()..].to_string();
++        self.copied(0, original_extension.len(), started);
++        let started = self.copy_started();
+         let extensionless = extensionless.to_string();
++        self.copied(1, extensionless.len(), started);
+         self.trace(
+             &messages::FILE_NAME_0_HAS_A_1_EXTENSION_STRIPPING_IT,
+             &[candidate, &original_extension],
+@@ -1876,7 +1912,9 @@ impl<'a, 'host> ResolutionState<'a, 'host> {
+         extensions: Extensions,
+         original_extension: &str,
+     ) -> Search {
++        let started = self.copy_started();
+         let directory = get_directory_path(extensionless).to_string();
++        self.copied(2, directory.len(), started);
+         if !directory.is_empty() && !self.fs().directory_exists(&directory) {
+             return continue_searching();
+         }
+@@ -2002,20 +2040,30 @@ impl<'a, 'host> ResolutionState<'a, 'host> {
+ 
+     /// `resolutionState.tryFile`, applying `moduleSuffixes`.
+     fn try_file(&mut self, file_name: &str) -> (String, bool) {
++        let started = self.copy_started();
+         let suffixes = self.options().module_suffixes.clone();
++        self.copied(3, suffixes.iter().map(String::len).sum(), started);
+         if suffixes.is_empty() {
+             let exists = self.try_file_lookup(file_name);
+-            return (file_name.to_string(), exists);
++            let started = self.copy_started();
++            let result = file_name.to_string();
++            self.copied(if exists { 6 } else { 5 }, result.len(), started);
++            return (result, exists);
+         }
+         let extension = try_get_extension_from_path(file_name);
++        let started = self.copy_started();
+         let stem = remove_extension(file_name, extension).to_string();
++        self.copied(4, stem.len(), started);
+         for suffix in suffixes {
+             let path = format!("{stem}{suffix}{extension}");
+             if self.try_file_lookup(&path) {
+                 return (path, true);
+             }
+         }
+-        (file_name.to_string(), false)
++        let started = self.copy_started();
++        let result = file_name.to_string();
++        self.copied(5, result.len(), started);
++        (result, false)
+     }
+ 
+     /// `resolutionState.tryFileLookup` — the probe every baseline is made of.

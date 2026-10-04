@@ -1,0 +1,1174 @@
+{
+  "source": "143b2eedd47fd837775bc8904f864f9b4a444f51",
+  "task": "tsr-1yb.2.1.5",
+  "stage": "rejected and fully restored",
+  "production_selected": false,
+  "target": "native whole-project wall ratio<=0.50, equivalent work/diagnostics/options and no prior RIGHT losses",
+  "original_source_sha256": {
+    "crates/tsr-module/src/resolver.rs": "1fdee305d5521ed11e62c426f5c7a5c4997c2daf3f004456576305efed29b9a3",
+    "crates/tsr-execute/src/compile.rs": "129d3c400d9e054048682ae81b8a7edb8703b32c16475223bf5233770e91a11d"
+  },
+  "probe_source_sha256": {
+    "crates/tsr-module/src/resolver.rs": "40b0e4639e1d77623ffa4efacdca3126d69e709d051c4b8dbbaee07a70fddb01",
+    "crates/tsr-execute/src/compile.rs": "317f021df719a033e046b8a16e79a5ac29698143389fb3fdd1916d98fa979480"
+  },
+  "probe_patch_sha256": "71905eef3229d683cf5e2ecf6948d02d73ef378eca9231f0da4f168561a19c29",
+  "binary_sha256": {
+    "baseline": "55114a9771ff0be69c2dc7afc2d98d9d064e8ea1caffce0d2d94c7855458054e",
+    "probe": "494c0be8b06bf0780ec5e5367cc2e9e20e7244594dcfefa9925062a9c6bbe984",
+    "candidate": "48234da673b7704b1d0148e8379534f9336c9f4aad5ff9df75dbe6da419b8959",
+    "candidate-scope": "74778d307c05c03841e9eef3408c1fa84c287bf68357759132bda7acd8b6551f"
+  },
+  "candidate_source_sha256": "14f155cb9595bf519e116edf67bdc25ffb1ce862b477ab41bc6a18d695b43f81",
+  "candidate_patch_sha256": "742256f412b3f1d11c16248ee953def47ebac6842af7e9bd7ce799a48d83d2e2",
+  "decision": "rejected: -4.209ms saved in round1 and +5.793ms in round2; no independently confirmed20ms gain",
+  "timings": "/tmp/tsr-resolver-candidate-copy/timing-rounds/results.json",
+  "candidate_scope_source_sha256": "317f021df719a033e046b8a16e79a5ac29698143389fb3fdd1916d98fa979480",
+  "timing_processes": {
+    "scored": 20,
+    "warmups": 4,
+    "scope_controls": 8
+  },
+  "matched_controls": {
+    "loaded": 13133,
+    "checked": 1346,
+    "diagnostics": 119,
+    "input_fingerprint": "8d5fb176ee9874e8b2c6e685539056b4c550954e7954cf1b581e35c6aec6f89c",
+    "loaded_order_fingerprint": "dcb468223b12b3bb4a8c48613568dc0b5d70002911632ab42dfccfc578adb229",
+    "checked_order_fingerprint": "e3a740b966c8d057f20a213ad3bb9b4867481d9e8306a3edc26162cd6d19dc80",
+    "checked_input_fingerprint": "57031225084fb1e197203998d33fee0c08d18b22a4b86796b610a4f12fd6daaf",
+    "effective_options_fingerprint": "eb3682835e20b4e2f6ed35df410e79273f1545b0625bcbc5e146d3bb7d45ba66"
+  },
+  "tests": {
+    "module_release": 49,
+    "native_resolver": 95,
+    "native_loader": 96,
+    "native_snapshots_byte_identical": {
+      "module_resolution": "5f86da7d077fcd635204a007767931e3cd4938cafeb3a0226486042faa8e4693",
+      "file_loader": "644a3d468538f0d83bd7bee86986991dd1e5a4e8cf955c5fb0db7df075b9791e"
+    },
+    "native_resolver_source_sha256": "bfd63b170178ec30977bf9c3bbf1bef574184901b12fc5eaebbbef2f41ac4ff1",
+    "full_checker_corpora": "not run; rejected candidate completely reverted",
+    "strict_clippy_library_and_tests": true,
+    "format_check": true
+  },
+  "source_restored": true,
+  "kind": "measured rejected resolver candidate copy experiment; no native speed ratio",
+  "native_source": "5b1047d10d32e7d5b446be4de56b126ff42f82bb",
+  "raw_results_sha256": {
+    "/tmp/tsr-resolver-candidate-copy/attribution/results.json": "ab55da8ba76436d44566aabc02cb042470f70b61e784bdc90acbc9e892ea80b4",
+    "/tmp/tsr-resolver-candidate-copy/candidate-controls/results.json": "216c3532adb3da3130cd2ee7c766cd47290ef5297fbc016dc055482fb953099c",
+    "/tmp/tsr-resolver-candidate-copy/timing-rounds/results.json": "ba951feb046b177666aa05b99bb51d96dc5cbbe36f342bc64d5ee9c2c3d5b043",
+    "/tmp/tsr-resolver-candidate-copy/public-portable-validation/results.json": "773430017591a94d3535367edb6fee9900388f64ea28bf79cf19173885fc0f77"
+  },
+  "scope_limit": "Normal binaries have no checked marker; independently built probe-off/candidate-scope verify actual identities before/after each timing round. Every scored CLI process directly verifies full loaded order, diagnostics and input/config fingerprints.",
+  "sites": [
+    "original-extension",
+    "extension-stem",
+    "candidate-directory",
+    "module-suffix-payload",
+    "suffix-stem",
+    "failed-result-path",
+    "successful-result-path"
+  ],
+  "attribution_runs": [
+    {
+      "wall_seconds": 3.6596846250176895,
+      "user_seconds": 3.249839,
+      "system_seconds": 0.39682999999999996,
+      "peak_rss_bytes": 1123024896,
+      "exit_code": 1,
+      "timed_out": false,
+      "role": "normal",
+      "binary_sha256": "55114a9771ff0be69c2dc7afc2d98d9d064e8ea1caffce0d2d94c7855458054e",
+      "counts": null,
+      "checked_order_fingerprint": null,
+      "checked_input_fingerprint": null,
+      "loaded_order_fingerprint": "dcb468223b12b3bb4a8c48613568dc0b5d70002911632ab42dfccfc578adb229",
+      "dataset": "initial",
+      "diagnostics": {
+        "count": 119,
+        "fingerprint": "38815094d36240a225fbc20b67f60807f4cabe5ab634d0b907b3e4968f850cb5"
+      },
+      "checked_count": 0
+    },
+    {
+      "wall_seconds": 3.6589611250092275,
+      "user_seconds": 3.254741,
+      "system_seconds": 0.392578,
+      "peak_rss_bytes": 1051361280,
+      "exit_code": 1,
+      "timed_out": false,
+      "role": "probe-off",
+      "binary_sha256": "494c0be8b06bf0780ec5e5367cc2e9e20e7244594dcfefa9925062a9c6bbe984",
+      "counts": null,
+      "checked_order_fingerprint": "e3a740b966c8d057f20a213ad3bb9b4867481d9e8306a3edc26162cd6d19dc80",
+      "checked_input_fingerprint": "57031225084fb1e197203998d33fee0c08d18b22a4b86796b610a4f12fd6daaf",
+      "loaded_order_fingerprint": "dcb468223b12b3bb4a8c48613568dc0b5d70002911632ab42dfccfc578adb229",
+      "dataset": "initial",
+      "diagnostics": {
+        "count": 119,
+        "fingerprint": "38815094d36240a225fbc20b67f60807f4cabe5ab634d0b907b3e4968f850cb5"
+      },
+      "checked_count": 1346
+    },
+    {
+      "wall_seconds": 3.686242083000252,
+      "user_seconds": 3.285107,
+      "system_seconds": 0.39647499999999997,
+      "peak_rss_bytes": 1137229824,
+      "exit_code": 1,
+      "timed_out": false,
+      "role": "probe-on",
+      "binary_sha256": "494c0be8b06bf0780ec5e5367cc2e9e20e7244594dcfefa9925062a9c6bbe984",
+      "counts": {
+        "calls": [
+          14703,
+          14703,
+          25376,
+          69744,
+          0,
+          46244,
+          23500
+        ],
+        "bytes": [
+          47625,
+          1358855,
+          1898348,
+          0,
+          0,
+          4198895,
+          2225252
+        ],
+        "nanos": [
+          413823,
+          382859,
+          887034,
+          1159485,
+          0,
+          2287395,
+          1254821
+        ]
+      },
+      "checked_order_fingerprint": "e3a740b966c8d057f20a213ad3bb9b4867481d9e8306a3edc26162cd6d19dc80",
+      "checked_input_fingerprint": "57031225084fb1e197203998d33fee0c08d18b22a4b86796b610a4f12fd6daaf",
+      "loaded_order_fingerprint": "dcb468223b12b3bb4a8c48613568dc0b5d70002911632ab42dfccfc578adb229",
+      "dataset": "initial",
+      "diagnostics": {
+        "count": 119,
+        "fingerprint": "38815094d36240a225fbc20b67f60807f4cabe5ab634d0b907b3e4968f850cb5"
+      },
+      "checked_count": 1346
+    },
+    {
+      "wall_seconds": 3.807898125000065,
+      "user_seconds": 3.34043,
+      "system_seconds": 0.44725699999999996,
+      "peak_rss_bytes": 1071448064,
+      "exit_code": 1,
+      "timed_out": false,
+      "role": "probe-repeat",
+      "binary_sha256": "494c0be8b06bf0780ec5e5367cc2e9e20e7244594dcfefa9925062a9c6bbe984",
+      "counts": {
+        "calls": [
+          14703,
+          14703,
+          25376,
+          69744,
+          0,
+          46244,
+          23500
+        ],
+        "bytes": [
+          47625,
+          1358855,
+          1898348,
+          0,
+          0,
+          4198895,
+          2225252
+        ],
+        "nanos": [
+          418468,
+          382340,
+          906466,
+          1154637,
+          0,
+          2645487,
+          1413712
+        ]
+      },
+      "checked_order_fingerprint": "e3a740b966c8d057f20a213ad3bb9b4867481d9e8306a3edc26162cd6d19dc80",
+      "checked_input_fingerprint": "57031225084fb1e197203998d33fee0c08d18b22a4b86796b610a4f12fd6daaf",
+      "loaded_order_fingerprint": "dcb468223b12b3bb4a8c48613568dc0b5d70002911632ab42dfccfc578adb229",
+      "dataset": "initial",
+      "diagnostics": {
+        "count": 119,
+        "fingerprint": "38815094d36240a225fbc20b67f60807f4cabe5ab634d0b907b3e4968f850cb5"
+      },
+      "checked_count": 1346
+    },
+    {
+      "wall_seconds": 3.7015677920135204,
+      "user_seconds": 3.249726,
+      "system_seconds": 0.42926899999999996,
+      "peak_rss_bytes": 1100054528,
+      "exit_code": 1,
+      "timed_out": false,
+      "role": "normal",
+      "binary_sha256": "55114a9771ff0be69c2dc7afc2d98d9d064e8ea1caffce0d2d94c7855458054e",
+      "counts": null,
+      "checked_order_fingerprint": null,
+      "checked_input_fingerprint": null,
+      "loaded_order_fingerprint": "dcb468223b12b3bb4a8c48613568dc0b5d70002911632ab42dfccfc578adb229",
+      "dataset": "candidate-controls",
+      "diagnostics": {
+        "count": 119,
+        "fingerprint": "38815094d36240a225fbc20b67f60807f4cabe5ab634d0b907b3e4968f850cb5"
+      },
+      "checked_count": 0
+    },
+    {
+      "wall_seconds": 3.66885341698071,
+      "user_seconds": 3.243896,
+      "system_seconds": 0.410118,
+      "peak_rss_bytes": 1131855872,
+      "exit_code": 1,
+      "timed_out": false,
+      "role": "probe-off",
+      "binary_sha256": "494c0be8b06bf0780ec5e5367cc2e9e20e7244594dcfefa9925062a9c6bbe984",
+      "counts": null,
+      "checked_order_fingerprint": "e3a740b966c8d057f20a213ad3bb9b4867481d9e8306a3edc26162cd6d19dc80",
+      "checked_input_fingerprint": "57031225084fb1e197203998d33fee0c08d18b22a4b86796b610a4f12fd6daaf",
+      "loaded_order_fingerprint": "dcb468223b12b3bb4a8c48613568dc0b5d70002911632ab42dfccfc578adb229",
+      "dataset": "candidate-controls",
+      "diagnostics": {
+        "count": 119,
+        "fingerprint": "38815094d36240a225fbc20b67f60807f4cabe5ab634d0b907b3e4968f850cb5"
+      },
+      "checked_count": 1346
+    },
+    {
+      "wall_seconds": 3.7178878750128206,
+      "user_seconds": 3.292087,
+      "system_seconds": 0.41391,
+      "peak_rss_bytes": 1058340864,
+      "exit_code": 1,
+      "timed_out": false,
+      "role": "probe-on",
+      "binary_sha256": "494c0be8b06bf0780ec5e5367cc2e9e20e7244594dcfefa9925062a9c6bbe984",
+      "counts": {
+        "calls": [
+          14703,
+          14703,
+          25376,
+          69744,
+          0,
+          46244,
+          23500
+        ],
+        "bytes": [
+          47625,
+          1358855,
+          1898348,
+          0,
+          0,
+          4198895,
+          2225252
+        ],
+        "nanos": [
+          396426,
+          381171,
+          873283,
+          1162082,
+          0,
+          2457562,
+          1323021
+        ]
+      },
+      "checked_order_fingerprint": "e3a740b966c8d057f20a213ad3bb9b4867481d9e8306a3edc26162cd6d19dc80",
+      "checked_input_fingerprint": "57031225084fb1e197203998d33fee0c08d18b22a4b86796b610a4f12fd6daaf",
+      "loaded_order_fingerprint": "dcb468223b12b3bb4a8c48613568dc0b5d70002911632ab42dfccfc578adb229",
+      "dataset": "candidate-controls",
+      "diagnostics": {
+        "count": 119,
+        "fingerprint": "38815094d36240a225fbc20b67f60807f4cabe5ab634d0b907b3e4968f850cb5"
+      },
+      "checked_count": 1346
+    },
+    {
+      "wall_seconds": 3.7263669579988346,
+      "user_seconds": 3.304054,
+      "system_seconds": 0.40845,
+      "peak_rss_bytes": 1005977600,
+      "exit_code": 1,
+      "timed_out": false,
+      "role": "probe-repeat",
+      "binary_sha256": "494c0be8b06bf0780ec5e5367cc2e9e20e7244594dcfefa9925062a9c6bbe984",
+      "counts": {
+        "calls": [
+          14703,
+          14703,
+          25376,
+          69744,
+          0,
+          46244,
+          23500
+        ],
+        "bytes": [
+          47625,
+          1358855,
+          1898348,
+          0,
+          0,
+          4198895,
+          2225252
+        ],
+        "nanos": [
+          411146,
+          387742,
+          891217,
+          1167087,
+          0,
+          2486931,
+          1326757
+        ]
+      },
+      "checked_order_fingerprint": "e3a740b966c8d057f20a213ad3bb9b4867481d9e8306a3edc26162cd6d19dc80",
+      "checked_input_fingerprint": "57031225084fb1e197203998d33fee0c08d18b22a4b86796b610a4f12fd6daaf",
+      "loaded_order_fingerprint": "dcb468223b12b3bb4a8c48613568dc0b5d70002911632ab42dfccfc578adb229",
+      "dataset": "candidate-controls",
+      "diagnostics": {
+        "count": 119,
+        "fingerprint": "38815094d36240a225fbc20b67f60807f4cabe5ab634d0b907b3e4968f850cb5"
+      },
+      "checked_count": 1346
+    },
+    {
+      "wall_seconds": 3.683082916017156,
+      "user_seconds": 3.279407,
+      "system_seconds": 0.395864,
+      "peak_rss_bytes": 1055555584,
+      "exit_code": 1,
+      "timed_out": false,
+      "role": "candidate",
+      "binary_sha256": "48234da673b7704b1d0148e8379534f9336c9f4aad5ff9df75dbe6da419b8959",
+      "counts": null,
+      "checked_order_fingerprint": null,
+      "checked_input_fingerprint": null,
+      "loaded_order_fingerprint": "dcb468223b12b3bb4a8c48613568dc0b5d70002911632ab42dfccfc578adb229",
+      "dataset": "candidate-controls",
+      "diagnostics": {
+        "count": 119,
+        "fingerprint": "38815094d36240a225fbc20b67f60807f4cabe5ab634d0b907b3e4968f850cb5"
+      },
+      "checked_count": 0
+    },
+    {
+      "wall_seconds": 3.7949992080102675,
+      "user_seconds": 3.335657,
+      "system_seconds": 0.430602,
+      "peak_rss_bytes": 1126416384,
+      "exit_code": 1,
+      "timed_out": false,
+      "role": "candidate-scope",
+      "binary_sha256": "74778d307c05c03841e9eef3408c1fa84c287bf68357759132bda7acd8b6551f",
+      "counts": null,
+      "checked_order_fingerprint": "e3a740b966c8d057f20a213ad3bb9b4867481d9e8306a3edc26162cd6d19dc80",
+      "checked_input_fingerprint": "57031225084fb1e197203998d33fee0c08d18b22a4b86796b610a4f12fd6daaf",
+      "loaded_order_fingerprint": "dcb468223b12b3bb4a8c48613568dc0b5d70002911632ab42dfccfc578adb229",
+      "dataset": "candidate-controls",
+      "diagnostics": {
+        "count": 119,
+        "fingerprint": "38815094d36240a225fbc20b67f60807f4cabe5ab634d0b907b3e4968f850cb5"
+      },
+      "checked_count": 1346
+    }
+  ],
+  "timing_rounds": [
+    {
+      "number": 1,
+      "warmups": [
+        {
+          "wall_seconds": 3.9200045829929877,
+          "user_seconds": 3.416384,
+          "system_seconds": 0.43932099999999996,
+          "peak_rss_bytes": 1141653504
+        },
+        {
+          "wall_seconds": 3.7593944999971427,
+          "user_seconds": 3.329264,
+          "system_seconds": 0.41904399999999997,
+          "peak_rss_bytes": 1059454976
+        }
+      ],
+      "samples": [
+        {
+          "wall_seconds": 3.741781415999867,
+          "user_seconds": 3.324434,
+          "system_seconds": 0.40553,
+          "peak_rss_bytes": 1109688320,
+          "exit_code": 1,
+          "timed_out": false,
+          "role": "baseline",
+          "pair": 0,
+          "loaded_order_fingerprint": "dcb468223b12b3bb4a8c48613568dc0b5d70002911632ab42dfccfc578adb229",
+          "diagnostics_fingerprint": "38815094d36240a225fbc20b67f60807f4cabe5ab634d0b907b3e4968f850cb5",
+          "input_fingerprint": "8d5fb176ee9874e8b2c6e685539056b4c550954e7954cf1b581e35c6aec6f89c"
+        },
+        {
+          "wall_seconds": 3.764570083003491,
+          "user_seconds": 3.334,
+          "system_seconds": 0.41786799999999996,
+          "peak_rss_bytes": 1086423040,
+          "exit_code": 1,
+          "timed_out": false,
+          "role": "candidate",
+          "pair": 0,
+          "loaded_order_fingerprint": "dcb468223b12b3bb4a8c48613568dc0b5d70002911632ab42dfccfc578adb229",
+          "diagnostics_fingerprint": "38815094d36240a225fbc20b67f60807f4cabe5ab634d0b907b3e4968f850cb5",
+          "input_fingerprint": "8d5fb176ee9874e8b2c6e685539056b4c550954e7954cf1b581e35c6aec6f89c"
+        },
+        {
+          "wall_seconds": 3.799890416004928,
+          "user_seconds": 3.361465,
+          "system_seconds": 0.42996199999999996,
+          "peak_rss_bytes": 1146404864,
+          "exit_code": 1,
+          "timed_out": false,
+          "role": "candidate",
+          "pair": 1,
+          "loaded_order_fingerprint": "dcb468223b12b3bb4a8c48613568dc0b5d70002911632ab42dfccfc578adb229",
+          "diagnostics_fingerprint": "38815094d36240a225fbc20b67f60807f4cabe5ab634d0b907b3e4968f850cb5",
+          "input_fingerprint": "8d5fb176ee9874e8b2c6e685539056b4c550954e7954cf1b581e35c6aec6f89c"
+        },
+        {
+          "wall_seconds": 3.7461215000075754,
+          "user_seconds": 3.336461,
+          "system_seconds": 0.394866,
+          "peak_rss_bytes": 1120845824,
+          "exit_code": 1,
+          "timed_out": false,
+          "role": "baseline",
+          "pair": 1,
+          "loaded_order_fingerprint": "dcb468223b12b3bb4a8c48613568dc0b5d70002911632ab42dfccfc578adb229",
+          "diagnostics_fingerprint": "38815094d36240a225fbc20b67f60807f4cabe5ab634d0b907b3e4968f850cb5",
+          "input_fingerprint": "8d5fb176ee9874e8b2c6e685539056b4c550954e7954cf1b581e35c6aec6f89c"
+        },
+        {
+          "wall_seconds": 3.823942166985944,
+          "user_seconds": 3.35975,
+          "system_seconds": 0.455509,
+          "peak_rss_bytes": 1094385664,
+          "exit_code": 1,
+          "timed_out": false,
+          "role": "baseline",
+          "pair": 2,
+          "loaded_order_fingerprint": "dcb468223b12b3bb4a8c48613568dc0b5d70002911632ab42dfccfc578adb229",
+          "diagnostics_fingerprint": "38815094d36240a225fbc20b67f60807f4cabe5ab634d0b907b3e4968f850cb5",
+          "input_fingerprint": "8d5fb176ee9874e8b2c6e685539056b4c550954e7954cf1b581e35c6aec6f89c"
+        },
+        {
+          "wall_seconds": 3.7767647499858867,
+          "user_seconds": 3.345406,
+          "system_seconds": 0.42322899999999997,
+          "peak_rss_bytes": 1177796608,
+          "exit_code": 1,
+          "timed_out": false,
+          "role": "candidate",
+          "pair": 2,
+          "loaded_order_fingerprint": "dcb468223b12b3bb4a8c48613568dc0b5d70002911632ab42dfccfc578adb229",
+          "diagnostics_fingerprint": "38815094d36240a225fbc20b67f60807f4cabe5ab634d0b907b3e4968f850cb5",
+          "input_fingerprint": "8d5fb176ee9874e8b2c6e685539056b4c550954e7954cf1b581e35c6aec6f89c"
+        },
+        {
+          "wall_seconds": 3.7819025419885293,
+          "user_seconds": 3.357439,
+          "system_seconds": 0.403151,
+          "peak_rss_bytes": 1078738944,
+          "exit_code": 1,
+          "timed_out": false,
+          "role": "candidate",
+          "pair": 3,
+          "loaded_order_fingerprint": "dcb468223b12b3bb4a8c48613568dc0b5d70002911632ab42dfccfc578adb229",
+          "diagnostics_fingerprint": "38815094d36240a225fbc20b67f60807f4cabe5ab634d0b907b3e4968f850cb5",
+          "input_fingerprint": "8d5fb176ee9874e8b2c6e685539056b4c550954e7954cf1b581e35c6aec6f89c"
+        },
+        {
+          "wall_seconds": 3.7776939579925966,
+          "user_seconds": 3.358685,
+          "system_seconds": 0.404038,
+          "peak_rss_bytes": 1130446848,
+          "exit_code": 1,
+          "timed_out": false,
+          "role": "baseline",
+          "pair": 3,
+          "loaded_order_fingerprint": "dcb468223b12b3bb4a8c48613568dc0b5d70002911632ab42dfccfc578adb229",
+          "diagnostics_fingerprint": "38815094d36240a225fbc20b67f60807f4cabe5ab634d0b907b3e4968f850cb5",
+          "input_fingerprint": "8d5fb176ee9874e8b2c6e685539056b4c550954e7954cf1b581e35c6aec6f89c"
+        },
+        {
+          "wall_seconds": 3.8128884159959853,
+          "user_seconds": 3.382174,
+          "system_seconds": 0.41391,
+          "peak_rss_bytes": 1055293440,
+          "exit_code": 1,
+          "timed_out": false,
+          "role": "baseline",
+          "pair": 4,
+          "loaded_order_fingerprint": "dcb468223b12b3bb4a8c48613568dc0b5d70002911632ab42dfccfc578adb229",
+          "diagnostics_fingerprint": "38815094d36240a225fbc20b67f60807f4cabe5ab634d0b907b3e4968f850cb5",
+          "input_fingerprint": "8d5fb176ee9874e8b2c6e685539056b4c550954e7954cf1b581e35c6aec6f89c"
+        },
+        {
+          "wall_seconds": 3.8044934580102563,
+          "user_seconds": 3.357907,
+          "system_seconds": 0.43879799999999997,
+          "peak_rss_bytes": 1151942656,
+          "exit_code": 1,
+          "timed_out": false,
+          "role": "candidate",
+          "pair": 4,
+          "loaded_order_fingerprint": "dcb468223b12b3bb4a8c48613568dc0b5d70002911632ab42dfccfc578adb229",
+          "diagnostics_fingerprint": "38815094d36240a225fbc20b67f60807f4cabe5ab634d0b907b3e4968f850cb5",
+          "input_fingerprint": "8d5fb176ee9874e8b2c6e685539056b4c550954e7954cf1b581e35c6aec6f89c"
+        }
+      ],
+      "medians": {
+        "baseline": {
+          "wall_seconds": 3.7776939579925966,
+          "user_seconds": 3.358685,
+          "system_seconds": 0.40553,
+          "peak_rss_bytes": 1109688320
+        },
+        "candidate": {
+          "wall_seconds": 3.7819025419885293,
+          "user_seconds": 3.357439,
+          "system_seconds": 0.42322899999999997,
+          "peak_rss_bytes": 1146404864
+        }
+      },
+      "wall_saved_seconds": -0.004208583995932713
+    },
+    {
+      "number": 2,
+      "warmups": [
+        {
+          "wall_seconds": 3.7769990410015453,
+          "user_seconds": 3.352974,
+          "system_seconds": 0.412943,
+          "peak_rss_bytes": 1078362112
+        },
+        {
+          "wall_seconds": 3.7761802500172053,
+          "user_seconds": 3.353728,
+          "system_seconds": 0.410574,
+          "peak_rss_bytes": 1121189888
+        }
+      ],
+      "samples": [
+        {
+          "wall_seconds": 3.8575228749832604,
+          "user_seconds": 3.420519,
+          "system_seconds": 0.425067,
+          "peak_rss_bytes": 1121206272,
+          "exit_code": 1,
+          "timed_out": false,
+          "role": "candidate",
+          "pair": 0,
+          "loaded_order_fingerprint": "dcb468223b12b3bb4a8c48613568dc0b5d70002911632ab42dfccfc578adb229",
+          "diagnostics_fingerprint": "38815094d36240a225fbc20b67f60807f4cabe5ab634d0b907b3e4968f850cb5",
+          "input_fingerprint": "8d5fb176ee9874e8b2c6e685539056b4c550954e7954cf1b581e35c6aec6f89c"
+        },
+        {
+          "wall_seconds": 3.8126127919822466,
+          "user_seconds": 3.352234,
+          "system_seconds": 0.431938,
+          "peak_rss_bytes": 1095319552,
+          "exit_code": 1,
+          "timed_out": false,
+          "role": "baseline",
+          "pair": 0,
+          "loaded_order_fingerprint": "dcb468223b12b3bb4a8c48613568dc0b5d70002911632ab42dfccfc578adb229",
+          "diagnostics_fingerprint": "38815094d36240a225fbc20b67f60807f4cabe5ab634d0b907b3e4968f850cb5",
+          "input_fingerprint": "8d5fb176ee9874e8b2c6e685539056b4c550954e7954cf1b581e35c6aec6f89c"
+        },
+        {
+          "wall_seconds": 3.7638149579870515,
+          "user_seconds": 3.35337,
+          "system_seconds": 0.398231,
+          "peak_rss_bytes": 1092780032,
+          "exit_code": 1,
+          "timed_out": false,
+          "role": "baseline",
+          "pair": 1,
+          "loaded_order_fingerprint": "dcb468223b12b3bb4a8c48613568dc0b5d70002911632ab42dfccfc578adb229",
+          "diagnostics_fingerprint": "38815094d36240a225fbc20b67f60807f4cabe5ab634d0b907b3e4968f850cb5",
+          "input_fingerprint": "8d5fb176ee9874e8b2c6e685539056b4c550954e7954cf1b581e35c6aec6f89c"
+        },
+        {
+          "wall_seconds": 3.806820083002094,
+          "user_seconds": 3.372276,
+          "system_seconds": 0.42431599999999997,
+          "peak_rss_bytes": 1029128192,
+          "exit_code": 1,
+          "timed_out": false,
+          "role": "candidate",
+          "pair": 1,
+          "loaded_order_fingerprint": "dcb468223b12b3bb4a8c48613568dc0b5d70002911632ab42dfccfc578adb229",
+          "diagnostics_fingerprint": "38815094d36240a225fbc20b67f60807f4cabe5ab634d0b907b3e4968f850cb5",
+          "input_fingerprint": "8d5fb176ee9874e8b2c6e685539056b4c550954e7954cf1b581e35c6aec6f89c"
+        },
+        {
+          "wall_seconds": 3.77874104201328,
+          "user_seconds": 3.350612,
+          "system_seconds": 0.419045,
+          "peak_rss_bytes": 1168113664,
+          "exit_code": 1,
+          "timed_out": false,
+          "role": "candidate",
+          "pair": 2,
+          "loaded_order_fingerprint": "dcb468223b12b3bb4a8c48613568dc0b5d70002911632ab42dfccfc578adb229",
+          "diagnostics_fingerprint": "38815094d36240a225fbc20b67f60807f4cabe5ab634d0b907b3e4968f850cb5",
+          "input_fingerprint": "8d5fb176ee9874e8b2c6e685539056b4c550954e7954cf1b581e35c6aec6f89c"
+        },
+        {
+          "wall_seconds": 3.8268571670050733,
+          "user_seconds": 3.388978,
+          "system_seconds": 0.427421,
+          "peak_rss_bytes": 1074003968,
+          "exit_code": 1,
+          "timed_out": false,
+          "role": "baseline",
+          "pair": 2,
+          "loaded_order_fingerprint": "dcb468223b12b3bb4a8c48613568dc0b5d70002911632ab42dfccfc578adb229",
+          "diagnostics_fingerprint": "38815094d36240a225fbc20b67f60807f4cabe5ab634d0b907b3e4968f850cb5",
+          "input_fingerprint": "8d5fb176ee9874e8b2c6e685539056b4c550954e7954cf1b581e35c6aec6f89c"
+        },
+        {
+          "wall_seconds": 3.787107375013875,
+          "user_seconds": 3.360409,
+          "system_seconds": 0.415553,
+          "peak_rss_bytes": 1091567616,
+          "exit_code": 1,
+          "timed_out": false,
+          "role": "baseline",
+          "pair": 3,
+          "loaded_order_fingerprint": "dcb468223b12b3bb4a8c48613568dc0b5d70002911632ab42dfccfc578adb229",
+          "diagnostics_fingerprint": "38815094d36240a225fbc20b67f60807f4cabe5ab634d0b907b3e4968f850cb5",
+          "input_fingerprint": "8d5fb176ee9874e8b2c6e685539056b4c550954e7954cf1b581e35c6aec6f89c"
+        },
+        {
+          "wall_seconds": 3.7996592079871334,
+          "user_seconds": 3.373435,
+          "system_seconds": 0.419046,
+          "peak_rss_bytes": 1120747520,
+          "exit_code": 1,
+          "timed_out": false,
+          "role": "candidate",
+          "pair": 3,
+          "loaded_order_fingerprint": "dcb468223b12b3bb4a8c48613568dc0b5d70002911632ab42dfccfc578adb229",
+          "diagnostics_fingerprint": "38815094d36240a225fbc20b67f60807f4cabe5ab634d0b907b3e4968f850cb5",
+          "input_fingerprint": "8d5fb176ee9874e8b2c6e685539056b4c550954e7954cf1b581e35c6aec6f89c"
+        },
+        {
+          "wall_seconds": 3.825120166002307,
+          "user_seconds": 3.388584,
+          "system_seconds": 0.42480999999999997,
+          "peak_rss_bytes": 1078034432,
+          "exit_code": 1,
+          "timed_out": false,
+          "role": "candidate",
+          "pair": 4,
+          "loaded_order_fingerprint": "dcb468223b12b3bb4a8c48613568dc0b5d70002911632ab42dfccfc578adb229",
+          "diagnostics_fingerprint": "38815094d36240a225fbc20b67f60807f4cabe5ab634d0b907b3e4968f850cb5",
+          "input_fingerprint": "8d5fb176ee9874e8b2c6e685539056b4c550954e7954cf1b581e35c6aec6f89c"
+        },
+        {
+          "wall_seconds": 3.8574796250031795,
+          "user_seconds": 3.407222,
+          "system_seconds": 0.434784,
+          "peak_rss_bytes": 1142046720,
+          "exit_code": 1,
+          "timed_out": false,
+          "role": "baseline",
+          "pair": 4,
+          "loaded_order_fingerprint": "dcb468223b12b3bb4a8c48613568dc0b5d70002911632ab42dfccfc578adb229",
+          "diagnostics_fingerprint": "38815094d36240a225fbc20b67f60807f4cabe5ab634d0b907b3e4968f850cb5",
+          "input_fingerprint": "8d5fb176ee9874e8b2c6e685539056b4c550954e7954cf1b581e35c6aec6f89c"
+        }
+      ],
+      "medians": {
+        "baseline": {
+          "wall_seconds": 3.8126127919822466,
+          "user_seconds": 3.360409,
+          "system_seconds": 0.427421,
+          "peak_rss_bytes": 1092780032
+        },
+        "candidate": {
+          "wall_seconds": 3.806820083002094,
+          "user_seconds": 3.373435,
+          "system_seconds": 0.42431599999999997,
+          "peak_rss_bytes": 1120747520
+        }
+      },
+      "wall_saved_seconds": 0.0057927089801523834
+    }
+  ],
+  "scope_controls": [
+    {
+      "round": 1,
+      "position": "before",
+      "role": "baseline",
+      "checked_order_fingerprint": "e3a740b966c8d057f20a213ad3bb9b4867481d9e8306a3edc26162cd6d19dc80",
+      "checked_input_fingerprint": "57031225084fb1e197203998d33fee0c08d18b22a4b86796b610a4f12fd6daaf",
+      "diagnostics_fingerprint": "38815094d36240a225fbc20b67f60807f4cabe5ab634d0b907b3e4968f850cb5"
+    },
+    {
+      "round": 1,
+      "position": "before",
+      "role": "candidate",
+      "checked_order_fingerprint": "e3a740b966c8d057f20a213ad3bb9b4867481d9e8306a3edc26162cd6d19dc80",
+      "checked_input_fingerprint": "57031225084fb1e197203998d33fee0c08d18b22a4b86796b610a4f12fd6daaf",
+      "diagnostics_fingerprint": "38815094d36240a225fbc20b67f60807f4cabe5ab634d0b907b3e4968f850cb5"
+    },
+    {
+      "round": 1,
+      "position": "after",
+      "role": "baseline",
+      "checked_order_fingerprint": "e3a740b966c8d057f20a213ad3bb9b4867481d9e8306a3edc26162cd6d19dc80",
+      "checked_input_fingerprint": "57031225084fb1e197203998d33fee0c08d18b22a4b86796b610a4f12fd6daaf",
+      "diagnostics_fingerprint": "38815094d36240a225fbc20b67f60807f4cabe5ab634d0b907b3e4968f850cb5"
+    },
+    {
+      "round": 1,
+      "position": "after",
+      "role": "candidate",
+      "checked_order_fingerprint": "e3a740b966c8d057f20a213ad3bb9b4867481d9e8306a3edc26162cd6d19dc80",
+      "checked_input_fingerprint": "57031225084fb1e197203998d33fee0c08d18b22a4b86796b610a4f12fd6daaf",
+      "diagnostics_fingerprint": "38815094d36240a225fbc20b67f60807f4cabe5ab634d0b907b3e4968f850cb5"
+    },
+    {
+      "round": 2,
+      "position": "before",
+      "role": "baseline",
+      "checked_order_fingerprint": "e3a740b966c8d057f20a213ad3bb9b4867481d9e8306a3edc26162cd6d19dc80",
+      "checked_input_fingerprint": "57031225084fb1e197203998d33fee0c08d18b22a4b86796b610a4f12fd6daaf",
+      "diagnostics_fingerprint": "38815094d36240a225fbc20b67f60807f4cabe5ab634d0b907b3e4968f850cb5"
+    },
+    {
+      "round": 2,
+      "position": "before",
+      "role": "candidate",
+      "checked_order_fingerprint": "e3a740b966c8d057f20a213ad3bb9b4867481d9e8306a3edc26162cd6d19dc80",
+      "checked_input_fingerprint": "57031225084fb1e197203998d33fee0c08d18b22a4b86796b610a4f12fd6daaf",
+      "diagnostics_fingerprint": "38815094d36240a225fbc20b67f60807f4cabe5ab634d0b907b3e4968f850cb5"
+    },
+    {
+      "round": 2,
+      "position": "after",
+      "role": "baseline",
+      "checked_order_fingerprint": "e3a740b966c8d057f20a213ad3bb9b4867481d9e8306a3edc26162cd6d19dc80",
+      "checked_input_fingerprint": "57031225084fb1e197203998d33fee0c08d18b22a4b86796b610a4f12fd6daaf",
+      "diagnostics_fingerprint": "38815094d36240a225fbc20b67f60807f4cabe5ab634d0b907b3e4968f850cb5"
+    },
+    {
+      "round": 2,
+      "position": "after",
+      "role": "candidate",
+      "checked_order_fingerprint": "e3a740b966c8d057f20a213ad3bb9b4867481d9e8306a3edc26162cd6d19dc80",
+      "checked_input_fingerprint": "57031225084fb1e197203998d33fee0c08d18b22a4b86796b610a4f12fd6daaf",
+      "diagnostics_fingerprint": "38815094d36240a225fbc20b67f60807f4cabe5ab634d0b907b3e4968f850cb5"
+    }
+  ],
+  "confirmed_above_20ms": false,
+  "public_controls": {
+    "cases": [
+      {
+        "case": "suffix-priority",
+        "files": {
+          "main.ts": "import {value} from \"./dep\";\nconst bad: number = value;\n",
+          "dep.native.ts": "export declare const value: string;\n",
+          "dep.ts": "export declare const value: number;\n"
+        },
+        "module_suffixes": [
+          ".native",
+          ""
+        ],
+        "chosen": "dep.native.ts",
+        "config_sha256": "3b1d71414120e32962b3e1586fa3d92d2f130061e4caae282bcf1787d6435017",
+        "loaded_project": [
+          "dep.native.ts",
+          "main.ts"
+        ],
+        "native": [
+          {
+            "role": "native-one",
+            "diagnostics": {
+              "count": 1,
+              "fingerprint": "3bccf9d372222ddeb84118b651af077277999e411857b32fe5ef75833e7d1db5",
+              "entries": [
+                "main.ts(2,7): error TS2322: Type 'string' is not assignable to type 'number'."
+              ]
+            },
+            "loaded_project": [
+              "dep.native.ts",
+              "main.ts"
+            ],
+            "stdout_sha256": "f236ad4906a452627d08a9bca354ea90f4abfca9cf3c8a576f4c4cf50516d907",
+            "native_match": true
+          },
+          {
+            "role": "native-default",
+            "diagnostics": {
+              "count": 1,
+              "fingerprint": "3bccf9d372222ddeb84118b651af077277999e411857b32fe5ef75833e7d1db5",
+              "entries": [
+                "main.ts(2,7): error TS2322: Type 'string' is not assignable to type 'number'."
+              ]
+            },
+            "loaded_project": [
+              "dep.native.ts",
+              "main.ts"
+            ],
+            "stdout_sha256": "f236ad4906a452627d08a9bca354ea90f4abfca9cf3c8a576f4c4cf50516d907",
+            "native_match": true
+          }
+        ],
+        "matched_all_tsr_roles": true,
+        "matched_native": true,
+        "probe_counts": {
+          "calls": [
+            0,
+            0,
+            1,
+            1,
+            1,
+            0,
+            0
+          ],
+          "bytes": [
+            0,
+            0,
+            83,
+            7,
+            87,
+            0,
+            0
+          ],
+          "nanos": [
+            0,
+            0,
+            42,
+            83,
+            41,
+            0,
+            0
+          ]
+        }
+      },
+      {
+        "case": "suffix-fallback",
+        "files": {
+          "main.ts": "import {value} from \"./dep\";\nconst bad: number = value;\n",
+          "dep.ts": "export declare const value: string;\n"
+        },
+        "module_suffixes": [
+          ".native",
+          ""
+        ],
+        "chosen": "dep.ts",
+        "config_sha256": "3b1d71414120e32962b3e1586fa3d92d2f130061e4caae282bcf1787d6435017",
+        "loaded_project": [
+          "main.ts"
+        ],
+        "native": [
+          {
+            "role": "native-one",
+            "diagnostics": {
+              "count": 1,
+              "fingerprint": "3bccf9d372222ddeb84118b651af077277999e411857b32fe5ef75833e7d1db5",
+              "entries": [
+                "main.ts(2,7): error TS2322: Type 'string' is not assignable to type 'number'."
+              ]
+            },
+            "loaded_project": [
+              "dep.ts",
+              "main.ts"
+            ],
+            "stdout_sha256": "d2055ab28c105d8582d3a667907fec49045826d9bbda2aada4722c64d1fe9100",
+            "native_match": false
+          },
+          {
+            "role": "native-default",
+            "diagnostics": {
+              "count": 1,
+              "fingerprint": "3bccf9d372222ddeb84118b651af077277999e411857b32fe5ef75833e7d1db5",
+              "entries": [
+                "main.ts(2,7): error TS2322: Type 'string' is not assignable to type 'number'."
+              ]
+            },
+            "loaded_project": [
+              "dep.ts",
+              "main.ts"
+            ],
+            "stdout_sha256": "d2055ab28c105d8582d3a667907fec49045826d9bbda2aada4722c64d1fe9100",
+            "native_match": false
+          }
+        ],
+        "matched_all_tsr_roles": true,
+        "matched_native": false,
+        "probe_counts": {
+          "calls": [
+            0,
+            0,
+            1,
+            5,
+            5,
+            5,
+            0
+          ],
+          "bytes": [
+            0,
+            0,
+            83,
+            35,
+            435,
+            454,
+            0
+          ],
+          "nanos": [
+            0,
+            0,
+            83,
+            375,
+            210,
+            208,
+            0
+          ]
+        }
+      },
+      {
+        "case": "arbitrary-extension",
+        "files": {
+          "main.ts": "import {value} from \"./style.css\";\nconst bad: number = value;\n",
+          "style.d.css.ts": "export declare const value: string;\n"
+        },
+        "module_suffixes": [],
+        "chosen": "style.d.css.ts",
+        "config_sha256": "88964a02ff9d428a10312fb76089ca1c3f3e349328ba7d28fba7711334ed0880",
+        "loaded_project": [
+          "style.d.css.ts",
+          "main.ts"
+        ],
+        "native": [
+          {
+            "role": "native-one",
+            "diagnostics": {
+              "count": 1,
+              "fingerprint": "3bccf9d372222ddeb84118b651af077277999e411857b32fe5ef75833e7d1db5",
+              "entries": [
+                "main.ts(2,7): error TS2322: Type 'string' is not assignable to type 'number'."
+              ]
+            },
+            "loaded_project": [
+              "style.d.css.ts",
+              "main.ts"
+            ],
+            "stdout_sha256": "b4a69822cb8e20751a2a896fe3f74e8c12d00741de1bc4bf69f9804ad8cd7266",
+            "native_match": true
+          },
+          {
+            "role": "native-default",
+            "diagnostics": {
+              "count": 1,
+              "fingerprint": "3bccf9d372222ddeb84118b651af077277999e411857b32fe5ef75833e7d1db5",
+              "entries": [
+                "main.ts(2,7): error TS2322: Type 'string' is not assignable to type 'number'."
+              ]
+            },
+            "loaded_project": [
+              "style.d.css.ts",
+              "main.ts"
+            ],
+            "stdout_sha256": "b4a69822cb8e20751a2a896fe3f74e8c12d00741de1bc4bf69f9804ad8cd7266",
+            "native_match": true
+          }
+        ],
+        "matched_all_tsr_roles": true,
+        "matched_native": true,
+        "probe_counts": {
+          "calls": [
+            1,
+            1,
+            1,
+            1,
+            0,
+            0,
+            1
+          ],
+          "bytes": [
+            4,
+            93,
+            87,
+            0,
+            0,
+            0,
+            102
+          ],
+          "nanos": [
+            83,
+            41,
+            42,
+            41,
+            0,
+            0,
+            41
+          ]
+        }
+      },
+      {
+        "case": "failed-relative",
+        "files": {
+          "main.ts": "import {value} from \"./absent\";\nexport const held = value;\n"
+        },
+        "module_suffixes": [
+          ".native",
+          ""
+        ],
+        "chosen": null,
+        "config_sha256": "3b1d71414120e32962b3e1586fa3d92d2f130061e4caae282bcf1787d6435017",
+        "loaded_project": [
+          "main.ts"
+        ],
+        "native": [
+          {
+            "role": "native-one",
+            "diagnostics": {
+              "count": 1,
+              "fingerprint": "e55d7d94a7cbcb83c92ab29bd276ca34a53b45fee92fdb399a913612b790f902",
+              "entries": [
+                "main.ts(1,21): error TS2307: Cannot find module './absent' or its corresponding type declarations."
+              ]
+            },
+            "loaded_project": [
+              "main.ts"
+            ],
+            "stdout_sha256": "6ecbead45dca2d67e35142eca3b400333b30872756add5cb96c1e487230c7f3d",
+            "native_match": true
+          },
+          {
+            "role": "native-default",
+            "diagnostics": {
+              "count": 1,
+              "fingerprint": "e55d7d94a7cbcb83c92ab29bd276ca34a53b45fee92fdb399a913612b790f902",
+              "entries": [
+                "main.ts(1,21): error TS2307: Cannot find module './absent' or its corresponding type declarations."
+              ]
+            },
+            "loaded_project": [
+              "main.ts"
+            ],
+            "stdout_sha256": "6ecbead45dca2d67e35142eca3b400333b30872756add5cb96c1e487230c7f3d",
+            "native_match": true
+          }
+        ],
+        "matched_all_tsr_roles": true,
+        "matched_native": true,
+        "probe_counts": {
+          "calls": [
+            0,
+            0,
+            1,
+            5,
+            5,
+            5,
+            0
+          ],
+          "bytes": [
+            0,
+            0,
+            83,
+            35,
+            450,
+            469,
+            0
+          ],
+          "nanos": [
+            0,
+            0,
+            42,
+            375,
+            168,
+            208,
+            0
+          ]
+        }
+      }
+    ],
+    "complete": true,
+    "all_match": false
+  },
+  "normal_library_path": "Explicit pinned checkout library path; same input fingerprint across roles",
+  "limits": [
+    "Not a TSR/native speed ratio",
+    "Site clocks include observer/clock overhead and exclude frees/caller cost; payload bytes are not heap totals",
+    "Empty suffix Vec clones carry zero payload on the app; suffix stem branch is exercised only in public controls",
+    "Native CLI requested traces remain unavailable in TSR (separate1.1.1); supported canonical suites sanitize version/package cache and skip unsupported/no-baseline cases",
+    "No full checker corpus run for a completely rejected/restored candidate",
+    "Other agents host activity not controlled; owned builds/tests/timings serialized"
+  ],
+  "original_driver_sha256": {
+    "controls.py": "58cff12ec8a7c87f1c46c64f73d012270a005ec3a0c46ea7673763c1ec7619d4",
+    "timings.py": "349286b305696f5e78bbcfadeac0f5c48532a98e8b04e94bec8a4d8f4554b3e4",
+    "public.py": "97e8867a5fe86e2960691bead7b579d35bf294c2b9dc988060ac4274db604f7a"
+  },
+  "portable_driver_sha256": {
+    "resolver-candidate-copy-controls.py": "23d3b301b863f0ff909abcab445e184df5bcf7e489f302186e7ed076fb33e6ad",
+    "resolver-candidate-copy-timings.py": "7241e556b56fbdc5c697a220019f945bdfdc56a37e170bcd91722907e03f21eb",
+    "resolver-candidate-copy-public.py": "719f63728565806fb42bd7c332c6de6b96b518149db22d5aa32849ef3a04475a"
+  },
+  "avoidable_payload_bytes": 7503723,
+  "avoidable_copy_construction_intervals_ns_initial": [
+    3971111,
+    4352761
+  ],
+  "normal_output_and_scoped_inputs_equal": true,
+  "suffix_fallback_bug": {
+    "id": "tsr-6.59",
+    "requested_module_suffixes": [
+      ".native",
+      ""
+    ],
+    "tsr_effective_module_suffixes": [
+      ".native"
+    ],
+    "native_effective_module_suffixes": [
+      ".native",
+      ""
+    ],
+    "tsr_diagnostics": {
+      "count": 1,
+      "fingerprint": "f778ed31a564b14cc875dedcbd694ef70946f6e13752b5dee27252c8a812182a",
+      "entries": [
+        "main.ts(1,21): error TS2307: Cannot find module './dep' or its corresponding type declarations."
+      ]
+    },
+    "native_diagnostics": {
+      "count": 1,
+      "fingerprint": "3bccf9d372222ddeb84118b651af077277999e411857b32fe5ef75833e7d1db5",
+      "entries": [
+        "main.ts(2,7): error TS2322: Type 'string' is not assignable to type 'number'."
+      ]
+    },
+    "tsr_loaded_project": [
+      "main.ts"
+    ],
+    "native_loaded_project": [
+      "dep.ts",
+      "main.ts"
+    ],
+    "baseline_and_candidate_same_defect": true
+  },
+  "worktree_archived_verified": true
+}
