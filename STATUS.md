@@ -48,6 +48,14 @@ representation parity. Annotated array-binding admission remains separate;
 no binding/default-adjustment or static caller is added. Evidence is retained in
 `target/array-context-wave26-evidence.tar.gz`.
 
+Publication preserves upstream `533f50dc`'s loader-read example and performance
+documentation. Rebased source `12d8da95` has the same production-library sources
+as measured `ea3b3e69`; the corpus captures were not rerun after this example-only
+rebase. Merged workspace release passes **2,820 tests, zero failures, six existing
+ignores**, with **six additional loader-example controls** passing separately.
+Merged formatting and strict workspace/all-target Clippy also pass; scorepair
+accepts the unchanged baseline and coverage leaves both snapshots unchanged.
+
 The active undefined-widening slot now aliases ordinary undefined in strict mode
 and selects the retained distinct undefined identity in loose mode. Selection
 allocates nothing and preserves all 25 intrinsic allocations and other IDs.
