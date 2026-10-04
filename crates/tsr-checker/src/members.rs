@@ -3006,6 +3006,7 @@ impl Checker<'_, '_> {
                 Some(Node::PropertyDeclaration(p)) => question(p.postfix_token),
                 Some(Node::MethodSignatureDeclaration(m)) => question(m.postfix_token),
                 Some(Node::MethodDeclaration(m)) => question(m.postfix_token),
+                Some(Node::ParameterDeclaration(_)) => self.is_optional_declaration(declaration),
                 Some(Node::JSDocParameterOrPropertyTag(_)) => {
                     self.is_optional_declaration(declaration)
                 }

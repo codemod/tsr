@@ -258,15 +258,6 @@ impl Checker<'_, '_> {
             // (`assignmentCompatWithObjectMembersOptionality2`, 3 lines on one
             // case). Optionality is read off the declaration's `?` instead.
             let declarations = entry.declarations.to_vec();
-            // bindParameterPropertyDeclaration marks a constructor's `x?`
-            // optional only when QuestionToken is present. Without it required
-            // is certified; with it this reader cannot represent optionality.
-            if declarations.iter().any(|&declaration| {
-                matches!(self.node_map.get(declaration),
-                    Some(Node::ParameterDeclaration(parameter)) if parameter.question_token.is_some())
-            }) {
-                return false;
-            }
             let optional = declarations.iter().any(|d| self.declaration_is_optional_member(*d));
             out.push((name, optional));
         }
@@ -315,6 +306,7 @@ impl Checker<'_, '_> {
             Some(Node::PropertyDeclaration(property)) => property.postfix_token.is_some(),
             Some(Node::MethodSignatureDeclaration(method)) => method.postfix_token.is_some(),
             Some(Node::MethodDeclaration(method)) => method.postfix_token.is_some(),
+            Some(Node::ParameterDeclaration(_)) => self.is_optional_declaration(declaration),
             _ => false,
         }
     }
@@ -514,7 +506,9 @@ mod tests {
         let source = "class Optional { constructor(public z?: number) {} }\n\
                       class Required { constructor(public z: number) {} }\n\
                       class Defaulted { constructor(public z = 0) {} }\n\
-                      class Field { z?: number; }";
+                      class Field { z?: number; }\n\
+                      class Plain { constructor(z?: number) {} }\n\
+                      class Generic<T> { constructor(public z?: T) {} }";
         let arena = tsr_core::Arena::new();
         let parsed = tsr_parser::parse(&arena, source);
         assert!(parsed.diagnostics.is_empty());
@@ -527,10 +521,12 @@ mod tests {
         );
         let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
         for (name, expected) in [
-            ("Optional", None),
+            ("Optional", Some(vec![("z".to_owned(), true)])),
             ("Required", Some(vec![("z".to_owned(), false)])),
             ("Defaulted", Some(vec![("z".to_owned(), false)])),
             ("Field", Some(vec![("z".to_owned(), true)])),
+            ("Plain", Some(vec![])),
+            ("Generic", None),
         ] {
             let symbol = bound.lookup_local(root, name).expect("class bound");
             let ty = checker.get_declared_type_of_symbol(symbol);
