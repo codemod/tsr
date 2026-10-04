@@ -22,9 +22,9 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
-### Current checker checkpoint — annotated object binding defaults
+### Current checker checkpoint — mode-selected undefined widening identity
 
-Measured production tree **`d21abd72`**, against published `8bc504ef`:
+Measured production tree **`73add1f8`**, against published `4e1a8311`:
 **459,938/478,855 assertions (96.05%)**, **7,188/9,538 complete cases
 (75.36%)**. The 99% target requires 474,067 matches; **14,129 remain**.
 Pinned native `5b1047d1` and both denominators are unchanged. Aligned verdicts:
@@ -33,6 +33,17 @@ The static-context/class-copy prefix `ef3b10a5` is production-identical to audit
 `f6b00125`; rebasing preserved concurrent documentation-only `bc27fae2` and
 the exact `crates` tree. Parameter-context publication preserved documentation-only
 `a7901196`, with source `302573c6` identical to measured `2def452d`.
+
+The active undefined-widening slot now aliases ordinary undefined in strict mode
+and selects the retained distinct undefined identity in loose mode. Selection
+allocates nothing and preserves all 25 intrinsic allocations and other IDs.
+Compiler options use the existing setter. Both full checker and complete
+duplicate/empty-positive-aware diagnostic captures are **byte-identical** to
+`4e1a8311`, including all payloads and populations; this prerequisite claims no
+corpus gain. Raw identity and seven real Program option controls pass. Global
+seeds remain ordinary undefined, including three known loose-mode mismatches.
+No global reseeding, widening leaf or omitted-IIFE fallback is included.
+Evidence is retained in `target/undefined-slot-wave25-evidence.tar.gz`.
 
 Annotated object binding defaults now project their declared holder recursively,
 without invoking destructure inference, default evaluation or undefined stripping.
@@ -58,10 +69,10 @@ payloads or population changes**. All 10,570 complete diagnostic records are
 **byte-identical**, including duplicate occurrences and empty positives. The
 combined parameter/optionality prefix adds 40 checker matches without retention
 losses. Evidence is retained in `target/optionality-wave23-evidence.tar.gz`.
-Native active undefined-slot mode selection is a separate prerequisite: strict
-aliases ordinary undefined, while loose retains a distinct widening undefined;
-only declaration widening converts that loose identity to genuine any. Global
-reseeding and omitted-argument substitutions remain held.
+Native active undefined-slot mode selection is now included above; the loose
+slot is undefined, not any, and declaration widening converts that identity to
+genuine any. Global reseeding remains held. The two omitted-argument fallback
+substitutions are a separate reserved unit, not included in this checkpoint.
 
 Written parameter annotations now supply context to their matching default
 initializers before inference. That stage left unannotated defaults and binding
@@ -260,8 +271,9 @@ payload gains the two expected TS2322 occurrences. Function copies remove the
 false TS2339 at `esModuleInteropImportNamespace/index.ts:2:5` without losing a
 matched occurrence.
 
-**2,813 release workspace tests across 241 result blocks**, six existing ignores,
-plus **2,816 all-target release tests across 343 result blocks**, four ignores,
+**2,816 release workspace tests across 242 result blocks**, six existing ignores;
+the preceding object-binding checkpoint also passed **2,816 all-target release
+tests across 343 result blocks**, four ignores. Current
 strict release workspace/all-target Clippy, formatting and diff checks pass.
 Unfiltered scorepair agrees with the multiline-aware audit and accepts the new
 baseline; checker and diagnostics snapshots are refreshed after strict Clippy.
