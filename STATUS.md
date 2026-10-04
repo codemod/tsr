@@ -22,7 +22,45 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
-### Current checker checkpoint — accessible module aliases and direct variable JSDoc hosts
+### Current checker checkpoint — annotated primitive binding-default reporting
+
+Measured production tree **`14ab1460`**, against published `3d1f822d`:
+**459,974/478,855 assertions (96.06%)**, **7,190/9,538 complete cases
+(75.38%)**. The 99% target requires 474,067 matches; **14,093 remain**.
+Pinned native `5b1047d1` and both denominators are unchanged. Aligned verdicts:
+**474,251 total; 459,974 RIGHT; 2,094 GAP; 12,183 WRONG**.
+
+The BindingElement check now reports bounded annotated primary variable-leaf
+defaults against the existing default-adjusted symbol target, not the contextual
+type. Only non-rest ordinary bindings, syntactic string/null/genuine-undefined
+sources and string-unit/nullable-union targets are admitted. Parameters,
+structured/general/circular sources, computed/rest/pattern/secondary/unannotated
+and unsupported targets remain excluded. Supplier, context, default adjustment,
+relation and cache bodies are unchanged; the three source/test files are
+byte-identical to worker `95cc55a2` after integration. Independent archived-output
+replay verifies **462 native-correlated TS2322 occurrences in 1,440 paired fixture
+runs**, all **36 unsafe structured-source refusals**, unchanged raw readers and
+72 additional asymmetric controls. This is not fresh native execution or general
+library-loaded parity: native uses ES2015 libraries, Rust minimal array globals.
+
+**No corpus gain is claimed.** Fresh full checker and complete **10,570 diagnostic
+records are byte-identical** to the pre-edit published baseline, including
+duplicates and 5,082 empty baselines: **20,685 matches, 3,838 extras**. There are
+zero RIGHT/payload/GAP→WRONG/correct-case/matched-occurrence/new-extra/population
+losses and zero changed remaining-WRONG payloads. All four focused tests pass;
+workspace release passes **2,838 tests, zero failures, six existing ignores**,
+plus six loader controls. Formatting, strict release workspace/all-target Clippy,
+unfiltered scorepair and fresh coverage pass; both snapshots are unchanged.
+Broader binding reporting remains open in tsr-xhp. Effective JSDoc selection,
+exact-optional contextual reads and original-file default-target readers have
+separate reservations; JS loop admission remains held. Evidence is in
+`target/binding-report-wave32-evidence.tar.gz`.
+Publication preserves upstream `064d40db`'s resolver-copy evidence and
+`45053bc0`'s opt-in worker-probe selection changes. Checker/compiler runtime
+sources remain byte-identical to measured `14ab1460`; post-rebase workspace,
+four focused tests, six loader and six probe controls, fmt and strict Clippy pass.
+
+### Previous checker checkpoint — accessible module aliases and direct variable JSDoc hosts
 
 Measured production tree **`58d14d54`**, against published `190292da`:
 **459,974/478,855 assertions (96.06%)**, **7,190/9,538 complete cases
