@@ -1536,9 +1536,10 @@ impl<'a> Checker<'a, '_> {
     }
 
     /// getContextualTypeForBindingElement (`checker.go:29583`), restricted to
-    /// annotated object holders. This is declared projection, not binding
-    /// inference: defaults do not remove undefined or supply a parent type.
-    /// Array projection needs the separate unknown-length/missing-type reader.
+    /// annotated object and non-rest array holders. This is declared projection,
+    /// not binding inference: defaults do not remove undefined or supply a
+    /// parent type. Initialized array rest and annotation-less initializer or
+    /// implied-pattern fallbacks remain unsupported, not native refusals.
     fn contextual_type_for_binding_element(&mut self, declaration: NodeId) -> Option<TypeId> {
         let Node::BindingElement(element) = self.node_map.get(declaration)? else { return None };
         // Native rejects pattern-valued names and computed nonliteral syntax
@@ -1569,9 +1570,11 @@ impl<'a> Checker<'a, '_> {
             },
         };
         let pattern = self.nodes.parent(declaration)?;
-        if self.nodes.kind(pattern) != tsr_ast::SyntaxKind::ObjectBindingPattern {
-            return None;
-        }
+        let array = match self.nodes.kind(pattern) {
+            tsr_ast::SyntaxKind::ObjectBindingPattern => false,
+            tsr_ast::SyntaxKind::ArrayBindingPattern if element.dot_dot_dot_token.is_none() => true,
+            _ => return None,
+        };
         let holder = self.nodes.parent(pattern)?;
         let parent_type = if self.nodes.kind(holder) == tsr_ast::SyntaxKind::BindingElement {
             self.contextual_type_for_binding_element(holder)?
@@ -1579,6 +1582,20 @@ impl<'a> Checker<'a, '_> {
             let annotation = self.type_annotation_of(holder)?;
             self.get_type_from_type_node(annotation)
         };
+        if array {
+            let Node::BindingPattern(pattern) = self.node_map.get(pattern)? else { return None };
+            // Binding holes occupy positions, and the binding pattern's length
+            // does not align a variadic source's ending fixed elements.
+            let index =
+                pattern.elements.iter().position(|element| element.node_id == Some(declaration))?;
+            return self.contextual_type_for_element_expression(
+                parent_type,
+                index,
+                None,
+                None,
+                None,
+            );
+        }
         // Ordinary projection intentionally refuses a nullable outer holder;
         // contextual_property_type's nullable mapping would change that contract.
         self.get_type_of_property_of_type(parent_type, &name)
@@ -2701,6 +2718,8 @@ mod tests {
         exact: bool,
         warm: bool,
     ) -> Vec<Option<String>> {
+        let source = format!("interface Array<T> {{ [n: number]: T }} {source}");
+        let source = source.as_str();
         let arena = tsr_core::Arena::new();
         let parsed = tsr_parser::parse(&arena, source);
         assert!(parsed.diagnostics.is_empty(), "{source}");
@@ -2717,6 +2736,10 @@ mod tests {
         for index in 0..parsed.nodes.len() {
             #[allow(clippy::cast_possible_truncation)]
             let id = NodeId::new(index as u32);
+            if warm && matches!(parsed.node_map.get(id), Some(Node::TypeAliasDeclaration(_))) {
+                let symbol = bound.symbol_of(id).expect("alias symbol");
+                checker.get_declared_type_of_symbol(symbol);
+            }
             if let Some(Node::BindingElement(element)) = parsed.node_map.get(id)
                 && let Some(initializer) = element.initializer
             {
@@ -2784,7 +2807,7 @@ mod tests {
     fn object_binding_context_preserves_unannotated_array_and_dynamic_boundaries() {
         for source in [
             "const { c = 'right' } = {};",
-            "let [chosen = 'right']: ['right'?] = [];",
+            "let [chosen = 'right'] = [];",
             "declare const key: 'c'; let { [key]: chosen = 'right' }: { c: 'right' } = { c: 'right' };",
             "let { missing: chosen = 'right' }: { c: 'right' } = { c: 'right' };",
         ] {
@@ -2792,6 +2815,141 @@ mod tests {
         }
         let literal = "let { ['c']: chosen = 'wrong' }: { c: 'right' } = { c: 'right' };";
         assert_eq!(binding_contexts(literal, true, false, false), vec![Some("\"right\"".into())]);
+    }
+
+    #[test]
+    fn annotated_array_binding_defaults_project_optional_prefixes_and_holes() {
+        for (strict, exact) in [(false, false), (true, false), (true, true)] {
+            for warm in [false, true] {
+                for explicit in [false, true] {
+                    let slot = if explicit { "('right' | undefined)?" } else { "'right'?" };
+                    let expected = if strict && (!exact || explicit) {
+                        "\"right\" | undefined"
+                    } else {
+                        "\"right\""
+                    };
+                    for default in ["'wrong'", "undefined"] {
+                        let source = format!(
+                            "type Target = ['skip', {slot}]; type Linked = Target; \
+                             declare const input: Linked; let [, chosen = {default}]: Linked = input;"
+                        );
+                        assert_eq!(
+                            binding_contexts(&source, strict, exact, warm),
+                            vec![Some(expected.into())],
+                            "strict={strict} exact={exact} warm={warm} explicit={explicit} \
+                             default={default}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn annotated_array_binding_unknown_length_keeps_both_tail_candidates() {
+        for (strict, exact) in [(false, false), (true, false), (true, true)] {
+            for warm in [false, true] {
+                for explicit in [false, true] {
+                    let suffix = if explicit { "'end' | undefined" } else { "'end'" };
+                    let source = format!(
+                        "type Target = ['head', ...'middle'[], {suffix}]; type Linked = Target; \
+                         declare const input: Linked; \
+                         let [prefix = 'wrong', chosen = 'wrong', later = undefined]: Linked = input;"
+                    );
+                    let tail = if strict && explicit {
+                        "\"end\" | \"middle\" | undefined"
+                    } else {
+                        "\"end\" | \"middle\""
+                    };
+                    assert_eq!(
+                        binding_contexts(&source, strict, exact, warm),
+                        vec![Some("\"head\"".into()), Some(tail.into()), Some(tail.into())],
+                        "strict={strict} exact={exact} warm={warm} explicit={explicit}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn annotated_array_binding_recursion_preserves_syntax_and_object_boundaries() {
+        for (strict, exact) in [(false, false), (true, false), (true, true)] {
+            for warm in [false, true] {
+                let source = "type Target = { items: ['skip', 'right'?] }; type Linked = Target; \
+                              declare const input: Linked; \
+                              let { items: [, chosen = 'wrong'] }: Linked = input;";
+                let expected = if strict && !exact { "\"right\" | undefined" } else { "\"right\"" };
+                assert_eq!(
+                    binding_contexts(source, strict, exact, warm),
+                    vec![Some(expected.into())]
+                );
+                for (target, binding) in [
+                    ("[{ c: 'right' }]", "[{ c: chosen = 'wrong' }]"),
+                    ("[['right']]", "[[chosen = 'wrong']]"),
+                    ("{ items: ['right'] }", "{ [key]: [chosen = 'wrong'] }"),
+                ] {
+                    let source = format!(
+                        "declare const key: 'items'; type Target = {target}; type Linked = Target; \
+                         declare const input: Linked; let {binding}: Linked = input;"
+                    );
+                    assert_eq!(binding_contexts(&source, strict, exact, warm), vec![None]);
+                }
+                let nullable = "type Target = { items: ['right'] } | undefined; type Linked = Target; \
+                                declare const input: Linked; \
+                                let { items: [chosen = 'wrong'] }: Linked = input;";
+                assert_eq!(
+                    binding_contexts(nullable, strict, exact, warm),
+                    vec![if strict { None } else { Some("\"right\"".into()) }]
+                );
+                for source in [
+                    "declare const input: ['head', ...'middle'[], 'end']; \
+                     let [, ...chosen = 'wrong']: ['head', ...'middle'[], 'end'] = input;",
+                    "let [chosen = 'wrong'] = ['right'];",
+                    "function f([chosen = 'wrong'] = ['right']) {}",
+                ] {
+                    // Native admits initialized rest and some implied contexts;
+                    // those fallbacks are deliberately unsupported in this unit.
+                    assert_eq!(binding_contexts(source, strict, exact, warm), vec![None]);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn annotated_array_binding_context_does_not_coerce_wrong_default_type() {
+        for (strict, exact) in [(false, false), (true, false), (true, true)] {
+            let source = "interface Array<T> { [n: number]: T } \
+                          type Target = ['skip', 'right'?]; type Linked = Target; \
+                          declare const input: Linked; let [, chosen = 'wrong']: Linked = input;";
+            let arena = tsr_core::Arena::new();
+            let parsed = tsr_parser::parse(&arena, source);
+            assert!(parsed.diagnostics.is_empty());
+            let bound = tsr_binder::bind(
+                &arena,
+                parsed.source_file,
+                &parsed.nodes,
+                tsr_binder::FileInfo { name: "t.ts", text: source },
+            );
+            let mut checker = crate::Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+            checker.set_strict_null_checks(strict);
+            checker.exact_optional_property_types = exact;
+            for index in 0..parsed.nodes.len() {
+                #[allow(clippy::cast_possible_truncation)]
+                let id = NodeId::new(index as u32);
+                if let Some(Node::BindingElement(element)) = parsed.node_map.get(id)
+                    && let Some(default) = element.initializer
+                {
+                    let expected =
+                        if strict && !exact { "\"right\" | undefined" } else { "\"right\"" };
+                    let contextual = checker
+                        .get_contextual_type(default.node_id().expect("default"))
+                        .expect("annotated element context");
+                    assert_eq!(checker.type_to_string(contextual), expected);
+                    let actual = checker.check_expression(default);
+                    assert_eq!(checker.type_to_string(actual), "\"wrong\"");
+                }
+            }
+        }
     }
 
     fn tuple_context(
