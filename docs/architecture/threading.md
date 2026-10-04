@@ -10,14 +10,19 @@ makes thread-safety a design requirement rather than a later optimisation —
 retrofitting it into an arena design is a rewrite, not a tuning pass. This
 document records what is true today and what each next step needs.
 
-## The unit of parallelism is a file
+## File preparation and parsing have different ownership
 
-Files are independent through parsing: each gets its own arena, its own source
-text, and its own node table. There is nothing to contend on, so the concurrency
-model is the simplest one that exists — `par_iter` over files.
+The production loader allocates every file into one caller-owned arena and
+appends to one `NodeTable`/`NodeMap`. Parsing those files concurrently cannot use
+the historical standalone-file `par_iter` model without changing identity and
+lifetime contracts. Independent `ParsedFile` values remain useful for standalone
+tools and conformance cases; they are not directly mergeable program files.
 
-This is also what oxc does, and why: a shared arena would need locking on the
-allocation hot path, which is a pointer bump.
+An earlier independent boundary is an owned file read. A worker can borrow a
+shareable backing filesystem and a file-name string, then return `Option<String>`.
+The coordinator retains discovery, task claiming, package identity, arena
+allocation, parsing and replay order. The opt-in read probe described below
+exercises this boundary without changing the production loader.
 
 ## What is shareable today
 
@@ -96,7 +101,9 @@ wall**, about 5.7× on this machine.
 
 ## What each next step needs
 
-**The binder** stays per-file, so it inherits this model unchanged.
+**The binder** currently accumulates one program-wide `SymbolStore` in order.
+Global merges and shared symbols require an ownership design before parallel
+binding, even when per-file syntax is already immutable.
 
 **The checker does not.** It is program-wide: types and symbols are interned in
 tables shared across files, and laziness means one file's checking can force
@@ -110,10 +117,10 @@ pools them (`AllocatorPool`) so a long-running process reuses chunks instead of
 returning them to the allocator. Worth doing when the LSP holds many files, not
 before — measure first.
 
-**`NodeTable` and side tables** are per-file and plain data, so they move with the
-file. Program-wide side tables (the checker's link stores) will need either
-per-checker ownership or a concurrent map; `papaya` is in the bill of materials
-for exactly that.
+**`NodeTable` and syntax side tables** are program-wide in the production loader.
+They remain plain data and can be shared after construction. Mutable checker
+link stores belong to private checker instances; sharing completed syntax does
+not justify sharing checker-local type IDs or caches.
 
 ## The current program and checker ownership boundary
 
@@ -165,6 +172,101 @@ Loading and parsing need their own design. They currently fill shared node table
 and allocate through one arena; the ready-to-share finished program does not make
 those construction phases parallel. Per-file/worker allocation, ID assignment and
 deterministic global merges remain work in `bd tsr-1yb.5`.
+
+## File-read preparation seam
+
+`cargo build --release -p tsr-compiler --example loader_reads` builds an opt-in
+read-plan probe. Its input is a predetermined manifest of absolute physical paths,
+one per line, followed by `direct`, `1`, `2` or `4`. It does not discover a project,
+parse configuration, provide a production worker policy or enable CLI workers.
+The direct mode uses the calling thread; worker modes use persistent scoped
+threads with bounded per-worker channels. A batch contains at most one read per
+worker and is consumed completely before another is submitted.
+
+Workers receive a path borrow and `&F` where `F: FileSystem + Sync`. They return
+owned `Option<String>` and primitive counters. They do not receive the arena,
+node tables, resolver, task graph, package identities, bound symbols or checker
+types. `OsFileSystem` and `InMemoryFileSystem` pass the shareability checks. The
+current `CachedFileSystem` and `Arena` fail actual compiler `Sync` checks;
+`Cell`/`RefCell` caches must stay on the coordinator. Merely adding `Sync` to a
+trait object or wrapping the arena in an unsafe implementation cannot satisfy
+this boundary.
+
+The consumer runs on the coordinator and can borrow the arena and exclusive
+node tables without being `Send` or `Sync`. A test parses while consuming reads
+and compares complete ASTs, parents/flags/spans, node ranges, typed map recovery,
+JSDoc, directives and parse diagnostics against direct serial construction.
+No node remapping is needed: every node is allocated and numbered by the same
+serial parser. Missing reads consume a slot and allocate no syntax nodes.
+Separate frozen-host controls compare complete loader requests/results, trace
+order, package redirects, syntax and checker diagnostics at 1/2/4 workers.
+They exercise cycles, duplicate roots, symlinks, both filesystem case modes,
+duplicate package identities, merged globals and TS/TSX/JS/JSON. A controlled
+out-of-order completion test proves overlap and ordered consumption; another
+proves consumer unwinding closes the workers. These are six passing controls,
+with no ignored tests.
+
+The frozen-host adapter is test-only and rejects reads outside its finite plan.
+It retains prepared strings to replay the loader, so its memory use is not the
+streaming queue bound. Production reads remain live and uncached. Parallel reads
+from a mutable or non-shareable custom host need an explicit contract; the probe
+does not cast the erased `&dyn FileSystem` from `ResolutionHost` into a shareable
+host. An eventual serial fallback must preserve custom-host behavior.
+
+The native task graph remains a separate requirement. Pinned
+`filesparser.go:start` claims canonical paths while tracking file-name casing,
+lowest reached depth, package identity and redirected work. Its
+`getProcessedFiles` walks the graph deterministically, replays per-task type
+traces before module traces, chooses the first package instance in replay order,
+then sorts library files. Rust `loader.rs:process_task` still claims a path once
+in depth-first order and does not reproduce native casing/depth reprocessing.
+`collect_task` separately performs postorder collection and package redirects.
+A completed `--listFiles` list is therefore not the production parse-order plan.
+Workers must not assign node IDs or select package winners in completion order.
+Read-plan equivalence alone does not prove dynamic discovery, augmentation,
+global merge or native task-graph fidelity.
+
+The source-specific cost controls in
+[loader-read-preparation.json](loader-read-preparation.json) use 13,097 physical
+paths from the previous loaded-file observation, including pinned physical libs,
+and read 73,506,200 decoded bytes. This omits package metadata and discarded
+tasks read during real discovery. The external harness
+[loader-read-costs.py](loader-read-costs.py) runs serial fresh processes in two
+rounds, each with one warmup and five rotated samples per mode. All 48 read
+summaries are byte-identical, and original-byte input fingerprints stay fixed.
+Warm OS filesystem pages are allowed; this is not a cold-disk benchmark.
+
+| Mode | Round 1 median wall | Round 2 median wall | Round 1 median peak RSS | Round 2 median peak RSS |
+| --- | ---: | ---: | ---: | ---: |
+| Direct serial | 184.9 ms | 186.8 ms | 21.8 MB | 21.8 MB |
+| 1 read worker | 247.7 ms | 248.1 ms | 34.0 MB | 33.9 MB |
+| 2 read workers | 171.1 ms | 174.6 ms | 31.9 MB | 39.2 MB |
+| 4 read workers | 121.3 ms | 122.8 ms | 38.3 MB | 38.7 MB |
+
+Four workers save about 64 ms on this fixed read plan, with greater CPU and RSS.
+The one-worker queue is slower than direct reads. Observed maximum completed
+batch text is 4,795,155 bytes at four workers, versus a largest individual string
+of 4,549,667 bytes. These are logical decoded string lengths, not allocator
+capacities or a memory ceiling: decoding may temporarily hold both raw bytes and
+text, the allocator may retain blocks, and one oversized file can exceed any
+chosen byte budget. The maximum outstanding read count does not prove bounded
+process RSS. Process wall includes thread startup/join, read/decode, hashing,
+output and queue overhead; individual read intervals can overlap and must not be
+added to wall. Separate startup attribution and constrained-memory behavior
+remain open.
+
+Eight existing physical encoding inputs, plus a missing file and a directory,
+produce identical direct/1/2/4 read summaries. Prior native diagnostic controls
+characterize the eight encodings; this read probe does not re-establish all
+malformed-byte native semantics. The measurement manifest and private file names
+remain local; the committed evidence records fingerprints and counters.
+
+This proves a compiling ownership seam and a small isolated read opportunity,
+not a whole-project improvement. `tsr-1yb.19` retains dynamic-plan/native replay,
+augmentation and constrained-resource acceptance. Production scheduling stays in
+`.5`, behind its existing `.3`/`.2` gates and `.19`; the full comparable native
+median ratio of 0.50 remains unverified. Prioritize the larger unique metadata and
+discovery costs before turning this prototype into a production executor.
 
 ## Not yet built in production
 
