@@ -57,7 +57,45 @@ The issue-ID check retains 190 unresolved historical IDs (`tsr-10`); all new
 task references were checked directly. The verified equivalent-work TSR/tsgo
 median wall target remains <=0.50.
 
-### Current checker checkpoint — canonical undefined/missing identities
+### Current checker checkpoint — mode-specific object/function flow facts
+
+Measured production tree **`7dcbbf68`**, against published `17c4db04`:
+**460,045/478,855 assertions (96.07%)**, **7,193/9,538 complete cases
+(75.41%)**. The 99% target requires 474,067 matches; **14,022 remain**.
+Pinned native `5b1047d1` and both denominators are unchanged. Aligned verdicts:
+**474,251 total; 460,045 RIGHT; 2,094 GAP; 12,112 WRONG**.
+
+Only the existing OBJECT|NON_PRIMITIVE flow-fact aggregates select strict or
+loose null mode. Strict masks and category selection are unchanged; loose
+object/function masks add the native falsy and nullable-equality bits.
+Primitive, empty-object, inherited-signature category, negation and bare-query
+dispatch boundaries remain held.
+
+Fresh full multiline checker captures reproduce exactly **three WRONG→RIGHT**
+transitions: `bestCommonTypeWithContextualTyping` and two reads in
+`logicalOrOperatorWithEveryType`. All keys and complete before/after payloads
+match the worker's independently native-backed full-source controls. There are
+zero RIGHT/GAP→WRONG, other-payload or population losses, and no changed
+remaining-WRONG payloads. All **10,570 duplicate/empty diagnostic records are
+byte-identical**: **20,685 matches, 3,831 extras**, with no matched-occurrence,
+correct-case, empty-positive or new-extra loss.
+
+Independent extracted replay verifies all **20,639 worker payload hashes**
+before and after parity/raw/corpus/full-retention audits. The retained 816 raw
+configurations and 1,520,064 masks preserve agreed fields/members and existing
+disagreements; 4,896 allocation-ID changes retain semantic identities. Native
+library-loaded Programs and Rust bare-Checker lanes are distinct verification
+surfaces, not general Program parity. Initial worker test/auditor failures are
+retained. **2,863 workspace release tests pass, zero failures, six existing
+ignores**, plus four focused, six loader and six worker controls, formatting,
+strict release workspace/all-target Clippy, unfiltered accepted scorepair and
+coverage. Evidence is in `target/object-facts-wave38-evidence.tar.gz`.
+
+The amended module-negative proof is not part of this checkpoint. Optional-add
+and JSDoc capture/registration remain separately held; rejected `lh1` is never
+integrated. The 99% task is not complete.
+
+### Previous checker checkpoint — canonical undefined/missing identities
 
 Measured production tree **`79fe7681`**, against published `e7bbe0ac`:
 **460,042/478,855 assertions (96.07%)**, **7,192/9,538 complete cases
