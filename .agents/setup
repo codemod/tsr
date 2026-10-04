@@ -87,21 +87,12 @@ install_bd() {
   bd bootstrap --yes --quiet
 }
 
-prebuild() {
-  # Warm target/ so the snapshot carries compiled dependencies and the first
-  # build, clippy and test run in a thread are incremental.
-  cargo fetch --locked
-  cargo build --workspace --all-targets --locked
-  cargo clippy --workspace --all-targets --locked
-  # The conformance gates (scorepair, verdictdump, coverage) run in release;
-  # warming it here keeps every orb from paying a cold release checker build.
-  cargo build --release --locked -p tsr-conformance \
-    --bin coverage --example scorepair --example verdictdump
-}
-
 step "rust toolchain" install_rust
 step "login shell PATH" persist_path
 step "git submodules" init_submodules
 step "tsgo oracle toolchain" install_go
 step "beads (bd)" install_bd
-step "cargo prebuild" prebuild
+# Fetch locked dependencies, but leave compilation to the task that needs it.
+# Building every debug, test, Clippy and release target here took over five
+# minutes on a 2-CPU orb and produced a roughly 12 GB snapshot.
+step "cargo dependencies" cargo fetch --locked
