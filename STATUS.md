@@ -22,9 +22,9 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
-### Current checker checkpoint — nonfinite literals and class-module identities
+### Current checker checkpoint — literals, module identities and conditional constraints
 
-Measured production tree **`c111a6b0`**, against published `d881bd20`:
+Measured production tree **`033451b2`**, against published `d881bd20`:
 **459,598/478,855 assertions (95.98%)**, **7,173/9,538 complete cases
 (75.20%)**. The 99% target requires 474,067 matches; **14,469 remain**.
 Pinned native `5b1047d1` and both denominators are unchanged. Aligned verdicts:
@@ -60,13 +60,21 @@ on fresh combined-source audits. Mapped modifier comparison, generic admission
 and missing-member heads remain separate consumer work; no held consumer is in
 this measured tree.
 
+Declared conditional constraints now compose captured and inferred outer bindings
+before using the existing evaluator. Native enum-owner, argument-order, capture,
+distribution and nested/parenthesized controls pass. Default, return and deferred
+roots remain refused rather than exposing unmapped written operands. Against
+`c111a6b0`, full checker and diagnostics captures are byte-identical; this bounded
+prerequisite adds no existing-corpus matches. The broader conditional candidate
+remains held for GAP→WRONG transitions and changed WRONG payloads.
+
 Complete duplicate-aware diagnostics are byte-identical to `d881bd20` across
 **10,570 cases**, including all **5,082 empty baselines**:
 **2,840 RIGHT / 2,648 WRONG / 4,797 EMPTY_RIGHT / 285 EMPTY_WRONG**;
 **20,617 matched occurrences / 3,891 extras**. There are no correct-case,
 expected-occurrence, empty-positive, payload or population losses.
 
-**2,758 release workspace tests across 236 result blocks**, six existing ignores,
+**2,763 release workspace tests across 236 result blocks**, six existing ignores,
 strict release workspace/all-target Clippy, formatting and diff checks pass.
 Unfiltered scorepair agrees with the multiline-aware audit and accepts the new
 baseline; checker and diagnostics snapshots are refreshed after strict Clippy.
@@ -77,9 +85,9 @@ The standalone intrinsic-error negation patch is held despite 11 gains: three
 GAP→WRONG rows require constrained-parameter truthiness and loop-flow/binding
 prerequisites. Its complete diagnostics are unchanged, and both negation and
 the rejected unresolved supplier are restored. Function-export namespace copies,
-bounded conditional constraints and semantic signature positions still require
-combined integration audits. The 99% goal is not reached; this is a checkpoint,
-not completion.
+semantic signature positions and mapped consumers still require combined
+integration audits. The 99% goal is not reached; this is a checkpoint, not
+completion.
 
 ### Previous checker checkpoint — generic await, presence reads and JSDoc diagnostics
 
