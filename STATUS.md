@@ -22,6 +22,50 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
+### Current checker checkpoint — four parallel native fidelity ports
+
+Production revision **`7942ce47`**, pinned native **`5b1047d`**:
+**460,066/478,855 assertions (96.08%)**, **7,198/9,538 complete cases
+(75.47%)**. The 99% goal still requires **14,001 additional matches**.
+Measurements ran in a detached worktree at `6aad1175`; the complete production
+and test trees are byte-identical after rebasing onto the documentation-only
+`8d822d94`. No denominator, eligibility rule or reference baseline changed.
+
+Four independent orbs ported async-first/sync-fallback yields (+11 RIGHT),
+global-number/imported-const template evaluation (+2), print-scoped shadowed
+parameter names (+8), and captured computed property origins in reverse-mapped
+number-key filtering (native controls improve; no assertion verdict gains).
+The combined full matrix is **474,251 aligned: 460,066 RIGHT, 2,094 GAP,
+12,091 WRONG**. All **21 gains are WRONG-to-RIGHT**; there are zero RIGHT
+losses, GAP transitions or added/removed keys. Two already-WRONG overload rows
+move their target parameter spelling toward native while their header and
+conditional value remain unresolved. Integrated output equals the composition
+of the independently verified, disjoint worker deltas.
+
+All **10,570 diagnostic verdicts** remain unchanged, including empty cases and
+duplicates. Native-matched occurrences remain **20,685**, missing **10,189**;
+extras fall **3,831 → 3,830** by removing one false TS2322 on a valid
+unique-symbol assignment. No native occurrence is lost and no new extra is
+added. Expected occurrences stay 30,874; actual occurrences fall 24,516 → 24,515.
+Coordinator native declaration/type-output replays agree with worker controls.
+
+Validation: **2,876 workspace release passes, zero failures, six existing
+ignores**; 52 affected conformance tests; strict release workspace/all-target
+Clippy, formatting, whitespace, 3,403 upstream anchors and 16,630 section
+citations pass. The union formatter extraction is a separate behavior-preserving
+commit; its full type/diagnostic dumps are byte-identical. The first dynamic
+serializer's 534 RIGHT losses were rejected and retained as evidence.
+
+Remaining: tuple/inherited-generic sync fallback and iteration diagnostics
+(`tsr-6.46`), computed key/nameType/remapping inference (`tsr-6.9`),
+enum/deferred initializer evaluation (`tsr-6.18`), and baked generic/method-object
+presentation plus retained intersection semantics (`tsr-6.38`). Existing active
+guards and ownership contracts remain; there is no performance claim. Complete
+worker/coordinator evidence is in
+`.amp/in/artifacts/tsr-native-wave44-evidence.tar.gz`. Local Beads updates are
+preserved; Dolt sync remains blocked by unrelated histories (`tsr-cdg`), with
+neither history reset or force-pushed.
+
 Borrowed CJS component inspection (`tsr-1yb.2.1.3.1.2`), base `9c176c03`:
 normal whole-project five-pair rounds confirm 1.04%/1.52% wall reductions
 (43.423/63.893 ms). All 474,251 type assertions and 10,570 eligible diagnostic
@@ -88,7 +132,7 @@ The issue-ID check retains 190 unresolved historical IDs (`tsr-10`); all new
 task references were checked directly. The verified equivalent-work TSR/tsgo
 median wall target remains <=0.50.
 
-### Current checker checkpoint — legacy module refusal restored
+### Previous checker checkpoint — legacy module refusal restored
 
 The module-negative proof published in the checkpoint below is **withdrawn**.
 An independently replayed native-positive augmentation witness falsifies its

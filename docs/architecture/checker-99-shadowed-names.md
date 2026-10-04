@@ -127,3 +127,42 @@ also allocates `_1`, and no `_2` appears from scope leakage. One assertion in th
 fixture remains wrong: the enclosing single signature prints `F_1` where native
 prints `F`. That is the older single-signature rename path, not the retained
 overload reopening, and is left for a separately measured change.
+
+## Print-scoped allocations reopen inferred parameter unions
+
+The bounded continuation in production revision `7942ce47` adds the native
+per-print by-id allocation to the older render-scope approximation. Private
+Checker state stores completed `(TypeId, name)` pairs from this TypeStore;
+absent entries are unallocated, with no provisional or failed-name cache.
+The root `type_to_string_at` call clears names on success or refusal. Each
+signature truncates names to its inherited depth, matching
+`cloneNodeBuilderContext` (`nodebuilderscopes.go:10`): nested slots share names,
+but sibling signatures cannot consume one another's names. The existing
+signature substitution remains a print-only clone, not a semantic mapper.
+
+An inferred, unnamed union containing declared parameter identities now renders
+those identities at the site instead of repeating its baked `T | T` spelling.
+Both renderers consume the same constituent display plan from
+`format_union_types`; boolean collapse and final null/undefined ordering remain
+unchanged. The formatter extraction alone has byte-identical full assertion
+and diagnostic dumps against `359a2789`. The rejected first dynamic attempt
+bypassed that plan and lost 534 previously RIGHT lines; it was not adopted.
+
+The corrected isolated lane gains eight WRONG-to-RIGHT assertions, with no
+RIGHT losses, GAP transitions or population changes in 474,251 aligned records.
+Two already-WRONG overload rows respell `target: T` to native `target: T_1`, but
+their header and conditional value remain unresolved. All 10,570 diagnostic
+records are byte-identical. Coordinator-generated pinned-native strict/es2015
+control output is byte-identical to the worker output. Reserved suffixes,
+constraints/defaults, sibling signatures, nullable/boolean unions and repeated
+warm/reversed serialization have focused tests; semantic TypeIds and payloads
+remain unchanged across serialization.
+
+Allocation scans only names in this print and resolves lexical names at the
+current site. Union rendering walks existing constituents under the existing
+active-composite guard without forcing members or adding semantic reuse.
+Work attribution remains under `tsr-1yb.11.1`; this is not a speed claim. The
+native per-text next-name counter, baked composite/method-object presentation,
+receiver parameter cloning and retained intersection semantics remain within
+`tsr-6.38`. Evidence, including the rejected candidate and formatter checkpoint,
+is retained in `target/parallel-wave44/shadowed-names-evidence.tar.gz`.
