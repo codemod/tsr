@@ -22,6 +22,16 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
+Borrowed CJS component inspection (`tsr-1yb.2.1.3.1.2`), base `9c176c03`:
+normal whole-project five-pair rounds confirm 1.04%/1.52% wall reductions
+(43.423/63.893 ms). All 474,251 type assertions and 10,570 eligible diagnostic
+cases are byte-identical; all 460,045 RIGHT assertions survive. Native path
+controls match 45,852 pairs, direct checks preserve 1,364 identities/order, and
+204 affected-crate release tests pass with one existing ignore.
+[Evidence](docs/architecture/cjs-path-components-performance.md) records complete
+app diagnostics/scope, CPU/RSS and observed-input limits. Comparable native
+median <=0.50 remains unverified; this is an isolated TSR improvement.
+
 Resolver candidate construction attribution (`tsr-1yb.2.1.3.1.1`), base
 `181b5e29` plus hashed temporary probe: all five app variants preserve 122
 complete diagnostics and 14,015 loaded identities; scope/off/on/repeat directly
@@ -2266,6 +2276,13 @@ gap to 70%               CROSSED (70.003%; the threshold was 335,268)
 
 ## 3. What is ported
 
+CJS normalization borrows the final body component after the native root
+boundary and removes exactly one trailing empty component. It avoids the owned
+component vector while preserving combine/normalize calls, owned String output
+and native dot/dot-dot slash behavior (`tsr-1yb.2.1.3.1.2`, base `9c176c03`).
+Nineteen committed native goldens, strict module Clippy/format and byte-identical
+95 resolver/96 loader snapshots pass. No resolver cache or worker change.
+
 Diagnostic-only resolver construction patch, app/public drivers and sanitized
 source-qualified evidence (`tsr-1yb.2.1.3.1.1`, base `181b5e29`). Final temporary
 probe passes 90 release module/VFS tests, strict Clippy/format, four input/scope
@@ -2482,9 +2499,17 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-Construction locator `.2.1.3.1.1` hands off to native-root-aware borrowed CJS
-component inspection `.2.1.3.1.2`; expected normal wall benefit is unknown.
-Retain only after full fidelity/work controls and independent paired confirmation.
+CJS component inspection `.2.1.3.1.2` passes its isolated timing/fidelity gates.
+Refresh residual cost attribution on the retained source before choosing a
+larger loader change; a small helper gain does not overcome the full loader
+floor. Canonical dynamic replay `.19.1`/`.19.2.2.2`, private mapper identity
+`.4.1.2` and independently ready checked-work/input/CI gates remain the routes
+to safe larger changes. Production concurrency and comparable native<=0.50
+acceptance retain their existing blockers; preserve active owners.
+
+Construction locator `.2.1.3.1.1` led to verified CJS component inspection
+`.2.1.3.1.2`. The new isolated measurements replace its earlier unknown benefit;
+retain the original constructor intervals as historical locating evidence.
 Early mapper controls `.4.1.2.1`, queried-input completeness `.1.2.1` and CI
 publication `.8.1` are independently ready during the fidelity port; existing
 claims, production worker/ratchet gates and broad attribution remain intact.
@@ -5860,6 +5885,14 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+### RSS or native-target claim from CJS inspection — base `9c176c03`
+
+The isolated normal CLI gain is 1.04%/1.52%; native throughput comparability
+remains unproved. RSS medians vary 1.175->1.175 GB and 1.124->1.158 GB, so no
+retained-memory improvement is established. Observed input hashes cover 51,018
+paths but exclude directory entries/unobserved reads/transient changes. Keep
+complete-input `.1.2.1`, CLI trace `.1.1.1` and empty-suffix `tsr-6.59` open.
 
 ### Constructor interval as a speed or allocation saving — base `181b5e29`
 
@@ -12345,6 +12378,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
+| 2026-10-04 | `9c176c03` (base plus hashed helper) | unchanged | unchanged | CJS component-vector removal; isolated speed gain | `tsr-1yb.2.1.3.1.2`: normal paired5+5 gains1.04%/1.52%, median saves43.423/63.893ms;474251type rows and10570eligible diagnostics byte-identical,460045RIGHT preserved.45852native path pairs,1364checked identities/order,14015loaded,122complete app diagnostics;204release tests/1existingignore, strictClippy/format, native95resolver/96loader snapshots unchanged. Observed51018inputs stable; no RSS or comparable native<=0.50 claim. |
 | 2026-10-04 | `181b5e29` (base plus hashed temporary probe) | not remeasured | not remeasured | Resolver construction attribution; no speed claim | `tsr-1yb.2.1.3.1.1`: five app variants preserve122diagnostics/14015loaded, four marked variants1364checked, 51018observed input paths stable. Final relative helper41.637/42.101ms;90release tests, four mutation tests, strictClippy/format, native95resolver/96loader unchanged. Seven physical projects expose known empty-suffix/CLI-trace failures. CJS component candidate2.1.3.1.2 owns next normal paired experiment; broad attribution/input completeness and comparable native<=0.50 remain open. |
 | 2026-10-04 | `17c4db04` (base plus hashed examples) | not remeasured | not remeasured | Fixed-plan leased-read progress proof | `tsr-1yb.19.2.2.1`: 12 cases/48 audits, 10 release example tests and four time-bounded fault tests; all charges balance. Bounded full-batch drop then serial retry, no FIFO reopen, explicit release-abort classification. Read-only 1/2/4 observations include CPU/RSS/startup, not a normal whole-project win. Dynamic replay `.19.2.2.2` and parent `.19.2.2` remain open; production `.5` gates and comparable native <=0.50 target unchanged. |
 | 2026-10-04 | `258d699a` (base plus hashed owned prototype) | not remeasured | not remeasured | Leased read-preparation API; no runtime speed claim | `tsr-1yb.19.2.3`: 14 complete physical read/parse controls, 29 success/I/O/budget audits, five release ownership/failure/unwind controls; all reservations balance. Rust 1.96.0 source qualification and exact reported-capacity guards remain explicit; no portable allocator/RSS guarantee. Strict example Clippy/format and source identities verified. Native malformed UTF-8 remains `tsr-34z`; `.19.2.2` owns pool policy. Main production filesystem/decoder/workers unchanged; native median <=0.50 unproved. |

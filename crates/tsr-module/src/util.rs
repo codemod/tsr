@@ -288,8 +288,11 @@ pub fn get_types_package_name(package_name: &str) -> String {
 #[must_use]
 pub fn normalize_path_for_cjs_resolution(containing_directory: &str, module_name: &str) -> String {
     let combined = tsr_path::combine_paths(containing_directory, &[module_name]);
-    let parts = tsr_path::get_path_components(&combined, "");
-    if parts.last().is_some_and(|last| last == "." || last == "..") {
+    // Native pathComponents keeps the root separate and removes one trailing
+    // empty segment. Borrow its final body segment; URI/UNC roots are not dots.
+    let body = &combined[tsr_path::get_root_length(&combined)..];
+    let body = body.strip_suffix('/').unwrap_or(body);
+    if matches!(body.rsplit('/').next(), Some("." | "..")) {
         return tsr_path::ensure_trailing_directory_separator(&tsr_path::normalize_path(&combined));
     }
     tsr_path::normalize_path(&combined)
@@ -309,6 +312,40 @@ pub fn matches_pattern_with_trailer(target: &str, name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cjs_last_component_preserves_native_root_and_separator_boundaries() {
+        // Pinned module.normalizePathForCJSResolution at5b1047d1; root and
+        // trailing-empty segment behavior comes from tspath.pathComponents.
+        let cases = [
+            ("/a/b", ".", "/a/b/"),
+            ("/a/b", "..", "/a/"),
+            ("/a/b", "a/.//", "/a/b/a/"),
+            ("/a/b", "a/..///", "/a/b/"),
+            ("", ".", "/"),
+            ("", "..", "../"),
+            ("", "", ""),
+            ("", "c:", "c:"),
+            ("", "c:x", "c:x"),
+            ("", "//.", "//./"),
+            ("", "http://.", "http://./"),
+            ("", "http://../", "http://../"),
+            ("", "http://./.", "http://./"),
+            ("", "http://../..", "http://../"),
+            ("", "file:///c:/..", "file:///c:/"),
+            ("^/α", "..", "^/"),
+            ("/α/文件", "🙂/..", "/α/文件/"),
+            ("c:/a", "a\\..\\", "c:/a/"),
+            ("//server/share", "..", "//server/"),
+        ];
+        for (directory, name, expected) in cases {
+            assert_eq!(
+                normalize_path_for_cjs_resolution(directory, name),
+                expected,
+                "directory={directory:?}, name={name:?}"
+            );
+        }
+    }
 
     #[test]
     fn a_scoped_package_splits_after_its_second_segment() {
