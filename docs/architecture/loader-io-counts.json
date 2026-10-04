@@ -1,0 +1,1774 @@
+{
+  "source": "a7901196865ecd82e04bd685490a5cfb0c31fe01",
+  "source_sha256": {
+    "crates/tsr-vfs/src/os.rs": "51b949d2aa7c89e8434f7f01eafe738b5025e75c1f1f8ae2f818fb256e76e21c",
+    "crates/tsr-vfs/src/lib.rs": "210a673b7a077cb2f6cd6fc8fc336c973ee1dd3e9e43ef75efb8a025db5b20a5",
+    "crates/tsr-execute/src/compile.rs": "129d3c400d9e054048682ae81b8a7edb8703b32c16475223bf5233770e91a11d"
+  },
+  "production_change": false,
+  "normal_binary_sha256": "73f964393383a635e91cd944dd7e1acc1da67f539871cd78ee03bdc1da36c590",
+  "probe_patch_sha256": "17900777d1b13ed6dfbc061601bc250f48b7598a43870040e7408138a5c0a8e6",
+  "probe_binary_sha256": "2b76dbbb8a18ac377017dd454c60a9dfd9af1470a627cd8a83e630d59042ad43",
+  "project_config_sha256_before": "b4b750e84eff33acac9c4917e880660f65064643863759eda3b804f1b804a870",
+  "project_config_sha256_after": "b4b750e84eff33acac9c4917e880660f65064643863759eda3b804f1b804a870",
+  "stage": "app-counts-complete",
+  "source_restored": true,
+  "effective_config_fingerprint": "be6bb3cb300e9cd8e75620e4a0514091435a3e28bb3fa14e3ebf67ec141a5aa9",
+  "loaded_scope_controls_complete": true,
+  "kind": "real-file I/O locating evidence; no production or native speed claim",
+  "runs": [
+    {
+      "wall_seconds": 6.189089834020706,
+      "user_seconds": 3.496059,
+      "system_seconds": 0.596113,
+      "peak_rss_bytes": 1135443968,
+      "exit_code": 1,
+      "timed_out": false,
+      "role": "normal",
+      "checked_fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "checked_input_fingerprint": null,
+      "counts": null,
+      "actual_checked_count": 0,
+      "actual_loaded_count": null,
+      "diagnostics": {
+        "count": 118,
+        "fingerprint": "8a839817547597c2e75d128324fed44fdc3b67a4f4564bdbe43c8a04915e6eb6"
+      }
+    },
+    {
+      "wall_seconds": 5.109000291995471,
+      "user_seconds": 3.474692,
+      "system_seconds": 0.489257,
+      "peak_rss_bytes": 1133281280,
+      "exit_code": 1,
+      "timed_out": false,
+      "role": "disabled",
+      "checked_fingerprint": "04d5f55be4e9253b8d9291375c46f171c6a829377ae41e28a2590b6480ede474",
+      "checked_input_fingerprint": "c88bfc76a5b5fba807593a481ba3c4fbad93e58a3d45413681d8d7aa9106a0ad",
+      "counts": null,
+      "actual_checked_count": 1341,
+      "actual_loaded_count": null,
+      "diagnostics": {
+        "count": 118,
+        "fingerprint": "8a839817547597c2e75d128324fed44fdc3b67a4f4564bdbe43c8a04915e6eb6"
+      }
+    },
+    {
+      "wall_seconds": 4.5833336250216234,
+      "user_seconds": 3.4925479999999998,
+      "system_seconds": 0.472638,
+      "peak_rss_bytes": 1062371328,
+      "exit_code": 1,
+      "timed_out": false,
+      "role": "enabled",
+      "checked_fingerprint": "04d5f55be4e9253b8d9291375c46f171c6a829377ae41e28a2590b6480ede474",
+      "checked_input_fingerprint": "c88bfc76a5b5fba807593a481ba3c4fbad93e58a3d45413681d8d7aa9106a0ad",
+      "counts": {
+        "file_requests": 41242,
+        "file_true": 14222,
+        "file_false": 27020,
+        "file_stat_ns": 718311878,
+        "directory_requests": 6161,
+        "directory_true": 3012,
+        "directory_false": 3149,
+        "directory_stat_ns": 40033525,
+        "realpath_requests": 1233,
+        "realpath_body_ns": 13067459,
+        "entries_requests": 222,
+        "entries_body_ns": 10093535,
+        "read_requests": 14217,
+        "read_successes": 14217,
+        "read_failures": 0,
+        "read_io_ns": 157481501,
+        "read_bytes": 77124938,
+        "decode_ns": 23952272,
+        "utf8_plain_reads": 14217,
+        "utf8_bom_reads": 0,
+        "utf16_le_reads": 0,
+        "utf16_be_reads": 0,
+        "malformed_utf8_reads": 0,
+        "utf8_plain_copied_bytes": 77124938,
+        "utf8_bom_copied_bytes": 0,
+        "decoded_bytes": 77124938,
+        "empty_reads": 4,
+        "file_unique_paths": 41241,
+        "directory_unique_paths": 6158,
+        "realpath_unique_paths": 1233,
+        "entries_unique_paths": 222,
+        "read_unique_paths": 14216
+      },
+      "actual_checked_count": 1341,
+      "actual_loaded_count": null,
+      "diagnostics": {
+        "count": 118,
+        "fingerprint": "8a839817547597c2e75d128324fed44fdc3b67a4f4564bdbe43c8a04915e6eb6"
+      }
+    },
+    {
+      "wall_seconds": 4.557757167000091,
+      "user_seconds": 3.4770119999999998,
+      "system_seconds": 0.46541899999999997,
+      "peak_rss_bytes": 1107460096,
+      "exit_code": 1,
+      "timed_out": false,
+      "role": "repeat",
+      "checked_fingerprint": "04d5f55be4e9253b8d9291375c46f171c6a829377ae41e28a2590b6480ede474",
+      "checked_input_fingerprint": "c88bfc76a5b5fba807593a481ba3c4fbad93e58a3d45413681d8d7aa9106a0ad",
+      "counts": {
+        "file_requests": 41242,
+        "file_true": 14222,
+        "file_false": 27020,
+        "file_stat_ns": 711255521,
+        "directory_requests": 6161,
+        "directory_true": 3012,
+        "directory_false": 3149,
+        "directory_stat_ns": 43267898,
+        "realpath_requests": 1233,
+        "realpath_body_ns": 12748198,
+        "entries_requests": 222,
+        "entries_body_ns": 10914123,
+        "read_requests": 14217,
+        "read_successes": 14217,
+        "read_failures": 0,
+        "read_io_ns": 152609615,
+        "read_bytes": 77124938,
+        "decode_ns": 23788475,
+        "utf8_plain_reads": 14217,
+        "utf8_bom_reads": 0,
+        "utf16_le_reads": 0,
+        "utf16_be_reads": 0,
+        "malformed_utf8_reads": 0,
+        "utf8_plain_copied_bytes": 77124938,
+        "utf8_bom_copied_bytes": 0,
+        "decoded_bytes": 77124938,
+        "empty_reads": 4,
+        "file_unique_paths": 41241,
+        "directory_unique_paths": 6158,
+        "realpath_unique_paths": 1233,
+        "entries_unique_paths": 222,
+        "read_unique_paths": 14216
+      },
+      "actual_checked_count": 1341,
+      "actual_loaded_count": null,
+      "diagnostics": {
+        "count": 118,
+        "fingerprint": "8a839817547597c2e75d128324fed44fdc3b67a4f4564bdbe43c8a04915e6eb6"
+      }
+    }
+  ],
+  "loaded_scope_controls": [
+    {
+      "wall_seconds": 4.725134333013557,
+      "user_seconds": 3.494606,
+      "system_seconds": 0.5552699999999999,
+      "peak_rss_bytes": 1092222976,
+      "exit_code": 1,
+      "timed_out": false,
+      "role": "normal",
+      "loaded_fingerprint": "cdbacb2c3e79b86b8dc9d4c4d9d64b518fed33e57964d6e862ecfca71d98d3f0",
+      "loaded_input_fingerprint": "395a32b083501c1cac01a17c6585385849f997fc10a3faab37b2f3d2d7bd9b16",
+      "checked_fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "checked_input_fingerprint": null,
+      "counts": null,
+      "actual_checked_count": 0,
+      "actual_loaded_count": 13097,
+      "diagnostics": {
+        "count": 118,
+        "fingerprint": "8a839817547597c2e75d128324fed44fdc3b67a4f4564bdbe43c8a04915e6eb6"
+      }
+    },
+    {
+      "wall_seconds": 4.1630972499842755,
+      "user_seconds": 3.455952,
+      "system_seconds": 0.442499,
+      "peak_rss_bytes": 1113833472,
+      "exit_code": 1,
+      "timed_out": false,
+      "role": "disabled",
+      "loaded_fingerprint": "cdbacb2c3e79b86b8dc9d4c4d9d64b518fed33e57964d6e862ecfca71d98d3f0",
+      "loaded_input_fingerprint": "395a32b083501c1cac01a17c6585385849f997fc10a3faab37b2f3d2d7bd9b16",
+      "checked_fingerprint": "04d5f55be4e9253b8d9291375c46f171c6a829377ae41e28a2590b6480ede474",
+      "checked_input_fingerprint": "c88bfc76a5b5fba807593a481ba3c4fbad93e58a3d45413681d8d7aa9106a0ad",
+      "counts": null,
+      "actual_checked_count": 1341,
+      "actual_loaded_count": 13097,
+      "diagnostics": {
+        "count": 118,
+        "fingerprint": "8a839817547597c2e75d128324fed44fdc3b67a4f4564bdbe43c8a04915e6eb6"
+      }
+    },
+    {
+      "wall_seconds": 4.2292339999985415,
+      "user_seconds": 3.5084049999999998,
+      "system_seconds": 0.46954199999999996,
+      "peak_rss_bytes": 1153630208,
+      "exit_code": 1,
+      "timed_out": false,
+      "role": "enabled",
+      "loaded_fingerprint": "cdbacb2c3e79b86b8dc9d4c4d9d64b518fed33e57964d6e862ecfca71d98d3f0",
+      "loaded_input_fingerprint": "395a32b083501c1cac01a17c6585385849f997fc10a3faab37b2f3d2d7bd9b16",
+      "checked_fingerprint": "04d5f55be4e9253b8d9291375c46f171c6a829377ae41e28a2590b6480ede474",
+      "checked_input_fingerprint": "c88bfc76a5b5fba807593a481ba3c4fbad93e58a3d45413681d8d7aa9106a0ad",
+      "counts": {
+        "file_requests": 41242,
+        "file_true": 14222,
+        "file_false": 27020,
+        "file_stat_ns": 327687582,
+        "directory_requests": 6161,
+        "directory_true": 3012,
+        "directory_false": 3149,
+        "directory_stat_ns": 47052823,
+        "realpath_requests": 1233,
+        "realpath_body_ns": 20347201,
+        "entries_requests": 222,
+        "entries_body_ns": 22168329,
+        "read_requests": 14217,
+        "read_successes": 14217,
+        "read_failures": 0,
+        "read_io_ns": 153214777,
+        "read_bytes": 77124938,
+        "decode_ns": 24113675,
+        "utf8_plain_reads": 14217,
+        "utf8_bom_reads": 0,
+        "utf16_le_reads": 0,
+        "utf16_be_reads": 0,
+        "malformed_utf8_reads": 0,
+        "utf8_plain_copied_bytes": 77124938,
+        "utf8_bom_copied_bytes": 0,
+        "decoded_bytes": 77124938,
+        "empty_reads": 4,
+        "file_unique_paths": 41241,
+        "directory_unique_paths": 6158,
+        "realpath_unique_paths": 1233,
+        "entries_unique_paths": 222,
+        "read_unique_paths": 14216
+      },
+      "actual_checked_count": 1341,
+      "actual_loaded_count": 13097,
+      "diagnostics": {
+        "count": 118,
+        "fingerprint": "8a839817547597c2e75d128324fed44fdc3b67a4f4564bdbe43c8a04915e6eb6"
+      }
+    },
+    {
+      "wall_seconds": 4.167582083988236,
+      "user_seconds": 3.472467,
+      "system_seconds": 0.45786,
+      "peak_rss_bytes": 1153007616,
+      "exit_code": 1,
+      "timed_out": false,
+      "role": "repeat",
+      "loaded_fingerprint": "cdbacb2c3e79b86b8dc9d4c4d9d64b518fed33e57964d6e862ecfca71d98d3f0",
+      "loaded_input_fingerprint": "395a32b083501c1cac01a17c6585385849f997fc10a3faab37b2f3d2d7bd9b16",
+      "checked_fingerprint": "04d5f55be4e9253b8d9291375c46f171c6a829377ae41e28a2590b6480ede474",
+      "checked_input_fingerprint": "c88bfc76a5b5fba807593a481ba3c4fbad93e58a3d45413681d8d7aa9106a0ad",
+      "counts": {
+        "file_requests": 41242,
+        "file_true": 14222,
+        "file_false": 27020,
+        "file_stat_ns": 312058445,
+        "directory_requests": 6161,
+        "directory_true": 3012,
+        "directory_false": 3149,
+        "directory_stat_ns": 46998348,
+        "realpath_requests": 1233,
+        "realpath_body_ns": 20372583,
+        "entries_requests": 222,
+        "entries_body_ns": 22468878,
+        "read_requests": 14217,
+        "read_successes": 14217,
+        "read_failures": 0,
+        "read_io_ns": 149614747,
+        "read_bytes": 77124938,
+        "decode_ns": 23950733,
+        "utf8_plain_reads": 14217,
+        "utf8_bom_reads": 0,
+        "utf16_le_reads": 0,
+        "utf16_be_reads": 0,
+        "malformed_utf8_reads": 0,
+        "utf8_plain_copied_bytes": 77124938,
+        "utf8_bom_copied_bytes": 0,
+        "decoded_bytes": 77124938,
+        "empty_reads": 4,
+        "file_unique_paths": 41241,
+        "directory_unique_paths": 6158,
+        "realpath_unique_paths": 1233,
+        "entries_unique_paths": 222,
+        "read_unique_paths": 14216
+      },
+      "actual_checked_count": 1341,
+      "actual_loaded_count": 13097,
+      "diagnostics": {
+        "count": 118,
+        "fingerprint": "8a839817547597c2e75d128324fed44fdc3b67a4f4564bdbe43c8a04915e6eb6"
+      }
+    }
+  ],
+  "flags": [
+    "--project",
+    "<private-app-tsconfig>",
+    "--noEmit",
+    "--incremental",
+    "false",
+    "--composite",
+    "false",
+    "--pretty",
+    "false"
+  ],
+  "public": {
+    "kind": "public physical I/O controls; no speed claim",
+    "binary_sha256": {
+      "normal": "73f964393383a635e91cd944dd7e1acc1da67f539871cd78ee03bdc1da36c590",
+      "disabled": "2b76dbbb8a18ac377017dd454c60a9dfd9af1470a627cd8a83e630d59042ad43",
+      "enabled": "2b76dbbb8a18ac377017dd454c60a9dfd9af1470a627cd8a83e630d59042ad43",
+      "repeat": "2b76dbbb8a18ac377017dd454c60a9dfd9af1470a627cd8a83e630d59042ad43",
+      "native": "6340b230f887095fb7c82fedb41eecadd7dc49e4baa65a05ef4abb8ab4b74bc4"
+    },
+    "cases": [
+      {
+        "name": "utf8",
+        "source_base64": "Ly8gZW5jb2RpbmcgY29udHJvbApjb25zdCB3cm9uZzogbnVtYmVyID0gInMiOwo=",
+        "input_sha256": "c468ffdb8ac68e04f3cab768c40c7f61a345515f07638941f1a6dca9526c27af",
+        "config_sha256": "d08f8d8d840ef0ec291c769417db0cd36b94cd9f50443aec12f2579f38884dea",
+        "runs": [
+          {
+            "wall_seconds": 0.03242262499406934,
+            "user_seconds": 0.024073999999999998,
+            "system_seconds": 0.004893,
+            "peak_rss_bytes": 35110912,
+            "exit_code": 1,
+            "timed_out": false,
+            "role": "normal",
+            "diagnostics": {
+              "count": 1,
+              "fingerprint": "dcc3f46b756977b329d4f75e1fc55e9cce773f30f87b117ba9b3d35bc53c37f6",
+              "entries": [
+                "input.ts(2,7): error TS2322: Type 'string' is not assignable to type 'number'."
+              ]
+            },
+            "checked": [],
+            "checked_input_fingerprint": null,
+            "counts": null
+          },
+          {
+            "wall_seconds": 0.02978362498106435,
+            "user_seconds": 0.024425,
+            "system_seconds": 0.004216,
+            "peak_rss_bytes": 35012608,
+            "exit_code": 1,
+            "timed_out": false,
+            "role": "disabled",
+            "diagnostics": {
+              "count": 1,
+              "fingerprint": "dcc3f46b756977b329d4f75e1fc55e9cce773f30f87b117ba9b3d35bc53c37f6",
+              "entries": [
+                "input.ts(2,7): error TS2322: Type 'string' is not assignable to type 'number'."
+              ]
+            },
+            "checked": [
+              "/private/tmp/tsr-io-public-a790-portable/utf8/input.ts"
+            ],
+            "checked_input_fingerprint": "5996e709c554ac5eaea4004c3718239f06bf3f83604612d57e1be82643da62e3",
+            "counts": null
+          },
+          {
+            "wall_seconds": 0.028812541015213355,
+            "user_seconds": 0.024052999999999998,
+            "system_seconds": 0.0035269999999999998,
+            "peak_rss_bytes": 29114368,
+            "exit_code": 1,
+            "timed_out": false,
+            "role": "enabled",
+            "diagnostics": {
+              "count": 1,
+              "fingerprint": "dcc3f46b756977b329d4f75e1fc55e9cce773f30f87b117ba9b3d35bc53c37f6",
+              "entries": [
+                "input.ts(2,7): error TS2322: Type 'string' is not assignable to type 'number'."
+              ]
+            },
+            "checked": [
+              "/private/tmp/tsr-io-public-a790-portable/utf8/input.ts"
+            ],
+            "checked_input_fingerprint": "5996e709c554ac5eaea4004c3718239f06bf3f83604612d57e1be82643da62e3",
+            "counts": {
+              "file_requests": 7,
+              "file_true": 2,
+              "file_false": 5,
+              "file_stat_ns": 8959,
+              "directory_requests": 6,
+              "directory_true": 5,
+              "directory_false": 1,
+              "directory_stat_ns": 13083,
+              "realpath_requests": 0,
+              "realpath_body_ns": 0,
+              "entries_requests": 0,
+              "entries_body_ns": 0,
+              "read_requests": 53,
+              "read_successes": 53,
+              "read_failures": 0,
+              "read_io_ns": 727751,
+              "read_bytes": 2798203,
+              "decode_ns": 885131,
+              "utf8_plain_reads": 53,
+              "utf8_bom_reads": 0,
+              "utf16_le_reads": 0,
+              "utf16_be_reads": 0,
+              "malformed_utf8_reads": 0,
+              "utf8_plain_copied_bytes": 2798203,
+              "utf8_bom_copied_bytes": 0,
+              "decoded_bytes": 2798203,
+              "empty_reads": 0,
+              "file_unique_paths": 7,
+              "directory_unique_paths": 6,
+              "realpath_unique_paths": 0,
+              "entries_unique_paths": 0,
+              "read_unique_paths": 53
+            }
+          },
+          {
+            "wall_seconds": 0.028461832989705727,
+            "user_seconds": 0.024041,
+            "system_seconds": 0.0032389999999999997,
+            "peak_rss_bytes": 29114368,
+            "exit_code": 1,
+            "timed_out": false,
+            "role": "repeat",
+            "diagnostics": {
+              "count": 1,
+              "fingerprint": "dcc3f46b756977b329d4f75e1fc55e9cce773f30f87b117ba9b3d35bc53c37f6",
+              "entries": [
+                "input.ts(2,7): error TS2322: Type 'string' is not assignable to type 'number'."
+              ]
+            },
+            "checked": [
+              "/private/tmp/tsr-io-public-a790-portable/utf8/input.ts"
+            ],
+            "checked_input_fingerprint": "5996e709c554ac5eaea4004c3718239f06bf3f83604612d57e1be82643da62e3",
+            "counts": {
+              "file_requests": 7,
+              "file_true": 2,
+              "file_false": 5,
+              "file_stat_ns": 8126,
+              "directory_requests": 6,
+              "directory_true": 5,
+              "directory_false": 1,
+              "directory_stat_ns": 10584,
+              "realpath_requests": 0,
+              "realpath_body_ns": 0,
+              "entries_requests": 0,
+              "entries_body_ns": 0,
+              "read_requests": 53,
+              "read_successes": 53,
+              "read_failures": 0,
+              "read_io_ns": 687545,
+              "read_bytes": 2798203,
+              "decode_ns": 907870,
+              "utf8_plain_reads": 53,
+              "utf8_bom_reads": 0,
+              "utf16_le_reads": 0,
+              "utf16_be_reads": 0,
+              "malformed_utf8_reads": 0,
+              "utf8_plain_copied_bytes": 2798203,
+              "utf8_bom_copied_bytes": 0,
+              "decoded_bytes": 2798203,
+              "empty_reads": 0,
+              "file_unique_paths": 7,
+              "directory_unique_paths": 6,
+              "realpath_unique_paths": 0,
+              "entries_unique_paths": 0,
+              "read_unique_paths": 53
+            }
+          },
+          {
+            "wall_seconds": 0.030762249982217327,
+            "user_seconds": 0.023063,
+            "system_seconds": 0.012282,
+            "peak_rss_bytes": 42237952,
+            "exit_code": 1,
+            "timed_out": false,
+            "role": "native",
+            "diagnostics": {
+              "count": 1,
+              "fingerprint": "dcc3f46b756977b329d4f75e1fc55e9cce773f30f87b117ba9b3d35bc53c37f6",
+              "entries": [
+                "input.ts(2,7): error TS2322: Type 'string' is not assignable to type 'number'."
+              ]
+            },
+            "checked": [],
+            "checked_input_fingerprint": null,
+            "counts": null
+          }
+        ],
+        "native_diagnostics_match": true
+      },
+      {
+        "name": "utf8-bom",
+        "source_base64": "77u/Ly8gZW5jb2RpbmcgY29udHJvbApjb25zdCB3cm9uZzogbnVtYmVyID0gInMiOwo=",
+        "input_sha256": "8052a66aaf8b3f4ded512f47a95ef3ad21f4740ddb249bd7bc93cb115b7308ce",
+        "config_sha256": "d08f8d8d840ef0ec291c769417db0cd36b94cd9f50443aec12f2579f38884dea",
+        "runs": [
+          {
+            "wall_seconds": 0.02870320901274681,
+            "user_seconds": 0.024059999999999998,
+            "system_seconds": 0.003392,
+            "peak_rss_bytes": 29048832,
+            "exit_code": 1,
+            "timed_out": false,
+            "role": "normal",
+            "diagnostics": {
+              "count": 1,
+              "fingerprint": "dcc3f46b756977b329d4f75e1fc55e9cce773f30f87b117ba9b3d35bc53c37f6",
+              "entries": [
+                "input.ts(2,7): error TS2322: Type 'string' is not assignable to type 'number'."
+              ]
+            },
+            "checked": [],
+            "checked_input_fingerprint": null,
+            "counts": null
+          },
+          {
+            "wall_seconds": 0.029237832990475,
+            "user_seconds": 0.024256999999999997,
+            "system_seconds": 0.003717,
+            "peak_rss_bytes": 29097984,
+            "exit_code": 1,
+            "timed_out": false,
+            "role": "disabled",
+            "diagnostics": {
+              "count": 1,
+              "fingerprint": "dcc3f46b756977b329d4f75e1fc55e9cce773f30f87b117ba9b3d35bc53c37f6",
+              "entries": [
+                "input.ts(2,7): error TS2322: Type 'string' is not assignable to type 'number'."
+              ]
+            },
+            "checked": [
+              "/private/tmp/tsr-io-public-a790-portable/utf8-bom/input.ts"
+            ],
+            "checked_input_fingerprint": "50d5bbfb058667db03196788cb13f554857bdf994fac34272ec6e6b4316165e5",
+            "counts": null
+          },
+          {
+            "wall_seconds": 0.02870529200299643,
+            "user_seconds": 0.024111,
+            "system_seconds": 0.00333,
+            "peak_rss_bytes": 29114368,
+            "exit_code": 1,
+            "timed_out": false,
+            "role": "enabled",
+            "diagnostics": {
+              "count": 1,
+              "fingerprint": "dcc3f46b756977b329d4f75e1fc55e9cce773f30f87b117ba9b3d35bc53c37f6",
+              "entries": [
+                "input.ts(2,7): error TS2322: Type 'string' is not assignable to type 'number'."
+              ]
+            },
+            "checked": [
+              "/private/tmp/tsr-io-public-a790-portable/utf8-bom/input.ts"
+            ],
+            "checked_input_fingerprint": "50d5bbfb058667db03196788cb13f554857bdf994fac34272ec6e6b4316165e5",
+            "counts": {
+              "file_requests": 7,
+              "file_true": 2,
+              "file_false": 5,
+              "file_stat_ns": 9792,
+              "directory_requests": 6,
+              "directory_true": 5,
+              "directory_false": 1,
+              "directory_stat_ns": 11251,
+              "realpath_requests": 0,
+              "realpath_body_ns": 0,
+              "entries_requests": 0,
+              "entries_body_ns": 0,
+              "read_requests": 53,
+              "read_successes": 53,
+              "read_failures": 0,
+              "read_io_ns": 727252,
+              "read_bytes": 2798206,
+              "decode_ns": 882795,
+              "utf8_plain_reads": 52,
+              "utf8_bom_reads": 1,
+              "utf16_le_reads": 0,
+              "utf16_be_reads": 0,
+              "malformed_utf8_reads": 0,
+              "utf8_plain_copied_bytes": 2798156,
+              "utf8_bom_copied_bytes": 47,
+              "decoded_bytes": 2798203,
+              "empty_reads": 0,
+              "file_unique_paths": 7,
+              "directory_unique_paths": 6,
+              "realpath_unique_paths": 0,
+              "entries_unique_paths": 0,
+              "read_unique_paths": 53
+            }
+          },
+          {
+            "wall_seconds": 0.028552667004987597,
+            "user_seconds": 0.023951,
+            "system_seconds": 0.00339,
+            "peak_rss_bytes": 29114368,
+            "exit_code": 1,
+            "timed_out": false,
+            "role": "repeat",
+            "diagnostics": {
+              "count": 1,
+              "fingerprint": "dcc3f46b756977b329d4f75e1fc55e9cce773f30f87b117ba9b3d35bc53c37f6",
+              "entries": [
+                "input.ts(2,7): error TS2322: Type 'string' is not assignable to type 'number'."
+              ]
+            },
+            "checked": [
+              "/private/tmp/tsr-io-public-a790-portable/utf8-bom/input.ts"
+            ],
+            "checked_input_fingerprint": "50d5bbfb058667db03196788cb13f554857bdf994fac34272ec6e6b4316165e5",
+            "counts": {
+              "file_requests": 7,
+              "file_true": 2,
+              "file_false": 5,
+              "file_stat_ns": 10667,
+              "directory_requests": 6,
+              "directory_true": 5,
+              "directory_false": 1,
+              "directory_stat_ns": 13960,
+              "realpath_requests": 0,
+              "realpath_body_ns": 0,
+              "entries_requests": 0,
+              "entries_body_ns": 0,
+              "read_requests": 53,
+              "read_successes": 53,
+              "read_failures": 0,
+              "read_io_ns": 690040,
+              "read_bytes": 2798206,
+              "decode_ns": 889877,
+              "utf8_plain_reads": 52,
+              "utf8_bom_reads": 1,
+              "utf16_le_reads": 0,
+              "utf16_be_reads": 0,
+              "malformed_utf8_reads": 0,
+              "utf8_plain_copied_bytes": 2798156,
+              "utf8_bom_copied_bytes": 47,
+              "decoded_bytes": 2798203,
+              "empty_reads": 0,
+              "file_unique_paths": 7,
+              "directory_unique_paths": 6,
+              "realpath_unique_paths": 0,
+              "entries_unique_paths": 0,
+              "read_unique_paths": 53
+            }
+          },
+          {
+            "wall_seconds": 0.023504499986302108,
+            "user_seconds": 0.023684999999999998,
+            "system_seconds": 0.005791999999999999,
+            "peak_rss_bytes": 42336256,
+            "exit_code": 1,
+            "timed_out": false,
+            "role": "native",
+            "diagnostics": {
+              "count": 1,
+              "fingerprint": "dcc3f46b756977b329d4f75e1fc55e9cce773f30f87b117ba9b3d35bc53c37f6",
+              "entries": [
+                "input.ts(2,7): error TS2322: Type 'string' is not assignable to type 'number'."
+              ]
+            },
+            "checked": [],
+            "checked_input_fingerprint": null,
+            "counts": null
+          }
+        ],
+        "native_diagnostics_match": true
+      },
+      {
+        "name": "utf16-le",
+        "source_base64": "//4vAC8AIABlAG4AYwBvAGQAaQBuAGcAIABjAG8AbgB0AHIAbwBsAAoAYwBvAG4AcwB0ACAAdwByAG8AbgBnADoAIABuAHUAbQBiAGUAcgAgAD0AIAAiAHMAIgA7AAoA",
+        "input_sha256": "e5119550f3a543f6d2aab360bdea0010a72eff22655aae83b50f0b5efef6f52f",
+        "config_sha256": "d08f8d8d840ef0ec291c769417db0cd36b94cd9f50443aec12f2579f38884dea",
+        "runs": [
+          {
+            "wall_seconds": 0.028226416994584724,
+            "user_seconds": 0.023795999999999998,
+            "system_seconds": 0.003258,
+            "peak_rss_bytes": 29048832,
+            "exit_code": 1,
+            "timed_out": false,
+            "role": "normal",
+            "diagnostics": {
+              "count": 1,
+              "fingerprint": "dcc3f46b756977b329d4f75e1fc55e9cce773f30f87b117ba9b3d35bc53c37f6",
+              "entries": [
+                "input.ts(2,7): error TS2322: Type 'string' is not assignable to type 'number'."
+              ]
+            },
+            "checked": [],
+            "checked_input_fingerprint": null,
+            "counts": null
+          },
+          {
+            "wall_seconds": 0.02875891700387001,
+            "user_seconds": 0.024041,
+            "system_seconds": 0.0035369999999999998,
+            "peak_rss_bytes": 29097984,
+            "exit_code": 1,
+            "timed_out": false,
+            "role": "disabled",
+            "diagnostics": {
+              "count": 1,
+              "fingerprint": "dcc3f46b756977b329d4f75e1fc55e9cce773f30f87b117ba9b3d35bc53c37f6",
+              "entries": [
+                "input.ts(2,7): error TS2322: Type 'string' is not assignable to type 'number'."
+              ]
+            },
+            "checked": [
+              "/private/tmp/tsr-io-public-a790-portable/utf16-le/input.ts"
+            ],
+            "checked_input_fingerprint": "dcef4e8f63545d6f66e18bfb1a257b160fa07c004d12abb514359fea65c9806a",
+            "counts": null
+          },
+          {
+            "wall_seconds": 0.029140291997464374,
+            "user_seconds": 0.024173,
+            "system_seconds": 0.0035429999999999997,
+            "peak_rss_bytes": 29114368,
+            "exit_code": 1,
+            "timed_out": false,
+            "role": "enabled",
+            "diagnostics": {
+              "count": 1,
+              "fingerprint": "dcc3f46b756977b329d4f75e1fc55e9cce773f30f87b117ba9b3d35bc53c37f6",
+              "entries": [
+                "input.ts(2,7): error TS2322: Type 'string' is not assignable to type 'number'."
+              ]
+            },
+            "checked": [
+              "/private/tmp/tsr-io-public-a790-portable/utf16-le/input.ts"
+            ],
+            "checked_input_fingerprint": "dcef4e8f63545d6f66e18bfb1a257b160fa07c004d12abb514359fea65c9806a",
+            "counts": {
+              "file_requests": 7,
+              "file_true": 2,
+              "file_false": 5,
+              "file_stat_ns": 12332,
+              "directory_requests": 6,
+              "directory_true": 5,
+              "directory_false": 1,
+              "directory_stat_ns": 12668,
+              "realpath_requests": 0,
+              "realpath_body_ns": 0,
+              "entries_requests": 0,
+              "entries_body_ns": 0,
+              "read_requests": 53,
+              "read_successes": 53,
+              "read_failures": 0,
+              "read_io_ns": 649754,
+              "read_bytes": 2798252,
+              "decode_ns": 886292,
+              "utf8_plain_reads": 52,
+              "utf8_bom_reads": 0,
+              "utf16_le_reads": 1,
+              "utf16_be_reads": 0,
+              "malformed_utf8_reads": 0,
+              "utf8_plain_copied_bytes": 2798156,
+              "utf8_bom_copied_bytes": 0,
+              "decoded_bytes": 2798203,
+              "empty_reads": 0,
+              "file_unique_paths": 7,
+              "directory_unique_paths": 6,
+              "realpath_unique_paths": 0,
+              "entries_unique_paths": 0,
+              "read_unique_paths": 53
+            }
+          },
+          {
+            "wall_seconds": 0.029092874989146367,
+            "user_seconds": 0.024284999999999998,
+            "system_seconds": 0.0034809999999999997,
+            "peak_rss_bytes": 29114368,
+            "exit_code": 1,
+            "timed_out": false,
+            "role": "repeat",
+            "diagnostics": {
+              "count": 1,
+              "fingerprint": "dcc3f46b756977b329d4f75e1fc55e9cce773f30f87b117ba9b3d35bc53c37f6",
+              "entries": [
+                "input.ts(2,7): error TS2322: Type 'string' is not assignable to type 'number'."
+              ]
+            },
+            "checked": [
+              "/private/tmp/tsr-io-public-a790-portable/utf16-le/input.ts"
+            ],
+            "checked_input_fingerprint": "dcef4e8f63545d6f66e18bfb1a257b160fa07c004d12abb514359fea65c9806a",
+            "counts": {
+              "file_requests": 7,
+              "file_true": 2,
+              "file_false": 5,
+              "file_stat_ns": 10998,
+              "directory_requests": 6,
+              "directory_true": 5,
+              "directory_false": 1,
+              "directory_stat_ns": 11416,
+              "realpath_requests": 0,
+              "realpath_body_ns": 0,
+              "entries_requests": 0,
+              "entries_body_ns": 0,
+              "read_requests": 53,
+              "read_successes": 53,
+              "read_failures": 0,
+              "read_io_ns": 713333,
+              "read_bytes": 2798252,
+              "decode_ns": 923785,
+              "utf8_plain_reads": 52,
+              "utf8_bom_reads": 0,
+              "utf16_le_reads": 1,
+              "utf16_be_reads": 0,
+              "malformed_utf8_reads": 0,
+              "utf8_plain_copied_bytes": 2798156,
+              "utf8_bom_copied_bytes": 0,
+              "decoded_bytes": 2798203,
+              "empty_reads": 0,
+              "file_unique_paths": 7,
+              "directory_unique_paths": 6,
+              "realpath_unique_paths": 0,
+              "entries_unique_paths": 0,
+              "read_unique_paths": 53
+            }
+          },
+          {
+            "wall_seconds": 0.024117249995470047,
+            "user_seconds": 0.024385,
+            "system_seconds": 0.006175,
+            "peak_rss_bytes": 42156032,
+            "exit_code": 1,
+            "timed_out": false,
+            "role": "native",
+            "diagnostics": {
+              "count": 1,
+              "fingerprint": "dcc3f46b756977b329d4f75e1fc55e9cce773f30f87b117ba9b3d35bc53c37f6",
+              "entries": [
+                "input.ts(2,7): error TS2322: Type 'string' is not assignable to type 'number'."
+              ]
+            },
+            "checked": [],
+            "checked_input_fingerprint": null,
+            "counts": null
+          }
+        ],
+        "native_diagnostics_match": true
+      },
+      {
+        "name": "utf16-be",
+        "source_base64": "/v8ALwAvACAAZQBuAGMAbwBkAGkAbgBnACAAYwBvAG4AdAByAG8AbAAKAGMAbwBuAHMAdAAgAHcAcgBvAG4AZwA6ACAAbgB1AG0AYgBlAHIAIAA9ACAAIgBzACIAOwAK",
+        "input_sha256": "2d669008aa500aefddfbf0d14d293455357bdbe5ce4090287fdc9b404eec3d4a",
+        "config_sha256": "d08f8d8d840ef0ec291c769417db0cd36b94cd9f50443aec12f2579f38884dea",
+        "runs": [
+          {
+            "wall_seconds": 0.028286707994993776,
+            "user_seconds": 0.023918,
+            "system_seconds": 0.003195,
+            "peak_rss_bytes": 29048832,
+            "exit_code": 1,
+            "timed_out": false,
+            "role": "normal",
+            "diagnostics": {
+              "count": 1,
+              "fingerprint": "dcc3f46b756977b329d4f75e1fc55e9cce773f30f87b117ba9b3d35bc53c37f6",
+              "entries": [
+                "input.ts(2,7): error TS2322: Type 'string' is not assignable to type 'number'."
+              ]
+            },
+            "checked": [],
+            "checked_input_fingerprint": null,
+            "counts": null
+          },
+          {
+            "wall_seconds": 0.028131375001976267,
+            "user_seconds": 0.023939,
+            "system_seconds": 0.0030949999999999997,
+            "peak_rss_bytes": 29097984,
+            "exit_code": 1,
+            "timed_out": false,
+            "role": "disabled",
+            "diagnostics": {
+              "count": 1,
+              "fingerprint": "dcc3f46b756977b329d4f75e1fc55e9cce773f30f87b117ba9b3d35bc53c37f6",
+              "entries": [
+                "input.ts(2,7): error TS2322: Type 'string' is not assignable to type 'number'."
+              ]
+            },
+            "checked": [
+              "/private/tmp/tsr-io-public-a790-portable/utf16-be/input.ts"
+            ],
+            "checked_input_fingerprint": "d9126a1dd85c2bc6152b67d55059d14b55d1e7466dae5a129c2403fd8e8984c3",
+            "counts": null
+          },
+          {
+            "wall_seconds": 0.028433041006792337,
+            "user_seconds": 0.023943,
+            "system_seconds": 0.003371,
+            "peak_rss_bytes": 29114368,
+            "exit_code": 1,
+            "timed_out": false,
+            "role": "enabled",
+            "diagnostics": {
+              "count": 1,
+              "fingerprint": "dcc3f46b756977b329d4f75e1fc55e9cce773f30f87b117ba9b3d35bc53c37f6",
+              "entries": [
+                "input.ts(2,7): error TS2322: Type 'string' is not assignable to type 'number'."
+              ]
+            },
+            "checked": [
+              "/private/tmp/tsr-io-public-a790-portable/utf16-be/input.ts"
+            ],
+            "checked_input_fingerprint": "d9126a1dd85c2bc6152b67d55059d14b55d1e7466dae5a129c2403fd8e8984c3",
+            "counts": {
+              "file_requests": 7,
+              "file_true": 2,
+              "file_false": 5,
+              "file_stat_ns": 8043,
+              "directory_requests": 6,
+              "directory_true": 5,
+              "directory_false": 1,
+              "directory_stat_ns": 13583,
+              "realpath_requests": 0,
+              "realpath_body_ns": 0,
+              "entries_requests": 0,
+              "entries_body_ns": 0,
+              "read_requests": 53,
+              "read_successes": 53,
+              "read_failures": 0,
+              "read_io_ns": 695091,
+              "read_bytes": 2798252,
+              "decode_ns": 886581,
+              "utf8_plain_reads": 52,
+              "utf8_bom_reads": 0,
+              "utf16_le_reads": 0,
+              "utf16_be_reads": 1,
+              "malformed_utf8_reads": 0,
+              "utf8_plain_copied_bytes": 2798156,
+              "utf8_bom_copied_bytes": 0,
+              "decoded_bytes": 2798203,
+              "empty_reads": 0,
+              "file_unique_paths": 7,
+              "directory_unique_paths": 6,
+              "realpath_unique_paths": 0,
+              "entries_unique_paths": 0,
+              "read_unique_paths": 53
+            }
+          },
+          {
+            "wall_seconds": 0.02893400000175461,
+            "user_seconds": 0.024076,
+            "system_seconds": 0.003743,
+            "peak_rss_bytes": 29114368,
+            "exit_code": 1,
+            "timed_out": false,
+            "role": "repeat",
+            "diagnostics": {
+              "count": 1,
+              "fingerprint": "dcc3f46b756977b329d4f75e1fc55e9cce773f30f87b117ba9b3d35bc53c37f6",
+              "entries": [
+                "input.ts(2,7): error TS2322: Type 'string' is not assignable to type 'number'."
+              ]
+            },
+            "checked": [
+              "/private/tmp/tsr-io-public-a790-portable/utf16-be/input.ts"
+            ],
+            "checked_input_fingerprint": "d9126a1dd85c2bc6152b67d55059d14b55d1e7466dae5a129c2403fd8e8984c3",
+            "counts": {
+              "file_requests": 7,
+              "file_true": 2,
+              "file_false": 5,
+              "file_stat_ns": 8167,
+              "directory_requests": 6,
+              "directory_true": 5,
+              "directory_false": 1,
+              "directory_stat_ns": 9916,
+              "realpath_requests": 0,
+              "realpath_body_ns": 0,
+              "entries_requests": 0,
+              "entries_body_ns": 0,
+              "read_requests": 53,
+              "read_successes": 53,
+              "read_failures": 0,
+              "read_io_ns": 660789,
+              "read_bytes": 2798252,
+              "decode_ns": 918462,
+              "utf8_plain_reads": 52,
+              "utf8_bom_reads": 0,
+              "utf16_le_reads": 0,
+              "utf16_be_reads": 1,
+              "malformed_utf8_reads": 0,
+              "utf8_plain_copied_bytes": 2798156,
+              "utf8_bom_copied_bytes": 0,
+              "decoded_bytes": 2798203,
+              "empty_reads": 0,
+              "file_unique_paths": 7,
+              "directory_unique_paths": 6,
+              "realpath_unique_paths": 0,
+              "entries_unique_paths": 0,
+              "read_unique_paths": 53
+            }
+          },
+          {
+            "wall_seconds": 0.02324645800399594,
+            "user_seconds": 0.023462999999999998,
+            "system_seconds": 0.005404,
+            "peak_rss_bytes": 42287104,
+            "exit_code": 1,
+            "timed_out": false,
+            "role": "native",
+            "diagnostics": {
+              "count": 1,
+              "fingerprint": "dcc3f46b756977b329d4f75e1fc55e9cce773f30f87b117ba9b3d35bc53c37f6",
+              "entries": [
+                "input.ts(2,7): error TS2322: Type 'string' is not assignable to type 'number'."
+              ]
+            },
+            "checked": [],
+            "checked_input_fingerprint": null,
+            "counts": null
+          }
+        ],
+        "native_diagnostics_match": true
+      },
+      {
+        "name": "utf16-odd",
+        "source_base64": "//4vAC8AIABlAG4AYwBvAGQAaQBuAGcAIABjAG8AbgB0AHIAbwBsAAoAYwBvAG4AcwB0ACAAdwByAG8AbgBnADoAIABuAHUAbQBiAGUAcgAgAD0AIAAiAHMAIgA7AAoAQg==",
+        "input_sha256": "f25f9419b4ec141d2e89ac423831770c2e5e0c2966fb868069482ff3436d897d",
+        "config_sha256": "d08f8d8d840ef0ec291c769417db0cd36b94cd9f50443aec12f2579f38884dea",
+        "runs": [
+          {
+            "wall_seconds": 0.028479708009399474,
+            "user_seconds": 0.024003,
+            "system_seconds": 0.003279,
+            "peak_rss_bytes": 29048832,
+            "exit_code": 1,
+            "timed_out": false,
+            "role": "normal",
+            "diagnostics": {
+              "count": 1,
+              "fingerprint": "dcc3f46b756977b329d4f75e1fc55e9cce773f30f87b117ba9b3d35bc53c37f6",
+              "entries": [
+                "input.ts(2,7): error TS2322: Type 'string' is not assignable to type 'number'."
+              ]
+            },
+            "checked": [],
+            "checked_input_fingerprint": null,
+            "counts": null
+          },
+          {
+            "wall_seconds": 0.028427250013919547,
+            "user_seconds": 0.024024,
+            "system_seconds": 0.0032389999999999997,
+            "peak_rss_bytes": 29097984,
+            "exit_code": 1,
+            "timed_out": false,
+            "role": "disabled",
+            "diagnostics": {
+              "count": 1,
+              "fingerprint": "dcc3f46b756977b329d4f75e1fc55e9cce773f30f87b117ba9b3d35bc53c37f6",
+              "entries": [
+                "input.ts(2,7): error TS2322: Type 'string' is not assignable to type 'number'."
+              ]
+            },
+            "checked": [
+              "/private/tmp/tsr-io-public-a790-portable/utf16-odd/input.ts"
+            ],
+            "checked_input_fingerprint": "7e6d9a58e2ecc34b15a120d350edf3a561c4cd2e1c5fb750ecbc4b1a337e82e2",
+            "counts": null
+          },
+          {
+            "wall_seconds": 0.02835037501063198,
+            "user_seconds": 0.024107999999999997,
+            "system_seconds": 0.003139,
+            "peak_rss_bytes": 29114368,
+            "exit_code": 1,
+            "timed_out": false,
+            "role": "enabled",
+            "diagnostics": {
+              "count": 1,
+              "fingerprint": "dcc3f46b756977b329d4f75e1fc55e9cce773f30f87b117ba9b3d35bc53c37f6",
+              "entries": [
+                "input.ts(2,7): error TS2322: Type 'string' is not assignable to type 'number'."
+              ]
+            },
+            "checked": [
+              "/private/tmp/tsr-io-public-a790-portable/utf16-odd/input.ts"
+            ],
+            "checked_input_fingerprint": "7e6d9a58e2ecc34b15a120d350edf3a561c4cd2e1c5fb750ecbc4b1a337e82e2",
+            "counts": {
+              "file_requests": 7,
+              "file_true": 2,
+              "file_false": 5,
+              "file_stat_ns": 8709,
+              "directory_requests": 6,
+              "directory_true": 5,
+              "directory_false": 1,
+              "directory_stat_ns": 10416,
+              "realpath_requests": 0,
+              "realpath_body_ns": 0,
+              "entries_requests": 0,
+              "entries_body_ns": 0,
+              "read_requests": 53,
+              "read_successes": 53,
+              "read_failures": 0,
+              "read_io_ns": 683042,
+              "read_bytes": 2798253,
+              "decode_ns": 882875,
+              "utf8_plain_reads": 52,
+              "utf8_bom_reads": 0,
+              "utf16_le_reads": 1,
+              "utf16_be_reads": 0,
+              "malformed_utf8_reads": 0,
+              "utf8_plain_copied_bytes": 2798156,
+              "utf8_bom_copied_bytes": 0,
+              "decoded_bytes": 2798203,
+              "empty_reads": 0,
+              "file_unique_paths": 7,
+              "directory_unique_paths": 6,
+              "realpath_unique_paths": 0,
+              "entries_unique_paths": 0,
+              "read_unique_paths": 53
+            }
+          },
+          {
+            "wall_seconds": 0.02876483299769461,
+            "user_seconds": 0.02401,
+            "system_seconds": 0.003609,
+            "peak_rss_bytes": 29114368,
+            "exit_code": 1,
+            "timed_out": false,
+            "role": "repeat",
+            "diagnostics": {
+              "count": 1,
+              "fingerprint": "dcc3f46b756977b329d4f75e1fc55e9cce773f30f87b117ba9b3d35bc53c37f6",
+              "entries": [
+                "input.ts(2,7): error TS2322: Type 'string' is not assignable to type 'number'."
+              ]
+            },
+            "checked": [
+              "/private/tmp/tsr-io-public-a790-portable/utf16-odd/input.ts"
+            ],
+            "checked_input_fingerprint": "7e6d9a58e2ecc34b15a120d350edf3a561c4cd2e1c5fb750ecbc4b1a337e82e2",
+            "counts": {
+              "file_requests": 7,
+              "file_true": 2,
+              "file_false": 5,
+              "file_stat_ns": 8166,
+              "directory_requests": 6,
+              "directory_true": 5,
+              "directory_false": 1,
+              "directory_stat_ns": 10541,
+              "realpath_requests": 0,
+              "realpath_body_ns": 0,
+              "entries_requests": 0,
+              "entries_body_ns": 0,
+              "read_requests": 53,
+              "read_successes": 53,
+              "read_failures": 0,
+              "read_io_ns": 652335,
+              "read_bytes": 2798253,
+              "decode_ns": 929709,
+              "utf8_plain_reads": 52,
+              "utf8_bom_reads": 0,
+              "utf16_le_reads": 1,
+              "utf16_be_reads": 0,
+              "malformed_utf8_reads": 0,
+              "utf8_plain_copied_bytes": 2798156,
+              "utf8_bom_copied_bytes": 0,
+              "decoded_bytes": 2798203,
+              "empty_reads": 0,
+              "file_unique_paths": 7,
+              "directory_unique_paths": 6,
+              "realpath_unique_paths": 0,
+              "entries_unique_paths": 0,
+              "read_unique_paths": 53
+            }
+          },
+          {
+            "wall_seconds": 0.0234910829749424,
+            "user_seconds": 0.023989999999999997,
+            "system_seconds": 0.005821,
+            "peak_rss_bytes": 42434560,
+            "exit_code": 1,
+            "timed_out": false,
+            "role": "native",
+            "diagnostics": {
+              "count": 1,
+              "fingerprint": "dcc3f46b756977b329d4f75e1fc55e9cce773f30f87b117ba9b3d35bc53c37f6",
+              "entries": [
+                "input.ts(2,7): error TS2322: Type 'string' is not assignable to type 'number'."
+              ]
+            },
+            "checked": [],
+            "checked_input_fingerprint": null,
+            "counts": null
+          }
+        ],
+        "native_diagnostics_match": true
+      },
+      {
+        "name": "utf16-surrogate",
+        "source_base64": "//4vAC8AIAAA2AoAYwBvAG4AcwB0ACAAdwByAG8AbgBnADoAIABuAHUAbQBiAGUAcgAgAD0AIAAiAHMAIgA7AAoA",
+        "input_sha256": "60fecb969f5450c4aa3f5a25dc7b4a3279f1824362249fa0ca9958f85ac63998",
+        "config_sha256": "d08f8d8d840ef0ec291c769417db0cd36b94cd9f50443aec12f2579f38884dea",
+        "runs": [
+          {
+            "wall_seconds": 0.02820845801034011,
+            "user_seconds": 0.023833999999999998,
+            "system_seconds": 0.003276,
+            "peak_rss_bytes": 29048832,
+            "exit_code": 1,
+            "timed_out": false,
+            "role": "normal",
+            "diagnostics": {
+              "count": 1,
+              "fingerprint": "dcc3f46b756977b329d4f75e1fc55e9cce773f30f87b117ba9b3d35bc53c37f6",
+              "entries": [
+                "input.ts(2,7): error TS2322: Type 'string' is not assignable to type 'number'."
+              ]
+            },
+            "checked": [],
+            "checked_input_fingerprint": null,
+            "counts": null
+          },
+          {
+            "wall_seconds": 0.028936416987562552,
+            "user_seconds": 0.024029,
+            "system_seconds": 0.00358,
+            "peak_rss_bytes": 29097984,
+            "exit_code": 1,
+            "timed_out": false,
+            "role": "disabled",
+            "diagnostics": {
+              "count": 1,
+              "fingerprint": "dcc3f46b756977b329d4f75e1fc55e9cce773f30f87b117ba9b3d35bc53c37f6",
+              "entries": [
+                "input.ts(2,7): error TS2322: Type 'string' is not assignable to type 'number'."
+              ]
+            },
+            "checked": [
+              "/private/tmp/tsr-io-public-a790-portable/utf16-surrogate/input.ts"
+            ],
+            "checked_input_fingerprint": "7953b40bd1eaa71f3726a47e3ae3ea306aa3ec259999040a7ed7e887ed11806e",
+            "counts": null
+          },
+          {
+            "wall_seconds": 0.029093332996126264,
+            "user_seconds": 0.024274,
+            "system_seconds": 0.0034419999999999997,
+            "peak_rss_bytes": 29114368,
+            "exit_code": 1,
+            "timed_out": false,
+            "role": "enabled",
+            "diagnostics": {
+              "count": 1,
+              "fingerprint": "dcc3f46b756977b329d4f75e1fc55e9cce773f30f87b117ba9b3d35bc53c37f6",
+              "entries": [
+                "input.ts(2,7): error TS2322: Type 'string' is not assignable to type 'number'."
+              ]
+            },
+            "checked": [
+              "/private/tmp/tsr-io-public-a790-portable/utf16-surrogate/input.ts"
+            ],
+            "checked_input_fingerprint": "7953b40bd1eaa71f3726a47e3ae3ea306aa3ec259999040a7ed7e887ed11806e",
+            "counts": {
+              "file_requests": 7,
+              "file_true": 2,
+              "file_false": 5,
+              "file_stat_ns": 8875,
+              "directory_requests": 6,
+              "directory_true": 5,
+              "directory_false": 1,
+              "directory_stat_ns": 11292,
+              "realpath_requests": 0,
+              "realpath_body_ns": 0,
+              "entries_requests": 0,
+              "entries_body_ns": 0,
+              "read_requests": 53,
+              "read_successes": 53,
+              "read_failures": 0,
+              "read_io_ns": 691542,
+              "read_bytes": 2798222,
+              "decode_ns": 889080,
+              "utf8_plain_reads": 52,
+              "utf8_bom_reads": 0,
+              "utf16_le_reads": 1,
+              "utf16_be_reads": 0,
+              "malformed_utf8_reads": 0,
+              "utf8_plain_copied_bytes": 2798156,
+              "utf8_bom_copied_bytes": 0,
+              "decoded_bytes": 2798190,
+              "empty_reads": 0,
+              "file_unique_paths": 7,
+              "directory_unique_paths": 6,
+              "realpath_unique_paths": 0,
+              "entries_unique_paths": 0,
+              "read_unique_paths": 53
+            }
+          },
+          {
+            "wall_seconds": 0.029516959009924904,
+            "user_seconds": 0.024499,
+            "system_seconds": 0.003718,
+            "peak_rss_bytes": 29114368,
+            "exit_code": 1,
+            "timed_out": false,
+            "role": "repeat",
+            "diagnostics": {
+              "count": 1,
+              "fingerprint": "dcc3f46b756977b329d4f75e1fc55e9cce773f30f87b117ba9b3d35bc53c37f6",
+              "entries": [
+                "input.ts(2,7): error TS2322: Type 'string' is not assignable to type 'number'."
+              ]
+            },
+            "checked": [
+              "/private/tmp/tsr-io-public-a790-portable/utf16-surrogate/input.ts"
+            ],
+            "checked_input_fingerprint": "7953b40bd1eaa71f3726a47e3ae3ea306aa3ec259999040a7ed7e887ed11806e",
+            "counts": {
+              "file_requests": 7,
+              "file_true": 2,
+              "file_false": 5,
+              "file_stat_ns": 9249,
+              "directory_requests": 6,
+              "directory_true": 5,
+              "directory_false": 1,
+              "directory_stat_ns": 10581,
+              "realpath_requests": 0,
+              "realpath_body_ns": 0,
+              "entries_requests": 0,
+              "entries_body_ns": 0,
+              "read_requests": 53,
+              "read_successes": 53,
+              "read_failures": 0,
+              "read_io_ns": 711544,
+              "read_bytes": 2798222,
+              "decode_ns": 900704,
+              "utf8_plain_reads": 52,
+              "utf8_bom_reads": 0,
+              "utf16_le_reads": 1,
+              "utf16_be_reads": 0,
+              "malformed_utf8_reads": 0,
+              "utf8_plain_copied_bytes": 2798156,
+              "utf8_bom_copied_bytes": 0,
+              "decoded_bytes": 2798190,
+              "empty_reads": 0,
+              "file_unique_paths": 7,
+              "directory_unique_paths": 6,
+              "realpath_unique_paths": 0,
+              "entries_unique_paths": 0,
+              "read_unique_paths": 53
+            }
+          },
+          {
+            "wall_seconds": 0.024111959006404504,
+            "user_seconds": 0.024154,
+            "system_seconds": 0.005696,
+            "peak_rss_bytes": 42205184,
+            "exit_code": 1,
+            "timed_out": false,
+            "role": "native",
+            "diagnostics": {
+              "count": 1,
+              "fingerprint": "dcc3f46b756977b329d4f75e1fc55e9cce773f30f87b117ba9b3d35bc53c37f6",
+              "entries": [
+                "input.ts(2,7): error TS2322: Type 'string' is not assignable to type 'number'."
+              ]
+            },
+            "checked": [],
+            "checked_input_fingerprint": null,
+            "counts": null
+          }
+        ],
+        "native_diagnostics_match": true
+      },
+      {
+        "name": "malformed-utf8-comment",
+        "source_base64": "Ly8gYmFkIFVURi04OiD/IO2ggCDiggpjb25zdCB3cm9uZzogbnVtYmVyID0gInMiOwo=",
+        "input_sha256": "383681c739d3508950a73b8d5beb291970fb7b731055a9713506900d439b6a92",
+        "config_sha256": "d08f8d8d840ef0ec291c769417db0cd36b94cd9f50443aec12f2579f38884dea",
+        "runs": [
+          {
+            "wall_seconds": 0.030910875007975847,
+            "user_seconds": 0.024137,
+            "system_seconds": 0.0033599999999999997,
+            "peak_rss_bytes": 29048832,
+            "exit_code": 1,
+            "timed_out": false,
+            "role": "normal",
+            "diagnostics": {
+              "count": 1,
+              "fingerprint": "dcc3f46b756977b329d4f75e1fc55e9cce773f30f87b117ba9b3d35bc53c37f6",
+              "entries": [
+                "input.ts(2,7): error TS2322: Type 'string' is not assignable to type 'number'."
+              ]
+            },
+            "checked": [],
+            "checked_input_fingerprint": null,
+            "counts": null
+          },
+          {
+            "wall_seconds": 0.028367249993607402,
+            "user_seconds": 0.023992,
+            "system_seconds": 0.00315,
+            "peak_rss_bytes": 29097984,
+            "exit_code": 1,
+            "timed_out": false,
+            "role": "disabled",
+            "diagnostics": {
+              "count": 1,
+              "fingerprint": "dcc3f46b756977b329d4f75e1fc55e9cce773f30f87b117ba9b3d35bc53c37f6",
+              "entries": [
+                "input.ts(2,7): error TS2322: Type 'string' is not assignable to type 'number'."
+              ]
+            },
+            "checked": [
+              "/private/tmp/tsr-io-public-a790-portable/malformed-utf8-comment/input.ts"
+            ],
+            "checked_input_fingerprint": "7dc56240f44792993000cb29368dbd2e528c403a6233b6344103e698cff44b70",
+            "counts": null
+          },
+          {
+            "wall_seconds": 0.02895649999845773,
+            "user_seconds": 0.024207,
+            "system_seconds": 0.003531,
+            "peak_rss_bytes": 29114368,
+            "exit_code": 1,
+            "timed_out": false,
+            "role": "enabled",
+            "diagnostics": {
+              "count": 1,
+              "fingerprint": "dcc3f46b756977b329d4f75e1fc55e9cce773f30f87b117ba9b3d35bc53c37f6",
+              "entries": [
+                "input.ts(2,7): error TS2322: Type 'string' is not assignable to type 'number'."
+              ]
+            },
+            "checked": [
+              "/private/tmp/tsr-io-public-a790-portable/malformed-utf8-comment/input.ts"
+            ],
+            "checked_input_fingerprint": "7dc56240f44792993000cb29368dbd2e528c403a6233b6344103e698cff44b70",
+            "counts": {
+              "file_requests": 7,
+              "file_true": 2,
+              "file_false": 5,
+              "file_stat_ns": 8583,
+              "directory_requests": 6,
+              "directory_true": 5,
+              "directory_false": 1,
+              "directory_stat_ns": 10375,
+              "realpath_requests": 0,
+              "realpath_body_ns": 0,
+              "entries_requests": 0,
+              "entries_body_ns": 0,
+              "read_requests": 53,
+              "read_successes": 53,
+              "read_failures": 0,
+              "read_io_ns": 651710,
+              "read_bytes": 2798206,
+              "decode_ns": 893830,
+              "utf8_plain_reads": 52,
+              "utf8_bom_reads": 0,
+              "utf16_le_reads": 0,
+              "utf16_be_reads": 0,
+              "malformed_utf8_reads": 1,
+              "utf8_plain_copied_bytes": 2798156,
+              "utf8_bom_copied_bytes": 0,
+              "decoded_bytes": 2798215,
+              "empty_reads": 0,
+              "file_unique_paths": 7,
+              "directory_unique_paths": 6,
+              "realpath_unique_paths": 0,
+              "entries_unique_paths": 0,
+              "read_unique_paths": 53
+            }
+          },
+          {
+            "wall_seconds": 0.028308375010965392,
+            "user_seconds": 0.023798999999999997,
+            "system_seconds": 0.003345,
+            "peak_rss_bytes": 29114368,
+            "exit_code": 1,
+            "timed_out": false,
+            "role": "repeat",
+            "diagnostics": {
+              "count": 1,
+              "fingerprint": "dcc3f46b756977b329d4f75e1fc55e9cce773f30f87b117ba9b3d35bc53c37f6",
+              "entries": [
+                "input.ts(2,7): error TS2322: Type 'string' is not assignable to type 'number'."
+              ]
+            },
+            "checked": [
+              "/private/tmp/tsr-io-public-a790-portable/malformed-utf8-comment/input.ts"
+            ],
+            "checked_input_fingerprint": "7dc56240f44792993000cb29368dbd2e528c403a6233b6344103e698cff44b70",
+            "counts": {
+              "file_requests": 7,
+              "file_true": 2,
+              "file_false": 5,
+              "file_stat_ns": 13249,
+              "directory_requests": 6,
+              "directory_true": 5,
+              "directory_false": 1,
+              "directory_stat_ns": 14290,
+              "realpath_requests": 0,
+              "realpath_body_ns": 0,
+              "entries_requests": 0,
+              "entries_body_ns": 0,
+              "read_requests": 53,
+              "read_successes": 53,
+              "read_failures": 0,
+              "read_io_ns": 664421,
+              "read_bytes": 2798206,
+              "decode_ns": 903165,
+              "utf8_plain_reads": 52,
+              "utf8_bom_reads": 0,
+              "utf16_le_reads": 0,
+              "utf16_be_reads": 0,
+              "malformed_utf8_reads": 1,
+              "utf8_plain_copied_bytes": 2798156,
+              "utf8_bom_copied_bytes": 0,
+              "decoded_bytes": 2798215,
+              "empty_reads": 0,
+              "file_unique_paths": 7,
+              "directory_unique_paths": 6,
+              "realpath_unique_paths": 0,
+              "entries_unique_paths": 0,
+              "read_unique_paths": 53
+            }
+          },
+          {
+            "wall_seconds": 0.02347583300434053,
+            "user_seconds": 0.023526,
+            "system_seconds": 0.005549999999999999,
+            "peak_rss_bytes": 42106880,
+            "exit_code": 1,
+            "timed_out": false,
+            "role": "native",
+            "diagnostics": {
+              "count": 1,
+              "fingerprint": "dcc3f46b756977b329d4f75e1fc55e9cce773f30f87b117ba9b3d35bc53c37f6",
+              "entries": [
+                "input.ts(2,7): error TS2322: Type 'string' is not assignable to type 'number'."
+              ]
+            },
+            "checked": [],
+            "checked_input_fingerprint": null,
+            "counts": null
+          }
+        ],
+        "native_diagnostics_match": true
+      },
+      {
+        "name": "empty",
+        "source_base64": "",
+        "input_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "config_sha256": "d08f8d8d840ef0ec291c769417db0cd36b94cd9f50443aec12f2579f38884dea",
+        "runs": [
+          {
+            "wall_seconds": 0.02986079201218672,
+            "user_seconds": 0.024378,
+            "system_seconds": 0.0040739999999999995,
+            "peak_rss_bytes": 34619392,
+            "exit_code": 0,
+            "timed_out": false,
+            "role": "normal",
+            "diagnostics": {
+              "count": 0,
+              "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "entries": []
+            },
+            "checked": [],
+            "checked_input_fingerprint": null,
+            "counts": null
+          },
+          {
+            "wall_seconds": 0.02911833400139585,
+            "user_seconds": 0.024263999999999997,
+            "system_seconds": 0.0034649999999999998,
+            "peak_rss_bytes": 28573696,
+            "exit_code": 0,
+            "timed_out": false,
+            "role": "disabled",
+            "diagnostics": {
+              "count": 0,
+              "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "entries": []
+            },
+            "checked": [
+              "/private/tmp/tsr-io-public-a790-portable/empty/input.ts"
+            ],
+            "checked_input_fingerprint": "83e2886bfe081a4a7f068bb2ace273657e250a58a046eeae0664ad146cd24394",
+            "counts": null
+          },
+          {
+            "wall_seconds": 0.028396999987307936,
+            "user_seconds": 0.023885999999999998,
+            "system_seconds": 0.003316,
+            "peak_rss_bytes": 28590080,
+            "exit_code": 0,
+            "timed_out": false,
+            "role": "enabled",
+            "diagnostics": {
+              "count": 0,
+              "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "entries": []
+            },
+            "checked": [
+              "/private/tmp/tsr-io-public-a790-portable/empty/input.ts"
+            ],
+            "checked_input_fingerprint": "83e2886bfe081a4a7f068bb2ace273657e250a58a046eeae0664ad146cd24394",
+            "counts": {
+              "file_requests": 7,
+              "file_true": 2,
+              "file_false": 5,
+              "file_stat_ns": 9666,
+              "directory_requests": 6,
+              "directory_true": 5,
+              "directory_false": 1,
+              "directory_stat_ns": 13999,
+              "realpath_requests": 0,
+              "realpath_body_ns": 0,
+              "entries_requests": 0,
+              "entries_body_ns": 0,
+              "read_requests": 53,
+              "read_successes": 53,
+              "read_failures": 0,
+              "read_io_ns": 679750,
+              "read_bytes": 2798156,
+              "decode_ns": 910834,
+              "utf8_plain_reads": 53,
+              "utf8_bom_reads": 0,
+              "utf16_le_reads": 0,
+              "utf16_be_reads": 0,
+              "malformed_utf8_reads": 0,
+              "utf8_plain_copied_bytes": 2798156,
+              "utf8_bom_copied_bytes": 0,
+              "decoded_bytes": 2798156,
+              "empty_reads": 1,
+              "file_unique_paths": 7,
+              "directory_unique_paths": 6,
+              "realpath_unique_paths": 0,
+              "entries_unique_paths": 0,
+              "read_unique_paths": 53
+            }
+          },
+          {
+            "wall_seconds": 0.028689291997579858,
+            "user_seconds": 0.024234,
+            "system_seconds": 0.0032679999999999996,
+            "peak_rss_bytes": 28590080,
+            "exit_code": 0,
+            "timed_out": false,
+            "role": "repeat",
+            "diagnostics": {
+              "count": 0,
+              "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "entries": []
+            },
+            "checked": [
+              "/private/tmp/tsr-io-public-a790-portable/empty/input.ts"
+            ],
+            "checked_input_fingerprint": "83e2886bfe081a4a7f068bb2ace273657e250a58a046eeae0664ad146cd24394",
+            "counts": {
+              "file_requests": 7,
+              "file_true": 2,
+              "file_false": 5,
+              "file_stat_ns": 8124,
+              "directory_requests": 6,
+              "directory_true": 5,
+              "directory_false": 1,
+              "directory_stat_ns": 9958,
+              "realpath_requests": 0,
+              "realpath_body_ns": 0,
+              "entries_requests": 0,
+              "entries_body_ns": 0,
+              "read_requests": 53,
+              "read_successes": 53,
+              "read_failures": 0,
+              "read_io_ns": 688255,
+              "read_bytes": 2798156,
+              "decode_ns": 867748,
+              "utf8_plain_reads": 53,
+              "utf8_bom_reads": 0,
+              "utf16_le_reads": 0,
+              "utf16_be_reads": 0,
+              "malformed_utf8_reads": 0,
+              "utf8_plain_copied_bytes": 2798156,
+              "utf8_bom_copied_bytes": 0,
+              "decoded_bytes": 2798156,
+              "empty_reads": 1,
+              "file_unique_paths": 7,
+              "directory_unique_paths": 6,
+              "realpath_unique_paths": 0,
+              "entries_unique_paths": 0,
+              "read_unique_paths": 53
+            }
+          },
+          {
+            "wall_seconds": 0.02326983297825791,
+            "user_seconds": 0.023552,
+            "system_seconds": 0.005547,
+            "peak_rss_bytes": 41680896,
+            "exit_code": 0,
+            "timed_out": false,
+            "role": "native",
+            "diagnostics": {
+              "count": 0,
+              "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "entries": []
+            },
+            "checked": [],
+            "checked_input_fingerprint": null,
+            "counts": null
+          }
+        ],
+        "native_diagnostics_match": true
+      }
+    ],
+    "complete": true,
+    "equivalent_diagnostics_gate": true
+  },
+  "phase_control": {
+    "wall_seconds": 5.9460571669915225,
+    "user_seconds": 3.453352,
+    "system_seconds": 0.581969,
+    "peak_rss_bytes": 1109491712,
+    "exit_code": 1,
+    "timed_out": false,
+    "phases": {
+      "Files": "13097",
+      "Checked files": "1341",
+      "Parsed files": "13560",
+      "Loader time": "3.375s",
+      "File read time": "1.512s",
+      "Metadata time": "0.081s",
+      "Parse time": "0.584s",
+      "File discovery time": "1.166s",
+      "Resolver time": "1.061s",
+      "Resolver requests": "46031",
+      "Reusable modules": "22265",
+      "Reusable type refs": "45",
+      "Indexing time": "0.019s",
+      "Bind time": "0.167s",
+      "Config time": "0.008s",
+      "Program time": "3.594s",
+      "Checker init time": "0.000s",
+      "Check time": "2.086s",
+      "Reporting time": "0.096s",
+      "Compilation time": "5.784s"
+    },
+    "kind": "single normal-process locator; not a timing comparison",
+    "diagnostics": {
+      "count": 118,
+      "fingerprint": "8a839817547597c2e75d128324fed44fdc3b67a4f4564bdbe43c8a04915e6eb6"
+    }
+  },
+  "checks": {
+    "restored_vfs_release_tests": 37,
+    "observed_exit": 0,
+    "command": "cargo test --release -p tsr-vfs",
+    "temporary_patch_replay": true
+  },
+  "native_pin": "5b1047d10d32e7d5b446be4de56b126ff42f82bb",
+  "followup": "tsr-1yb.19",
+  "public_runner_sha256": "0fcb8f896dd577b85f828d690c53cdf1791b3c55cbecbd26f58f456bb6d72beb"
+}

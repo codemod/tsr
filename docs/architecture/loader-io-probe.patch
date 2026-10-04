@@ -1,0 +1,136 @@
+--- a/crates/tsr-vfs/src/os.rs
++++ b/crates/tsr-vfs/src/os.rs
+@@ -32,7 +32,7 @@
+ 
+ use tsr_path::{get_root_length, normalize_slashes};
+ 
+-use crate::{DirectoryEntries, FileSystem, decode_bytes};
++use crate::{DirectoryEntries, FileSystem};
+ 
+ /// The file system backed by the real disk (`osvfs.FS()`).
+ ///
+@@ -172,7 +172,10 @@
+     /// listing does not offer it as a candidate.
+     fn file_exists(&self, path: &str) -> bool {
+         assert_rooted(path);
+-        std::fs::metadata(path).is_ok_and(|metadata| !metadata.is_dir())
++        let start=crate::io_probe::start();
++        let result=std::fs::metadata(path).is_ok_and(|metadata| !metadata.is_dir());
++        crate::io_probe::metadata(0,path,result,start);
++        result
+     }
+ 
+     /// `Common.ReadFile` — bytes off the disk, decoded by byte-order mark.
+@@ -182,13 +185,16 @@
+     /// only ever asks whether it got text.
+     fn read_file(&self, path: &str) -> Option<String> {
+         assert_rooted(path);
+-        std::fs::read(path).ok().map(|bytes| decode_bytes(&bytes))
++        crate::io_probe::read_file(path)
+     }
+ 
+     /// `Common.DirectoryExists` — stat, and require a directory.
+     fn directory_exists(&self, path: &str) -> bool {
+         assert_rooted(path);
+-        std::fs::metadata(path).is_ok_and(|metadata| metadata.is_dir())
++        let start=crate::io_probe::start();
++        let result=std::fs::metadata(path).is_ok_and(|metadata| metadata.is_dir());
++        crate::io_probe::metadata(1,path,result,start);
++        result
+     }
+ 
+     /// `Common.GetAccessibleEntries` — one level, with symlinks followed.
+@@ -207,6 +213,7 @@
+     /// `exclude` globbing walks it, and an unsorted walk makes program file
+     /// order depend on the inode layout of the checkout.
+     fn get_accessible_entries(&self, path: &str) -> DirectoryEntries {
++        let _probe=crate::io_probe::Body::enter(3,path);
+         assert_rooted(path);
+         let Ok(entries) = std::fs::read_dir(path) else {
+             return DirectoryEntries::default();
+@@ -269,6 +276,7 @@
+     /// result '1'` trace line, which prints the same path twice for every probe
+     /// that missed.
+     fn realpath(&self, path: &str) -> String {
++        let _probe=crate::io_probe::Body::enter(2,path);
+         assert_rooted(path);
+         let Ok(resolved) = std::fs::canonicalize(path) else {
+             return path.to_string();
+--- a/crates/tsr-vfs/src/lib.rs
++++ b/crates/tsr-vfs/src/lib.rs
+@@ -389,3 +389,5 @@
+         assert!(insensitive.file_exists("/a/b.ts"));
+     }
+ }
++
++pub mod io_probe;
+--- a/crates/tsr-execute/src/compile.rs
++++ b/crates/tsr-execute/src/compile.rs
+@@ -341,9 +341,16 @@
+                 },
+             );
+             checked_file_count += 1;
++            if std::env::var_os("TSR_IO_SCOPE").is_some() { eprintln!("TSR_IO_CHECKED\t{}",name); }
+         }
+     }
+     let checking_finished = sys.since_start();
++    if std::env::var_os("TSR_IO_PROFILE").is_some() {
++        let counts=tsr_vfs::io_probe::snapshot();
++        let json=counts.iter().map(|(k,v)|format!("\"{k}\":{v}")).collect::<Vec<_>>().join(",");
++        eprintln!("TSR_IO_COUNTS\t{{{json}}}");
++    }
++
+     if !options.no_check.is_true() {
+         for (file_id, diagnostic) in checker.diagnostics() {
+             if let Some(file) = program
+--- /dev/null
++++ b/crates/tsr-vfs/src/io_probe.rs
+@@ -0,0 +1,48 @@
++//! Temporary real-disk attribution; no filesystem answers or caches changed.
++use std::collections::HashSet;
++use std::sync::{Mutex,OnceLock};
++use std::sync::atomic::{AtomicU64,Ordering};
++use std::time::Instant;
++static COUNTS: [AtomicU64;27]=[const {AtomicU64::new(0)};27];
++static PATHS: OnceLock<Mutex<[HashSet<String>;5]>>=OnceLock::new();
++fn enabled()->bool {static FLAG:OnceLock<bool>=OnceLock::new();*FLAG.get_or_init(||std::env::var_os("TSR_IO_PROFILE").is_some())}
++fn add(index:usize,value:u64){if enabled(){COUNTS[index].fetch_add(value,Ordering::Relaxed);}}
++fn path(site:usize,name:&str){if enabled(){PATHS.get_or_init(||Mutex::new(std::array::from_fn(|_|HashSet::new()))).lock().unwrap()[site].insert(name.to_owned());}}
++pub fn start()->Option<Instant>{enabled().then(Instant::now)}
++pub fn metadata(site:usize,name:&str,result:bool,start:Option<Instant>){
++    if let Some(start)=start {let ns=start.elapsed().as_nanos() as u64;add(site*4,1);add(site*4+1,u64::from(result));add(site*4+2,u64::from(!result));add(site*4+3,ns);path(site,name);}
++}
++pub struct Body {site:usize,path:String,start:Option<Instant>}
++impl Body {pub fn enter(site:usize,name:&str)->Self{Self{site,path:if enabled(){name.to_owned()}else{String::new()},start:start()}}}
++impl Drop for Body {fn drop(&mut self){if let Some(start)=self.start{let ns=start.elapsed().as_nanos() as u64;add(8+(self.site-2)*2,1);add(9+(self.site-2)*2,ns);path(self.site,&self.path);}}}
++pub fn read_file(name:&str)->Option<String>{
++    let io_start=start();let bytes=std::fs::read(name);let io_ns=io_start.map(|s|s.elapsed().as_nanos() as u64);
++    if let Some(ns)=io_ns{add(12,1);add(15,ns);path(4,name);}
++    let Ok(bytes)=bytes else{add(14,1);return None;};
++    add(13,1);add(16,bytes.len() as u64);
++    let decode_start=start();let text=crate::decode_bytes(&bytes);
++    if let Some(start)=decode_start{add(17,start.elapsed().as_nanos() as u64);}
++    if enabled(){
++        let category=match bytes.as_slice(){
++            [0xff,0xfe,..]=>2,[0xfe,0xff,..]=>3,
++            [0xef,0xbb,0xbf,rest @ ..] if std::str::from_utf8(rest).is_ok()=>1,
++            _ if std::str::from_utf8(&bytes).is_ok()=>0,_=>4,
++        };
++        add(18+category,1);
++        if category==0{add(23,bytes.len() as u64);}
++        if category==1{add(24,(bytes.len()-3) as u64);}
++        add(25,text.len() as u64);add(26,u64::from(bytes.is_empty()));
++    }
++    Some(text)
++}
++pub fn snapshot()->Vec<(&'static str,u64)>{
++    let names=["file_requests","file_true","file_false","file_stat_ns",
++        "directory_requests","directory_true","directory_false","directory_stat_ns",
++        "realpath_requests","realpath_body_ns","entries_requests","entries_body_ns",
++        "read_requests","read_successes","read_failures","read_io_ns","read_bytes","decode_ns",
++        "utf8_plain_reads","utf8_bom_reads","utf16_le_reads","utf16_be_reads","malformed_utf8_reads",
++        "utf8_plain_copied_bytes","utf8_bom_copied_bytes","decoded_bytes","empty_reads"];
++    let mut result:Vec<_>=names.into_iter().zip(COUNTS.iter().map(|v|v.load(Ordering::Relaxed))).collect();
++    if let Some(paths)=PATHS.get(){let paths=paths.lock().unwrap();for(site,name)in["file_unique_paths","directory_unique_paths","realpath_unique_paths","entries_unique_paths","read_unique_paths"].into_iter().enumerate(){result.push((name,paths[site].len() as u64));}}
++    result
++}
