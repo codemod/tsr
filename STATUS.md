@@ -22,16 +22,31 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
-### Current checker checkpoint — written parameter-default contexts
+### Current checker checkpoint — parameter-default contexts and strict optionality
 
-Measured production tree **`2def452d`**, against published `8bc504ef`:
-**459,875/478,855 assertions (96.04%)**, **7,188/9,538 complete cases
-(75.36%)**. The 99% target requires 474,067 matches; **14,192 remain**.
+Measured production tree **`30499bbf`**, against published `8bc504ef`:
+**459,880/478,855 assertions (96.04%)**, **7,188/9,538 complete cases
+(75.36%)**. The 99% target requires 474,067 matches; **14,187 remain**.
 Pinned native `5b1047d1` and both denominators are unchanged. Aligned verdicts:
-**474,251 total; 459,875 RIGHT; 2,120 GAP; 12,256 WRONG**.
+**474,251 total; 459,880 RIGHT; 2,116 GAP; 12,255 WRONG**.
 The static-context/class-copy prefix `ef3b10a5` is production-identical to audited
 `f6b00125`; rebasing preserved concurrent documentation-only `bc27fae2` and
-the exact `crates` tree.
+the exact `crates` tree. Parameter-context publication preserved documentation-only
+`a7901196`, with source `302573c6` identical to measured `2def452d`.
+
+Declaration optionality now adds undefined only under strict null checks. Loose
+mode preserves the supplied identity, including ordinary nullable and distinct
+widening-undefined inputs. `get_optional_type`, omitted-IIFE fallbacks and all
+held nullable stages remain unchanged. Against `302573c6`, this adds **four
+GAP→RIGHT and one WRONG→RIGHT**, with **zero adverse transitions, changed checker
+payloads or population changes**. All 10,570 complete diagnostic records are
+**byte-identical**, including duplicate occurrences and empty positives. The
+combined parameter/optionality prefix adds 40 checker matches without retention
+losses. Evidence is retained in `target/optionality-wave23-evidence.tar.gz`.
+Native active undefined-slot mode selection is a separate prerequisite: strict
+aliases ordinary undefined, while loose retains a distinct widening undefined;
+only declaration widening converts that loose identity to genuine any. Global
+reseeding and omitted-argument substitutions remain held.
 
 Written parameter annotations now supply context to their matching default
 initializers before inference. Unannotated defaults and binding-element contexts
@@ -48,13 +63,19 @@ audits and gates are retained in `target/parameter-annotation-wave22-evidence.ta
 
 Unannotated static class-expression fields now read the named property of their
 enclosing apparent contextual type. Written field annotations still win; there
-is no index-signature fallback. Singleton computed string/number names and
-generic property projection reuse existing APIs; unique-symbol names remain
-unsupported. The unit adds **42 WRONG→RIGHT**, with **zero RIGHT losses,
+is no index-signature fallback in this bounded implementation. **Corrected after
+387 pinned native Program controls:** native uses raw class context and the
+resolved field symbol name, permits index fallback, and strips exact-optional
+missing constituents. It does not use expression key types or apparent-context
+normalization here. Reader/name-provenance expansion remains separate in tsr-tln;
+this checkpoint does not claim that broader native behavior. Singleton computed
+string/number names and generic property projection reuse existing APIs;
+unique-symbol names remain unsupported. The unit adds **42 WRONG→RIGHT**, with **zero RIGHT losses,
 GAP→WRONG, changed checker payloads or population changes**; one complete case
 improves. `staticFieldWithInterfaceContext` gains 18 of its 45 mismatches and
 loses six false TS2322 diagnostics, but retains 27 mismatches and three false
-diagnostics. Parameter-default and destructuring contexts remain separate gaps.
+diagnostics at the static-only prefix. Written parameter defaults are now
+included above; unannotated defaults and destructuring contexts remain separate.
 
 Known class-source module copies now filter lookup and enumeration through the
 existing spreadable-property predicate on winning raw symbols after shadowing.
@@ -222,7 +243,7 @@ payload gains the two expected TS2322 occurrences. Function copies remove the
 false TS2339 at `esModuleInteropImportNamespace/index.ts:2:5` without losing a
 matched occurrence.
 
-**2,807 release workspace tests across 241 result blocks**, six existing ignores,
+**2,810 release workspace tests across 241 result blocks**, six existing ignores,
 strict release workspace/all-target Clippy, formatting and diff checks pass.
 Unfiltered scorepair agrees with the multiline-aware audit and accepts the new
 baseline; checker and diagnostics snapshots are refreshed after strict Clippy.
