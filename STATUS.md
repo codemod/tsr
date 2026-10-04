@@ -22,9 +22,9 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
-### Current checker checkpoint — semantic signature positions
+### Current checker checkpoint — signature positions and bounded mapped proofs
 
-Measured production tree **`382ee882`**, against published `d881bd20`:
+Measured production tree **`3a932c03`**, against published `d881bd20`:
 **459,614/478,855 assertions (95.98%)**, **7,174/9,538 complete cases
 (75.21%)**. The 99% target requires 474,067 matches; **14,453 remain**.
 Pinned native `5b1047d1` and both denominators are unchanged. Aligned verdicts:
@@ -68,9 +68,15 @@ Cold bounded homomorphic mapped queries expose guaranteed names, modifiers,
 declaration roots and deferred values. Open-key and union enumeration stay
 unsupported rather than publishing complete empty tables. This producer and
 the preserved concurrent private-symbol foundation `77eebd5b` are corpus-neutral
-on fresh combined-source audits. Mapped modifier comparison, generic admission
-and missing-member heads remain separate consumer work; no held consumer is in
-this measured tree.
+on fresh combined-source audits. Bounded open homomorphic maps with complete,
+public member proofs now enter the late apparent-source relation; closed maps
+retain their previous callback-context path, while open-key, union-bound and
+nominally unsupported shapes stay undecided. Object-, union- and mapped-bound
+identity-call controls retain their native results. Against `382ee882`, the
+checker is byte-identical and `mappedTypeRelationships` gains two matched TS2322
+occurrences without new extras. Contradictory whole-intersection `never`
+normalization remains a separate consumer prerequisite. Mapped modifier
+comparison and missing-member heads are still held and excluded.
 
 Declared conditional constraints now compose captured and inferred outer bindings
 before using the existing evaluator. Native enum-owner, argument-order, capture,
@@ -83,13 +89,14 @@ remains held for GAP→WRONG transitions and changed WRONG payloads.
 Complete duplicate-aware diagnostics improve against `d881bd20` across
 **10,570 cases**, including all **5,082 empty baselines**:
 **2,846 RIGHT / 2,642 WRONG / 4,798 EMPTY_RIGHT / 284 EMPTY_WRONG**;
-**20,653 matched occurrences / 3,890 extras**, up from 20,617 matches and down
+**20,655 matched occurrences / 3,890 extras**, up from 20,617 matches and down
 from 3,891 extras. Six wrong cases and one empty-positive case become correct.
 There are no correct-case, expected-occurrence, empty-positive or population
 losses, and no introduced extras. Two still-WRONG generic-signature diagnostic
-payloads gain expected TS2430 occurrences.
+payloads gain expected TS2430 occurrences; one still-WRONG mapped-relationship
+payload gains the two expected TS2322 occurrences.
 
-**2,771 release workspace tests across 238 result blocks**, six existing ignores,
+**2,775 release workspace tests across 238 result blocks**, six existing ignores,
 strict release workspace/all-target Clippy, formatting and diff checks pass.
 Unfiltered scorepair agrees with the multiline-aware audit and accepts the new
 baseline; checker and diagnostics snapshots are refreshed after strict Clippy.
