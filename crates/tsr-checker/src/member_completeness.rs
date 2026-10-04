@@ -135,16 +135,61 @@ impl Checker<'_, '_> {
     /// `assignmentCompat1`, and it is the case that would be silently lost if
     /// the two questions shared one predicate.
     pub(crate) fn declared_property_table(&mut self, id: TypeId) -> Option<Vec<(String, bool)>> {
-        if self.type_reference_targets.contains_key(&id) {
+        self.declared_property_table_worker(id, 0, false)
+    }
+
+    fn declared_property_table_worker(
+        &mut self,
+        id: TypeId,
+        depth: u32,
+        mapped_container: bool,
+    ) -> Option<Vec<(String, bool)>> {
+        if depth > MAX_BASE_DEPTH {
             return None;
         }
-        let owner = match &self.store.get(id).data {
-            TypeData::Named { members: Some(owner), .. } => *owner,
-            _ => return None,
+        // check_object_literal publishes this list only when capture_complete
+        // holds. Its bool marks synthetic lookup, not completeness. Keep
+        // incomplete literals and regularization's fallback tables declined.
+        if self.fresh_object_literal_types.contains(&id) {
+            return self.anonymous_properties.get(&id).map(|(properties, _)| {
+                properties
+                    .iter()
+                    .map(|property| (property.name.clone(), property.optional))
+                    .collect()
+            });
+        }
+        // An identity map preserves its source's own keys, but replaces the
+        // declaration's optionality. Compose modifiers only after certifying
+        // the source table; an ordinary generic reference still declines.
+        let optionality = self.mapped_identity_optionality.get(&id).map(|&(optional, _)| optional);
+        let mut out = if let Some((_, arguments)) = self.type_reference_targets.get(&id) {
+            optionality?;
+            let [source] = arguments.as_slice() else { return None };
+            self.declared_property_table_worker(*source, depth + 1, true)?
+        } else {
+            let owner = match &self.store.get(id).data {
+                TypeData::Named { members: Some(owner), .. } => *owner,
+                _ => return None,
+            };
+            let mut visiting = Vec::new();
+            let mut out = Vec::new();
+            if !self.collect_declared_properties(
+                owner,
+                &mut out,
+                &mut visiting,
+                0,
+                (mapped_container || optionality.is_some()).then_some(id),
+            ) {
+                return None;
+            }
+            out
         };
-        let mut visiting = Vec::new();
-        let mut out = Vec::new();
-        self.collect_declared_properties(owner, &mut out, &mut visiting, 0).then_some(out)
+        if let Some(Some(optional)) = optionality {
+            for (_, member_optional) in &mut out {
+                *member_optional = optional;
+            }
+        }
+        Some(out)
     }
 
     /// One step of the property enumeration. Own members shadow inherited ones,
@@ -155,6 +200,7 @@ impl Checker<'_, '_> {
         out: &mut Vec<(String, bool)>,
         visiting: &mut Vec<SymbolId>,
         depth: u32,
+        mapped_container: Option<TypeId>,
     ) -> bool {
         if depth > MAX_BASE_DEPTH || visiting.contains(&owner) {
             return false;
@@ -164,24 +210,44 @@ impl Checker<'_, '_> {
         if declarations.is_empty() {
             return false;
         }
-        for declaration in declarations {
+        for &declaration in &declarations {
             if !self.declaration_property_names_are_readable(declaration) {
                 return false;
             }
         }
-        let members: Vec<(String, SymbolId)> = self
+        let members: Option<Vec<_>> = self
             .binder
             .symbols()
             .get(owner)
             .members
             .iter()
-            .map(|(name, id)| ((*name).to_string(), *id))
+            .filter(|(_, id)| self.binder.symbols().get(**id).flags.intersects(SymbolFlags::VALUE))
+            .map(|(name, id)| {
+                // Owner declarations are in binder/source order, including
+                // merges. Within each, use written position, not SymbolId:
+                // merging can allocate or reuse symbols in a different order.
+                let order = self
+                    .binder
+                    .symbols()
+                    .get(*id)
+                    .declarations
+                    .iter()
+                    .filter_map(|&member| {
+                        declarations
+                            .iter()
+                            .position(|&owner| {
+                                self.nodes.ancestors(member).any(|node| node == owner)
+                            })
+                            .map(|owner| (owner, self.nodes.span(member).start))
+                    })
+                    .min()?;
+                Some((order, (*name).to_string(), *id))
+            })
             .collect();
-        for (name, symbol) in members {
+        let Some(mut members) = members else { return false };
+        members.sort_unstable_by_key(|(order, _, _)| *order);
+        for (_, name, symbol) in members {
             let entry = self.binder.symbols().get(symbol);
-            if !entry.flags.intersects(SymbolFlags::VALUE) {
-                continue;
-            }
             if out.iter().any(|(seen, _)| *seen == name) {
                 continue;
             }
@@ -192,14 +258,52 @@ impl Checker<'_, '_> {
             // (`assignmentCompatWithObjectMembersOptionality2`, 3 lines on one
             // case). Optionality is read off the declaration's `?` instead.
             let declarations = entry.declarations.to_vec();
+            // bindParameterPropertyDeclaration marks a constructor's `x?`
+            // optional only when QuestionToken is present. Without it required
+            // is certified; with it this reader cannot represent optionality.
+            if declarations.iter().any(|&declaration| {
+                matches!(self.node_map.get(declaration),
+                    Some(Node::ParameterDeclaration(parameter)) if parameter.question_token.is_some())
+            }) {
+                return false;
+            }
             let optional = declarations.iter().any(|d| self.declaration_is_optional_member(*d));
             out.push((name, optional));
         }
         let Some(bases) = self.base_symbols_of(owner) else { return false };
         for base in bases {
-            if !self.collect_declared_properties(base, out, visiting, depth + 1) {
+            if !self.collect_declared_properties(base, out, visiting, depth + 1, None) {
                 return false;
             }
+        }
+        if let Some(source) = mapped_container {
+            // getNamedMembers sorts a mapped table by linked declarations,
+            // without the class/interface own-before-inherited partition.
+            // Only sort after the entire source walk proved complete. File
+            // roots in the shared NodeTable are registered in program order.
+            let mut ordered = Vec::with_capacity(out.len());
+            for (name, optional) in std::mem::take(out) {
+                let Some(symbol) = self.get_property_of_type(source, &name) else {
+                    return false;
+                };
+                // getLiteralTypeFromProperty excludes non-public keyof keys.
+                if self.is_non_public_member(symbol) {
+                    continue;
+                }
+                let Some(&declaration) = self.binder.symbols().get(symbol).declarations.first()
+                else {
+                    return false;
+                };
+                if self.declaration_names_a_private(declaration) {
+                    continue;
+                }
+                let Some(file) = self.source_file_of_for_diagnostics(declaration) else {
+                    return false;
+                };
+                ordered.push(((file, self.nodes.span(declaration).start), name, optional));
+            }
+            ordered.sort_unstable_by_key(|(order, _, _)| *order);
+            out.extend(ordered.into_iter().map(|(_, name, optional)| (name, optional)));
         }
         true
     }
@@ -404,6 +508,35 @@ impl Checker<'_, '_> {
 #[cfg(test)]
 mod tests {
     use super::Checker;
+
+    #[test]
+    fn parameter_properties_need_certified_optionality_for_a_complete_table() {
+        let source = "class Optional { constructor(public z?: number) {} }\n\
+                      class Required { constructor(public z: number) {} }\n\
+                      class Defaulted { constructor(public z = 0) {} }\n\
+                      class Field { z?: number; }";
+        let arena = tsr_core::Arena::new();
+        let parsed = tsr_parser::parse(&arena, source);
+        assert!(parsed.diagnostics.is_empty());
+        let root = parsed.source_file.node_id.expect("registered file");
+        let bound = tsr_binder::bind(
+            &arena,
+            parsed.source_file,
+            &parsed.nodes,
+            tsr_binder::FileInfo { name: "parameters.ts", text: source },
+        );
+        let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+        for (name, expected) in [
+            ("Optional", None),
+            ("Required", Some(vec![("z".to_owned(), false)])),
+            ("Defaulted", Some(vec![("z".to_owned(), false)])),
+            ("Field", Some(vec![("z".to_owned(), true)])),
+        ] {
+            let symbol = bound.lookup_local(root, name).expect("class bound");
+            let ty = checker.get_declared_type_of_symbol(symbol);
+            assert_eq!(checker.declared_property_table(ty), expected, "{name}");
+        }
+    }
 
     const BOUNDARY_SOURCE: &str = r"/** @typedef {Object} Plain @property {string} present */
 ;

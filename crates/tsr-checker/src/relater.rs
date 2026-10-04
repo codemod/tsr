@@ -2562,12 +2562,8 @@ impl Relater<'_, '_, '_> {
         }
         let mut parts = Vec::with_capacity(names.len());
         for name in names {
-            if optionals_only
-                && !self
-                    .checker
-                    .get_property_of_type(target, &name)
-                    .is_some_and(|property| self.checker.property_is_optional(property))
-            {
+            let target_metadata = self.property_flags(target, &name);
+            if optionals_only && !target_metadata.is_some_and(|flags| flags.0) {
                 continue;
             }
             // Through [`Checker::get_type_of_property_of_type`], not
@@ -2595,15 +2591,11 @@ impl Relater<'_, '_, '_> {
                 // object-literal source (`requireOptionalProperties`,
                 // upstream `propertiesRelatedTo`; interface-backed sources
                 // must still match optionals or subtype reduction loses its
-                // order). Optionality reads the declaration's postfix `?`,
-                // never `SymbolFlags::OPTIONAL`, which this binder does not
-                // write (the `acdeed5` trap). Everything else stays row 2's
-                // `Unknown`.
+                // order). Captured mapped modifiers override declaration
+                // optionality; this binder does not write SymbolFlags::OPTIONAL.
+                // Everything else stays row 2's Unknown.
                 if self.checker.get_type_of_property_of_type(source, &name).is_none()
-                    && self
-                        .checker
-                        .get_property_of_type(target, &name)
-                        .is_some_and(|p| self.checker.property_is_optional(p))
+                    && target_metadata.is_some_and(|flags| flags.0)
                     && (self.relation == Relation::Assignable
                         || self.checker.is_object_literal_type(source))
                 {
@@ -2695,33 +2687,14 @@ impl Relater<'_, '_, '_> {
                     if self.checker.get_type_of_property_of_type(part, &name).is_none() {
                         continue;
                     }
-                    let captured =
-                        self.checker.anonymous_properties.get(&part).and_then(|(properties, _)| {
-                            properties.iter().find(|property| property.name == name)
-                        });
-                    let flags = if let Some(property) = captured {
-                        Some((property.optional, property.readonly))
-                    } else {
-                        self.checker.get_property_of_type(part, &name).map(|property| {
-                            (
-                                self.checker.property_is_optional(property),
-                                self.checker.is_readonly_property(property),
-                            )
-                        })
-                    };
-                    metadata.push(flags);
+                    metadata.push(self.property_flags(part, &name));
                 }
                 metadata.into_iter().collect::<Option<Vec<_>>>().and_then(|flags| {
                     (!flags.is_empty())
                         .then(|| (flags.iter().all(|flag| flag.0), flags.iter().all(|flag| flag.1)))
                 })
             } else {
-                source_properties.first().map(|&property| {
-                    (
-                        self.checker.property_is_optional(property),
-                        self.checker.is_readonly_property(property),
-                    )
-                })
+                self.property_flags(source, &name)
             };
             // A source-OPTIONAL property against a REQUIRED target member
             // rejects in every relation but comparability
@@ -2730,8 +2703,7 @@ impl Relater<'_, '_, '_> {
             // `{ p?: number }` is not related to `{ p: any }`, which is what
             // keeps `Contextual | Ellement` un-reduced
             // (`nonContextuallyTypedLogicalOr`, §15.1's two wrong lines).
-            if let Some(target_property) = self.checker.get_property_of_type(target, &name)
-                && !self.checker.property_is_optional(target_property)
+            if target_metadata.is_some_and(|flags| !flags.0)
                 && (source_parts.is_none() || self.relation != Relation::Comparable)
             {
                 if source_metadata.is_some_and(|flags| flags.0) {
@@ -2751,9 +2723,8 @@ impl Relater<'_, '_, '_> {
             // `checker-notes-assign.md`; `readonlyPropertySubtypeRelationDirected`
             // is the pin.
             if self.relation == Relation::StrictSubtype
-                && let Some(target_property) = self.checker.get_property_of_type(target, &name)
                 && source_metadata.is_some_and(|flags| flags.1)
-                && !self.checker.is_readonly_property(target_property)
+                && target_metadata.is_some_and(|flags| !flags.1)
             {
                 parts.push(RelationResult::NotRelated);
                 continue;
@@ -2765,6 +2736,47 @@ impl Relater<'_, '_, '_> {
             parts.push(self.is_related_to(source_type, target_type));
         }
         RelationResult::all(parts)
+    }
+
+    /// Mapped/spread symbols keep their declaration origins while overriding
+    /// Optional/Readonly flags (propertyRelatedTo, internal/checker/relater.go).
+    fn property_flags(&mut self, receiver: TypeId, name: &str) -> Option<(bool, bool)> {
+        self.checker.resolve_mapped_type_members(receiver);
+        if let Some((properties, _)) = self.checker.anonymous_properties.get(&receiver)
+            && let Some(property) = properties.iter().find(|property| property.name == name)
+        {
+            return Some((property.optional, property.readonly));
+        }
+        let mut modifiers = self.checker.mapped_identity_optionality.get(&receiver).copied();
+        let source = modifiers.and_then(|_| {
+            self.checker
+                .type_reference_targets
+                .get(&receiver)
+                .and_then(|(_, arguments)| (arguments.len() == 1).then_some(arguments[0]))
+        });
+        // Object/Function augmentation is not a mapped keyof member.
+        if let Some(source) = source
+            && self
+                .checker
+                .get_property_names_of_type(source)
+                .is_some_and(|names| !names.iter().any(|key| key == name))
+        {
+            modifiers = None;
+        }
+        let flags = if let Some(source) = source {
+            self.property_flags(source, name)
+        } else {
+            self.checker.get_property_of_type(receiver, name).map(|property| {
+                (
+                    self.checker.property_is_optional(property),
+                    self.checker.is_readonly_property(property),
+                )
+            })
+        };
+        flags.map(|(optional, readonly)| {
+            let (mapped_optional, mapped_readonly) = modifiers.unwrap_or_default();
+            (mapped_optional.unwrap_or(optional), mapped_readonly.unwrap_or(readonly))
+        })
     }
 
     /// The constituents of `id`, if it is a union.

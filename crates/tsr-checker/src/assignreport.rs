@@ -529,10 +529,9 @@ impl<'a> Checker<'a, '_> {
         None
     }
 
-    /// TS2741 — `Property '{0}' is missing in type '{1}' but required in type
-    /// '{2}'.`
+    /// `reportUnmatchedProperty` (`relater.go:4345`): the required own keys
+    /// absent from a source whose property table is complete.
     ///
-    /// `reportUnmatchedProperty` (`relater.go:4345`), the `len(props) == 1` arm.
     /// **Reported at the same position TS2322 would be**, and *instead of* it:
     /// `assignmentCompat1.ts(4,1)` is the `x` of `x = y`, and reporting TS2322
     /// there is a wrong code at a right position.
@@ -545,23 +544,63 @@ impl<'a> Checker<'a, '_> {
     /// the member tables alone, which [`crate::member_completeness`] can now
     /// certify. No relation runs, so no incompleteness leaks.
     ///
-    /// Only the one-missing-property arm is ported. Upstream's 2-and-more arms
-    /// (TS2739 / TS2740) are gated on `tryElaborateArrayLikeErrors`
-    /// (`relater.go:4367`) and fall back to the plain TS2322 head when it
-    /// declines; reproducing that needs the elaboration machinery, and the board
-    /// row is the single-property one.
-    fn missing_required_property(&mut self, source: TypeId, target: TypeId) -> Option<String> {
+    /// Complete declared object tables exclude arrays and tuples, so native's
+    /// `tryElaborateArrayLikeErrors` permits the multi-property head here. No
+    /// array/tuple elaboration is inferred from incomplete tables.
+    fn missing_required_property(&mut self, source: TypeId, target: TypeId) -> Option<Vec<String>> {
         let target_properties = self.declared_property_table(target)?;
         let source_properties = self.declared_property_table(source)?;
-        let mut missing = target_properties.into_iter().filter(|(name, optional)| {
-            !optional && !source_properties.iter().any(|(seen, _)| seen == name)
-        });
-        let first = missing.next()?;
-        // Two or more is upstream's other arm and this port does not have it.
-        if missing.next().is_some() {
-            return None;
+        if self.fresh_object_literal_types.contains(&source) {
+            // hasExcessProperties precedes reportUnmatchedProperty. Captured
+            // names alone cannot license a missing head when a written key
+            // belongs to that earlier, possibly unported error path.
+            let TypeData::Named { members: Some(owner), .. } = self.store.get(source).data else {
+                return None;
+            };
+            let &[literal] = self.binder.symbols().get(owner).declarations.as_slice() else {
+                return None;
+            };
+            if self.nodes.kind(literal) != SyntaxKind::ObjectLiteralExpression {
+                return None;
+            }
+            let properties = self.anonymous_properties.get(&source)?.0.clone();
+            for property in properties {
+                // shouldCheckAsExcessProperty compares declaration parents:
+                // a spread's keys retain their original declaration, and a
+                // later spread can replace an earlier written property's origin.
+                let origin = property.origin?;
+                let declaration = self.binder.symbols().get(origin).value_declaration?;
+                if self.nodes.parent(declaration) != Some(literal) {
+                    continue;
+                }
+                // isKnownProperty reads the object's own/inherited table, not
+                // global Object augmentation. The certified table also keeps
+                // a mapped container's keys distinct from its origin's keys.
+                if target_properties.iter().any(|(name, _)| name == &property.name) {
+                    continue;
+                }
+                // None is an unresolved index table, not proof of no index.
+                self.get_index_infos_of_type(target)?;
+                let key = self.store.intern_literal(
+                    TypeFlags::STRING_LITERAL,
+                    TypeData::StringLiteral(property.name),
+                    false,
+                );
+                self.get_applicable_index_info(target, key)?;
+            }
         }
-        Some(first.0)
+        let mut missing = Vec::new();
+        for (name, optional) in target_properties {
+            if !optional
+                && !source_properties.iter().any(|(seen, _)| seen == &name)
+                // getUnmatchedProperties uses getPropertyOfType, whose misses
+                // can still be supplied by Function/Object augmentation.
+                && self.get_type_of_property_of_type(source, &name).is_none()
+            {
+                missing.push(name);
+            }
+        }
+        (!missing.is_empty()).then_some(missing)
     }
 
     /// TS2345 at an argument position — the same verdict machinery as
@@ -608,7 +647,7 @@ impl<'a> Checker<'a, '_> {
     }
 
     /// Report the assignability failure at `span`, choosing the code the way
-    /// upstream's relation does: a single absent required property is TS2741,
+    /// upstream's relation does: absent required properties are TS2741/2739/2740,
     /// a direct exact-optional missing-property write is TS2412, a whole-object
     /// exact-optional mismatch is TS2375, and other failures are TS2322.
     fn report_assignability_failure(
@@ -661,19 +700,33 @@ impl<'a> Checker<'a, '_> {
         let Some(file) = self.source_file_of_for_diagnostics(at) else { return false };
         let span = self.error_span(at);
         if REPORT_MISSING_REQUIRED_PROPERTY
-            && let Some(property) = self.missing_required_property(source, target)
+            && let Some(properties) = self.missing_required_property(source, target)
         {
             let source_text = self.type_to_string(source);
             let target_text = self.type_to_string(target);
-            probe!(PROBE_REPORTED);
-            self.report(
-                file,
-                Diagnostic::with_args(
+            let (message, args) = if properties.len() == 1 {
+                (
                     &messages::PROPERTY_0_IS_MISSING_IN_TYPE_1_BUT_REQUIRED_IN_TYPE_2,
-                    span,
-                    [property, source_text, target_text],
-                ),
-            );
+                    vec![properties[0].clone(), source_text, target_text],
+                )
+            } else if properties.len() > 5 {
+                (
+                    &messages::TYPE_0_IS_MISSING_THE_FOLLOWING_PROPERTIES_FROM_TYPE_1_COLON_2_AND_3_MORE,
+                    vec![
+                        source_text,
+                        target_text,
+                        properties[..4].join(", "),
+                        (properties.len() - 4).to_string(),
+                    ],
+                )
+            } else {
+                (
+                    &messages::TYPE_0_IS_MISSING_THE_FOLLOWING_PROPERTIES_FROM_TYPE_1_COLON_2,
+                    vec![source_text, target_text, properties.join(", ")],
+                )
+            };
+            probe!(PROBE_REPORTED);
+            self.report(file, Diagnostic::with_args(message, span, args));
             return true;
         }
         // **`relate_ternary`, not `is_type_assignable_to`.** The relater is
