@@ -109,8 +109,12 @@ ownership/closure remains a prerequisite.
 The checker production tree is restored byte-for-byte to pre-module
 `9c176c03`, whose verified checkpoint remains **460,045/478,855 assertions
 (96.07%)**, **7,193/9,538 cases**, **14,022 matches short of 99%**.
-Those complete-corpus numbers are retained exact-source measurements, not new
-captures taken for this withdrawal. The 1,392-run/148,624-record/64,240-call
+The initial withdrawal retained exact-source measurements. After preserving
+upstream CJS path optimization `148024b8`, production tree **`2f82fa52`** has
+fresh full **474,251 checker and 10,570 duplicate/empty diagnostic records
+byte-identical** to the safe baseline: 460,045 RIGHT, 2,094 GAP, 12,112 WRONG;
+20,685 diagnostic matches and 3,831 extras. No payload, occurrence, correct-case,
+new-extra or population changes occur. The 1,392-run/148,624-record/64,240-call
 read-only audit and all **2,854 payload lengths/hashes** replay independently:
 1,080 augmentation counterexamples, 1,080 invalid-global consumer counterexamples,
 216 host controls, zero normalized semantic order/warm drift. All 928 native
@@ -119,13 +123,22 @@ The getter span difference remains separate.
 
 Withdrawal validation: **2,864 workspace release passes, zero failures, six
 existing ignores**, the new regression RED→GREEN, formatting and strict release
-workspace/all-target Clippy. Initial harness failures are retained separately
+workspace/all-target Clippy. Post-rebase validation passes **2,865 release tests,
+zero failures, six ignores**, formatting and strict all-target Clippy, retaining
+the upstream CJS boundary test. Initial harness failures are retained separately
 from the genuine failing absence assertion. Evidence is in
 `target/module-augmentation-wave43-evidence.tar.gz`; the native-positive worker
-archive and all earlier module candidates remain preserved.
+archive and all earlier module candidates remain preserved. Post-rebase captures,
+source and gates are in `target/module-augmentation-wave43-post-rebase-evidence.tar.gz`.
 
 Verified negation source `104b14fc`, its three scored gains, raw evidence and
 checkpoint draft are preserved on a separate local branch/stash, **not pushed**.
+It is now **HELD** for a separately reproduced augmented-spread counterexample:
+native sees `{requiredToken:17}` and returns false; both Rust stages retain the
+same empty spread image, so the candidate changes native-correct false to boolean
+and adds a false TS2322 at `falsePin` (196/8). The worker is sealing controls;
+coordinator archive replay is pending. A stored complete-empty image does not
+certify native emptiness. No producer or broader consumer repair is reserved.
 Optional-add is also retained locally and unadopted. Both require a new audit on
 the corrected published prefix. JSDoc capture/registration remains unproved;
 rejected `lh1` is never integrated. The 99% task remains open.
