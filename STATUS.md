@@ -22,16 +22,29 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
-### Current checker checkpoint — static context, class-copy surface and function-node identity
+### Current checker checkpoint — written parameter-default contexts
 
-Measured production tree **`06511f00`**, against published `8bc504ef`:
-**459,840/478,855 assertions (96.03%)**, **7,188/9,538 complete cases
-(75.36%)**. The 99% target requires 474,067 matches; **14,227 remain**.
+Measured production tree **`2def452d`**, against published `8bc504ef`:
+**459,875/478,855 assertions (96.04%)**, **7,188/9,538 complete cases
+(75.36%)**. The 99% target requires 474,067 matches; **14,192 remain**.
 Pinned native `5b1047d1` and both denominators are unchanged. Aligned verdicts:
-**474,251 total; 459,840 RIGHT; 2,120 GAP; 12,291 WRONG**.
+**474,251 total; 459,875 RIGHT; 2,120 GAP; 12,256 WRONG**.
 The static-context/class-copy prefix `ef3b10a5` is production-identical to audited
 `f6b00125`; rebasing preserved concurrent documentation-only `bc27fae2` and
 the exact `crates` tree.
+
+Written parameter annotations now supply context to their matching default
+initializers before inference. Unannotated defaults and binding-element contexts
+remain unchanged. Native strict/loose controls accept the intended literals and
+reject the wrong literal with TS2322. Real Program reads retain literal arrow
+defaults and nongeneric class fields; generic class-default field widening is
+still a separate pre-existing gap. Against `06511f00`, this adds **35 WRONG→RIGHT**,
+with **zero RIGHT losses, GAP→WRONG, changed checker payloads or population
+changes**; complete-case counts do not change. Complete diagnostics recover one
+expected occurrence and remove eight extras with no retention losses or new
+extras. Five still-WRONG/EMPTY_WRONG diagnostic payloads change without adding a
+complete diagnostic case. Raw native controls, red/green checks, full captures,
+audits and gates are retained in `target/parameter-annotation-wave22-evidence.tar.gz`.
 
 Unannotated static class-expression fields now read the named property of their
 enclosing apparent contextual type. Written field annotations still win; there
@@ -200,7 +213,7 @@ remains held for GAP→WRONG transitions and changed WRONG payloads.
 Complete duplicate-aware diagnostics improve against `d881bd20` across
 **10,570 cases**, including all **5,082 empty baselines**:
 **2,856 RIGHT / 2,632 WRONG / 4,803 EMPTY_RIGHT / 279 EMPTY_WRONG**;
-**20,684 matched occurrences / 3,849 extras**, up from 20,617 matches and down
+**20,685 matched occurrences / 3,841 extras**, up from 20,617 matches and down
 from 3,891 extras. Sixteen wrong cases and six empty-positive cases become correct.
 There are no correct-case, expected-occurrence, empty-positive or population
 losses, and no introduced extras. Two still-WRONG generic-signature diagnostic
@@ -209,7 +222,7 @@ payload gains the two expected TS2322 occurrences. Function copies remove the
 false TS2339 at `esModuleInteropImportNamespace/index.ts:2:5` without losing a
 matched occurrence.
 
-**2,806 release workspace tests across 241 result blocks**, six existing ignores,
+**2,807 release workspace tests across 241 result blocks**, six existing ignores,
 strict release workspace/all-target Clippy, formatting and diff checks pass.
 Unfiltered scorepair agrees with the multiline-aware audit and accepts the new
 baseline; checker and diagnostics snapshots are refreshed after strict Clippy.
