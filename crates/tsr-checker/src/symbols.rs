@@ -3136,6 +3136,32 @@ impl<'a> Checker<'a, '_> {
         Some(first)
     }
 
+    /// `getTypeOfConcretePropertyOfContextualType`: exact optional context drops
+    /// only missing. Optionality follows the same suppliers as the ordinary read.
+    fn concrete_contextual_property_type(&mut self, t: TypeId, name: &str) -> Option<TypeId> {
+        let member = self.get_type_of_property_of_type(t, name)?;
+        if !self.exact_optional_property_types {
+            return Some(member);
+        }
+        let optional = self
+            .anonymous_properties
+            .get(&t)
+            .and_then(|(properties, instantiated)| {
+                instantiated
+                    .then(|| properties.iter().find(|property| property.name == name))
+                    .flatten()
+            })
+            .map(|property| property.optional)
+            .or_else(|| {
+                self.mapped_identity_optionality.get(&t).and_then(|(optional, _)| *optional)
+            })
+            .unwrap_or_else(|| {
+                self.get_property_of_type(t, name)
+                    .is_some_and(|property| self.property_is_optional(property))
+            });
+        Some(if optional { self.remove_missing_type(member) } else { member })
+    }
+
     pub(crate) fn contextual_property_type(&mut self, t: TypeId, name: &str) -> Option<TypeId> {
         if let Some(mapped) = self.generic_mapped_contextual_property_type(t, name) {
             return Some(mapped);
@@ -3198,7 +3224,7 @@ impl<'a> Checker<'a, '_> {
                         hits.push(member);
                         continue;
                     }
-                    if let Some(member) = self.get_type_of_property_of_type(constituent, name)
+                    if let Some(member) = self.concrete_contextual_property_type(constituent, name)
                         && member != self.intrinsics.error
                     {
                         hits.push(member);
@@ -3228,7 +3254,7 @@ impl<'a> Checker<'a, '_> {
                     _ => Some(self.get_intersection_type(&hits, None)),
                 }
             }
-            _ => self.get_type_of_property_of_type(t, name).or_else(|| {
+            _ => self.concrete_contextual_property_type(t, name).or_else(|| {
                 let key = self.store.intern_literal(
                     crate::flags::TypeFlags::STRING_LITERAL,
                     crate::types::TypeData::StringLiteral(name.to_owned()),
@@ -5499,4 +5525,218 @@ pub(crate) fn is_identifier_text(text: &str) -> bool {
 /// the ordinary initialiser path and must keep doing so.
 fn is_empty_array_literal(expression: Expression<'_>) -> bool {
     matches!(expression, Expression::ArrayLiteralExpression(literal) if literal.elements.is_empty())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Checker;
+    use crate::types::{TypeData, TypeId};
+    use tsr_ast::{Node, NodeId};
+
+    fn with_context(
+        context: &str,
+        strict: bool,
+        exact: bool,
+        run: impl FnOnce(&mut Checker<'_, '_>, TypeId, TypeId, TypeId),
+    ) {
+        let source = format!(
+            "type V = {{ a: 'value' }}; type K = {{ b: 'index' }}; \
+             type Read<T> = {{ readonly [P in keyof T]: T[P] }}; \
+             type Part<T> = {{ [P in keyof T]?: T[P] }}; \
+             type Need<T> = {{ [P in keyof T]-?: T[P] }}; type Target = {context};"
+        );
+        let arena = tsr_core::Arena::new();
+        let parsed = tsr_parser::parse(&arena, &source);
+        assert!(parsed.diagnostics.is_empty(), "{source}");
+        let bound = tsr_binder::bind(
+            &arena,
+            parsed.source_file,
+            &parsed.nodes,
+            tsr_binder::FileInfo { name: "t.ts", text: &source },
+        );
+        let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+        checker.apply_compiler_options(&tsr_core::CompilerOptions {
+            strict: tsr_core::Tristate::from_bool(strict),
+            exact_optional_property_types: tsr_core::Tristate::from_bool(exact),
+            ..Default::default()
+        });
+        let mut aliases = std::collections::BTreeMap::new();
+        for index in 0..parsed.nodes.len() {
+            let id = NodeId::new(u32::try_from(index).unwrap());
+            if let Some(Node::TypeAliasDeclaration(alias)) = parsed.node_map.get(id)
+                && let Some(symbol) = bound.symbol_of(id)
+            {
+                aliases.insert(alias.name.unwrap().text, symbol);
+            }
+        }
+        let target = checker.get_declared_type_of_symbol(aliases["Target"]);
+        let value = checker.get_declared_type_of_symbol(aliases["V"]);
+        let index = checker.get_declared_type_of_symbol(aliases["K"]);
+        run(&mut checker, target, value, index);
+    }
+
+    fn leaves(checker: &Checker<'_, '_>, ty: TypeId) -> Vec<TypeId> {
+        let mut result = match &checker.store.get(ty).data {
+            TypeData::Union { types, .. } => {
+                types.iter().flat_map(|&part| leaves(checker, part)).collect()
+            }
+            _ => vec![ty],
+        };
+        result.sort_by_key(|ty| ty.index());
+        result
+    }
+
+    #[test]
+    fn concrete_context_removes_only_exact_optional_missing() {
+        // Native getTypeOfConcretePropertyOfContextualType removes missing,
+        // not undefined. Asymmetric V/K shapes expose accidental index fallback.
+        for (strict, exact) in [(true, true), (true, false), (false, false)] {
+            for (context, explicit_undefined, optional) in [
+                ("{ x: V }", false, false),
+                ("{ x?: V }", false, true),
+                ("{ x?: V | undefined }", true, true),
+                ("{ x: V | undefined }", true, false),
+                ("{ [P in 'x']?: V }", false, true),
+                ("{ [P in 'x']?: V | undefined }", true, true),
+                ("Read<{ x?: V }>", false, true),
+                ("Read<{ x?: V | undefined }>", true, true),
+                ("{ x?: V } & { [s: string]: K }", false, true),
+                ("{ [s: string]: K } & { x?: V }", false, true),
+                ("{ x?: V | undefined } & { [s: string]: K }", true, true),
+                ("{ [s: string]: K } & { x?: V | undefined }", true, true),
+                ("{ [s: string]: V | undefined }", true, false),
+            ] {
+                with_context(context, strict, exact, |checker, target, value, _| {
+                    let ordinary = checker.get_type_of_property_of_type(target, "x");
+                    let mut expected = vec![value];
+                    if strict && (explicit_undefined || (optional && !exact)) {
+                        expected.push(checker.intrinsics.undefined);
+                    }
+                    expected.sort_by_key(|ty| ty.index());
+                    for _ in 0..2 {
+                        let actual = checker.contextual_property_type(target, "x").unwrap();
+                        println!(
+                            "CONCRETE_CONTEXT {context} strict={strict} exact={exact} \
+                             ordinary={ordinary:?} reader={actual:?} leaves={:?}",
+                            leaves(checker, actual)
+                        );
+                        assert_eq!(leaves(checker, actual), expected, "{context}");
+                        assert_eq!(
+                            checker.get_type_of_property_of_type(target, "x"),
+                            ordinary,
+                            "ordinary read must remain unchanged: {context}"
+                        );
+                    }
+                });
+            }
+            for context in [
+                "{ x?: never }",
+                "{ x?: never } & { [s: string]: K }",
+                "{ [s: string]: K } & { x?: never }",
+            ] {
+                with_context(context, strict, exact, |checker, target, _, _| {
+                    let expected = if strict && !exact {
+                        checker.intrinsics.undefined
+                    } else {
+                        checker.intrinsics.never
+                    };
+                    assert_eq!(checker.contextual_property_type(target, "x"), Some(expected));
+                });
+            }
+            for context in ["{ x?: undefined }", "{ x: undefined }", "{ [s: string]: undefined }"] {
+                with_context(context, strict, exact, |checker, target, _, _| {
+                    assert_eq!(
+                        checker.contextual_property_type(target, "x"),
+                        Some(checker.intrinsics.undefined),
+                        "{context}"
+                    );
+                });
+            }
+        }
+    }
+
+    #[test]
+    fn concrete_context_optionality_follows_the_ordinary_reader() {
+        for context in ["{ x: V }", "{ x?: V }"] {
+            with_context(context, true, true, |checker, target, value, _| {
+                let missing_value = checker.get_union_type(&[value, checker.intrinsics.missing]);
+                // Instantiated synthetic metadata beats both the mapped
+                // sidecar and syntax. Uninstantiated metadata is not a supplier.
+                for instantiated in [false, true] {
+                    for synthetic_optional in [false, true] {
+                        for mapped_optional in [None, Some(false), Some(true)] {
+                            checker.anonymous_properties.insert(
+                                target,
+                                (
+                                    vec![crate::objects::AnonymousProperty {
+                                        accessor_write: None,
+                                        method: false,
+                                        origin: None,
+                                        name: "x".into(),
+                                        printed_name: "x".into(),
+                                        printed_type: "V".into(),
+                                        optional: synthetic_optional,
+                                        readonly: false,
+                                        r#type: missing_value,
+                                    }],
+                                    instantiated,
+                                ),
+                            );
+                            checker
+                                .mapped_identity_optionality
+                                .insert(target, (mapped_optional, None));
+                            let ordinary =
+                                checker.get_type_of_property_of_type(target, "x").unwrap();
+                            let actual = checker.contextual_property_type(target, "x").unwrap();
+                            let mut expected = vec![value];
+                            if instantiated && !synthetic_optional {
+                                expected.push(checker.intrinsics.missing);
+                            } else if !instantiated && mapped_optional == Some(true) {
+                                // The mapped optional-add supplier still adds
+                                // genuine undefined; this reader must retain it.
+                                expected.push(checker.intrinsics.undefined);
+                            }
+                            expected.sort_by_key(|ty| ty.index());
+                            assert_eq!(leaves(checker, actual), expected);
+                            assert_eq!(
+                                checker.get_type_of_property_of_type(target, "x"),
+                                Some(ordinary)
+                            );
+                        }
+                    }
+                }
+            });
+        }
+    }
+
+    #[test]
+    fn concrete_context_retains_mapped_supplier_boundaries() {
+        // These are retained defects, not native parity: optional-add supplies
+        // real undefined, and optional-remove loses real undefined before us.
+        for (context, retains_undefined) in
+            [("Part<{ x: V }>", true), ("Need<{ x?: V | undefined }>", false)]
+        {
+            with_context(context, true, true, |checker, target, value, _| {
+                let ordinary = checker.get_type_of_property_of_type(target, "x").unwrap();
+                let actual = checker.contextual_property_type(target, "x").unwrap();
+                let mut expected = vec![value];
+                if retains_undefined {
+                    expected.push(checker.intrinsics.undefined);
+                }
+                expected.sort_by_key(|ty| ty.index());
+                assert_eq!(leaves(checker, actual), expected);
+                assert_eq!(actual, ordinary);
+            });
+        }
+        with_context("{ x?: undefined }", true, true, |checker, target, _, _| {
+            let ordinary = checker.get_type_of_property_of_type(target, "x").unwrap();
+            let mut expected = vec![checker.intrinsics.undefined, checker.intrinsics.missing];
+            expected.sort_by_key(|ty| ty.index());
+            assert_eq!(leaves(checker, ordinary), expected);
+            assert_eq!(
+                checker.contextual_property_type(target, "x"),
+                Some(checker.intrinsics.undefined)
+            );
+        });
+    }
 }
