@@ -133,12 +133,22 @@ source and gates are in `target/module-augmentation-wave43-post-rebase-evidence.
 
 Verified negation source `104b14fc`, its three scored gains, raw evidence and
 checkpoint draft are preserved on a separate local branch/stash, **not pushed**.
-It is now **HELD** for a separately reproduced augmented-spread counterexample:
+It is **HELD: unconditional adoption is rejected** by the independently replayed
+`tsr-e8y` augmented-spread counterexample on frozen worker `65d483c8`/native5b:
 native sees `{requiredToken:17}` and returns false; both Rust stages retain the
 same empty spread image, so the candidate changes native-correct false to boolean
-and adds a false TS2322 at `falsePin` (196/8). The worker is sealing controls;
-coordinator archive replay is pending. A stored complete-empty image does not
-certify native emptiness. No producer or broader consumer repair is reserved.
+and adds a false TS2322 at `falsePin` (196/8). Coordinator regeneration of all
+**576 Programs across 96 configurations** is byte-identical; all **13,946 payload
+hashes** pass before and after. The strict-null witness loses 64 unary results
+and 128 type payloads including readbacks, adding 16 falsePin occurrences.
+Ordinary nonempty strict-null results remain false; ordinary empty and loose-null
+controls improve to boolean (512 focused payload improvements, not corpus gains).
+All 384 before/after operands remain byte-identical. The archived `synthetic`
+property-image flag does not certify source completeness or native emptiness:
+Rust omits external augmentation before spread enumeration. Evidence is in
+`target/module-spread-wave32-evidence.tar.gz`; independent receipt is
+`target/e8y-coordinator-independent-replay.txt`. These are frozen-prefix findings,
+not a newer-prefix/full-corpus claim. No producer or broader consumer repair is reserved.
 Optional-add is also retained locally and unadopted. Both require a new audit on
 the corrected published prefix. JSDoc capture/registration remains unproved;
 rejected `lh1` is never integrated. The 99% task remains open.
