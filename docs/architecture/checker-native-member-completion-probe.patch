@@ -1,0 +1,392 @@
+--- a/internal/checker/checker.go
++++ b/internal/checker/checker.go
+@@ -579,0 +580 @@
++	memberCompletionProbe                       *memberCompletionProbe
+@@ -906,0 +908,3 @@
++	if memberCompletionProbeEnabled {
++		c.memberCompletionProbe = &memberCompletionProbe{rows: make(map[*Type]*memberCompletionRow)}
++	}
+@@ -2199,0 +2204,3 @@
++		if c.memberCompletionProbe != nil {
++			defer c.memberCompletionDump(sourceFile.FileName())
++		}
+@@ -19062,0 +19070,4 @@
++	if c.memberCompletionProbe != nil {
++		c.memberCompletionEnterQuery(t)
++		defer c.memberCompletionReturnQuery(t)
++	}
+@@ -19091,0 +19103,3 @@
++	if c.memberCompletionProbe != nil {
++		defer c.memberCompletionBegin(t, "class")()
++	}
+@@ -19095,0 +19110,3 @@
++	if c.memberCompletionProbe != nil {
++		defer c.memberCompletionBegin(t, "reference")()
++	}
+@@ -19102,0 +19120,3 @@
++	if c.memberCompletionProbe != nil {
++		c.memberCompletionReference(t, source, typeParameters, typeArguments, paddedTypeArguments)
++	}
+@@ -19106,0 +19127,3 @@
++	if c.memberCompletionProbe != nil {
++		defer c.memberCompletionBegin(t, "object")()
++	}
+@@ -19199,0 +19223,3 @@
++		if c.memberCompletionProbe != nil {
++			c.memberCompletionReset(t)
++		}
+@@ -19614,0 +19641,3 @@
++		if c.memberCompletionProbe != nil {
++			c.memberCompletionRow(t).DeclaredWorkers++
++		}
+@@ -20650,0 +20680,3 @@
++	if c.memberCompletionProbe != nil {
++		defer c.memberCompletionBegin(t, "anonymous")()
++	}
+@@ -20894,0 +20927,3 @@
++	if c.memberCompletionProbe != nil {
++		defer c.memberCompletionBegin(t, "mapped")()
++	}
+@@ -21052,0 +21088,3 @@
++	if c.memberCompletionProbe != nil {
++		defer c.memberCompletionBegin(t, "union")()
++	}
+@@ -21302,0 +21341,3 @@
++	if c.memberCompletionProbe != nil {
++		defer c.memberCompletionBegin(t, "intersection")()
++	}
+@@ -25165,0 +25207,3 @@
++	if c.memberCompletionProbe != nil {
++		c.memberCompletionPublish(t)
++	}
+@@ -26718,0 +26763,3 @@
++	if c.memberCompletionProbe != nil {
++		c.memberCompletionKey(t, key)
++	}
+--- a/internal/checker/inference.go
++++ b/internal/checker/inference.go
+@@ -1099,0 +1100,3 @@
++	if c.memberCompletionProbe != nil {
++		defer c.memberCompletionBegin(t, "reverse_mapped")()
++	}
+--- /dev/null
++++ b/internal/checker/member_completion_probe.go
+@@ -0,0 +1,185 @@
++package checker
++
++// Temporary observer. It never answers a semantic query or forces type/member
++// resolution. Checker-local pointers are observation keys, not shared caches.
++import (
++	"encoding/json"
++	"fmt"
++	"os"
++	"slices"
++)
++
++var memberCompletionProbeEnabled = os.Getenv("TSGO_MEMBER_COMPLETION_PROBE") == "1"
++
++type memberCompletionRow struct {
++	ID                 TypeId                      `json:"id"`
++	Owner              uint32                      `json:"owner"`
++	TypeOwner          uint32                      `json:"type_owner"`
++	Name               string                      `json:"name"`
++	Alias              string                      `json:"alias"`
++	Flags              TypeFlags                   `json:"flags"`
++	ObjectFlags        ObjectFlags                 `json:"object_flags"`
++	Queries            int                         `json:"queries"`
++	FinalFlagHits      int                         `json:"final_flag_hits"`
++	ActiveFlagHits     int                         `json:"active_flag_hits"`
++	UnresolvedFlagHits int                         `json:"unresolved_flag_hits"`
++	ActiveMisses       int                         `json:"active_misses"`
++	Workers            map[string]int              `json:"workers"`
++	DeclaredWorkers    int                         `json:"declared_workers"`
++	Publications       []memberCompletionView      `json:"publications"`
++	Returns            []memberCompletionReturn    `json:"returns"`
++	References         []memberCompletionReference `json:"references"`
++	KeyRequests        []memberCompletionKey       `json:"key_requests"`
++	ResetCalls         int                         `json:"reset_calls"`
++	ResolvedResets     int                         `json:"resolved_resets"`
++	ActiveDepth        int                         `json:"active_depth"`
++	FinalView          memberCompletionView        `json:"final_view"`
++}
++type memberCompletionView struct {
++	Epoch       int      `json:"epoch"`
++	ActiveDepth int      `json:"active_depth"`
++	Resolved    bool     `json:"resolved"`
++	Unresolved  bool     `json:"unresolved"`
++	Names       []string `json:"names"`
++	Calls       int      `json:"calls"`
++	Constructs  int      `json:"constructs"`
++	Indexes     int      `json:"indexes"`
++}
++type memberCompletionReturn struct {
++	Epoch      int  `json:"epoch"`
++	Active     bool `json:"active"`
++	Resolved   bool `json:"resolved"`
++	Unresolved bool `json:"unresolved"`
++	Properties int  `json:"properties"`
++	Count      int  `json:"count"`
++}
++type memberCompletionReference struct {
++	Target       TypeId   `json:"target"`
++	Parameters   []TypeId `json:"parameters"`
++	Arguments    []TypeId `json:"arguments"`
++	Padded       []TypeId `json:"padded"`
++	ThisAppended bool     `json:"this_appended"`
++}
++type memberCompletionKey struct {
++	Include    TypeFlags `json:"include"`
++	Origin     bool      `json:"origin"`
++	Unresolved bool      `json:"unresolved"`
++	Active     bool      `json:"active"`
++}
++type memberCompletionProbe struct {
++	rows map[*Type]*memberCompletionRow
++}
++
++func (c *Checker) memberCompletionRow(t *Type) *memberCompletionRow {
++	p := c.memberCompletionProbe
++	r := p.rows[t]
++	if r == nil {
++		r = &memberCompletionRow{ID: t.id, Owner: c.id, Flags: t.flags, Workers: map[string]int{}}
++		p.rows[t] = r
++	}
++	if t.symbol != nil {
++		r.Name = t.symbol.Name
++	}
++	if t.alias != nil && t.alias.symbol != nil {
++		r.Alias = t.alias.symbol.Name
++	}
++	if t.checker != nil {
++		r.TypeOwner = t.checker.id
++	}
++	r.ObjectFlags = t.objectFlags
++	return r
++}
++func (c *Checker) memberCompletionView(t *Type) memberCompletionView {
++	r := c.memberCompletionRow(t)
++	d := t.AsStructuredType()
++	v := memberCompletionView{Epoch: len(r.Publications), ActiveDepth: r.ActiveDepth,
++		Resolved:   t.objectFlags&ObjectFlagsMembersResolved != 0,
++		Unresolved: t.objectFlags&ObjectFlagsUnresolvedMembers != 0,
++		Calls:      d.callSignatureCount, Constructs: len(d.signatures) - d.callSignatureCount,
++		Indexes: len(d.indexInfos), Names: []string{}}
++	for _, prop := range d.properties {
++		v.Names = append(v.Names, prop.Name)
++	}
++	return v
++}
++func (c *Checker) memberCompletionEnterQuery(t *Type) {
++	r := c.memberCompletionRow(t)
++	r.Queries++
++	if t.objectFlags&ObjectFlagsMembersResolved != 0 {
++		if r.ActiveDepth != 0 {
++			r.ActiveFlagHits++
++		} else {
++			r.FinalFlagHits++
++		}
++		if t.objectFlags&ObjectFlagsUnresolvedMembers != 0 {
++			r.UnresolvedFlagHits++
++		}
++	} else if r.ActiveDepth != 0 {
++		r.ActiveMisses++
++	}
++}
++func (c *Checker) memberCompletionReturnQuery(t *Type) {
++	r := c.memberCompletionRow(t)
++	v := c.memberCompletionView(t)
++	q := memberCompletionReturn{Epoch: v.Epoch, Active: r.ActiveDepth != 0,
++		Resolved: v.Resolved, Unresolved: v.Unresolved, Properties: len(v.Names), Count: 1}
++	if len(r.Returns) > 0 {
++		last := &r.Returns[len(r.Returns)-1]
++		if last.Epoch == q.Epoch && last.Active == q.Active && last.Resolved == q.Resolved && last.Unresolved == q.Unresolved && last.Properties == q.Properties {
++			last.Count++
++			return
++		}
++	}
++	r.Returns = append(r.Returns, q)
++}
++func (c *Checker) memberCompletionBegin(t *Type, kind string) func() {
++	r := c.memberCompletionRow(t)
++	r.Workers[kind]++
++	r.ActiveDepth++
++	return func() { r.ActiveDepth--; r.FinalView = c.memberCompletionView(t) }
++}
++func (c *Checker) memberCompletionPublish(t *Type) {
++	r := c.memberCompletionRow(t)
++	v := c.memberCompletionView(t)
++	v.Epoch++
++	r.Publications = append(r.Publications, v)
++}
++func (c *Checker) memberCompletionReference(t, target *Type, parameters, arguments, padded []*Type) {
++	ids := func(types []*Type) []TypeId {
++		result := make([]TypeId, len(types))
++		for i, t := range types {
++			result[i] = t.id
++		}
++		return result
++	}
++	r := c.memberCompletionRow(t)
++	r.References = append(r.References, memberCompletionReference{target.id, ids(parameters), ids(arguments), ids(padded), len(padded) > len(arguments)})
++}
++func (c *Checker) memberCompletionKey(t *Type, key PropertiesTypesKey) {
++	r := c.memberCompletionRow(t)
++	r.KeyRequests = append(r.KeyRequests, memberCompletionKey{key.include, key.includeOrigin, key.unresolvedMembers, r.ActiveDepth != 0})
++}
++func (c *Checker) memberCompletionReset(t *Type) {
++	r := c.memberCompletionRow(t)
++	r.ResetCalls++
++	if t.objectFlags&ObjectFlagsMembersResolved != 0 {
++		r.ResolvedResets++
++	}
++}
++func (c *Checker) memberCompletionDump(file string) {
++	rows := make([]*memberCompletionRow, 0, len(c.memberCompletionProbe.rows))
++	for t, r := range c.memberCompletionProbe.rows {
++		r.ObjectFlags = t.objectFlags
++		rows = append(rows, r)
++	}
++	slices.SortFunc(rows, func(a, b *memberCompletionRow) int { return int(a.ID) - int(b.ID) })
++	data, err := json.Marshal(struct {
++		Owner uint32                 `json:"owner"`
++		File  string                 `json:"file"`
++		Rows  []*memberCompletionRow `json:"rows"`
++	}{c.id, file, rows})
++	if err != nil {
++		panic(err)
++	}
++	fmt.Fprintf(os.Stderr, "MEMBER_COMPLETION %s\n", data)
++}
+--- /dev/null
++++ b/internal/checker/member_completion_controls_test.go
+@@ -0,0 +1,130 @@
++package checker
++
++// These are synthetic internal API-state controls, not CLI workload counts.
++// They build legal low-level containers with pre-resolved declaration tables;
++// no claim is made that a public source naturally reaches each injected state.
++import (
++	"github.com/microsoft/typescript-go/internal/ast"
++	"slices"
++	"testing"
++)
++
++func mcChecker() *Checker {
++	c := &Checker{id: 1, memberCompletionProbe: &memberCompletionProbe{rows: map[*Type]*memberCompletionRow{}}}
++	c.compareSymbols = c.compareSymbolsWorker
++	return c
++}
++func mcProperty(name string) *ast.Symbol {
++	return &ast.Symbol{Name: name, Flags: ast.SymbolFlagsProperty}
++}
++func mcNames(d *StructuredType) []string {
++	out := []string{}
++	for _, s := range d.properties {
++		out = append(out, s.Name)
++	}
++	return out
++}
++func mcRequire(t *testing.T, ok bool, message string) {
++	t.Helper()
++	if !ok {
++		t.Fatal(message)
++	}
++}
++
++func TestMemberCompletionPublishedViews(t *testing.T) {
++	c := mcChecker()
++	obj := c.newObjectType(ObjectFlagsAnonymous, nil)
++	// Artificial builder depth is observation metadata, not a native builder.
++	finish := c.memberCompletionBegin(obj, "synthetic-state")
++	c.setStructuredTypeMembers(obj, nil, nil, nil, nil)
++	empty := c.resolveStructuredTypeMembers(obj)
++	mcRequire(t, len(empty.properties) == 0, "active published empty is readable")
++	r := c.memberCompletionRow(obj)
++	mcRequire(t, r.ActiveFlagHits == 1 && r.FinalFlagHits == 0, "resolved bit during active publication is not a final-state read")
++	own := mcProperty("own")
++	obj.objectFlags |= ObjectFlagsUnresolvedMembers
++	c.setStructuredTypeMembers(obj, ast.SymbolTable{"own": own}, nil, nil, nil)
++	provisional := c.resolveStructuredTypeMembers(obj)
++	mcRequire(t, slices.Equal(mcNames(provisional), []string{"own"}), "provisional own-member view is visible")
++	mcRequire(t, r.UnresolvedFlagHits == 1, "unresolved inheritance remains distinct")
++	base := mcProperty("base")
++	call, construct := &Signature{}, &Signature{}
++	index := &IndexInfo{}
++	obj.objectFlags &^= ObjectFlagsUnresolvedMembers
++	c.setStructuredTypeMembers(obj, ast.SymbolTable{"own": own, "base": base}, []*Signature{call}, []*Signature{construct}, []*IndexInfo{index})
++	finish()
++	final := c.resolveStructuredTypeMembers(obj)
++	mcRequire(t, slices.Equal(mcNames(final), []string{"base", "own"}), "final publication installs the full sorted view")
++	mcRequire(t, final.members["own"] == own && final.members["base"] == base, "publication preserves symbol identity")
++	mcRequire(t, len(final.signatures) == 2 && final.callSignatureCount == 1 && final.signatures[0] == call && final.signatures[1] == construct && final.indexInfos[0] == index, "signatures and indexes are part of the view")
++	mcRequire(t, empty == final && provisional == final, "native returned structured view is mutable, not an immutable snapshot")
++	mcRequire(t, r.FinalFlagHits == 1 && r.Workers["anonymous"] == 0, "reads of published states do not re-run an anonymous worker")
++	completedEmpty := c.newAnonymousType(nil, nil, nil, nil, nil)
++	c.resolveStructuredTypeMembers(completedEmpty)
++	er := c.memberCompletionRow(completedEmpty)
++	mcRequire(t, er.FinalFlagHits == 1 && er.ActiveFlagHits == 0 && len(completedEmpty.AsStructuredType().properties) == 0, "completed empty must remain distinct from active empty")
++}
++
++func TestMemberCompletionBaseResetAndRebuild(t *testing.T) {
++	c := mcChecker()
++	s := &ast.Symbol{Name: "MC_Interface", Flags: ast.SymbolFlagsInterface}
++	obj := c.newObjectType(ObjectFlagsInterface, s)
++	d := obj.AsInterfaceType()
++	own := mcProperty("own")
++	d.declaredMembersResolved = true
++	d.declaredMembers = ast.SymbolTable{"own": own}
++	// Inject a partial publication before bases have resolved. This exercises
++	// the real getBaseTypes reset; it does not model a complete source program.
++	c.setStructuredTypeMembers(obj, nil, nil, nil, nil)
++	c.resolveStructuredTypeMembers(obj)
++	c.getBaseTypes(obj)
++	r := c.memberCompletionRow(obj)
++	mcRequire(t, d.baseTypesResolved && obj.objectFlags&ObjectFlagsMembersResolved == 0, "actual base resolution resets a previously published member view")
++	mcRequire(t, r.ResolvedResets == 1 && r.ResetCalls == 1, "observe actual reset, not just an unconditionally reached reset line")
++	rebuilt := c.resolveStructuredTypeMembers(obj)
++	mcRequire(t, slices.Equal(mcNames(rebuilt), []string{"own"}) && rebuilt.members["own"] == own, "next read must execute the builder and install declared members")
++	mcRequire(t, r.Workers["class"] == 1 && r.Workers["object"] == 1, "class wrapper and nested object are one builder path")
++	for range 16 {
++		c.resolveStructuredTypeMembers(obj)
++	}
++	mcRequire(t, r.Workers["class"] == 1 && r.Workers["object"] == 1 && r.FinalFlagHits == 17, "completed repeated reads do not repeat builder work")
++	mcRequire(t, len(c.typeResolutions) == 0, "base resolution balances its resolution stack")
++}
++
++func TestMemberCompletionReferenceArgumentsAndThis(t *testing.T) {
++	c := mcChecker()
++	s := &ast.Symbol{Name: "MC_Generic", Flags: ast.SymbolFlagsInterface}
++	target := c.newObjectType(ObjectFlagsInterface, s)
++	d := target.AsInterfaceType()
++	p, q, this := c.newTypeParameter(nil), c.newTypeParameter(nil), c.newTypeParameter(nil)
++	d.allTypeParameters = []*Type{p, q, this}
++	d.declaredMembersResolved, d.baseTypesResolved = true, true
++	d.instantiations = map[CacheHashKey]*Type{}
++	number := c.newIntrinsicType(TypeFlagsNumber, "number")
++	str := c.newIntrinsicType(TypeFlagsString, "string")
++	a := c.createTypeReference(target, []*Type{number, str})
++	same := c.createTypeReference(target, []*Type{number, str})
++	reversed := c.createTypeReference(target, []*Type{str, number})
++	mcRequire(t, a == same && a != reversed, "ordered concrete arguments control native reference identity")
++	c.resolveStructuredTypeMembers(a)
++	for range 16 {
++		c.resolveStructuredTypeMembers(a)
++	}
++	c.resolveStructuredTypeMembers(reversed)
++	r := c.memberCompletionRow(a)
++	mcRequire(t, r.Workers["reference"] == 1 && r.Workers["object"] == 1 && r.FinalFlagHits == 16, "one concrete reference completion then completed reads")
++	ref := r.References[0]
++	mcRequire(t, slices.Equal(ref.Arguments, []TypeId{number.id, str.id}) && slices.Equal(ref.Padded, []TypeId{number.id, str.id, a.id}) && ref.ThisAppended, "reference builder appends the concrete receiver this")
++	other := c.memberCompletionRow(reversed).References[0]
++	mcRequire(t, slices.Equal(other.Padded, []TypeId{str.id, number.id, reversed.id}), "different ordered arguments retain a distinct receiver")
++	clone := c.cloneTypeReference(a)
++	mcRequire(t, clone != a && clone.objectFlags&ObjectFlagsMembersResolved == 0 && clone.Target() == target && slices.Equal(clone.AsTypeReference().resolvedTypeArguments, a.AsTypeReference().resolvedTypeArguments), "native clone preserves arguments/target but clears resolved member state")
++	c.resolveStructuredTypeMembers(clone)
++	mcRequire(t, c.memberCompletionRow(clone).Workers["reference"] == 1, "a cloned unresolved reference must build its own view")
++	foreignChecker := mcChecker()
++	var foreign *Type
++	for range c.TypeCount {
++		foreign = foreignChecker.newObjectType(ObjectFlagsAnonymous, nil)
++	}
++	mcRequire(t, foreign.id == clone.id && foreign.checker != clone.checker, "equal numeric TypeIds still belong to distinct private checker domains")
++}
