@@ -1,11 +1,16 @@
 """Controls for accepting benchmark evidence, including per-child resource use."""
 
 from pathlib import Path
+import json
+import os
+import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
-from whole_project_perf import diagnostics, file_identity, option_differences, process
+from benchmark_inputs import load_manifest, snapshot, valid_snapshot
+from whole_project_perf import ROOT, diagnostics, file_identity, option_differences, process, revision
 
 
 class BenchmarkEvidenceTests(unittest.TestCase):
@@ -97,6 +102,243 @@ class BenchmarkEvidenceTests(unittest.TestCase):
         sample = process([sys.executable, "-c", "import time; time.sleep(10)"], Path.cwd(), 0.1)
         self.assertTrue(sample["timed_out"])
         self.assertLess(sample["exit_code"], 0)
+
+
+class InputEvidenceTests(unittest.TestCase):
+    def test_manifest_fifo_is_rejected_without_reading(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "manifest-pipe"
+            os.mkfifo(path)
+            with self.assertRaises(OSError):
+                load_manifest(path, Path(directory))
+
+    def test_capture_errors_invalidate_observation_instead_of_becoming_missing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "source.ts"
+            path.touch()
+            with patch("benchmark_inputs.file_hash", side_effect=PermissionError("unreadable")):
+                rows = snapshot([str(path)])
+            self.assertEqual(rows[0]["kind"], "file")
+            self.assertIn("unreadable", rows[0]["error"])
+            self.assertFalse(valid_snapshot(rows))
+
+    def test_scratch_drivers_can_load_harness_without_scripts_on_sys_path(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = ("import runpy; "
+                      f"h = runpy.run_path({str(ROOT / 'scripts/whole_project_perf.py')!r}); "
+                      "assert callable(h['process']); assert callable(h['inputs'].snapshot)")
+            result = subprocess.run([sys.executable, "-c", source], cwd=directory,
+                                    capture_output=True, text=True, timeout=10,
+                                    env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"})
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_manifest_preserves_logical_paths_and_requires_provenance(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest = root / "inputs.json"
+            value = {"schema_version": 1, "paths": ["link.ts", "./link.ts"],
+                     "provenance": {"source_sha": "native-pin", "producer": "query probe"}}
+            manifest.write_text(json.dumps(value))
+            paths, evidence = load_manifest(manifest, root)
+            self.assertEqual(paths, sorted([str(root / "link.ts"), str(root) + "/./link.ts"]))
+            self.assertEqual(evidence["coverage"], "caller-supplied observed paths; partial")
+            value.pop("provenance")
+            manifest.write_text(json.dumps(value))
+            with self.assertRaises(ValueError):
+                load_manifest(manifest, root)
+
+    def test_symlink_parent_and_file_dot_segments_keep_filesystem_meaning(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "target" / "nested").mkdir(parents=True)
+            (root / "target" / "value.ts").write_text("target value")
+            (root / "value.ts").write_text("different root value")
+            (root / "alias").symlink_to("target/nested", target_is_directory=True)
+            spelling = "alias/../value.ts"
+            identity = file_identity(spelling, root)
+            self.assertEqual(identity, str(root) + "/" + spelling)
+            row = snapshot([identity])[0]
+            self.assertEqual(row["realpath"], os.path.realpath(root / "target" / "value.ts"))
+            self.assertEqual(row["sha256"], snapshot([str(root / "target" / "value.ts")])[0]["sha256"])
+            self.assertNotEqual(row["sha256"], snapshot([str(root / "value.ts")])[0]["sha256"])
+            for suffix in ("/.", "/"):
+                invalid = str(root / "value.ts") + suffix
+                self.assertEqual(snapshot([invalid])[0]["kind"], "missing")
+
+    def test_each_resolution_input_mutation_changes_observation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest = root / "package.json"
+            extended = root / "extended.json"
+            missing = root / "candidate.ts"
+            real = root / "real.ts"
+            alternate = root / "other.ts"
+            link = root / "link.ts"
+            for path in (manifest, extended, real, alternate):
+                path.write_text("same bytes")
+            link.symlink_to(real.name)
+            for label, paths, mutate in (
+                ("manifest", [manifest], lambda: manifest.write_text("new bytes")),
+                ("missing candidate", [missing], lambda: missing.write_text("export {}")),
+                ("symlink", [link], lambda: (link.unlink(), link.symlink_to(alternate.name))),
+                ("extended config", [extended], lambda: extended.write_text("new config")),
+                ("directory addition", [root], lambda: (root / "entry.ts").touch()),
+                ("directory removal", [root], lambda: (root / "entry.ts").unlink()),
+            ):
+                with self.subTest(label=label):
+                    before = snapshot([str(path) for path in paths])
+                    self.assertTrue(valid_snapshot(before))
+                    mutate()
+                    after = snapshot([str(path) for path in paths])
+                    self.assertTrue(valid_snapshot(after))
+                    self.assertNotEqual(before, after)
+
+    def test_missing_kind_and_symlinked_parent_remain_observable(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "one").mkdir()
+            (root / "two").mkdir()
+            (root / "alias").symlink_to("one", target_is_directory=True)
+            name = str(root / "alias" / "missing.ts")
+            before = snapshot([name])
+            self.assertEqual(before[0]["kind"], "missing")
+            self.assertEqual(before[0]["symlinks"][-1]["target"], "one")
+            (root / "alias").unlink()
+            (root / "alias").symlink_to("two", target_is_directory=True)
+            self.assertNotEqual(before, snapshot([name]))
+
+    def test_fifo_and_broken_link_are_not_read_as_source_bytes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fifo = root / "pipe"
+            os.mkfifo(fifo)
+            (root / "broken").symlink_to("missing")
+            rows = snapshot([str(fifo), str(root / "broken")])
+            self.assertTrue(valid_snapshot(rows))
+            by_path = {row["path"]: row for row in rows}
+            self.assertEqual(by_path[str(fifo)]["kind"], "other")
+            self.assertNotIn("sha256", by_path[str(fifo)])
+            self.assertEqual(by_path[str(root / "broken")]["kind"], "missing")
+            self.assertTrue(by_path[str(root / "broken")]["symlinks"])
+
+    def run_harness(self, root, mutation="", warmups=0, require_comparable=False,
+                    listed_path="main.ts", config_fifo=False):
+        project = root / "project"
+        project.mkdir()
+        (project / "tsconfig.json").write_text('{"extends":"./extended.json"}')
+        (project / "extended.json").write_text("{}")
+        (project / "package.json").write_text('{"types":"index.ts"}')
+        (project / "main.ts").write_text("export const x = 1;")
+        (project / "other.ts").write_text("export const x = 1;")
+        (project / "link.ts").symlink_to("main.ts")
+        (project / "entries").mkdir()
+        (project / "entries" / "existing.ts").touch()
+        if config_fifo:
+            (project / "tsconfig.json").unlink()
+            os.mkfifo(project / "tsconfig.json")
+        if listed_path == "pipe":
+            os.mkfifo(project / "pipe")
+        binary = root / "compiler"
+        binary.write_text(
+            f"#!{sys.executable}\n"
+            "import json, pathlib, sys\n"
+            f"p = pathlib.Path({str(project)!r})\n"
+            "if '--showConfig' in sys.argv:\n"
+            " print(json.dumps({'compilerOptions': {'noEmit': True}}))\n"
+            "elif '--listFilesOnly' in sys.argv:\n"
+            f" print(p / {listed_path!r})\n"
+            "else:\n"
+            f" {mutation or 'pass'}\n"
+            " print('main.ts(1,1): error TS2322: intentional control')\n"
+            " sys.exit(1)\n"
+        )
+        binary.chmod(0o755)
+        manifest = root / "inputs.json"
+        manifest.write_text(json.dumps({
+            "schema_version": 1,
+            "provenance": {"source_sha": revision(ROOT), "producer": "public mutation fixture"},
+            "paths": ["package.json", "extended.json", "missing.ts", "link.ts", "entries"],
+        }))
+        output = root / "report.json"
+        command = [sys.executable, str(ROOT / "scripts/whole_project_perf.py"),
+                   "--project", str(project / "tsconfig.json"), "--tsr", str(binary),
+                   "--tsgo", str(binary), "--input-manifest", str(manifest),
+                   "--samples", "1", "--warmups", str(warmups), "--output", str(output)]
+        if require_comparable:
+            command.append("--require-comparable")
+        result = subprocess.run(command, capture_output=True, text=True, timeout=15,
+                                env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"})
+        self.assertTrue(output.exists(), result.stderr)
+        return result, json.loads(output.read_text())
+
+    def test_loaded_special_file_is_rejected_without_reading_it(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result, report = self.run_harness(Path(directory), listed_path="pipe")
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertEqual(report["status"], "invalid_loaded_inputs")
+            self.assertFalse(report["target_verified"])
+            self.assertIsNone(report["verified_wall_ratio"])
+
+    def test_special_config_is_rejected_before_launching_a_compiler(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result, report = self.run_harness(Path(directory), config_fifo=True)
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertEqual(report["status"], "invalid_inputs")
+            self.assertEqual(report["input_observations"], [])
+            self.assertFalse(report["target_verified"])
+
+    def test_cli_rejects_all_mutations_and_preserves_failed_sample(self):
+        mutations = {
+            "manifest": "(p / 'package.json').write_text('{}')",
+            "missing": "(p / 'missing.ts').write_text('export {}')",
+            "symlink": "(p / 'link.ts').unlink(); (p / 'link.ts').symlink_to('other.ts')",
+            "extended": "(p / 'extended.json').write_text('{\"compilerOptions\":{}}')",
+            "directory add": "(p / 'entries' / 'new.ts').touch()",
+            "directory remove": "(p / 'entries' / 'existing.ts').unlink()",
+            "root config": "(p / 'tsconfig.json').write_text('{}')",
+            "binary": "pathlib.Path(sys.argv[0]).write_text('# modified compiler')",
+        }
+        for label, mutation in mutations.items():
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as directory:
+                result, report = self.run_harness(Path(directory), mutation)
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertEqual(report["status"], "inputs_changed")
+                self.assertFalse(report["inputs_unchanged"])
+                self.assertFalse(report["target_verified"])
+                self.assertIsNone(report["verified_wall_ratio"])
+                self.assertEqual(len(report["tools"]["tsr"]["samples"]), 1)
+                self.assertFalse(report["rejected_measurement"]["input_validation"]["stable"])
+                self.assertEqual(report["rejected_measurement"]["diagnostics"]["count"], 1)
+
+    def test_warmup_input_change_cannot_disappear_before_timing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result, report = self.run_harness(
+                Path(directory), "(p / 'package.json').write_text('{}')", warmups=1)
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertEqual(report["tools"]["tsr"]["samples"], [])
+            self.assertIn("rejected_measurement", report)
+            self.assertFalse(report["target_verified"])
+
+    def test_partial_inputs_and_loaded_scope_cannot_verify_speed(self):
+        for require_comparable in (False, True):
+            with self.subTest(require_comparable=require_comparable), tempfile.TemporaryDirectory() as directory:
+                result, report = self.run_harness(Path(directory), require_comparable=require_comparable)
+                self.assertEqual(result.returncode, int(require_comparable), result.stderr)
+                self.assertEqual(report["status"], "completed")
+                self.assertTrue(report["inputs_unchanged"])
+                self.assertTrue(report["scope_match"])
+                self.assertTrue(report["options_match"])
+                self.assertTrue(report["diagnostics_match"])
+                self.assertFalse(report["complete_input_equivalence_verified"])
+                self.assertFalse(report["actual_checked_work_verified"])
+                self.assertFalse(report["work_comparable"])
+                self.assertIsNone(report["verified_wall_ratio"])
+                self.assertFalse(report["target_verified"])
+                samples = [tool["samples"][0] for tool in report["tools"].values()]
+                self.assertNotEqual(samples[0]["pid"], samples[1]["pid"])
+                self.assertTrue(all(sample["input_validation"]["stable"] for sample in samples))
+                self.assertTrue(all(sample["input_validation"]["before_capture_seconds"] >= 0
+                                    for sample in samples))
 
 
 if __name__ == "__main__":

@@ -2,13 +2,14 @@
 """Measure fresh CLI processes; keep mismatched work visible (bd tsr-1yb.1).
 
 Build both compilers first. This POSIX harness measures child CPU/RSS with wait4,
-not cumulative RUSAGE_CHILDREN, and never reads or writes incremental build info.
+not cumulative RUSAGE_CHILDREN. Compiler invocations disable incremental/composite reuse.
 """
 
 from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import math
 import os
@@ -23,8 +24,11 @@ import tempfile
 import threading
 import time
 
-
 ROOT = Path(__file__).resolve().parents[1]
+INPUT_SPEC = importlib.util.spec_from_file_location(
+    "benchmark_inputs", Path(__file__).with_name("benchmark_inputs.py"))
+inputs = importlib.util.module_from_spec(INPUT_SPEC)
+INPUT_SPEC.loader.exec_module(inputs)
 DIAGNOSTIC = re.compile(r"(?:error|warning) TS\d+:")
 DIAGNOSTIC_START = re.compile(r"^(?:.+\(\d+,\d+\): )?(?:error|warning) TS\d+:")
 ANSI_CSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
@@ -114,10 +118,8 @@ def file_identity(name: str, cwd: Path) -> str:
     if (name.startswith("bundled:///libs/") or "/typescript-go/internal/bundled/libs/" in name) \
             and re.fullmatch(r"lib\.[\w.]+\.d\.ts", base):
         return "<typescript-lib>/" + base
-    path = Path(name)
-    absolute = path if path.is_absolute() else cwd / path
     # Keep logical paths: distinct symlink identities can affect module semantics.
-    return os.path.normpath(str(absolute))
+    return inputs.path_identity(name, cwd)
 
 
 def input_fingerprint(names: list[str]) -> str:
@@ -125,7 +127,7 @@ def input_fingerprint(names: list[str]) -> str:
     for name in sorted(set(names)):
         digest.update(name.encode())
         if not name.startswith("<typescript-lib>/"):
-            digest.update(Path(name).read_bytes())
+            digest.update(bytes.fromhex(inputs.file_hash(name)))
     return digest.hexdigest()
 
 
@@ -162,6 +164,8 @@ def main() -> int:
     parser.add_argument("--timeout", type=float, default=120)
     parser.add_argument("--mode", choices=("default", "single"), default="default")
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--input-manifest", type=Path,
+                        help="source-qualified JSON paths observed by resolver/config/host queries")
     parser.add_argument("--require-comparable", action="store_true")
     args = parser.parse_args()
     if args.samples < 1 or args.warmups < 0 or args.timeout <= 0:
@@ -173,17 +177,45 @@ def main() -> int:
              "--composite", "false", "--pretty", "false"]
     if args.mode == "single":
         flags += ["--singleThreaded", "true"]
+    query_paths, manifest = inputs.load_manifest(args.input_manifest, cwd)
+    input_paths = sorted({str(project), *query_paths, *(str(p) for p in binaries.values())})
+    if args.input_manifest is not None:
+        input_paths.append(str(args.input_manifest.resolve(strict=True)))
+    capture_started = time.perf_counter()
+    reference_inputs = inputs.snapshot(input_paths)
+    setup_capture_seconds = time.perf_counter() - capture_started
+    initial_by_path = {row["path"]: row for row in reference_inputs}
+    required_files_valid = all(initial_by_path[str(path)].get("kind") == "file"
+                               for path in (project, *binaries.values()))
     report = {
-        "schema_version": 1, "source_sha": revision(ROOT),
+        "schema_version": 2, "source_sha": revision(ROOT),
         "oracle_sha": revision(ROOT / "vendor/typescript-go"),
         "project_sha": revision(cwd), "project": str(project),
-        "project_config_sha256": hashlib.sha256(project.read_bytes()).hexdigest(),
+        "project_config_sha256": initial_by_path[str(project)].get("sha256"),
         "machine": {"platform": platform.platform(), "cpu_count": os.cpu_count(),
                     "load_average": list(os.getloadavg())},
         "mode": args.mode, "flags": flags, "target_wall_ratio": 0.5,
         "cache_state": "fresh compiler processes, warmed filesystem; incremental/composite disabled",
         "tools": {}, "pairs": [],
+        "status": "in_progress", "work_comparable": False,
+        "verified_wall_ratio": None, "target_verified": False,
+        "input_manifest": manifest, "input_observations": [],
+        "input_setup_capture_seconds": setup_capture_seconds,
+        "input_discovery_observations": [],
+        "harness_sha256": {name: inputs.file_hash(ROOT / "scripts" / name)
+                           for name in ("whole_project_perf.py", "benchmark_inputs.py")},
+        "complete_input_equivalence_verified": False,
+        "actual_checked_work_verified": False,
+        "input_limits": [
+            "Query paths are caller-supplied; absent or partial capture cannot prove complete inputs.",
+            "Bundled library bytes, environment and unobserved queries are not covered.",
+            "Before/after snapshots cannot detect all transient changes between observations.",
+            "Fingerprinting runs outside child timing and warms OS caches.",
+        ],
     }
+    if manifest["provided"]:
+        manifest["source_matches_harness_checkout"] = (
+            manifest["provenance"]["source_sha"] == report["source_sha"])
 
     def save() -> None:
         args.output.parent.mkdir(parents=True, exist_ok=True)
@@ -192,9 +224,76 @@ def main() -> int:
         temporary.replace(args.output)
         assert json.loads(args.output.read_text()) == report
 
+    def input_check(rows: list[dict]) -> dict:
+        return {"fingerprint": fingerprint(rows), "path_count": len(rows),
+                "valid": inputs.valid_snapshot(rows),
+                "matches_reference": rows == reference_inputs,
+                "kind_counts": {kind: sum(row.get("kind") == kind for row in rows)
+                                for kind in ("file", "directory", "missing", "other")}}
+
+    def controlled_process(command: list[str]) -> dict | None:
+        started = time.perf_counter()
+        before = inputs.snapshot(input_paths)
+        before_seconds = time.perf_counter() - started
+        event = {"command": command, "before": input_check(before),
+                 "before_capture_seconds": before_seconds}
+        if not inputs.valid_snapshot(before) or before != reference_inputs:
+            event["stable"] = False
+            report["input_observations"].append(event)
+            report.update(status="inputs_changed", inputs_unchanged=False)
+            save()
+            return None
+        measurement = process(command, cwd, args.timeout)
+        started = time.perf_counter()
+        after = inputs.snapshot(input_paths)
+        event.update(after=input_check(after), after_capture_seconds=time.perf_counter() - started,
+                     pid=measurement["pid"],
+                     stable=inputs.valid_snapshot(after) and after == reference_inputs)
+        report["input_observations"].append(event)
+        measurement["input_validation"] = event
+        if not event["stable"]:
+            report.update(status="inputs_changed", inputs_unchanged=False)
+        save()
+        return measurement
+
+    def extend_inputs(additional: list[str]) -> bool:
+        nonlocal input_paths, reference_inputs
+        previous = {row["path"]: row for row in reference_inputs}
+        input_paths = sorted({*input_paths, *additional})
+        started = time.perf_counter()
+        extended = inputs.snapshot(input_paths)
+        report["input_discovery_observations"].append({
+            "capture_seconds": time.perf_counter() - started,
+            "path_count": len(extended), "valid": inputs.valid_snapshot(extended),
+        })
+        if not inputs.valid_snapshot(extended) or any(row != previous[row["path"]]
+                                              for row in extended if row["path"] in previous):
+            report.update(status="inputs_changed", inputs_unchanged=False)
+            save()
+            return False
+        kinds = {row["path"]: row.get("kind") for row in extended}
+        if any(kinds[path] != "file" for path in additional):
+            report.update(status="invalid_loaded_inputs", inputs_unchanged=False)
+            save()
+            return False
+        reference_inputs = extended
+        report["input_reference"] = input_check(reference_inputs)
+        save()
+        return True
+
+    if not inputs.valid_snapshot(reference_inputs) or not required_files_valid:
+        report.update(status="invalid_inputs", inputs_unchanged=False)
+        save()
+        return 1
+    report["input_reference"] = input_check(reference_inputs)
+    save()
     for name, binary in binaries.items():
-        config = process([str(binary), *flags, "--showConfig"], cwd, args.timeout)
-        listing = process([str(binary), *flags, "--listFilesOnly"], cwd, args.timeout)
+        config = controlled_process([str(binary), *flags, "--showConfig"])
+        if config is None or not config["input_validation"]["stable"]:
+            return 1
+        listing = controlled_process([str(binary), *flags, "--listFilesOnly"])
+        if listing is None or not listing["input_validation"]["stable"]:
+            return 1
         if config["exit_code"] != 0 or listing["exit_code"] != 0:
             raise RuntimeError(f"{name} preflight failed: {config['stdout']} {listing['stdout']} {listing['stderr']}")
         if DIAGNOSTIC.search(listing["stdout"]):
@@ -202,14 +301,17 @@ def main() -> int:
         names = [file_identity(line, cwd) for line in listing["stdout"].splitlines() if line.strip()]
         if not names:
             raise RuntimeError(f"{name} did not load any files")
+        if not extend_inputs([path for path in names if not path.startswith("<typescript-lib>/")]):
+            return 1
         report["tools"][name] = {
-            "binary": str(binary), "binary_sha256": hashlib.sha256(binary.read_bytes()).hexdigest(),
+            "binary": str(binary), "binary_sha256": inputs.file_hash(binary),
             "effective_config": json.loads(config["stdout"]), "loaded_files": sorted(names),
             "loaded_file_count": len(names), "loaded_files_fingerprint": fingerprint(sorted(names)),
             "input_fingerprint": input_fingerprint(names),
             "samples": [],
         }
         save()
+    # After discovery, every full check uses the same union of both tools' paths.
     ours, theirs = report["tools"]["tsr"], report["tools"]["tsgo"]
     report["scope_difference"] = {
         "tsr_only": sorted(set(ours["loaded_files"]) - set(theirs["loaded_files"])),
@@ -219,11 +321,17 @@ def main() -> int:
     for index in range(args.warmups + args.samples):
         order = ("tsr", "tsgo") if index % 2 == 0 else ("tsgo", "tsr")
         for name in order:
-            measurement = process([str(binaries[name]), *flags], cwd, args.timeout)
+            measurement = controlled_process([str(binaries[name]), *flags])
+            if measurement is None:
+                return 1
             measurement["diagnostics"] = diagnostics(measurement.pop("stdout"), cwd)
             if index >= args.warmups:
                 report["tools"][name]["samples"].append(measurement)
                 save()  # Preserve every measurement before running another process.
+            if not measurement["input_validation"]["stable"]:
+                report["rejected_measurement"] = measurement
+                save()
+                return 1
             print(f"{name}: {measurement['wall_seconds']:.3f}s, exit {measurement['exit_code']}, "
                   f"{measurement['diagnostics']['count']} diagnostics", file=sys.stderr, flush=True)
             if measurement["timed_out"] or measurement["exit_code"] not in (0, 1, 2):
@@ -246,13 +354,23 @@ def main() -> int:
     )
     report["scope_match"] = ours["loaded_files_fingerprint"] == theirs["loaded_files_fingerprint"]
     report["options_match"] = not report["option_differences"]
-    report["inputs_unchanged"] = all(tool["input_fingerprint"] == input_fingerprint(tool["loaded_files"])
-                                      for tool in report["tools"].values())
+    report["inputs_unchanged"] = all(event["stable"] for event in report["input_observations"])
     report["work_comparable"] = (report["scope_match"] and report["options_match"]
-                                 and report["diagnostics_stable"] and report["inputs_unchanged"])
+                                 and report["diagnostics_stable"] and report["diagnostics_match"]
+                                 and report["inputs_unchanged"]
+                                 and report["complete_input_equivalence_verified"]
+                                 and report["actual_checked_work_verified"])
+    report["comparability_reasons"] = [
+        "Complete cross-tool query-input coverage is unverified.",
+        "Actual performed checker work and worker budgets are unverified.",
+    ]
+    for field in ("scope_match", "options_match", "diagnostics_stable", "diagnostics_match"):
+        if not report[field]:
+            report["comparability_reasons"].append(f"{field} is false.")
     report["observed_wall_ratio"] = ours["summary"]["wall_seconds"]["median"] / theirs["summary"]["wall_seconds"]["median"]
     report["verified_wall_ratio"] = report["observed_wall_ratio"] if report["work_comparable"] else None
     report["target_verified"] = report["work_comparable"] and report["diagnostics_match"] and report["observed_wall_ratio"] <= 0.5
+    report["status"] = "completed"
     save()
     print(json.dumps({key: report[key] for key in (
         "observed_wall_ratio", "verified_wall_ratio", "scope_match", "options_match",

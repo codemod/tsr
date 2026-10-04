@@ -1,0 +1,556 @@
+{
+  "kind": "benchmark input-validation prerequisite; no production speed claim",
+  "task": "tsr-1yb.1.2.1",
+  "followup": "tsr-1yb.1.2.2",
+  "implementation_base": "148024b827d2aa6895e80c66cbb82df205f12e29",
+  "harness_sha256": {
+    "whole_project_perf.py": "1edde2a6f3c2470cbf1424174f0f92fae38998921b988a3e09564a345856a274",
+    "benchmark_inputs.py": "e7f00da2f543c052acae782619c685acb559eba7005f4de52483ca4244596aa2"
+  },
+  "validated_harness_sha256": {
+    "whole_project_perf.py": "1edde2a6f3c2470cbf1424174f0f92fae38998921b988a3e09564a345856a274",
+    "benchmark_inputs.py": "e7f00da2f543c052acae782619c685acb559eba7005f4de52483ca4244596aa2"
+  },
+  "validation_delta": "Exact delivered harness/helper bytes match all three final validation reports.",
+  "oracle_sha": "5b1047d10d32e7d5b446be4de56b126ff42f82bb",
+  "compiler_identity_limit": "Frozen CJS candidate from measured9c176c03 source/patch and prebuilt pinned native. These are protocol/scale controls, not current-source throughput.",
+  "tests": {
+    "benchmark": 23,
+    "all_scripts": 30,
+    "passed": true
+  },
+  "mutations_rejected": [
+    "manifest bytes",
+    "missing candidate creation",
+    "symlink retarget",
+    "extended config",
+    "root config",
+    "directory addition",
+    "directory removal",
+    "compiler replacement",
+    "warmup mutation"
+  ],
+  "filesystem_controls": [
+    "ancestor symlinks",
+    "symlink parent traversal",
+    "file dot/trailing separator",
+    "FIFO not read",
+    "special manifest/config/loaded paths rejected",
+    "capture errors invalidate"
+  ],
+  "runs": [
+    {
+      "workload": "public-smoke-default",
+      "mode": "default",
+      "schema_version": 2,
+      "report_sha256": "260b901ed9c291b8178cb88281fe728416cd84d5d999a191766e3ca4039cb75b",
+      "scope_match": true,
+      "options_match": true,
+      "diagnostics_match": true,
+      "input_reference": {
+        "fingerprint": "e4b032784a2ef09d4eb98aed8dbee36b82ba8ebace0063446d68c17906c171e3",
+        "path_count": 10,
+        "valid": true,
+        "matches_reference": true,
+        "kind_counts": {
+          "file": 7,
+          "directory": 1,
+          "missing": 2,
+          "other": 0
+        }
+      },
+      "input_setup_capture_seconds": 0.017381791985826567,
+      "discovery_capture_seconds": [
+        0.01628129099844955,
+        0.01647008300642483
+      ],
+      "child_observations": 16,
+      "capture_seconds": [
+        {
+          "before_capture_seconds": 0.016595958004472777,
+          "after_capture_seconds": 0.016620249982224777
+        },
+        {
+          "before_capture_seconds": 0.016807916021207348,
+          "after_capture_seconds": 0.017035917000612244
+        },
+        {
+          "before_capture_seconds": 0.016709832998458296,
+          "after_capture_seconds": 0.016596834000665694
+        },
+        {
+          "before_capture_seconds": 0.01628366598743014,
+          "after_capture_seconds": 0.016996333026327193
+        },
+        {
+          "before_capture_seconds": 0.016277625021757558,
+          "after_capture_seconds": 0.017075416981242597
+        },
+        {
+          "before_capture_seconds": 0.016066042007878423,
+          "after_capture_seconds": 0.016938333021244034
+        },
+        {
+          "before_capture_seconds": 0.016331166989402846,
+          "after_capture_seconds": 0.017008125025313348
+        },
+        {
+          "before_capture_seconds": 0.01652154201292433,
+          "after_capture_seconds": 0.017153749999124557
+        },
+        {
+          "before_capture_seconds": 0.016388374991947785,
+          "after_capture_seconds": 0.01703583399648778
+        },
+        {
+          "before_capture_seconds": 0.01636820798739791,
+          "after_capture_seconds": 0.01697179098846391
+        },
+        {
+          "before_capture_seconds": 0.016787457978352904,
+          "after_capture_seconds": 0.01704166698618792
+        },
+        {
+          "before_capture_seconds": 0.01643412499106489,
+          "after_capture_seconds": 0.017481458984548226
+        },
+        {
+          "before_capture_seconds": 0.01590962501359172,
+          "after_capture_seconds": 0.01756391700473614
+        },
+        {
+          "before_capture_seconds": 0.01658187501016073,
+          "after_capture_seconds": 0.017320332990493625
+        },
+        {
+          "before_capture_seconds": 0.016561208001803607,
+          "after_capture_seconds": 0.017040500009898096
+        },
+        {
+          "before_capture_seconds": 0.016365749994292855,
+          "after_capture_seconds": 0.017398374999174848
+        }
+      ],
+      "tools": {
+        "tsr": {
+          "binary_sha256": "690f03f2a4a3e555f5acdd10be8822f664e5b9a2f2317dd6f4d27fedb014805f",
+          "sample_count": 5,
+          "loaded_count": 66,
+          "loaded_fingerprint": "3477a2b92d3731e9207462bc7adf49d7b159dbb787bd6cd41e4263dbe5c3e359",
+          "diagnostics_count": 1,
+          "diagnostics_fingerprint": "9fc515626559dfaa5b3dfc1eb0b2df44c9b33a5c1cb79ba1ba3c256e50332735",
+          "samples": [
+            {
+              "pid": 97713,
+              "wall_seconds": 0.029654250014573336,
+              "user_seconds": 0.024891,
+              "system_seconds": 0.0034219999999999997,
+              "peak_rss_bytes": 30277632,
+              "exit_code": 1,
+              "timed_out": false
+            },
+            {
+              "pid": 97714,
+              "wall_seconds": 0.029559874994447455,
+              "user_seconds": 0.024784999999999998,
+              "system_seconds": 0.003434,
+              "peak_rss_bytes": 30277632,
+              "exit_code": 1,
+              "timed_out": false
+            },
+            {
+              "pid": 97717,
+              "wall_seconds": 0.029790250002406538,
+              "user_seconds": 0.024873,
+              "system_seconds": 0.00359,
+              "peak_rss_bytes": 30277632,
+              "exit_code": 1,
+              "timed_out": false
+            },
+            {
+              "pid": 97718,
+              "wall_seconds": 0.030072958004893735,
+              "user_seconds": 0.024796,
+              "system_seconds": 0.003985,
+              "peak_rss_bytes": 30277632,
+              "exit_code": 1,
+              "timed_out": false
+            },
+            {
+              "pid": 97721,
+              "wall_seconds": 0.030122249998385087,
+              "user_seconds": 0.024922999999999997,
+              "system_seconds": 0.003776,
+              "peak_rss_bytes": 30277632,
+              "exit_code": 1,
+              "timed_out": false
+            }
+          ]
+        },
+        "tsgo": {
+          "binary_sha256": "118d4efb63e59af858d6d0f5a718a8d2809d9f5551303a62caa5be3d5364c7ce",
+          "sample_count": 5,
+          "loaded_count": 66,
+          "loaded_fingerprint": "3477a2b92d3731e9207462bc7adf49d7b159dbb787bd6cd41e4263dbe5c3e359",
+          "diagnostics_count": 1,
+          "diagnostics_fingerprint": "9fc515626559dfaa5b3dfc1eb0b2df44c9b33a5c1cb79ba1ba3c256e50332735",
+          "samples": [
+            {
+              "pid": 97712,
+              "wall_seconds": 0.021493624983122572,
+              "user_seconds": 0.037364,
+              "system_seconds": 0.009403,
+              "peak_rss_bytes": 47579136,
+              "exit_code": 1,
+              "timed_out": false
+            },
+            {
+              "pid": 97715,
+              "wall_seconds": 0.022699249995639548,
+              "user_seconds": 0.034894999999999995,
+              "system_seconds": 0.009522,
+              "peak_rss_bytes": 47497216,
+              "exit_code": 1,
+              "timed_out": false
+            },
+            {
+              "pid": 97716,
+              "wall_seconds": 0.022455707978224382,
+              "user_seconds": 0.03574,
+              "system_seconds": 0.010823,
+              "peak_rss_bytes": 47759360,
+              "exit_code": 1,
+              "timed_out": false
+            },
+            {
+              "pid": 97719,
+              "wall_seconds": 0.022625708021223545,
+              "user_seconds": 0.036948,
+              "system_seconds": 0.011901,
+              "peak_rss_bytes": 47726592,
+              "exit_code": 1,
+              "timed_out": false
+            },
+            {
+              "pid": 97720,
+              "wall_seconds": 0.022451458004070446,
+              "user_seconds": 0.035706999999999996,
+              "system_seconds": 0.010832999999999999,
+              "peak_rss_bytes": 47792128,
+              "exit_code": 1,
+              "timed_out": false
+            }
+          ]
+        }
+      },
+      "verified_wall_ratio": null,
+      "target_verified": false
+    },
+    {
+      "workload": "public-smoke-single",
+      "mode": "single",
+      "schema_version": 2,
+      "report_sha256": "4eb2f277ff591a91fa466b149b73d89f0f4aafc087de5026e537a386e257c49c",
+      "scope_match": true,
+      "options_match": true,
+      "diagnostics_match": true,
+      "input_reference": {
+        "fingerprint": "e4b032784a2ef09d4eb98aed8dbee36b82ba8ebace0063446d68c17906c171e3",
+        "path_count": 10,
+        "valid": true,
+        "matches_reference": true,
+        "kind_counts": {
+          "file": 7,
+          "directory": 1,
+          "missing": 2,
+          "other": 0
+        }
+      },
+      "input_setup_capture_seconds": 0.017999333009356633,
+      "discovery_capture_seconds": [
+        0.016989708004985005,
+        0.016750332986703143
+      ],
+      "child_observations": 16,
+      "capture_seconds": [
+        {
+          "before_capture_seconds": 0.017648542008828372,
+          "after_capture_seconds": 0.01741512501030229
+        },
+        {
+          "before_capture_seconds": 0.016467582987388596,
+          "after_capture_seconds": 0.017506249976577237
+        },
+        {
+          "before_capture_seconds": 0.016860000003362074,
+          "after_capture_seconds": 0.01729045799584128
+        },
+        {
+          "before_capture_seconds": 0.016867708007339388,
+          "after_capture_seconds": 0.017481416987720877
+        },
+        {
+          "before_capture_seconds": 0.016842500015627593,
+          "after_capture_seconds": 0.01766279200091958
+        },
+        {
+          "before_capture_seconds": 0.01684374999604188,
+          "after_capture_seconds": 0.01733591698575765
+        },
+        {
+          "before_capture_seconds": 0.01715550001244992,
+          "after_capture_seconds": 0.017531209014123306
+        },
+        {
+          "before_capture_seconds": 0.017084166000131518,
+          "after_capture_seconds": 0.017692041001282632
+        },
+        {
+          "before_capture_seconds": 0.01735983300022781,
+          "after_capture_seconds": 0.017543292022310197
+        },
+        {
+          "before_capture_seconds": 0.017009500006679446,
+          "after_capture_seconds": 0.0173669169889763
+        },
+        {
+          "before_capture_seconds": 0.017331832990748808,
+          "after_capture_seconds": 0.017638249992160127
+        },
+        {
+          "before_capture_seconds": 0.01685870799701661,
+          "after_capture_seconds": 0.017523916001664475
+        },
+        {
+          "before_capture_seconds": 0.016862833028426394,
+          "after_capture_seconds": 0.01788508301251568
+        },
+        {
+          "before_capture_seconds": 0.016936708008870482,
+          "after_capture_seconds": 0.01773650001268834
+        },
+        {
+          "before_capture_seconds": 0.017185958015033975,
+          "after_capture_seconds": 0.01746333300252445
+        },
+        {
+          "before_capture_seconds": 0.01680591597687453,
+          "after_capture_seconds": 0.01771475002169609
+        }
+      ],
+      "tools": {
+        "tsr": {
+          "binary_sha256": "690f03f2a4a3e555f5acdd10be8822f664e5b9a2f2317dd6f4d27fedb014805f",
+          "sample_count": 5,
+          "loaded_count": 66,
+          "loaded_fingerprint": "3477a2b92d3731e9207462bc7adf49d7b159dbb787bd6cd41e4263dbe5c3e359",
+          "diagnostics_count": 1,
+          "diagnostics_fingerprint": "9fc515626559dfaa5b3dfc1eb0b2df44c9b33a5c1cb79ba1ba3c256e50332735",
+          "samples": [
+            {
+              "pid": 97778,
+              "wall_seconds": 0.030696791014634073,
+              "user_seconds": 0.025535,
+              "system_seconds": 0.0036279999999999997,
+              "peak_rss_bytes": 30277632,
+              "exit_code": 1,
+              "timed_out": false
+            },
+            {
+              "pid": 97779,
+              "wall_seconds": 0.030345916020451114,
+              "user_seconds": 0.025292,
+              "system_seconds": 0.003622,
+              "peak_rss_bytes": 30277632,
+              "exit_code": 1,
+              "timed_out": false
+            },
+            {
+              "pid": 97782,
+              "wall_seconds": 0.030852666997816414,
+              "user_seconds": 0.025495999999999998,
+              "system_seconds": 0.003887,
+              "peak_rss_bytes": 30277632,
+              "exit_code": 1,
+              "timed_out": false
+            },
+            {
+              "pid": 97783,
+              "wall_seconds": 0.030673459026729688,
+              "user_seconds": 0.025549,
+              "system_seconds": 0.0037549999999999997,
+              "peak_rss_bytes": 30277632,
+              "exit_code": 1,
+              "timed_out": false
+            },
+            {
+              "pid": 97786,
+              "wall_seconds": 0.030704916978720576,
+              "user_seconds": 0.025373,
+              "system_seconds": 0.003931,
+              "peak_rss_bytes": 30277632,
+              "exit_code": 1,
+              "timed_out": false
+            }
+          ]
+        },
+        "tsgo": {
+          "binary_sha256": "118d4efb63e59af858d6d0f5a718a8d2809d9f5551303a62caa5be3d5364c7ce",
+          "sample_count": 5,
+          "loaded_count": 66,
+          "loaded_fingerprint": "3477a2b92d3731e9207462bc7adf49d7b159dbb787bd6cd41e4263dbe5c3e359",
+          "diagnostics_count": 1,
+          "diagnostics_fingerprint": "9fc515626559dfaa5b3dfc1eb0b2df44c9b33a5c1cb79ba1ba3c256e50332735",
+          "samples": [
+            {
+              "pid": 97777,
+              "wall_seconds": 0.024453541002003476,
+              "user_seconds": 0.024423999999999998,
+              "system_seconds": 0.005987,
+              "peak_rss_bytes": 43335680,
+              "exit_code": 1,
+              "timed_out": false
+            },
+            {
+              "pid": 97780,
+              "wall_seconds": 0.024800042010610923,
+              "user_seconds": 0.024648999999999997,
+              "system_seconds": 0.0060149999999999995,
+              "peak_rss_bytes": 43139072,
+              "exit_code": 1,
+              "timed_out": false
+            },
+            {
+              "pid": 97781,
+              "wall_seconds": 0.024983999988762662,
+              "user_seconds": 0.024988,
+              "system_seconds": 0.006277,
+              "peak_rss_bytes": 43515904,
+              "exit_code": 1,
+              "timed_out": false
+            },
+            {
+              "pid": 97784,
+              "wall_seconds": 0.025092167023103684,
+              "user_seconds": 0.025096,
+              "system_seconds": 0.006235999999999999,
+              "peak_rss_bytes": 43483136,
+              "exit_code": 1,
+              "timed_out": false
+            },
+            {
+              "pid": 97785,
+              "wall_seconds": 0.024930124985985458,
+              "user_seconds": 0.024186,
+              "system_seconds": 0.006081,
+              "peak_rss_bytes": 43450368,
+              "exit_code": 1,
+              "timed_out": false
+            }
+          ]
+        }
+      },
+      "verified_wall_ratio": null,
+      "target_verified": false
+    },
+    {
+      "workload": "private-app-scale",
+      "mode": "default",
+      "schema_version": 2,
+      "report_sha256": "be8e3b6b5763cca873c0c5c544415efcbebae354070cfd6fc988320a707f7ce4",
+      "scope_match": false,
+      "options_match": false,
+      "diagnostics_match": false,
+      "input_reference": {
+        "fingerprint": "941378d2acab40593d6913e41d78923936e5ee20669c155d961b9ed14141c4b7",
+        "path_count": 51022,
+        "valid": true,
+        "matches_reference": true,
+        "kind_counts": {
+          "file": 15411,
+          "directory": 3122,
+          "missing": 32489,
+          "other": 0
+        }
+      },
+      "input_setup_capture_seconds": 3.164694666978903,
+      "discovery_capture_seconds": [
+        2.8392889169917908,
+        3.0144747080048546
+      ],
+      "child_observations": 6,
+      "capture_seconds": [
+        {
+          "before_capture_seconds": 2.832725291023962,
+          "after_capture_seconds": 2.8906356249935925
+        },
+        {
+          "before_capture_seconds": 2.806353958992986,
+          "after_capture_seconds": 2.6362080829858314
+        },
+        {
+          "before_capture_seconds": 2.4864524170116056,
+          "after_capture_seconds": 2.898775250010658
+        },
+        {
+          "before_capture_seconds": 2.893173290998675,
+          "after_capture_seconds": 2.4827469589945395
+        },
+        {
+          "before_capture_seconds": 2.5507087919977494,
+          "after_capture_seconds": 2.984474708995549
+        },
+        {
+          "before_capture_seconds": 2.967923999996856,
+          "after_capture_seconds": 3.07324054199853
+        }
+      ],
+      "tools": {
+        "tsr": {
+          "binary_sha256": "690f03f2a4a3e555f5acdd10be8822f664e5b9a2f2317dd6f4d27fedb014805f",
+          "sample_count": 1,
+          "loaded_count": 14015,
+          "loaded_fingerprint": "c02e845aeb238b71a4b70367668ae5b63fb68a4bdeed249756cbcab9d1697c47",
+          "diagnostics_count": 122,
+          "diagnostics_fingerprint": "f9a1895331fa3bff9d931c478757cb788414bf33a32ce3dad582371b10759216",
+          "samples": [
+            {
+              "pid": 97589,
+              "wall_seconds": 4.25033604100463,
+              "user_seconds": 3.619668,
+              "system_seconds": 0.443486,
+              "peak_rss_bytes": 1097695232,
+              "exit_code": 1,
+              "timed_out": false
+            }
+          ]
+        },
+        "tsgo": {
+          "binary_sha256": "118d4efb63e59af858d6d0f5a718a8d2809d9f5551303a62caa5be3d5364c7ce",
+          "sample_count": 1,
+          "loaded_count": 14016,
+          "loaded_fingerprint": "6d242f2bfecf1c5814fc65ce113f6911717d1abf2f84a87283838c15aea0336a",
+          "diagnostics_count": 0,
+          "diagnostics_fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "samples": [
+            {
+              "pid": 97594,
+              "wall_seconds": 3.5315477080002893,
+              "user_seconds": 17.73664,
+              "system_seconds": 2.283808,
+              "peak_rss_bytes": 5319983104,
+              "exit_code": 0,
+              "timed_out": false
+            }
+          ]
+        }
+      },
+      "verified_wall_ratio": null,
+      "target_verified": false
+    }
+  ],
+  "native_target_verified": false,
+  "complete_input_equivalence_verified": false,
+  "actual_checked_work_verified": false,
+  "all_measured_pids_distinct": true
+}

@@ -39,20 +39,109 @@ Fresh process identity alone does not exclude persisted incremental reuse.
 The JSON contains every sample, medians, p95 and ranges, binary fingerprints,
 source/oracle/project revisions, effective configs, loaded-file identities, and
 diagnostic fingerprints. It persists each sample immediately. A timeout or an
-unsupported compiler invocation fails the run. Input contents are fingerprinted
-before and after sampling to catch source edits during the run.
+unsupported compiler invocation fails the run. Schema version 2 fingerprints
+observed input state before and after each child, including preflights and warmups.
+Capture time, including setup and loaded-path discovery observations, is
+recorded separately from child wall/CPU/RSS.
 
 `observed_wall_ratio` is always an observation. `verified_wall_ratio` is null
-when reported options, loaded-file lists, or stable inputs do not agree. Logical
-symlink paths remain distinct; only known bundled-library prefixes are normalized.
-`target_verified` additionally requires matching diagnostics and a ratio at most
-0.50. These checks do not yet prove all semantic work is equivalent: actual
-checked-file telemetry and full-corpus correctness verification are still required
-before the epic can close.
+until complete cross-tool input coverage and actual performed checker work are
+verified, as well as matching options, loaded scope and stable diagnostics.
+Logical symlink paths remain distinct; only known bundled-library prefixes are
+normalized. `target_verified` also requires matching diagnostics and a ratio at
+most 0.50. The current harness does not yet collect complete query coverage or
+actual checked-work/worker telemetry, so its verified ratio remains null even
+when the public smoke project's loaded lists and diagnostics agree. Full-corpus
+correctness verification is separately required before the epic can close.
 
-`--require-comparable` makes a mismatched-work run fail after saving its evidence.
-It is useful when wiring the harness into CI; it does not require matching
-diagnostics and cannot by itself prove the speed target has been met.
+`--require-comparable` fails after saving evidence when performed work is
+unverified. Until the missing coverage and worker controls are implemented, use
+reports as observations; this flag cannot currently produce a passing speed gate.
+
+## Resolver input manifests
+
+`bd tsr-1yb.1.2.1` adds `--input-manifest /tmp/inputs.json`. Supply paths from
+the actual config/host/resolver observations, including extended configs,
+queried package manifests, successful and failed file candidates, directories
+whose entries affect discovery, and relevant logical symlink paths. Relative
+names are interpreted against the project's config directory:
+
+```json
+{
+  "schema_version": 1,
+  "provenance": {
+    "source_sha": "full-source-revision-of-the-query-producer",
+    "producer": "source-qualified config/host/resolver query capture"
+  },
+  "paths": [
+    "tsconfig.base.json",
+    "node_modules/example/package.json",
+    "node_modules/example/missing.d.ts",
+    "node_modules/example",
+    "linked-package/index.ts"
+  ]
+}
+```
+
+Provenance is recorded caller metadata, not an attestation that paths are
+complete or that a binary was built from that revision. The report separately
+records the harness hashes, compiler binary hashes, flags, effective configs,
+source/oracle revisions and whether the declared producer revision matches the
+harness checkout. Include the query producer binary/patch hashes and capture
+command in provenance when using temporary instrumentation. Existing
+[resolver construction controls](resolver-construction-performance.md) export
+local observed-path rows; their `path` values can populate this format, keeping
+their original producer identity and partial-coverage limits.
+
+The harness always adds the root config, both compiler binaries, the manifest
+file and the union of physically listed loaded sources. Loaded paths join the
+reference after discovery; their state before that first observation is not
+proved. Every full check then validates the same union. Path spelling remains
+exact: `alias/../file` follows a symlink before its parent segment, while
+`file/.` and `file/` fail when `file` is regular. Lexical normalization would
+observe a different input. Files are streamed into
+SHA-256 hashes; missing/file/directory/other kinds remain distinct. Snapshots
+record realpaths, symlink spellings along logical ancestors, and directory
+entry names/kinds/link targets. Special files are not read. Snapshot errors
+invalidate evidence rather than masquerading as missing files. Schema 2's
+loaded-input digest uses per-file hashes and is not interchangeable with the
+older concatenated-byte digest.
+
+Keep the report outside observed directories: writing an artifact there changes
+their entries and correctly invalidates the run. A changed input stops sampling,
+saves the failed observation and any measured/rejected full-check sample, and
+leaves `target_verified` false. Warmup changes cannot be forgotten before timed
+samples start. Fingerprinting warms OS caches; it is not a cold-cache benchmark.
+
+All supplied manifests are reported as partial. Directory-entry capture does
+not recursively hash unqueried descendants. Bundled library bytes, environment,
+unobserved queries and transient changes between snapshots remain unproved.
+`complete_input_equivalence_verified` and `actual_checked_work_verified` remain
+false. Parent `bd tsr-1yb.1.2` still owns permanent cross-tool performed-work
+telemetry; `bd tsr-1yb.1.2.2` owns cross-tool query capture and its coverage
+proof; `bd tsr-1yb.1.1.1` owns CLI trace delivery. The tracked empty-suffix
+resolution defect `bd tsr-6.59` is also unaffected.
+
+Run the public controls with:
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
+  -s scripts -p test_whole_project_perf.py -v
+```
+
+They exercise manifest byte changes, missing candidate creation, symlink
+retargeting, extended/root config changes, directory additions/removals,
+compiler replacement and warmup mutations through real child processes. A
+matching loaded-list/options/diagnostics control verifies that incomplete work
+cannot pass `--require-comparable` or publish a verified ratio.
+
+The [sanitized validation receipt](benchmark-input-controls.json) records 30
+passing script tests, five alternating public pairs in each worker mode, and a
+single-pair private-app scale check. The app validates more than 51,000 observed
+paths, including directory entries, while retaining explicit partial coverage.
+The receipt uses the frozen CJS candidate and pinned native binaries; these runs
+validate the input protocol and reporting, and do not claim current-source
+throughput or progress against the native 0.50 target.
 
 ## First paired real-app baseline
 
