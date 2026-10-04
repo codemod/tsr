@@ -1,0 +1,985 @@
+diff --git a/crates/tsr-compiler/src/loader.rs b/crates/tsr-compiler/src/loader.rs
+index 6100f934..26d3275c 100644
+--- a/crates/tsr-compiler/src/loader.rs
++++ b/crates/tsr-compiler/src/loader.rs
+@@ -412,6 +412,7 @@ impl<'host, 'a> FileLoader<'host, 'a> {
+         host: &'host dyn ResolutionHost,
+         load_options: LoadOptions,
+     ) -> LoadedFiles<'a> {
++        let _origin = tsr_module::origin_probe::Scope::enter("loader");
+         let LoadOptions { compiler_options: options, root_file_names, default_library_path } =
+             load_options;
+         let load_started = options.extended_diagnostics.is_true().then(Instant::now);
+@@ -1095,6 +1096,7 @@ impl<'host, 'a> FileLoader<'host, 'a> {
+     /// not found, a file referencing itself. None of them is a resolution, so
+     /// none of them is visible in the oracle this slice is judged on.
+     fn source_file_from_reference(&self, file_name: &str, containing_file: &str) -> Option<String> {
++        let _origin = tsr_module::origin_probe::Scope::enter("root_or_path_reference");
+         let allow_non_ts_extensions = self.options.allow_non_ts_extensions.is_true();
+         let case_sensitive = self.host.fs().use_case_sensitive_file_names();
+ 
+@@ -1144,6 +1146,7 @@ impl<'host, 'a> FileLoader<'host, 'a> {
+ 
+     /// `fileLoader.loadSourceFileMetaData`.
+     fn load_source_file_meta_data(&self, file_name: &str) -> SourceFileMetaData {
++        let _origin = tsr_module::origin_probe::Scope::enter("source_metadata");
+         let scope = self.resolver.get_package_scope_for_path(get_directory_path(file_name));
+         let module_resolution = self.options.module_resolution_kind();
+ 
+diff --git a/crates/tsr-execute/src/compile.rs b/crates/tsr-execute/src/compile.rs
+index 5369a897..53128b51 100644
+--- a/crates/tsr-execute/src/compile.rs
++++ b/crates/tsr-execute/src/compile.rs
+@@ -107,6 +107,7 @@ pub fn run_compilation(
+     command_line: &ParsedCommandLine,
+     config_file_name: &str,
+ ) -> ExitStatus {
++    let _origin = tsr_vfs::origin_probe::Scope::enter("compilation");
+     let compilation_started = sys.since_start();
+     let current_directory = sys.current_directory().to_string();
+ 
+@@ -304,6 +305,7 @@ pub fn run_compilation(
+     let checker_initialized = sys.since_start();
+ 
+     let mut diagnostics: Vec<(String, Diagnostic)> = Vec::new();
++    let capture_scope = std::env::var_os("TSR_META_SCOPE").is_some();
+     let mut checked_file_count = 0;
+     if !options.no_check.is_true() {
+         for file in program.root_and_referenced_files() {
+@@ -333,6 +335,9 @@ pub fn run_compilation(
+             if options.skip_default_lib_check.is_true() && is_default_library(&program, file) {
+                 continue;
+             }
++            if capture_scope {
++                eprintln!("TSR_META_CHECKED\t{name}");
++            }
+             checker.check_source_file(
+                 id,
+                 tsr_checker::check::FileContext {
+@@ -344,6 +349,15 @@ pub fn run_compilation(
+         }
+     }
+     let checking_finished = sys.since_start();
++    if std::env::var_os("TSR_META_PROFILE").is_some() {
++        eprintln!("TSR_META_COUNTS\t{}", tsr_vfs::origin_probe::snapshot_json());
++        eprintln!("TSR_RESOLVE_CONSTRUCTION\t{}", tsr_vfs::origin_probe::construction_json());
++        if std::env::var_os("TSR_META_INPUT_PATHS").is_some() {
++            for path in tsr_vfs::origin_probe::input_paths() {
++                eprintln!("TSR_META_INPUT\t{path}");
++            }
++        }
++    }
+     if !options.no_check.is_true() {
+         for (file_id, diagnostic) in checker.diagnostics() {
+             if let Some(file) = program
+diff --git a/crates/tsr-execute/src/lib.rs b/crates/tsr-execute/src/lib.rs
+index 1132c528..ddce63d0 100644
+--- a/crates/tsr-execute/src/lib.rs
++++ b/crates/tsr-execute/src/lib.rs
+@@ -69,6 +69,7 @@ fn build_not_implemented(sys: &mut dyn System) -> ExitStatus {
+ /// command line with both `--project` and file names is rejected before either
+ /// is looked at.
+ fn tsc_compilation(sys: &mut dyn System, args: &[String]) -> ExitStatus {
++    let _origin = tsr_vfs::origin_probe::Scope::enter("cli_discovery");
+     let current_directory = sys.current_directory().to_string();
+     let command_line =
+         tsr_tsoptions::command_line::parse_command_line(args, sys.fs(), &current_directory);
+@@ -196,6 +197,7 @@ fn tsc_compilation(sys: &mut dyn System, args: &[String]) -> ExitStatus {
+ 
+ /// `findConfigFile` — the nearest `tsconfig.json` at or above `search_path`.
+ fn find_config_file(sys: &dyn System, search_path: &str) -> String {
++    let _origin = tsr_vfs::origin_probe::Scope::enter("config_ancestor");
+     for_each_ancestor_directory(search_path, |ancestor| {
+         let candidate = combine_paths(ancestor, &["tsconfig.json"]);
+         if sys.fs().file_exists(&candidate) { Some(candidate) } else { None }
+diff --git a/crates/tsr-module/src/lib.rs b/crates/tsr-module/src/lib.rs
+index 019f5988..1865d08e 100644
+--- a/crates/tsr-module/src/lib.rs
++++ b/crates/tsr-module/src/lib.rs
+@@ -9,3 +9,6 @@ pub mod resolver;
+ pub mod semver;
+ pub mod types;
+ pub mod util;
++
++// Temporary probe access through the compiler's existing module dependency.
++pub use tsr_vfs::origin_probe;
+diff --git a/crates/tsr-module/src/resolver.rs b/crates/tsr-module/src/resolver.rs
+index 07fd5b11..e28a15ef 100644
+--- a/crates/tsr-module/src/resolver.rs
++++ b/crates/tsr-module/src/resolver.rs
+@@ -215,6 +215,7 @@ impl<'host> Resolver<'host> {
+     /// baseline sanitiser exists precisely to make that unobservable.
+     #[must_use]
+     pub fn get_package_scope_for_path(&self, directory: &str) -> Option<Rc<PackageJsonInfo>> {
++        let _origin = tsr_vfs::origin_probe::Scope::enter("source_package_scope");
+         let mut state = ResolutionState::new(
+             self,
+             String::new(),
+@@ -244,11 +245,16 @@ impl<'host> Resolver<'host> {
+         containing_file: &str,
+         resolution_mode: ResolutionMode,
+     ) -> (ResolvedModule, Vec<Trace>) {
+-        let containing_directory = get_directory_path(containing_file).to_string();
++        let _origin = tsr_vfs::origin_probe::Scope::enter("module_query");
++        let containing_directory = tsr_vfs::origin_probe::text("request_directory", || {
++            get_directory_path(containing_file).to_string()
++        });
+         let tracing = self.compiler_options.trace_resolution == Tristate::True;
+         let cache_key = ModuleResolutionCacheKey {
+-            containing_directory: containing_directory.clone(),
+-            name: module_name.to_string(),
++            containing_directory: tsr_vfs::origin_probe::text("request_key_directory", || {
++                containing_directory.clone()
++            }),
++            name: tsr_vfs::origin_probe::text("request_key_name", || module_name.to_string()),
+             resolution_mode: resolution_mode as u8,
+         };
+         // Native bypasses query-cache reads when tracing, so each request still
+@@ -336,7 +342,10 @@ impl<'host> Resolver<'host> {
+     /// from its directory.
+     #[must_use]
+     pub fn resolve_config(&self, module_name: &str, containing_file: &str) -> ResolvedModule {
+-        let containing_directory = get_directory_path(containing_file).to_string();
++        let _origin = tsr_vfs::origin_probe::Scope::enter("config_module_query");
++        let containing_directory = tsr_vfs::origin_probe::text("request_directory", || {
++            get_directory_path(containing_file).to_string()
++        });
+         let mut state = ResolutionState::new(
+             self,
+             module_name.to_string(),
+@@ -358,13 +367,18 @@ impl<'host> Resolver<'host> {
+         containing_file: &str,
+         resolution_mode: ResolutionMode,
+     ) -> (ResolvedTypeReferenceDirective, Vec<Trace>) {
+-        let containing_directory = get_directory_path(containing_file).to_string();
++        let _origin = tsr_vfs::origin_probe::Scope::enter("type_reference_query");
++        let containing_directory = tsr_vfs::origin_probe::text("request_directory", || {
++            get_directory_path(containing_file).to_string()
++        });
+         let tracing = self.compiler_options.trace_resolution == Tristate::True;
+         let from_inferred_types_containing_file =
+             containing_file.ends_with(INFERRED_TYPES_CONTAINING_FILE);
+         let cache_key = TypeReferenceCacheKey {
+             request: ModuleResolutionCacheKey {
+-                containing_directory: containing_directory.clone(),
++                containing_directory: tsr_vfs::origin_probe::text("request_key_directory", || {
++                    containing_directory.clone()
++                }),
+                 name: type_reference_directive_name.to_string(),
+                 resolution_mode: resolution_mode as u8,
+             },
+@@ -477,18 +491,48 @@ impl<'a, 'host> ResolutionState<'a, 'host> {
+             ModuleResolutionKind::Node16 => (
+                 NodeResolutionFeatures::NODE16_DEFAULT,
+                 resolution_mode == ResolutionMode::ESNext,
+-                get_conditions(options, resolution_mode),
++                tsr_vfs::origin_probe::construction(
++                    "conditions",
++                    || get_conditions(options, resolution_mode),
++                    |values| {
++                        (
++                            values.iter().map(String::len).sum(),
++                            values.capacity() * std::mem::size_of::<String>()
++                                + values.iter().map(String::capacity).sum::<usize>(),
++                        )
++                    },
++                ),
+             ),
+             ModuleResolutionKind::NodeNext => (
+                 NodeResolutionFeatures::NODENEXT_DEFAULT,
+                 resolution_mode == ResolutionMode::ESNext,
+-                get_conditions(options, resolution_mode),
++                tsr_vfs::origin_probe::construction(
++                    "conditions",
++                    || get_conditions(options, resolution_mode),
++                    |values| {
++                        (
++                            values.iter().map(String::len).sum(),
++                            values.capacity() * std::mem::size_of::<String>()
++                                + values.iter().map(String::capacity).sum::<usize>(),
++                        )
++                    },
++                ),
+             ),
+             // Bundler never sets `esmMode`: it has no format split to detect.
+             ModuleResolutionKind::Bundler => (
+                 get_node_resolution_features(options),
+                 false,
+-                get_conditions(options, resolution_mode),
++                tsr_vfs::origin_probe::construction(
++                    "conditions",
++                    || get_conditions(options, resolution_mode),
++                    |values| {
++                        (
++                            values.iter().map(String::len).sum(),
++                            values.capacity() * std::mem::size_of::<String>()
++                                + values.iter().map(String::capacity).sum::<usize>(),
++                        )
++                    },
++                ),
+             ),
+             _ => (NodeResolutionFeatures::NONE, false, Vec::new()),
+         };
+@@ -590,8 +634,9 @@ impl<'a, 'host> ResolutionState<'a, 'host> {
+                 &[&containing_directory],
+             );
+             if is_external_module_name_relative(&self.name) {
+-                let candidate =
+-                    normalize_path_for_cjs_resolution(&containing_directory, &self.name.clone());
++                let candidate = tsr_vfs::origin_probe::text("relative_normalize", || {
++                    normalize_path_for_cjs_resolution(&containing_directory, &self.name.clone())
++                });
+                 self.node_load_module_by_relative_name(Extensions::DECLARATION, &candidate, true)
+             } else {
+                 self.load_module_from_nearest_node_modules_directory(false)
+@@ -624,6 +669,7 @@ impl<'a, 'host> ResolutionState<'a, 'host> {
+ 
+     /// `resolutionState.resolveFromTypeRoot`.
+     fn resolve_from_type_root(&mut self) -> Search {
++        let _origin = tsr_vfs::origin_probe::Scope::enter("type_root");
+         let Some(type_roots) = self.options().type_roots.clone() else {
+             return continue_searching();
+         };
+@@ -706,14 +752,16 @@ impl<'a, 'host> ResolutionState<'a, 'host> {
+ 
+     /// `resolutionState.resolveNodeLikeWorker`.
+     fn resolve_node_like_worker(&mut self) -> ResolvedModule {
++        let _interval = tsr_vfs::origin_probe::Interval::enter("inclusive.resolution_worker");
+         if let Some(resolved) = self.try_load_module_using_optional_resolution_settings() {
+             return self.create_resolved_module_handling_symlink(Some(resolved));
+         }
+ 
+         if is_external_module_name_relative(&self.name) {
+             let containing_directory = self.containing_directory.clone();
+-            let candidate =
+-                normalize_path_for_cjs_resolution(&containing_directory, &self.name.clone());
++            let candidate = tsr_vfs::origin_probe::text("relative_normalize", || {
++                normalize_path_for_cjs_resolution(&containing_directory, &self.name.clone())
++            });
+             let extensions = self.extensions;
+             let resolved = self.node_load_module_by_relative_name(extensions, &candidate, true);
+             let is_external =
+@@ -758,6 +806,7 @@ impl<'a, 'host> ResolutionState<'a, 'host> {
+ 
+     /// `resolutionState.loadModuleFromSelfNameReference`.
+     fn load_module_from_self_name_reference(&mut self) -> Search {
++        let _origin = tsr_vfs::origin_probe::Scope::enter("self_name");
+         let directory_path =
+             get_normalized_absolute_path(&self.containing_directory, self.current_directory());
+         let scope = self.get_package_scope_for_path(&directory_path);
+@@ -803,6 +852,8 @@ impl<'a, 'host> ResolutionState<'a, 'host> {
+ 
+     /// `resolutionState.loadModuleFromImports`.
+     fn load_module_from_imports(&mut self) -> Search {
++        let _origin = tsr_vfs::origin_probe::Scope::enter("imports");
++        let _interval = tsr_vfs::origin_probe::Interval::enter("inclusive.imports");
+         if self.name == "#"
+             || (self.name.starts_with("#/")
+                 && !self.features.intersects(NodeResolutionFeatures::IMPORTS_PATTERN_ROOT))
+@@ -849,6 +900,8 @@ impl<'a, 'host> ResolutionState<'a, 'host> {
+         extensions: Extensions,
+         subpath: &str,
+     ) -> Search {
++        let _origin = tsr_vfs::origin_probe::Scope::enter("exports");
++        let _interval = tsr_vfs::origin_probe::Interval::enter("inclusive.exports");
+         let Some(contents) = package_info.contents.clone() else { return continue_searching() };
+         if contents.exports.is_falsy() {
+             return continue_searching();
+@@ -1162,7 +1215,9 @@ impl<'a, 'host> ResolutionState<'a, 'host> {
+         if parts[1..].iter().any(|part| part == ".." || part == "." || part == "node_modules") {
+             return self.trace_invalid_target(scope, module_name);
+         }
+-        let resolved_target = combine_paths(&scope.package_directory, &[target_string]);
++        let resolved_target = tsr_vfs::origin_probe::text("export_resolved_target", || {
++            combine_paths(&scope.package_directory, &[target_string])
++        });
+         let subpath_parts = get_path_components(subpath, "");
+         if subpath_parts.iter().any(|part| part == ".." || part == "." || part == "node_modules") {
+             return self.trace_invalid_target(scope, module_name);
+@@ -1176,19 +1231,23 @@ impl<'a, 'host> ResolutionState<'a, 'host> {
+         let field = if is_imports { "imports" } else { "exports" };
+         self.trace(&messages::USING_0_SUBPATH_1_WITH_TARGET_2, &[field, key, &message_target]);
+ 
+-        let final_path = if is_pattern {
+-            get_normalized_absolute_path(
+-                &resolved_target.replace('*', subpath),
+-                self.current_directory(),
+-            )
+-        } else {
+-            get_normalized_absolute_path(
+-                &format!("{resolved_target}{subpath}"),
+-                self.current_directory(),
+-            )
+-        };
++        let final_path = tsr_vfs::origin_probe::text("export_final_path", || {
++            if is_pattern {
++                get_normalized_absolute_path(
++                    &resolved_target.replace('*', subpath),
++                    self.current_directory(),
++                )
++            } else {
++                get_normalized_absolute_path(
++                    &format!("{resolved_target}{subpath}"),
++                    self.current_directory(),
++                )
++            }
++        });
+ 
+-        let package_path = combine_paths(&scope.package_directory, &["package.json"]);
++        let package_path = tsr_vfs::origin_probe::text("export_package_filename", || {
++            combine_paths(&scope.package_directory, &["package.json"])
++        });
+         if let Some(mut input_link) =
+             self.try_load_input_file_for_path(&final_path, subpath, &package_path, is_imports)
+         {
+@@ -1216,6 +1275,7 @@ impl<'a, 'host> ResolutionState<'a, 'host> {
+         package_path: &str,
+         is_imports: bool,
+     ) -> Search {
++        let _origin = tsr_vfs::origin_probe::Scope::enter("output_to_input");
+         let options = self.options().clone();
+         if self.is_config_lookup
+             || (options.declaration_dir.is_empty() && options.out_dir.is_empty())
+@@ -1326,6 +1386,7 @@ impl<'a, 'host> ResolutionState<'a, 'host> {
+         &mut self,
+         types_scope_only: bool,
+     ) -> Search {
++        let _origin = tsr_vfs::origin_probe::Scope::enter("node_modules_ancestor");
+         let priority =
+             self.extensions.intersection(Extensions::TYPESCRIPT.union(Extensions::DECLARATION));
+         let secondary =
+@@ -1376,7 +1437,9 @@ impl<'a, 'host> ResolutionState<'a, 'host> {
+             {
+                 return Some(result);
+             }
+-            let parent = get_directory_path(&directory).to_string();
++            let parent = tsr_vfs::origin_probe::text("ancestor_parent", || {
++                get_directory_path(&directory).to_string()
++            });
+             if parent == directory {
+                 return continue_searching();
+             }
+@@ -1391,7 +1454,10 @@ impl<'a, 'host> ResolutionState<'a, 'host> {
+         directory: &str,
+         types_scope_only: bool,
+     ) -> Search {
+-        let node_modules_folder = combine_paths(directory, &["node_modules"]);
++        let _origin = tsr_vfs::origin_probe::Scope::enter("node_modules_directory");
++        let node_modules_folder = tsr_vfs::origin_probe::text("node_modules_folder", || {
++            combine_paths(directory, &["node_modules"])
++        });
+         if !self.fs().directory_exists(&node_modules_folder) {
+             self.trace(
+                 &messages::DIRECTORY_0_DOES_NOT_EXIST_SKIPPING_ALL_LOOKUPS_IN_IT,
+@@ -1412,7 +1478,9 @@ impl<'a, 'host> ResolutionState<'a, 'host> {
+         }
+ 
+         if extensions.intersects(Extensions::DECLARATION) {
+-            let at_types = combine_paths(&node_modules_folder, &["@types"]);
++            let at_types = tsr_vfs::origin_probe::text("at_types_folder", || {
++                combine_paths(&node_modules_folder, &["@types"])
++            });
+             if !self.fs().directory_exists(&at_types) {
+                 self.trace(
+                     &messages::DIRECTORY_0_DOES_NOT_EXIST_SKIPPING_ALL_LOOKUPS_IN_IT,
+@@ -1441,10 +1509,12 @@ impl<'a, 'host> ResolutionState<'a, 'host> {
+         // candidate: the `package.json` cache stores the *caller's* directory
+         // spelling, and a mismatch makes the `main`/`types` lookup silently skip.
+         // See microsoft/typescript-go#3526.
+-        let candidate = remove_trailing_directory_separator(&normalize_path(&combine_paths(
+-            node_modules_directory,
+-            &[module_name],
+-        )));
++        let candidate = tsr_vfs::origin_probe::text("package_candidate", || {
++            remove_trailing_directory_separator(&normalize_path(&combine_paths(
++                node_modules_directory,
++                &[module_name],
++            )))
++        });
+         let (package_name, rest) = parse_package_name(module_name);
+         let (package_name, rest) = (package_name.to_string(), rest.to_string());
+         let package_directory = if package_name.is_empty() {
+@@ -1661,6 +1731,7 @@ impl<'a, 'host> ResolutionState<'a, 'host> {
+         path_patterns: &ParsedPatterns,
+         loader: &Loader,
+     ) -> Search {
++        let _origin = tsr_vfs::origin_probe::Scope::enter("paths");
+         let matched = match_pattern_or_exact(path_patterns, module_name);
+         if !matched.is_valid() {
+             return continue_searching();
+@@ -1707,6 +1778,7 @@ impl<'a, 'host> ResolutionState<'a, 'host> {
+ 
+     /// `resolutionState.tryLoadModuleUsingRootDirs`.
+     fn try_load_module_using_root_dirs(&mut self) -> Search {
++        let _origin = tsr_vfs::origin_probe::Scope::enter("root_dirs");
+         let root_dirs = self.options().root_dirs.clone();
+         if root_dirs.is_empty() {
+             return continue_searching();
+@@ -1783,6 +1855,7 @@ impl<'a, 'host> ResolutionState<'a, 'host> {
+         candidate: &str,
+         consider_package_json: bool,
+     ) -> Search {
++        let _origin = tsr_vfs::origin_probe::Scope::enter("relative_name");
+         self.trace(
+             &messages::LOADING_MODULE_AS_FILE_SLASH_FOLDER_CANDIDATE_MODULE_LOCATION_0_TARGET_FILE_TYPES_COLON_1,
+             &[candidate, &extensions.to_string()],
+@@ -1857,8 +1930,11 @@ impl<'a, 'host> ResolutionState<'a, 'host> {
+         } else {
+             known
+         };
+-        let original_extension = candidate[extensionless.len()..].to_string();
+-        let extensionless = extensionless.to_string();
++        let original_extension = tsr_vfs::origin_probe::text("original_extension", || {
++            candidate[extensionless.len()..].to_string()
++        });
++        let extensionless =
++            tsr_vfs::origin_probe::text("extensionless_copy", || extensionless.to_string());
+         self.trace(
+             &messages::FILE_NAME_0_HAS_A_1_EXTENSION_STRIPPING_IT,
+             &[candidate, &original_extension],
+@@ -1876,7 +1952,10 @@ impl<'a, 'host> ResolutionState<'a, 'host> {
+         extensions: Extensions,
+         original_extension: &str,
+     ) -> Search {
+-        let directory = get_directory_path(extensionless).to_string();
++        let _origin = tsr_vfs::origin_probe::Scope::enter("extensions");
++        let directory = tsr_vfs::origin_probe::text("extension_directory", || {
++            get_directory_path(extensionless).to_string()
++        });
+         if !directory.is_empty() && !self.fs().directory_exists(&directory) {
+             return continue_searching();
+         }
+@@ -1987,7 +2066,9 @@ impl<'a, 'host> ResolutionState<'a, 'host> {
+         extensionless: &str,
+         resolved_using_ts_extension: bool,
+     ) -> Search {
+-        let file_name = format!("{extensionless}{extension}");
++        let file_name = tsr_vfs::origin_probe::text("extension_filename", || {
++            format!("{extensionless}{extension}")
++        });
+         match self.try_file(&file_name) {
+             (path, true) => Some(Resolved {
+                 path,
+@@ -2002,24 +2083,45 @@ impl<'a, 'host> ResolutionState<'a, 'host> {
+ 
+     /// `resolutionState.tryFile`, applying `moduleSuffixes`.
+     fn try_file(&mut self, file_name: &str) -> (String, bool) {
+-        let suffixes = self.options().module_suffixes.clone();
++        let suffixes = tsr_vfs::origin_probe::construction(
++            "suffix_list",
++            || self.options().module_suffixes.clone(),
++            |values| {
++                (
++                    values.iter().map(String::len).sum(),
++                    values.capacity() * std::mem::size_of::<String>()
++                        + values.iter().map(String::capacity).sum::<usize>(),
++                )
++            },
++        );
+         if suffixes.is_empty() {
+             let exists = self.try_file_lookup(file_name);
+-            return (file_name.to_string(), exists);
++            return (
++                tsr_vfs::origin_probe::text(
++                    if exists { "success_result_path" } else { "failed_result_path" },
++                    || file_name.to_string(),
++                ),
++                exists,
++            );
+         }
+         let extension = try_get_extension_from_path(file_name);
+-        let stem = remove_extension(file_name, extension).to_string();
++        let stem = tsr_vfs::origin_probe::text("suffix_stem", || {
++            remove_extension(file_name, extension).to_string()
++        });
+         for suffix in suffixes {
+-            let path = format!("{stem}{suffix}{extension}");
++            let path = tsr_vfs::origin_probe::text("suffix_filename", || {
++                format!("{stem}{suffix}{extension}")
++            });
+             if self.try_file_lookup(&path) {
+                 return (path, true);
+             }
+         }
+-        (file_name.to_string(), false)
++        (tsr_vfs::origin_probe::text("failed_result_path", || file_name.to_string()), false)
+     }
+ 
+     /// `resolutionState.tryFileLookup` — the probe every baseline is made of.
+     fn try_file_lookup(&mut self, file_name: &str) -> bool {
++        let _origin = tsr_vfs::origin_probe::Scope::enter("candidate_file");
+         if self.fs().file_exists(file_name) {
+             self.trace(&messages::FILE_0_EXISTS_USE_IT_AS_A_NAME_RESOLUTION_RESULT, &[file_name]);
+             true
+@@ -2211,12 +2313,15 @@ impl<'a, 'host> ResolutionState<'a, 'host> {
+ 
+     /// `resolutionState.getPackageScopeForPath`.
+     fn get_package_scope_for_path(&mut self, directory: &str) -> Option<Rc<PackageJsonInfo>> {
++        let _origin = tsr_vfs::origin_probe::Scope::enter("package_scope_ancestor");
+         let mut directory = directory.to_string();
+         loop {
+             if let Some(result) = self.get_package_json_info(&directory) {
+                 return Some(result);
+             }
+-            let parent = get_directory_path(&directory).to_string();
++            let parent = tsr_vfs::origin_probe::text("ancestor_parent", || {
++                get_directory_path(&directory).to_string()
++            });
+             if parent == directory {
+                 return None;
+             }
+@@ -2232,11 +2337,21 @@ impl<'a, 'host> ResolutionState<'a, 'host> {
+     /// `package.json` here" *and* `Some` with no contents never happens — an
+     /// entry without contents is cached but reported as absent.
+     fn get_package_json_info(&mut self, package_directory: &str) -> Option<Rc<PackageJsonInfo>> {
+-        let package_json_path = combine_paths(package_directory, &["package.json"]);
+-        let key = to_path(
+-            &package_json_path,
+-            self.current_directory(),
+-            self.fs().use_case_sensitive_file_names(),
++        let _interval = tsr_vfs::origin_probe::Interval::enter("inclusive.package_info");
++        let _origin = tsr_vfs::origin_probe::Scope::enter("package_json");
++        let package_json_path = tsr_vfs::origin_probe::text("package_json_filename", || {
++            combine_paths(package_directory, &["package.json"])
++        });
++        let key = tsr_vfs::origin_probe::construction(
++            "package_cache_key",
++            || {
++                to_path(
++                    &package_json_path,
++                    self.current_directory(),
++                    self.fs().use_case_sensitive_file_names(),
++                )
++            },
++            |path| (path.as_str().len(), 0),
+         );
+ 
+         if let Some(existing) = self.resolver.package_json_cache.borrow().get(&key).cloned() {
+@@ -2448,14 +2563,20 @@ impl<'a, 'host> ResolutionState<'a, 'host> {
+ 
+     /// `resolutionState.conditionMatches`.
+     fn condition_matches(&self, condition: &str) -> bool {
+-        if condition == "default" || self.conditions.iter().any(|c| c == condition) {
+-            return true;
+-        }
+-        // Versioned `types@` conditions only apply when `types` itself does.
+-        if !self.conditions.iter().any(|c| c == "types") {
+-            return false;
+-        }
+-        util::is_applicable_versioned_types_key(condition)
++        tsr_vfs::origin_probe::construction(
++            "condition_match",
++            || {
++                if condition == "default" || self.conditions.iter().any(|c| c == condition) {
++                    return true;
++                }
++                // Versioned `types@` conditions only apply when `types` itself does.
++                if !self.conditions.iter().any(|c| c == "types") {
++                    return false;
++                }
++                util::is_applicable_versioned_types_key(condition)
++            },
++            |_| (0, 0),
++        )
+     }
+ 
+     // ---- Results -----------------------------------------------------------
+@@ -2574,6 +2695,7 @@ pub fn get_automatic_type_directive_names(
+     options: &CompilerOptions,
+     host: &dyn ResolutionHost,
+ ) -> Vec<String> {
++    let _origin = tsr_vfs::origin_probe::Scope::enter("automatic_types");
+     if !options.uses_wildcard_types() {
+         return options.types.clone().unwrap_or_default();
+     }
+diff --git a/crates/tsr-tsoptions/src/lib.rs b/crates/tsr-tsoptions/src/lib.rs
+index 214b72c4..a533eb89 100644
+--- a/crates/tsr-tsoptions/src/lib.rs
++++ b/crates/tsr-tsoptions/src/lib.rs
+@@ -98,6 +98,7 @@ pub fn parse_config_file(
+     base_path: &str,
+     fs: &dyn FileSystem,
+ ) -> ParsedCommandLine {
++    let _origin = tsr_vfs::origin_probe::Scope::enter("config_parse");
+     let config_dir = if config_file_name.is_empty() {
+         normalize_slashes(base_path)
+     } else {
+@@ -345,6 +346,7 @@ fn extended_configs(
+ /// it — which is why the earlier decision to decline was wrong in practice even
+ /// though it was defensible in the abstract.
+ fn resolve_extends_path(name: &str, base_path: &str, fs: &dyn FileSystem) -> Option<String> {
++    let _origin = tsr_vfs::origin_probe::Scope::enter("config_extends_path");
+     let name = normalize_slashes(name);
+     if !(tsr_path::is_rooted_disk_path(&name) || name.starts_with("./") || name.starts_with("../"))
+     {
+@@ -375,6 +377,7 @@ fn resolve_extends_path(name: &str, base_path: &str, fs: &dyn FileSystem) -> Opt
+ /// file system and a current directory — so the config's own directory serves
+ /// as both.
+ fn resolve_extends_module(name: &str, base_path: &str, fs: &dyn FileSystem) -> Option<String> {
++    let _origin = tsr_vfs::origin_probe::Scope::enter("config_extends_module");
+     struct ConfigHost<'a> {
+         fs: &'a dyn FileSystem,
+         current_directory: String,
+diff --git a/crates/tsr-vfs/src/cached.rs b/crates/tsr-vfs/src/cached.rs
+index 6b471d7a..d5609d45 100644
+--- a/crates/tsr-vfs/src/cached.rs
++++ b/crates/tsr-vfs/src/cached.rs
+@@ -81,7 +81,9 @@ impl FileSystem for CachedFileSystem<'_> {
+     }
+ 
+     fn file_exists(&self, path: &str) -> bool {
+-        self.cached(&self.files, path, || self.fs.file_exists(path))
++        let result = self.cached(&self.files, path, || self.fs.file_exists(path));
++        crate::origin_probe::cached("cached.file", path, result);
++        result
+     }
+ 
+     fn read_file(&self, path: &str) -> Option<String> {
+@@ -89,7 +91,9 @@ impl FileSystem for CachedFileSystem<'_> {
+     }
+ 
+     fn directory_exists(&self, path: &str) -> bool {
+-        self.cached(&self.directories, path, || self.fs.directory_exists(path))
++        let result = self.cached(&self.directories, path, || self.fs.directory_exists(path));
++        crate::origin_probe::cached("cached.directory", path, result);
++        result
+     }
+ 
+     fn get_accessible_entries(&self, path: &str) -> DirectoryEntries {
+diff --git a/crates/tsr-vfs/src/glob.rs b/crates/tsr-vfs/src/glob.rs
+index 442f6303..b75fe569 100644
+--- a/crates/tsr-vfs/src/glob.rs
++++ b/crates/tsr-vfs/src/glob.rs
+@@ -71,6 +71,7 @@ pub fn read_directory(
+     excludes: &[String],
+     includes: &[String],
+ ) -> Vec<String> {
++    let _origin = crate::origin_probe::Scope::enter("config_include_walk");
+     let path = normalize_path(path);
+     let current_directory = normalize_path(current_directory);
+     let absolute_path = combine_paths(&current_directory, &[&path]);
+diff --git a/crates/tsr-vfs/src/lib.rs b/crates/tsr-vfs/src/lib.rs
+index 1ae5d0bf..5af85ef9 100644
+--- a/crates/tsr-vfs/src/lib.rs
++++ b/crates/tsr-vfs/src/lib.rs
+@@ -389,3 +389,5 @@ mod tests {
+         assert!(insensitive.file_exists("/a/b.ts"));
+     }
+ }
++
++pub mod origin_probe;
+diff --git a/crates/tsr-vfs/src/os.rs b/crates/tsr-vfs/src/os.rs
+index c933a504..d97b9bb3 100644
+--- a/crates/tsr-vfs/src/os.rs
++++ b/crates/tsr-vfs/src/os.rs
+@@ -172,7 +172,7 @@ impl FileSystem for OsFileSystem {
+     /// listing does not offer it as a candidate.
+     fn file_exists(&self, path: &str) -> bool {
+         assert_rooted(path);
+-        std::fs::metadata(path).is_ok_and(|metadata| !metadata.is_dir())
++        crate::origin_probe::disk_metadata(path, false)
+     }
+ 
+     /// `Common.ReadFile` — bytes off the disk, decoded by byte-order mark.
+@@ -188,7 +188,7 @@ impl FileSystem for OsFileSystem {
+     /// `Common.DirectoryExists` — stat, and require a directory.
+     fn directory_exists(&self, path: &str) -> bool {
+         assert_rooted(path);
+-        std::fs::metadata(path).is_ok_and(|metadata| metadata.is_dir())
++        crate::origin_probe::disk_metadata(path, true)
+     }
+ 
+     /// `Common.GetAccessibleEntries` — one level, with symlinks followed.
+diff --git a/crates/tsr-vfs/src/origin_probe.rs b/crates/tsr-vfs/src/origin_probe.rs
+new file mode 100644
+--- /dev/null
++++ b/crates/tsr-vfs/src/origin_probe.rs
+@@ -0,0 +1,288 @@
++//! Temporary attribution only. No filesystem answers or cache semantics change.
++use std::{
++    cell::RefCell,
++    collections::{BTreeMap, HashSet},
++    marker::PhantomData,
++    rc::Rc,
++    sync::{Mutex, OnceLock},
++    time::Instant,
++};
++thread_local! { static ORIGINS: RefCell<Vec<&'static str>> = const { RefCell::new(Vec::new()) }; }
++fn enabled() -> bool {
++    static FLAG: OnceLock<bool> = OnceLock::new();
++    *FLAG.get_or_init(|| std::env::var_os("TSR_META_PROFILE").is_some())
++}
++/// Origin stack guard; remains on its creating thread.
++pub struct Scope {
++    name: Option<&'static str>,
++    _thread: PhantomData<Rc<()>>,
++}
++impl Scope {
++    /// Enter a diagnostic origin without changing any lookup.
++    #[must_use]
++    pub fn enter(name: &'static str) -> Self {
++        let name = if enabled() {
++            ORIGINS.with(|s| s.borrow_mut().push(name));
++            Some(name)
++        } else {
++            None
++        };
++        Self { name, _thread: PhantomData }
++    }
++}
++impl Drop for Scope {
++    fn drop(&mut self) {
++        if let Some(name) = self.name {
++            ORIGINS.with(|s| assert_eq!(s.borrow_mut().pop(), Some(name)));
++        }
++    }
++}
++fn origin() -> String {
++    ORIGINS.with(|s| {
++        let s = s.borrow();
++        if s.is_empty() { "unclassified".into() } else { s.join(" > ") }
++    })
++}
++#[derive(Default)]
++struct Row {
++    calls: u64,
++    yes: u64,
++    no: u64,
++    ns: u64,
++    paths: HashSet<String>,
++    outcomes: BTreeMap<String, u64>,
++}
++#[derive(Default)]
++struct State {
++    rows: BTreeMap<(String, String), Row>,
++    global_paths: BTreeMap<String, HashSet<String>>,
++}
++fn state() -> &'static Mutex<State> {
++    static S: OnceLock<Mutex<State>> = OnceLock::new();
++    S.get_or_init(|| Mutex::new(State::default()))
++}
++/// Start a disjoint metadata timer when enabled.
++pub fn start() -> Option<Instant> {
++    enabled().then(Instant::now)
++}
++/// Record an operation after its answer was computed.
++pub fn record(operation: &str, path: &str, yes: bool, ns: Option<u64>, outcome: &str) {
++    if !enabled() {
++        return;
++    }
++    let mut s = state().lock().unwrap();
++    s.global_paths.entry(operation.into()).or_default().insert(path.into());
++    let r = s.rows.entry((operation.into(), origin())).or_default();
++    r.calls += 1;
++    r.yes += u64::from(yes);
++    r.no += u64::from(!yes);
++    r.ns += ns.unwrap_or(0);
++    r.paths.insert(path.into());
++    *r.outcomes.entry(outcome.into()).or_default() += 1;
++}
++/// Count logical cached queries separately from disk calls.
++pub fn cached(operation: &str, path: &str, yes: bool) {
++    record(operation, path, yes, None, if yes { "yes" } else { "no" });
++}
++/// Run the unchanged metadata query and record its origin.
++#[must_use]
++pub fn disk_metadata(path: &str, directory: bool) -> bool {
++    let clock = start();
++    let m = std::fs::metadata(path);
++    let ns = clock.map(|s| u64::try_from(s.elapsed().as_nanos()).unwrap_or(u64::MAX));
++    let yes = m.as_ref().is_ok_and(|m| if directory { m.is_dir() } else { !m.is_dir() });
++    if enabled() {
++        let outcome = match &m {
++            Ok(_) if yes => "found",
++            Ok(_) => "wrong_kind",
++            Err(e) if e.kind() == std::io::ErrorKind::NotFound => "not_found",
++            Err(_) => "other_error",
++        };
++        record(if directory { "disk.directory" } else { "disk.file" }, path, yes, ns, outcome);
++    }
++    yes
++}
++/// Render counts without exposing filesystem paths.
++#[must_use]
++pub fn snapshot_json() -> String {
++    let s = state().lock().unwrap();
++    let rows=s.rows.iter().map(|((op,origin),r)| {
++        let outcomes=r.outcomes.iter().map(|(k,v)|format!("\"{k}\":{v}")).collect::<Vec<_>>().join(",");
++        format!("{{\"operation\":\"{op}\",\"origin\":\"{origin}\",\"calls\":{},\"yes\":{},\"no\":{},\"stat_ns\":{},\"unique_paths\":{},\"outcomes\":{{{outcomes}}}}}",r.calls,r.yes,r.no,r.ns,r.paths.len())
++    }).collect::<Vec<_>>().join(",");
++    let global = s
++        .global_paths
++        .iter()
++        .map(|(k, v)| format!("\"{k}\":{}", v.len()))
++        .collect::<Vec<_>>()
++        .join(",");
++    format!("{{\"rows\":[{rows}],\"global_unique_paths\":{{{global}}}}}")
++}
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use crate::FileSystem;
++    #[test]
++    fn origin_scopes_restore_after_nested_work_and_unwind() {
++        assert!(enabled(), "run probe controls with TSR_META_PROFILE=1");
++        assert_eq!(origin(), "unclassified");
++        let _outer = Scope::enter("probe_test.outer");
++        assert_eq!(origin(), "probe_test.outer");
++        {
++            let _inner = Scope::enter("probe_test.inner");
++            assert_eq!(origin(), "probe_test.outer > probe_test.inner");
++        }
++        let result = std::panic::catch_unwind(|| {
++            let _panic = Scope::enter("probe_test.panic");
++            panic!("forced unwind");
++        });
++        assert!(result.is_err());
++        assert_eq!(origin(), "probe_test.outer");
++    }
++    #[test]
++    fn cached_repeats_and_underlying_calls_are_counted_separately() {
++        assert!(enabled(), "run probe controls with TSR_META_PROFILE=1");
++        let _scope = Scope::enter("probe_test.cache");
++        let unique = format!("/tmp/tsr-origin-probe-missing-{}", std::process::id());
++        let fs = crate::OsFileSystem::new();
++        let cached = crate::CachedFileSystem::new(&fs);
++        assert!(!cached.file_exists(&unique));
++        assert!(!cached.file_exists(&unique));
++        let s = state().lock().unwrap();
++        let logical = &s.rows[&("cached.file".into(), "probe_test.cache".into())];
++        let disk = &s.rows[&("disk.file".into(), "probe_test.cache".into())];
++        assert_eq!(
++            (logical.calls, logical.paths.len(), disk.calls, disk.paths.len()),
++            (2, 1, 1, 1)
++        );
++        assert_eq!(disk.outcomes["not_found"], 1);
++    }
++}
++
++// Temporary surrounding-construction locator. Output lengths/capacities are
++// observations, not allocator totals or retained bytes. Timers stop before
++// shape inspection, origin construction, locking and counter bookkeeping.
++#[derive(Default)]
++struct Construction {
++    calls: u64,
++    ns: u64,
++    payload_bytes: usize,
++    output_capacity_bytes: usize,
++}
++fn constructions() -> &'static Mutex<BTreeMap<(String, String), Construction>> {
++    static S: OnceLock<Mutex<BTreeMap<(String, String), Construction>>> = OnceLock::new();
++    S.get_or_init(|| Mutex::new(BTreeMap::new()))
++}
++fn construction_record(kind: &'static str, ns: u64, payload: usize, capacity: usize) {
++    let key = (kind.into(), origin());
++    let mut counts = constructions().lock().unwrap();
++    let row = counts.entry(key).or_default();
++    row.calls += 1;
++    row.ns += ns;
++    row.payload_bytes += payload;
++    row.output_capacity_bytes += capacity;
++}
++/// Time one exact constructor; disabled mode executes the original operation.
++pub fn construction<T>(
++    kind: &'static str,
++    build: impl FnOnce() -> T,
++    shape: impl FnOnce(&T) -> (usize, usize),
++) -> T {
++    let clock = start();
++    let result = build();
++    if let Some(clock) = clock {
++        let ns = u64::try_from(clock.elapsed().as_nanos()).unwrap_or(u64::MAX);
++        let (payload, capacity) = shape(&result);
++        construction_record(kind, ns, payload, capacity);
++    }
++    result
++}
++/// Observe a String result without cloning it.
++pub fn text(kind: &'static str, build: impl FnOnce() -> String) -> String {
++    construction(kind, build, |s| (s.len(), s.capacity()))
++}
++/// Inclusive phase locator; never add these intervals to operation/syscall
++/// intervals. They include nested work, I/O and enabled observer bookkeeping.
++pub struct Interval {
++    kind: &'static str,
++    clock: Option<Instant>,
++    _thread: PhantomData<Rc<()>>,
++}
++impl Interval {
++    /// Guard remains on the creating thread; records after nested scopes drop.
++    #[must_use]
++    pub fn enter(kind: &'static str) -> Self {
++        Self { kind, clock: start(), _thread: PhantomData }
++    }
++}
++impl Drop for Interval {
++    fn drop(&mut self) {
++        if let Some(clock) = self.clock {
++            construction_record(
++                self.kind,
++                u64::try_from(clock.elapsed().as_nanos()).unwrap_or(u64::MAX),
++                0,
++                0,
++            );
++        }
++    }
++}
++/// Fixed labels and origins only; no path/source/diagnostic contents.
++#[must_use]
++pub fn construction_json() -> String {
++    let counts = constructions().lock().unwrap();
++    let rows = counts.iter().map(|((kind, origin), r)| format!(
++        "{{\"kind\":\"{kind}\",\"origin\":\"{origin}\",\"calls\":{},\"ns\":{},\"payload_bytes\":{},\"output_capacity_bytes\":{}}}",
++        r.calls, r.ns, r.payload_bytes, r.output_capacity_bytes
++    )).collect::<Vec<_>>().join(",");
++    format!("{{\"rows\":[{rows}]}}")
++}
++
++#[cfg(test)]
++mod construction_tests {
++    use super::*;
++    #[test]
++    fn constructor_runs_once_and_returns_original_owned_value() {
++        assert!(enabled());
++        let _scope = Scope::enter("construction_test.once");
++        let calls = std::cell::Cell::new(0);
++        let value = text("test.once", || {
++            calls.set(calls.get() + 1);
++            "owned".to_owned()
++        });
++        assert_eq!(calls.get(), 1);
++        assert_eq!(value, "owned");
++        let counts = constructions().lock().unwrap();
++        let row = &counts[&("test.once".into(), "construction_test.once".into())];
++        assert_eq!(row.calls, 1);
++        assert_eq!(row.payload_bytes, value.len());
++        assert_eq!(row.output_capacity_bytes, value.capacity());
++    }
++    #[test]
++    fn shape_observation_preserves_a_non_string_result() {
++        assert!(enabled());
++        let _scope = Scope::enter("construction_test.result");
++        let value: Result<usize, &str> =
++            construction("test.result", || Err("same failure"), |_| (0, 0));
++        assert_eq!(value, Err("same failure"));
++        let counts = constructions().lock().unwrap();
++        assert_eq!(counts[&("test.result".into(), "construction_test.result".into())].calls, 1);
++    }
++}
++
++/// Private preflight capability: export queried file/directory paths only when the
++/// coordinator explicitly requests them. Never include this in public evidence.
++#[must_use]
++pub fn input_paths() -> Vec<String> {
++    let counts = state().lock().unwrap();
++    let mut paths = std::collections::BTreeSet::new();
++    for (operation, entries) in &counts.global_paths {
++        if matches!(
++            operation.as_str(),
++            "disk.file" | "cached.file" | "disk.directory" | "cached.directory"
++        ) {
++            paths.extend(entries.iter().cloned());
++        }
++    }
++    paths.into_iter().collect()
++}
