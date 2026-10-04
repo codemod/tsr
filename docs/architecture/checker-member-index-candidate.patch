@@ -1,0 +1,109 @@
+diff --git a/crates/tsr-checker/src/members.rs b/crates/tsr-checker/src/members.rs
+index abbb5e46..e16b678e 100644
+--- a/crates/tsr-checker/src/members.rs
++++ b/crates/tsr-checker/src/members.rs
+@@ -36,0 +37,47 @@ enum Owner {
++/// Query-local membership for the existing declared-name walk. Native
++/// `getPropertiesOfObjectType` reads an already resolved symbol table; this
++/// helper only preserves this port's current first-encounter name order. It
++/// publishes no member completion and never outlives one name query.
++///
++/// Small lists retain linear storage; the measured crossover uses an index
++/// after 32 distinct names. Full String equality handles hash collisions.
++struct OrderedPropertyNames<S = rustc_hash::FxBuildHasher> {
++    linear: Vec<String>,
++    index: Option<std::collections::HashMap<String, usize, S>>,
++}
++
++impl<S> Default for OrderedPropertyNames<S> {
++    fn default() -> Self {
++        Self { linear: Vec::new(), index: None }
++    }
++}
++
++impl<S: std::hash::BuildHasher + Default> OrderedPropertyNames<S> {
++    fn insert(&mut self, name: String) {
++        if self.index.is_none() && self.linear.len() == 32 {
++            self.index = Some(
++                std::mem::take(&mut self.linear)
++                    .into_iter()
++                    .enumerate()
++                    .map(|(position, name)| (name, position))
++                    .collect(),
++            );
++        }
++        if let Some(index) = &mut self.index {
++            let position = index.len();
++            index.entry(name).or_insert(position);
++        } else if !self.linear.contains(&name) {
++            self.linear.push(name);
++        }
++    }
++
++    fn into_vec(self) -> Vec<String> {
++        let Some(index) = self.index else { return self.linear };
++        let mut names = vec![String::new(); index.len()];
++        for (name, position) in index {
++            names[position] = name;
++        }
++        names
++    }
++}
++
+@@ -2614 +2661 @@ impl Checker<'_, '_> {
+-        let mut names = Vec::new();
++        let mut names = OrderedPropertyNames::default();
+@@ -2616 +2663,2 @@ impl Checker<'_, '_> {
+-        self.collect_structured_property_names(owner, &mut names, &mut visiting).then_some(names)
++        self.collect_structured_property_names(owner, &mut names, &mut visiting)
++            .then(|| names.into_vec())
+@@ -2700 +2748 @@ impl Checker<'_, '_> {
+-        names: &mut Vec<String>,
++        names: &mut OrderedPropertyNames,
+@@ -2720,3 +2768 @@ impl Checker<'_, '_> {
+-            if !names.contains(&name) {
+-                names.push(name);
+-            }
++            names.insert(name);
+@@ -2727,3 +2773 @@ impl Checker<'_, '_> {
+-            if !names.contains(&name) {
+-                names.push(name);
+-            }
++            names.insert(name);
+@@ -3121,0 +3166,36 @@ mod property_name_tests {
++
++    #[test]
++    fn ordered_name_index_keeps_first_occurrences_across_growth_and_collisions() {
++        #[derive(Default)]
++        struct CollisionHasher;
++        impl std::hash::Hasher for CollisionHasher {
++            fn finish(&self) -> u64 {
++                0
++            }
++            fn write(&mut self, _bytes: &[u8]) {}
++        }
++        type Collisions = std::hash::BuildHasherDefault<CollisionHasher>;
++        let mut names = super::OrderedPropertyNames::<Collisions>::default();
++        let mut expected: Vec<String> = (0..80).map(|i| format!("p{i}")).collect();
++        expected.extend(["", "P0", "é", "é"].map(str::to_owned));
++        for name in &expected {
++            names.insert(name.clone());
++        }
++        for name in expected.iter().rev() {
++            names.insert(name.clone());
++        }
++        assert_eq!(names.into_vec(), expected);
++    }
++
++    #[test]
++    fn ordered_name_index_keeps_small_storage_until_the_measured_boundary() {
++        let mut names = super::OrderedPropertyNames::<rustc_hash::FxBuildHasher>::default();
++        for i in 0..32 {
++            names.insert(format!("p{i}"));
++        }
++        assert!(names.index.is_none());
++        names.insert("p0".to_owned());
++        assert!(names.index.is_some());
++        assert_eq!(names.into_vec(), (0..32).map(|i| format!("p{i}")).collect::<Vec<_>>());
++    }
++
