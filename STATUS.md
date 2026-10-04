@@ -22,15 +22,16 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
-### Current checker checkpoint — static class-expression context and class module-copy surface
+### Current checker checkpoint — static context, class-copy surface and function-node identity
 
-Measured production tree **`ef3b10a5`**, against published `8bc504ef`:
+Measured production tree **`06511f00`**, against published `8bc504ef`:
 **459,840/478,855 assertions (96.03%)**, **7,188/9,538 complete cases
 (75.36%)**. The 99% target requires 474,067 matches; **14,227 remain**.
 Pinned native `5b1047d1` and both denominators are unchanged. Aligned verdicts:
 **474,251 total; 459,840 RIGHT; 2,120 GAP; 12,291 WRONG**.
-The source is production-identical to audited `f6b00125`; rebasing preserved
-the concurrent documentation-only `bc27fae2` and the exact `crates` tree.
+The static-context/class-copy prefix `ef3b10a5` is production-identical to audited
+`f6b00125`; rebasing preserved concurrent documentation-only `bc27fae2` and
+the exact `crates` tree.
 
 Unannotated static class-expression fields now read the named property of their
 enclosing apparent contextual type. Written field annotations still win; there
@@ -51,6 +52,16 @@ previous contracts. Native 72/Rust 36 controls and the 16-combination regression
 correct the directed member surfaces. Its newer-prefix checker and complete
 diagnostic captures are **byte-identical** to the static-field-only source;
 this targeted correctness unit claims no existing-corpus gain.
+
+Successful function and constructor type nodes reuse the existing
+node/bindings/mapped-template cache, after signature and alias eligibility checks.
+Refused signatures are not published. Five controls retain captured bindings in
+both lookup orders, foreign same-named parameters, node kinds and alias spelling,
+including refusal followed by recovery. Fresh full checker and complete
+diagnostic captures on the newer prefix are **byte-identical** to `ef3b10a5`;
+this identity prerequisite claims no corpus gain. Mapper composition,
+canonical-signature and recursive-alias expansion contracts remain separate;
+the held union-alias candidate is not admitted.
 
 Unannotated instance-field initializers and static fields of class declarations
 reuse the proof of contextual absence from the previous `8bc504ef` checkpoint.
@@ -198,7 +209,7 @@ payload gains the two expected TS2322 occurrences. Function copies remove the
 false TS2339 at `esModuleInteropImportNamespace/index.ts:2:5` without losing a
 matched occurrence.
 
-**2,801 release workspace tests across 241 result blocks**, six existing ignores,
+**2,806 release workspace tests across 241 result blocks**, six existing ignores,
 strict release workspace/all-target Clippy, formatting and diff checks pass.
 Unfiltered scorepair agrees with the multiline-aware audit and accepts the new
 baseline; checker and diagnostics snapshots are refreshed after strict Clippy.
