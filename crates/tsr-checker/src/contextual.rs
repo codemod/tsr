@@ -1306,7 +1306,7 @@ impl<'a> Checker<'a, '_> {
                 self.contextual_type_for_element_expression(
                     contextual,
                     index,
-                    literal.elements.len(),
+                    Some(literal.elements.len()),
                     first_spread,
                     last_spread,
                 )
@@ -1823,12 +1823,12 @@ impl<'a> Checker<'a, '_> {
 
     /// `getContextualTypeForElementExpression` (internal/checker/checker.go).
     /// A known suffix aligns from the end of a rest tuple; positions around
-    /// spreads instead receive the union of the remaining possible elements.
+    /// spreads or an unknown length instead receive the remaining element union.
     pub(crate) fn contextual_type_for_element_expression(
         &mut self,
         contextual: TypeId,
         index: usize,
-        length: usize,
+        length: Option<usize>,
         first_spread: Option<usize>,
         last_spread: Option<usize>,
     ) -> Option<TypeId> {
@@ -1891,10 +1891,18 @@ impl<'a> Checker<'a, '_> {
                 }
             };
             if first_spread.is_none_or(|spread| index < spread) && index < fixed_start {
-                return Some(element_type(self, &elements[index]));
+                let element = &elements[index];
+                // Native removes implicit missing only in the optional fixed
+                // prefix. Metadata stores the underlying type separately from
+                // optionality, so real undefined must survive this read.
+                return Some(if element.optional && self.exact_optional_property_types {
+                    self.remove_missing_type(element.r#type)
+                } else {
+                    element_type(self, element)
+                });
             }
             let offset = if last_spread.is_none_or(|spread| index > spread) {
-                length.saturating_sub(index)
+                length.map_or(0, |length| length.saturating_sub(index))
             } else {
                 0
             };
@@ -1907,7 +1915,10 @@ impl<'a> Checker<'a, '_> {
                 return Some(element_type(self, &elements[elements.len() - offset]));
             }
             let start = first_spread.map_or(fixed_start, |spread| fixed_start.min(spread));
-            let skip = last_spread.map_or(fixed_end, |spread| fixed_end.min(length - spread));
+            let skip = match (length, last_spread) {
+                (Some(length), Some(spread)) => fixed_end.min(length - spread),
+                _ => fixed_end,
+            };
             let end = elements.len() - skip;
             if start >= end {
                 return None;
@@ -1972,7 +1983,7 @@ impl<'a> Checker<'a, '_> {
             return self.contextual_type_for_element_expression(
                 signature.parameters[rest].r#type,
                 index - rest,
-                argument_count - rest,
+                Some(argument_count - rest),
                 None,
                 None,
             );
@@ -2579,6 +2590,8 @@ fn is_this_parameter(parameter: &ParameterDeclaration<'_>) -> bool {
 mod tests {
     use tsr_ast::{Node, NodeId};
 
+    use crate::types::TypeData;
+
     fn field_context(source: &str) -> Option<String> {
         let arena = tsr_core::Arena::new();
         let parsed = tsr_parser::parse(&arena, source);
@@ -2764,5 +2777,193 @@ mod tests {
         }
         let literal = "let { ['c']: chosen = 'wrong' }: { c: 'right' } = { c: 'right' };";
         assert_eq!(binding_contexts(literal, true, false, false), vec![Some("\"right\"".into())]);
+    }
+
+    fn tuple_context(
+        source: &str,
+        mode: (bool, bool),
+        warm: bool,
+        index: usize,
+        length: Option<usize>,
+        spreads: (Option<usize>, Option<usize>),
+    ) -> Option<String> {
+        let source = format!("interface Array<T> {{ [n: number]: T }} {source}");
+        let source = source.as_str();
+        let arena = tsr_core::Arena::new();
+        let parsed = tsr_parser::parse(&arena, source);
+        assert!(parsed.diagnostics.is_empty(), "{source}");
+        let bound = tsr_binder::bind(
+            &arena,
+            parsed.source_file,
+            &parsed.nodes,
+            tsr_binder::FileInfo { name: "t.ts", text: source },
+        );
+        let mut checker = crate::Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+        checker.apply_compiler_options(&tsr_core::CompilerOptions {
+            strict: tsr_core::Tristate::from_bool(mode.0),
+            exact_optional_property_types: tsr_core::Tristate::from_bool(mode.1),
+            ..tsr_core::CompilerOptions::default()
+        });
+        let mut annotation = None;
+        for position in 0..parsed.nodes.len() {
+            #[allow(clippy::cast_possible_truncation)]
+            let node = NodeId::new(position as u32);
+            match parsed.node_map.get(node) {
+                Some(Node::VariableDeclaration(variable)) => annotation = variable.r#type,
+                Some(Node::TypeAliasDeclaration(_)) if warm => {
+                    let symbol = bound.symbol_of(node).expect("alias symbol");
+                    checker.get_declared_type_of_symbol(symbol);
+                }
+                _ => {}
+            }
+        }
+        let contextual = checker.get_type_from_type_node(annotation.expect("tuple annotation"));
+        checker
+            .contextual_type_for_element_expression(contextual, index, length, spreads.0, spreads.1)
+            .map(|ty| checker.type_to_string(ty))
+    }
+
+    #[test]
+    fn contextual_tuple_prefix_removes_only_exact_optional_missing() {
+        for (strict, exact) in [(false, false), (true, false), (true, true)] {
+            for warm in [false, true] {
+                for explicit in [false, true] {
+                    let slot = if explicit { "(I | undefined)?" } else { "I?" };
+                    let expected =
+                        if strict && (!exact || explicit) { "I | undefined" } else { "I" };
+                    for tail in ["", ", ...'tail'[]"] {
+                        let source = format!(
+                            "interface I {{ tag: 'prefix' }} type Target = [{slot}{tail}]; \
+                             type Linked = Target; declare const v: Linked;"
+                        );
+                        for length in [None, Some(1)] {
+                            assert_eq!(
+                                tuple_context(
+                                    &source,
+                                    (strict, exact),
+                                    warm,
+                                    0,
+                                    length,
+                                    (None, None)
+                                )
+                                .as_deref(),
+                                Some(expected),
+                                "strict={strict} exact={exact} warm={warm} explicit={explicit} \
+                                 tail={tail} length={length:?}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn contextual_tuple_unknown_tail_does_not_align_a_known_suffix() {
+        for mode in [(false, false), (true, false), (true, true)] {
+            for warm in [false, true] {
+                for explicit in [false, true] {
+                    let suffix = if explicit { "'end' | undefined" } else { "'end'" };
+                    let source = format!(
+                        "type Target = ['head', ...'middle'[], {suffix}]; \
+                         type Linked = Target; declare const v: Linked;"
+                    );
+                    let unknown = if mode.0 && explicit {
+                        "\"end\" | \"middle\" | undefined"
+                    } else {
+                        "\"end\" | \"middle\""
+                    };
+                    let ending = if mode.0 && explicit { "\"end\" | undefined" } else { "\"end\"" };
+                    for (index, length, spreads, expected) in [
+                        (0, None, (None, None), "\"head\""),
+                        (1, None, (None, None), unknown),
+                        (2, None, (None, None), unknown),
+                        (1, Some(2), (None, None), ending),
+                        (1, Some(3), (None, None), "\"middle\""),
+                        (2, Some(3), (None, None), ending),
+                        (1, Some(3), (Some(1), Some(1)), unknown),
+                        (2, Some(3), (Some(1), Some(1)), ending),
+                        (1, None, (Some(1), Some(1)), unknown),
+                    ] {
+                        assert_eq!(
+                            tuple_context(&source, mode, warm, index, length, spreads).as_deref(),
+                            Some(expected),
+                            "mode={mode:?} warm={warm} explicit={explicit} index={index} \
+                             length={length:?} spreads={spreads:?}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn contextual_tuple_missing_removal_is_prefix_only_and_keeps_real_undefined() {
+        let arena = tsr_core::Arena::new();
+        let parsed = tsr_parser::parse(&arena, "");
+        let bound = tsr_binder::bind(
+            &arena,
+            parsed.source_file,
+            &parsed.nodes,
+            tsr_binder::FileInfo { name: "t.ts", text: "" },
+        );
+        let mut checker = crate::Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+        checker.apply_compiler_options(&tsr_core::CompilerOptions {
+            strict: tsr_core::Tristate::True,
+            exact_optional_property_types: tsr_core::Tristate::True,
+            ..tsr_core::CompilerOptions::default()
+        });
+        let missing = checker.intrinsics.missing;
+        let undefined = checker.intrinsics.undefined;
+        let slot = checker.store.intern(
+            crate::flags::TypeFlags::STRING_LITERAL,
+            TypeData::StringLiteral("slot".into()),
+        );
+        let optional = checker.get_union_type_without_reduction(&[slot, missing, undefined]);
+        let tuple = checker.create_tuple_type(vec![optional], false);
+        checker.tuple_optional_masks.insert(tuple, vec![true]);
+        for length in [None, Some(1)] {
+            let prefix = checker
+                .contextual_type_for_element_expression(tuple, 0, length, None, None)
+                .expect("fixed prefix");
+            let TypeData::Union { types, .. } = &checker.store.get(prefix).data else {
+                panic!("explicit undefined must survive");
+            };
+            assert!(types.contains(&slot));
+            assert!(types.contains(&undefined));
+            assert!(!types.contains(&missing));
+            // At a spread position this same element is read by the slice
+            // branch, not the fixed-prefix branch. Do not strip its missing.
+            let slice = checker
+                .contextual_type_for_element_expression(tuple, 0, length, Some(0), Some(0))
+                .expect("slice");
+            let TypeData::Union { types, .. } = &checker.store.get(slice).data else {
+                panic!("slice union");
+            };
+            assert!(types.contains(&missing));
+            assert!(types.contains(&undefined));
+        }
+        let unreduced =
+            checker.get_union_type_without_reduction(&[checker.intrinsics.string, slot]);
+        let tuple = checker.create_tuple_type(vec![unreduced], false);
+        assert_eq!(
+            checker.contextual_type_for_element_expression(tuple, 0, None, None, None),
+            Some(unreduced)
+        );
+        let TypeData::Union { types, .. } = &checker.store.get(unreduced).data else {
+            panic!("no subtype reduction");
+        };
+        assert!(types.contains(&slot));
+    }
+
+    #[test]
+    fn contextual_tuple_reader_preserves_incomplete_union_refusal() {
+        let source = "type Target = ['prefix'] | { named: 'other' }; \
+                      type Linked = Target; declare const v: Linked;";
+        for mode in [(false, false), (true, false), (true, true)] {
+            for warm in [false, true] {
+                assert_eq!(tuple_context(source, mode, warm, 0, None, (None, None)), None);
+            }
+        }
     }
 }

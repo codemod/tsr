@@ -507,7 +507,13 @@ impl Checker<'_, '_> {
                 let contextual = if self.tuple_element_lists.contains_key(&rest)
                     || self.variadic_tuple_elements.contains_key(&rest)
                 {
-                    self.contextual_type_for_element_expression(rest, index, count, None, None)
+                    self.contextual_type_for_element_expression(
+                        rest,
+                        index,
+                        Some(count),
+                        None,
+                        None,
+                    )
                 } else {
                     self.resolved_indexed_access_type(rest, key, false)
                 }
