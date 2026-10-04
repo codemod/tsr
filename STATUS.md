@@ -22,7 +22,56 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
-### Current checker checkpoint — exact-optional concrete contextual properties
+### Current checker checkpoint — variable JSDoc ownership and original-file defaults
+
+Measured production tree **`cecc50bb`**, against published `23040326`:
+**460,032/478,855 assertions (96.07%)**, **7,192/9,538 complete cases
+(75.40%)**. The 99% target requires 474,067 matches; **14,035 remain**.
+Pinned native `5b1047d1` and both denominators are unchanged. Aligned verdicts:
+**474,251 total; 460,032 RIGHT; 2,094 GAP; 12,125 WRONG**.
+
+Ordinary represented JS variables select the last direct document before the
+last statement document; successive statement tags select successive still-untyped
+siblings. Written/direct annotation presence determines eligibility, not
+initializers or cached computation. Mixed, unknown, incomplete and recovery trees
+retain their legacy selector. Real `{any}` is admitted; source-less wildcard and
+malformed roots remain held. Binding, automatic arrays, iteration, alias
+computation and JS-loop admission are unchanged.
+
+Identifier-default imports/re-exports now retain the immediate `export=` link
+after a complete prefiltered chain proves an original uncloned non-declaration
+TypeScript file-module owner. The module value is not its distinct callable
+`.default`. Type-only provenance survives; ordinary member lookup is unchanged.
+Namespace/default/specifier chains, cycles, incomplete/over-bound walks,
+declaration priority, non-file/clone and format expansion remain held.
+
+Fresh full checker captures reproduce exactly **58 WRONG→RIGHT** transitions
+(56 default-import, two JSDoc), including every worker before/after payload.
+There are zero RIGHT/GAP→WRONG/payload/population losses and no changed
+remaining-WRONG checker payloads. Complete **10,570 diagnostic records**, including
+duplicates and 5,082 empty baselines, retain **20,685 matches**; extras decrease
+**3,838→3,831** with zero correct-case/matched-occurrence/new-extra/population
+losses. The sole changed still-WRONG diagnostic case is
+`esModuleInteropDefaultImports`: seven false TS2339 sites disappear, but six
+expected TS2349 sites remain absent. Invalid default-call TS2345 is also still
+missing in reduced controls; no call-reporter repair is claimed.
+
+Independent archived-output replays verify 160 selector configurations and
+7,136 rows per backend, 16 final actual private-reader returns, and 480 default
+reader runs with 74,208 records. All 544/545 payload hashes pass before and after
+replay; warm/query/precheck/options drift is zero. This is not fresh native
+execution or general Program parity. Exact reconstruction verifies reviewed
+worker methods/tests and no other production changes. Nine focused tests,
+**2,850 workspace release tests, zero failures, six existing ignores**, six loader
+and six worker controls pass. Formatting, strict release workspace/all-target
+Clippy, unfiltered scorepair and fresh coverage pass. Only the checker snapshot
+changes. One mistyped optional worker-control command failed before execution;
+the corrected command passes and the failure log is retained. Evidence is in
+`target/selector-default-wave34-evidence.tar.gz`. Query-this flow and mapped
+required-property stripping remain separate units; optional-add and JS loops
+remain held. The 99% task is not complete.
+
+### Previous checker checkpoint — exact-optional concrete contextual properties
 
 Measured production tree **`c7e5acc0`**, against published `51743d67`:
 **459,974/478,855 assertions (96.06%)**, **7,190/9,538 complete cases
