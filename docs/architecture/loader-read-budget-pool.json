@@ -1,0 +1,2284 @@
+{
+  "measurement": {
+    "kind": "Finite fixed-plan leased-read controls, not a production throughput gate.",
+    "checkout_source": "17c4db04f6772b6bfb0d006b35916841dcaf82c8",
+    "source_sha256": {
+      "Cargo.toml": "3e1f0cee8e312d9ae62fe82fae0a094e4f20c3b5110953f9d8be1c0f2a450b05",
+      "crates/tsr-compiler/examples/read_budget_pool.rs": "ddbdfda188681291f8c5876481f7ce69128554bdb72c9b053729be34a481a018",
+      "crates/tsr-compiler/examples/read_budget_pool/policy.rs": "c28fde5ec52037c2470c595fee88250c6d055812017b3c88ea75bf18c96a2f47",
+      "crates/tsr-compiler/examples/read_preparation/budget.rs": "3bf7764b0eb7662bbb7408b5c3a71bc8f65d652cc4b86b0efdb2a14c66dd295b",
+      "crates/tsr-compiler/examples/read_allocations.rs": "af07c68691cf1d6f30a66a5e6a1dc6a6a5e1a03f367467b892e65db13d9013dc",
+      "docs/architecture/loader-read-allocation-controls.py": "6347ed9fcc685b5264a5b508ee250154bad7519c406b82cbbc47e78b2121ce4a",
+      "scripts/whole_project_perf.py": "bbd25dad108a64d6134c30a0f006c934a6e0a7729bd2998c1d5d08a3c3b8b142"
+    },
+    "harness_sha256": "5d31260299a2825eab33bc535e2bee1c12245052a0d43368e792df1bb9d75b01",
+    "binary_sha256": {
+      "pool": "49124879dbc11d1d9e3ae71d763706912a965f399cc252cfaca67ef493d63446",
+      "reference": "75eaebd1bb5f2a76a0c2f3195284bf5f9e315e63a8fbe3019349b8a029e3619b",
+      "native-reader": "ada6675547edfde4881ab8362862827e0e08a4c865a62393dd9f27d73a91fcf2",
+      "test-binary": "3f3bb2e3ab04fab07dbe559f47ace950a8955810182f2e26facd81d59c02dd02"
+    },
+    "native_pin": "5b1047d10d32e7d5b446be4de56b126ff42f82bb",
+    "timeout_seconds": 30,
+    "cases": [
+      {
+        "name": "empty-plan",
+        "limit": 0,
+        "outcome": "prepared",
+        "action": "payload",
+        "input_sha256": [],
+        "initial_size_hints": [],
+        "runs": [
+          {
+            "mode": "direct",
+            "logical_reserved_peak_bytes": 0,
+            "acquired": 0,
+            "released": 0,
+            "live_after_drop": 0,
+            "held_before_drop": 0,
+            "pool": {
+              "attempts": 0,
+              "refusals": 0,
+              "retry_batches": 0,
+              "retry_reads": 0,
+              "decoded_bytes": 0,
+              "startup_ns": 0,
+              "wall_ns": 0,
+              "max_batch_text_bytes": 0,
+              "consumed": 0
+            },
+            "process": {
+              "pid": 69812,
+              "started_at_unix_ns": 1791119486903150000,
+              "wall_seconds": 0.003339874994708225,
+              "user_seconds": 0.00069,
+              "system_seconds": 0.0008979999999999999,
+              "peak_rss_bytes": 1458176
+            },
+            "payload_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "mode": "1",
+            "logical_reserved_peak_bytes": 0,
+            "acquired": 0,
+            "released": 0,
+            "live_after_drop": 0,
+            "held_before_drop": 0,
+            "pool": {
+              "attempts": 0,
+              "refusals": 0,
+              "retry_batches": 0,
+              "retry_reads": 0,
+              "decoded_bytes": 0,
+              "startup_ns": 0,
+              "wall_ns": 41,
+              "max_batch_text_bytes": 0,
+              "consumed": 0
+            },
+            "process": {
+              "pid": 69813,
+              "started_at_unix_ns": 1791119486907759000,
+              "wall_seconds": 0.00232208298984915,
+              "user_seconds": 0.000699,
+              "system_seconds": 0.000714,
+              "peak_rss_bytes": 1458176
+            },
+            "payload_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "mode": "2",
+            "logical_reserved_peak_bytes": 0,
+            "acquired": 0,
+            "released": 0,
+            "live_after_drop": 0,
+            "held_before_drop": 0,
+            "pool": {
+              "attempts": 0,
+              "refusals": 0,
+              "retry_batches": 0,
+              "retry_reads": 0,
+              "decoded_bytes": 0,
+              "startup_ns": 0,
+              "wall_ns": 41,
+              "max_batch_text_bytes": 0,
+              "consumed": 0
+            },
+            "process": {
+              "pid": 69814,
+              "started_at_unix_ns": 1791119486911076000,
+              "wall_seconds": 0.0023231249942909926,
+              "user_seconds": 0.0007289999999999999,
+              "system_seconds": 0.000821,
+              "peak_rss_bytes": 1458176
+            },
+            "payload_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "mode": "4",
+            "logical_reserved_peak_bytes": 0,
+            "acquired": 0,
+            "released": 0,
+            "live_after_drop": 0,
+            "held_before_drop": 0,
+            "pool": {
+              "attempts": 0,
+              "refusals": 0,
+              "retry_batches": 0,
+              "retry_reads": 0,
+              "decoded_bytes": 0,
+              "startup_ns": 0,
+              "wall_ns": 41,
+              "max_batch_text_bytes": 0,
+              "consumed": 0
+            },
+            "process": {
+              "pid": 69815,
+              "started_at_unix_ns": 1791119486914574000,
+              "wall_seconds": 0.00209500000346452,
+              "user_seconds": 0.0006749999999999999,
+              "system_seconds": 0.0006879999999999999,
+              "peak_rss_bytes": 1458176
+            },
+            "payload_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          }
+        ]
+      },
+      {
+        "name": "tiny-burst",
+        "limit": 4096,
+        "outcome": "prepared",
+        "action": "payload",
+        "input_sha256": [
+          "732bd08dbfb48cf6f479b0d19b6da8e153269899a818a3a14d24e6f70b8c4423",
+          "2bad4a38c2546d8d360df7400bb4fa27b28a2417f1e830fef81677b415bad83d",
+          "4f3978371ec127188700e8a2edffb3b3d8c32416fe0bc28634f040d792e3b5da",
+          "a777a3e00a812cfaa966e05b282740313bc24549890f3bb13dc2275998eab251",
+          "8d710f8561d45572c79fc0624bba1a533bb47c76a4dcfa00fb4cee93fc756257",
+          "23aec83efb7a2c53c95d5a9f1469b0dfe4205dab16af123f1fde92da3daa66dc",
+          "d79b6fe2dd210301ddc039d108b9b8d8d2f1333a2fd40bd514751df8af737c99",
+          "500bcef692674432a588c9755643a72acdd6b9730ef8337b8b1aea14fa376856",
+          "7f3e068852deccaa792f5d0f19ead01e40debcf7d53201dded0696940ff2e400",
+          "a5856033168ae221a69bbd74d63b36dbd3518e4de1f64fd7af68177dcb790925",
+          "70df9c5d8dcab30a14e28b4549e7fddfcdb57300408183b07237775883938aa2",
+          "afc2ea4d7681cdd4a423a780b0bb41bf1992e58c71cbd2150cfa483bce5cbf41",
+          "cbbf60cdc5d22c25d29a1c8228e8310d6d420415fcf643c9a63cccadd2e80113",
+          "7ac62fc15d0a0c863f4f967a8b08076258ba48dd61ffbf74b452b508e92ee0e0",
+          "03b8c86cdc61772efcdda75d1e1166394be67de53fd2f1e0b1c6243c20eaeab1",
+          "dfd496d9798ebad29d609f1d0ef63f930d4b6ccd8bfb893891dd3e27fda5cda9",
+          "a9d5f304ab9ada159bd85834b4f6afce285f591cf65c6592f1e9a745bb9955ae"
+        ],
+        "initial_size_hints": [
+          30,
+          30,
+          30,
+          30,
+          30,
+          30,
+          30,
+          30,
+          30,
+          30,
+          31,
+          31,
+          31,
+          31,
+          31,
+          31,
+          31
+        ],
+        "runs": [
+          {
+            "mode": "direct",
+            "logical_reserved_peak_bytes": 62,
+            "acquired": 68,
+            "released": 68,
+            "live_after_drop": 0,
+            "held_before_drop": 0,
+            "pool": {
+              "attempts": 17,
+              "refusals": 0,
+              "retry_batches": 0,
+              "retry_reads": 0,
+              "decoded_bytes": 517,
+              "startup_ns": 0,
+              "wall_ns": 1123416,
+              "max_batch_text_bytes": 31,
+              "consumed": 17
+            },
+            "process": {
+              "pid": 69851,
+              "started_at_unix_ns": 1791119487027669000,
+              "wall_seconds": 0.0031270420004148036,
+              "user_seconds": 0.001419,
+              "system_seconds": 0.001017,
+              "peak_rss_bytes": 1785856
+            },
+            "payload_sha256": "e810b4d314d6be0ff80aee24893b742f39ff53948eb1fcc7eab204b7349bb643"
+          },
+          {
+            "mode": "1",
+            "logical_reserved_peak_bytes": 62,
+            "acquired": 68,
+            "released": 68,
+            "live_after_drop": 0,
+            "held_before_drop": 0,
+            "pool": {
+              "attempts": 17,
+              "refusals": 0,
+              "retry_batches": 0,
+              "retry_reads": 0,
+              "decoded_bytes": 517,
+              "startup_ns": 27584,
+              "wall_ns": 1232292,
+              "max_batch_text_bytes": 31,
+              "consumed": 17
+            },
+            "process": {
+              "pid": 69852,
+              "started_at_unix_ns": 1791119487032682000,
+              "wall_seconds": 0.0032900000223889947,
+              "user_seconds": 0.0014709999999999999,
+              "system_seconds": 0.001086,
+              "peak_rss_bytes": 1998848
+            },
+            "payload_sha256": "e810b4d314d6be0ff80aee24893b742f39ff53948eb1fcc7eab204b7349bb643"
+          },
+          {
+            "mode": "2",
+            "logical_reserved_peak_bytes": 120,
+            "acquired": 68,
+            "released": 68,
+            "live_after_drop": 0,
+            "held_before_drop": 0,
+            "pool": {
+              "attempts": 17,
+              "refusals": 0,
+              "retry_batches": 0,
+              "retry_reads": 0,
+              "decoded_bytes": 517,
+              "startup_ns": 37000,
+              "wall_ns": 1301625,
+              "max_batch_text_bytes": 62,
+              "consumed": 17
+            },
+            "process": {
+              "pid": 69853,
+              "started_at_unix_ns": 1791119487037202000,
+              "wall_seconds": 0.003406958974665031,
+              "user_seconds": 0.0014759999999999999,
+              "system_seconds": 0.0014219999999999999,
+              "peak_rss_bytes": 2097152
+            },
+            "payload_sha256": "e810b4d314d6be0ff80aee24893b742f39ff53948eb1fcc7eab204b7349bb643"
+          },
+          {
+            "mode": "4",
+            "logical_reserved_peak_bytes": 155,
+            "acquired": 68,
+            "released": 68,
+            "live_after_drop": 0,
+            "held_before_drop": 0,
+            "pool": {
+              "attempts": 17,
+              "refusals": 0,
+              "retry_batches": 0,
+              "retry_reads": 0,
+              "decoded_bytes": 517,
+              "startup_ns": 45000,
+              "wall_ns": 1102542,
+              "max_batch_text_bytes": 124,
+              "consumed": 17
+            },
+            "process": {
+              "pid": 69854,
+              "started_at_unix_ns": 1791119487043834000,
+              "wall_seconds": 0.0031665419810451567,
+              "user_seconds": 0.0015,
+              "system_seconds": 0.001268,
+              "peak_rss_bytes": 2129920
+            },
+            "payload_sha256": "e810b4d314d6be0ff80aee24893b742f39ff53948eb1fcc7eab204b7349bb643"
+          }
+        ]
+      },
+      {
+        "name": "encoding-and-skew",
+        "limit": 1048576,
+        "outcome": "prepared",
+        "action": "payload",
+        "input_sha256": [
+          "ecad64f52424a26f179125b324a025b05a970fbd66751ee3c508155f951f20c4",
+          "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "a8c4b7986b18dc7b424be687f4bb26b9d8f61f68b6159f665e3ef9664e121f03",
+          "3886a7b6ddfd71855dec8e9d8a04adc47a2f1bb929e03a8c6b2374b2c48a6ee1",
+          "b580f6a862862f15324a662343b5436a6cbca638045002a0bc456ca3f13c8cae",
+          "502472a631747ab4235ca5c0efed90827ffdaa9cafbe41dd09550e706c0a132e",
+          "8effba91f2b54c4ef34ded1f17154f569929c8550fcbc22fb79f12158500edd0",
+          "2c959014648f131746b53c93d9a6dbce96bcda72034e2b20c48ff42c907ad1da",
+          "583deb1f4413cd097060f0768a8bde80af10c03bdedf0587e1ec8b90d3c3685b",
+          "c6b18951a05cf4d5869c4a0581e5b79add6d90521d1bfa2e0220c8d20a04360b",
+          "c6b18951a05cf4d5869c4a0581e5b79add6d90521d1bfa2e0220c8d20a04360b"
+        ],
+        "initial_size_hints": [
+          49,
+          0,
+          52,
+          100,
+          100,
+          8300,
+          110,
+          101,
+          85,
+          65589,
+          65589
+        ],
+        "runs": [
+          {
+            "mode": "direct",
+            "logical_reserved_peak_bytes": 196661,
+            "acquired": 64,
+            "released": 64,
+            "live_after_drop": 0,
+            "held_before_drop": 0,
+            "pool": {
+              "attempts": 11,
+              "refusals": 0,
+              "retry_batches": 0,
+              "retry_reads": 0,
+              "decoded_bytes": 143969,
+              "startup_ns": 0,
+              "wall_ns": 2322792,
+              "max_batch_text_bytes": 65589,
+              "consumed": 11
+            },
+            "process": {
+              "pid": 69877,
+              "started_at_unix_ns": 1791119487117905000,
+              "wall_seconds": 0.004385292006190866,
+              "user_seconds": 0.00264,
+              "system_seconds": 0.0010069999999999999,
+              "peak_rss_bytes": 2260992
+            },
+            "payload_sha256": "ed9d0e62b806e864d2d4f7a9131c95bd30e0a6dc5a2724a8a3ef6737416bc20e"
+          },
+          {
+            "mode": "1",
+            "logical_reserved_peak_bytes": 196661,
+            "acquired": 64,
+            "released": 64,
+            "live_after_drop": 0,
+            "held_before_drop": 0,
+            "pool": {
+              "attempts": 11,
+              "refusals": 0,
+              "retry_batches": 0,
+              "retry_reads": 0,
+              "decoded_bytes": 143969,
+              "startup_ns": 26167,
+              "wall_ns": 2423750,
+              "max_batch_text_bytes": 65589,
+              "consumed": 11
+            },
+            "process": {
+              "pid": 69878,
+              "started_at_unix_ns": 1791119487125733000,
+              "wall_seconds": 0.004480915988096967,
+              "user_seconds": 0.0026969999999999997,
+              "system_seconds": 0.0010739999999999999,
+              "peak_rss_bytes": 2621440
+            },
+            "payload_sha256": "ed9d0e62b806e864d2d4f7a9131c95bd30e0a6dc5a2724a8a3ef6737416bc20e"
+          },
+          {
+            "mode": "2",
+            "logical_reserved_peak_bytes": 196810,
+            "acquired": 64,
+            "released": 64,
+            "live_after_drop": 0,
+            "held_before_drop": 0,
+            "pool": {
+              "attempts": 11,
+              "refusals": 0,
+              "retry_batches": 0,
+              "retry_reads": 0,
+              "decoded_bytes": 143969,
+              "startup_ns": 29916,
+              "wall_ns": 2309916,
+              "max_batch_text_bytes": 65738,
+              "consumed": 11
+            },
+            "process": {
+              "pid": 69879,
+              "started_at_unix_ns": 1791119487133271000,
+              "wall_seconds": 0.004503917007241398,
+              "user_seconds": 0.002643,
+              "system_seconds": 0.0011409999999999999,
+              "peak_rss_bytes": 2998272
+            },
+            "payload_sha256": "ed9d0e62b806e864d2d4f7a9131c95bd30e0a6dc5a2724a8a3ef6737416bc20e"
+          },
+          {
+            "mode": "4",
+            "logical_reserved_peak_bytes": 393471,
+            "acquired": 64,
+            "released": 64,
+            "live_after_drop": 0,
+            "held_before_drop": 0,
+            "pool": {
+              "attempts": 11,
+              "refusals": 0,
+              "retry_batches": 0,
+              "retry_reads": 0,
+              "decoded_bytes": 143969,
+              "startup_ns": 31958,
+              "wall_ns": 2334458,
+              "max_batch_text_bytes": 131327,
+              "consumed": 11
+            },
+            "process": {
+              "pid": 69880,
+              "started_at_unix_ns": 1791119487140696000,
+              "wall_seconds": 0.0043342919962015,
+              "user_seconds": 0.002669,
+              "system_seconds": 0.001285,
+              "peak_rss_bytes": 3178496
+            },
+            "payload_sha256": "ed9d0e62b806e864d2d4f7a9131c95bd30e0a6dc5a2724a8a3ef6737416bc20e"
+          }
+        ],
+        "tracked_native_invalid_utf8_gap": "tsr-34z"
+      },
+      {
+        "name": "contention",
+        "limit": 64,
+        "outcome": "prepared",
+        "action": "payload",
+        "input_sha256": [
+          "85e7eac2862f1cbd85bc18769c75172c3fdcd899ab468b9e973d59ec620d9991",
+          "85e7eac2862f1cbd85bc18769c75172c3fdcd899ab468b9e973d59ec620d9991",
+          "85e7eac2862f1cbd85bc18769c75172c3fdcd899ab468b9e973d59ec620d9991",
+          "85e7eac2862f1cbd85bc18769c75172c3fdcd899ab468b9e973d59ec620d9991",
+          "85e7eac2862f1cbd85bc18769c75172c3fdcd899ab468b9e973d59ec620d9991",
+          "85e7eac2862f1cbd85bc18769c75172c3fdcd899ab468b9e973d59ec620d9991",
+          "85e7eac2862f1cbd85bc18769c75172c3fdcd899ab468b9e973d59ec620d9991",
+          "85e7eac2862f1cbd85bc18769c75172c3fdcd899ab468b9e973d59ec620d9991",
+          "85e7eac2862f1cbd85bc18769c75172c3fdcd899ab468b9e973d59ec620d9991"
+        ],
+        "initial_size_hints": [
+          32,
+          32,
+          32,
+          32,
+          32,
+          32,
+          32,
+          32,
+          32
+        ],
+        "runs": [
+          {
+            "mode": "direct",
+            "logical_reserved_peak_bytes": 64,
+            "acquired": 36,
+            "released": 36,
+            "live_after_drop": 0,
+            "held_before_drop": 0,
+            "pool": {
+              "attempts": 9,
+              "refusals": 0,
+              "retry_batches": 0,
+              "retry_reads": 0,
+              "decoded_bytes": 288,
+              "startup_ns": 0,
+              "wall_ns": 446042,
+              "max_batch_text_bytes": 32,
+              "consumed": 9
+            },
+            "process": {
+              "pid": 69899,
+              "started_at_unix_ns": 1791119487204715000,
+              "wall_seconds": 0.0026775840087793767,
+              "user_seconds": 0.0008309999999999999,
+              "system_seconds": 0.000982,
+              "peak_rss_bytes": 1671168
+            },
+            "payload_sha256": "c1085f177deec9bc05cc31bea5e2eac4c346b2aa6c107f561465a166d00bbe50"
+          },
+          {
+            "mode": "1",
+            "logical_reserved_peak_bytes": 64,
+            "acquired": 36,
+            "released": 36,
+            "live_after_drop": 0,
+            "held_before_drop": 0,
+            "pool": {
+              "attempts": 9,
+              "refusals": 0,
+              "retry_batches": 0,
+              "retry_reads": 0,
+              "decoded_bytes": 288,
+              "startup_ns": 25959,
+              "wall_ns": 372000,
+              "max_batch_text_bytes": 32,
+              "consumed": 9
+            },
+            "process": {
+              "pid": 69900,
+              "started_at_unix_ns": 1791119487208861000,
+              "wall_seconds": 0.002633583004353568,
+              "user_seconds": 0.0008579999999999999,
+              "system_seconds": 0.001042,
+              "peak_rss_bytes": 1769472
+            },
+            "payload_sha256": "c1085f177deec9bc05cc31bea5e2eac4c346b2aa6c107f561465a166d00bbe50"
+          },
+          {
+            "mode": "2",
+            "logical_reserved_peak_bytes": 64,
+            "acquired": 64,
+            "released": 64,
+            "live_after_drop": 0,
+            "held_before_drop": 0,
+            "pool": {
+              "attempts": 17,
+              "refusals": 4,
+              "retry_batches": 4,
+              "retry_reads": 8,
+              "decoded_bytes": 416,
+              "startup_ns": 32250,
+              "wall_ns": 433333,
+              "max_batch_text_bytes": 32,
+              "consumed": 9
+            },
+            "process": {
+              "pid": 69901,
+              "started_at_unix_ns": 1791119487213184000,
+              "wall_seconds": 0.002600416977657005,
+              "user_seconds": 0.000888,
+              "system_seconds": 0.001059,
+              "peak_rss_bytes": 1900544
+            },
+            "payload_sha256": "c1085f177deec9bc05cc31bea5e2eac4c346b2aa6c107f561465a166d00bbe50"
+          },
+          {
+            "mode": "4",
+            "logical_reserved_peak_bytes": 64,
+            "acquired": 58,
+            "released": 58,
+            "live_after_drop": 0,
+            "held_before_drop": 0,
+            "pool": {
+              "attempts": 17,
+              "refusals": 6,
+              "retry_batches": 2,
+              "retry_reads": 8,
+              "decoded_bytes": 352,
+              "startup_ns": 47250,
+              "wall_ns": 452833,
+              "max_batch_text_bytes": 32,
+              "consumed": 9
+            },
+            "process": {
+              "pid": 69902,
+              "started_at_unix_ns": 1791119487217339000,
+              "wall_seconds": 0.002650125010404736,
+              "user_seconds": 0.000901,
+              "system_seconds": 0.00122,
+              "peak_rss_bytes": 1998848
+            },
+            "payload_sha256": "c1085f177deec9bc05cc31bea5e2eac4c346b2aa6c107f561465a166d00bbe50"
+          }
+        ]
+      },
+      {
+        "name": "oversized",
+        "limit": 4096,
+        "outcome": "budget",
+        "action": "payload",
+        "input_sha256": [
+          "c6b18951a05cf4d5869c4a0581e5b79add6d90521d1bfa2e0220c8d20a04360b"
+        ],
+        "initial_size_hints": [
+          65589
+        ],
+        "runs": [
+          {
+            "mode": "direct",
+            "logical_reserved_peak_bytes": 4096,
+            "acquired": 2,
+            "released": 2,
+            "live_after_drop": 0,
+            "held_before_drop": 0,
+            "pool": {
+              "attempts": 1,
+              "refusals": 1,
+              "retry_batches": 0,
+              "retry_reads": 0,
+              "decoded_bytes": 0,
+              "startup_ns": 0,
+              "wall_ns": 15708,
+              "max_batch_text_bytes": 0,
+              "consumed": 0
+            },
+            "process": {
+              "pid": 69903,
+              "started_at_unix_ns": 1791119487222220000,
+              "wall_seconds": 0.0021006669849157333,
+              "user_seconds": 0.0006709999999999999,
+              "system_seconds": 0.000677,
+              "peak_rss_bytes": 1490944
+            },
+            "payload_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "mode": "1",
+            "logical_reserved_peak_bytes": 4096,
+            "acquired": 4,
+            "released": 4,
+            "live_after_drop": 0,
+            "held_before_drop": 0,
+            "pool": {
+              "attempts": 2,
+              "refusals": 2,
+              "retry_batches": 1,
+              "retry_reads": 1,
+              "decoded_bytes": 0,
+              "startup_ns": 25792,
+              "wall_ns": 69583,
+              "max_batch_text_bytes": 0,
+              "consumed": 0
+            },
+            "process": {
+              "pid": 69904,
+              "started_at_unix_ns": 1791119487225138000,
+              "wall_seconds": 0.0021362080005928874,
+              "user_seconds": 0.000682,
+              "system_seconds": 0.000768,
+              "peak_rss_bytes": 1687552
+            },
+            "payload_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "mode": "2",
+            "logical_reserved_peak_bytes": 4096,
+            "acquired": 4,
+            "released": 4,
+            "live_after_drop": 0,
+            "held_before_drop": 0,
+            "pool": {
+              "attempts": 2,
+              "refusals": 2,
+              "retry_batches": 1,
+              "retry_reads": 1,
+              "decoded_bytes": 0,
+              "startup_ns": 28667,
+              "wall_ns": 70917,
+              "max_batch_text_bytes": 0,
+              "consumed": 0
+            },
+            "process": {
+              "pid": 69905,
+              "started_at_unix_ns": 1791119487228201000,
+              "wall_seconds": 0.0022410830133594573,
+              "user_seconds": 0.000722,
+              "system_seconds": 0.0007779999999999999,
+              "peak_rss_bytes": 1622016
+            },
+            "payload_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "mode": "4",
+            "logical_reserved_peak_bytes": 4096,
+            "acquired": 4,
+            "released": 4,
+            "live_after_drop": 0,
+            "held_before_drop": 0,
+            "pool": {
+              "attempts": 2,
+              "refusals": 2,
+              "retry_batches": 1,
+              "retry_reads": 1,
+              "decoded_bytes": 0,
+              "startup_ns": 31833,
+              "wall_ns": 74125,
+              "max_batch_text_bytes": 0,
+              "consumed": 0
+            },
+            "process": {
+              "pid": 69906,
+              "started_at_unix_ns": 1791119487231319000,
+              "wall_seconds": 0.002147374994819984,
+              "user_seconds": 0.000695,
+              "system_seconds": 0.00075,
+              "peak_rss_bytes": 1622016
+            },
+            "payload_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          }
+        ]
+      },
+      {
+        "name": "stale-size",
+        "limit": 4096,
+        "outcome": "budget",
+        "action": "payload",
+        "input_sha256": [
+          "c6b18951a05cf4d5869c4a0581e5b79add6d90521d1bfa2e0220c8d20a04360b"
+        ],
+        "initial_size_hints": [
+          9
+        ],
+        "runs": [
+          {
+            "mode": "direct",
+            "logical_reserved_peak_bytes": 4096,
+            "acquired": 2,
+            "released": 2,
+            "live_after_drop": 0,
+            "held_before_drop": 0,
+            "pool": {
+              "attempts": 1,
+              "refusals": 1,
+              "retry_batches": 0,
+              "retry_reads": 0,
+              "decoded_bytes": 0,
+              "startup_ns": 0,
+              "wall_ns": 15958,
+              "max_batch_text_bytes": 0,
+              "consumed": 0
+            },
+            "process": {
+              "pid": 69907,
+              "started_at_unix_ns": 1791119487235364000,
+              "wall_seconds": 0.0020784589869435877,
+              "user_seconds": 0.0006659999999999999,
+              "system_seconds": 0.0006789999999999999,
+              "peak_rss_bytes": 1490944
+            },
+            "payload_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "mode": "1",
+            "logical_reserved_peak_bytes": 4096,
+            "acquired": 4,
+            "released": 4,
+            "live_after_drop": 0,
+            "held_before_drop": 0,
+            "pool": {
+              "attempts": 2,
+              "refusals": 2,
+              "retry_batches": 1,
+              "retry_reads": 1,
+              "decoded_bytes": 0,
+              "startup_ns": 24917,
+              "wall_ns": 68667,
+              "max_batch_text_bytes": 0,
+              "consumed": 0
+            },
+            "process": {
+              "pid": 69908,
+              "started_at_unix_ns": 1791119487238493000,
+              "wall_seconds": 0.0021595839934889227,
+              "user_seconds": 0.0007279999999999999,
+              "system_seconds": 0.000732,
+              "peak_rss_bytes": 1622016
+            },
+            "payload_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "mode": "2",
+            "logical_reserved_peak_bytes": 4096,
+            "acquired": 4,
+            "released": 4,
+            "live_after_drop": 0,
+            "held_before_drop": 0,
+            "pool": {
+              "attempts": 2,
+              "refusals": 2,
+              "retry_batches": 1,
+              "retry_reads": 1,
+              "decoded_bytes": 0,
+              "startup_ns": 30542,
+              "wall_ns": 75792,
+              "max_batch_text_bytes": 0,
+              "consumed": 0
+            },
+            "process": {
+              "pid": 69909,
+              "started_at_unix_ns": 1791119487241609000,
+              "wall_seconds": 0.0022048339887987822,
+              "user_seconds": 0.000719,
+              "system_seconds": 0.000797,
+              "peak_rss_bytes": 1638400
+            },
+            "payload_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "mode": "4",
+            "logical_reserved_peak_bytes": 4096,
+            "acquired": 4,
+            "released": 4,
+            "live_after_drop": 0,
+            "held_before_drop": 0,
+            "pool": {
+              "attempts": 2,
+              "refusals": 2,
+              "retry_batches": 1,
+              "retry_reads": 1,
+              "decoded_bytes": 0,
+              "startup_ns": 20416,
+              "wall_ns": 57500,
+              "max_batch_text_bytes": 0,
+              "consumed": 0
+            },
+            "process": {
+              "pid": 69910,
+              "started_at_unix_ns": 1791119487244645000,
+              "wall_seconds": 0.002112791989929974,
+              "user_seconds": 0.000683,
+              "system_seconds": 0.000772,
+              "peak_rss_bytes": 1589248
+            },
+            "payload_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          }
+        ]
+      },
+      {
+        "name": "encoding-expansion-refusal",
+        "limit": 4096,
+        "outcome": "budget",
+        "action": "payload",
+        "input_sha256": [
+          "502472a631747ab4235ca5c0efed90827ffdaa9cafbe41dd09550e706c0a132e"
+        ],
+        "initial_size_hints": [
+          8300
+        ],
+        "runs": [
+          {
+            "mode": "direct",
+            "logical_reserved_peak_bytes": 4096,
+            "acquired": 2,
+            "released": 2,
+            "live_after_drop": 0,
+            "held_before_drop": 0,
+            "pool": {
+              "attempts": 1,
+              "refusals": 1,
+              "retry_batches": 0,
+              "retry_reads": 0,
+              "decoded_bytes": 0,
+              "startup_ns": 0,
+              "wall_ns": 15292,
+              "max_batch_text_bytes": 0,
+              "consumed": 0
+            },
+            "process": {
+              "pid": 69911,
+              "started_at_unix_ns": 1791119487248300000,
+              "wall_seconds": 0.002091750007821247,
+              "user_seconds": 0.000682,
+              "system_seconds": 0.000703,
+              "peak_rss_bytes": 1490944
+            },
+            "payload_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "mode": "1",
+            "logical_reserved_peak_bytes": 4096,
+            "acquired": 4,
+            "released": 4,
+            "live_after_drop": 0,
+            "held_before_drop": 0,
+            "pool": {
+              "attempts": 2,
+              "refusals": 2,
+              "retry_batches": 1,
+              "retry_reads": 1,
+              "decoded_bytes": 0,
+              "startup_ns": 23959,
+              "wall_ns": 84709,
+              "max_batch_text_bytes": 0,
+              "consumed": 0
+            },
+            "process": {
+              "pid": 69912,
+              "started_at_unix_ns": 1791119487251346000,
+              "wall_seconds": 0.002135542017640546,
+              "user_seconds": 0.0006889999999999999,
+              "system_seconds": 0.0007289999999999999,
+              "peak_rss_bytes": 1687552
+            },
+            "payload_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "mode": "2",
+            "logical_reserved_peak_bytes": 4096,
+            "acquired": 4,
+            "released": 4,
+            "live_after_drop": 0,
+            "held_before_drop": 0,
+            "pool": {
+              "attempts": 2,
+              "refusals": 2,
+              "retry_batches": 1,
+              "retry_reads": 1,
+              "decoded_bytes": 0,
+              "startup_ns": 32125,
+              "wall_ns": 80875,
+              "max_batch_text_bytes": 0,
+              "consumed": 0
+            },
+            "process": {
+              "pid": 69913,
+              "started_at_unix_ns": 1791119487254438000,
+              "wall_seconds": 0.00214791702455841,
+              "user_seconds": 0.0007059999999999999,
+              "system_seconds": 0.000763,
+              "peak_rss_bytes": 1622016
+            },
+            "payload_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "mode": "4",
+            "logical_reserved_peak_bytes": 4096,
+            "acquired": 4,
+            "released": 4,
+            "live_after_drop": 0,
+            "held_before_drop": 0,
+            "pool": {
+              "attempts": 2,
+              "refusals": 2,
+              "retry_batches": 1,
+              "retry_reads": 1,
+              "decoded_bytes": 0,
+              "startup_ns": 22042,
+              "wall_ns": 72125,
+              "max_batch_text_bytes": 0,
+              "consumed": 0
+            },
+            "process": {
+              "pid": 69914,
+              "started_at_unix_ns": 1791119487257495000,
+              "wall_seconds": 0.002228500001365319,
+              "user_seconds": 0.000708,
+              "system_seconds": 0.000801,
+              "peak_rss_bytes": 1654784
+            },
+            "payload_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          }
+        ]
+      },
+      {
+        "name": "missing",
+        "limit": 4096,
+        "outcome": "io",
+        "action": "payload",
+        "input_sha256": [
+          "5967d633a6670814c4b5e0a8c889eb5c0e51155258d35d68a476eb1717e6e2ee",
+          null,
+          "5967d633a6670814c4b5e0a8c889eb5c0e51155258d35d68a476eb1717e6e2ee"
+        ],
+        "initial_size_hints": [
+          25,
+          null,
+          25
+        ],
+        "runs": [
+          {
+            "mode": "direct",
+            "logical_reserved_peak_bytes": 50,
+            "acquired": 4,
+            "released": 4,
+            "live_after_drop": 0,
+            "held_before_drop": 0,
+            "pool": {
+              "attempts": 2,
+              "refusals": 0,
+              "retry_batches": 0,
+              "retry_reads": 0,
+              "decoded_bytes": 25,
+              "startup_ns": 0,
+              "wall_ns": 149958,
+              "max_batch_text_bytes": 25,
+              "consumed": 1
+            },
+            "process": {
+              "pid": 69915,
+              "started_at_unix_ns": 1791119487261239000,
+              "wall_seconds": 0.002358208002988249,
+              "user_seconds": 0.0007549999999999999,
+              "system_seconds": 0.000812,
+              "peak_rss_bytes": 1785856
+            },
+            "payload_sha256": "2bcb9e00c593956790653ebc57ab07ad95cf0b7cac8ed18e08c42ae6e1603a86"
+          },
+          {
+            "mode": "1",
+            "logical_reserved_peak_bytes": 50,
+            "acquired": 4,
+            "released": 4,
+            "live_after_drop": 0,
+            "held_before_drop": 0,
+            "pool": {
+              "attempts": 2,
+              "refusals": 0,
+              "retry_batches": 0,
+              "retry_reads": 0,
+              "decoded_bytes": 25,
+              "startup_ns": 31167,
+              "wall_ns": 189459,
+              "max_batch_text_bytes": 25,
+              "consumed": 1
+            },
+            "process": {
+              "pid": 69916,
+              "started_at_unix_ns": 1791119487264989000,
+              "wall_seconds": 0.0022716250095982105,
+              "user_seconds": 0.000757,
+              "system_seconds": 0.000793,
+              "peak_rss_bytes": 1867776
+            },
+            "payload_sha256": "2bcb9e00c593956790653ebc57ab07ad95cf0b7cac8ed18e08c42ae6e1603a86"
+          },
+          {
+            "mode": "2",
+            "logical_reserved_peak_bytes": 50,
+            "acquired": 4,
+            "released": 4,
+            "live_after_drop": 0,
+            "held_before_drop": 0,
+            "pool": {
+              "attempts": 2,
+              "refusals": 0,
+              "retry_batches": 0,
+              "retry_reads": 0,
+              "decoded_bytes": 25,
+              "startup_ns": 32917,
+              "wall_ns": 188709,
+              "max_batch_text_bytes": 25,
+              "consumed": 1
+            },
+            "process": {
+              "pid": 69917,
+              "started_at_unix_ns": 1791119487268760000,
+              "wall_seconds": 0.0025533750012982637,
+              "user_seconds": 0.0008489999999999999,
+              "system_seconds": 0.000959,
+              "peak_rss_bytes": 1949696
+            },
+            "payload_sha256": "2bcb9e00c593956790653ebc57ab07ad95cf0b7cac8ed18e08c42ae6e1603a86"
+          },
+          {
+            "mode": "4",
+            "logical_reserved_peak_bytes": 75,
+            "acquired": 8,
+            "released": 8,
+            "live_after_drop": 0,
+            "held_before_drop": 0,
+            "pool": {
+              "attempts": 3,
+              "refusals": 0,
+              "retry_batches": 0,
+              "retry_reads": 0,
+              "decoded_bytes": 50,
+              "startup_ns": 35208,
+              "wall_ns": 177792,
+              "max_batch_text_bytes": 50,
+              "consumed": 1
+            },
+            "process": {
+              "pid": 69918,
+              "started_at_unix_ns": 1791119487272664000,
+              "wall_seconds": 0.0023468750005122274,
+              "user_seconds": 0.0007819999999999999,
+              "system_seconds": 0.000888,
+              "peak_rss_bytes": 2015232
+            },
+            "payload_sha256": "2bcb9e00c593956790653ebc57ab07ad95cf0b7cac8ed18e08c42ae6e1603a86"
+          }
+        ]
+      },
+      {
+        "name": "directory",
+        "limit": 4096,
+        "outcome": "io",
+        "action": "payload",
+        "input_sha256": [
+          "5967d633a6670814c4b5e0a8c889eb5c0e51155258d35d68a476eb1717e6e2ee",
+          null,
+          "5967d633a6670814c4b5e0a8c889eb5c0e51155258d35d68a476eb1717e6e2ee"
+        ],
+        "initial_size_hints": [
+          25,
+          64,
+          25
+        ],
+        "runs": [
+          {
+            "mode": "direct",
+            "logical_reserved_peak_bytes": 50,
+            "acquired": 5,
+            "released": 5,
+            "live_after_drop": 0,
+            "held_before_drop": 0,
+            "pool": {
+              "attempts": 2,
+              "refusals": 0,
+              "retry_batches": 0,
+              "retry_reads": 0,
+              "decoded_bytes": 25,
+              "startup_ns": 0,
+              "wall_ns": 146833,
+              "max_batch_text_bytes": 25,
+              "consumed": 1
+            },
+            "process": {
+              "pid": 69919,
+              "started_at_unix_ns": 1791119487277002000,
+              "wall_seconds": 0.002290417003678158,
+              "user_seconds": 0.0007549999999999999,
+              "system_seconds": 0.000774,
+              "peak_rss_bytes": 1785856
+            },
+            "payload_sha256": "2bcb9e00c593956790653ebc57ab07ad95cf0b7cac8ed18e08c42ae6e1603a86"
+          },
+          {
+            "mode": "1",
+            "logical_reserved_peak_bytes": 50,
+            "acquired": 5,
+            "released": 5,
+            "live_after_drop": 0,
+            "held_before_drop": 0,
+            "pool": {
+              "attempts": 2,
+              "refusals": 0,
+              "retry_batches": 0,
+              "retry_reads": 0,
+              "decoded_bytes": 25,
+              "startup_ns": 32500,
+              "wall_ns": 183000,
+              "max_batch_text_bytes": 25,
+              "consumed": 1
+            },
+            "process": {
+              "pid": 69920,
+              "started_at_unix_ns": 1791119487280506000,
+              "wall_seconds": 0.0023590410128235817,
+              "user_seconds": 0.000761,
+              "system_seconds": 0.000812,
+              "peak_rss_bytes": 1867776
+            },
+            "payload_sha256": "2bcb9e00c593956790653ebc57ab07ad95cf0b7cac8ed18e08c42ae6e1603a86"
+          },
+          {
+            "mode": "2",
+            "logical_reserved_peak_bytes": 50,
+            "acquired": 5,
+            "released": 5,
+            "live_after_drop": 0,
+            "held_before_drop": 0,
+            "pool": {
+              "attempts": 2,
+              "refusals": 0,
+              "retry_batches": 0,
+              "retry_reads": 0,
+              "decoded_bytes": 25,
+              "startup_ns": 30667,
+              "wall_ns": 176542,
+              "max_batch_text_bytes": 25,
+              "consumed": 1
+            },
+            "process": {
+              "pid": 69921,
+              "started_at_unix_ns": 1791119487283966000,
+              "wall_seconds": 0.0023949169844854623,
+              "user_seconds": 0.000825,
+              "system_seconds": 0.000861,
+              "peak_rss_bytes": 1966080
+            },
+            "payload_sha256": "2bcb9e00c593956790653ebc57ab07ad95cf0b7cac8ed18e08c42ae6e1603a86"
+          },
+          {
+            "mode": "4",
+            "logical_reserved_peak_bytes": 75,
+            "acquired": 9,
+            "released": 9,
+            "live_after_drop": 0,
+            "held_before_drop": 0,
+            "pool": {
+              "attempts": 3,
+              "refusals": 0,
+              "retry_batches": 0,
+              "retry_reads": 0,
+              "decoded_bytes": 50,
+              "startup_ns": 46208,
+              "wall_ns": 189083,
+              "max_batch_text_bytes": 50,
+              "consumed": 1
+            },
+            "process": {
+              "pid": 69922,
+              "started_at_unix_ns": 1791119487287467000,
+              "wall_seconds": 0.0023170000058598816,
+              "user_seconds": 0.0008049999999999999,
+              "system_seconds": 0.0009,
+              "peak_rss_bytes": 2015232
+            },
+            "payload_sha256": "2bcb9e00c593956790653ebc57ab07ad95cf0b7cac8ed18e08c42ae6e1603a86"
+          }
+        ]
+      },
+      {
+        "name": "fifo-success",
+        "limit": 4096,
+        "outcome": "prepared",
+        "action": "payload",
+        "input_sha256": [
+          null,
+          "5967d633a6670814c4b5e0a8c889eb5c0e51155258d35d68a476eb1717e6e2ee"
+        ],
+        "initial_size_hints": [
+          0,
+          25
+        ],
+        "runs": [
+          {
+            "mode": "direct",
+            "logical_reserved_peak_bytes": 50,
+            "acquired": 8,
+            "released": 8,
+            "live_after_drop": 0,
+            "held_before_drop": 0,
+            "pool": {
+              "attempts": 2,
+              "refusals": 0,
+              "retry_batches": 0,
+              "retry_reads": 0,
+              "decoded_bytes": 50,
+              "startup_ns": 0,
+              "wall_ns": 5649083,
+              "max_batch_text_bytes": 25,
+              "consumed": 2
+            },
+            "process": {
+              "pid": 69927,
+              "started_at_unix_ns": 1791119487313698000,
+              "wall_seconds": 0.007801915984600782,
+              "user_seconds": 0.000797,
+              "system_seconds": 0.000828,
+              "peak_rss_bytes": 1785856
+            },
+            "payload_sha256": "d1885f98e3b006a4621ba9907a47a9cf7f5eeca4f6e8d8b30a07ce00344d83c4"
+          },
+          {
+            "mode": "1",
+            "logical_reserved_peak_bytes": 50,
+            "acquired": 8,
+            "released": 8,
+            "live_after_drop": 0,
+            "held_before_drop": 0,
+            "pool": {
+              "attempts": 2,
+              "refusals": 0,
+              "retry_batches": 0,
+              "retry_reads": 0,
+              "decoded_bytes": 50,
+              "startup_ns": 24083,
+              "wall_ns": 5671416,
+              "max_batch_text_bytes": 25,
+              "consumed": 2
+            },
+            "process": {
+              "pid": 69928,
+              "started_at_unix_ns": 1791119487322812000,
+              "wall_seconds": 0.007806040986906737,
+              "user_seconds": 0.000802,
+              "system_seconds": 0.0008269999999999999,
+              "peak_rss_bytes": 1933312
+            },
+            "payload_sha256": "d1885f98e3b006a4621ba9907a47a9cf7f5eeca4f6e8d8b30a07ce00344d83c4"
+          },
+          {
+            "mode": "2",
+            "logical_reserved_peak_bytes": 75,
+            "acquired": 8,
+            "released": 8,
+            "live_after_drop": 0,
+            "held_before_drop": 0,
+            "pool": {
+              "attempts": 2,
+              "refusals": 0,
+              "retry_batches": 0,
+              "retry_reads": 0,
+              "decoded_bytes": 50,
+              "startup_ns": 29459,
+              "wall_ns": 5677584,
+              "max_batch_text_bytes": 50,
+              "consumed": 2
+            },
+            "process": {
+              "pid": 69929,
+              "started_at_unix_ns": 1791119487332120000,
+              "wall_seconds": 0.007808249996742234,
+              "user_seconds": 0.0008219999999999999,
+              "system_seconds": 0.000881,
+              "peak_rss_bytes": 1982464
+            },
+            "payload_sha256": "d1885f98e3b006a4621ba9907a47a9cf7f5eeca4f6e8d8b30a07ce00344d83c4"
+          },
+          {
+            "mode": "4",
+            "logical_reserved_peak_bytes": 75,
+            "acquired": 8,
+            "released": 8,
+            "live_after_drop": 0,
+            "held_before_drop": 0,
+            "pool": {
+              "attempts": 2,
+              "refusals": 0,
+              "retry_batches": 0,
+              "retry_reads": 0,
+              "decoded_bytes": 50,
+              "startup_ns": 34792,
+              "wall_ns": 5609500,
+              "max_batch_text_bytes": 50,
+              "consumed": 2
+            },
+            "process": {
+              "pid": 69930,
+              "started_at_unix_ns": 1791119487341642000,
+              "wall_seconds": 0.007824750005966052,
+              "user_seconds": 0.0008439999999999999,
+              "system_seconds": 0.000923,
+              "peak_rss_bytes": 2031616
+            },
+            "payload_sha256": "d1885f98e3b006a4621ba9907a47a9cf7f5eeca4f6e8d8b30a07ce00344d83c4"
+          }
+        ],
+        "fifo_producer_sha256": "5967d633a6670814c4b5e0a8c889eb5c0e51155258d35d68a476eb1717e6e2ee"
+      },
+      {
+        "name": "fifo-refusal",
+        "limit": 16,
+        "outcome": "budget",
+        "action": "payload",
+        "input_sha256": [
+          null
+        ],
+        "initial_size_hints": [
+          0
+        ],
+        "runs": [
+          {
+            "mode": "direct",
+            "logical_reserved_peak_bytes": 0,
+            "acquired": 1,
+            "released": 1,
+            "live_after_drop": 0,
+            "held_before_drop": 0,
+            "pool": {
+              "attempts": 1,
+              "refusals": 1,
+              "retry_batches": 0,
+              "retry_reads": 0,
+              "decoded_bytes": 0,
+              "startup_ns": 0,
+              "wall_ns": 5295167,
+              "max_batch_text_bytes": 0,
+              "consumed": 0
+            },
+            "process": {
+              "pid": 69931,
+              "started_at_unix_ns": 1791119487352098000,
+              "wall_seconds": 0.007629958010511473,
+              "user_seconds": 0.000681,
+              "system_seconds": 0.0007419999999999999,
+              "peak_rss_bytes": 1507328
+            },
+            "payload_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "mode": "1",
+            "logical_reserved_peak_bytes": 0,
+            "acquired": 1,
+            "released": 1,
+            "live_after_drop": 0,
+            "held_before_drop": 0,
+            "pool": {
+              "attempts": 1,
+              "refusals": 1,
+              "retry_batches": 0,
+              "retry_reads": 0,
+              "decoded_bytes": 0,
+              "startup_ns": 24041,
+              "wall_ns": 5503208,
+              "max_batch_text_bytes": 0,
+              "consumed": 0
+            },
+            "process": {
+              "pid": 69932,
+              "started_at_unix_ns": 1791119487360874000,
+              "wall_seconds": 0.007616458984557539,
+              "user_seconds": 0.000672,
+              "system_seconds": 0.000745,
+              "peak_rss_bytes": 1589248
+            },
+            "payload_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "mode": "2",
+            "logical_reserved_peak_bytes": 0,
+            "acquired": 1,
+            "released": 1,
+            "live_after_drop": 0,
+            "held_before_drop": 0,
+            "pool": {
+              "attempts": 1,
+              "refusals": 1,
+              "retry_batches": 0,
+              "retry_reads": 0,
+              "decoded_bytes": 0,
+              "startup_ns": 30042,
+              "wall_ns": 5461584,
+              "max_batch_text_bytes": 0,
+              "consumed": 0
+            },
+            "process": {
+              "pid": 69933,
+              "started_at_unix_ns": 1791119487369697000,
+              "wall_seconds": 0.0076322079985402524,
+              "user_seconds": 0.0006979999999999999,
+              "system_seconds": 0.000775,
+              "peak_rss_bytes": 1654784
+            },
+            "payload_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "mode": "4",
+            "logical_reserved_peak_bytes": 0,
+            "acquired": 1,
+            "released": 1,
+            "live_after_drop": 0,
+            "held_before_drop": 0,
+            "pool": {
+              "attempts": 1,
+              "refusals": 1,
+              "retry_batches": 0,
+              "retry_reads": 0,
+              "decoded_bytes": 0,
+              "startup_ns": 37583,
+              "wall_ns": 5252333,
+              "max_batch_text_bytes": 0,
+              "consumed": 0
+            },
+            "process": {
+              "pid": 69934,
+              "started_at_unix_ns": 1791119487378658000,
+              "wall_seconds": 0.00761604099534452,
+              "user_seconds": 0.00074,
+              "system_seconds": 0.0009149999999999999,
+              "peak_rss_bytes": 1622016
+            },
+            "payload_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          }
+        ],
+        "fifo_producer_sha256": "85e7eac2862f1cbd85bc18769c75172c3fdcd899ab468b9e973d59ec620d9991"
+      },
+      {
+        "name": "consumer-retention",
+        "limit": 64,
+        "outcome": "budget",
+        "action": "retain",
+        "input_sha256": [
+          "85e7eac2862f1cbd85bc18769c75172c3fdcd899ab468b9e973d59ec620d9991",
+          "85e7eac2862f1cbd85bc18769c75172c3fdcd899ab468b9e973d59ec620d9991",
+          "85e7eac2862f1cbd85bc18769c75172c3fdcd899ab468b9e973d59ec620d9991",
+          "85e7eac2862f1cbd85bc18769c75172c3fdcd899ab468b9e973d59ec620d9991",
+          "85e7eac2862f1cbd85bc18769c75172c3fdcd899ab468b9e973d59ec620d9991",
+          "85e7eac2862f1cbd85bc18769c75172c3fdcd899ab468b9e973d59ec620d9991",
+          "85e7eac2862f1cbd85bc18769c75172c3fdcd899ab468b9e973d59ec620d9991"
+        ],
+        "initial_size_hints": [
+          32,
+          32,
+          32,
+          32,
+          32,
+          32,
+          32
+        ],
+        "runs": [
+          {
+            "mode": "direct",
+            "logical_reserved_peak_bytes": 64,
+            "acquired": 7,
+            "released": 7,
+            "live_after_drop": 0,
+            "held_before_drop": 32,
+            "pool": {
+              "attempts": 2,
+              "refusals": 1,
+              "retry_batches": 0,
+              "retry_reads": 0,
+              "decoded_bytes": 32,
+              "startup_ns": 0,
+              "wall_ns": 29375,
+              "max_batch_text_bytes": 32,
+              "consumed": 1
+            },
+            "process": {
+              "pid": 69935,
+              "started_at_unix_ns": 1791119487388659000,
+              "wall_seconds": 0.002322957996511832,
+              "user_seconds": 0.000669,
+              "system_seconds": 0.0007869999999999999,
+              "peak_rss_bytes": 1490944
+            },
+            "payload_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "mode": "1",
+            "logical_reserved_peak_bytes": 64,
+            "acquired": 10,
+            "released": 10,
+            "live_after_drop": 0,
+            "held_before_drop": 32,
+            "pool": {
+              "attempts": 3,
+              "refusals": 2,
+              "retry_batches": 1,
+              "retry_reads": 1,
+              "decoded_bytes": 32,
+              "startup_ns": 24333,
+              "wall_ns": 78375,
+              "max_batch_text_bytes": 32,
+              "consumed": 1
+            },
+            "process": {
+              "pid": 69936,
+              "started_at_unix_ns": 1791119487392195000,
+              "wall_seconds": 0.002247416996397078,
+              "user_seconds": 0.00071,
+              "system_seconds": 0.000779,
+              "peak_rss_bytes": 1589248
+            },
+            "payload_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "mode": "2",
+            "logical_reserved_peak_bytes": 64,
+            "acquired": 14,
+            "released": 14,
+            "live_after_drop": 0,
+            "held_before_drop": 32,
+            "pool": {
+              "attempts": 4,
+              "refusals": 2,
+              "retry_batches": 1,
+              "retry_reads": 2,
+              "decoded_bytes": 64,
+              "startup_ns": 33333,
+              "wall_ns": 79417,
+              "max_batch_text_bytes": 32,
+              "consumed": 1
+            },
+            "process": {
+              "pid": 69937,
+              "started_at_unix_ns": 1791119487395577000,
+              "wall_seconds": 0.002177541988203302,
+              "user_seconds": 0.0007019999999999999,
+              "system_seconds": 0.0007639999999999999,
+              "peak_rss_bytes": 1638400
+            },
+            "payload_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "mode": "4",
+            "logical_reserved_peak_bytes": 64,
+            "acquired": 18,
+            "released": 18,
+            "live_after_drop": 0,
+            "held_before_drop": 32,
+            "pool": {
+              "attempts": 6,
+              "refusals": 4,
+              "retry_batches": 1,
+              "retry_reads": 2,
+              "decoded_bytes": 64,
+              "startup_ns": 51708,
+              "wall_ns": 110208,
+              "max_batch_text_bytes": 32,
+              "consumed": 1
+            },
+            "process": {
+              "pid": 69938,
+              "started_at_unix_ns": 1791119487398843000,
+              "wall_seconds": 0.002258624997921288,
+              "user_seconds": 0.000789,
+              "system_seconds": 0.0009239999999999999,
+              "peak_rss_bytes": 1769472
+            },
+            "payload_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          }
+        ]
+      }
+    ],
+    "fault_tests": [
+      {
+        "name": "policy::tests::queued_success_is_dropped_before_bounded_canonical_retry",
+        "passed": true,
+        "wall_seconds": 0.003151332988636568
+      },
+      {
+        "name": "policy::tests::consumer_unwind_disconnects_idle_workers_and_drops_pending_text",
+        "passed": true,
+        "wall_seconds": 0.0027169999957550317
+      },
+      {
+        "name": "policy::tests::worker_panic_and_nonrepeatable_refusal_are_not_retried",
+        "passed": true,
+        "wall_seconds": 0.002361874998314306
+      },
+      {
+        "name": "budget::tests::read_failure_and_unwind_release_live_raw_storage",
+        "passed": true,
+        "wall_seconds": 0.0022468749957624823
+      }
+    ],
+    "resource_samples": [
+      {
+        "round": 0,
+        "mode": "direct",
+        "logical_reserved_peak_bytes": 524288,
+        "acquired": 992,
+        "released": 992,
+        "live_after_drop": 0,
+        "held_before_drop": 0,
+        "pool": {
+          "attempts": 128,
+          "refusals": 0,
+          "retry_batches": 0,
+          "retry_reads": 0,
+          "decoded_bytes": 11534336,
+          "startup_ns": 0,
+          "wall_ns": 9144625,
+          "max_batch_text_bytes": 262144,
+          "consumed": 128
+        },
+        "process": {
+          "pid": 69947,
+          "started_at_unix_ns": 1791119487472317000,
+          "wall_seconds": 0.011807625007349998,
+          "user_seconds": 0.007777,
+          "system_seconds": 0.002954,
+          "peak_rss_bytes": 2129920
+        }
+      },
+      {
+        "round": 0,
+        "mode": "1",
+        "logical_reserved_peak_bytes": 524288,
+        "acquired": 992,
+        "released": 992,
+        "live_after_drop": 0,
+        "held_before_drop": 0,
+        "pool": {
+          "attempts": 128,
+          "refusals": 0,
+          "retry_batches": 0,
+          "retry_reads": 0,
+          "decoded_bytes": 11534336,
+          "startup_ns": 29042,
+          "wall_ns": 9641084,
+          "max_batch_text_bytes": 262144,
+          "consumed": 128
+        },
+        "process": {
+          "pid": 69948,
+          "started_at_unix_ns": 1791119487485430000,
+          "wall_seconds": 0.012089999974705279,
+          "user_seconds": 0.007725999999999999,
+          "system_seconds": 0.003446,
+          "peak_rss_bytes": 2981888
+        }
+      },
+      {
+        "round": 0,
+        "mode": "2",
+        "logical_reserved_peak_bytes": 557056,
+        "acquired": 992,
+        "released": 992,
+        "live_after_drop": 0,
+        "held_before_drop": 0,
+        "pool": {
+          "attempts": 128,
+          "refusals": 0,
+          "retry_batches": 0,
+          "retry_reads": 0,
+          "decoded_bytes": 11534336,
+          "startup_ns": 29500,
+          "wall_ns": 7744875,
+          "max_batch_text_bytes": 294912,
+          "consumed": 128
+        },
+        "process": {
+          "pid": 69949,
+          "started_at_unix_ns": 1791119487498612000,
+          "wall_seconds": 0.010186083003645763,
+          "user_seconds": 0.007828,
+          "system_seconds": 0.003835,
+          "peak_rss_bytes": 4292608
+        }
+      },
+      {
+        "round": 0,
+        "mode": "4",
+        "logical_reserved_peak_bytes": 622592,
+        "acquired": 992,
+        "released": 992,
+        "live_after_drop": 0,
+        "held_before_drop": 0,
+        "pool": {
+          "attempts": 128,
+          "refusals": 0,
+          "retry_batches": 0,
+          "retry_reads": 0,
+          "decoded_bytes": 11534336,
+          "startup_ns": 41375,
+          "wall_ns": 6765375,
+          "max_batch_text_bytes": 360448,
+          "consumed": 128
+        },
+        "process": {
+          "pid": 69950,
+          "started_at_unix_ns": 1791119487510116000,
+          "wall_seconds": 0.009322375000920147,
+          "user_seconds": 0.008003,
+          "system_seconds": 0.004735,
+          "peak_rss_bytes": 4620288
+        }
+      },
+      {
+        "round": 1,
+        "mode": "1",
+        "logical_reserved_peak_bytes": 524288,
+        "acquired": 992,
+        "released": 992,
+        "live_after_drop": 0,
+        "held_before_drop": 0,
+        "pool": {
+          "attempts": 128,
+          "refusals": 0,
+          "retry_batches": 0,
+          "retry_reads": 0,
+          "decoded_bytes": 11534336,
+          "startup_ns": 34041,
+          "wall_ns": 9797416,
+          "max_batch_text_bytes": 262144,
+          "consumed": 128
+        },
+        "process": {
+          "pid": 69951,
+          "started_at_unix_ns": 1791119487520682000,
+          "wall_seconds": 0.012371582997730002,
+          "user_seconds": 0.007787,
+          "system_seconds": 0.003573,
+          "peak_rss_bytes": 4292608
+        }
+      },
+      {
+        "round": 1,
+        "mode": "2",
+        "logical_reserved_peak_bytes": 557056,
+        "acquired": 992,
+        "released": 992,
+        "live_after_drop": 0,
+        "held_before_drop": 0,
+        "pool": {
+          "attempts": 128,
+          "refusals": 0,
+          "retry_batches": 0,
+          "retry_reads": 0,
+          "decoded_bytes": 11534336,
+          "startup_ns": 38000,
+          "wall_ns": 7785083,
+          "max_batch_text_bytes": 294912,
+          "consumed": 128
+        },
+        "process": {
+          "pid": 69952,
+          "started_at_unix_ns": 1791119487534437000,
+          "wall_seconds": 0.010348541982239112,
+          "user_seconds": 0.0077919999999999994,
+          "system_seconds": 0.0039629999999999995,
+          "peak_rss_bytes": 5111808
+        }
+      },
+      {
+        "round": 1,
+        "mode": "4",
+        "logical_reserved_peak_bytes": 622592,
+        "acquired": 992,
+        "released": 992,
+        "live_after_drop": 0,
+        "held_before_drop": 0,
+        "pool": {
+          "attempts": 128,
+          "refusals": 0,
+          "retry_batches": 0,
+          "retry_reads": 0,
+          "decoded_bytes": 11534336,
+          "startup_ns": 36583,
+          "wall_ns": 6785625,
+          "max_batch_text_bytes": 360448,
+          "consumed": 128
+        },
+        "process": {
+          "pid": 69953,
+          "started_at_unix_ns": 1791119487546093000,
+          "wall_seconds": 0.009289625013479963,
+          "user_seconds": 0.007956999999999999,
+          "system_seconds": 0.0046949999999999995,
+          "peak_rss_bytes": 5144576
+        }
+      },
+      {
+        "round": 1,
+        "mode": "direct",
+        "logical_reserved_peak_bytes": 524288,
+        "acquired": 992,
+        "released": 992,
+        "live_after_drop": 0,
+        "held_before_drop": 0,
+        "pool": {
+          "attempts": 128,
+          "refusals": 0,
+          "retry_batches": 0,
+          "retry_reads": 0,
+          "decoded_bytes": 11534336,
+          "startup_ns": 0,
+          "wall_ns": 9489125,
+          "max_batch_text_bytes": 262144,
+          "consumed": 128
+        },
+        "process": {
+          "pid": 69954,
+          "started_at_unix_ns": 1791119487556761000,
+          "wall_seconds": 0.01194433300406672,
+          "user_seconds": 0.007748,
+          "system_seconds": 0.0031969999999999998,
+          "peak_rss_bytes": 2129920
+        }
+      },
+      {
+        "round": 2,
+        "mode": "2",
+        "logical_reserved_peak_bytes": 557056,
+        "acquired": 992,
+        "released": 992,
+        "live_after_drop": 0,
+        "held_before_drop": 0,
+        "pool": {
+          "attempts": 128,
+          "refusals": 0,
+          "retry_batches": 0,
+          "retry_reads": 0,
+          "decoded_bytes": 11534336,
+          "startup_ns": 31542,
+          "wall_ns": 7866250,
+          "max_batch_text_bytes": 294912,
+          "consumed": 128
+        },
+        "process": {
+          "pid": 69955,
+          "started_at_unix_ns": 1791119487569995000,
+          "wall_seconds": 0.010466583975357935,
+          "user_seconds": 0.007895,
+          "system_seconds": 0.003981,
+          "peak_rss_bytes": 4980736
+        }
+      },
+      {
+        "round": 2,
+        "mode": "4",
+        "logical_reserved_peak_bytes": 622592,
+        "acquired": 992,
+        "released": 992,
+        "live_after_drop": 0,
+        "held_before_drop": 0,
+        "pool": {
+          "attempts": 128,
+          "refusals": 0,
+          "retry_batches": 0,
+          "retry_reads": 0,
+          "decoded_bytes": 11534336,
+          "startup_ns": 37875,
+          "wall_ns": 6858333,
+          "max_batch_text_bytes": 360448,
+          "consumed": 128
+        },
+        "process": {
+          "pid": 69956,
+          "started_at_unix_ns": 1791119487582018000,
+          "wall_seconds": 0.009373000008054078,
+          "user_seconds": 0.008038,
+          "system_seconds": 0.004658,
+          "peak_rss_bytes": 5177344
+        }
+      },
+      {
+        "round": 2,
+        "mode": "direct",
+        "logical_reserved_peak_bytes": 524288,
+        "acquired": 992,
+        "released": 992,
+        "live_after_drop": 0,
+        "held_before_drop": 0,
+        "pool": {
+          "attempts": 128,
+          "refusals": 0,
+          "retry_batches": 0,
+          "retry_reads": 0,
+          "decoded_bytes": 11534336,
+          "startup_ns": 0,
+          "wall_ns": 9196458,
+          "max_batch_text_bytes": 262144,
+          "consumed": 128
+        },
+        "process": {
+          "pid": 69957,
+          "started_at_unix_ns": 1791119487592588000,
+          "wall_seconds": 0.011767207994125783,
+          "user_seconds": 0.007743,
+          "system_seconds": 0.0029479999999999997,
+          "peak_rss_bytes": 2129920
+        }
+      },
+      {
+        "round": 2,
+        "mode": "1",
+        "logical_reserved_peak_bytes": 524288,
+        "acquired": 992,
+        "released": 992,
+        "live_after_drop": 0,
+        "held_before_drop": 0,
+        "pool": {
+          "attempts": 128,
+          "refusals": 0,
+          "retry_batches": 0,
+          "retry_reads": 0,
+          "decoded_bytes": 11534336,
+          "startup_ns": 26750,
+          "wall_ns": 9750250,
+          "max_batch_text_bytes": 262144,
+          "consumed": 128
+        },
+        "process": {
+          "pid": 69958,
+          "started_at_unix_ns": 1791119487605676000,
+          "wall_seconds": 0.012347124982625246,
+          "user_seconds": 0.007807,
+          "system_seconds": 0.003542,
+          "peak_rss_bytes": 3735552
+        }
+      }
+    ],
+    "complete": true,
+    "dynamic_loader_replay_verified": false,
+    "whole_project_speed_verified": false,
+    "rss_bound_verified": false,
+    "portable_capacity_bound_verified": false,
+    "release_unwind": "unsupported panic=abort, explicitly refused before manifest/read work",
+    "resource_workload": {
+      "files": 128,
+      "raw_bytes": 11534336,
+      "input_sha256": [
+        "4faefc17489e430dbbf53d9bda451d56f07a1bd65bef805d73057e2575cf79ea",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "4faefc17489e430dbbf53d9bda451d56f07a1bd65bef805d73057e2575cf79ea",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "4faefc17489e430dbbf53d9bda451d56f07a1bd65bef805d73057e2575cf79ea",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "4faefc17489e430dbbf53d9bda451d56f07a1bd65bef805d73057e2575cf79ea",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "4faefc17489e430dbbf53d9bda451d56f07a1bd65bef805d73057e2575cf79ea",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "4faefc17489e430dbbf53d9bda451d56f07a1bd65bef805d73057e2575cf79ea",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "4faefc17489e430dbbf53d9bda451d56f07a1bd65bef805d73057e2575cf79ea",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "4faefc17489e430dbbf53d9bda451d56f07a1bd65bef805d73057e2575cf79ea",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "4faefc17489e430dbbf53d9bda451d56f07a1bd65bef805d73057e2575cf79ea",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "4faefc17489e430dbbf53d9bda451d56f07a1bd65bef805d73057e2575cf79ea",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "4faefc17489e430dbbf53d9bda451d56f07a1bd65bef805d73057e2575cf79ea",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "4faefc17489e430dbbf53d9bda451d56f07a1bd65bef805d73057e2575cf79ea",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "4faefc17489e430dbbf53d9bda451d56f07a1bd65bef805d73057e2575cf79ea",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "4faefc17489e430dbbf53d9bda451d56f07a1bd65bef805d73057e2575cf79ea",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "4faefc17489e430dbbf53d9bda451d56f07a1bd65bef805d73057e2575cf79ea",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "4faefc17489e430dbbf53d9bda451d56f07a1bd65bef805d73057e2575cf79ea",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "4faefc17489e430dbbf53d9bda451d56f07a1bd65bef805d73057e2575cf79ea",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "4faefc17489e430dbbf53d9bda451d56f07a1bd65bef805d73057e2575cf79ea",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "4faefc17489e430dbbf53d9bda451d56f07a1bd65bef805d73057e2575cf79ea",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "4faefc17489e430dbbf53d9bda451d56f07a1bd65bef805d73057e2575cf79ea",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "4faefc17489e430dbbf53d9bda451d56f07a1bd65bef805d73057e2575cf79ea",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "4faefc17489e430dbbf53d9bda451d56f07a1bd65bef805d73057e2575cf79ea",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "4faefc17489e430dbbf53d9bda451d56f07a1bd65bef805d73057e2575cf79ea",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "4faefc17489e430dbbf53d9bda451d56f07a1bd65bef805d73057e2575cf79ea",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "4faefc17489e430dbbf53d9bda451d56f07a1bd65bef805d73057e2575cf79ea",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "4faefc17489e430dbbf53d9bda451d56f07a1bd65bef805d73057e2575cf79ea",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "4faefc17489e430dbbf53d9bda451d56f07a1bd65bef805d73057e2575cf79ea",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "4faefc17489e430dbbf53d9bda451d56f07a1bd65bef805d73057e2575cf79ea",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "4faefc17489e430dbbf53d9bda451d56f07a1bd65bef805d73057e2575cf79ea",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "4faefc17489e430dbbf53d9bda451d56f07a1bd65bef805d73057e2575cf79ea",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "4faefc17489e430dbbf53d9bda451d56f07a1bd65bef805d73057e2575cf79ea",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "4faefc17489e430dbbf53d9bda451d56f07a1bd65bef805d73057e2575cf79ea",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a",
+        "e8ff7e9b520474a6f067f1c6c8a6ba49ec191b9b7ae24ce74ccc1bf7543d250a"
+      ],
+      "budget": 8388608
+    }
+  },
+  "read_cost_summary": {
+    "direct": {
+      "wall_median_seconds": 0.011807625007349998,
+      "cpu_median_seconds": 0.010731000000000001,
+      "rss_range_bytes": [
+        2129920,
+        2129920
+      ],
+      "startup_median_ns": 0,
+      "logical_reserved_peak_range_bytes": [
+        524288,
+        524288
+      ]
+    },
+    "1": {
+      "wall_median_seconds": 0.012347124982625246,
+      "cpu_median_seconds": 0.011349,
+      "rss_range_bytes": [
+        2981888,
+        4292608
+      ],
+      "startup_median_ns": 29042,
+      "logical_reserved_peak_range_bytes": [
+        524288,
+        524288
+      ]
+    },
+    "2": {
+      "wall_median_seconds": 0.010348541982239112,
+      "cpu_median_seconds": 0.011754999999999998,
+      "rss_range_bytes": [
+        4292608,
+        5111808
+      ],
+      "startup_median_ns": 31542,
+      "logical_reserved_peak_range_bytes": [
+        557056,
+        557056
+      ]
+    },
+    "4": {
+      "wall_median_seconds": 0.009322375000920147,
+      "cpu_median_seconds": 0.012695999999999999,
+      "rss_range_bytes": [
+        4620288,
+        5177344
+      ],
+      "startup_median_ns": 37875,
+      "logical_reserved_peak_range_bytes": [
+        622592,
+        622592
+      ]
+    }
+  },
+  "capacity_qualification": {
+    "rustc_release": "1.96.0",
+    "rustc_commit": "ac68faa20c58cbccd01ee7208bf3b6e93a7d7f96",
+    "default_global_source_sha256": {
+      "alloc.rs": "afc8eece58d63942328cab563fad1b180b50afdadc9141d40e5d98a6df90cd70",
+      "raw_vec/mod.rs": "39ae2ccc61fd3bad236978201cda2ad97599403eb103de7eafdf6d7f6dd8b6f3"
+    },
+    "stdlib_source_audit": {
+      "Global.alloc_impl_runtime": "returns slice length layout.size",
+      "Global.grow_impl_runtime": "returns slice length new_size",
+      "RawVecInner.grow_exact": "requested cap is len+additional",
+      "RawVecInner.set_ptr_and_cap": "records requested cap and explicitly warns future allocator changes may alter this"
+    },
+    "model": "requested logical buffer layout bytes with conservative old+replacement overlap; not allocator usable bytes or RSS",
+    "future_or_other_allocator_bound_verified": false
+  },
+  "reference_native_dependency_identity": {
+    "native_source": "5b1047d10d32e7d5b446be4de56b126ff42f82bb",
+    "dependency_go_files": {
+      "internal/json/json.go": "702dd64fda7d0942b9b461cd290fcb3fae5c32f1ade5d3a61e980c389c149a5d",
+      "internal/collections/cow.go": "c5b864947d8ff9eb94a422fcf372af70cea3a551a1fe89c06427ad2e2eefc94a",
+      "internal/collections/multimap.go": "97402acb9a12f0f11a41da48edda387037429bb0f43555b045d28e6a1c3a1590",
+      "internal/collections/ordered_map.go": "57fec518ad9ad8236e83b6431e7bf2732d0de5cb4aec3338d6bc4c554ac64316",
+      "internal/collections/ordered_set.go": "04392cd94a87e795031f29391fd5291b20bb1c0a11313472c884003cba7a8d7d",
+      "internal/collections/set.go": "2de76c916ef54b6e0746d724827e74904be33fc82f7871913384e593fa0bbd46",
+      "internal/collections/syncmap.go": "73227a3bd71415b9b85c8715ef7c3ecac9e724d2579eec1c1a2340bb7149fa16",
+      "internal/collections/syncset.go": "2f038294145eff7f2e395de4d5a7ffe832998873d41cd219044220b9c0364664",
+      "internal/debug/debug.go": "dd3aca7541d9f41c2e40629d27d768c393d5f3d134f341388e89ebabb34a092d",
+      "internal/stringutil/compare.go": "532e42f123dbc846b8ef35b36feef12b8a1dd5d807ea8ce40f94d78eea44814a",
+      "internal/stringutil/generate.go": "8cbd7624ce7e20f3c9b5f1cfddd91116a3d087072106e7176924ec2db753b404",
+      "internal/stringutil/identifier.go": "e127bf574e83de35dff8f13d1a5078828415564b104bfd4a08ca79a04eec293a",
+      "internal/stringutil/identifier_parts_generated.go": "5fac39c9509df8bcd337dcfc9d148c8c94b0f4569a8e4df5022b2ecbcb0ff563",
+      "internal/stringutil/js_case.go": "07d6a3663c0aed68efd975cd39840a2139e56b36cde17104ce327cb1be5d82cf",
+      "internal/stringutil/js_case_generated.go": "c128df4cc0a8c4dd93679986a31bdf6087aa83e6fb0e9ced4ab8627072684b80",
+      "internal/stringutil/util.go": "e15d8030900518eb0d8bd926751df2f7c7cfda6d49c7a82da36d58daeed22b9e",
+      "internal/tspath/extension.go": "7c2fd65427a85495fc941e24691d7193d0170f096ddae39cccbd2ec5ef030f97",
+      "internal/tspath/ignoredpaths.go": "9c8082286065850de34ce7991d39182baf98dbe0ef2a4c28ca98fb8237ae8283",
+      "internal/tspath/path.go": "8c281de85cd6e8a4e7420055dcc383ebad195c8f76edf657cdfbc24e8118f6ce",
+      "internal/core/arena.go": "458d8ec91149253a731ec3dee8f9fad77e16566aa4877fe294ad9c7e723f6222",
+      "internal/core/bfs.go": "3711dc69699fec99bfe9af50fbbf76f5fe4f39f11df43a93635990117d8dc13e",
+      "internal/core/binarysearch.go": "0d965e9924f4c2364049638ed6569c5f9940515ab5e35583ddfb6fa6062e88ca",
+      "internal/core/buildoptions.go": "00f571e0f458749220988aa60d04d5dcbfcdd5ed91dd3413b02673a20e7071e4",
+      "internal/core/compileroptions.go": "0794dd74ffbecdda009f07e3dc515ae6ffe248e488dd7aea6fe88025b24a9e65",
+      "internal/core/context.go": "d34cd970b3d1b588923628f34c4eb9d241eeb7516e8f3a43d89bc129743386b9",
+      "internal/core/core.go": "10e493f632bfcd43e85285347fe724e89c0b9ba537e4fb131ff13b09f5b03ee3",
+      "internal/core/languagevariant.go": "8f739e1d0572d0538d052d428bfdf4c1aa50b72f3eea883da7a3ea7f2e99f639",
+      "internal/core/languagevariant_stringer_generated.go": "02cd1536f34587ef2a4666e59a278da9849a99e31a95bd6d22adde628473f7a8",
+      "internal/core/linkstore.go": "e63a7687c7145979ad689546f3f4b07f22e2a85791222fc190814fb64016ae33",
+      "internal/core/modulekind_stringer_generated.go": "72b233eb31e6269983549dad888820e1fb0466f2904b034e659ae9a380266931",
+      "internal/core/nodemodules.go": "48f2b6c2cade9277da82ea9cb8153cd5a7a6b42cc819500029106d9430739879",
+      "internal/core/parsedoptions.go": "00204e7e9b5082a0036c0288aea7546a2ec76b790c1a4eafc4d8b1d3a0b77f74",
+      "internal/core/pattern.go": "53c0fc3df09cb967338b3390c6f891089694d4976923acd1b6ba0765cbd33651",
+      "internal/core/projectreference.go": "1a4c826235f02616293f0a78fe22cbf7efb15b40dbfa7c31a574c53e44ad2eb7",
+      "internal/core/scriptkind.go": "90eb5fb9479d3aa34c2b5e8dce63149cb8938031ed8bbd48a0e6eefcaae5e47d",
+      "internal/core/scriptkind_stringer_generated.go": "00bf09b6c753524d2829af6473273a021d4438177911d145a5042a7518f80665",
+      "internal/core/scripttarget_stringer_generated.go": "c30f60f58280067d1a0322ba93746e53b7fd2e18f9021836fd1765bf0252b298",
+      "internal/core/semaphore.go": "8243c85cf47a20a861d80bd3ee7986bcf855de75f493e542e9a9045d0c0ba3b4",
+      "internal/core/stack.go": "8f8f00cd582fbe6798b5f1a9e53132eebe2b58c97c11ec18e192bd104e345f7d",
+      "internal/core/text.go": "dad1b4d0bb8fbd4a1c3c686a6a4fff940cfac17551c7c5ca564c33273e2277e4",
+      "internal/core/textchange.go": "09491c3d1d8c09a4b83d91f2c1cbda69dc956fce9f1535644b69dc4ce391c8c6",
+      "internal/core/tristate.go": "d078d8f1eb2078c67ba66e1e37f81be2a959c6700581dfbcc4505e021e7c06f2",
+      "internal/core/tristate_stringer_generated.go": "5df20fff035456af5d27d135c3c8b06335cb11566427cabd2dd487fdb950d744",
+      "internal/core/typeacquisition.go": "a064d7905d8cc78944faff22667433ddb2f1526a592aac78fb64dde555365bf5",
+      "internal/core/version.go": "db30d271c7537a95dc67302c56622e7915faf9d706bda452fad98e792817b7f1",
+      "internal/core/watchoptions.go": "cc5bf8d3a051c4fd11a136138f13d369726b4598acdf3525c6022e39d95e34fa",
+      "internal/core/workgroup.go": "3a7cdb6ec7932d1c7572dac0b4cec3ef937fbd941a0572c733f519547e3e9266",
+      "internal/nativepath/eintr_unix.go": "44c82827b2545858fe095bf4ae648b0262629c1800cc25f149def099a47cdeae",
+      "internal/nativepath/realpath_darwin.go": "f4e702625bee4c4d70aae1339020a8df8361184137afcc3232a39205432df764",
+      "internal/nativepath/symlink_other.go": "c32986379b3283822b2bfdc4d160b05835fbc7cdb8672b7e49f17a838dccd83f",
+      "internal/vfs/vfs.go": "a6d7306e3da4c4b3146d620b08bc405240c7cfb77a606cd202fc9f4adef5aeb2",
+      "internal/vfs/internal/internal.go": "ac00d31de66d1e23f7ff4c62970d2eeb0fbd38855ffc9171196ed5f2c2d94324",
+      "internal/vfs/osvfs/os.go": "87cac9319df76ac9a4950bde481ade54fa667bd6e05af14e58d909d94fd58405"
+    },
+    "source_files_verified": 53,
+    "validation_passed": true
+  },
+  "quality": {
+    "release_tests": 10,
+    "policy_tests": 5,
+    "strict_example_clippy": true,
+    "full_corpus_remeasured": false,
+    "production_source_changed": false,
+    "workspace_fmt": true,
+    "workspace_all_targets_clippy": true,
+    "workspace_tests_passed": 2860,
+    "workspace_tests_ignored": 6,
+    "anchors": true,
+    "full_gate_passed": false,
+    "gate_failure": "190 pre-existing dangling historical issue IDs, tracked by tsr-10",
+    "gate_artifact": "/tmp/tsr-read-budget-pool/gate.log",
+    "section_citations": 16630,
+    "upstream_anchors": 3405,
+    "new_issue_references_dangling": false
+  },
+  "limits": [
+    "Fixed stable regular-file plan only; extra metadata classification and one full serial batch retry after contention.",
+    "No FIFO/non-regular retry; blocked OS read/open is not cancellable.",
+    "Release panic=abort, actual worker/consumer unwind only established with the time-bounded unwind test binary.",
+    "Requested-layout qualification excludes allocator retention, thread stacks, coordinator and parser allocations; not RSS ceiling.",
+    "Native malformed UTF8 raw passthrough versus Rust replacement remains tsr-34z.",
+    "No dynamic task/discovery replay, full-program diagnostic/actual-checked telemetry or comparable whole-project 2x acceptance."
+  ]
+}

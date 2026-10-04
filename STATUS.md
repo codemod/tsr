@@ -22,6 +22,17 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
+Fixed-plan shared read-budget prerequisite (`tsr-1yb.19.2.2.1`), base
+`17c4db04` plus hashed owned examples: 12 public cases/48 audits and four
+time-bounded fault controls pass in direct/1/2/4 modes. Canonical batch
+consumption survives contention through one serial retry after dropping every
+speculative result; streams are never implicitly reopened. All charges balance.
+Release panic=abort is explicitly classified; actual unwind cleanup is tested
+with the unwind runtime. [Evidence](docs/architecture/loader-read-budget-pool.md)
+includes startup/CPU/RSS and excludes portable allocator/RSS bounds, dynamic
+loader replay, fresh corpus scores and a whole-project speed claim. The native
+median <=0.50 release target remains unverified.
+
 Leased-read API prerequisite (`tsr-1yb.19.2.3`), based on `258d699a`:
 new opt-in prepared text retains its byte charge through moves and releases it
 on actual drop. Fourteen public physical controls preserve complete read/parse
@@ -2209,6 +2220,12 @@ gap to 70%               CROSSED (70.003%; the threshold was 335,268)
 
 ## 3. What is ported
 
+The opt-in `read_budget_pool` example reuses leased prepared text and adds
+fail-fast shared-budget reads, bounded regular-file batch retry and explicit
+stream/resource failure (`tsr-1yb.19.2.2.1`, base `17c4db04`). Ten release
+example tests and 48 physical audits pass; production compiler/VFS/checker and
+worker defaults are unchanged.
+
 Opt-in OS read preparation returns owned text with a non-cloneable RAII
 reservation (`tsr-1yb.19.2.3`, base `258d699a`). Raw/replacement, UTF-16 units
 and decoded requests are charged before growth; moved/retained text keeps its
@@ -2412,6 +2429,13 @@ rendering `any` for `errorType` (ADR-0038).
 ---
 
 ## 4. What is next — the scored board
+
+Fixed-plan contention/progress `.19.2.2.1` is verified; dynamic leased-read
+replay remains `.19.2.2.2`, dependent on canonical discovery `.19.1`. Parent
+`.19.2.2` and production `.5` stay open for complete replay/fidelity and
+confirmed whole-project benefit. Do not promote fixed-manifest or read-only
+fixture timings into production acceptance. Candidate/path-construction cost
+attribution `.2.1.3.1.1` is ready alongside mapper/cache and checked-work gates.
 
 Early convention task `tsr-1yb.18` is delivered as documentation. Its audit
 keeps relation key equivalence (`tsr-1yb.4.1.4`), lifetime/publication
@@ -5776,6 +5800,16 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+### Abort-profile unwind claim — read-budget pool, base `17c4db04`
+
+The first release CLI consumer-unwind control terminated with signal 6 and
+no post-unwind accounting: release panic=abort cannot run the asserted cleanup.
+The corrected CLI refuses that controlled action before reading anything.
+Four separately time-bounded fault tests use the unwind test runtime, including
+consumer cleanup and worker panic. This does not promise release panic recovery
+or cancellation of stalled OS reads. All 48 final physical audits release
+charges and use explicit budget/I/O outcomes. [Evidence](docs/architecture/loader-read-budget-pool.json).
 
 ### Portable-capacity or speed claim for leased prototype — base `258d699a`
 
@@ -12241,6 +12275,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
+| 2026-10-04 | `17c4db04` (base plus hashed examples) | not remeasured | not remeasured | Fixed-plan leased-read progress proof | `tsr-1yb.19.2.2.1`: 12 cases/48 audits, 10 release example tests and four time-bounded fault tests; all charges balance. Bounded full-batch drop then serial retry, no FIFO reopen, explicit release-abort classification. Read-only 1/2/4 observations include CPU/RSS/startup, not a normal whole-project win. Dynamic replay `.19.2.2.2` and parent `.19.2.2` remain open; production `.5` gates and comparable native <=0.50 target unchanged. |
 | 2026-10-04 | `258d699a` (base plus hashed owned prototype) | not remeasured | not remeasured | Leased read-preparation API; no runtime speed claim | `tsr-1yb.19.2.3`: 14 complete physical read/parse controls, 29 success/I/O/budget audits, five release ownership/failure/unwind controls; all reservations balance. Rust 1.96.0 source qualification and exact reported-capacity guards remain explicit; no portable allocator/RSS guarantee. Strict example Clippy/format and source identities verified. Native malformed UTF-8 remains `tsr-34z`; `.19.2.2` owns pool policy. Main production filesystem/decoder/workers unchanged; native median <=0.50 unproved. |
 | 2026-10-04 | `30eded71` (measured binaries; later harness validation) | not remeasured | not remeasured | Read/decode allocation characterization; no speed claim | `tsr-1yb.19.2.1`: 14 physical cases, 56 Rust helper processes, 14 native reader controls and 22 CLI controls. Complete read/parse payloads, diagnostic fingerprints and two loaded identities preserved; malformed native UTF-8 byte mismatch retained in `tsr-34z`. Separate capacity snapshots require an allocation-aware leased preparation API (`.19.2.3`) before pool admission (`.19.2.2`); no hard RSS cap or production workers. VFS 37 tests pass at measured source; helper strict release Clippy passes after concurrent checker update; Rust/Go formatting and source/patch identity verified. |
 | 2026-10-04 | `08f2487b` (inspected source) | not remeasured | not remeasured | Documentation only; no speed claim or new refusal | `tsr-1yb.18`: mirror the checker port convention and audit current relation publication. 83 integration/two internal controls, 3,405 anchors and 16,630 section citations pass; 190 historical issue IDs remain unresolved (`tsr-10`), with new task references checked directly. Persistent key/context, forcing/lifetime and expensive-execution evidence remain in existing tasks; release TSR/tsgo median <=0.50 remains unverified. |
