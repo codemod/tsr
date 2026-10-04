@@ -22,9 +22,9 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
-### Current checker checkpoint — contextual tuple length and optional prefix
+### Current checker checkpoint — omitted IIFE contextual undefined
 
-Measured production tree **`ea3b3e69`**, against published `a0df934c`:
+Measured production tree **`f7115134`**, against published `dc16a8de`:
 **459,938/478,855 assertions (96.05%)**, **7,188/9,538 complete cases
 (75.36%)**. The 99% target requires 474,067 matches; **14,129 remain**.
 Pinned native `5b1047d1` and both denominators are unchanged. Aligned verdicts:
@@ -33,6 +33,21 @@ The static-context/class-copy prefix `ef3b10a5` is production-identical to audit
 `f6b00125`; rebasing preserved concurrent documentation-only `bc27fae2` and
 the exact `crates` tree. Parameter-context publication preserved documentation-only
 `a7901196`, with source `302573c6` identical to measured `2def452d`.
+
+The two omitted/no-initializer IIFE contextual parameter fallbacks now select
+active undefined-widening, including an empty effective tuple spread. Supplied
+arguments and omitted defaults keep their prior paths. The merged private test
+checks 36 raw identities; public signatures have already widened these values,
+so the disproved public raw-slot expectations are not counted as semantic reds.
+Archived native controls contain 44 helper and 44 parameter observations.
+Full checker and complete duplicate/empty-positive diagnostic captures are
+**byte-identical** to `dc16a8de`, with zero transitions, payload, occurrence,
+extra or population changes; this unit claims no corpus gain. Workspace release
+passes **2,823 tests, zero failures, six existing ignores**, plus six separate
+loader-example controls. Formatting, strict all-target Clippy, scorepair and
+coverage pass; snapshots are unchanged. Loose global seeds and supplied/default
+declaration-widening discrepancies remain held. Evidence is retained in
+`target/omitted-iife-wave27-evidence.tar.gz`.
 
 The contextual tuple element reader now distinguishes unknown source length
 from a known suffix position. Exact-optional fixed-prefix reads remove implicit
@@ -64,7 +79,8 @@ duplicate/empty-positive-aware diagnostic captures are **byte-identical** to
 `4e1a8311`, including all payloads and populations; this prerequisite claims no
 corpus gain. Raw identity and seven real Program option controls pass. Global
 seeds remain ordinary undefined, including three known loose-mode mismatches.
-No global reseeding, widening leaf or omitted-IIFE fallback is included.
+The mode-selector unit includes no global reseeding or widening leaf; the
+separate omitted-IIFE fallback unit is now included above.
 Evidence is retained in `target/undefined-slot-wave25-evidence.tar.gz`.
 
 Annotated object binding defaults now project their declared holder recursively,
@@ -84,8 +100,8 @@ wrong-default diagnostic gaps. Evidence is retained in
 
 Declaration optionality now adds undefined only under strict null checks. Loose
 mode preserves the supplied identity, including ordinary nullable and distinct
-widening-undefined inputs. `get_optional_type`, omitted-IIFE fallbacks and all
-held nullable stages remain unchanged. Against `302573c6`, this adds **four
+widening-undefined inputs. `get_optional_type` and all held nullable stages
+remain unchanged. Against `302573c6`, this adds **four
 GAP→RIGHT and one WRONG→RIGHT**, with **zero adverse transitions, changed checker
 payloads or population changes**. All 10,570 complete diagnostic records are
 **byte-identical**, including duplicate occurrences and empty positives. The
@@ -94,7 +110,7 @@ losses. Evidence is retained in `target/optionality-wave23-evidence.tar.gz`.
 Native active undefined-slot mode selection is now included above; the loose
 slot is undefined, not any, and declaration widening converts that identity to
 genuine any. Global reseeding remains held. The two omitted-argument fallback
-substitutions are a separate reserved unit, not included in this checkpoint.
+substitutions are the separate verified unit included above.
 
 Written parameter annotations now supply context to their matching default
 initializers before inference. That stage left unannotated defaults and binding
