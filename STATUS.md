@@ -57,7 +57,52 @@ The issue-ID check retains 190 unresolved historical IDs (`tsr-10`); all new
 task references were checked directly. The verified equivalent-work TSR/tsgo
 median wall target remains <=0.50.
 
-### Current checker checkpoint — source-optional mapped required properties
+### Current checker checkpoint — canonical undefined/missing identities
+
+Measured production tree **`3915dd67`**, against published `e7bbe0ac`:
+**460,042/478,855 assertions (96.07%)**, **7,192/9,538 complete cases
+(75.40%)**. The 99% target requires 474,067 matches; **14,025 remain**.
+Pinned native `5b1047d1` and both denominators are unchanged. Aligned verdicts:
+**474,251 total; 460,042 RIGHT; 2,094 GAP; 12,115 WRONG**.
+
+Reduced unions remove intrinsic missing when genuine intrinsic undefined is
+present, after the existing any/error priority. Unreduced unions, loose
+nullable-empty behavior, origins and other reductions are unchanged. The only
+symbols change strengthens the approved exact bare optional-U test to require
+ordinary intrinsic undefined identity; contextual equality and all Part/Need
+controls remain intact. This is a canonicalization prerequisite, not an
+optional-add, mapped-template or source-supplier repair.
+
+Fresh full multiline checker and all **10,570 duplicate/empty diagnostic records
+are byte-identical** to the verified published prefix: **20,685 matches,
+3,831 extras**, zero transitions, RIGHT/GAP→WRONG/payload/population losses,
+matched-occurrence or empty-positive losses, or new extras. **No corpus gain is
+claimed.** Unfiltered scorepair has no transitions; fresh coverage leaves both
+snapshots unchanged.
+
+Independent worker replay verifies 24 native library-loaded Programs and 3,648
+raw observations per stage: 512 corrections, 16 representative reduced shape
+agreements, no agreement loss or repeat/order instability. Inputs, origins,
+alias names and presentation remain unchanged. Fresh coordinator bare-Checker
+rows exactly match the worker candidate; this is not fresh native execution or
+general Rust Program parity. All 103 worker payload hashes pass before and
+after replay; exact sole-parent scope reconstruction verifies the runtime,
+private regression and approved symbols test-only correction. **2,859 workspace
+release tests pass, zero failures, six existing ignores**, as do the focused
+canonical/context controls, six loader and six worker controls, formatting and
+strict release workspace/all-target Clippy. Concurrent `258d699a` documentation
+and example are preserved; runtime sources equal measured `33ea29bb`, and
+post-rebase gates pass. Initial worker failures remain archived. Evidence is in
+`target/canonical-missing-wave37-evidence.tar.gz`.
+
+Optional-add/template, broader source identity, static, generic/circular/tuple/
+index/clone boundaries remain held. Rejected `lh1` is not integrated: independent
+`tsr-ze3` replay verifies that current Checker metadata cannot establish complete
+JSDoc capture/registration, with partial replacement and stale reverse rows
+retained. Trusted earlier capture and authoritative registration are tracked by
+`tsr-bug`; no guard repair is reserved. The 99% task is not complete.
+
+### Previous checker checkpoint — source-optional mapped required properties
 
 Measured production tree **`b2c60bb0`**, against published `08f2487b`:
 **460,042/478,855 assertions (96.07%)**, **7,192/9,538 complete cases
