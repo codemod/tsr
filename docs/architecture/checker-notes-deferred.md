@@ -3019,9 +3019,31 @@ are missing from Rust's host table, and mixed typedef/callback ownership is not
 equivalent. The 48 configurations and 4,176 raw rows per implementation retain
 all disagreements; successful probes do not imply parity. Evidence SHA256:
 `0c4a69156bb5f82c58da37b476c4d288c25c71ce55996566bb04cf0c2ac5a88d`.
-Only direct-doc producer capture is separately reserved in tsr-yx3, through the
-existing sparse JSDocTable with no doc-parent edge. Annotation selection and
-flow/loop admission remain separate and unreserved.
+The producer-only tsr-yx3 now captures direct variable docs through the existing
+sparse JSDocTable with no doc-parent edge. Archived native JS/TS metadata replay
+pins lexical spans, ordered owners, unchanged syntax annotations/initializers and
+disabled parsing. Fresh combined wave31 captures are neutral except for the
+separate module-alias unit's disclosed still-WRONG FILE spelling; complete
+diagnostics are byte-identical. The variable-only reader still ignores direct
+entries and scans statement tags with the old ownership. Its selection contract
+is read-only tsr-x5f; annotation selection and flow/loop implementation remain
+separate and unreserved.
+
+Read-only binding-default tsr-4m7 identifies the missing declaration-check
+consumer, not a contextual target/readiness gap. Native compares a primary leaf's
+default expression against its default-adjusted symbol type. All 6,178 archived
+hashes and the independent 80-fixture/1,440-paired-run audit pass; 36 native-valid
+structured defaults are false negatives in Rust's relation because the source
+producer widens their members. A broad reporter dispatch would add false TS2322.
+Only annotation-rooted primary non-rest variable leaves with certified literal
+string/null/undefined syntax and supported primitive targets are separately
+reserved in tsr-9p0. Parameters, structured/general/circular defaults, computed,
+pattern/rest/secondary/unannotated and unsupported targets remain excluded; no
+context, default-adjustment, supplier, cache or relater repair is included.
+Exact tuple target missing-versus-real-undefined remains a supplier discrepancy;
+124 native lazy metadata-bit differences and ES2015/minimal-global probe limits
+are disclosed, not raw parity claims. Evidence SHA256:
+`eb68fc72f6d0bd8a575735a4cd537f75001ef1620fa39413a6bafc1762bac77f`.
 
 `compiler/parsingDeepParenthensizedExpression` heads the wrong-line board outside the
 priced subsystems at **137 WRONG**, and **136 of those want exactly `error`**. It is

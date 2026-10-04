@@ -22,9 +22,9 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
-### Current checker checkpoint — annotated non-rest array binding contexts
+### Current checker checkpoint — accessible module aliases and direct variable JSDoc hosts
 
-Measured production tree **`24b62d91`**, against published `30d5e218`:
+Measured production tree **`58d14d54`**, against published `190292da`:
 **459,974/478,855 assertions (96.06%)**, **7,190/9,538 complete cases
 (75.38%)**. The 99% target requires 474,067 matches; **14,093 remain**.
 Pinned native `5b1047d1` and both denominators are unchanged. Aligned verdicts:
@@ -34,11 +34,38 @@ The static-context/class-copy prefix `ef3b10a5` is production-identical to audit
 the exact `crates` tree. Parameter-context publication preserved documentation-only
 `a7901196`, with source `302573c6` identical to measured `2def452d`.
 
+Module-alias candidates now use the existing meaning-aware shadow test before
+per-table ordering: module values use VALUE, while class/type containers use
+native qualified-left meaning. Alias resolution, clone filters, table priority
+and fallback bodies are unchanged. Direct variable-declaration JSDoc metadata
+now uses existing parser capture/attachment APIs, preserving document order,
+lexical type spans, scanner state and syntax annotations, with no doc-root host
+parent edge. These are two disjoint source commits, byte-identical to their
+worker owners after integration. **No corpus gain is claimed.** Fresh combined
+474,251-row checker audits have zero transitions, RIGHT losses, GAP→WRONG or
+population changes. One still-WRONG payload changes:
+`sourceFileMergeWithFunction:1:3`, `typeof foo` → `typeof import("./types.d")`;
+native wants `typeof import("./types")`. The shadowed UMD alias now reaches an
+existing FILE fallback whose `.d` normalization remains outside this unit.
+Complete **10,570 diagnostic records are byte-identical**: 20,685 matches and
+3,838 extras, including duplicates and empty-positive cases. Archived native
+replay verifies **36 naming runs/9,720 records** without identity/order drift,
+and exact JS/TS metadata ownership/spans with syntax and disabled-doc controls;
+this is not fresh native execution. All four focused tests and workspace release
+pass: **2,834 tests, zero failures, six existing ignores**, plus six loader
+controls. Formatting and strict release workspace/all-target Clippy pass.
+Scorepair accepts the neutral baseline; fresh coverage preserves both snapshots.
+Initial invalid internal import-equals expectations and test-only lint failure
+are preserved but excluded; later scoped tests pin two genuine naming reds.
+Qualified alias chains, internal alias admission, written-reference display,
+synthetic defaults, effective JSDoc selection and flow/loop admission remain
+outside these units. Evidence is in `target/module-alias-jsdoc-wave31-evidence.tar.gz`.
+
 Annotated non-rest array binding initializers now project the declaration index,
 including holes, through the existing unknown-length contextual element reader.
 Name gates, annotation-holder recursion, ordinary object projection and all
 reader/default-adjustment/inference/fallback/cache bodies remain unchanged.
-Fresh full captures add **12 WRONG→RIGHT**: six each in
+Against `30d5e218`, fresh full captures add **12 WRONG→RIGHT**: six each in
 `contextualTypingArrayDestructuringWithDefaults` and
 `staticFieldWithInterfaceContext`. All transition keys and complete before/after
 payloads match the worker. There are **zero RIGHT losses, GAP→WRONG, changed
@@ -53,12 +80,14 @@ controls. Formatting, strict release workspace/all-target Clippy, scorepair and
 coverage pass. The diagnostics snapshot is unchanged. Initialized rest and
 unannotated/implied holders remain unsupported, not native refusals. A wrong
 literal remains `"wrong"` under the new `"right"` context; its pre-existing missing
-TS2322 is separately investigated read-only in tsr-4m7, with the failed exploratory
-diagnostic pin retained. Evidence is in `target/array-binding-wave30-evidence.tar.gz`.
-Publication preserves upstream `30d5e218`'s metadata/trace documentation and
+TS2322 was certified read-only in tsr-4m7, with the failed exploratory diagnostic
+pin retained. A primitive-variable-only report consumer is separately reserved
+in tsr-9p0; no reporter repair is included here. Evidence is in
+`target/array-binding-wave30-evidence.tar.gz`.
+Wave30 publication preserves upstream `30d5e218`'s metadata/trace documentation and
 `030f2d26`'s deprecated-script removal/passive issue export, plus `46c904d7`/
-`143b2eed`'s loader-depth replay documentation. Rebased compiler/test sources are
-byte-identical to measured `24b62d91` outside the refreshed checker snapshot. Post-rebase
+`143b2eed`'s loader-depth replay documentation. Its rebased compiler/test sources
+are byte-identical to measured `24b62d91` outside the refreshed checker snapshot. Post-rebase
 contextual and loader controls, formatting and strict all-target Clippy pass.
 
 An existing named property of an already-instantiated anonymous, nonreference
@@ -101,10 +130,11 @@ reader as an auto guard: native uses the last hosted document and sequential
 first-still-untyped declaration ownership; Rust exposes the first tag to every
 declaration. Direct hosts and mixed typedef/callback trees also differ. Evidence
 SHA256 is `0c4a69156bb5f82c58da37b476c4d288c25c71ce55996566bb04cf0c2ac5a88d`.
-Only direct variable-declaration doc capture is separately reserved in tsr-yx3;
-effective annotation selection and flow/loop admission remain unreserved.
-Supported module-alias shadow accessibility is separately reserved in tsr-ovt,
-with VALUE versus NAMESPACE meaning preserved; qualified chains, internal alias
+Direct variable-declaration doc capture is included above; the reader still
+ignores these entries. Variable-only selection is read-only tsr-x5f, with no
+selector, auto-guard or loop implementation reservation. Supported module-alias
+shadow accessibility is included above with VALUE versus NAMESPACE meaning
+preserved; qualified chains, internal alias
 admission and synthetic-default target resolution remain outside that unit.
 
 The two omitted/no-initializer IIFE contextual parameter fallbacks now select
