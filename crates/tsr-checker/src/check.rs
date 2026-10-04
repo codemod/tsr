@@ -6774,10 +6774,10 @@ impl Checker<'_, '_> {
     /// disagree is reported **on every one of them**, which is why this fires
     /// at each declaration the walk visits rather than once at the symbol.
     ///
-    /// `areTypeParametersIdentical` compares count, names, constraints and
-    /// defaults. **Only count and name are ported**: a constraint comparison
-    /// needs the declared types, and `nonIdenticalTypeConstraints` is the case
-    /// that wants it — a miss, never a wrong line. §140.
+    /// `areTypeParametersIdentical` permits omitted augmentation metadata and
+    /// trailing optional parameters. Constraint/default equality still uses
+    /// the shallow written signatures below rather than native resolved-type
+    /// identity; this remains a separate fidelity limit. §140, §706.
     fn check_type_parameter_lists_identical(&mut self, node: NodeId) {
         let Some(symbol) = self.binder.symbol_of(node) else { return };
         let entry = self.binder.symbols().get(self.binder.merged_symbol(symbol));
@@ -6817,7 +6817,7 @@ impl Checker<'_, '_> {
                 _ => format!("{:?}", this.nodes.kind(node)),
             }
         };
-        let names = |declaration: NodeId| -> Vec<String> {
+        let parameters = |declaration: NodeId| -> Vec<(String, String, String)> {
             self.node_map.get(declaration).map_or_else(Vec::new, |typed| {
                 type_parameters_of(typed)
                     .iter()
@@ -6828,13 +6828,50 @@ impl Checker<'_, '_> {
                             signature(self, parameter.constraint.and_then(|c| c.node_id()));
                         let default =
                             signature(self, parameter.default_type.and_then(|d| d.node_id()));
-                        format!("{name}|{constraint}|{default}")
+                        (name, constraint, default)
                     })
                     .collect()
             })
         };
-        let first = names(declarations[0]);
-        if declarations[1..].iter().all(|&other| names(other) == first) {
+        let lists: Vec<_> =
+            declarations.iter().map(|&declaration| parameters(declaration)).collect();
+        let maximum = lists.iter().map(Vec::len).max().unwrap_or_default();
+        // Native compares each source list to merged parameter metadata, not
+        // to the first written list. Find the first supplied constraint/default
+        // at each position; an omitted first one must not mask later conflicts.
+        // This adds no semantic cache, mapper or cross-checker type identity.
+        let mut minimum = 0;
+        let mut targets = Vec::with_capacity(maximum);
+        for position in 0..maximum {
+            let at_position = || lists.iter().filter_map(|list| list.get(position));
+            let name = &at_position().next().expect("position below maximum").0;
+            let constraint = at_position()
+                .find(|parameter| !parameter.1.is_empty())
+                .map(|parameter| &parameter.1);
+            let default = at_position()
+                .find(|parameter| !parameter.2.is_empty())
+                .map(|parameter| &parameter.2);
+            if default.is_none() {
+                minimum = position + 1;
+            }
+            targets.push((name, constraint, default));
+        }
+        let identical = lists.iter().all(|list| {
+            list.len() >= minimum
+                && list.iter().zip(&targets).all(
+                    |(
+                        (name, constraint, default),
+                        (target_name, target_constraint, target_default),
+                    )| {
+                        name == *target_name
+                            && (constraint.is_empty()
+                                || target_constraint.is_none_or(|target| constraint == target))
+                            && (default.is_empty()
+                                || target_default.is_none_or(|target| default == target))
+                    },
+                )
+        });
+        if identical {
             return;
         }
         let Some(name_id) = self.declaration_name_of(node) else { return };
@@ -6845,7 +6882,7 @@ impl Checker<'_, '_> {
             Diagnostic::with_args(
                 &messages::ALL_DECLARATIONS_OF_0_MUST_HAVE_IDENTICAL_TYPE_PARAMETERS,
                 span,
-                [String::new()],
+                [entry.name.to_string()],
             ),
         );
     }

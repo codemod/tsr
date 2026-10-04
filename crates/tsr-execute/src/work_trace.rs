@@ -167,21 +167,7 @@ impl WorkTrace {
                 state.file_ids.insert(node_id, file_id);
             }
             let name = file.file_name();
-            let declaration =
-                name.ends_with(".d.ts") || name.ends_with(".d.mts") || name.ends_with(".d.cts");
-            // Mirrors the current CLI's full-file loop, including its omission
-            // of library-prefix files. JSON is currently eligible in TSR.
-            let exclusion = if options.no_check.is_true() {
-                Some("no_check")
-            } else if file_id < program.lib_files().len() {
-                Some("driver_library_omission")
-            } else if source_node_id.is_none() {
-                Some("missing_source_node")
-            } else if declaration && options.skip_lib_check.is_true() {
-                Some("skip_lib_check")
-            } else {
-                None
-            };
+            let exclusion = crate::compile::full_check_exclusion(program, file_id);
             state.record(&json!({
                 "event": "program_file", "file_id": file_id, "path": name,
                 "source_node_id": source_node_id, "text_bytes": file.text().len(),

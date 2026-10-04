@@ -59,10 +59,12 @@ impl Checker<'_, '_> {
             | SyntaxKind::SymbolKeyword
             | SyntaxKind::ObjectKeyword
             | SyntaxKind::VoidKeyword
-            | SyntaxKind::NeverKeyword
             | SyntaxKind::UnknownKeyword
             | SyntaxKind::BigIntKeyword => true,
             SyntaxKind::TypeReference => self.type_reference_names_a_class_or_interface(annotation),
+            // Includes never: native accepts the bottom type for every target,
+            // including anyReadonlyArrayType. Bundled ThisParameterType uses
+            // `...args: never` in a conditional signature.
             _ => false,
         }
     }

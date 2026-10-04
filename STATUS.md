@@ -58,6 +58,22 @@ stale files and killed invocations. The ordinary build ignores the trace env;
 instrumentation and paired small-fixture overhead stay outside speed acceptance.
 [Producer boundaries and receipts](docs/architecture/tsr-work-trace-producer.md).
 
+CLI eligibility alignment (`tsr-1yb.1.1.2`), pre-work `58cfa176` plus the
+qualified production patch, now checks the complete Program with native skip
+rules and keeps skipped declarations/JSON available to lazy queries. Thirty-six
+fresh public off/on/repeat children preserve 68 ordered loaded identities and
+complete ordered native diagnostics: each tool performs 3 normal, 0 noCheck,
+67 library-enabled and 4 default-library-skipped full checks. Seven JS and eight
+merged-parameter/rest controls preserve their native distinctions. Enabling
+library checks exposed 62 false errors; omitted metadata/optional counts and
+never-rest fixes remove those while preserving deliberate conflicts. All 474,852
+type verdicts remain byte-identical, including 461,575 RIGHT; six of 10,570
+diagnostic cases become passing with no previous passing losses. Resolved
+constraint/default identity remains shallow and tracked by `.1.1.2.1`;
+plain-JS diagnostic policy, project references, all forcing/input/worker budgets
+and comparable native median <=0.50 are not certified.
+[Qualified alignment evidence](docs/architecture/tsr-work-trace-producer.md#eligibility-alignment-after-the-producer).
+
 ### Current checker checkpoint — four parallel native fidelity ports
 
 Production revision **`7942ce47`**, pinned native **`5b1047d`**:
@@ -2646,8 +2662,11 @@ rendering `any` for `errorType` (ADR-0038).
 
 Performed-work producer `.1.2.3` has a verified, feature-gated Rust slice;
 broader native forcing, qualified provenance and admission evidence remain in
-progress. Independently ready P1 `.1.1.2` aligns the observed JSON/library
-eligibility mismatch before any comparable ratio is accepted. Preserve current
+progress. The `.1.1.2` patch aligns public JSON/library/JS full-check
+eligibility; child `.1.1.2.1` retains resolved merged-parameter identity beyond
+the bounded omission/optional-count fix. Ready P1 `.1.2.3.1` lazy/initialization
+forcing, `.1.2.3.2` actual worker admission and `.1.2.4.1` artifact integrity
+precede dependent semantic comparison `.1.2.4.2`. Preserve current
 mapper/receiver/worker claims and keep `.1.2.2` input coverage, `.1.2.4` trace
 validation and representative-workload gates separate. The median TSR/native
 wall requirement <=0.50 remains unmet and unverified.
@@ -2657,7 +2676,7 @@ and its downloaded artifact contains five complete pairs per mode. The earlier
 Python 3.8 zero-sample failure is retained as evidence. Public acquisition `.1.3.1` and
 work/worker producers
 `.1.2.3` now has native unsampled full-worker evidence; explicit eligibility,
-lazy JSON forcing and worker/provenance hooks still need implementation. Their
+lazy forcing and worker/provenance completeness remain independent gates. Their
 follow-ups `.1.3.2` and `.1.2.4` validate workload
 suitability and performed-work evidence. Mapper/receiver/private-store contracts
 and representative ratchet `.13` retain their existing gates and active owners.
@@ -6048,6 +6067,18 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+### Matching full-file identities as complete work — patch on `58cfa176`
+
+The qualified alignment patch makes both tools perform 3/0/67/4 full checks
+under the public normal/noCheck/library/default-library controls, with 68 equal
+loaded identities and complete ordered diagnostic lines. This removes a
+concrete eligibility mismatch; it does not prove all initialization/lazy
+forcing, complete captured inputs, project-reference policy or safe worker
+admission. Native default construction still creates four instances where TSR
+creates one, and request flags are not execution evidence. The parameter fix
+retains shallow constraint/default signatures, not resolved semantic identity.
+No native speed ratio or <=0.50 acceptance follows from these controls.
 
 ### Source/query entry counts as complete work — probe patch on `7762af68`
 
@@ -12577,6 +12608,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
+| 2026-10-04 | `58cfa176` plus qualified eligibility patch | 461,575 RIGHT preserved; 474,852 type rows identical | six diagnostic case gains; zero previous passing losses | Native public checking scope aligned; no speed claim | `.1.1.2`/`.1.1.2.1`: complete Program eligibility, shared trace/directive rule, JSON lazy availability, native-supported optional/omitted merged parameters and never rest, deterministic diagnostic ordering. Thirty-six public children preserve 68 loaded identities and native full checks 3/0/67/4 with complete ordered diagnostics; seven JS/eight parameter controls. All 10,570 diagnostic cases retained; 2,931 feature-workspace/49 ordinary CLI tests, strict Clippy both modes, format/anchors/sections pass. Issue-ID gate retains unchanged 190 historical missing IDs (`tsr-10`). Broader resolved identity, plain-JS diagnostic policy, forcing/input/worker admission and native median <=0.50 remain unverified. |
 | 2026-10-04 | `7762af68` plus qualified producer patch | not remeasured | not remeasured | Opt-in actual-work producer; no speed claim | `tsr-1yb.1.2.3`: 15 public off/on/repeat children preserve 68 loaded identities/output, 4/0/5 TSR full checks versus native 3/0/67, one actual serial instance. Seven virtual/two physical controls cover write/flush, stale-file and abort boundaries; 2,924 feature-enabled release workspace tests/258 blocks, strict Clippy both modes and formatting. Forty separate paired overhead children preserve output. Ordinary build ignores observer environment. New P1 `.1.1.2` owns eligibility alignment; forcing/provenance/input/worker admission and native median <=0.50 remain unverified. |
 | 2026-10-04 | `8209086f` (CI fix; native trace inspection) | not remeasured | not remeasured | CI publication verified and native work boundary evidence | Portable status fix pushed with45 script passes; fixed run37232944393 passed, downloaded reports verify5pairs/mode,20measuredPIDs,66loaded/1diagnostic. Publication8.1 completed. Native15 off/on/repeat controls preserve68loaded/output, count3/0/67fullchecks; a16th proves trace I/O failure can return normal diagnostic exit. Native synthetic IDs/type dumps cannot certify forcing/budgets; no checker corpus or speed claim. |
 | 2026-10-04 | `02fafbc0` (frozen compiler; reporting changes separately reviewed) | not remeasured | not remeasured | Whole-project observational CI plumbing | `tsr-1yb.8.1`: 44 script tests, workflow syntax/order guards and five public pairs per mode; 66 loaded files and one complete diagnostic match. Warmup/preflight failures persist child evidence; setup failure cannot reuse stale output. Remote workflow/artifact verification remains pending. No representative throughput, corpus delta or verified native <=0.50 claim. |

@@ -140,7 +140,14 @@ fn cli_trace_preserves_output_and_distinguishes_lazy_work_from_file_checks() {
         .iter()
         .filter(|row| row["event"] == "work_begin" && row["operation"] == "source_file_check")
         .collect();
-    assert!(full_checks.iter().any(|row| row["file_ids"] == serde_json::json!([json])));
+    assert!(!full_checks.iter().any(|row| row["file_ids"] == serde_json::json!([json])));
+    assert_eq!(
+        records
+            .iter()
+            .find(|row| row["event"] == "program_file" && row["file_id"] == json)
+            .unwrap()["full_check_exclusion"],
+        "json_source"
+    );
     assert!(!full_checks.iter().any(|row| row["file_ids"] == serde_json::json!([decl])));
     assert!(records.iter().any(|row| row["event"] == "work_begin"
         && row["operation"] == "variable_type_worker"
@@ -160,6 +167,31 @@ fn cli_trace_preserves_output_and_distinguishes_lazy_work_from_file_checks() {
     assert!(active.is_empty());
     assert_eq!(records.last().unwrap()["all_forcing_observed"], false);
     assert_eq!(records.last().unwrap()["complete_provenance_verified"], false);
+}
+
+#[test]
+fn eligible_identities_equal_full_workers_started_and_returned() {
+    for flags in [&[][..], &["--skipLibCheck", "false"][..], &["--noCheck"][..]] {
+        let (_, _, records) = run(flags, true);
+        let eligible: std::collections::BTreeSet<_> = records
+            .iter()
+            .filter(|row| row["event"] == "program_file" && row["full_check_eligible"] == true)
+            .map(|row| row["file_id"].as_u64().unwrap())
+            .collect();
+        let begun: Vec<_> = records
+            .iter()
+            .filter(|row| row["event"] == "work_begin" && row["operation"] == "source_file_check")
+            .collect();
+        let observed: std::collections::BTreeSet<_> =
+            begun.iter().map(|row| row["file_ids"][0].as_u64().unwrap()).collect();
+        assert_eq!(observed, eligible, "{flags:?}");
+        assert_eq!(begun.len(), eligible.len(), "no duplicate full workers");
+        for begin in begun {
+            assert!(records.iter().any(|row| row["event"] == "work_end"
+                && row["span_id"] == begin["span_id"]
+                && row["outcome"] == "returned"));
+        }
+    }
 }
 
 #[test]

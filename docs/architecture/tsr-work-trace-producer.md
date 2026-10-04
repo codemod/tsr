@@ -39,12 +39,16 @@ Logical paths and source-node IDs remain in the sidecar, unmapped IDs are
 explicit, and checker ID zero denotes this producer's sole attached instance.
 None of these IDs can be compared across type stores, Programs or processes.
 
-`program_file.full_check_eligible` mirrors the current CLI's full-check loop,
-not native eligibility. `noCheck`, missing source nodes, library-prefix omission
-and `skipLibCheck` are separately reported exclusions. Libraries are currently
-omitted before the narrower default-library skip is reached; JSON remains
-eligible in TSR. The pinned native producer skips JSON full checks and can check
-libraries when `skipLibCheck` is false. These differences must remain visible.
+`program_file.full_check_eligible` and the CLI share `full_check_exclusion`
+in `tsr-execute/src/compile.rs`. Its ordered exclusions follow native
+`Program.SkipTypeChecking` / `canIncludeBindAndCheckDiagnostics`: noCheck,
+declaration skipping, default-library skipping, a disabling file directive,
+JSON, and explicitly unchecked JavaScript. JS with checkJs unset remains
+eligible as native plain JS; an enabling file directive overrides checkJs false.
+Default libraries use ordered Program membership, not a basename or the
+no-default-lib pragma. Missing source nodes are explicit. Project-reference
+redirects are unimplemented, so their native source exclusion is unsupported
+and native eligibility certification remains false.
 See [pinned native boundaries](native-check-trace-characterization.md), native
 `5b1047d10d32e7d5b446be4de56b126ff42f82bb`, for the corresponding full-worker,
 lazy JSON, tracer/construction and sampled-event boundaries.
@@ -96,9 +100,93 @@ writer buffers 64 KiB. A probe build with tracing disabled still has optional
 observer branches. Keep probe-on, probe-off and native type-dump overhead outside
 throughput acceptance timing; use ordinary builds for that timing.
 
-## Validation and remaining work
+## Eligibility alignment after the producer
 
-The final local probe is source-qualified by pre-work main `7762af68` plus an
+The original evidence below exposed the forcing constraint: 68 equal loaded
+identities concealed 4 versus 3 normal full checks, and 5 versus 67 with library
+checking. The old driver claimed libraries never produced diagnostics and
+excluded them before consulting options. JSON entered the full worker even
+though native types imported JSON lazily. The driver now checks eligible files
+from the complete Program table and shares its rule with directive/diagnostic
+filtering and trace rows. Skipped files remain loaded, bound and queryable.
+
+Pre-work `58cfa176` plus four qualified production files is captured in
+`/tmp/tsr-eligibility-58cf/public-controls-final-314b/receipt.json`. Thirty-six
+fresh children cover six requests in both tools, each off/on/repeat. All
+preserve each tool's complete output/status across observer modes, 68 ordered
+loaded identities, matching started/returned full-file identities, and complete
+ordered native diagnostic lines:
+
+| Request | Full checks, each tool | Intentional diagnostics, each tool |
+| --- | ---: | ---: |
+| Default / single / two requested checkers | 3 | 1 |
+| noCheck | 0 | 0 |
+| skipLibCheck false | 67 | 2 |
+| skipLibCheck false, skipDefaultLibCheck true | 4 | 2 |
+
+Seven native/candidate JS controls preserve plain-JS, explicit false/true and
+last-file-directive distinctions. Eight native parameter/rest controls cover
+omitted augmentation metadata, optional/required counts, later constraint/default
+conflicts, distinct parameter names and never/scalar rest. The first candidate
+exposed 62 false library errors: 61 TS2428 and one TS2370. Metadata omission and
+optional-count handling remove those errors without discarding workers; never
+is accepted as the bottom type. Constraint/default equality still uses the
+pre-existing shallow written signature domain, not resolved-type identity.
+`tsr-1yb.1.1.2.1` retains that broader fidelity boundary. No cache, mapper or
+private-store identity is introduced. Diagnostics sort/deduplicate by canonical
+file, span, code and arguments, the supported fields of `ast.CompareDiagnostics`.
+Message chains and related information are not represented by this port.
+
+Updating observer strings alone would leave the runtime omission intact.
+Keeping the unconditional library skip would conceal the 62 errors and preserve
+incomparable work. The accepted cost is performing the requested library work.
+A native control with different eligible/started/returned identities, changed
+lazy JSON diagnostics, a lost previous RIGHT row, or a real conflict hidden by
+omitted metadata refutes the change. These controls do not certify all forcing,
+input coverage, worker budgets, project references or a comparable speed ratio.
+
+| Current eligibility artifact | SHA256 |
+| --- | --- |
+| Frozen probe binary | `314b63a54848b7460e712265f1c07cb2476da49c414ad853ef0cfd3ef065ef22` |
+| Ordinary final binary | `07bc9bebea7869e41fe78414a5733df651b0dc3aeece1eae1d8a639d619de361` |
+| Public control helper | `2c0c0d515e99e47a54c016c55843630f7dd531bf2b382f2dc63c7dd102224ece` |
+| Public control receipt | `e87f10acc414363274847f79198e7cf1f0384c05fa6511c6cfe26e10ff45fbd3` |
+
+The same patch preserves all 474,852 aligned type verdicts byte-for-byte,
+including 461,575 previously RIGHT rows. All 10,570 diagnostic cases retain
+their identities: previously passing cases have zero losses, one WRONG case
+becomes RIGHT and five EMPTY_WRONG cases become EMPTY_RIGHT. Four remaining
+WRONG cases change only by removing unexpected diagnostics; none loses an
+expected diagnostic. These are fidelity results, not throughput measurements.
+The complete type and diagnostic dumps and comparison are retained locally in
+`/tmp/tsr-eligibility-58cf/`. Source/diagnostic eligibility denominators and native
+baselines are unchanged. Plain-JS diagnostic filtering beyond these controls
+and resolved constraint/default identity are not certified by this patch.
+
+Early follow-ups split producer forcing (`tsr-1yb.1.2.3.1`), actual worker
+admission/ownership (`tsr-1yb.1.2.3.2`), artifact integrity
+(`tsr-1yb.1.2.4.1`) and semantic-work comparison (`tsr-1yb.1.2.4.2`). The first
+three can start independently; comparison waits for those specific prerequisites.
+Matching internal operation counts is not required across different compiler
+implementations, but complete required checking, inputs and output are.
+
+Current patch verification passes 2,931 feature-enabled release workspace tests
+(six existing ignores), 49 ordinary CLI/execution tests (one existing ignore),
+strict workspace Clippy in both feature modes, formatting, 3,403 upstream
+anchors and internal section citations. Eight fresh ordinary-build controls
+preserve complete probe output/status with the observer environment absent or
+set; the ordinary binary contains no observer string and creates no sidecar.
+The issue-citation gate still reports 190 historical IDs missing from the
+authoritative Dolt registry, unchanged pre-existing `tsr-10` debt; no citations
+or issue records were deleted/fabricated to make it pass. Owned code/tests were
+reviewed manually because unrelated local work was present. The explicit
+simplification passes introduced no changes or new abstractions. No new
+blocking review finding remains; broader resolved identity and work certification
+remain the existing issues above, not completed by these tests.
+
+## Original producer validation and remaining work
+
+The original local probe is source-qualified by pre-work main `7762af68` plus an
 exact per-file patch manifest in
 `/tmp/tsr-work-trace-controls-published-7762/receipt.json`. The helper snapshots the
 owned production/test files before running and verifies their hashes afterwards.
@@ -124,8 +212,9 @@ cross-tool timing comparison. TSR's fourth normal full check is JSON; its
 fifth declaration-enabled check is the imported declaration. All 63 libraries
 remain omitted from TSR's full-file loop. Normal cases also observe three
 symbol queries, two declared-type queries and one actual variable worker for
-JSON. The scope fix is tracked independently in `tsr-1yb.1.1.2`; recording this
-mismatch does not require hiding it or prematurely enabling a comparable ratio.
+JSON. These historical counts are superseded for full-check eligibility by the
+alignment above (`tsr-1yb.1.1.2`); recording the original mismatch does not
+prematurely enable a comparable ratio.
 
 The ordinary binary contains no `TSR_WORK_TRACE` environment string, ignores
 that environment variable without creating a sidecar, and preserves the same

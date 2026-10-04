@@ -235,3 +235,65 @@ fn a_single_file_interface_is_unaffected_and_was_always_right() {
     assert_eq!(binder_and_checker(&mut fixture, "I", "a"), (true, true));
     assert_eq!(binder_and_checker(&mut fixture, "I", "b"), (true, true));
 }
+
+fn merged_parameter_errors(files: &[(&'static str, &str)]) -> usize {
+    let arena = Arena::new();
+    let fixture = program(&arena, files);
+    let mut checker = Checker::new(&fixture.bound, &fixture.nodes, &fixture.node_map);
+    for index in 0..u32::try_from(fixture.nodes.len()).unwrap() {
+        let id = tsr_ast::NodeId::new(index);
+        if fixture.nodes.kind(id) == tsr_ast::SyntaxKind::SourceFile {
+            checker.check_source_file(
+                id,
+                tsr_checker::check::FileContext { ambient: false, has_parse_errors: false },
+            );
+        }
+    }
+    checker.diagnostics().iter().filter(|(_, diagnostic)| diagnostic.message.code() == 2428).count()
+}
+
+#[test]
+fn augmentation_can_omit_existing_parameter_constraint_and_default() {
+    for files in [
+        [("a", "interface Box<T extends string = string> {}"), ("b", "interface Box<T> {}")],
+        [("a", "interface Box<T> {}"), ("b", "interface Box<T extends string = string> {}")],
+    ] {
+        assert_eq!(merged_parameter_errors(&files), 0);
+    }
+}
+
+#[test]
+fn augmentation_can_add_only_optional_type_parameters() {
+    for files in [
+        [("a", "interface Box {}"), ("b", "interface Box<T = string> {}")],
+        [("a", "interface Box<T = string> {}"), ("b", "interface Box {}")],
+    ] {
+        assert_eq!(merged_parameter_errors(&files), 0);
+    }
+    assert_eq!(
+        merged_parameter_errors(&[("a", "interface Box {}"), ("b", "interface Box<T> {}"),]),
+        2
+    );
+}
+
+#[test]
+fn omitted_first_metadata_does_not_hide_later_parameter_conflicts() {
+    for files in [
+        [
+            ("a", "interface Box<T> {}"),
+            ("b", "interface Box<T extends string> {}"),
+            ("c", "interface Box<T extends number> {}"),
+        ],
+        [
+            ("a", "interface Box<T> {}"),
+            ("b", "interface Box<T = string> {}"),
+            ("c", "interface Box<T = number> {}"),
+        ],
+    ] {
+        assert_eq!(merged_parameter_errors(&files), 3);
+    }
+    assert_eq!(
+        merged_parameter_errors(&[("a", "interface Box<T> {}"), ("b", "interface Box<U> {}"),]),
+        2
+    );
+}

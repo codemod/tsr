@@ -310,47 +310,30 @@ pub fn run_compilation(
         checker.set_work_observer(trace);
     }
 
-    // Only the program's own files are checked, never the libraries — upstream
-    // reports nothing in `lib.*.d.ts` under any configuration, and a diagnostic
-    // positioned in one could match nothing a user could fix.
-    let own_files: Vec<_> = program
-        .root_and_referenced_files()
+    // Eligibility is fixed before checking, independently of lazy queries into
+    // skipped declarations/JSON. Use the same rule as trace reporting.
+    let checked_files: Vec<_> = program
+        .source_files()
         .iter()
-        .filter_map(|file| file.source_file().node_id)
+        .enumerate()
+        .filter(|(index, _)| full_check_exclusion(&program, *index).is_none())
+        .filter_map(|(_, file)| file.source_file().node_id)
         .collect();
-    checker.set_checked_files(own_files.clone());
+    checker.set_checked_files(checked_files);
     let checker_initialized = sys.since_start();
 
     let mut diagnostics: Vec<(String, Diagnostic)> = Vec::new();
     let mut checked_file_count = 0;
     if !options.no_check.is_true() {
-        for file in program.root_and_referenced_files() {
+        for (index, file) in program.source_files().iter().enumerate() {
+            if full_check_exclusion(&program, index).is_some() {
+                continue;
+            }
             let Some(id) = file.source_file().node_id else { continue };
             // Upstream's parser sets `NodeFlagsAmbient` on every node of a
             // declaration file; this port's does not, so the bit is supplied
             // here, the same way the conformance harness supplies it.
-            let name = file.file_name();
-            let ambient =
-                name.ends_with(".d.ts") || name.ends_with(".d.mts") || name.ends_with(".d.cts");
-            // `Program.SkipTypeChecking` (`compiler/program.go:713`).
-            //
-            // **`skipLibCheck` is the difference between a usable tool and an
-            // unusable one on a real repository.** Nearly every TypeScript
-            // project sets it, and without it a package with a normal dependency
-            // tree reports thousands of diagnostics inside `node_modules` that
-            // its author cannot act on. Measured on one pnpm package: 1,740
-            // errors, of which **1,736 were in `node_modules`**.
-            //
-            // `skipDefaultLibCheck` is the narrower form and applies only to the
-            // bundled libraries, which this port identifies by their position in
-            // the program rather than by a `hasNoDefaultLib` flag it does not
-            // carry.
-            if ambient && options.skip_lib_check.is_true() {
-                continue;
-            }
-            if options.skip_default_lib_check.is_true() && is_default_library(&program, file) {
-                continue;
-            }
+            let ambient = tsr_path::is_declaration_file_name(file.file_name());
             checker.check_source_file(
                 id,
                 tsr_checker::check::FileContext {
@@ -365,7 +348,7 @@ pub fn run_compilation(
     if !options.no_check.is_true() {
         for (file_id, diagnostic) in checker.diagnostics() {
             if let Some(file) = program
-                .root_and_referenced_files()
+                .source_files()
                 .iter()
                 .find(|candidate| candidate.source_file().node_id == Some(*file_id))
             {
@@ -375,21 +358,17 @@ pub fn run_compilation(
     }
 
     let files: Vec<DiagnosticFile> = program
-        .root_and_referenced_files()
+        .source_files()
         .iter()
         .map(|file| DiagnosticFile::new(file.file_name(), file.text()))
         .collect();
 
     if !options.no_check.is_true() {
         let mut filtered = Vec::with_capacity(diagnostics.len());
-        for (source, indexed) in program.root_and_referenced_files().iter().zip(&files) {
+        for (index, (source, indexed)) in program.source_files().iter().zip(&files).enumerate() {
             // Match SkipTypeChecking: skipped declaration files must not earn
             // unused-directive errors without ever being checked.
-            if (tsr_path::is_declaration_file_name(source.file_name())
-                && options.skip_lib_check.is_true())
-                || (options.skip_default_lib_check.is_true()
-                    && is_default_library(&program, source))
-            {
+            if full_check_exclusion(&program, index).is_some() {
                 continue;
             }
             let directives = tsr_compiler::comment_directives::directives_in(source.text());
@@ -407,6 +386,24 @@ pub fn run_compilation(
         }
         diagnostics = filtered;
     }
+
+    // `SortAndDeduplicateDiagnostics` / `ast.CompareDiagnostics`: worker and
+    // Program order do not determine diagnostic order. This port's diagnostic
+    // representation has no message chains or related-information fields.
+    diagnostics.sort_by(|(left_file, left), (right_file, right)| {
+        left_file
+            .cmp(right_file)
+            .then_with(|| left.span.start.cmp(&right.span.start))
+            .then_with(|| left.span.end.cmp(&right.span.end))
+            .then_with(|| left.message.code().cmp(&right.message.code()))
+            .then_with(|| left.args.cmp(&right.args))
+    });
+    diagnostics.dedup_by(|(left_file, left), (right_file, right)| {
+        left_file == right_file
+            && left.span == right.span
+            && left.message.code() == right.message.code()
+            && left.args == right.args
+    });
 
     report_located(sys, &files, &diagnostics, &options);
     let reporting_finished = sys.since_start();
@@ -547,17 +544,47 @@ fn copy_option(into: &mut CompilerOptions, from: &CompilerOptions, name: &str) {
     }
 }
 
-/// Whether a file is one of the bundled `lib.*.d.ts`
-/// (`Program.IsSourceFileDefaultLibrary`).
+/// Why one loaded file is excluded from the CLI's full semantic worker.
 ///
-/// Identified by membership in the program's lib set rather than by a flag:
-/// this port's parser does not record `hasNoDefaultLib`, and the loader already
-/// keeps the libraries separate from the roots.
-fn is_default_library(
+/// Ported from `Program.SkipTypeChecking` and `canIncludeBindAndCheckDiagnostics`
+/// (`internal/compiler/program.go`) at the pinned commit. Indexing the Program's
+/// ordered files preserves default-library membership without a name heuristic
+/// or a per-file library scan. Project-reference redirects are not implemented
+/// in this driver, so their native exclusion is not claimed here.
+pub(crate) fn full_check_exclusion(
     program: &tsr_compiler::Program<'_>,
-    file: &tsr_compiler::ProgramFile<'_>,
-) -> bool {
-    program.lib_files().iter().any(|lib| lib.file_name() == file.file_name())
+    file_index: usize,
+) -> Option<&'static str> {
+    let options = program.compiler_options();
+    let file = &program.source_files()[file_index];
+    if options.no_check.is_true() {
+        return Some("no_check");
+    }
+    if options.skip_lib_check.is_true() && tsr_path::is_declaration_file_name(file.file_name()) {
+        return Some("skip_lib_check");
+    }
+    if options.skip_default_lib_check.is_true() && file_index < program.lib_files().len() {
+        return Some("skip_default_lib_check");
+    }
+    let directive = file.file_references().check_js_directive;
+    if directive.is_some_and(|directive| !directive.enabled) {
+        return Some("file_no_check");
+    }
+    if tsr_parser::ScriptKind::from_file_name(file.file_name()) == tsr_parser::ScriptKind::Json {
+        return Some("json_source");
+    }
+    let extension = file.file_name().rsplit('.').next().unwrap_or_default();
+    let is_js = ["js", "jsx", "cjs", "mjs"].iter().any(|ext| extension.eq_ignore_ascii_case(ext));
+    // `IsPlainJSFile` includes JS with checkJs unset, but not explicitly false.
+    // A file directive overrides the option. Skipped files remain bound and
+    // available to cross-file queries; this is not a loader filter.
+    if is_js && directive.is_none() && options.check_js.is_false() {
+        return Some("check_js_false");
+    }
+    if file.source_file().node_id.is_none() {
+        return Some("missing_source_node");
+    }
+    None
 }
 
 /// The `ResolutionHost` the driver hands to the loader.
@@ -660,6 +687,127 @@ mod directive_tests {
         assert_eq!(status, ExitStatus::Success, "{output}");
         assert!(!output.contains("TS2322"), "{output}");
         assert!(output.contains("Checked files:         0\n"), "{output}");
+    }
+
+    #[test]
+    fn nocheck_preamble_skips_full_check_and_unused_expect_error() {
+        let (status, output) = compile_with_options(
+            "// @ts-nocheck\n// @ts-expect-error\nconst bad: number = 'bad';\n",
+            &["--extendedDiagnostics"],
+        );
+        assert_eq!(status, ExitStatus::Success, "{output}");
+        assert!(!output.contains("error TS"), "{output}");
+        assert!(output.contains("Checked files:         0\n"), "{output}");
+    }
+
+    #[test]
+    fn never_rest_is_assignable_while_scalar_rest_still_reports() {
+        let (_, output) = compile(
+            "declare function okay(...args: never): void;\ndeclare function bad(...args: string): void;",
+        );
+        let errors: Vec<_> = output.lines().filter(|line| line.contains("error TS2370:")).collect();
+        assert_eq!(errors.len(), 1, "{output}");
+        assert!(errors[0].starts_with("a.ts(2,"), "{output}");
+    }
+
+    fn compile_files(files: Vec<(String, String)>, roots: &[&str], flags: &[&str]) -> String {
+        let baseline = Baseline {
+            current_directory: "/project".into(),
+            use_case_sensitive_file_names: true,
+            files,
+            ..Baseline::default()
+        };
+        let mut system = BaselineSystem::new(&baseline);
+        let args = ["--noEmit", "--pretty", "false", "--extendedDiagnostics"]
+            .into_iter()
+            .chain(flags.iter().copied())
+            .chain(roots.iter().copied())
+            .map(str::to_string)
+            .collect::<Vec<_>>();
+        crate::command_line(&mut system, &args);
+        system.output().into()
+    }
+
+    #[test]
+    fn library_checks_follow_skip_options_without_dropping_imported_types() {
+        for (flags, checks, lib_error, declaration_error) in [
+            (vec![], 3, true, true),
+            (vec!["--skipDefaultLibCheck"], 2, false, true),
+            (vec!["--skipLibCheck"], 1, false, false),
+            (vec!["--noCheck"], 0, false, false),
+        ] {
+            let mut flags = flags;
+            flags.extend(["--target", "es5"]);
+            let output = compile_files(
+                vec![
+                    (format!("{}/lib.d.ts", crate::baseline::TSC_LIB_PATH),
+                        "interface LibraryBad { value: MissingLibType; }".into()),
+                    ("/project/dep.d.ts".into(),
+                        "export interface Decl { value: number; other: MissingDeclType; }".into()),
+                    ("/project/a.ts".into(),
+                        "import type { Decl } from './dep'; declare const x: Decl; const bad: string = x.value;".into()),
+                ],
+                &["a.ts"],
+                &flags,
+            );
+            assert!(
+                output.contains(&format!("Checked files:         {checks}\n")),
+                "{flags:?}: {output}"
+            );
+            assert_eq!(
+                output.contains("Cannot find name 'MissingLibType'"),
+                lib_error,
+                "{flags:?}: {output}"
+            );
+            assert_eq!(
+                output.contains("Cannot find name 'MissingDeclType'"),
+                declaration_error,
+                "{flags:?}: {output}"
+            );
+            assert_eq!(output.contains("error TS2322:"), checks != 0, "{flags:?}: {output}");
+        }
+    }
+
+    #[test]
+    fn js_full_check_distinguishes_unset_false_true_and_file_directives() {
+        for (preamble, flags, checks) in [
+            ("", vec![], 1),
+            ("", vec!["--checkJs", "false"], 0),
+            ("", vec!["--checkJs"], 1),
+            ("// @ts-check\n", vec!["--checkJs", "false"], 1),
+            ("// @ts-nocheck\n", vec!["--checkJs"], 0),
+            ("// @ts-nocheck\n// @ts-check\n", vec![], 1),
+            ("// @ts-check\n// @ts-nocheck\n", vec![], 0),
+        ] {
+            let mut flags = flags;
+            flags.extend(["--noLib", "--allowJs"]);
+            let output = compile_files(
+                vec![("/project/a.js".into(), format!("{preamble}export const value = 1;"))],
+                &["a.js"],
+                &flags,
+            );
+            assert!(!output.contains("error TS"), "{flags:?}: {output}");
+            assert!(
+                output.contains(&format!("Checked files:         {checks}\n")),
+                "{preamble:?} {flags:?}: {output}"
+            );
+        }
+    }
+
+    #[test]
+    fn semantic_diagnostic_order_is_independent_of_worker_and_root_order() {
+        let output = compile_files(
+            vec![
+                ("/project/z.ts".into(), "const z: number = 'bad';".into()),
+                ("/project/a.ts".into(), "const a: number = 'bad';".into()),
+            ],
+            &["z.ts", "a.ts"],
+            &["--noLib"],
+        );
+        let errors: Vec<_> = output.lines().filter(|line| line.contains("error TS2322:")).collect();
+        assert_eq!(errors.len(), 2, "{output}");
+        assert!(errors[0].starts_with("a.ts("), "{output}");
+        assert!(errors[1].starts_with("z.ts("), "{output}");
     }
 
     #[test]
