@@ -150,9 +150,35 @@ requires explicit initialization. Full workspace all-target compilation covers
 the existing consumers. The separate native synthetic-content/internal-key
 tasks remain required before declaring completed member images reusable.
 
-Main code delivery `8ad07e6a` has the same tracked source tree as the isolated
+Prepared main snapshot `8ad07e6a` had the same tracked source tree as the isolated
 candidate. Its separately rebuilt normal release CLI independently preserves
 all 119 complete app diagnostics. Its executable byte hash differs from the
 frozen isolated binary, so saved timings remain attributed to that exact
 frozen artifact; they are not measurements of the rebuilt main executable.
 Both identities and source hashes are recorded in the controls.
+
+## Concurrent mapped-property rebase
+
+Prepared rebase snapshot `b9ebab63` incorporated `c1ffade9`. All seven measured
+Rust source files are unchanged. Incoming consumers use ordinary table reads;
+no production presence/private-clone completion caller is added. Current checker
+focus tests and mapped-property tests pass, together with a workspace all-target
+check, strict affected Clippy and formatting in the isolated cache. The cold
+main metadata check was manually interrupted and is recorded separately.
+
+Fresh current-baseline and rebuilt main-candidate release binaries preserve all
+118 complete app diagnostics, retaining the upstream improvement from 119. The
+main release binary matches the frozen current candidate hash. Full-corpus and
+paired-cost observations above remain attributed to their measured source pairs;
+this rebase adds compatibility and complete-app checks, not a new full-corpus
+or performance measurement. Native content/key gates and the 0.50 target remain
+open.
+
+The next clean rebase includes `a7bbb454` intersection/conditional reduction.
+The same seven measured Rust files remain unchanged; current conditional,
+relation, symbol-domain, merge and naming tests pass with workspace all-target,
+strict affected Clippy and format checks in the cached worktree. Fresh baseline
+and rebuilt main release binaries again preserve all 118 complete app diagnostics.
+Counts and fingerprints are tracked; raw private-app diagnostics remain local.
+These are source-attributed compatibility checks; earlier full-corpus and timing
+observations retain their original source attribution.
