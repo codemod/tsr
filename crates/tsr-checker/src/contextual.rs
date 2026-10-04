@@ -1075,8 +1075,38 @@ impl<'a> Checker<'a, '_> {
             // is established the same way (name and annotation are not
             // expressions); computed names carry no annotation relevant here.
             Node::PropertyDeclaration(declaration) => {
-                let annotation = declaration.r#type?;
-                Some(self.get_type_from_type_node(annotation))
+                if let Some(annotation) = declaration.r#type {
+                    return Some(self.get_type_from_type_node(annotation));
+                }
+                let class = self.nodes.parent(parent)?;
+                if self.nodes.kind(class) != tsr_ast::SyntaxKind::ClassExpression
+                    || !crate::check::has_modifier(
+                        declaration.modifiers,
+                        tsr_ast::SyntaxKind::StaticKeyword,
+                    )
+                    || declaration.initializer.and_then(|initializer| initializer.node_id())
+                        != Some(node)
+                {
+                    return None;
+                }
+                // getContextualTypeForStaticPropertyDeclaration: only a
+                // named property of the enclosing apparent context supplies
+                // context; an index signature does not supply a fallback.
+                let contextual = self.get_contextual_type(class)?;
+                let contextual = self.apparent_contextual_type(contextual);
+                let name = match declaration.name {
+                    PropertyName::Identifier(name) => name.text.to_string(),
+                    PropertyName::StringLiteral(name) => name.text.to_string(),
+                    PropertyName::NumericLiteral(name) => {
+                        crate::printing::normalise_number(name.text)
+                    }
+                    PropertyName::ComputedPropertyName(name) => {
+                        let name_type = self.check_expression(name.expression?);
+                        self.property_name_from_index(name_type)?
+                    }
+                    _ => return None,
+                };
+                self.get_type_of_property_of_type(contextual, &name)
             }
             Node::CallExpression(call) => self.contextual_type_for_argument(call, node),
             Node::TemplateSpan(_) => {
@@ -2480,4 +2510,71 @@ impl<'a> Checker<'a, '_> {
 /// a binding pattern.
 fn is_this_parameter(parameter: &ParameterDeclaration<'_>) -> bool {
     matches!(parameter.name, Some(BindingName::Identifier(name)) if name.text == "this")
+}
+
+#[cfg(test)]
+mod tests {
+    use tsr_ast::{Node, NodeId};
+
+    fn field_context(source: &str) -> Option<String> {
+        let arena = tsr_core::Arena::new();
+        let parsed = tsr_parser::parse(&arena, source);
+        assert!(parsed.diagnostics.is_empty(), "{source}");
+        let bound = tsr_binder::bind(
+            &arena,
+            parsed.source_file,
+            &parsed.nodes,
+            tsr_binder::FileInfo { name: "t.ts", text: source },
+        );
+        let initializer = (0..parsed.nodes.len())
+            .find_map(|index| {
+                #[allow(clippy::cast_possible_truncation)]
+                let id = NodeId::new(index as u32);
+                match parsed.node_map.get(id) {
+                    Some(Node::PropertyDeclaration(field)) => field.initializer?.node_id(),
+                    _ => None,
+                }
+            })
+            .expect("a field initializer");
+        let mut checker = crate::Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+        checker.get_contextual_type(initializer).map(|ty| checker.type_to_string(ty))
+    }
+
+    #[test]
+    fn static_class_expression_fields_use_the_contextual_property_type() {
+        for source in [
+            r#"interface I { x: { a: "right" }; } const C: I = class { static x = { a: "right" }; };"#,
+            r#"interface I<T> { x: { a: T }; } const C: I<"right"> = class { static x = { a: "right" }; };"#,
+            r#"interface I { x: { a: "right" }; } const C: I = ((class { static x = { a: "right" }; }));"#,
+            r#"interface I { x: { a: "right" }; } const key = "x"; const C: I = class { static [key] = { a: "right" }; };"#,
+            r#"interface I { x: { a: "right" }; } const C = class { static x = { a: "right" }; } as I;"#,
+            r#"interface I { x: { a: "right" }; } const C = class { static x = { a: "right" }; } satisfies I;"#,
+            r#"const C: { "a-b": { a: "right" } } = class { static "a-b" = { a: "right" }; };"#,
+            r#"const C: { 1: { a: "right" } } = class { static 1.0 = { a: "right" }; };"#,
+        ] {
+            assert_eq!(field_context(source).as_deref(), Some("{ a: \"right\"; }"), "{source}");
+        }
+        assert_eq!(
+            field_context(r#"const C: { fn: (value: "right") => "right" } = class { static fn = value => value; };"#).as_deref(),
+            Some("(value: \"right\") => \"right\"")
+        );
+    }
+
+    #[test]
+    fn static_field_context_preserves_annotations_and_absence() {
+        assert_eq!(
+            field_context("const C: { x: 'right' } = class { static x: 'left' = 'left'; };")
+                .as_deref(),
+            Some("\"left\"")
+        );
+        for source in [
+            "const C = class { static x = 'right'; };",
+            "class C { static x = 'right'; }",
+            "const C: { new(): { x: 'right' } } = class { x = 'right'; };",
+            "const C: { other: 'right' } = class { static x = 'right'; };",
+            "declare const key: string; const C: { [key: string]: 'right' } = class { static [key] = 'right'; };",
+        ] {
+            assert_eq!(field_context(source), None, "{source}");
+        }
+    }
 }
