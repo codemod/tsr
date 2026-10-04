@@ -90,9 +90,29 @@ at `95e676791866234ddfa220a85847eb88c30fd76e`, published its artifact but failed
 the controls: its Python 3.8 interpreter lacked `os.waitstatus_to_exitcode`.
 Downloaded `whole-project-results/observations.json` confirms both modes were
 `harness_failed`, with zero samples and `release_target_verified=false`. The
-portable status conversion addresses that confirmed failure; a later successful
-remote run still must verify complete publication. Beads `tsr-1yb.8.1` tracks the
-publication deliverable. Parent `.8` retains broader integration; `.1.2` owns
+portable status conversion addresses that confirmed failure.
+
+The fixed run, [37232944393](https://github.com/codemod/tsr/actions/runs/37232944393)
+at `8209086f3d466ed404ab4fa1586e300e440e567a`, passed the controls, existing
+Compare gate, observations, upload and job summary. Its downloaded
+`perf-results-8209086f3d466ed404ab4fa1586e300e440e567a` artifact was inspected:
+both raw mode reports equal the aggregate, five samples per compiler/mode have
+20 distinct measured PIDs, normal diagnostic exits, finite per-child resources
+and stable observed inputs. Both modes match effective options, 66 loaded
+identities and one complete diagnostic. Incremental/composite are false, and
+the single-worker request is present only in the single mode.
+
+Both are `completed_incomparable`: actual semantic work/worker budgets and
+complete cross-tool query-input coverage remain unverified. Their verified
+ratio is null and target verification is false. This proves the initial
+publication deliverable `tsr-1yb.8.1`, not representative performance.
+Linux-built binary SHA256 values are
+`3cd0ea24a8d17b1579278b4240dce9ae3b5350aa9d9986d9b7d6b089c2a53534` (TSR)
+and `305368e8b7143396f488509dee0a8bb304a517cfde9a6a11670f8947902ba853` (native).
+Local inspection files are under `/tmp/tsr-ci-run-37232944393/`; the strict
+artifact check is `/tmp/tsr-validate-ci-8209.py`.
+
+Parent `.8` retains broader integration; `.1.2` owns
 performed-work evidence, `.1.3` owns the representative public suite, and `.13`
 owns the later regression ratchet. The verified native wall ratio <=0.50 remains
 unmet and unverified.
