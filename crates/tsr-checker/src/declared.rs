@@ -6402,6 +6402,15 @@ impl<'a> Checker<'a, '_> {
             // substituted union, retaining that constituent in the outer mapper
             // for both the extends test and the chosen branch.
             if let Some(parameter) = self.distributive_conditional_parameter(check_node) {
+                // getConditionalTypeInstantiation reduces the substituted
+                // check before distribution (checker.go:22499). A certified
+                // whole-never intersection contributes no branch result.
+                if self.store.get(check).flags.contains(TypeFlags::INTERSECTION) {
+                    let apparent = self.apparent_type(check);
+                    if self.intersection_has_never_discriminant(apparent) {
+                        return Some(self.intrinsics.never);
+                    }
+                }
                 if check == self.intrinsics.never {
                     return Some(check);
                 }

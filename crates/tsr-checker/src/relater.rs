@@ -703,6 +703,21 @@ impl Relater<'_, '_, '_> {
         if source == target {
             return RelationResult::Related;
         }
+        // getNormalizedType reduces source intersections before the simple
+        // relation (relater.go:2625, checker.go:28041). Apparent constituents
+        // expose generic constraints to the existing whole-never certification;
+        // a never-valued property alone is not such a proof. Keep the written
+        // type and property readers unchanged outside this comparison.
+        let source = if self.checker.type_of(source).flags.contains(TypeFlags::INTERSECTION) {
+            let apparent = self.checker.apparent_type(source);
+            if self.checker.intersection_has_never_discriminant(apparent) {
+                self.checker.intrinsics.never
+            } else {
+                source
+            }
+        } else {
+            source
+        };
         // isRelatedToWorker fast-paths a parameter's exact constraint before
         // decomposing a target union or considering simple negative verdicts
         // (relater.go:2640). This includes a written `never` constraint.

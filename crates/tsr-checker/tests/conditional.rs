@@ -157,3 +157,48 @@ fn a_nullable_branch_is_kept_and_not_reduced_away() {
         "string | null"
     );
 }
+
+#[test]
+fn distributive_type_parameters_reduce_whole_never_intersections() {
+    for (operand, expected) in [
+        ("Forward", "never"),
+        ("Reverse", "never"),
+        ("Tagged", "never"),
+        ("'notNumber' | Forward", "false"),
+        ("Reverse | 1", "true"),
+        ("OptionalConflict", "false"),
+        ("PlainConflict", "false"),
+        ("AlreadyNever", "false"),
+    ] {
+        let source = format!(
+            "type IsNumber<T> = T extends number ? true : false;
+            type Forward = {{ x: true }} & {{ x: false }};
+            type Reverse = {{ x: false }} & {{ x: true }};
+            type Tagged = Forward & {{ tag: 'nested' }};
+            type OptionalConflict = {{ x?: true }} & {{ x?: false }};
+            type PlainConflict = {{ x: string }} & {{ x: number }};
+            type AlreadyNever = {{ x: never }} & {{ x: 'ok' }};
+            declare const input: IsNumber<{operand}>;
+            const result = input;"
+        );
+        assert_eq!(type_of_last(&source), expected, "{operand}");
+    }
+}
+
+#[test]
+fn wrapped_conditionals_test_reduced_sources_without_distributing() {
+    for (operand, expected) in [
+        ("{ x: true } & { x: false }", "true"),
+        ("{ x: false } & { x: true }", "true"),
+        ("{ x?: true } & { x?: false }", "false"),
+        ("{ x: string } & { x: number }", "false"),
+        ("{ x: never } & { x: 'ok' }", "false"),
+    ] {
+        let source = format!(
+            "type Wrapped<T> = [T] extends [number] ? true : false;
+            declare const input: Wrapped<{operand}>;
+            const result = input;"
+        );
+        assert_eq!(type_of_last(&source), expected, "{operand}");
+    }
+}

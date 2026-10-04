@@ -1719,3 +1719,102 @@ fn closed_mapped_targets_keep_their_intersection_callback_context() {
         assert_eq!(checker.type_to_string(argument), "{ f(a: string): void; }");
     });
 }
+
+#[test]
+fn source_intersections_reduce_only_certified_whole_object_conflicts() {
+    use tsr_checker::relater::{Relation, Ternary};
+    for (bound, left, right, reduced) in [
+        (" extends { a?: number }", "T", "{ a: 'ok' }", true),
+        ("", "{ a: 'left' }", "{ a: 'right' }", true),
+        ("", "{ a: number }", "{ a: 'ok' }", true),
+        (" extends { a?: number }", "T", "{ a?: 'ok' }", false),
+        ("", "{ a?: 'left' }", "{ a?: 'right' }", false),
+        ("", "{ a: string }", "{ a: number }", false),
+        ("", "{ a: never }", "{ a: 'ok' }", false),
+        ("", "FirstPrivate", "SecondPrivate", true),
+        ("", "FirstPrivate", "{ a: string }", true),
+        ("", "PrivateBase", "InheritedPrivate", false),
+        ("", "T", "{ a: 'ok' }", false),
+        (" extends { a: string }", "T", "{}", false),
+        (" extends { a: number }", "Part<T>", "{ a?: 'ok' }", false),
+    ] {
+        for exact in [false, true] {
+            for reverse in [false, true] {
+                let source = if reverse {
+                    format!("{{ d: boolean }} & {right} & {left}")
+                } else {
+                    format!("{left} & {right} & {{ d: boolean }}")
+                };
+                let text = format!(
+                    "type Part<T> = {{ [P in keyof T]?: T[P] }};
+                    declare class FirstPrivate {{ private a: string; d: boolean }}
+                    declare class SecondPrivate {{ private a: string; d: boolean }}
+                    declare class PrivateBase {{ private a: string; d: boolean }}
+                    declare class InheritedPrivate extends PrivateBase {{ extra: number }}
+                    interface MissingState {{ a: string; d: boolean; absent: number }}
+                    function f<T{bound}>(source: {source}, bottom: never,
+                        primitive: number, missing: MissingState) {{}}"
+                );
+                with_checker(&text, |checker, statements| {
+                    checker.apply_compiler_options(&tsr_core::CompilerOptions {
+                        strict: tsr_core::Tristate::True,
+                        exact_optional_property_types: if exact {
+                            tsr_core::Tristate::True
+                        } else {
+                            tsr_core::Tristate::False
+                        },
+                        ..Default::default()
+                    });
+                    let Statement::FunctionDeclaration(function) = statements.last().unwrap()
+                    else {
+                        panic!("function");
+                    };
+                    let from =
+                        checker.get_type_from_type_node(function.parameters[0].r#type.unwrap());
+                    let bottom =
+                        checker.get_type_from_type_node(function.parameters[1].r#type.unwrap());
+                    assert_eq!(
+                        checker.relate_ternary(from, bottom, Relation::Assignable),
+                        if reduced { Ternary::Related } else { Ternary::NotRelated },
+                        "{source}, T{bound}, exact={exact}"
+                    );
+                    if reduced {
+                        // A property merely valued never cannot satisfy a
+                        // primitive target or a genuinely missing member.
+                        for parameter in &function.parameters[2..] {
+                            let target = checker.get_type_from_type_node(parameter.r#type.unwrap());
+                            assert_eq!(
+                                checker.relate_ternary(from, target, Relation::Assignable),
+                                Ternary::Related,
+                                "{source}, exact={exact}"
+                            );
+                        }
+                    }
+                });
+            }
+        }
+    }
+}
+
+#[test]
+fn source_intersection_relation_reduction_preserves_written_identity_and_reads() {
+    use tsr_checker::relater::{Relation, Ternary};
+    with_checker(
+        "let source: { a: 'left' } & { a: 'right' } & { d: boolean }; let target: never;",
+        |checker, statements| {
+            checker.set_strict_null_checks(true);
+            let source = annotation_type(checker, statements, 0);
+            let target = annotation_type(checker, statements, 1);
+            let written = checker.type_to_string(source);
+            let member = checker.get_type_of_property_of_type(source, "d");
+            assert_eq!(member, None, "whole-never intersection has no apparent members");
+            assert_eq!(
+                checker.relate_ternary(source, target, Relation::Assignable),
+                Ternary::Related
+            );
+            assert_eq!(annotation_type(checker, statements, 0), source);
+            assert_eq!(checker.type_to_string(source), written);
+            assert_eq!(checker.get_type_of_property_of_type(source, "d"), member);
+        },
+    );
+}
