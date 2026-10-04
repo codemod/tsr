@@ -2345,11 +2345,11 @@ impl Checker<'_, '_> {
         bump(&COUNTERS.new_expressions);
         let Some(callee) = node.expression else { return error };
         let callee_type = self.check_expression(callee);
-        // cloneTypeAsModuleType retains CLASS symbol provenance but removes
+        // cloneTypeAsModuleType retains callable symbol provenance but removes
         // every call/construct signature. Native resolveNewExpression returns
         // unknownSignature here, whose return type is errorType (not anyType).
-        // Do not reconstruct the source class through the fallback below.
-        if self.class_module_clones.contains_key(&callee_type) {
+        // Do not reconstruct the source through the fallback below.
+        if self.module_value_clones.contains_key(&callee_type) {
             return error;
         }
         // §25 (`checker-notes-callres.md`): construction through a

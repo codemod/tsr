@@ -1903,9 +1903,9 @@ impl Checker<'_, '_> {
             TypeData::Anonymous { symbol, .. } => Owner::Anonymous(*symbol),
             _ => return None,
         };
-        let found = if let Some(&(_, source)) = self.class_module_clones.get(&id) {
+        let found = if let Some(&(alias, source)) = self.module_value_clones.get(&id) {
             if name == "default"
-                && let Some(default) = self.class_module_clone_default_symbol(id)
+                && let Some(default) = self.module_clone_default_symbol(alias)
             {
                 return Some(default);
             }
@@ -1960,7 +1960,7 @@ impl Checker<'_, '_> {
                     .flags
                     .contains(SymbolFlags::CLASS),
                 Owner::Declared(_) => false,
-            } && !self.class_module_clones.contains_key(&id);
+            } && !self.module_value_clones.contains_key(&id);
             let has_call = self
                 .signatures_of_type_kind(id, crate::signatures::SignatureKind::Call)
                 .is_some_and(|signatures| !signatures.is_empty());
@@ -2459,7 +2459,7 @@ impl Checker<'_, '_> {
 
     /// resolveAnonymousTypeMembers (checker.go): class values own a static side.
     pub(crate) fn class_static_symbol(&self, id: TypeId) -> Option<tsr_binder::SymbolId> {
-        if self.class_module_clones.contains_key(&id) {
+        if self.module_value_clones.contains_key(&id) {
             return None;
         }
         let TypeData::Anonymous { symbol, .. } = self.type_of(id).data else { return None };
@@ -2487,9 +2487,9 @@ impl Checker<'_, '_> {
     /// The `None`-on-an-unfollowable-base rule is [`Checker::base_symbols_of`]'s
     /// and is why the walk cannot silently under-report a requirement.
     pub(crate) fn get_property_names_of_type(&mut self, id: TypeId) -> Option<Vec<String>> {
-        if let Some(&(_, source)) = self.class_module_clones.get(&id) {
+        if let Some(&(alias, source)) = self.module_value_clones.get(&id) {
             let mut names = self.get_property_names_of_type(source)?;
-            if self.class_module_clone_default_symbol(id).is_some()
+            if self.module_clone_default_symbol(alias).is_some()
                 && !names.iter().any(|name| name == "default")
             {
                 names.push("default".to_owned());

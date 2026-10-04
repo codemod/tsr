@@ -573,7 +573,7 @@ impl<'a> Checker<'a, '_> {
         let computed = match target {
             Some(target) if self.get_symbol_flags(target).intersects(SymbolFlags::VALUE) => {
                 let value = self.get_type_of_symbol(target);
-                self.class_module_clone_type(symbol, target, value).unwrap_or(value)
+                self.module_clone_type(symbol, target, value).unwrap_or(value)
             }
             _ => self.intrinsics.error,
         };
@@ -583,9 +583,9 @@ impl<'a> Checker<'a, '_> {
     }
 
     /// resolveESModuleSymbol/cloneTypeAsModuleType: namespace imports of a
-    /// class copy its value members, not its constructor signatures. Variable
-    /// exports whose value happens to be a class are a different symbol shape.
-    fn class_module_clone_type(
+    /// class/function copy its value members, not its signatures. Variable
+    /// exports whose value happens to be callable are a different symbol shape.
+    fn module_clone_type(
         &mut self,
         alias: SymbolId,
         target: SymbolId,
@@ -596,10 +596,17 @@ impl<'a> Checker<'a, '_> {
             return None;
         }
         let target = self.resolve_alias_fully(target);
-        if !self.binder.symbols().get(target).flags.contains(SymbolFlags::CLASS)
-            || self.is_error(value)
+        let target_flags = self.binder.symbols().get(target).flags;
+        let kind = if target_flags.contains(SymbolFlags::CLASS) {
+            crate::signatures::SignatureKind::Construct
+        } else if target_flags.contains(SymbolFlags::FUNCTION) {
+            crate::signatures::SignatureKind::Call
+        } else {
+            return None;
+        };
+        if self.is_error(value)
             || self
-                .signatures_of_type_kind(value, crate::signatures::SignatureKind::Construct)
+                .signatures_of_type_kind(value, kind)
                 .is_none_or(|signatures| signatures.is_empty())
         {
             return None;
@@ -608,18 +615,43 @@ impl<'a> Checker<'a, '_> {
         else {
             return None;
         };
-        let text = text.clone();
+        let mut text = text.clone();
+        let properties = if target_flags.intersects(SymbolFlags::CLASS | SymbolFlags::VALUE_MODULE)
+        {
+            None
+        } else {
+            let mut properties = self.callable_export_properties(target)?;
+            if let Some(default) = self.module_clone_default_symbol(alias) {
+                properties.push(crate::objects::AnonymousProperty {
+                    accessor_write: None,
+                    method: false,
+                    origin: Some(default),
+                    name: "default".to_owned(),
+                    printed_name: "default".to_owned(),
+                    printed_type: self.type_to_string(value),
+                    optional: false,
+                    readonly: false,
+                    r#type: value,
+                });
+            }
+            text = crate::objects::render_object_type(&crate::callable_expandos::property_members(
+                &properties,
+            ));
+            Some(properties)
+        };
         let flags = self.store.get(value).flags;
         let clone = self.store.new_anonymous(flags, text, symbol, false);
-        self.class_module_clones.insert(clone, (alias, value));
+        self.module_value_clones.insert(clone, (alias, value));
         self.signature_types.insert(clone, Vec::new());
+        if let Some(properties) = properties {
+            self.anonymous_properties.insert(clone, (properties, false));
+        }
         Some(clone)
     }
 
     /// The synthetic default aliases the export-equals value. Reuse that
     /// alias's value/readonly metadata rather than a constructor property.
-    pub(crate) fn class_module_clone_default_symbol(&mut self, value: TypeId) -> Option<SymbolId> {
-        let &(alias, _) = self.class_module_clones.get(&value)?;
+    pub(crate) fn module_clone_default_symbol(&mut self, alias: SymbolId) -> Option<SymbolId> {
         let declaration = self.declaration_of_alias_symbol(alias)?;
         let specifier = self.import_declaration_specifier(declaration)?;
         let module = self.resolve_external_module_name(declaration, specifier)?;
@@ -966,12 +998,29 @@ impl<'a> Checker<'a, '_> {
                 // because the binder's divergence is load-bearing for its other
                 // callers and is not mine to change; this restores upstream's
                 // meaning at this one call site.
-                self.binder
-                    .symbols()
-                    .get(found)
-                    .flags
-                    .intersects(SymbolFlags::NAMESPACE)
-                    .then_some(found)
+                let flags = self.binder.symbols().get(found).flags;
+                if flags.intersects(SymbolFlags::NAMESPACE) {
+                    return Some(found);
+                }
+                if flags.intersects(SymbolFlags::ALIAS) {
+                    // Force the alias even on a cold query. A known module
+                    // copy retains its source's namespace meaning, not the
+                    // callable value meaning of a plain exported function.
+                    let value = self.get_type_of_symbol(found);
+                    if let Some(&(_, source)) = self.module_value_clones.get(&value)
+                        && let crate::types::TypeData::Anonymous { symbol, .. } =
+                            self.store.get(source).data
+                        && self
+                            .binder
+                            .symbols()
+                            .get(symbol)
+                            .flags
+                            .intersects(SymbolFlags::NAMESPACE)
+                    {
+                        return Some(found);
+                    }
+                }
+                None
             }
             // `getTargetOfImportEqualsDeclaration` (`checker.go:14441`) for the
             // `require("m")` half: `resolveExternalModuleName` then

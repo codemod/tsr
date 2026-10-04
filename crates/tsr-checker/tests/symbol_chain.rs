@@ -793,7 +793,7 @@ fn module_class_clone_boundary_does_not_admit_other_export_meanings() {
     for library in [
         "interface Foo { tag: string; } export = Foo;",
         "const Foo = class Inner { tag!: string; }; export = Foo;",
-        "function Foo() {} export = Foo;",
+        "const Foo = function inner(n: number): string { return ''; }; export = Foo;",
         "import Foo = Foo; export = Foo;",
     ] {
         let arena = Arena::new();
@@ -825,7 +825,7 @@ fn module_class_clone_boundary_does_not_admit_other_export_meanings() {
         let mut checker = Checker::with_module_host(&bound, &nodes, &map, Some(&host));
         let head = checker.get_type_of_symbol(locals["Head"]);
         let raw = checker.get_type_of_symbol(locals["Raw"]);
-        assert_eq!(head, raw, "outside this class-symbol clone unit: {library}");
+        assert_eq!(head, raw, "outside declaration-symbol module copies: {library}");
         if library.starts_with("interface") || library.starts_with("import") {
             assert_eq!(head, checker.intrinsics().error, "unsupported meaning/cycle keeps a gap");
         }
@@ -871,4 +871,173 @@ fn a_module_clone_alias_does_not_name_an_inaccessible_original_class() {
     assert_eq!(checker.type_to_string_at(value, sites[1]).as_deref(), Some("typeof Head"));
     let instance = checker.get_type_of_property_of_type(value, "prototype").unwrap();
     assert_eq!(checker.type_to_string_at(instance, sites[1]), None);
+}
+
+/// Native 5b1047d: plain function copies are structural, while a runtime
+/// namespace merge names each noncallable copy. A nonempty Function control
+/// distinguishes error-any calls from the native noLib empty-Function fallback.
+#[test]
+fn function_namespace_copies_preserve_default_and_runtime_member_identity() {
+    for (global, empty_function) in [
+        ("interface Function { readonly bind: (value: unknown) => Function; }", false),
+        ("interface Function {}", true),
+        ("", false), // Unknown Function applicability remains a gap.
+    ] {
+        for (library, merged, namespace_meaning) in [
+            ("function Foo(n: number): string { return 'body'; } export = Foo;", false, false),
+            (
+                "function Foo(n: number): string { return 'body'; } namespace Foo { export interface TypeOnly { tag: string; } } export = Foo;",
+                false,
+                true,
+            ),
+            (
+                "function Foo(n: number): string { return 'body'; } namespace Foo { export const left = 7; export const right = 'right'; export function own(): number { return 3; } export interface TypeOnly { tag: string; } } export = Foo;",
+                true,
+                true,
+            ),
+        ] {
+            let arena = Arena::new();
+            let source = "import * as Head from './lib'; import Raw = require('./lib'); import * as Twin from './lib'; import Tail = Linked; import Linked = Head; const copy = Head; Head(1); Raw(2); Head.default(3); new Head(4); new Raw(5); new Head.default(6);";
+            let mut nodes = NodeTable::new();
+            let mut map = NodeMap::new();
+            let mut bound = tsr_binder::BindResult::empty();
+            let mut roots = Vec::new();
+            for (name, text) in
+                [("/global.d.ts", global), ("/lib.ts", library), ("/use.ts", source)]
+            {
+                let parsed = tsr_parser::parse_into(
+                    &arena,
+                    text,
+                    tsr_parser::ParseOptions::default(),
+                    &mut nodes,
+                    &mut map,
+                );
+                assert!(parsed.diagnostics.is_empty());
+                roots.push(parsed.source_file.node_id.unwrap());
+                bound = tsr_binder::bind_into(
+                    bound,
+                    &arena,
+                    parsed.source_file,
+                    &nodes,
+                    tsr_binder::FileInfo { name, text },
+                );
+            }
+            let locals = bound.locals(roots[2]).unwrap();
+            let host = ExportLibrary(roots[1]);
+            let mut checker = Checker::with_module_host(&bound, &nodes, &map, Some(&host));
+            // Query a forward alias chain before any direct namespace import.
+            let tail = checker.get_type_of_symbol(locals["Tail"]);
+            let head = checker.get_type_of_symbol(locals["Head"]);
+            let twin = checker.get_type_of_symbol(locals["Twin"]);
+            let raw = checker.get_type_of_symbol(locals["Raw"]);
+            assert_ne!(head, raw);
+            assert_ne!(head, twin);
+            let alias_type = if namespace_meaning { head } else { checker.intrinsics().error };
+            assert_eq!(tail, alias_type, "cold forward alias chain");
+            assert_eq!(checker.get_type_of_symbol(locals["Linked"]), alias_type, "warm alias");
+            assert_eq!(checker.get_type_of_symbol(locals["copy"]), head);
+            assert_eq!(checker.get_type_of_property_of_type(head, "default"), Some(raw));
+            assert!(checker.signatures_of_type(head).unwrap().is_empty());
+            assert!(checker.signatures_of_type(twin).unwrap().is_empty());
+            assert!(checker.resolve_call_signature(head, None).is_none());
+            assert!(checker.resolve_call_signature(raw, None).is_some());
+            let mut sites = Vec::new();
+            identifiers(&map, roots[2], "copy", &mut sites);
+            let site = sites[0];
+            if merged {
+                assert_eq!(checker.type_to_string_at(head, site).as_deref(), Some("typeof Head"));
+                assert_eq!(checker.type_to_string_at(twin, site).as_deref(), Some("typeof Twin"));
+                assert_eq!(checker.type_to_string_at(raw, site).as_deref(), Some("typeof Raw"));
+                for (name, expected) in [("left", "7"), ("right", "\"right\"")] {
+                    assert_eq!(
+                        checker.get_property_of_type(head, name),
+                        checker.get_property_of_type(raw, name)
+                    );
+                    let property = checker.get_type_of_property_of_type(head, name).unwrap();
+                    assert_eq!(
+                        checker.type_to_string_at(property, site).as_deref(),
+                        Some(expected)
+                    );
+                }
+                assert_eq!(
+                    checker.get_property_of_type(head, "own"),
+                    checker.get_property_of_type(raw, "own")
+                );
+                assert!(checker.get_type_of_property_of_type(head, "TypeOnly").is_none());
+            } else {
+                for copy in [head, twin] {
+                    assert_eq!(
+                        checker.type_to_string_at(copy, site).as_deref(),
+                        Some("{ default: (n: number) => string; }")
+                    );
+                }
+            }
+            let mut head_uses = Vec::new();
+            identifiers(&map, roots[2], "Head", &mut head_uses);
+            let call = nodes.parent(head_uses[3]).unwrap();
+            let Some(Node::CallExpression(call)) = map.get(call) else {
+                panic!("Head call");
+            };
+            if empty_function {
+                let function = checker.get_declared_type_of_symbol(bound.globals()["Function"]);
+                // Native returns ordinary any through its empty Function. The
+                // existing relation cannot yet compare noncallable anonymous
+                // module copies; retain a gap, not Raw's return signature.
+                assert_eq!(
+                    checker.relate_ternary(
+                        head,
+                        function,
+                        tsr_checker::relater::Relation::Assignable
+                    ),
+                    tsr_checker::relater::Ternary::Unknown,
+                );
+            }
+            assert_eq!(
+                checker.check_expression(tsr_ast::Expression::CallExpression(call)),
+                checker.intrinsics().error
+            );
+            let mut raw_uses = Vec::new();
+            identifiers(&map, roots[2], "Raw", &mut raw_uses);
+            let Some(Node::CallExpression(call)) = map.get(nodes.parent(raw_uses[1]).unwrap())
+            else {
+                panic!("Raw call");
+            };
+            let result = checker.check_expression(tsr_ast::Expression::CallExpression(call));
+            assert_eq!(result, checker.intrinsics().string);
+            let mut defaults = Vec::new();
+            identifiers(&map, roots[2], "default", &mut defaults);
+            let Some(Node::CallExpression(call)) =
+                map.get(nodes.parent(nodes.parent(defaults[0]).unwrap()).unwrap())
+            else {
+                panic!("default call");
+            };
+            assert_eq!(
+                checker.check_expression(tsr_ast::Expression::CallExpression(call)),
+                checker.intrinsics().string
+            );
+            for (alias, index, expected) in
+                [("Head", 5, checker.intrinsics().error), ("Raw", 2, checker.intrinsics().any)]
+            {
+                let mut uses = Vec::new();
+                identifiers(&map, roots[2], alias, &mut uses);
+                let Some(Node::NewExpression(new)) = map.get(nodes.parent(uses[index]).unwrap())
+                else {
+                    panic!("new {alias}");
+                };
+                assert_eq!(
+                    checker.check_expression(tsr_ast::Expression::NewExpression(new)),
+                    expected
+                );
+            }
+            let Some(Node::NewExpression(new)) =
+                map.get(nodes.parent(nodes.parent(defaults[1]).unwrap()).unwrap())
+            else {
+                panic!("new default");
+            };
+            assert_eq!(
+                checker.check_expression(tsr_ast::Expression::NewExpression(new)),
+                checker.intrinsics().any
+            );
+        }
+    }
 }

@@ -561,6 +561,23 @@ impl Checker<'_, '_> {
         callee_type: TypeId,
     ) -> TypeId {
         let error = self.intrinsics.error;
+        // resolveCallExpression/isUntypedFunctionCall: a module copy has no
+        // signatures, but may still be an untyped call through global Function.
+        // Use the existing complete relation answer; unsupported applicability
+        // keeps a gap instead of recovering the original function's signature.
+        if self.module_value_clones.contains_key(&callee_type) {
+            let Some(function) = self.global_type_symbol_with_arity("Function", 0) else {
+                return error;
+            };
+            let function = self.get_declared_type_of_symbol(function);
+            if function != error
+                && self.relate_ternary(callee_type, function, crate::relater::Relation::Assignable)
+                    == crate::relater::Ternary::Related
+            {
+                return self.intrinsics.any;
+            }
+            return error;
+        }
         // Split the largest bucket in the funnel by *why* the callee has no
         // object type. Done here rather than in `resolve_call_signature`
         // because only this path has the callee **node**, and the question is
@@ -1280,6 +1297,11 @@ impl Checker<'_, '_> {
         arguments: Option<&[Expression<'_>]>,
         has_type_arguments: bool,
     ) -> Option<Signature> {
+        // cloneTypeAsModuleType's empty signature lists are authoritative even
+        // though the retained symbol provenance is a function declaration.
+        if self.module_value_clones.contains_key(&callee) {
+            return None;
+        }
         // Counting is restricted to the call-expression path: a tagged template
         // passes no argument list, and folding its callees into the same buckets
         // would leave the funnel's denominator counting two different questions.

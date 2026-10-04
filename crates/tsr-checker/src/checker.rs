@@ -715,9 +715,9 @@ pub struct Checker<'a, 'n> {
     /// Instantiation maps these `TypeId`s; property reads use the same images.
     pub(crate) anonymous_properties:
         rustc_hash::FxHashMap<TypeId, (Vec<crate::objects::AnonymousProperty>, bool)>,
-    /// Class module values have distinct identity, but share their source's
-    /// static/prototype symbols. Native cloneTypeAsModuleType's import/target links.
-    pub(crate) class_module_clones: FxHashMap<TypeId, (SymbolId, TypeId)>,
+    /// Module copies have distinct identity, but share their source's property
+    /// symbols. Native cloneTypeAsModuleType's originating import/target links.
+    pub(crate) module_value_clones: FxHashMap<TypeId, (SymbolId, TypeId)>,
     pub(crate) instantiated_objects: rustc_hash::FxHashMap<(TypeId, Vec<(TypeId, TypeId)>), TypeId>,
     pub(crate) any_function_type: Option<TypeId>,
     /// `ObjectFlagsNonInferrableType` on `SkipContextSensitive` object images.
@@ -1346,7 +1346,7 @@ impl<'a, 'n> Checker<'a, 'n> {
                 (intrinsics.empty_object, (Vec::new(), true)),
                 (intrinsics.unknown_empty_object, (Vec::new(), true)),
             ]),
-            class_module_clones: FxHashMap::default(),
+            module_value_clones: FxHashMap::default(),
             instantiated_objects: rustc_hash::FxHashMap::default(),
             any_function_type: None,
             non_inferrable_types: rustc_hash::FxHashSet::default(),
@@ -1841,10 +1841,26 @@ impl<'a, 'n> Checker<'a, 'n> {
         if let Some(&symbol) = self.type_parameter_symbols.get(&id) {
             return Some(self.type_parameter_name_at(id, symbol, reference));
         }
-        if self.class_module_clones.contains_key(&id) {
-            return self
-                .class_module_clone_name_at(id, reference)
-                .map(|name| format!("typeof {name}"));
+        if let Some(&(_, source)) = self.module_value_clones.get(&id) {
+            let crate::types::TypeData::Anonymous { symbol, .. } = self.store.get(source).data
+            else {
+                return None;
+            };
+            if !self
+                .binder
+                .symbols()
+                .get(symbol)
+                .flags
+                .intersects(SymbolFlags::CLASS | SymbolFlags::VALUE_MODULE)
+            {
+                if !self.rendering_composites.insert(id) {
+                    return None;
+                }
+                let out = self.callable_object_to_string_at(id, reference);
+                self.rendering_composites.remove(&id);
+                return out;
+            }
+            return self.module_clone_name_at(id, reference).map(|name| format!("typeof {name}"));
         }
         // A cloned module alias cannot name the original class instance or
         // constructor. Import-type fallback for inaccessible export-equals
@@ -1856,10 +1872,12 @@ impl<'a, 'n> Checker<'a, 'n> {
         };
         if let Some(original) = original {
             let original = self.resolve_alias_fully(original);
-            let has_clone = self.class_module_clones.values().any(|&(_, source)| {
+            let has_clone = self.module_value_clones.values().any(|&(_, source)| {
                 matches!(self.store.get(source).data,
                     crate::types::TypeData::Anonymous { symbol, .. }
-                        if self.binder.merged_symbol(symbol) == original)
+                        if self.binder.merged_symbol(symbol) == original
+                            && self.binder.symbols().get(symbol).flags
+                                .intersects(SymbolFlags::CLASS | SymbolFlags::VALUE_MODULE))
             });
             if has_clone && self.best_name(original, reference, false).is_none() {
                 return None;
@@ -3103,7 +3121,7 @@ impl<'a, 'n> Checker<'a, 'n> {
                 }) {
                     continue;
                 }
-                if self.alias_targets_class_module_clone(candidate) {
+                if self.alias_targets_module_clone(candidate) {
                     continue;
                 }
                 let Some(link) = self.resolve_alias(candidate) else { continue };
@@ -3221,7 +3239,7 @@ impl<'a, 'n> Checker<'a, 'n> {
                 {
                     continue;
                 }
-                if self.alias_targets_class_module_clone(candidate) {
+                if self.alias_targets_module_clone(candidate) {
                     continue;
                 }
                 candidates.push(candidate);
@@ -3407,7 +3425,7 @@ impl<'a, 'n> Checker<'a, 'n> {
                         let full = self.resolve_alias_fully(t);
                         self.binder.merged_symbol(full) == target
                     }))
-                    && !self.alias_targets_class_module_clone(candidate);
+                    && !self.alias_targets_module_clone(candidate);
                 if reaches
                     && !excluded
                     && found.is_none_or(|(_, best)| self.compare_symbols(candidate, best).is_lt())
@@ -3491,7 +3509,7 @@ impl<'a, 'n> Checker<'a, 'n> {
         self.binder.symbols().get(hit).flags == SymbolFlags::ALIAS
             && self.resolve_alias(hit).map(|target| self.binder.merged_symbol(target))
                 == Some(self.binder.merged_symbol(symbol))
-            && !self.alias_targets_class_module_clone(hit)
+            && !self.alias_targets_module_clone(hit)
     }
 
     /// Whether any in-scope alias resolves to `target` itself at `reference` —
@@ -3514,21 +3532,27 @@ impl<'a, 'n> Checker<'a, 'n> {
             self.binder.symbols().get(candidate).flags.intersects(SymbolFlags::ALIAS)
                 && self.resolve_alias(candidate).map(|t| self.binder.merged_symbol(t))
                     == Some(target)
-                && !self.alias_targets_class_module_clone(candidate)
+                && !self.alias_targets_module_clone(candidate)
         })
     }
 
-    /// A clone's aliases name that module value, not its source constructor.
-    fn alias_targets_class_module_clone(&mut self, alias: SymbolId) -> bool {
+    /// A clone's aliases name that module value, not its callable source.
+    fn alias_targets_module_clone(&mut self, alias: SymbolId) -> bool {
         let target = self.resolve_alias_fully(alias);
-        if !self.binder.symbols().get(target).flags.contains(SymbolFlags::CLASS) {
+        if !self
+            .binder
+            .symbols()
+            .get(target)
+            .flags
+            .intersects(SymbolFlags::CLASS | SymbolFlags::FUNCTION)
+        {
             return false;
         }
         let value = self.get_type_of_symbol(alias);
-        self.class_module_clones.contains_key(&value)
+        self.module_value_clones.contains_key(&value)
     }
 
-    fn class_module_clone_name_at(&mut self, value: TypeId, reference: NodeId) -> Option<String> {
+    fn module_clone_name_at(&mut self, value: TypeId, reference: NodeId) -> Option<String> {
         let mut current = Some(reference);
         while let Some(node) = current {
             let aliases: Vec<_> = self
