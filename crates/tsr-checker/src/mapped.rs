@@ -696,9 +696,9 @@ impl<'a> Checker<'a, '_> {
                 &[],
             );
             // getTypeOfMappedSymbol (checker.go:20993). Excluding optionality
-            // strips undefined from an originally optional source property.
+            // strips missing in exact mode, otherwise undefined.
             if self.strict_null_checks && !optional && was_optional {
-                value = self.get_type_with_facts(value, crate::flow::TypeFacts::NE_UNDEFINED);
+                value = self.remove_missing_or_undefined_type(value);
             }
             properties.push(crate::objects::AnonymousProperty {
                 accessor_write: None,
