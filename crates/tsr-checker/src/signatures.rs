@@ -1067,9 +1067,9 @@ impl<'a> Checker<'a, '_> {
         }
         let mut candidates: Vec<Signature> = Vec::new();
         for element in elements {
-            if let Some(signature) = self.get_signature_from_declaration(element) {
-                candidates.push(signature);
-            }
+            // An unbuilt declaration is an incomplete set, not an absent
+            // signature: callers use an empty set to prove noncallability.
+            candidates.push(self.get_signature_from_declaration(element)?);
         }
         // Own members first, then the bases' — upstream appends the inherited
         // set after the declared one.
@@ -6205,6 +6205,76 @@ pub(crate) fn written_type_literal_text(
 #[cfg(test)]
 mod tests {
     use tsr_ast::SyntaxKind;
+
+    /// Native 5b1047d keeps these signatures, including inherited ones. The
+    /// unsupported parameter rendering must not become an empty or partial set.
+    #[test]
+    fn unreadable_interface_signatures_are_not_empty_or_partial_candidates() {
+        for strict_null_checks in [false, true] {
+            for (member, readable, kind, opposite) in [
+                (
+                    r#"({ "value": value }: { value: number }): number;"#,
+                    "(value: number): number;",
+                    super::SignatureKind::Call,
+                    super::SignatureKind::Construct,
+                ),
+                (
+                    r#"new ({ "value": value }: { value: number }): number;"#,
+                    "new (value: number): number;",
+                    super::SignatureKind::Construct,
+                    super::SignatureKind::Call,
+                ),
+            ] {
+                for (source, expected) in [
+                    (format!("interface Function {{ {member} }}"), None),
+                    (
+                        format!(
+                            "interface Parent {{ {member} }} interface Function extends Parent {{}}"
+                        ),
+                        None,
+                    ),
+                    (format!("interface Function {{ {readable} {member} }}"), None),
+                    (
+                        format!(
+                            "interface Parent {{ {member} }} interface Function extends Parent {{ {readable} }}"
+                        ),
+                        None,
+                    ),
+                    ("interface Function {}".to_owned(), Some(0)),
+                    (format!("interface Function {{ {readable} }}"), Some(1)),
+                    (
+                        format!(
+                            "interface Parent {{ {readable} }} interface Function extends Parent {{}}"
+                        ),
+                        Some(1),
+                    ),
+                ] {
+                    let arena = tsr_core::Arena::new();
+                    let parsed = tsr_parser::parse(&arena, &source);
+                    assert!(parsed.diagnostics.is_empty());
+                    let bound = tsr_binder::bind(
+                        &arena,
+                        parsed.source_file,
+                        &parsed.nodes,
+                        tsr_binder::FileInfo { name: "global.d.ts", text: &source },
+                    );
+                    let mut checker = crate::Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+                    checker.set_strict_null_checks(strict_null_checks);
+                    let function = checker.get_declared_type_of_symbol(bound.globals()["Function"]);
+                    assert_eq!(
+                        checker.signatures_of_type_kind(function, kind).map(|set| set.len()),
+                        expected,
+                        "{source}; strictNullChecks={strict_null_checks}",
+                    );
+                    assert_eq!(
+                        checker.signatures_of_type_kind(function, opposite).map(|set| set.len()),
+                        Some(0),
+                        "opposite signature kind remains known empty",
+                    );
+                }
+            }
+        }
+    }
 
     /// The printed signature of the first `FunctionTypeNode` in `source`.
     ///
