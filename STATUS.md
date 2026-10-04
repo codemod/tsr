@@ -35,7 +35,48 @@ The issue-ID check retains 190 unresolved historical IDs (`tsr-10`); all new
 task references were checked directly. The verified equivalent-work TSR/tsgo
 median wall target remains <=0.50.
 
-### Current checker checkpoint — query-this flow matching
+### Current checker checkpoint — source-optional mapped required properties
+
+Measured production tree **`b2c60bb0`**, against published `08f2487b`:
+**460,042/478,855 assertions (96.07%)**, **7,192/9,538 complete cases
+(75.40%)**. The 99% target requires 474,067 matches; **14,025 remain**.
+Pinned native `5b1047d1` and both denominators are unchanged. Aligned verdicts:
+**474,251 total; 460,042 RIGHT; 2,094 GAP; 12,115 WRONG**.
+
+The identity mapped supplier strips optionality only under strict null checks
+when the actual source property was optional. Exact mode removes missing only;
+required genuine undefined, void and null survive. Effective source optionality
+follows instantiated metadata, explicit mapped overrides, inherited mapped
+sources and then property syntax. Optional-add, absent-modifier behavior and
+contextual production are unchanged. The only predecessor-test correction is
+the approved exact `Need<{x?:V|undefined}>` expectation/comment: native retains
+genuine undefined. Exact leaf and actual-equals-ordinary assertions remain.
+
+Fresh full multiline checker and all **10,570 duplicate/empty diagnostic records
+are byte-identical** to the verified published prefix: **20,685 matches,
+3,831 extras**, zero transitions, RIGHT/GAP→WRONG/payload/population losses,
+matched-occurrence or empty-positive losses, or new extras. **No corpus gain is
+claimed.** Unfiltered scorepair has no transitions; fresh coverage leaves both
+snapshots unchanged.
+
+Independent archived-output replay verifies 153 fixtures, 2,754 native
+library-loaded Programs and 2,754 bare Rust states per stage, 5,508 snapshots
+each, plus 12 nested native controls. Ordinary, contextual-reader and caller
+each gain 41 native shape agreements without agreement loss. Source images and
+the 648 finite receiver-ID-only remints remain unchanged. This is not fresh
+native execution or general Rust Program parity. All 6,212 worker payload hashes
+pass before and after replay; scope reconstruction verifies the reviewed worker
+supplier/test bytes and exactly the approved symbols test-only change. The
+696-assertion regression, three concrete-context controls, **2,858 workspace
+release tests, zero failures, six existing ignores**, six loader and six worker
+controls, formatting and strict release workspace/all-target Clippy pass.
+Initial worker test/lint and inherited-map failures remain archived. Evidence is
+in `target/mapped-required-wave36-evidence.tar.gz`. Optional-add/template,
+source U/missing and loose-null identity, broad static/clone and JS-loop
+boundaries remain held. Concurrent `30eded71` documentation and guidance are
+preserved; runtime sources equal measured `15540892`. The 99% task is not complete.
+
+### Previous checker checkpoint — query-this flow matching
 
 Measured production tree **`a82ed94c`**, against published `93ea330a`:
 **460,042/478,855 assertions (96.07%)**, **7,192/9,538 complete cases
