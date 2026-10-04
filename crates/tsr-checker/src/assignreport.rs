@@ -168,6 +168,83 @@ impl<'a> Checker<'a, '_> {
         self.report_assignability_failure(node, initializer_id, source, target);
     }
 
+    /// `checkVariableLikeDeclaration`'s binding-element default check, limited
+    /// to annotated variable leaves with literal sources and string-unit targets.
+    /// The symbol supplier owns default adjustment; context is not a write target.
+    pub(crate) fn check_binding_element_initializer(&mut self, node: NodeId, ambient: bool) {
+        if ambient || self.file_has_parse_errors || self.in_js_file(node) {
+            return;
+        }
+        let Some(Node::BindingElement(element)) = self.node_map.get(node) else { return };
+        if !matches!(element.name, Some(tsr_ast::BindingName::Identifier(_)))
+            || element.dot_dot_dot_token.is_some()
+            || !matches!(
+                element.property_name,
+                None | Some(
+                    tsr_ast::PropertyName::Identifier(_)
+                        | tsr_ast::PropertyName::StringLiteral(_)
+                        | tsr_ast::PropertyName::NumericLiteral(_)
+                )
+            )
+        {
+            return;
+        }
+        let Some(pattern) = self.nodes.parent(node) else { return };
+        if !matches!(
+            self.nodes.kind(pattern),
+            SyntaxKind::ObjectBindingPattern | SyntaxKind::ArrayBindingPattern
+        ) {
+            return;
+        }
+        let root = self.root_declaration_of(node);
+        let Some(Node::VariableDeclaration(declaration)) = self.node_map.get(root) else { return };
+        if declaration.r#type.is_none() {
+            return;
+        }
+        let Some(initializer) = element.initializer else { return };
+        let undefined = match initializer {
+            tsr_ast::Expression::StringLiteral(_) => false,
+            tsr_ast::Expression::KeywordExpression(keyword)
+                if keyword.kind == SyntaxKind::NullKeyword =>
+            {
+                false
+            }
+            tsr_ast::Expression::Identifier(identifier) if identifier.text == "undefined" => true,
+            // Primitive-typed expressions can still have unsupported production
+            // or circularity; structured defaults widen under nullable contexts.
+            _ => return,
+        };
+        let Some(symbol) = self.binder.symbol_of(node) else { return };
+        if self.binder.symbols().get(symbol).value_declaration != Some(node) {
+            return;
+        }
+        // Native computes the adjusted symbol type before checking the source.
+        let target = self.get_type_of_symbol(symbol);
+        let supported_part = |ty| {
+            let flags = self.type_of(ty).flags;
+            flags == TypeFlags::STRING_LITERAL
+                || flags == TypeFlags::NULL
+                || flags == TypeFlags::UNDEFINED
+        };
+        let supported = match &self.type_of(target).data {
+            TypeData::StringLiteral(_) => true,
+            TypeData::Union { types, .. } => {
+                types.iter().copied().all(supported_part)
+                    && types.iter().any(|&ty| self.type_of(ty).flags == TypeFlags::STRING_LITERAL)
+            }
+            _ => false,
+        };
+        if !supported {
+            return;
+        }
+        let source = self.check_expression(initializer);
+        if undefined && source != self.intrinsics.undefined {
+            return;
+        }
+        let Some(initializer_id) = initializer.node_id() else { return };
+        self.report_assignability_failure(node, initializer_id, source, target);
+    }
+
     /// `checkReturnStatement` (`checker.go:12400`) — the returned expression
     /// against the function's **written** return annotation.
     ///
