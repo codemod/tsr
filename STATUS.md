@@ -34,6 +34,15 @@ and the comparable native wall ratio <=0.50 remain unverified. No checker corpus
 or production throughput numbers are remeasured by this reporting change.
 [Reporting boundaries](docs/architecture/whole-project-ci-reporting.md).
 
+Native telemetry characterization (`tsr-1yb.1.2.3`), TSR inspection `8209086f`
+and clean native `5b1047d`: 15 off/on/repeat public children preserve complete
+output and 68 loaded identities. Full-worker events count 3 normal checks,
+0 with noCheck and 67 with library checking; the zero-check run still creates
+four type tracers. A sixteenth child proves trace-write failure can accompany
+a normal diagnostic exit. [Source boundaries](docs/architecture/native-check-trace-characterization.md)
+keep lazy forcing, budget/provenance and producer completion unverified. No
+production checker change or speed claim follows from these counts.
+
 ### Current checker checkpoint — four parallel native fidelity ports
 
 Production revision **`7942ce47`**, pinned native **`5b1047d`**:
@@ -2624,7 +2633,9 @@ Observational CI `.8.1` has a verified remote Python 3.8 failure and a locally
 tested portable wait-status fix. Verify the new remote run after delivery;
 the earlier artifact contains zero samples. Public acquisition `.1.3.1` and
 work/worker producers
-`.1.2.3` can start now. Their follow-ups `.1.3.2` and `.1.2.4` validate workload
+`.1.2.3` now has native unsampled full-worker evidence; explicit eligibility,
+lazy JSON forcing and worker/provenance hooks still need implementation. Their
+follow-ups `.1.3.2` and `.1.2.4` validate workload
 suitability and performed-work evidence. Mapper/receiver/private-store contracts
 and representative ratchet `.13` retain their existing gates and active owners.
 
@@ -6014,6 +6025,14 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+### Performed work from loaded/tracer counts — inspected `8209086f`, native `5b1047d`
+
+The public noCheck run loads 68 files and creates four type tracers while
+performing zero full-file checks. Normal checking performs three checks and
+still forces imported JSON to report TS2322. These populations are not
+equivalent. Sampled forcing events, synthetic trace pid/tid and a normal compiler
+exit cannot certify complete work, actual worker budgets or a completed trace.
 
 ### Complete CI measurements from a published artifact — `95e67679`
 
@@ -12521,7 +12540,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
-| 2026-10-04 | `95e67679` (base plus portable wait-status fix) | not remeasured | not remeasured | CI Python 3.8 failure reproduced and fixed | Run37231887059 publishes zero-sample harness failures; status conversion uses existing POSIX APIs. Real child regression verifies exits0/2/5, SIGTERM and timeout/SIGKILL without the Python3.9 helper;45 reporting/evidence/cache tests pass locally. Complete remote publication remains pending; no checker corpus or speed claim. |
+| 2026-10-04 | `8209086f` (CI fix; native trace inspection) | not remeasured | not remeasured | CI runtime fix and native work boundary evidence | Run37231887059 publishes zero-sample harness failures; portable status fix pushed with45 script passes. Native15 off/on/repeat controls preserve68loaded/output, count3/0/67fullchecks; a16th proves trace I/O failure can return normal diagnostic exit. Native synthetic IDs/type dumps cannot certify forcing/budgets. Fixed run37232944393 remains pending; no checker corpus or speed claim. |
 | 2026-10-04 | `02fafbc0` (frozen compiler; reporting changes separately reviewed) | not remeasured | not remeasured | Whole-project observational CI plumbing | `tsr-1yb.8.1`: 44 script tests, workflow syntax/order guards and five public pairs per mode; 66 loaded files and one complete diagnostic match. Warmup/preflight failures persist child evidence; setup failure cannot reuse stale output. Remote workflow/artifact verification remains pending. No representative throughput, corpus delta or verified native <=0.50 claim. |
 | 2026-10-04 | `9c176c03` (base plus hashed helper) | unchanged | unchanged | CJS component-vector removal; isolated speed gain | `tsr-1yb.2.1.3.1.2`: normal paired5+5 gains1.04%/1.52%, median saves43.423/63.893ms;474251type rows and10570eligible diagnostics byte-identical,460045RIGHT preserved.45852native path pairs,1364checked identities/order,14015loaded,122complete app diagnostics;204release tests/1existingignore, strictClippy/format, native95resolver/96loader snapshots unchanged. Observed51018inputs stable; no RSS or comparable native<=0.50 claim. |
 | 2026-10-04 | `181b5e29` (base plus hashed temporary probe) | not remeasured | not remeasured | Resolver construction attribution; no speed claim | `tsr-1yb.2.1.3.1.1`: five app variants preserve122diagnostics/14015loaded, four marked variants1364checked, 51018observed input paths stable. Final relative helper41.637/42.101ms;90release tests, four mutation tests, strictClippy/format, native95resolver/96loader unchanged. Seven physical projects expose known empty-suffix/CLI-trace failures. CJS component candidate2.1.3.1.2 owns next normal paired experiment; broad attribution/input completeness and comparable native<=0.50 remain open. |
