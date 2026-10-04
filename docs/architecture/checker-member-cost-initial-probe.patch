@@ -1,0 +1,485 @@
+diff --git a/crates/tsr-checker/src/lib.rs b/crates/tsr-checker/src/lib.rs
+index 50be895f..893be583 100644
+--- a/crates/tsr-checker/src/lib.rs
++++ b/crates/tsr-checker/src/lib.rs
+@@ -177,3 +177,5 @@ pub use flags::TypeFlags;
+ pub use intrinsics::Intrinsics;
+ pub use resolution::{PropertyName, Resolutions};
+ pub use types::{Type, TypeData, TypeId, TypeStore};
++
++pub mod member_query_profile;
+diff --git a/crates/tsr-checker/src/members.rs b/crates/tsr-checker/src/members.rs
+index abbb5e46..16d237e9 100644
+--- a/crates/tsr-checker/src/members.rs
++++ b/crates/tsr-checker/src/members.rs
+@@ -2430,8 +2430,11 @@ impl Checker<'_, '_> {
+     ) -> Vec<(String, tsr_ast::NodeId)> {
+         let cache_key = (owner, is_static);
+         if let Some(members) = self.late_bound_member_names.get(&cache_key) {
+-            return members.clone();
++            crate::member_query_profile::late_hit(owner,is_static);
++            return crate::member_query_profile::late_copy(members,"late_cache_result_copy");
+         }
++        crate::member_query_profile::late_enter(owner,is_static);
++        crate::member_query_profile::boundary("late_worker_entry",None);
+         self.late_bound_member_names.insert(cache_key, Vec::new());
+         let declarations: Vec<tsr_ast::NodeId> =
+             self.binder.symbols().get(owner).declarations.iter().copied().collect();
+@@ -2502,7 +2505,8 @@ impl Checker<'_, '_> {
+                 }
+             }
+         }
+-        self.late_bound_member_names.insert(cache_key, out.clone());
++        self.late_bound_member_names.insert(cache_key, crate::member_query_profile::late_copy(&out,"late_publication_copy"));
++        crate::member_query_profile::late_leave(owner,is_static);
+         out
+     }
+ 
+@@ -2536,7 +2540,15 @@ impl Checker<'_, '_> {
+     /// The `None`-on-an-unfollowable-base rule is [`Checker::base_symbols_of`]'s
+     /// and is why the walk cannot silently under-report a requirement.
+     pub(crate) fn get_property_names_of_type(&mut self, id: TypeId) -> Option<Vec<String>> {
++        if !crate::member_query_profile::enabled() { return self.profiled_property_names_worker(id); }
++        crate::member_query_profile::enter(id);
++        let result=self.profiled_property_names_worker(id);
++        crate::member_query_profile::leave(&result);
++        result
++    }
++    fn profiled_property_names_worker(&mut self, id: TypeId) -> Option<Vec<String>> {
+         if let Some(&(alias, source)) = self.module_value_clones.get(&id) {
++            crate::member_query_profile::path("module-clone");
+             let mut names = self.get_property_names_of_type(source)?;
+             if self.class_static_symbol(source).is_some() {
+                 let mut copied = Vec::with_capacity(names.len());
+@@ -2568,9 +2580,11 @@ impl Checker<'_, '_> {
+             self.resolve_mapped_type_members(id);
+         }
+         if let Some((properties, true)) = self.anonymous_properties.get(&id) {
+-            return Some(properties.iter().map(|property| property.name.clone()).collect());
++            crate::member_query_profile::path("overlay");
++            return Some(properties.iter().map(|property| crate::member_query_profile::copy_name(&property.name,"overlay_name_copy")).collect());
+         }
+         if let Some(symbol) = self.class_static_symbol(id) {
++            crate::member_query_profile::path("static");
+             let mut names = vec!["prototype".to_owned()];
+             return self
+                 .collect_static_property_names(symbol, &mut names, &mut Vec::new())
+@@ -2587,6 +2601,7 @@ impl Checker<'_, '_> {
+                     .flags
+                     .intersects(SymbolFlags::ENUM | SymbolFlags::VALUE_MODULE))
+         {
++            crate::member_query_profile::path("exports");
+             let mut names: Vec<_> = self
+                 .binder
+                 .symbols()
+@@ -2594,12 +2609,12 @@ impl Checker<'_, '_> {
+                 .exports
+                 .iter()
+                 .filter(|(_, member)| self.symbol_is_value(**member))
+-                .map(|(&name, _)| name.to_owned())
++                .map(|(&name, _)| crate::member_query_profile::copy_name(name,"export_name_copy"))
+                 .collect();
+             if let Some((properties, _)) = self.anonymous_properties.get(&id) {
+                 for property in properties {
+-                    if !names.contains(&property.name) {
+-                        names.push(property.name.clone());
++                    if !crate::member_query_profile::contains(&names,&property.name,"export_overlay_contains") {
++                        names.push(crate::member_query_profile::copy_name(&property.name,"export_overlay_name_copy"));
+                     }
+                 }
+             }
+@@ -2609,8 +2624,10 @@ impl Checker<'_, '_> {
+             return None;
+         };
+         if let Some(names) = self.mapped_alias_literal_key_names(id, owner) {
++            crate::member_query_profile::path("mapped-literal-keys");
+             return Some(names);
+         }
++        crate::member_query_profile::path("named-walk");
+         let mut names = Vec::new();
+         let mut visiting = Vec::new();
+         self.collect_structured_property_names(owner, &mut names, &mut visiting).then_some(names)
+@@ -2666,6 +2683,7 @@ impl Checker<'_, '_> {
+         visiting: &mut Vec<tsr_binder::SymbolId>,
+     ) -> bool {
+         if visiting.contains(&owner) {
++            crate::member_query_profile::event("cycle");
+             return true;
+         }
+         let inherited = !visiting.is_empty();
+@@ -2673,13 +2691,13 @@ impl Checker<'_, '_> {
+         for (&name, &symbol) in &self.binder.symbols().get(owner).exports {
+             if self.symbol_is_value(symbol)
+                 && !(inherited && name.starts_with('#'))
+-                && !names.iter().any(|existing| existing == name)
++                && !crate::member_query_profile::contains(&names,name,"static_name_contains")
+             {
+-                names.push(name.to_owned());
++                names.push(crate::member_query_profile::copy_name(name,"static_name_copy"));
+             }
+         }
+         for (name, _) in self.late_bound_static_members_of(owner) {
+-            if !names.contains(&name) {
++            if !crate::member_query_profile::contains(&names,&name,"static_late_contains") {
+                 names.push(name);
+             }
+         }
+@@ -2701,8 +2719,10 @@ impl Checker<'_, '_> {
+         visiting: &mut Vec<tsr_binder::SymbolId>,
+     ) -> bool {
+         if visiting.contains(&owner) {
++            crate::member_query_profile::event("cycle");
+             return true;
+         }
++        crate::member_query_profile::walk(self.binder.symbols().get(owner).members.len());
+         visiting.push(owner);
+         // A members table also holds type parameters, so the value gate is the
+         // same one `getPropertyOfType` applies; without it `interface I<T>`
+@@ -2714,21 +2734,25 @@ impl Checker<'_, '_> {
+             .members
+             .iter()
+             .filter(|&(_, &symbol)| self.symbol_is_value(symbol))
+-            .map(|(&name, _)| name.to_owned())
++            .map(|(&name, _)| crate::member_query_profile::copy_name(name,"structured_own_name_copy"))
+             .collect();
+         for name in own {
+-            if !names.contains(&name) {
++            if !crate::member_query_profile::contains(&names,&name,"structured_name_contains") {
+                 names.push(name);
+             }
+         }
+         // getResolvedMembersOrExportsOfSymbol keeps instance members and exports
+         // separate, including computed declarations.
+         for (name, _) in self.late_bound_members_of(owner, false) {
+-            if !names.contains(&name) {
++            if !crate::member_query_profile::contains(&names,&name,"structured_name_contains") {
+                 names.push(name);
+             }
+         }
+-        let Some(bases) = self.base_symbols_of_ex(owner, false) else {
++        let diagnostic_start=crate::member_query_profile::clock();
++        let diagnostic_bases=self.base_symbols_of_ex(owner,false);
++        crate::member_query_profile::boundary("structured_base_query",diagnostic_start);
++        let Some(bases)=diagnostic_bases else {
++            crate::member_query_profile::event("base");
+             return false;
+         };
+         bases.into_iter().all(|base| self.collect_structured_property_names(base, names, visiting))
+diff --git a/crates/tsr-execute/src/compile.rs b/crates/tsr-execute/src/compile.rs
+index 5369a897..93decafc 100644
+--- a/crates/tsr-execute/src/compile.rs
++++ b/crates/tsr-execute/src/compile.rs
+@@ -291,6 +291,7 @@ pub fn run_compilation(
+         Some(&program),
+     );
+     checker.apply_compiler_options(&options);
++    tsr_checker::member_query_profile::reset();
+ 
+     // Only the program's own files are checked, never the libraries — upstream
+     // reports nothing in `lib.*.d.ts` under any configuration, and a diagnostic
+@@ -304,6 +305,7 @@ pub fn run_compilation(
+     let checker_initialized = sys.since_start();
+ 
+     let mut diagnostics: Vec<(String, Diagnostic)> = Vec::new();
++    let capture_scope = std::env::var_os("TSR_META_SCOPE").is_some();
+     let mut checked_file_count = 0;
+     if !options.no_check.is_true() {
+         for file in program.root_and_referenced_files() {
+@@ -333,6 +335,7 @@ pub fn run_compilation(
+             if options.skip_default_lib_check.is_true() && is_default_library(&program, file) {
+                 continue;
+             }
++            if capture_scope { eprintln!("TSR_META_CHECKED\t{name}"); }
+             checker.check_source_file(
+                 id,
+                 tsr_checker::check::FileContext {
+@@ -344,6 +347,7 @@ pub fn run_compilation(
+         }
+     }
+     let checking_finished = sys.since_start();
++    tsr_checker::member_query_profile::report(&checker);
+     if !options.no_check.is_true() {
+         for (file_id, diagnostic) in checker.diagnostics() {
+             if let Some(file) = program
+diff --git a/crates/tsr-checker/src/member_query_profile.rs b/crates/tsr-checker/src/member_query_profile.rs
+new file mode 100644
+--- /dev/null
++++ b/crates/tsr-checker/src/member_query_profile.rs
+@@ -0,0 +1,277 @@
++//! Temporary opt-in observation of one CLI checker's member-name queries.
++#![allow(missing_docs)]
++use crate::TypeId;
++use std::{
++    cell::RefCell,
++    collections::{HashMap, HashSet},
++    sync::OnceLock,
++};
++use tsr_binder::SymbolId;
++
++#[derive(Default)]
++struct Entry {
++    calls: usize,
++    success: usize,
++    unsupported: usize,
++    active_reentries: usize,
++    risky: usize,
++    repeated_stable: usize,
++    changed: usize,
++    walks: usize,
++    repeated_walks: usize,
++    examined: usize,
++    names: usize,
++    bytes: usize,
++    repeated_bytes: usize,
++    last: Option<Option<Vec<String>>>,
++    path: &'static str,
++    last_guarded: bool,
++}
++struct Frame {
++    id: TypeId,
++    active: bool,
++    risky: bool,
++    walks: usize,
++    examined: usize,
++    path: &'static str,
++}
++#[derive(Default)]
++struct Stats {
++    sites: HashMap<&'static str, [u64; 6]>,
++    entries: HashMap<TypeId, Entry>,
++    paths: HashMap<&'static str, [usize; 6]>,
++    stack: Vec<Frame>,
++    late: HashSet<(SymbolId, bool)>,
++    late_reentries: usize,
++    alias_forces: usize,
++    guard_prunes: usize,
++    failed_bases: usize,
++}
++thread_local! { static STATS: RefCell<Stats> = RefCell::new(Stats::default()); }
++pub fn enabled() -> bool {
++    static ENABLED: OnceLock<bool> = OnceLock::new();
++    *ENABLED.get_or_init(|| std::env::var_os("TSR_PROFILE_MEMBER_QUERIES").is_some())
++}
++pub fn reset() {
++    if enabled() {
++        STATS.with(|s| *s.borrow_mut() = Stats::default());
++    }
++}
++pub fn enter(id: TypeId) {
++    STATS.with(|s| {
++        let mut s = s.borrow_mut();
++        let active = s.stack.iter().any(|f| f.id == id);
++        s.stack.push(Frame {
++            id,
++            active,
++            risky: active,
++            walks: 0,
++            examined: 0,
++            path: "unsupported",
++        });
++    });
++}
++pub fn path(path: &'static str) {
++    if enabled() {
++        STATS.with(|s| {
++            if let Some(f) = s.borrow_mut().stack.last_mut() {
++                f.path = path;
++            }
++        });
++    }
++}
++pub fn walk(examined: usize) {
++    if enabled() {
++        STATS.with(|s| {
++            if let Some(f) = s.borrow_mut().stack.last_mut() {
++                f.walks += 1;
++                f.examined += examined;
++            }
++        });
++    }
++}
++pub fn event(event: &str) {
++    if enabled() {
++        STATS.with(|s| {
++            let mut s = s.borrow_mut();
++            match event {
++                "alias" => s.alias_forces += 1,
++                "cycle" => s.guard_prunes += 1,
++                "base" => s.failed_bases += 1,
++                _ => unreachable!(),
++            }
++            if event != "alias" {
++                if let Some(f) = s.stack.last_mut() {
++                    f.risky = true;
++                }
++            }
++        });
++    }
++}
++pub fn late_hit(owner: SymbolId, is_static: bool) {
++    if enabled() {
++        STATS.with(|s| {
++            let mut s = s.borrow_mut();
++            if s.late.contains(&(owner, is_static)) {
++                s.late_reentries += 1;
++                if let Some(f) = s.stack.last_mut() {
++                    f.risky = true;
++                }
++            }
++        });
++    }
++}
++pub fn late_enter(owner: SymbolId, is_static: bool) {
++    if enabled() {
++        STATS.with(|s| {
++            assert!(s.borrow_mut().late.insert((owner, is_static)));
++        });
++    }
++}
++pub fn late_leave(owner: SymbolId, is_static: bool) {
++    if enabled() {
++        STATS.with(|s| {
++            assert!(s.borrow_mut().late.remove(&(owner, is_static)));
++        });
++    }
++}
++pub fn leave(result: &Option<Vec<String>>) {
++    STATS.with(|s| {
++        let mut s = s.borrow_mut();
++        let f = s.stack.pop().unwrap();
++        if f.risky {
++            if let Some(parent) = s.stack.last_mut() {
++                parent.risky = true;
++            }
++        }
++        let e = s.entries.entry(f.id).or_default();
++        e.calls += 1;
++        e.active_reentries += usize::from(f.active);
++        e.risky += usize::from(f.risky);
++        e.walks += f.walks;
++        e.examined += f.examined;
++        let prior_path = e.path;
++        let bytes = result.as_ref().map_or(0, |v| v.iter().map(String::len).sum::<usize>());
++        if let Some(v) = result {
++            e.success += 1;
++            e.names += v.len();
++            e.bytes += bytes;
++        } else {
++            e.unsupported += 1;
++        }
++        if let Some(last) = &e.last {
++            if last == result
++                && result.is_some()
++                && !f.risky
++                && !f.active
++                && !e.last_guarded
++                && prior_path == f.path
++            {
++                e.repeated_stable += 1;
++                e.repeated_walks += f.walks;
++                e.repeated_bytes += bytes;
++            } else if last != result {
++                e.changed += 1;
++            }
++        }
++        let stable = e.last.as_ref().is_some_and(|last| last == result)
++            && result.is_some()
++            && !f.risky
++            && !f.active
++            && !e.last_guarded
++            && prior_path == f.path;
++        e.last = Some(result.clone());
++        e.path = f.path;
++        e.last_guarded = f.risky || f.active;
++        let p = s.paths.entry(f.path).or_default();
++        p[0] += 1;
++        p[1] += usize::from(result.is_some());
++        p[2] += usize::from(f.risky || f.active);
++        p[3] += usize::from(stable);
++        p[4] += f.walks;
++        p[5] += if stable { f.walks } else { 0 };
++    });
++}
++pub fn report(checker: &crate::Checker<'_, '_>) {
++    if !enabled() {
++        return;
++    }
++    STATS.with(|s| { let s=s.borrow(); assert!(s.stack.is_empty() && s.late.is_empty());
++        for (site, values) in { let mut sites:Vec<_>=s.sites.iter().collect(); sites.sort_by_key(|(site,_)|**site); sites } {
++            eprintln!("MEMBER_SITE {{\"site\":\"{}\",\"requests\":{},\"strings\":{},\"copied_payload_bytes\":{},\"string_capacity_bytes\":{},\"comparisons\":{},\"observed_ns\":{}}}", site, values[0],values[1],values[2],values[3],values[4],values[5]);
++        }
++        let retained_payload:usize=s.entries.values().filter_map(|e|e.last.as_ref()?.as_ref()).map(|v|v.iter().map(String::capacity).sum::<usize>()).sum();
++        let retained_vectors:usize=s.entries.values().filter_map(|e|e.last.as_ref()?.as_ref()).map(|v|v.capacity()*std::mem::size_of::<String>()).sum();
++        eprintln!("MEMBER_OBSERVER {{\"retained_string_capacity\":{},\"retained_vector_capacity_bytes\":{}}}",retained_payload,retained_vectors);
++        let sums=|get: fn(&Entry)->usize| s.entries.values().map(get).sum::<usize>();
++        eprintln!("MEMBER_QUERY {{\"unique_types\":{},\"calls\":{},\"success\":{},\"unsupported\":{},\"active_reentries\":{},\"risky\":{},\"stable_repeats\":{},\"changed_answers\":{},\"walks\":{},\"stable_repeat_walks\":{},\"examined\":{},\"returned_names\":{},\"returned_name_bytes\":{},\"stable_repeat_name_bytes\":{},\"late_reentries\":{},\"alias_force_queries\":{},\"visited_guard_prunes\":{},\"failed_bases\":{}}}",s.entries.len(),sums(|e|e.calls),sums(|e|e.success),sums(|e|e.unsupported),sums(|e|e.active_reentries),sums(|e|e.risky),sums(|e|e.repeated_stable),sums(|e|e.changed),sums(|e|e.walks),sums(|e|e.repeated_walks),sums(|e|e.examined),sums(|e|e.names),sums(|e|e.bytes),sums(|e|e.repeated_bytes),s.late_reentries,s.alias_forces,s.guard_prunes,s.failed_bases);
++        let mut paths:Vec<_>=s.paths.iter().collect(); paths.sort_by_key(|(name,_)|**name);
++        for (name,p) in paths { eprintln!("MEMBER_PATH {{\"path\":\"{}\",\"calls\":{},\"success\":{},\"guarded\":{},\"stable_repeats\":{},\"walks\":{},\"stable_repeat_walks\":{}}}",name,p[0],p[1],p[2],p[3],p[4],p[5]); }
++        let mut entries:Vec<_>=s.entries.iter().collect(); entries.sort_by_key(|(id,e)| (std::cmp::Reverse(e.calls),id.index()));
++        for (id,_) in entries.iter().take(40) { eprintln!("MEMBER_LABEL\t{}\t{:?}",id.index(),checker.store.get(**id).data); }
++        for (id,e) in entries { eprintln!("MEMBER_TYPE {{\"type_id\":{},\"path\":\"{}\",\"calls\":{},\"success\":{},\"unsupported\":{},\"active_reentries\":{},\"risky\":{},\"stable_repeats\":{},\"changed_answers\":{},\"walks\":{},\"stable_repeat_walks\":{},\"returned_name_bytes\":{},\"stable_repeat_name_bytes\":{}}}",id.index(),e.path,e.calls,e.success,e.unsupported,e.active_reentries,e.risky,e.repeated_stable,e.changed,e.walks,e.repeated_walks,e.bytes,e.repeated_bytes); }
++    });
++}
++
++pub fn clock() -> Option<std::time::Instant> {
++    static TIMING: OnceLock<bool> = OnceLock::new();
++    (enabled() && *TIMING.get_or_init(|| std::env::var_os("TSR_PROFILE_MEMBER_TIMING").is_some()))
++        .then(std::time::Instant::now)
++}
++fn add(
++    site: &'static str,
++    strings: usize,
++    bytes: usize,
++    capacity: usize,
++    comparisons: usize,
++    start: Option<std::time::Instant>,
++) {
++    if !enabled() {
++        return;
++    }
++    let elapsed = start.map_or(0, |s| s.elapsed().as_nanos() as u64);
++    STATS.with(|s| {
++        let mut s = s.borrow_mut();
++        let v = s.sites.entry(site).or_default();
++        v[0] += 1;
++        v[1] += strings as u64;
++        v[2] += bytes as u64;
++        v[3] += capacity as u64;
++        v[4] += comparisons as u64;
++        v[5] += elapsed;
++    });
++}
++pub fn copy_name(name: &str, site: &'static str) -> String {
++    let start = clock();
++    let result = name.to_owned();
++    add(site, 1, name.len(), result.capacity(), 0, start);
++    result
++}
++pub fn contains(names: &[String], name: &str, site: &'static str) -> bool {
++    if !enabled() {
++        return names.iter().any(|n| n == name);
++    }
++    let start = clock();
++    let position = names.iter().position(|n| n == name);
++    add(site, 0, 0, 0, position.map_or(names.len(), |i| i + 1), start);
++    position.is_some()
++}
++pub fn late_copy(
++    names: &[(String, tsr_ast::NodeId)],
++    site: &'static str,
++) -> Vec<(String, tsr_ast::NodeId)> {
++    let start = clock();
++    let result = names.to_vec();
++    add(
++        site,
++        result.len(),
++        result.iter().map(|(n, _)| n.len()).sum(),
++        result.iter().map(|(n, _)| n.capacity()).sum(),
++        0,
++        start,
++    );
++    result
++}
++pub fn boundary(site: &'static str, start: Option<std::time::Instant>) {
++    add(site, 0, 0, 0, 0, start);
++}
