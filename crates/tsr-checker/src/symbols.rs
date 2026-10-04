@@ -5894,10 +5894,10 @@ mod tests {
 
     #[test]
     fn concrete_context_retains_mapped_supplier_boundaries() {
-        // These are retained defects, not native parity: optional-add supplies
-        // real undefined, and optional-remove loses real undefined before us.
+        // Optional-add still supplies real undefined rather than missing;
+        // optional-remove now preserves genuine undefined in exact mode.
         for (context, retains_undefined) in
-            [("Part<{ x: V }>", true), ("Need<{ x?: V | undefined }>", false)]
+            [("Part<{ x: V }>", true), ("Need<{ x?: V | undefined }>", true)]
         {
             with_context(context, true, true, |checker, target, value, _| {
                 let ordinary = checker.get_type_of_property_of_type(target, "x").unwrap();

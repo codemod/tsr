@@ -1201,6 +1201,32 @@ impl Checker<'_, '_> {
         self.get_type_of_property_with_this_argument(id, name, id, false)
     }
 
+    /// Source optionality follows the ordinary supplier, not the reused symbol's flags.
+    fn identity_mapped_source_property_is_optional(&mut self, id: TypeId, name: &str) -> bool {
+        self.anonymous_properties
+            .get(&id)
+            .and_then(|(properties, instantiated)| {
+                instantiated
+                    .then(|| properties.iter().find(|property| property.name == name))
+                    .flatten()
+            })
+            .map(|property| property.optional)
+            .or_else(|| {
+                let (optional, _) = *self.mapped_identity_optionality.get(&id)?;
+                optional.or_else(|| {
+                    let source =
+                        self.type_reference_targets.get(&id).and_then(|(_, arguments)| {
+                            (arguments.len() == 1).then_some(arguments[0])
+                        })?;
+                    Some(self.identity_mapped_source_property_is_optional(source, name))
+                })
+            })
+            .unwrap_or_else(|| {
+                self.get_property_of_type(id, name)
+                    .is_some_and(|property| self.property_is_optional(property))
+            })
+    }
+
     /// getTypeWithThisArgument retains the original receiver when member
     /// lookup proceeds through its apparent constraint.
     fn get_type_of_property_with_this_argument(
@@ -1280,17 +1306,20 @@ impl Checker<'_, '_> {
                 .type_reference_targets
                 .get(&id)
                 .and_then(|(_, arguments)| (arguments.len() == 1).then_some(arguments[0]));
-            let member = if let Some(source) = source {
-                self.get_type_of_property_with_this_argument(
-                    source,
-                    name,
-                    source,
-                    skip_object_function_augment,
-                )?
+            let (member, source_property) = if let Some(source) = source {
+                (
+                    self.get_type_of_property_with_this_argument(
+                        source,
+                        name,
+                        source,
+                        skip_object_function_augment,
+                    )?,
+                    None,
+                )
             } else {
                 let mut visiting = Vec::new();
                 let property = self.get_property_of_declared_symbol(owner, name, &mut visiting)?;
-                self.get_type_of_symbol(property)
+                (self.get_type_of_symbol(property), Some(property))
             };
             return Some(match optionality {
                 // `?` / `+?`: the property becomes optional, which a READ sees
@@ -1299,11 +1328,23 @@ impl Checker<'_, '_> {
                     let undefined = self.intrinsics.undefined;
                     self.get_union_type(&[member, undefined])
                 }
-                // `-?`: optionality is removed, so an `| undefined` the source
-                // carried is stripped. `remove_undefined` is `getTypeWithFacts`'s
-                // job upstream; this port's existing non-nullable road is the
-                // same question, and a member with no `undefined` is unchanged.
-                Some(false) => self.get_non_nullable_type(member),
+                // getTypeOfMappedSymbol strips only when the source was optional
+                // in strict mode. Exact mode removes missing, never genuine U.
+                Some(false) => {
+                    let strip_optional = self.strict_null_checks
+                        && match source {
+                            Some(source) => {
+                                self.identity_mapped_source_property_is_optional(source, name)
+                            }
+                            None => source_property
+                                .is_some_and(|property| self.property_is_optional(property)),
+                        };
+                    if strip_optional {
+                        self.remove_missing_or_undefined_type(member)
+                    } else {
+                        member
+                    }
+                }
                 None => member,
             });
         }
