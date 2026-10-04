@@ -1,0 +1,2331 @@
+{
+  "kind": "native depth/root fidelity controls; no concurrency or speed claim",
+  "tsr_source": {
+    "head": "30d5e218707cad0bc071ec143248bc0078452f9a",
+    "files_sha256": {
+      "crates/tsr-compiler/src/loader.rs": "7e5094455ee236922476fcb5cb10657bbb56ad4dc14d74abd9c52ad92d2a2258",
+      "crates/tsr-execute/src/compile.rs": "129d3c400d9e054048682ae81b8a7edb8703b32c16475223bf5233770e91a11d",
+      "crates/tsr-execute/src/os_system.rs": "03e53a8569c833f6494c99b6ae53bad41b8d51d0fa88daefbc8828f9033919b6",
+      "crates/tsr-module/src/resolver.rs": "1fdee305d5521ed11e62c426f5c7a5c4997c2daf3f004456576305efed29b9a3"
+    }
+  },
+  "native_source": {
+    "head": "5b1047d10d32e7d5b446be4de56b126ff42f82bb",
+    "files_sha256": {
+      "internal/compiler/filesparser.go": "5aad72508e696434627ca7f73fb15ca312f2f39df49c92b43a63e9cfa423bbc5",
+      "internal/compiler/fileloader.go": "82f00e664a051f7a8cc151b3a7b2a9d6e346cc019dd43a9d4e6d937bd913defd",
+      "internal/core/workgroup.go": "3a7cdb6ec7932d1c7572dac0b4cec3ef937fbd941a0572c733f519547e3e9266"
+    }
+  },
+  "binary_sha256": {
+    "tsr": "05673c7bb3c26fb10a76607a66e4b3f05bcb684cb1f2180cb425ed0792de128a",
+    "tsgo": "6340b230f887095fb7c82fedb41eecadd7dc49e4baa65a05ef4abb8ab4b74bc4"
+  },
+  "driver_sha256": "f0c0d396e8543fc1b2c81081f99831b35f50db27c5a0e6aaf78a83e506ef9702",
+  "physical_output": "/private/tmp/tsr-loader-depth-main-controls-final",
+  "complete": true,
+  "all_match": false,
+  "raw_results": "/tmp/tsr-loader-depth-main-controls-final/results.json",
+  "raw_results_sha256": "ba08ec1cdf71d27665cfaad805f8e0463df9f6d2c8c4db24f5beb4fd62b5ca62",
+  "run_count": 273,
+  "fixtures": {
+    "globals.d.ts": "interface Array<T> {}\ninterface Boolean {}\ninterface Function {}\ninterface CallableFunction {}\ninterface NewableFunction {}\ninterface IArguments {}\ninterface Number {}\ninterface Object {}\ninterface RegExp {}\ninterface String {}\n",
+    "main.ts": "import \"outer\";\n",
+    "node_modules/outer/package.json": "{\"name\": \"outer\", \"version\": \"1.0.0\", \"main\": \"index.js\"}",
+    "node_modules/outer/index.js": "import \"inner\"; export const outer = 1;\n",
+    "node_modules/inner/package.json": "{\"name\": \"inner\", \"version\": \"1.0.0\", \"main\": \"index.js\"}",
+    "node_modules/inner/index.js": "import \"./leaf.js\"; export const inner = 1;\n",
+    "node_modules/inner/leaf.js": "import \"./typed.js\"; export const leaf = 1;\n",
+    "node_modules/inner/typed.ts": "export const wrong: number = \"s\";\n",
+    "local-main.ts": "import \"./local.js\";\n",
+    "local.js": "import \"./local-typed.js\"; export const local = 1;\n",
+    "local-typed.ts": "export const wrong: number = \"s\";\n"
+  },
+  "cases": [
+    {
+      "name": "elided-first-later-root",
+      "roots": [
+        "main.ts",
+        "node_modules/inner/index.js"
+      ],
+      "depth": 1,
+      "no_resolve": false,
+      "input_sha256": {
+        "globals.d.ts": "07b3b2683ebe2455bf84a4298a751d2d18f12f0939df252a8436a1a7b75560da",
+        "main.ts": "f1ab51baa04cc5ce27432d91a046b999227c4119d9b319013bc072a2fea6ca0f",
+        "node_modules/outer/package.json": "ea1deaf95a8d4e646580d2cf0f2c7985a57bd94777d945ab6c7f6f3427a6ba0b",
+        "node_modules/outer/index.js": "05201dffb6760f3e2bd03a5f834fc39f73f1fecca2712fc3ba36fac2edfc6d3b",
+        "node_modules/inner/package.json": "c11b02fdee3cad4c1bc65c46bf77dab1888754010229a48c6229f746e4b630eb",
+        "node_modules/inner/index.js": "ab4083b575c6191abd7c8c97102b26931017f2a42195d4e1d98db7ba116ac18d",
+        "node_modules/inner/leaf.js": "41d8459c96febea8781d073a13e9a566d767e70b684ee5b595dc0bcca411fdff",
+        "node_modules/inner/typed.ts": "860b07ec7f2f4ae1a9b9f79df25a0e8b73dc7eb21d0c736e5a9ff4b44bd4ad1e",
+        "local-main.ts": "45f98a7d45d3d3834f513d432bd6648234f251220ae5ecfe72d1d4c67186abf6",
+        "local.js": "548af80365940b5866417c5240e1785d58be351dffd69bf7f4ee7411f2efb104",
+        "local-typed.ts": "860b07ec7f2f4ae1a9b9f79df25a0e8b73dc7eb21d0c736e5a9ff4b44bd4ad1e",
+        "tsconfig.json": "c9db24412c2fcbc3be74d804b629bc1d3ad67cfd52f62e3fc4b70e524f1c04c3"
+      },
+      "native_distinct_images": 1,
+      "tsr_matches_all_native": {
+        "diagnostics": false,
+        "loaded_order": false,
+        "loaded_set": false,
+        "ordered_trace": false
+      },
+      "variants": [
+        {
+          "image": {
+            "diagnostics": {
+              "count": 0,
+              "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "entries": []
+            },
+            "loaded_order": [
+              "node_modules/outer/index.js",
+              "main.ts",
+              "globals.d.ts"
+            ],
+            "loaded_set": [
+              "globals.d.ts",
+              "main.ts",
+              "node_modules/outer/index.js"
+            ],
+            "trace_count": 0,
+            "trace_fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+          },
+          "roles": [
+            "tsr"
+          ],
+          "stdout_sha256": {
+            "tsr": "5e8488fc260db697e91ce4674038333b82dc5279289e972fb10713f72001a0e1"
+          }
+        },
+        {
+          "image": {
+            "diagnostics": {
+              "count": 1,
+              "fingerprint": "b75497e34df316ba647a14d375327c88f8dd82e89abdd9b96f05e111b4d636cd",
+              "entries": [
+                "node_modules/inner/typed.ts(1,14): error TS2322: Type 'string' is not assignable to type 'number'."
+              ]
+            },
+            "loaded_order": [
+              "node_modules/inner/typed.ts",
+              "node_modules/inner/leaf.js",
+              "node_modules/inner/index.js",
+              "node_modules/outer/index.js",
+              "main.ts",
+              "globals.d.ts"
+            ],
+            "loaded_set": [
+              "globals.d.ts",
+              "main.ts",
+              "node_modules/inner/index.js",
+              "node_modules/inner/leaf.js",
+              "node_modules/inner/typed.ts",
+              "node_modules/outer/index.js"
+            ],
+            "trace_count": 190,
+            "trace_fingerprint": "66f0e453c5c987dad1dc719cb34cdc3315d844bb8e392c24664904e1ad6b9473"
+          },
+          "roles": [
+            "native-one-0",
+            "native-default-0",
+            "native-one-1",
+            "native-default-1",
+            "native-one-2",
+            "native-default-2",
+            "native-one-3",
+            "native-default-3",
+            "native-one-4",
+            "native-default-4",
+            "native-one-5",
+            "native-default-5",
+            "native-one-6",
+            "native-default-6",
+            "native-one-7",
+            "native-default-7",
+            "native-one-8",
+            "native-default-8",
+            "native-one-9",
+            "native-default-9"
+          ],
+          "stdout_sha256": {
+            "native-one-0": "ab96021a42fdeb2878dcd079534ff800708969feaf984362ac472677e8eda54b",
+            "native-default-0": "ab96021a42fdeb2878dcd079534ff800708969feaf984362ac472677e8eda54b",
+            "native-one-1": "ab96021a42fdeb2878dcd079534ff800708969feaf984362ac472677e8eda54b",
+            "native-default-1": "ab96021a42fdeb2878dcd079534ff800708969feaf984362ac472677e8eda54b",
+            "native-one-2": "ab96021a42fdeb2878dcd079534ff800708969feaf984362ac472677e8eda54b",
+            "native-default-2": "ab96021a42fdeb2878dcd079534ff800708969feaf984362ac472677e8eda54b",
+            "native-one-3": "ab96021a42fdeb2878dcd079534ff800708969feaf984362ac472677e8eda54b",
+            "native-default-3": "ab96021a42fdeb2878dcd079534ff800708969feaf984362ac472677e8eda54b",
+            "native-one-4": "ab96021a42fdeb2878dcd079534ff800708969feaf984362ac472677e8eda54b",
+            "native-default-4": "ab96021a42fdeb2878dcd079534ff800708969feaf984362ac472677e8eda54b",
+            "native-one-5": "ab96021a42fdeb2878dcd079534ff800708969feaf984362ac472677e8eda54b",
+            "native-default-5": "ab96021a42fdeb2878dcd079534ff800708969feaf984362ac472677e8eda54b",
+            "native-one-6": "ab96021a42fdeb2878dcd079534ff800708969feaf984362ac472677e8eda54b",
+            "native-default-6": "ab96021a42fdeb2878dcd079534ff800708969feaf984362ac472677e8eda54b",
+            "native-one-7": "ab96021a42fdeb2878dcd079534ff800708969feaf984362ac472677e8eda54b",
+            "native-default-7": "ab96021a42fdeb2878dcd079534ff800708969feaf984362ac472677e8eda54b",
+            "native-one-8": "ab96021a42fdeb2878dcd079534ff800708969feaf984362ac472677e8eda54b",
+            "native-default-8": "ab96021a42fdeb2878dcd079534ff800708969feaf984362ac472677e8eda54b",
+            "native-one-9": "ab96021a42fdeb2878dcd079534ff800708969feaf984362ac472677e8eda54b",
+            "native-default-9": "ab96021a42fdeb2878dcd079534ff800708969feaf984362ac472677e8eda54b"
+          }
+        }
+      ]
+    },
+    {
+      "name": "root-before-deep-import",
+      "roots": [
+        "node_modules/inner/index.js",
+        "main.ts"
+      ],
+      "depth": 1,
+      "no_resolve": false,
+      "input_sha256": {
+        "globals.d.ts": "07b3b2683ebe2455bf84a4298a751d2d18f12f0939df252a8436a1a7b75560da",
+        "main.ts": "f1ab51baa04cc5ce27432d91a046b999227c4119d9b319013bc072a2fea6ca0f",
+        "node_modules/outer/package.json": "ea1deaf95a8d4e646580d2cf0f2c7985a57bd94777d945ab6c7f6f3427a6ba0b",
+        "node_modules/outer/index.js": "05201dffb6760f3e2bd03a5f834fc39f73f1fecca2712fc3ba36fac2edfc6d3b",
+        "node_modules/inner/package.json": "c11b02fdee3cad4c1bc65c46bf77dab1888754010229a48c6229f746e4b630eb",
+        "node_modules/inner/index.js": "ab4083b575c6191abd7c8c97102b26931017f2a42195d4e1d98db7ba116ac18d",
+        "node_modules/inner/leaf.js": "41d8459c96febea8781d073a13e9a566d767e70b684ee5b595dc0bcca411fdff",
+        "node_modules/inner/typed.ts": "860b07ec7f2f4ae1a9b9f79df25a0e8b73dc7eb21d0c736e5a9ff4b44bd4ad1e",
+        "local-main.ts": "45f98a7d45d3d3834f513d432bd6648234f251220ae5ecfe72d1d4c67186abf6",
+        "local.js": "548af80365940b5866417c5240e1785d58be351dffd69bf7f4ee7411f2efb104",
+        "local-typed.ts": "860b07ec7f2f4ae1a9b9f79df25a0e8b73dc7eb21d0c736e5a9ff4b44bd4ad1e",
+        "tsconfig.json": "9e586b8f5d87cb7d611cdb9c13a79b89a11f8ce549f2e9267b658ea77584cdaf"
+      },
+      "native_distinct_images": 2,
+      "tsr_matches_all_native": {
+        "diagnostics": true,
+        "loaded_order": true,
+        "loaded_set": true,
+        "ordered_trace": false
+      },
+      "variants": [
+        {
+          "image": {
+            "diagnostics": {
+              "count": 1,
+              "fingerprint": "b75497e34df316ba647a14d375327c88f8dd82e89abdd9b96f05e111b4d636cd",
+              "entries": [
+                "node_modules/inner/typed.ts(1,14): error TS2322: Type 'string' is not assignable to type 'number'."
+              ]
+            },
+            "loaded_order": [
+              "node_modules/inner/typed.ts",
+              "node_modules/inner/leaf.js",
+              "node_modules/inner/index.js",
+              "node_modules/outer/index.js",
+              "main.ts",
+              "globals.d.ts"
+            ],
+            "loaded_set": [
+              "globals.d.ts",
+              "main.ts",
+              "node_modules/inner/index.js",
+              "node_modules/inner/leaf.js",
+              "node_modules/inner/typed.ts",
+              "node_modules/outer/index.js"
+            ],
+            "trace_count": 1,
+            "trace_fingerprint": "f9e9a3a57fc07c447dc09f4532521164fd4e395e6b211555b98d695b7d0ac599"
+          },
+          "roles": [
+            "tsr"
+          ],
+          "stdout_sha256": {
+            "tsr": "50090896e5e73f17238e2b91493345d2a445bb784932f0fdc200ac60f3d1ac17"
+          }
+        },
+        {
+          "image": {
+            "diagnostics": {
+              "count": 1,
+              "fingerprint": "b75497e34df316ba647a14d375327c88f8dd82e89abdd9b96f05e111b4d636cd",
+              "entries": [
+                "node_modules/inner/typed.ts(1,14): error TS2322: Type 'string' is not assignable to type 'number'."
+              ]
+            },
+            "loaded_order": [
+              "node_modules/inner/typed.ts",
+              "node_modules/inner/leaf.js",
+              "node_modules/inner/index.js",
+              "node_modules/outer/index.js",
+              "main.ts",
+              "globals.d.ts"
+            ],
+            "loaded_set": [
+              "globals.d.ts",
+              "main.ts",
+              "node_modules/inner/index.js",
+              "node_modules/inner/leaf.js",
+              "node_modules/inner/typed.ts",
+              "node_modules/outer/index.js"
+            ],
+            "trace_count": 190,
+            "trace_fingerprint": "109250c81ba756088e938904eb42b5f5767d299a913c3a29252c4cf4f0786589"
+          },
+          "roles": [
+            "native-one-0",
+            "native-one-1",
+            "native-one-2",
+            "native-one-3",
+            "native-one-4",
+            "native-one-5",
+            "native-one-6",
+            "native-one-7",
+            "native-one-8",
+            "native-one-9"
+          ],
+          "stdout_sha256": {
+            "native-one-0": "f23276d6734c1577a25137a1309de9957f46a7937c656183f847a4f35a5b8be1",
+            "native-one-1": "f23276d6734c1577a25137a1309de9957f46a7937c656183f847a4f35a5b8be1",
+            "native-one-2": "f23276d6734c1577a25137a1309de9957f46a7937c656183f847a4f35a5b8be1",
+            "native-one-3": "f23276d6734c1577a25137a1309de9957f46a7937c656183f847a4f35a5b8be1",
+            "native-one-4": "f23276d6734c1577a25137a1309de9957f46a7937c656183f847a4f35a5b8be1",
+            "native-one-5": "f23276d6734c1577a25137a1309de9957f46a7937c656183f847a4f35a5b8be1",
+            "native-one-6": "f23276d6734c1577a25137a1309de9957f46a7937c656183f847a4f35a5b8be1",
+            "native-one-7": "f23276d6734c1577a25137a1309de9957f46a7937c656183f847a4f35a5b8be1",
+            "native-one-8": "f23276d6734c1577a25137a1309de9957f46a7937c656183f847a4f35a5b8be1",
+            "native-one-9": "f23276d6734c1577a25137a1309de9957f46a7937c656183f847a4f35a5b8be1"
+          }
+        },
+        {
+          "image": {
+            "diagnostics": {
+              "count": 1,
+              "fingerprint": "b75497e34df316ba647a14d375327c88f8dd82e89abdd9b96f05e111b4d636cd",
+              "entries": [
+                "node_modules/inner/typed.ts(1,14): error TS2322: Type 'string' is not assignable to type 'number'."
+              ]
+            },
+            "loaded_order": [
+              "node_modules/inner/typed.ts",
+              "node_modules/inner/leaf.js",
+              "node_modules/inner/index.js",
+              "node_modules/outer/index.js",
+              "main.ts",
+              "globals.d.ts"
+            ],
+            "loaded_set": [
+              "globals.d.ts",
+              "main.ts",
+              "node_modules/inner/index.js",
+              "node_modules/inner/leaf.js",
+              "node_modules/inner/typed.ts",
+              "node_modules/outer/index.js"
+            ],
+            "trace_count": 190,
+            "trace_fingerprint": "7a890e6c722a51be47f42a863947bd331346a2f3f5a4bf089fa1304dd9adaba1"
+          },
+          "roles": [
+            "native-default-0",
+            "native-default-1",
+            "native-default-2",
+            "native-default-3",
+            "native-default-4",
+            "native-default-5",
+            "native-default-6",
+            "native-default-7",
+            "native-default-8",
+            "native-default-9"
+          ],
+          "stdout_sha256": {
+            "native-default-0": "622c7c43accab5b8e0affbe36ca7f855583aa8756be5c0f4c984fc84e778b186",
+            "native-default-1": "622c7c43accab5b8e0affbe36ca7f855583aa8756be5c0f4c984fc84e778b186",
+            "native-default-2": "622c7c43accab5b8e0affbe36ca7f855583aa8756be5c0f4c984fc84e778b186",
+            "native-default-3": "622c7c43accab5b8e0affbe36ca7f855583aa8756be5c0f4c984fc84e778b186",
+            "native-default-4": "622c7c43accab5b8e0affbe36ca7f855583aa8756be5c0f4c984fc84e778b186",
+            "native-default-5": "622c7c43accab5b8e0affbe36ca7f855583aa8756be5c0f4c984fc84e778b186",
+            "native-default-6": "622c7c43accab5b8e0affbe36ca7f855583aa8756be5c0f4c984fc84e778b186",
+            "native-default-7": "622c7c43accab5b8e0affbe36ca7f855583aa8756be5c0f4c984fc84e778b186",
+            "native-default-8": "622c7c43accab5b8e0affbe36ca7f855583aa8756be5c0f4c984fc84e778b186",
+            "native-default-9": "622c7c43accab5b8e0affbe36ca7f855583aa8756be5c0f4c984fc84e778b186"
+          }
+        }
+      ]
+    },
+    {
+      "name": "loaded-first-later-parent-root",
+      "roots": [
+        "main.ts",
+        "node_modules/outer/index.js"
+      ],
+      "depth": 1,
+      "no_resolve": false,
+      "input_sha256": {
+        "globals.d.ts": "07b3b2683ebe2455bf84a4298a751d2d18f12f0939df252a8436a1a7b75560da",
+        "main.ts": "f1ab51baa04cc5ce27432d91a046b999227c4119d9b319013bc072a2fea6ca0f",
+        "node_modules/outer/package.json": "ea1deaf95a8d4e646580d2cf0f2c7985a57bd94777d945ab6c7f6f3427a6ba0b",
+        "node_modules/outer/index.js": "05201dffb6760f3e2bd03a5f834fc39f73f1fecca2712fc3ba36fac2edfc6d3b",
+        "node_modules/inner/package.json": "c11b02fdee3cad4c1bc65c46bf77dab1888754010229a48c6229f746e4b630eb",
+        "node_modules/inner/index.js": "ab4083b575c6191abd7c8c97102b26931017f2a42195d4e1d98db7ba116ac18d",
+        "node_modules/inner/leaf.js": "41d8459c96febea8781d073a13e9a566d767e70b684ee5b595dc0bcca411fdff",
+        "node_modules/inner/typed.ts": "860b07ec7f2f4ae1a9b9f79df25a0e8b73dc7eb21d0c736e5a9ff4b44bd4ad1e",
+        "local-main.ts": "45f98a7d45d3d3834f513d432bd6648234f251220ae5ecfe72d1d4c67186abf6",
+        "local.js": "548af80365940b5866417c5240e1785d58be351dffd69bf7f4ee7411f2efb104",
+        "local-typed.ts": "860b07ec7f2f4ae1a9b9f79df25a0e8b73dc7eb21d0c736e5a9ff4b44bd4ad1e",
+        "tsconfig.json": "d74d61f91f879b9d3e5469a4a43381e40571aec3832e004c2dfd313c6c9a84dc"
+      },
+      "native_distinct_images": 2,
+      "tsr_matches_all_native": {
+        "diagnostics": true,
+        "loaded_order": false,
+        "loaded_set": false,
+        "ordered_trace": false
+      },
+      "variants": [
+        {
+          "image": {
+            "diagnostics": {
+              "count": 0,
+              "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "entries": []
+            },
+            "loaded_order": [
+              "node_modules/outer/index.js",
+              "main.ts",
+              "globals.d.ts"
+            ],
+            "loaded_set": [
+              "globals.d.ts",
+              "main.ts",
+              "node_modules/outer/index.js"
+            ],
+            "trace_count": 0,
+            "trace_fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+          },
+          "roles": [
+            "tsr"
+          ],
+          "stdout_sha256": {
+            "tsr": "7139af8a62b044fdab9377a608db38b77e67b795aeebec531a8baa29c3f08d3c"
+          }
+        },
+        {
+          "image": {
+            "diagnostics": {
+              "count": 0,
+              "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "entries": []
+            },
+            "loaded_order": [
+              "node_modules/inner/index.js",
+              "node_modules/outer/index.js",
+              "main.ts",
+              "globals.d.ts"
+            ],
+            "loaded_set": [
+              "globals.d.ts",
+              "main.ts",
+              "node_modules/inner/index.js",
+              "node_modules/outer/index.js"
+            ],
+            "trace_count": 181,
+            "trace_fingerprint": "f2565bf0e6ac1e30b202b9c1108cdfcdb013c6cd84381433b5cc825f26b4db6a"
+          },
+          "roles": [
+            "native-one-0",
+            "native-one-1",
+            "native-one-2",
+            "native-one-3",
+            "native-one-4",
+            "native-one-5",
+            "native-one-6",
+            "native-one-7",
+            "native-one-8",
+            "native-one-9"
+          ],
+          "stdout_sha256": {
+            "native-one-0": "30754a6f8d43ef4f78099b977bc2ceef2275bfcde1ce0095533fe0298e0f0a46",
+            "native-one-1": "30754a6f8d43ef4f78099b977bc2ceef2275bfcde1ce0095533fe0298e0f0a46",
+            "native-one-2": "30754a6f8d43ef4f78099b977bc2ceef2275bfcde1ce0095533fe0298e0f0a46",
+            "native-one-3": "30754a6f8d43ef4f78099b977bc2ceef2275bfcde1ce0095533fe0298e0f0a46",
+            "native-one-4": "30754a6f8d43ef4f78099b977bc2ceef2275bfcde1ce0095533fe0298e0f0a46",
+            "native-one-5": "30754a6f8d43ef4f78099b977bc2ceef2275bfcde1ce0095533fe0298e0f0a46",
+            "native-one-6": "30754a6f8d43ef4f78099b977bc2ceef2275bfcde1ce0095533fe0298e0f0a46",
+            "native-one-7": "30754a6f8d43ef4f78099b977bc2ceef2275bfcde1ce0095533fe0298e0f0a46",
+            "native-one-8": "30754a6f8d43ef4f78099b977bc2ceef2275bfcde1ce0095533fe0298e0f0a46",
+            "native-one-9": "30754a6f8d43ef4f78099b977bc2ceef2275bfcde1ce0095533fe0298e0f0a46"
+          }
+        },
+        {
+          "image": {
+            "diagnostics": {
+              "count": 0,
+              "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "entries": []
+            },
+            "loaded_order": [
+              "node_modules/inner/index.js",
+              "node_modules/outer/index.js",
+              "main.ts",
+              "globals.d.ts"
+            ],
+            "loaded_set": [
+              "globals.d.ts",
+              "main.ts",
+              "node_modules/inner/index.js",
+              "node_modules/outer/index.js"
+            ],
+            "trace_count": 181,
+            "trace_fingerprint": "bb7543475f9b8fe1dec9847e3db10b28ad59739744035c1a06c31a8c35fcef7a"
+          },
+          "roles": [
+            "native-default-0",
+            "native-default-1",
+            "native-default-2",
+            "native-default-3",
+            "native-default-4",
+            "native-default-5",
+            "native-default-6",
+            "native-default-7",
+            "native-default-8",
+            "native-default-9"
+          ],
+          "stdout_sha256": {
+            "native-default-0": "7a856c517706ab82b7cd3a7ee9e760b3fcf9f9a2ccf3ca32f4acc648e69cf06f",
+            "native-default-1": "7a856c517706ab82b7cd3a7ee9e760b3fcf9f9a2ccf3ca32f4acc648e69cf06f",
+            "native-default-2": "7a856c517706ab82b7cd3a7ee9e760b3fcf9f9a2ccf3ca32f4acc648e69cf06f",
+            "native-default-3": "7a856c517706ab82b7cd3a7ee9e760b3fcf9f9a2ccf3ca32f4acc648e69cf06f",
+            "native-default-4": "7a856c517706ab82b7cd3a7ee9e760b3fcf9f9a2ccf3ca32f4acc648e69cf06f",
+            "native-default-5": "7a856c517706ab82b7cd3a7ee9e760b3fcf9f9a2ccf3ca32f4acc648e69cf06f",
+            "native-default-6": "7a856c517706ab82b7cd3a7ee9e760b3fcf9f9a2ccf3ca32f4acc648e69cf06f",
+            "native-default-7": "7a856c517706ab82b7cd3a7ee9e760b3fcf9f9a2ccf3ca32f4acc648e69cf06f",
+            "native-default-8": "7a856c517706ab82b7cd3a7ee9e760b3fcf9f9a2ccf3ca32f4acc648e69cf06f",
+            "native-default-9": "7a856c517706ab82b7cd3a7ee9e760b3fcf9f9a2ccf3ca32f4acc648e69cf06f"
+          }
+        }
+      ]
+    },
+    {
+      "name": "parent-root-before-import",
+      "roots": [
+        "node_modules/outer/index.js",
+        "main.ts"
+      ],
+      "depth": 1,
+      "no_resolve": false,
+      "input_sha256": {
+        "globals.d.ts": "07b3b2683ebe2455bf84a4298a751d2d18f12f0939df252a8436a1a7b75560da",
+        "main.ts": "f1ab51baa04cc5ce27432d91a046b999227c4119d9b319013bc072a2fea6ca0f",
+        "node_modules/outer/package.json": "ea1deaf95a8d4e646580d2cf0f2c7985a57bd94777d945ab6c7f6f3427a6ba0b",
+        "node_modules/outer/index.js": "05201dffb6760f3e2bd03a5f834fc39f73f1fecca2712fc3ba36fac2edfc6d3b",
+        "node_modules/inner/package.json": "c11b02fdee3cad4c1bc65c46bf77dab1888754010229a48c6229f746e4b630eb",
+        "node_modules/inner/index.js": "ab4083b575c6191abd7c8c97102b26931017f2a42195d4e1d98db7ba116ac18d",
+        "node_modules/inner/leaf.js": "41d8459c96febea8781d073a13e9a566d767e70b684ee5b595dc0bcca411fdff",
+        "node_modules/inner/typed.ts": "860b07ec7f2f4ae1a9b9f79df25a0e8b73dc7eb21d0c736e5a9ff4b44bd4ad1e",
+        "local-main.ts": "45f98a7d45d3d3834f513d432bd6648234f251220ae5ecfe72d1d4c67186abf6",
+        "local.js": "548af80365940b5866417c5240e1785d58be351dffd69bf7f4ee7411f2efb104",
+        "local-typed.ts": "860b07ec7f2f4ae1a9b9f79df25a0e8b73dc7eb21d0c736e5a9ff4b44bd4ad1e",
+        "tsconfig.json": "4c55273a4bec59c49f7975be8739857149ceff5074883a601d9037db545c1287"
+      },
+      "native_distinct_images": 2,
+      "tsr_matches_all_native": {
+        "diagnostics": true,
+        "loaded_order": false,
+        "loaded_set": false,
+        "ordered_trace": false
+      },
+      "variants": [
+        {
+          "image": {
+            "diagnostics": {
+              "count": 0,
+              "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "entries": []
+            },
+            "loaded_order": [
+              "node_modules/inner/index.js",
+              "node_modules/outer/index.js",
+              "main.ts",
+              "globals.d.ts"
+            ],
+            "loaded_set": [
+              "globals.d.ts",
+              "main.ts",
+              "node_modules/inner/index.js",
+              "node_modules/outer/index.js"
+            ],
+            "trace_count": 0,
+            "trace_fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+          },
+          "roles": [
+            "tsr"
+          ],
+          "stdout_sha256": {
+            "tsr": "4eafc4a84796e52187e6adec4459a9d1c547a43efcac859e39ed4027a8119c1f"
+          }
+        },
+        {
+          "image": {
+            "diagnostics": {
+              "count": 0,
+              "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "entries": []
+            },
+            "loaded_order": [
+              "node_modules/outer/index.js",
+              "main.ts",
+              "globals.d.ts"
+            ],
+            "loaded_set": [
+              "globals.d.ts",
+              "main.ts",
+              "node_modules/outer/index.js"
+            ],
+            "trace_count": 169,
+            "trace_fingerprint": "e44b7dcf1261f34854512d537c1ac8a03530196a230ec51719f4a10d39ac16c7"
+          },
+          "roles": [
+            "native-one-0",
+            "native-one-1",
+            "native-one-2",
+            "native-one-3",
+            "native-one-4",
+            "native-one-5",
+            "native-one-6",
+            "native-one-7",
+            "native-one-8",
+            "native-one-9"
+          ],
+          "stdout_sha256": {
+            "native-one-0": "fec2ad8fcf38df9bc6f0ad04f2b7d754d8742ecbb911b46e9ffc7825d9190078",
+            "native-one-1": "fec2ad8fcf38df9bc6f0ad04f2b7d754d8742ecbb911b46e9ffc7825d9190078",
+            "native-one-2": "fec2ad8fcf38df9bc6f0ad04f2b7d754d8742ecbb911b46e9ffc7825d9190078",
+            "native-one-3": "fec2ad8fcf38df9bc6f0ad04f2b7d754d8742ecbb911b46e9ffc7825d9190078",
+            "native-one-4": "fec2ad8fcf38df9bc6f0ad04f2b7d754d8742ecbb911b46e9ffc7825d9190078",
+            "native-one-5": "fec2ad8fcf38df9bc6f0ad04f2b7d754d8742ecbb911b46e9ffc7825d9190078",
+            "native-one-6": "fec2ad8fcf38df9bc6f0ad04f2b7d754d8742ecbb911b46e9ffc7825d9190078",
+            "native-one-7": "fec2ad8fcf38df9bc6f0ad04f2b7d754d8742ecbb911b46e9ffc7825d9190078",
+            "native-one-8": "fec2ad8fcf38df9bc6f0ad04f2b7d754d8742ecbb911b46e9ffc7825d9190078",
+            "native-one-9": "fec2ad8fcf38df9bc6f0ad04f2b7d754d8742ecbb911b46e9ffc7825d9190078"
+          }
+        },
+        {
+          "image": {
+            "diagnostics": {
+              "count": 0,
+              "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "entries": []
+            },
+            "loaded_order": [
+              "node_modules/inner/index.js",
+              "node_modules/outer/index.js",
+              "main.ts",
+              "globals.d.ts"
+            ],
+            "loaded_set": [
+              "globals.d.ts",
+              "main.ts",
+              "node_modules/inner/index.js",
+              "node_modules/outer/index.js"
+            ],
+            "trace_count": 181,
+            "trace_fingerprint": "b379da597c5580887a7a01165bbda53093594e1d6e0c2b00a78dbc3cc7014118"
+          },
+          "roles": [
+            "native-default-0",
+            "native-default-1",
+            "native-default-2",
+            "native-default-3",
+            "native-default-4",
+            "native-default-5",
+            "native-default-6",
+            "native-default-7",
+            "native-default-8",
+            "native-default-9"
+          ],
+          "stdout_sha256": {
+            "native-default-0": "a4fc1ae7b822bbb82a3cc71dc36d06778c99edecd7f788a979ced2d507fa55d2",
+            "native-default-1": "a4fc1ae7b822bbb82a3cc71dc36d06778c99edecd7f788a979ced2d507fa55d2",
+            "native-default-2": "a4fc1ae7b822bbb82a3cc71dc36d06778c99edecd7f788a979ced2d507fa55d2",
+            "native-default-3": "a4fc1ae7b822bbb82a3cc71dc36d06778c99edecd7f788a979ced2d507fa55d2",
+            "native-default-4": "a4fc1ae7b822bbb82a3cc71dc36d06778c99edecd7f788a979ced2d507fa55d2",
+            "native-default-5": "a4fc1ae7b822bbb82a3cc71dc36d06778c99edecd7f788a979ced2d507fa55d2",
+            "native-default-6": "a4fc1ae7b822bbb82a3cc71dc36d06778c99edecd7f788a979ced2d507fa55d2",
+            "native-default-7": "a4fc1ae7b822bbb82a3cc71dc36d06778c99edecd7f788a979ced2d507fa55d2",
+            "native-default-8": "a4fc1ae7b822bbb82a3cc71dc36d06778c99edecd7f788a979ced2d507fa55d2",
+            "native-default-9": "a4fc1ae7b822bbb82a3cc71dc36d06778c99edecd7f788a979ced2d507fa55d2"
+          }
+        }
+      ]
+    },
+    {
+      "name": "elided-without-later-root",
+      "roots": [
+        "main.ts"
+      ],
+      "depth": 1,
+      "no_resolve": false,
+      "input_sha256": {
+        "globals.d.ts": "07b3b2683ebe2455bf84a4298a751d2d18f12f0939df252a8436a1a7b75560da",
+        "main.ts": "f1ab51baa04cc5ce27432d91a046b999227c4119d9b319013bc072a2fea6ca0f",
+        "node_modules/outer/package.json": "ea1deaf95a8d4e646580d2cf0f2c7985a57bd94777d945ab6c7f6f3427a6ba0b",
+        "node_modules/outer/index.js": "05201dffb6760f3e2bd03a5f834fc39f73f1fecca2712fc3ba36fac2edfc6d3b",
+        "node_modules/inner/package.json": "c11b02fdee3cad4c1bc65c46bf77dab1888754010229a48c6229f746e4b630eb",
+        "node_modules/inner/index.js": "ab4083b575c6191abd7c8c97102b26931017f2a42195d4e1d98db7ba116ac18d",
+        "node_modules/inner/leaf.js": "41d8459c96febea8781d073a13e9a566d767e70b684ee5b595dc0bcca411fdff",
+        "node_modules/inner/typed.ts": "860b07ec7f2f4ae1a9b9f79df25a0e8b73dc7eb21d0c736e5a9ff4b44bd4ad1e",
+        "local-main.ts": "45f98a7d45d3d3834f513d432bd6648234f251220ae5ecfe72d1d4c67186abf6",
+        "local.js": "548af80365940b5866417c5240e1785d58be351dffd69bf7f4ee7411f2efb104",
+        "local-typed.ts": "860b07ec7f2f4ae1a9b9f79df25a0e8b73dc7eb21d0c736e5a9ff4b44bd4ad1e",
+        "tsconfig.json": "048a9e70ed8478dcdaeba0af00d2e25cb6441c3ab61c1cd4153fcbee062db15f"
+      },
+      "native_distinct_images": 1,
+      "tsr_matches_all_native": {
+        "diagnostics": true,
+        "loaded_order": true,
+        "loaded_set": true,
+        "ordered_trace": false
+      },
+      "variants": [
+        {
+          "image": {
+            "diagnostics": {
+              "count": 0,
+              "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "entries": []
+            },
+            "loaded_order": [
+              "node_modules/outer/index.js",
+              "main.ts",
+              "globals.d.ts"
+            ],
+            "loaded_set": [
+              "globals.d.ts",
+              "main.ts",
+              "node_modules/outer/index.js"
+            ],
+            "trace_count": 0,
+            "trace_fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+          },
+          "roles": [
+            "tsr"
+          ],
+          "stdout_sha256": {
+            "tsr": "9e7357c55447c0cd7329ee871da468822773b8b8e42dac0da1c9767b5020dc7d"
+          }
+        },
+        {
+          "image": {
+            "diagnostics": {
+              "count": 0,
+              "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "entries": []
+            },
+            "loaded_order": [
+              "node_modules/outer/index.js",
+              "main.ts",
+              "globals.d.ts"
+            ],
+            "loaded_set": [
+              "globals.d.ts",
+              "main.ts",
+              "node_modules/outer/index.js"
+            ],
+            "trace_count": 169,
+            "trace_fingerprint": "c7429955e370a4e9d258e48cb961b6bcf15b6da786747b6b342f0f84cda7bc3d"
+          },
+          "roles": [
+            "native-one-0",
+            "native-default-0",
+            "native-one-1",
+            "native-default-1",
+            "native-one-2",
+            "native-default-2",
+            "native-one-3",
+            "native-default-3",
+            "native-one-4",
+            "native-default-4",
+            "native-one-5",
+            "native-default-5",
+            "native-one-6",
+            "native-default-6",
+            "native-one-7",
+            "native-default-7",
+            "native-one-8",
+            "native-default-8",
+            "native-one-9",
+            "native-default-9"
+          ],
+          "stdout_sha256": {
+            "native-one-0": "aa67566d816b3dc014295ad9989b03ea60f7c27102f2693fb96de04a8b3335a6",
+            "native-default-0": "aa67566d816b3dc014295ad9989b03ea60f7c27102f2693fb96de04a8b3335a6",
+            "native-one-1": "aa67566d816b3dc014295ad9989b03ea60f7c27102f2693fb96de04a8b3335a6",
+            "native-default-1": "aa67566d816b3dc014295ad9989b03ea60f7c27102f2693fb96de04a8b3335a6",
+            "native-one-2": "aa67566d816b3dc014295ad9989b03ea60f7c27102f2693fb96de04a8b3335a6",
+            "native-default-2": "aa67566d816b3dc014295ad9989b03ea60f7c27102f2693fb96de04a8b3335a6",
+            "native-one-3": "aa67566d816b3dc014295ad9989b03ea60f7c27102f2693fb96de04a8b3335a6",
+            "native-default-3": "aa67566d816b3dc014295ad9989b03ea60f7c27102f2693fb96de04a8b3335a6",
+            "native-one-4": "aa67566d816b3dc014295ad9989b03ea60f7c27102f2693fb96de04a8b3335a6",
+            "native-default-4": "aa67566d816b3dc014295ad9989b03ea60f7c27102f2693fb96de04a8b3335a6",
+            "native-one-5": "aa67566d816b3dc014295ad9989b03ea60f7c27102f2693fb96de04a8b3335a6",
+            "native-default-5": "aa67566d816b3dc014295ad9989b03ea60f7c27102f2693fb96de04a8b3335a6",
+            "native-one-6": "aa67566d816b3dc014295ad9989b03ea60f7c27102f2693fb96de04a8b3335a6",
+            "native-default-6": "aa67566d816b3dc014295ad9989b03ea60f7c27102f2693fb96de04a8b3335a6",
+            "native-one-7": "aa67566d816b3dc014295ad9989b03ea60f7c27102f2693fb96de04a8b3335a6",
+            "native-default-7": "aa67566d816b3dc014295ad9989b03ea60f7c27102f2693fb96de04a8b3335a6",
+            "native-one-8": "aa67566d816b3dc014295ad9989b03ea60f7c27102f2693fb96de04a8b3335a6",
+            "native-default-8": "aa67566d816b3dc014295ad9989b03ea60f7c27102f2693fb96de04a8b3335a6",
+            "native-one-9": "aa67566d816b3dc014295ad9989b03ea60f7c27102f2693fb96de04a8b3335a6",
+            "native-default-9": "aa67566d816b3dc014295ad9989b03ea60f7c27102f2693fb96de04a8b3335a6"
+          }
+        }
+      ]
+    },
+    {
+      "name": "outer-root-only",
+      "roots": [
+        "node_modules/outer/index.js"
+      ],
+      "depth": 1,
+      "no_resolve": false,
+      "input_sha256": {
+        "globals.d.ts": "07b3b2683ebe2455bf84a4298a751d2d18f12f0939df252a8436a1a7b75560da",
+        "main.ts": "f1ab51baa04cc5ce27432d91a046b999227c4119d9b319013bc072a2fea6ca0f",
+        "node_modules/outer/package.json": "ea1deaf95a8d4e646580d2cf0f2c7985a57bd94777d945ab6c7f6f3427a6ba0b",
+        "node_modules/outer/index.js": "05201dffb6760f3e2bd03a5f834fc39f73f1fecca2712fc3ba36fac2edfc6d3b",
+        "node_modules/inner/package.json": "c11b02fdee3cad4c1bc65c46bf77dab1888754010229a48c6229f746e4b630eb",
+        "node_modules/inner/index.js": "ab4083b575c6191abd7c8c97102b26931017f2a42195d4e1d98db7ba116ac18d",
+        "node_modules/inner/leaf.js": "41d8459c96febea8781d073a13e9a566d767e70b684ee5b595dc0bcca411fdff",
+        "node_modules/inner/typed.ts": "860b07ec7f2f4ae1a9b9f79df25a0e8b73dc7eb21d0c736e5a9ff4b44bd4ad1e",
+        "local-main.ts": "45f98a7d45d3d3834f513d432bd6648234f251220ae5ecfe72d1d4c67186abf6",
+        "local.js": "548af80365940b5866417c5240e1785d58be351dffd69bf7f4ee7411f2efb104",
+        "local-typed.ts": "860b07ec7f2f4ae1a9b9f79df25a0e8b73dc7eb21d0c736e5a9ff4b44bd4ad1e",
+        "tsconfig.json": "34f7b6fb145f0a779ab3fb6061de7d708f49250a48cefd463080285e80f49b91"
+      },
+      "native_distinct_images": 1,
+      "tsr_matches_all_native": {
+        "diagnostics": true,
+        "loaded_order": true,
+        "loaded_set": true,
+        "ordered_trace": false
+      },
+      "variants": [
+        {
+          "image": {
+            "diagnostics": {
+              "count": 0,
+              "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "entries": []
+            },
+            "loaded_order": [
+              "node_modules/inner/index.js",
+              "node_modules/outer/index.js",
+              "globals.d.ts"
+            ],
+            "loaded_set": [
+              "globals.d.ts",
+              "node_modules/inner/index.js",
+              "node_modules/outer/index.js"
+            ],
+            "trace_count": 0,
+            "trace_fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+          },
+          "roles": [
+            "tsr"
+          ],
+          "stdout_sha256": {
+            "tsr": "2fa878d3dc130d64d0ca56e9dfe70290c001a1b4704e683d4859148c1be6c6a5"
+          }
+        },
+        {
+          "image": {
+            "diagnostics": {
+              "count": 0,
+              "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "entries": []
+            },
+            "loaded_order": [
+              "node_modules/inner/index.js",
+              "node_modules/outer/index.js",
+              "globals.d.ts"
+            ],
+            "loaded_set": [
+              "globals.d.ts",
+              "node_modules/inner/index.js",
+              "node_modules/outer/index.js"
+            ],
+            "trace_count": 94,
+            "trace_fingerprint": "eae96acbb9deff0bc21532f1f933330561e43518d36142623ad83fc19eff1733"
+          },
+          "roles": [
+            "native-one-0",
+            "native-default-0",
+            "native-one-1",
+            "native-default-1",
+            "native-one-2",
+            "native-default-2",
+            "native-one-3",
+            "native-default-3",
+            "native-one-4",
+            "native-default-4",
+            "native-one-5",
+            "native-default-5",
+            "native-one-6",
+            "native-default-6",
+            "native-one-7",
+            "native-default-7",
+            "native-one-8",
+            "native-default-8",
+            "native-one-9",
+            "native-default-9"
+          ],
+          "stdout_sha256": {
+            "native-one-0": "ac98316c44d920d1367ee589bc2af85c6a7e454368a5bfb70753a0e524403896",
+            "native-default-0": "ac98316c44d920d1367ee589bc2af85c6a7e454368a5bfb70753a0e524403896",
+            "native-one-1": "ac98316c44d920d1367ee589bc2af85c6a7e454368a5bfb70753a0e524403896",
+            "native-default-1": "ac98316c44d920d1367ee589bc2af85c6a7e454368a5bfb70753a0e524403896",
+            "native-one-2": "ac98316c44d920d1367ee589bc2af85c6a7e454368a5bfb70753a0e524403896",
+            "native-default-2": "ac98316c44d920d1367ee589bc2af85c6a7e454368a5bfb70753a0e524403896",
+            "native-one-3": "ac98316c44d920d1367ee589bc2af85c6a7e454368a5bfb70753a0e524403896",
+            "native-default-3": "ac98316c44d920d1367ee589bc2af85c6a7e454368a5bfb70753a0e524403896",
+            "native-one-4": "ac98316c44d920d1367ee589bc2af85c6a7e454368a5bfb70753a0e524403896",
+            "native-default-4": "ac98316c44d920d1367ee589bc2af85c6a7e454368a5bfb70753a0e524403896",
+            "native-one-5": "ac98316c44d920d1367ee589bc2af85c6a7e454368a5bfb70753a0e524403896",
+            "native-default-5": "ac98316c44d920d1367ee589bc2af85c6a7e454368a5bfb70753a0e524403896",
+            "native-one-6": "ac98316c44d920d1367ee589bc2af85c6a7e454368a5bfb70753a0e524403896",
+            "native-default-6": "ac98316c44d920d1367ee589bc2af85c6a7e454368a5bfb70753a0e524403896",
+            "native-one-7": "ac98316c44d920d1367ee589bc2af85c6a7e454368a5bfb70753a0e524403896",
+            "native-default-7": "ac98316c44d920d1367ee589bc2af85c6a7e454368a5bfb70753a0e524403896",
+            "native-one-8": "ac98316c44d920d1367ee589bc2af85c6a7e454368a5bfb70753a0e524403896",
+            "native-default-8": "ac98316c44d920d1367ee589bc2af85c6a7e454368a5bfb70753a0e524403896",
+            "native-one-9": "ac98316c44d920d1367ee589bc2af85c6a7e454368a5bfb70753a0e524403896",
+            "native-default-9": "ac98316c44d920d1367ee589bc2af85c6a7e454368a5bfb70753a0e524403896"
+          }
+        }
+      ]
+    },
+    {
+      "name": "raised-limit-two",
+      "roots": [
+        "main.ts"
+      ],
+      "depth": 2,
+      "no_resolve": false,
+      "input_sha256": {
+        "globals.d.ts": "07b3b2683ebe2455bf84a4298a751d2d18f12f0939df252a8436a1a7b75560da",
+        "main.ts": "f1ab51baa04cc5ce27432d91a046b999227c4119d9b319013bc072a2fea6ca0f",
+        "node_modules/outer/package.json": "ea1deaf95a8d4e646580d2cf0f2c7985a57bd94777d945ab6c7f6f3427a6ba0b",
+        "node_modules/outer/index.js": "05201dffb6760f3e2bd03a5f834fc39f73f1fecca2712fc3ba36fac2edfc6d3b",
+        "node_modules/inner/package.json": "c11b02fdee3cad4c1bc65c46bf77dab1888754010229a48c6229f746e4b630eb",
+        "node_modules/inner/index.js": "ab4083b575c6191abd7c8c97102b26931017f2a42195d4e1d98db7ba116ac18d",
+        "node_modules/inner/leaf.js": "41d8459c96febea8781d073a13e9a566d767e70b684ee5b595dc0bcca411fdff",
+        "node_modules/inner/typed.ts": "860b07ec7f2f4ae1a9b9f79df25a0e8b73dc7eb21d0c736e5a9ff4b44bd4ad1e",
+        "local-main.ts": "45f98a7d45d3d3834f513d432bd6648234f251220ae5ecfe72d1d4c67186abf6",
+        "local.js": "548af80365940b5866417c5240e1785d58be351dffd69bf7f4ee7411f2efb104",
+        "local-typed.ts": "860b07ec7f2f4ae1a9b9f79df25a0e8b73dc7eb21d0c736e5a9ff4b44bd4ad1e",
+        "tsconfig.json": "5076d7190bd591fc579ddb4295b917ace10b13631975eba4d408bc7576e4c215"
+      },
+      "native_distinct_images": 1,
+      "tsr_matches_all_native": {
+        "diagnostics": true,
+        "loaded_order": true,
+        "loaded_set": true,
+        "ordered_trace": false
+      },
+      "variants": [
+        {
+          "image": {
+            "diagnostics": {
+              "count": 0,
+              "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "entries": []
+            },
+            "loaded_order": [
+              "node_modules/inner/index.js",
+              "node_modules/outer/index.js",
+              "main.ts",
+              "globals.d.ts"
+            ],
+            "loaded_set": [
+              "globals.d.ts",
+              "main.ts",
+              "node_modules/inner/index.js",
+              "node_modules/outer/index.js"
+            ],
+            "trace_count": 0,
+            "trace_fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+          },
+          "roles": [
+            "tsr"
+          ],
+          "stdout_sha256": {
+            "tsr": "b46174bf9ed63f4091024015de3210e4f2ed62ea11e7738bc2eeda16e5f454cd"
+          }
+        },
+        {
+          "image": {
+            "diagnostics": {
+              "count": 0,
+              "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "entries": []
+            },
+            "loaded_order": [
+              "node_modules/inner/index.js",
+              "node_modules/outer/index.js",
+              "main.ts",
+              "globals.d.ts"
+            ],
+            "loaded_set": [
+              "globals.d.ts",
+              "main.ts",
+              "node_modules/inner/index.js",
+              "node_modules/outer/index.js"
+            ],
+            "trace_count": 181,
+            "trace_fingerprint": "bb7543475f9b8fe1dec9847e3db10b28ad59739744035c1a06c31a8c35fcef7a"
+          },
+          "roles": [
+            "native-one-0",
+            "native-default-0",
+            "native-one-1",
+            "native-default-1",
+            "native-one-2",
+            "native-default-2",
+            "native-one-3",
+            "native-default-3",
+            "native-one-4",
+            "native-default-4",
+            "native-one-5",
+            "native-default-5",
+            "native-one-6",
+            "native-default-6",
+            "native-one-7",
+            "native-default-7",
+            "native-one-8",
+            "native-default-8",
+            "native-one-9",
+            "native-default-9"
+          ],
+          "stdout_sha256": {
+            "native-one-0": "935bcb9c37d7190a457d3327ae986c8908254f04271661b7c8d57072f2188916",
+            "native-default-0": "935bcb9c37d7190a457d3327ae986c8908254f04271661b7c8d57072f2188916",
+            "native-one-1": "935bcb9c37d7190a457d3327ae986c8908254f04271661b7c8d57072f2188916",
+            "native-default-1": "935bcb9c37d7190a457d3327ae986c8908254f04271661b7c8d57072f2188916",
+            "native-one-2": "935bcb9c37d7190a457d3327ae986c8908254f04271661b7c8d57072f2188916",
+            "native-default-2": "935bcb9c37d7190a457d3327ae986c8908254f04271661b7c8d57072f2188916",
+            "native-one-3": "935bcb9c37d7190a457d3327ae986c8908254f04271661b7c8d57072f2188916",
+            "native-default-3": "935bcb9c37d7190a457d3327ae986c8908254f04271661b7c8d57072f2188916",
+            "native-one-4": "935bcb9c37d7190a457d3327ae986c8908254f04271661b7c8d57072f2188916",
+            "native-default-4": "935bcb9c37d7190a457d3327ae986c8908254f04271661b7c8d57072f2188916",
+            "native-one-5": "935bcb9c37d7190a457d3327ae986c8908254f04271661b7c8d57072f2188916",
+            "native-default-5": "935bcb9c37d7190a457d3327ae986c8908254f04271661b7c8d57072f2188916",
+            "native-one-6": "935bcb9c37d7190a457d3327ae986c8908254f04271661b7c8d57072f2188916",
+            "native-default-6": "935bcb9c37d7190a457d3327ae986c8908254f04271661b7c8d57072f2188916",
+            "native-one-7": "935bcb9c37d7190a457d3327ae986c8908254f04271661b7c8d57072f2188916",
+            "native-default-7": "935bcb9c37d7190a457d3327ae986c8908254f04271661b7c8d57072f2188916",
+            "native-one-8": "935bcb9c37d7190a457d3327ae986c8908254f04271661b7c8d57072f2188916",
+            "native-default-8": "935bcb9c37d7190a457d3327ae986c8908254f04271661b7c8d57072f2188916",
+            "native-one-9": "935bcb9c37d7190a457d3327ae986c8908254f04271661b7c8d57072f2188916",
+            "native-default-9": "935bcb9c37d7190a457d3327ae986c8908254f04271661b7c8d57072f2188916"
+          }
+        }
+      ]
+    },
+    {
+      "name": "raised-limit-three",
+      "roots": [
+        "main.ts"
+      ],
+      "depth": 3,
+      "no_resolve": false,
+      "input_sha256": {
+        "globals.d.ts": "07b3b2683ebe2455bf84a4298a751d2d18f12f0939df252a8436a1a7b75560da",
+        "main.ts": "f1ab51baa04cc5ce27432d91a046b999227c4119d9b319013bc072a2fea6ca0f",
+        "node_modules/outer/package.json": "ea1deaf95a8d4e646580d2cf0f2c7985a57bd94777d945ab6c7f6f3427a6ba0b",
+        "node_modules/outer/index.js": "05201dffb6760f3e2bd03a5f834fc39f73f1fecca2712fc3ba36fac2edfc6d3b",
+        "node_modules/inner/package.json": "c11b02fdee3cad4c1bc65c46bf77dab1888754010229a48c6229f746e4b630eb",
+        "node_modules/inner/index.js": "ab4083b575c6191abd7c8c97102b26931017f2a42195d4e1d98db7ba116ac18d",
+        "node_modules/inner/leaf.js": "41d8459c96febea8781d073a13e9a566d767e70b684ee5b595dc0bcca411fdff",
+        "node_modules/inner/typed.ts": "860b07ec7f2f4ae1a9b9f79df25a0e8b73dc7eb21d0c736e5a9ff4b44bd4ad1e",
+        "local-main.ts": "45f98a7d45d3d3834f513d432bd6648234f251220ae5ecfe72d1d4c67186abf6",
+        "local.js": "548af80365940b5866417c5240e1785d58be351dffd69bf7f4ee7411f2efb104",
+        "local-typed.ts": "860b07ec7f2f4ae1a9b9f79df25a0e8b73dc7eb21d0c736e5a9ff4b44bd4ad1e",
+        "tsconfig.json": "e176a174ff675f6283f8380d7951cbb9b7685afc97189d524f92aa74800e9b3e"
+      },
+      "native_distinct_images": 1,
+      "tsr_matches_all_native": {
+        "diagnostics": true,
+        "loaded_order": true,
+        "loaded_set": true,
+        "ordered_trace": false
+      },
+      "variants": [
+        {
+          "image": {
+            "diagnostics": {
+              "count": 1,
+              "fingerprint": "b75497e34df316ba647a14d375327c88f8dd82e89abdd9b96f05e111b4d636cd",
+              "entries": [
+                "node_modules/inner/typed.ts(1,14): error TS2322: Type 'string' is not assignable to type 'number'."
+              ]
+            },
+            "loaded_order": [
+              "node_modules/inner/typed.ts",
+              "node_modules/inner/leaf.js",
+              "node_modules/inner/index.js",
+              "node_modules/outer/index.js",
+              "main.ts",
+              "globals.d.ts"
+            ],
+            "loaded_set": [
+              "globals.d.ts",
+              "main.ts",
+              "node_modules/inner/index.js",
+              "node_modules/inner/leaf.js",
+              "node_modules/inner/typed.ts",
+              "node_modules/outer/index.js"
+            ],
+            "trace_count": 1,
+            "trace_fingerprint": "f9e9a3a57fc07c447dc09f4532521164fd4e395e6b211555b98d695b7d0ac599"
+          },
+          "roles": [
+            "tsr"
+          ],
+          "stdout_sha256": {
+            "tsr": "e8c00abb675836c79e81bcbf85931fa58aa9146c1d6337ccade6beb9202e3e1e"
+          }
+        },
+        {
+          "image": {
+            "diagnostics": {
+              "count": 1,
+              "fingerprint": "b75497e34df316ba647a14d375327c88f8dd82e89abdd9b96f05e111b4d636cd",
+              "entries": [
+                "node_modules/inner/typed.ts(1,14): error TS2322: Type 'string' is not assignable to type 'number'."
+              ]
+            },
+            "loaded_order": [
+              "node_modules/inner/typed.ts",
+              "node_modules/inner/leaf.js",
+              "node_modules/inner/index.js",
+              "node_modules/outer/index.js",
+              "main.ts",
+              "globals.d.ts"
+            ],
+            "loaded_set": [
+              "globals.d.ts",
+              "main.ts",
+              "node_modules/inner/index.js",
+              "node_modules/inner/leaf.js",
+              "node_modules/inner/typed.ts",
+              "node_modules/outer/index.js"
+            ],
+            "trace_count": 190,
+            "trace_fingerprint": "08995c93a6d1657c20cb3154faf7567e66fb39fcf64790a47e92cd60f532a710"
+          },
+          "roles": [
+            "native-one-0",
+            "native-default-0",
+            "native-one-1",
+            "native-default-1",
+            "native-one-2",
+            "native-default-2",
+            "native-one-3",
+            "native-default-3",
+            "native-one-4",
+            "native-default-4",
+            "native-one-5",
+            "native-default-5",
+            "native-one-6",
+            "native-default-6",
+            "native-one-7",
+            "native-default-7",
+            "native-one-8",
+            "native-default-8",
+            "native-one-9",
+            "native-default-9"
+          ],
+          "stdout_sha256": {
+            "native-one-0": "b37742289c7e299f34d227ad6cb46b76c2e1f70b4b2437515e9468bcc119aaa2",
+            "native-default-0": "b37742289c7e299f34d227ad6cb46b76c2e1f70b4b2437515e9468bcc119aaa2",
+            "native-one-1": "b37742289c7e299f34d227ad6cb46b76c2e1f70b4b2437515e9468bcc119aaa2",
+            "native-default-1": "b37742289c7e299f34d227ad6cb46b76c2e1f70b4b2437515e9468bcc119aaa2",
+            "native-one-2": "b37742289c7e299f34d227ad6cb46b76c2e1f70b4b2437515e9468bcc119aaa2",
+            "native-default-2": "b37742289c7e299f34d227ad6cb46b76c2e1f70b4b2437515e9468bcc119aaa2",
+            "native-one-3": "b37742289c7e299f34d227ad6cb46b76c2e1f70b4b2437515e9468bcc119aaa2",
+            "native-default-3": "b37742289c7e299f34d227ad6cb46b76c2e1f70b4b2437515e9468bcc119aaa2",
+            "native-one-4": "b37742289c7e299f34d227ad6cb46b76c2e1f70b4b2437515e9468bcc119aaa2",
+            "native-default-4": "b37742289c7e299f34d227ad6cb46b76c2e1f70b4b2437515e9468bcc119aaa2",
+            "native-one-5": "b37742289c7e299f34d227ad6cb46b76c2e1f70b4b2437515e9468bcc119aaa2",
+            "native-default-5": "b37742289c7e299f34d227ad6cb46b76c2e1f70b4b2437515e9468bcc119aaa2",
+            "native-one-6": "b37742289c7e299f34d227ad6cb46b76c2e1f70b4b2437515e9468bcc119aaa2",
+            "native-default-6": "b37742289c7e299f34d227ad6cb46b76c2e1f70b4b2437515e9468bcc119aaa2",
+            "native-one-7": "b37742289c7e299f34d227ad6cb46b76c2e1f70b4b2437515e9468bcc119aaa2",
+            "native-default-7": "b37742289c7e299f34d227ad6cb46b76c2e1f70b4b2437515e9468bcc119aaa2",
+            "native-one-8": "b37742289c7e299f34d227ad6cb46b76c2e1f70b4b2437515e9468bcc119aaa2",
+            "native-default-8": "b37742289c7e299f34d227ad6cb46b76c2e1f70b4b2437515e9468bcc119aaa2",
+            "native-one-9": "b37742289c7e299f34d227ad6cb46b76c2e1f70b4b2437515e9468bcc119aaa2",
+            "native-default-9": "b37742289c7e299f34d227ad6cb46b76c2e1f70b4b2437515e9468bcc119aaa2"
+          }
+        }
+      ]
+    },
+    {
+      "name": "zero-limit-later-root",
+      "roots": [
+        "main.ts",
+        "node_modules/inner/index.js"
+      ],
+      "depth": 0,
+      "no_resolve": false,
+      "input_sha256": {
+        "globals.d.ts": "07b3b2683ebe2455bf84a4298a751d2d18f12f0939df252a8436a1a7b75560da",
+        "main.ts": "f1ab51baa04cc5ce27432d91a046b999227c4119d9b319013bc072a2fea6ca0f",
+        "node_modules/outer/package.json": "ea1deaf95a8d4e646580d2cf0f2c7985a57bd94777d945ab6c7f6f3427a6ba0b",
+        "node_modules/outer/index.js": "05201dffb6760f3e2bd03a5f834fc39f73f1fecca2712fc3ba36fac2edfc6d3b",
+        "node_modules/inner/package.json": "c11b02fdee3cad4c1bc65c46bf77dab1888754010229a48c6229f746e4b630eb",
+        "node_modules/inner/index.js": "ab4083b575c6191abd7c8c97102b26931017f2a42195d4e1d98db7ba116ac18d",
+        "node_modules/inner/leaf.js": "41d8459c96febea8781d073a13e9a566d767e70b684ee5b595dc0bcca411fdff",
+        "node_modules/inner/typed.ts": "860b07ec7f2f4ae1a9b9f79df25a0e8b73dc7eb21d0c736e5a9ff4b44bd4ad1e",
+        "local-main.ts": "45f98a7d45d3d3834f513d432bd6648234f251220ae5ecfe72d1d4c67186abf6",
+        "local.js": "548af80365940b5866417c5240e1785d58be351dffd69bf7f4ee7411f2efb104",
+        "local-typed.ts": "860b07ec7f2f4ae1a9b9f79df25a0e8b73dc7eb21d0c736e5a9ff4b44bd4ad1e",
+        "tsconfig.json": "2328baf896b0953847b3a42172ab2871315fdf7fb5f6f2668be0791c85e7828a"
+      },
+      "native_distinct_images": 1,
+      "tsr_matches_all_native": {
+        "diagnostics": true,
+        "loaded_order": true,
+        "loaded_set": true,
+        "ordered_trace": false
+      },
+      "variants": [
+        {
+          "image": {
+            "diagnostics": {
+              "count": 0,
+              "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "entries": []
+            },
+            "loaded_order": [
+              "main.ts",
+              "node_modules/inner/index.js",
+              "globals.d.ts"
+            ],
+            "loaded_set": [
+              "globals.d.ts",
+              "main.ts",
+              "node_modules/inner/index.js"
+            ],
+            "trace_count": 0,
+            "trace_fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+          },
+          "roles": [
+            "tsr"
+          ],
+          "stdout_sha256": {
+            "tsr": "4acdf2f1f4057b83e1479ca8dc24ac7f4153d37950b7d16f5456b6f81c46dd17"
+          }
+        },
+        {
+          "image": {
+            "diagnostics": {
+              "count": 0,
+              "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "entries": []
+            },
+            "loaded_order": [
+              "main.ts",
+              "node_modules/inner/index.js",
+              "globals.d.ts"
+            ],
+            "loaded_set": [
+              "globals.d.ts",
+              "main.ts",
+              "node_modules/inner/index.js"
+            ],
+            "trace_count": 99,
+            "trace_fingerprint": "1855692471e04ac5b54e1cf349dc2c893273bba7cf4e4fb1c56fd6c4bba3f4a0"
+          },
+          "roles": [
+            "native-one-0",
+            "native-default-0",
+            "native-one-1",
+            "native-default-1",
+            "native-one-2",
+            "native-default-2",
+            "native-one-3",
+            "native-default-3",
+            "native-one-4",
+            "native-default-4",
+            "native-one-5",
+            "native-default-5",
+            "native-one-6",
+            "native-default-6",
+            "native-one-7",
+            "native-default-7",
+            "native-one-8",
+            "native-default-8",
+            "native-one-9",
+            "native-default-9"
+          ],
+          "stdout_sha256": {
+            "native-one-0": "3ca51567fe1dc850ddb41135caa1fc84e4ff580fb5cc25285d5d841a34b320bf",
+            "native-default-0": "3ca51567fe1dc850ddb41135caa1fc84e4ff580fb5cc25285d5d841a34b320bf",
+            "native-one-1": "3ca51567fe1dc850ddb41135caa1fc84e4ff580fb5cc25285d5d841a34b320bf",
+            "native-default-1": "3ca51567fe1dc850ddb41135caa1fc84e4ff580fb5cc25285d5d841a34b320bf",
+            "native-one-2": "3ca51567fe1dc850ddb41135caa1fc84e4ff580fb5cc25285d5d841a34b320bf",
+            "native-default-2": "3ca51567fe1dc850ddb41135caa1fc84e4ff580fb5cc25285d5d841a34b320bf",
+            "native-one-3": "3ca51567fe1dc850ddb41135caa1fc84e4ff580fb5cc25285d5d841a34b320bf",
+            "native-default-3": "3ca51567fe1dc850ddb41135caa1fc84e4ff580fb5cc25285d5d841a34b320bf",
+            "native-one-4": "3ca51567fe1dc850ddb41135caa1fc84e4ff580fb5cc25285d5d841a34b320bf",
+            "native-default-4": "3ca51567fe1dc850ddb41135caa1fc84e4ff580fb5cc25285d5d841a34b320bf",
+            "native-one-5": "3ca51567fe1dc850ddb41135caa1fc84e4ff580fb5cc25285d5d841a34b320bf",
+            "native-default-5": "3ca51567fe1dc850ddb41135caa1fc84e4ff580fb5cc25285d5d841a34b320bf",
+            "native-one-6": "3ca51567fe1dc850ddb41135caa1fc84e4ff580fb5cc25285d5d841a34b320bf",
+            "native-default-6": "3ca51567fe1dc850ddb41135caa1fc84e4ff580fb5cc25285d5d841a34b320bf",
+            "native-one-7": "3ca51567fe1dc850ddb41135caa1fc84e4ff580fb5cc25285d5d841a34b320bf",
+            "native-default-7": "3ca51567fe1dc850ddb41135caa1fc84e4ff580fb5cc25285d5d841a34b320bf",
+            "native-one-8": "3ca51567fe1dc850ddb41135caa1fc84e4ff580fb5cc25285d5d841a34b320bf",
+            "native-default-8": "3ca51567fe1dc850ddb41135caa1fc84e4ff580fb5cc25285d5d841a34b320bf",
+            "native-one-9": "3ca51567fe1dc850ddb41135caa1fc84e4ff580fb5cc25285d5d841a34b320bf",
+            "native-default-9": "3ca51567fe1dc850ddb41135caa1fc84e4ff580fb5cc25285d5d841a34b320bf"
+          }
+        }
+      ]
+    },
+    {
+      "name": "duplicate-later-root",
+      "roots": [
+        "main.ts",
+        "node_modules/inner/index.js",
+        "node_modules/inner/index.js"
+      ],
+      "depth": 1,
+      "no_resolve": false,
+      "input_sha256": {
+        "globals.d.ts": "07b3b2683ebe2455bf84a4298a751d2d18f12f0939df252a8436a1a7b75560da",
+        "main.ts": "f1ab51baa04cc5ce27432d91a046b999227c4119d9b319013bc072a2fea6ca0f",
+        "node_modules/outer/package.json": "ea1deaf95a8d4e646580d2cf0f2c7985a57bd94777d945ab6c7f6f3427a6ba0b",
+        "node_modules/outer/index.js": "05201dffb6760f3e2bd03a5f834fc39f73f1fecca2712fc3ba36fac2edfc6d3b",
+        "node_modules/inner/package.json": "c11b02fdee3cad4c1bc65c46bf77dab1888754010229a48c6229f746e4b630eb",
+        "node_modules/inner/index.js": "ab4083b575c6191abd7c8c97102b26931017f2a42195d4e1d98db7ba116ac18d",
+        "node_modules/inner/leaf.js": "41d8459c96febea8781d073a13e9a566d767e70b684ee5b595dc0bcca411fdff",
+        "node_modules/inner/typed.ts": "860b07ec7f2f4ae1a9b9f79df25a0e8b73dc7eb21d0c736e5a9ff4b44bd4ad1e",
+        "local-main.ts": "45f98a7d45d3d3834f513d432bd6648234f251220ae5ecfe72d1d4c67186abf6",
+        "local.js": "548af80365940b5866417c5240e1785d58be351dffd69bf7f4ee7411f2efb104",
+        "local-typed.ts": "860b07ec7f2f4ae1a9b9f79df25a0e8b73dc7eb21d0c736e5a9ff4b44bd4ad1e",
+        "tsconfig.json": "bc192a3e8baee60283045e47a4c79185f5822cd9380cc5669a923faf98a4ee47"
+      },
+      "native_distinct_images": 1,
+      "tsr_matches_all_native": {
+        "diagnostics": false,
+        "loaded_order": false,
+        "loaded_set": false,
+        "ordered_trace": false
+      },
+      "variants": [
+        {
+          "image": {
+            "diagnostics": {
+              "count": 0,
+              "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "entries": []
+            },
+            "loaded_order": [
+              "node_modules/outer/index.js",
+              "main.ts",
+              "globals.d.ts"
+            ],
+            "loaded_set": [
+              "globals.d.ts",
+              "main.ts",
+              "node_modules/outer/index.js"
+            ],
+            "trace_count": 0,
+            "trace_fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+          },
+          "roles": [
+            "tsr"
+          ],
+          "stdout_sha256": {
+            "tsr": "02a18199e2f7030f844f56a3f6d52b56c65ca1d6b29bfd00f3645bc39518b5fe"
+          }
+        },
+        {
+          "image": {
+            "diagnostics": {
+              "count": 1,
+              "fingerprint": "b75497e34df316ba647a14d375327c88f8dd82e89abdd9b96f05e111b4d636cd",
+              "entries": [
+                "node_modules/inner/typed.ts(1,14): error TS2322: Type 'string' is not assignable to type 'number'."
+              ]
+            },
+            "loaded_order": [
+              "node_modules/inner/typed.ts",
+              "node_modules/inner/leaf.js",
+              "node_modules/inner/index.js",
+              "node_modules/outer/index.js",
+              "main.ts",
+              "globals.d.ts"
+            ],
+            "loaded_set": [
+              "globals.d.ts",
+              "main.ts",
+              "node_modules/inner/index.js",
+              "node_modules/inner/leaf.js",
+              "node_modules/inner/typed.ts",
+              "node_modules/outer/index.js"
+            ],
+            "trace_count": 190,
+            "trace_fingerprint": "66f0e453c5c987dad1dc719cb34cdc3315d844bb8e392c24664904e1ad6b9473"
+          },
+          "roles": [
+            "native-one-0",
+            "native-default-0",
+            "native-one-1",
+            "native-default-1",
+            "native-one-2",
+            "native-default-2",
+            "native-one-3",
+            "native-default-3",
+            "native-one-4",
+            "native-default-4",
+            "native-one-5",
+            "native-default-5",
+            "native-one-6",
+            "native-default-6",
+            "native-one-7",
+            "native-default-7",
+            "native-one-8",
+            "native-default-8",
+            "native-one-9",
+            "native-default-9"
+          ],
+          "stdout_sha256": {
+            "native-one-0": "9b33da95fdc4b5f3f61d86995558c9554b9430e6196131c023444008c5c70d02",
+            "native-default-0": "9b33da95fdc4b5f3f61d86995558c9554b9430e6196131c023444008c5c70d02",
+            "native-one-1": "9b33da95fdc4b5f3f61d86995558c9554b9430e6196131c023444008c5c70d02",
+            "native-default-1": "9b33da95fdc4b5f3f61d86995558c9554b9430e6196131c023444008c5c70d02",
+            "native-one-2": "9b33da95fdc4b5f3f61d86995558c9554b9430e6196131c023444008c5c70d02",
+            "native-default-2": "9b33da95fdc4b5f3f61d86995558c9554b9430e6196131c023444008c5c70d02",
+            "native-one-3": "9b33da95fdc4b5f3f61d86995558c9554b9430e6196131c023444008c5c70d02",
+            "native-default-3": "9b33da95fdc4b5f3f61d86995558c9554b9430e6196131c023444008c5c70d02",
+            "native-one-4": "9b33da95fdc4b5f3f61d86995558c9554b9430e6196131c023444008c5c70d02",
+            "native-default-4": "9b33da95fdc4b5f3f61d86995558c9554b9430e6196131c023444008c5c70d02",
+            "native-one-5": "9b33da95fdc4b5f3f61d86995558c9554b9430e6196131c023444008c5c70d02",
+            "native-default-5": "9b33da95fdc4b5f3f61d86995558c9554b9430e6196131c023444008c5c70d02",
+            "native-one-6": "9b33da95fdc4b5f3f61d86995558c9554b9430e6196131c023444008c5c70d02",
+            "native-default-6": "9b33da95fdc4b5f3f61d86995558c9554b9430e6196131c023444008c5c70d02",
+            "native-one-7": "9b33da95fdc4b5f3f61d86995558c9554b9430e6196131c023444008c5c70d02",
+            "native-default-7": "9b33da95fdc4b5f3f61d86995558c9554b9430e6196131c023444008c5c70d02",
+            "native-one-8": "9b33da95fdc4b5f3f61d86995558c9554b9430e6196131c023444008c5c70d02",
+            "native-default-8": "9b33da95fdc4b5f3f61d86995558c9554b9430e6196131c023444008c5c70d02",
+            "native-one-9": "9b33da95fdc4b5f3f61d86995558c9554b9430e6196131c023444008c5c70d02",
+            "native-default-9": "9b33da95fdc4b5f3f61d86995558c9554b9430e6196131c023444008c5c70d02"
+          }
+        }
+      ]
+    },
+    {
+      "name": "duplicate-main-root",
+      "roots": [
+        "main.ts",
+        "main.ts"
+      ],
+      "depth": 1,
+      "no_resolve": false,
+      "input_sha256": {
+        "globals.d.ts": "07b3b2683ebe2455bf84a4298a751d2d18f12f0939df252a8436a1a7b75560da",
+        "main.ts": "f1ab51baa04cc5ce27432d91a046b999227c4119d9b319013bc072a2fea6ca0f",
+        "node_modules/outer/package.json": "ea1deaf95a8d4e646580d2cf0f2c7985a57bd94777d945ab6c7f6f3427a6ba0b",
+        "node_modules/outer/index.js": "05201dffb6760f3e2bd03a5f834fc39f73f1fecca2712fc3ba36fac2edfc6d3b",
+        "node_modules/inner/package.json": "c11b02fdee3cad4c1bc65c46bf77dab1888754010229a48c6229f746e4b630eb",
+        "node_modules/inner/index.js": "ab4083b575c6191abd7c8c97102b26931017f2a42195d4e1d98db7ba116ac18d",
+        "node_modules/inner/leaf.js": "41d8459c96febea8781d073a13e9a566d767e70b684ee5b595dc0bcca411fdff",
+        "node_modules/inner/typed.ts": "860b07ec7f2f4ae1a9b9f79df25a0e8b73dc7eb21d0c736e5a9ff4b44bd4ad1e",
+        "local-main.ts": "45f98a7d45d3d3834f513d432bd6648234f251220ae5ecfe72d1d4c67186abf6",
+        "local.js": "548af80365940b5866417c5240e1785d58be351dffd69bf7f4ee7411f2efb104",
+        "local-typed.ts": "860b07ec7f2f4ae1a9b9f79df25a0e8b73dc7eb21d0c736e5a9ff4b44bd4ad1e",
+        "tsconfig.json": "5a8a7c31732208d3705d700f84e913cfdfb8d00d624ef4165358075dd2926fd3"
+      },
+      "native_distinct_images": 1,
+      "tsr_matches_all_native": {
+        "diagnostics": true,
+        "loaded_order": true,
+        "loaded_set": true,
+        "ordered_trace": false
+      },
+      "variants": [
+        {
+          "image": {
+            "diagnostics": {
+              "count": 0,
+              "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "entries": []
+            },
+            "loaded_order": [
+              "node_modules/outer/index.js",
+              "main.ts",
+              "globals.d.ts"
+            ],
+            "loaded_set": [
+              "globals.d.ts",
+              "main.ts",
+              "node_modules/outer/index.js"
+            ],
+            "trace_count": 0,
+            "trace_fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+          },
+          "roles": [
+            "tsr"
+          ],
+          "stdout_sha256": {
+            "tsr": "55f3213c260eb26fa7ca6ab4e2527f8172795cf4b1a5b71d6a1889bacc7a2bcd"
+          }
+        },
+        {
+          "image": {
+            "diagnostics": {
+              "count": 0,
+              "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "entries": []
+            },
+            "loaded_order": [
+              "node_modules/outer/index.js",
+              "main.ts",
+              "globals.d.ts"
+            ],
+            "loaded_set": [
+              "globals.d.ts",
+              "main.ts",
+              "node_modules/outer/index.js"
+            ],
+            "trace_count": 169,
+            "trace_fingerprint": "c7429955e370a4e9d258e48cb961b6bcf15b6da786747b6b342f0f84cda7bc3d"
+          },
+          "roles": [
+            "native-one-0",
+            "native-default-0",
+            "native-one-1",
+            "native-default-1",
+            "native-one-2",
+            "native-default-2",
+            "native-one-3",
+            "native-default-3",
+            "native-one-4",
+            "native-default-4",
+            "native-one-5",
+            "native-default-5",
+            "native-one-6",
+            "native-default-6",
+            "native-one-7",
+            "native-default-7",
+            "native-one-8",
+            "native-default-8",
+            "native-one-9",
+            "native-default-9"
+          ],
+          "stdout_sha256": {
+            "native-one-0": "67c68a0145a02d2fb5a754d8b3c6d666a510532f875e936e7595165b1f6e125b",
+            "native-default-0": "67c68a0145a02d2fb5a754d8b3c6d666a510532f875e936e7595165b1f6e125b",
+            "native-one-1": "67c68a0145a02d2fb5a754d8b3c6d666a510532f875e936e7595165b1f6e125b",
+            "native-default-1": "67c68a0145a02d2fb5a754d8b3c6d666a510532f875e936e7595165b1f6e125b",
+            "native-one-2": "67c68a0145a02d2fb5a754d8b3c6d666a510532f875e936e7595165b1f6e125b",
+            "native-default-2": "67c68a0145a02d2fb5a754d8b3c6d666a510532f875e936e7595165b1f6e125b",
+            "native-one-3": "67c68a0145a02d2fb5a754d8b3c6d666a510532f875e936e7595165b1f6e125b",
+            "native-default-3": "67c68a0145a02d2fb5a754d8b3c6d666a510532f875e936e7595165b1f6e125b",
+            "native-one-4": "67c68a0145a02d2fb5a754d8b3c6d666a510532f875e936e7595165b1f6e125b",
+            "native-default-4": "67c68a0145a02d2fb5a754d8b3c6d666a510532f875e936e7595165b1f6e125b",
+            "native-one-5": "67c68a0145a02d2fb5a754d8b3c6d666a510532f875e936e7595165b1f6e125b",
+            "native-default-5": "67c68a0145a02d2fb5a754d8b3c6d666a510532f875e936e7595165b1f6e125b",
+            "native-one-6": "67c68a0145a02d2fb5a754d8b3c6d666a510532f875e936e7595165b1f6e125b",
+            "native-default-6": "67c68a0145a02d2fb5a754d8b3c6d666a510532f875e936e7595165b1f6e125b",
+            "native-one-7": "67c68a0145a02d2fb5a754d8b3c6d666a510532f875e936e7595165b1f6e125b",
+            "native-default-7": "67c68a0145a02d2fb5a754d8b3c6d666a510532f875e936e7595165b1f6e125b",
+            "native-one-8": "67c68a0145a02d2fb5a754d8b3c6d666a510532f875e936e7595165b1f6e125b",
+            "native-default-8": "67c68a0145a02d2fb5a754d8b3c6d666a510532f875e936e7595165b1f6e125b",
+            "native-one-9": "67c68a0145a02d2fb5a754d8b3c6d666a510532f875e936e7595165b1f6e125b",
+            "native-default-9": "67c68a0145a02d2fb5a754d8b3c6d666a510532f875e936e7595165b1f6e125b"
+          }
+        }
+      ]
+    },
+    {
+      "name": "relative-js-outside-node-modules",
+      "roots": [
+        "local-main.ts"
+      ],
+      "depth": 0,
+      "no_resolve": false,
+      "input_sha256": {
+        "globals.d.ts": "07b3b2683ebe2455bf84a4298a751d2d18f12f0939df252a8436a1a7b75560da",
+        "main.ts": "f1ab51baa04cc5ce27432d91a046b999227c4119d9b319013bc072a2fea6ca0f",
+        "node_modules/outer/package.json": "ea1deaf95a8d4e646580d2cf0f2c7985a57bd94777d945ab6c7f6f3427a6ba0b",
+        "node_modules/outer/index.js": "05201dffb6760f3e2bd03a5f834fc39f73f1fecca2712fc3ba36fac2edfc6d3b",
+        "node_modules/inner/package.json": "c11b02fdee3cad4c1bc65c46bf77dab1888754010229a48c6229f746e4b630eb",
+        "node_modules/inner/index.js": "ab4083b575c6191abd7c8c97102b26931017f2a42195d4e1d98db7ba116ac18d",
+        "node_modules/inner/leaf.js": "41d8459c96febea8781d073a13e9a566d767e70b684ee5b595dc0bcca411fdff",
+        "node_modules/inner/typed.ts": "860b07ec7f2f4ae1a9b9f79df25a0e8b73dc7eb21d0c736e5a9ff4b44bd4ad1e",
+        "local-main.ts": "45f98a7d45d3d3834f513d432bd6648234f251220ae5ecfe72d1d4c67186abf6",
+        "local.js": "548af80365940b5866417c5240e1785d58be351dffd69bf7f4ee7411f2efb104",
+        "local-typed.ts": "860b07ec7f2f4ae1a9b9f79df25a0e8b73dc7eb21d0c736e5a9ff4b44bd4ad1e",
+        "tsconfig.json": "a3295ed0a69ea808138a83dc4300ef7ced9060416aa3377c1086db625fb0d103"
+      },
+      "native_distinct_images": 1,
+      "tsr_matches_all_native": {
+        "diagnostics": true,
+        "loaded_order": true,
+        "loaded_set": true,
+        "ordered_trace": false
+      },
+      "variants": [
+        {
+          "image": {
+            "diagnostics": {
+              "count": 1,
+              "fingerprint": "d7837773bace8dd78e181adfa902edd8facc8f0059c9a79d12f912b7718e791c",
+              "entries": [
+                "local-typed.ts(1,14): error TS2322: Type 'string' is not assignable to type 'number'."
+              ]
+            },
+            "loaded_order": [
+              "local-typed.ts",
+              "local.js",
+              "local-main.ts",
+              "globals.d.ts"
+            ],
+            "loaded_set": [
+              "globals.d.ts",
+              "local-main.ts",
+              "local-typed.ts",
+              "local.js"
+            ],
+            "trace_count": 1,
+            "trace_fingerprint": "19f636b0d7771f15a2b21b45a03990d28dda042d0ae5add09dbed9066d0683fd"
+          },
+          "roles": [
+            "tsr"
+          ],
+          "stdout_sha256": {
+            "tsr": "39acdd30d26850353273f4de82b99c7de17018546822c1bf8d22e2be7ba61526"
+          }
+        },
+        {
+          "image": {
+            "diagnostics": {
+              "count": 1,
+              "fingerprint": "d7837773bace8dd78e181adfa902edd8facc8f0059c9a79d12f912b7718e791c",
+              "entries": [
+                "local-typed.ts(1,14): error TS2322: Type 'string' is not assignable to type 'number'."
+              ]
+            },
+            "loaded_order": [
+              "local-typed.ts",
+              "local.js",
+              "local-main.ts",
+              "globals.d.ts"
+            ],
+            "loaded_set": [
+              "globals.d.ts",
+              "local-main.ts",
+              "local-typed.ts",
+              "local.js"
+            ],
+            "trace_count": 17,
+            "trace_fingerprint": "f2b0393cc14dc682347d1a036ec408618ca007ca1499902f4d1ee36bb9fbc117"
+          },
+          "roles": [
+            "native-one-0",
+            "native-default-0",
+            "native-one-1",
+            "native-default-1",
+            "native-one-2",
+            "native-default-2",
+            "native-one-3",
+            "native-default-3",
+            "native-one-4",
+            "native-default-4",
+            "native-one-5",
+            "native-default-5",
+            "native-one-6",
+            "native-default-6",
+            "native-one-7",
+            "native-default-7",
+            "native-one-8",
+            "native-default-8",
+            "native-one-9",
+            "native-default-9"
+          ],
+          "stdout_sha256": {
+            "native-one-0": "62c29a0de76822bb5e0ccf3faeff4312e2d82af42bc7715ec31944ee72c831d4",
+            "native-default-0": "62c29a0de76822bb5e0ccf3faeff4312e2d82af42bc7715ec31944ee72c831d4",
+            "native-one-1": "62c29a0de76822bb5e0ccf3faeff4312e2d82af42bc7715ec31944ee72c831d4",
+            "native-default-1": "62c29a0de76822bb5e0ccf3faeff4312e2d82af42bc7715ec31944ee72c831d4",
+            "native-one-2": "62c29a0de76822bb5e0ccf3faeff4312e2d82af42bc7715ec31944ee72c831d4",
+            "native-default-2": "62c29a0de76822bb5e0ccf3faeff4312e2d82af42bc7715ec31944ee72c831d4",
+            "native-one-3": "62c29a0de76822bb5e0ccf3faeff4312e2d82af42bc7715ec31944ee72c831d4",
+            "native-default-3": "62c29a0de76822bb5e0ccf3faeff4312e2d82af42bc7715ec31944ee72c831d4",
+            "native-one-4": "62c29a0de76822bb5e0ccf3faeff4312e2d82af42bc7715ec31944ee72c831d4",
+            "native-default-4": "62c29a0de76822bb5e0ccf3faeff4312e2d82af42bc7715ec31944ee72c831d4",
+            "native-one-5": "62c29a0de76822bb5e0ccf3faeff4312e2d82af42bc7715ec31944ee72c831d4",
+            "native-default-5": "62c29a0de76822bb5e0ccf3faeff4312e2d82af42bc7715ec31944ee72c831d4",
+            "native-one-6": "62c29a0de76822bb5e0ccf3faeff4312e2d82af42bc7715ec31944ee72c831d4",
+            "native-default-6": "62c29a0de76822bb5e0ccf3faeff4312e2d82af42bc7715ec31944ee72c831d4",
+            "native-one-7": "62c29a0de76822bb5e0ccf3faeff4312e2d82af42bc7715ec31944ee72c831d4",
+            "native-default-7": "62c29a0de76822bb5e0ccf3faeff4312e2d82af42bc7715ec31944ee72c831d4",
+            "native-one-8": "62c29a0de76822bb5e0ccf3faeff4312e2d82af42bc7715ec31944ee72c831d4",
+            "native-default-8": "62c29a0de76822bb5e0ccf3faeff4312e2d82af42bc7715ec31944ee72c831d4",
+            "native-one-9": "62c29a0de76822bb5e0ccf3faeff4312e2d82af42bc7715ec31944ee72c831d4",
+            "native-default-9": "62c29a0de76822bb5e0ccf3faeff4312e2d82af42bc7715ec31944ee72c831d4"
+          }
+        }
+      ]
+    },
+    {
+      "name": "no-resolve-explicit-roots",
+      "roots": [
+        "main.ts",
+        "node_modules/inner/index.js"
+      ],
+      "depth": 1,
+      "no_resolve": true,
+      "input_sha256": {
+        "globals.d.ts": "07b3b2683ebe2455bf84a4298a751d2d18f12f0939df252a8436a1a7b75560da",
+        "main.ts": "f1ab51baa04cc5ce27432d91a046b999227c4119d9b319013bc072a2fea6ca0f",
+        "node_modules/outer/package.json": "ea1deaf95a8d4e646580d2cf0f2c7985a57bd94777d945ab6c7f6f3427a6ba0b",
+        "node_modules/outer/index.js": "05201dffb6760f3e2bd03a5f834fc39f73f1fecca2712fc3ba36fac2edfc6d3b",
+        "node_modules/inner/package.json": "c11b02fdee3cad4c1bc65c46bf77dab1888754010229a48c6229f746e4b630eb",
+        "node_modules/inner/index.js": "ab4083b575c6191abd7c8c97102b26931017f2a42195d4e1d98db7ba116ac18d",
+        "node_modules/inner/leaf.js": "41d8459c96febea8781d073a13e9a566d767e70b684ee5b595dc0bcca411fdff",
+        "node_modules/inner/typed.ts": "860b07ec7f2f4ae1a9b9f79df25a0e8b73dc7eb21d0c736e5a9ff4b44bd4ad1e",
+        "local-main.ts": "45f98a7d45d3d3834f513d432bd6648234f251220ae5ecfe72d1d4c67186abf6",
+        "local.js": "548af80365940b5866417c5240e1785d58be351dffd69bf7f4ee7411f2efb104",
+        "local-typed.ts": "860b07ec7f2f4ae1a9b9f79df25a0e8b73dc7eb21d0c736e5a9ff4b44bd4ad1e",
+        "tsconfig.json": "f6b48468153d49252134518c1b2c6de52766fe116b4c55a49a9e7270dee7f1fd"
+      },
+      "native_distinct_images": 1,
+      "tsr_matches_all_native": {
+        "diagnostics": true,
+        "loaded_order": true,
+        "loaded_set": true,
+        "ordered_trace": false
+      },
+      "variants": [
+        {
+          "image": {
+            "diagnostics": {
+              "count": 0,
+              "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "entries": []
+            },
+            "loaded_order": [
+              "main.ts",
+              "node_modules/inner/index.js",
+              "globals.d.ts"
+            ],
+            "loaded_set": [
+              "globals.d.ts",
+              "main.ts",
+              "node_modules/inner/index.js"
+            ],
+            "trace_count": 0,
+            "trace_fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+          },
+          "roles": [
+            "tsr"
+          ],
+          "stdout_sha256": {
+            "tsr": "536aa4d6836cd5f821d35bba83392cb548b69fe94a856a33a38470feceefac56"
+          }
+        },
+        {
+          "image": {
+            "diagnostics": {
+              "count": 0,
+              "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "entries": []
+            },
+            "loaded_order": [
+              "main.ts",
+              "node_modules/inner/index.js",
+              "globals.d.ts"
+            ],
+            "loaded_set": [
+              "globals.d.ts",
+              "main.ts",
+              "node_modules/inner/index.js"
+            ],
+            "trace_count": 99,
+            "trace_fingerprint": "1855692471e04ac5b54e1cf349dc2c893273bba7cf4e4fb1c56fd6c4bba3f4a0"
+          },
+          "roles": [
+            "native-one-0",
+            "native-default-0",
+            "native-one-1",
+            "native-default-1",
+            "native-one-2",
+            "native-default-2",
+            "native-one-3",
+            "native-default-3",
+            "native-one-4",
+            "native-default-4",
+            "native-one-5",
+            "native-default-5",
+            "native-one-6",
+            "native-default-6",
+            "native-one-7",
+            "native-default-7",
+            "native-one-8",
+            "native-default-8",
+            "native-one-9",
+            "native-default-9"
+          ],
+          "stdout_sha256": {
+            "native-one-0": "74bca8793fa22a4936f0f7e0e25b29a9cc143f1b6e34b795cb01b2647b01e9f2",
+            "native-default-0": "74bca8793fa22a4936f0f7e0e25b29a9cc143f1b6e34b795cb01b2647b01e9f2",
+            "native-one-1": "74bca8793fa22a4936f0f7e0e25b29a9cc143f1b6e34b795cb01b2647b01e9f2",
+            "native-default-1": "74bca8793fa22a4936f0f7e0e25b29a9cc143f1b6e34b795cb01b2647b01e9f2",
+            "native-one-2": "74bca8793fa22a4936f0f7e0e25b29a9cc143f1b6e34b795cb01b2647b01e9f2",
+            "native-default-2": "74bca8793fa22a4936f0f7e0e25b29a9cc143f1b6e34b795cb01b2647b01e9f2",
+            "native-one-3": "74bca8793fa22a4936f0f7e0e25b29a9cc143f1b6e34b795cb01b2647b01e9f2",
+            "native-default-3": "74bca8793fa22a4936f0f7e0e25b29a9cc143f1b6e34b795cb01b2647b01e9f2",
+            "native-one-4": "74bca8793fa22a4936f0f7e0e25b29a9cc143f1b6e34b795cb01b2647b01e9f2",
+            "native-default-4": "74bca8793fa22a4936f0f7e0e25b29a9cc143f1b6e34b795cb01b2647b01e9f2",
+            "native-one-5": "74bca8793fa22a4936f0f7e0e25b29a9cc143f1b6e34b795cb01b2647b01e9f2",
+            "native-default-5": "74bca8793fa22a4936f0f7e0e25b29a9cc143f1b6e34b795cb01b2647b01e9f2",
+            "native-one-6": "74bca8793fa22a4936f0f7e0e25b29a9cc143f1b6e34b795cb01b2647b01e9f2",
+            "native-default-6": "74bca8793fa22a4936f0f7e0e25b29a9cc143f1b6e34b795cb01b2647b01e9f2",
+            "native-one-7": "74bca8793fa22a4936f0f7e0e25b29a9cc143f1b6e34b795cb01b2647b01e9f2",
+            "native-default-7": "74bca8793fa22a4936f0f7e0e25b29a9cc143f1b6e34b795cb01b2647b01e9f2",
+            "native-one-8": "74bca8793fa22a4936f0f7e0e25b29a9cc143f1b6e34b795cb01b2647b01e9f2",
+            "native-default-8": "74bca8793fa22a4936f0f7e0e25b29a9cc143f1b6e34b795cb01b2647b01e9f2",
+            "native-one-9": "74bca8793fa22a4936f0f7e0e25b29a9cc143f1b6e34b795cb01b2647b01e9f2",
+            "native-default-9": "74bca8793fa22a4936f0f7e0e25b29a9cc143f1b6e34b795cb01b2647b01e9f2"
+          }
+        }
+      ]
+    }
+  ],
+  "production_selected": false,
+  "task": "tsr-1yb.19.1",
+  "fidelity_issue": "tsr-1yb.19.1.1",
+  "oracle_issue": "tsr-1yb.19.1.2",
+  "trace_issue": "tsr-1yb.1.1.1",
+  "audit_source_sha256": {
+    "crates/tsr-compiler/src/lib.rs": "7c62ef61a90ddb31b8ffd22dbc7e1aa3d66c041735a5c3b1576aadcc9b362b2d",
+    "crates/tsr-compiler/src/loader.rs": "7e5094455ee236922476fcb5cb10657bbb56ad4dc14d74abd9c52ad92d2a2258",
+    "crates/tsr-execute/src/compile.rs": "129d3c400d9e054048682ae81b8a7edb8703b32c16475223bf5233770e91a11d"
+  },
+  "build": {
+    "command": "CARGO_BUILD_JOBS=1 CARGO_TARGET_DIR=/tmp/tsr-loader-depth-current-target cargo build --release --locked --offline --bin tsr",
+    "exit_code": 0,
+    "source": "30d5e218707cad0bc071ec143248bc0078452f9a"
+  },
+  "default_library_confirmation": {
+    "raw": "/tmp/tsr-loader-depth-native/current-default-lib-results.json",
+    "sha256": "a5921abc77617b7753e38099cc9369faa6e207b658d1aa4ece4e389f742b97f2",
+    "cases": [
+      {
+        "case": "elided-root",
+        "runs": [
+          {
+            "role": "tsr",
+            "exit": 0,
+            "diagnostics": {
+              "count": 0,
+              "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "entries": []
+            },
+            "loaded": [
+              "<typescript-lib>/lib.es5.d.ts",
+              "<typescript-lib>/lib.es2015.d.ts",
+              "<typescript-lib>/lib.es2016.d.ts",
+              "<typescript-lib>/lib.es2017.d.ts",
+              "<typescript-lib>/lib.es2018.d.ts",
+              "<typescript-lib>/lib.es2019.d.ts",
+              "<typescript-lib>/lib.es2020.d.ts",
+              "<typescript-lib>/lib.dom.d.ts",
+              "<typescript-lib>/lib.dom.iterable.d.ts",
+              "<typescript-lib>/lib.dom.asynciterable.d.ts",
+              "<typescript-lib>/lib.webworker.importscripts.d.ts",
+              "<typescript-lib>/lib.scripthost.d.ts",
+              "<typescript-lib>/lib.es2015.core.d.ts",
+              "<typescript-lib>/lib.es2015.collection.d.ts",
+              "<typescript-lib>/lib.es2015.generator.d.ts",
+              "<typescript-lib>/lib.es2015.iterable.d.ts",
+              "<typescript-lib>/lib.es2015.promise.d.ts",
+              "<typescript-lib>/lib.es2015.proxy.d.ts",
+              "<typescript-lib>/lib.es2015.reflect.d.ts",
+              "<typescript-lib>/lib.es2015.symbol.d.ts",
+              "<typescript-lib>/lib.es2015.symbol.wellknown.d.ts",
+              "<typescript-lib>/lib.es2016.array.include.d.ts",
+              "<typescript-lib>/lib.es2016.intl.d.ts",
+              "<typescript-lib>/lib.es2017.arraybuffer.d.ts",
+              "<typescript-lib>/lib.es2017.date.d.ts",
+              "<typescript-lib>/lib.es2017.object.d.ts",
+              "<typescript-lib>/lib.es2017.sharedmemory.d.ts",
+              "<typescript-lib>/lib.es2017.string.d.ts",
+              "<typescript-lib>/lib.es2017.intl.d.ts",
+              "<typescript-lib>/lib.es2017.typedarrays.d.ts",
+              "<typescript-lib>/lib.es2018.asyncgenerator.d.ts",
+              "<typescript-lib>/lib.es2018.asynciterable.d.ts",
+              "<typescript-lib>/lib.es2018.intl.d.ts",
+              "<typescript-lib>/lib.es2018.promise.d.ts",
+              "<typescript-lib>/lib.es2018.regexp.d.ts",
+              "<typescript-lib>/lib.es2019.array.d.ts",
+              "<typescript-lib>/lib.es2019.object.d.ts",
+              "<typescript-lib>/lib.es2019.string.d.ts",
+              "<typescript-lib>/lib.es2019.symbol.d.ts",
+              "<typescript-lib>/lib.es2019.intl.d.ts",
+              "<typescript-lib>/lib.es2020.bigint.d.ts",
+              "<typescript-lib>/lib.es2020.date.d.ts",
+              "<typescript-lib>/lib.es2020.promise.d.ts",
+              "<typescript-lib>/lib.es2020.sharedmemory.d.ts",
+              "<typescript-lib>/lib.es2020.string.d.ts",
+              "<typescript-lib>/lib.es2020.symbol.wellknown.d.ts",
+              "<typescript-lib>/lib.es2020.intl.d.ts",
+              "<typescript-lib>/lib.es2020.number.d.ts",
+              "<typescript-lib>/lib.decorators.d.ts",
+              "<typescript-lib>/lib.decorators.legacy.d.ts",
+              "<typescript-lib>/lib.es2020.full.d.ts",
+              "/private/tmp/tsr-loader-depth-native/node_modules/outer/index.js",
+              "/private/tmp/tsr-loader-depth-native/main.ts"
+            ],
+            "loaded_project": [
+              "node_modules/outer/index.js",
+              "main.ts"
+            ],
+            "libraries": 51
+          },
+          {
+            "role": "native-one",
+            "exit": 1,
+            "diagnostics": {
+              "count": 1,
+              "fingerprint": "b75497e34df316ba647a14d375327c88f8dd82e89abdd9b96f05e111b4d636cd",
+              "entries": [
+                "node_modules/inner/typed.ts(1,14): error TS2322: Type 'string' is not assignable to type 'number'."
+              ]
+            },
+            "loaded": [
+              "<typescript-lib>/lib.es5.d.ts",
+              "<typescript-lib>/lib.es2015.d.ts",
+              "<typescript-lib>/lib.es2016.d.ts",
+              "<typescript-lib>/lib.es2017.d.ts",
+              "<typescript-lib>/lib.es2018.d.ts",
+              "<typescript-lib>/lib.es2019.d.ts",
+              "<typescript-lib>/lib.es2020.d.ts",
+              "<typescript-lib>/lib.dom.d.ts",
+              "<typescript-lib>/lib.dom.iterable.d.ts",
+              "<typescript-lib>/lib.dom.asynciterable.d.ts",
+              "<typescript-lib>/lib.webworker.importscripts.d.ts",
+              "<typescript-lib>/lib.scripthost.d.ts",
+              "<typescript-lib>/lib.es2015.core.d.ts",
+              "<typescript-lib>/lib.es2015.collection.d.ts",
+              "<typescript-lib>/lib.es2015.generator.d.ts",
+              "<typescript-lib>/lib.es2015.iterable.d.ts",
+              "<typescript-lib>/lib.es2015.promise.d.ts",
+              "<typescript-lib>/lib.es2015.proxy.d.ts",
+              "<typescript-lib>/lib.es2015.reflect.d.ts",
+              "<typescript-lib>/lib.es2015.symbol.d.ts",
+              "<typescript-lib>/lib.es2015.symbol.wellknown.d.ts",
+              "<typescript-lib>/lib.es2016.array.include.d.ts",
+              "<typescript-lib>/lib.es2016.intl.d.ts",
+              "<typescript-lib>/lib.es2017.arraybuffer.d.ts",
+              "<typescript-lib>/lib.es2017.date.d.ts",
+              "<typescript-lib>/lib.es2017.object.d.ts",
+              "<typescript-lib>/lib.es2017.sharedmemory.d.ts",
+              "<typescript-lib>/lib.es2017.string.d.ts",
+              "<typescript-lib>/lib.es2017.intl.d.ts",
+              "<typescript-lib>/lib.es2017.typedarrays.d.ts",
+              "<typescript-lib>/lib.es2018.asyncgenerator.d.ts",
+              "<typescript-lib>/lib.es2018.asynciterable.d.ts",
+              "<typescript-lib>/lib.es2018.intl.d.ts",
+              "<typescript-lib>/lib.es2018.promise.d.ts",
+              "<typescript-lib>/lib.es2018.regexp.d.ts",
+              "<typescript-lib>/lib.es2019.array.d.ts",
+              "<typescript-lib>/lib.es2019.object.d.ts",
+              "<typescript-lib>/lib.es2019.string.d.ts",
+              "<typescript-lib>/lib.es2019.symbol.d.ts",
+              "<typescript-lib>/lib.es2019.intl.d.ts",
+              "<typescript-lib>/lib.es2020.bigint.d.ts",
+              "<typescript-lib>/lib.es2020.date.d.ts",
+              "<typescript-lib>/lib.es2020.promise.d.ts",
+              "<typescript-lib>/lib.es2020.sharedmemory.d.ts",
+              "<typescript-lib>/lib.es2020.string.d.ts",
+              "<typescript-lib>/lib.es2020.symbol.wellknown.d.ts",
+              "<typescript-lib>/lib.es2020.intl.d.ts",
+              "<typescript-lib>/lib.es2020.number.d.ts",
+              "<typescript-lib>/lib.decorators.d.ts",
+              "<typescript-lib>/lib.decorators.legacy.d.ts",
+              "<typescript-lib>/lib.es2020.full.d.ts",
+              "/private/tmp/tsr-loader-depth-native/node_modules/inner/typed.ts",
+              "/private/tmp/tsr-loader-depth-native/node_modules/inner/leaf.js",
+              "/private/tmp/tsr-loader-depth-native/node_modules/inner/index.js",
+              "/private/tmp/tsr-loader-depth-native/node_modules/outer/index.js",
+              "/private/tmp/tsr-loader-depth-native/main.ts"
+            ],
+            "loaded_project": [
+              "node_modules/inner/typed.ts",
+              "node_modules/inner/leaf.js",
+              "node_modules/inner/index.js",
+              "node_modules/outer/index.js",
+              "main.ts"
+            ],
+            "libraries": 51
+          },
+          {
+            "role": "native-default",
+            "exit": 1,
+            "diagnostics": {
+              "count": 1,
+              "fingerprint": "b75497e34df316ba647a14d375327c88f8dd82e89abdd9b96f05e111b4d636cd",
+              "entries": [
+                "node_modules/inner/typed.ts(1,14): error TS2322: Type 'string' is not assignable to type 'number'."
+              ]
+            },
+            "loaded": [
+              "<typescript-lib>/lib.es5.d.ts",
+              "<typescript-lib>/lib.es2015.d.ts",
+              "<typescript-lib>/lib.es2016.d.ts",
+              "<typescript-lib>/lib.es2017.d.ts",
+              "<typescript-lib>/lib.es2018.d.ts",
+              "<typescript-lib>/lib.es2019.d.ts",
+              "<typescript-lib>/lib.es2020.d.ts",
+              "<typescript-lib>/lib.dom.d.ts",
+              "<typescript-lib>/lib.dom.iterable.d.ts",
+              "<typescript-lib>/lib.dom.asynciterable.d.ts",
+              "<typescript-lib>/lib.webworker.importscripts.d.ts",
+              "<typescript-lib>/lib.scripthost.d.ts",
+              "<typescript-lib>/lib.es2015.core.d.ts",
+              "<typescript-lib>/lib.es2015.collection.d.ts",
+              "<typescript-lib>/lib.es2015.generator.d.ts",
+              "<typescript-lib>/lib.es2015.iterable.d.ts",
+              "<typescript-lib>/lib.es2015.promise.d.ts",
+              "<typescript-lib>/lib.es2015.proxy.d.ts",
+              "<typescript-lib>/lib.es2015.reflect.d.ts",
+              "<typescript-lib>/lib.es2015.symbol.d.ts",
+              "<typescript-lib>/lib.es2015.symbol.wellknown.d.ts",
+              "<typescript-lib>/lib.es2016.array.include.d.ts",
+              "<typescript-lib>/lib.es2016.intl.d.ts",
+              "<typescript-lib>/lib.es2017.arraybuffer.d.ts",
+              "<typescript-lib>/lib.es2017.date.d.ts",
+              "<typescript-lib>/lib.es2017.object.d.ts",
+              "<typescript-lib>/lib.es2017.sharedmemory.d.ts",
+              "<typescript-lib>/lib.es2017.string.d.ts",
+              "<typescript-lib>/lib.es2017.intl.d.ts",
+              "<typescript-lib>/lib.es2017.typedarrays.d.ts",
+              "<typescript-lib>/lib.es2018.asyncgenerator.d.ts",
+              "<typescript-lib>/lib.es2018.asynciterable.d.ts",
+              "<typescript-lib>/lib.es2018.intl.d.ts",
+              "<typescript-lib>/lib.es2018.promise.d.ts",
+              "<typescript-lib>/lib.es2018.regexp.d.ts",
+              "<typescript-lib>/lib.es2019.array.d.ts",
+              "<typescript-lib>/lib.es2019.object.d.ts",
+              "<typescript-lib>/lib.es2019.string.d.ts",
+              "<typescript-lib>/lib.es2019.symbol.d.ts",
+              "<typescript-lib>/lib.es2019.intl.d.ts",
+              "<typescript-lib>/lib.es2020.bigint.d.ts",
+              "<typescript-lib>/lib.es2020.date.d.ts",
+              "<typescript-lib>/lib.es2020.promise.d.ts",
+              "<typescript-lib>/lib.es2020.sharedmemory.d.ts",
+              "<typescript-lib>/lib.es2020.string.d.ts",
+              "<typescript-lib>/lib.es2020.symbol.wellknown.d.ts",
+              "<typescript-lib>/lib.es2020.intl.d.ts",
+              "<typescript-lib>/lib.es2020.number.d.ts",
+              "<typescript-lib>/lib.decorators.d.ts",
+              "<typescript-lib>/lib.decorators.legacy.d.ts",
+              "<typescript-lib>/lib.es2020.full.d.ts",
+              "/private/tmp/tsr-loader-depth-native/node_modules/inner/typed.ts",
+              "/private/tmp/tsr-loader-depth-native/node_modules/inner/leaf.js",
+              "/private/tmp/tsr-loader-depth-native/node_modules/inner/index.js",
+              "/private/tmp/tsr-loader-depth-native/node_modules/outer/index.js",
+              "/private/tmp/tsr-loader-depth-native/main.ts"
+            ],
+            "loaded_project": [
+              "node_modules/inner/typed.ts",
+              "node_modules/inner/leaf.js",
+              "node_modules/inner/index.js",
+              "node_modules/outer/index.js",
+              "main.ts"
+            ],
+            "libraries": 51
+          }
+        ]
+      },
+      {
+        "case": "loaded-parent-root",
+        "runs": [
+          {
+            "role": "tsr",
+            "exit": 0,
+            "diagnostics": {
+              "count": 0,
+              "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "entries": []
+            },
+            "loaded": [
+              "<typescript-lib>/lib.es5.d.ts",
+              "<typescript-lib>/lib.es2015.d.ts",
+              "<typescript-lib>/lib.es2016.d.ts",
+              "<typescript-lib>/lib.es2017.d.ts",
+              "<typescript-lib>/lib.es2018.d.ts",
+              "<typescript-lib>/lib.es2019.d.ts",
+              "<typescript-lib>/lib.es2020.d.ts",
+              "<typescript-lib>/lib.dom.d.ts",
+              "<typescript-lib>/lib.dom.iterable.d.ts",
+              "<typescript-lib>/lib.dom.asynciterable.d.ts",
+              "<typescript-lib>/lib.webworker.importscripts.d.ts",
+              "<typescript-lib>/lib.scripthost.d.ts",
+              "<typescript-lib>/lib.es2015.core.d.ts",
+              "<typescript-lib>/lib.es2015.collection.d.ts",
+              "<typescript-lib>/lib.es2015.generator.d.ts",
+              "<typescript-lib>/lib.es2015.iterable.d.ts",
+              "<typescript-lib>/lib.es2015.promise.d.ts",
+              "<typescript-lib>/lib.es2015.proxy.d.ts",
+              "<typescript-lib>/lib.es2015.reflect.d.ts",
+              "<typescript-lib>/lib.es2015.symbol.d.ts",
+              "<typescript-lib>/lib.es2015.symbol.wellknown.d.ts",
+              "<typescript-lib>/lib.es2016.array.include.d.ts",
+              "<typescript-lib>/lib.es2016.intl.d.ts",
+              "<typescript-lib>/lib.es2017.arraybuffer.d.ts",
+              "<typescript-lib>/lib.es2017.date.d.ts",
+              "<typescript-lib>/lib.es2017.object.d.ts",
+              "<typescript-lib>/lib.es2017.sharedmemory.d.ts",
+              "<typescript-lib>/lib.es2017.string.d.ts",
+              "<typescript-lib>/lib.es2017.intl.d.ts",
+              "<typescript-lib>/lib.es2017.typedarrays.d.ts",
+              "<typescript-lib>/lib.es2018.asyncgenerator.d.ts",
+              "<typescript-lib>/lib.es2018.asynciterable.d.ts",
+              "<typescript-lib>/lib.es2018.intl.d.ts",
+              "<typescript-lib>/lib.es2018.promise.d.ts",
+              "<typescript-lib>/lib.es2018.regexp.d.ts",
+              "<typescript-lib>/lib.es2019.array.d.ts",
+              "<typescript-lib>/lib.es2019.object.d.ts",
+              "<typescript-lib>/lib.es2019.string.d.ts",
+              "<typescript-lib>/lib.es2019.symbol.d.ts",
+              "<typescript-lib>/lib.es2019.intl.d.ts",
+              "<typescript-lib>/lib.es2020.bigint.d.ts",
+              "<typescript-lib>/lib.es2020.date.d.ts",
+              "<typescript-lib>/lib.es2020.promise.d.ts",
+              "<typescript-lib>/lib.es2020.sharedmemory.d.ts",
+              "<typescript-lib>/lib.es2020.string.d.ts",
+              "<typescript-lib>/lib.es2020.symbol.wellknown.d.ts",
+              "<typescript-lib>/lib.es2020.intl.d.ts",
+              "<typescript-lib>/lib.es2020.number.d.ts",
+              "<typescript-lib>/lib.decorators.d.ts",
+              "<typescript-lib>/lib.decorators.legacy.d.ts",
+              "<typescript-lib>/lib.es2020.full.d.ts",
+              "/private/tmp/tsr-loader-depth-native/node_modules/outer/index.js",
+              "/private/tmp/tsr-loader-depth-native/main.ts"
+            ],
+            "loaded_project": [
+              "node_modules/outer/index.js",
+              "main.ts"
+            ],
+            "libraries": 51
+          },
+          {
+            "role": "native-one",
+            "exit": 0,
+            "diagnostics": {
+              "count": 0,
+              "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "entries": []
+            },
+            "loaded": [
+              "<typescript-lib>/lib.es5.d.ts",
+              "<typescript-lib>/lib.es2015.d.ts",
+              "<typescript-lib>/lib.es2016.d.ts",
+              "<typescript-lib>/lib.es2017.d.ts",
+              "<typescript-lib>/lib.es2018.d.ts",
+              "<typescript-lib>/lib.es2019.d.ts",
+              "<typescript-lib>/lib.es2020.d.ts",
+              "<typescript-lib>/lib.dom.d.ts",
+              "<typescript-lib>/lib.dom.iterable.d.ts",
+              "<typescript-lib>/lib.dom.asynciterable.d.ts",
+              "<typescript-lib>/lib.webworker.importscripts.d.ts",
+              "<typescript-lib>/lib.scripthost.d.ts",
+              "<typescript-lib>/lib.es2015.core.d.ts",
+              "<typescript-lib>/lib.es2015.collection.d.ts",
+              "<typescript-lib>/lib.es2015.generator.d.ts",
+              "<typescript-lib>/lib.es2015.iterable.d.ts",
+              "<typescript-lib>/lib.es2015.promise.d.ts",
+              "<typescript-lib>/lib.es2015.proxy.d.ts",
+              "<typescript-lib>/lib.es2015.reflect.d.ts",
+              "<typescript-lib>/lib.es2015.symbol.d.ts",
+              "<typescript-lib>/lib.es2015.symbol.wellknown.d.ts",
+              "<typescript-lib>/lib.es2016.array.include.d.ts",
+              "<typescript-lib>/lib.es2016.intl.d.ts",
+              "<typescript-lib>/lib.es2017.arraybuffer.d.ts",
+              "<typescript-lib>/lib.es2017.date.d.ts",
+              "<typescript-lib>/lib.es2017.object.d.ts",
+              "<typescript-lib>/lib.es2017.sharedmemory.d.ts",
+              "<typescript-lib>/lib.es2017.string.d.ts",
+              "<typescript-lib>/lib.es2017.intl.d.ts",
+              "<typescript-lib>/lib.es2017.typedarrays.d.ts",
+              "<typescript-lib>/lib.es2018.asyncgenerator.d.ts",
+              "<typescript-lib>/lib.es2018.asynciterable.d.ts",
+              "<typescript-lib>/lib.es2018.intl.d.ts",
+              "<typescript-lib>/lib.es2018.promise.d.ts",
+              "<typescript-lib>/lib.es2018.regexp.d.ts",
+              "<typescript-lib>/lib.es2019.array.d.ts",
+              "<typescript-lib>/lib.es2019.object.d.ts",
+              "<typescript-lib>/lib.es2019.string.d.ts",
+              "<typescript-lib>/lib.es2019.symbol.d.ts",
+              "<typescript-lib>/lib.es2019.intl.d.ts",
+              "<typescript-lib>/lib.es2020.bigint.d.ts",
+              "<typescript-lib>/lib.es2020.date.d.ts",
+              "<typescript-lib>/lib.es2020.promise.d.ts",
+              "<typescript-lib>/lib.es2020.sharedmemory.d.ts",
+              "<typescript-lib>/lib.es2020.string.d.ts",
+              "<typescript-lib>/lib.es2020.symbol.wellknown.d.ts",
+              "<typescript-lib>/lib.es2020.intl.d.ts",
+              "<typescript-lib>/lib.es2020.number.d.ts",
+              "<typescript-lib>/lib.decorators.d.ts",
+              "<typescript-lib>/lib.decorators.legacy.d.ts",
+              "<typescript-lib>/lib.es2020.full.d.ts",
+              "/private/tmp/tsr-loader-depth-native/node_modules/inner/index.js",
+              "/private/tmp/tsr-loader-depth-native/node_modules/outer/index.js",
+              "/private/tmp/tsr-loader-depth-native/main.ts"
+            ],
+            "loaded_project": [
+              "node_modules/inner/index.js",
+              "node_modules/outer/index.js",
+              "main.ts"
+            ],
+            "libraries": 51
+          },
+          {
+            "role": "native-default",
+            "exit": 0,
+            "diagnostics": {
+              "count": 0,
+              "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "entries": []
+            },
+            "loaded": [
+              "<typescript-lib>/lib.es5.d.ts",
+              "<typescript-lib>/lib.es2015.d.ts",
+              "<typescript-lib>/lib.es2016.d.ts",
+              "<typescript-lib>/lib.es2017.d.ts",
+              "<typescript-lib>/lib.es2018.d.ts",
+              "<typescript-lib>/lib.es2019.d.ts",
+              "<typescript-lib>/lib.es2020.d.ts",
+              "<typescript-lib>/lib.dom.d.ts",
+              "<typescript-lib>/lib.dom.iterable.d.ts",
+              "<typescript-lib>/lib.dom.asynciterable.d.ts",
+              "<typescript-lib>/lib.webworker.importscripts.d.ts",
+              "<typescript-lib>/lib.scripthost.d.ts",
+              "<typescript-lib>/lib.es2015.core.d.ts",
+              "<typescript-lib>/lib.es2015.collection.d.ts",
+              "<typescript-lib>/lib.es2015.generator.d.ts",
+              "<typescript-lib>/lib.es2015.iterable.d.ts",
+              "<typescript-lib>/lib.es2015.promise.d.ts",
+              "<typescript-lib>/lib.es2015.proxy.d.ts",
+              "<typescript-lib>/lib.es2015.reflect.d.ts",
+              "<typescript-lib>/lib.es2015.symbol.d.ts",
+              "<typescript-lib>/lib.es2015.symbol.wellknown.d.ts",
+              "<typescript-lib>/lib.es2016.array.include.d.ts",
+              "<typescript-lib>/lib.es2016.intl.d.ts",
+              "<typescript-lib>/lib.es2017.arraybuffer.d.ts",
+              "<typescript-lib>/lib.es2017.date.d.ts",
+              "<typescript-lib>/lib.es2017.object.d.ts",
+              "<typescript-lib>/lib.es2017.sharedmemory.d.ts",
+              "<typescript-lib>/lib.es2017.string.d.ts",
+              "<typescript-lib>/lib.es2017.intl.d.ts",
+              "<typescript-lib>/lib.es2017.typedarrays.d.ts",
+              "<typescript-lib>/lib.es2018.asyncgenerator.d.ts",
+              "<typescript-lib>/lib.es2018.asynciterable.d.ts",
+              "<typescript-lib>/lib.es2018.intl.d.ts",
+              "<typescript-lib>/lib.es2018.promise.d.ts",
+              "<typescript-lib>/lib.es2018.regexp.d.ts",
+              "<typescript-lib>/lib.es2019.array.d.ts",
+              "<typescript-lib>/lib.es2019.object.d.ts",
+              "<typescript-lib>/lib.es2019.string.d.ts",
+              "<typescript-lib>/lib.es2019.symbol.d.ts",
+              "<typescript-lib>/lib.es2019.intl.d.ts",
+              "<typescript-lib>/lib.es2020.bigint.d.ts",
+              "<typescript-lib>/lib.es2020.date.d.ts",
+              "<typescript-lib>/lib.es2020.promise.d.ts",
+              "<typescript-lib>/lib.es2020.sharedmemory.d.ts",
+              "<typescript-lib>/lib.es2020.string.d.ts",
+              "<typescript-lib>/lib.es2020.symbol.wellknown.d.ts",
+              "<typescript-lib>/lib.es2020.intl.d.ts",
+              "<typescript-lib>/lib.es2020.number.d.ts",
+              "<typescript-lib>/lib.decorators.d.ts",
+              "<typescript-lib>/lib.decorators.legacy.d.ts",
+              "<typescript-lib>/lib.es2020.full.d.ts",
+              "/private/tmp/tsr-loader-depth-native/node_modules/inner/index.js",
+              "/private/tmp/tsr-loader-depth-native/node_modules/outer/index.js",
+              "/private/tmp/tsr-loader-depth-native/main.ts"
+            ],
+            "loaded_project": [
+              "node_modules/inner/index.js",
+              "node_modules/outer/index.js",
+              "main.ts"
+            ],
+            "libraries": 51
+          }
+        ]
+      }
+    ],
+    "library_input_sha256": {
+      "<typescript-lib>/lib.decorators.d.ts": "1ce14b81c5cc821994aa8ec1d42b220dd41b27fcc06373bce3958af7421b77d4",
+      "<typescript-lib>/lib.decorators.legacy.d.ts": "b3a048b3e9302ef9a34ef4ebb9aecfb28b66abb3bce577206a79fee559c230da",
+      "<typescript-lib>/lib.dom.asynciterable.d.ts": "7f57fc4404ff020bc45b9c620aff2b40f700b95fe31164024c453a5e3c163c54",
+      "<typescript-lib>/lib.dom.d.ts": "d6b1eba8496bdd0eed6fc8a685768fe01b2da4a0388b5fe7df558290bffcf32f",
+      "<typescript-lib>/lib.dom.iterable.d.ts": "7f57fc4404ff020bc45b9c620aff2b40f700b95fe31164024c453a5e3c163c54",
+      "<typescript-lib>/lib.es2015.collection.d.ts": "f0b6b1d3624fb143656dd86a8dd3e1950b7e65f218319b47bde52f65d47e2e4b",
+      "<typescript-lib>/lib.es2015.core.d.ts": "770011bd32a52f929fc98fbf9976c1fa9d80b6445171c02b08627fdba9778933",
+      "<typescript-lib>/lib.es2015.d.ts": "3f88bedbeb09c6f5a6645cb24c7c55f1aa22d19ae96c8e6959cbd8b85a707bc6",
+      "<typescript-lib>/lib.es2015.generator.d.ts": "00343ca5b2e3d48fa5df1db6e32ea2a59afab09590274a6cccb1dbae82e60c7c",
+      "<typescript-lib>/lib.es2015.iterable.d.ts": "ebd9f816d4002697cb2864bea1f0b70a103124e18a8cd9645eeccc09bdf80ab4",
+      "<typescript-lib>/lib.es2015.promise.d.ts": "2c1afac30a01772cd2a9a298a7ce7706b5892e447bb46bdbeef720f7b5da77ad",
+      "<typescript-lib>/lib.es2015.proxy.d.ts": "7b0225f483e4fa685625ebe43dd584bb7973bbd84e66a6ba7bbe175ee1048b4f",
+      "<typescript-lib>/lib.es2015.reflect.d.ts": "c0a4b8ac6ce74679c1da2b3795296f5896e31c38e888469a8e0f99dc3305de60",
+      "<typescript-lib>/lib.es2015.symbol.d.ts": "83e3871cda2abd4421970fa923cca51a9ce8cdbece6f898285643ab030cb80f3",
+      "<typescript-lib>/lib.es2015.symbol.wellknown.d.ts": "c5079c53f0f141a0698faa903e76cb41cd664e3efb01cc17a5c46ec2eb0bef42",
+      "<typescript-lib>/lib.es2016.array.include.d.ts": "32cafbc484dea6b0ab62cf8473182bbcb23020d70845b406f80b7526f38ae862",
+      "<typescript-lib>/lib.es2016.d.ts": "7fe93b39b810eadd916be8db880dd7f0f7012a5cc6ffb62de8f62a2117fa6f1f",
+      "<typescript-lib>/lib.es2016.intl.d.ts": "fca4cdcb6d6c5ef18a869003d02c9f0fd95df8cfaf6eb431cd3376bc034cad36",
+      "<typescript-lib>/lib.es2017.arraybuffer.d.ts": "b93ec88115de9a9dc1b602291b85baf825c85666bf25985cc5f698073892b467",
+      "<typescript-lib>/lib.es2017.d.ts": "bb0074cc08b84a2374af33d8bf044b80851ccc9e719a5e202eacf40db2c31600",
+      "<typescript-lib>/lib.es2017.date.d.ts": "f5c06dcc3fe849fcb297c247865a161f995cc29de7aa823afdd75aaaddc1419b",
+      "<typescript-lib>/lib.es2017.intl.d.ts": "c7b3542146734342e440a84b213384bfa188835537ddbda50d30766f0593aff9",
+      "<typescript-lib>/lib.es2017.object.d.ts": "b77e16112127a4b169ef0b8c3a4d730edf459c5f25fe52d5e436a6919206c4d7",
+      "<typescript-lib>/lib.es2017.sharedmemory.d.ts": "fbffd9337146eff822c7c00acbb78b01ea7ea23987f6c961eba689349e744f8c",
+      "<typescript-lib>/lib.es2017.string.d.ts": "6aaeba1e4f228fda4e9175e34d96807e2c6dc984d0b37a772b3af9365a456681",
+      "<typescript-lib>/lib.es2017.typedarrays.d.ts": "ce6180fa19b1cccd07ee7f7dbb9a367ac19c0ed160573e4686425060b6df7f57",
+      "<typescript-lib>/lib.es2018.asyncgenerator.d.ts": "3f02e2476bccb9dbe21280d6090f0df17d2f66b74711489415a8aa4df73c9675",
+      "<typescript-lib>/lib.es2018.asynciterable.d.ts": "45e3ab34c1c013c8ab2dc1ba4c80c780744b13b5676800ae2e3be27ae862c40c",
+      "<typescript-lib>/lib.es2018.d.ts": "1a7daebe4f45fb03d9ec53d60008fbf9ac45a697fdc89e4ce218bc94b94f94d6",
+      "<typescript-lib>/lib.es2018.intl.d.ts": "805c86f6cca8d7702a62a844856dbaa2a3fd2abef0536e65d48732441dde5b5b",
+      "<typescript-lib>/lib.es2018.promise.d.ts": "e42e397f1a5a77994f0185fd1466520691456c772d06bf843e5084ceb879a0ad",
+      "<typescript-lib>/lib.es2018.regexp.d.ts": "f4c2b41f90c95b1c532ecc874bd3c111865793b23aebcc1c3cbbabcd5d76ffb0",
+      "<typescript-lib>/lib.es2019.array.d.ts": "ab26191cfad5b66afa11b8bf935ef1cd88fabfcb28d30b2dfa6fad877d050332",
+      "<typescript-lib>/lib.es2019.d.ts": "f94b133a3cb14a288803be545ac2683e0d0ff6661bcd37e31aaaec54fc382aed",
+      "<typescript-lib>/lib.es2019.intl.d.ts": "689da16f46e647cef0d64b0def88910e818a5877ca5379ede156ca3afb780ac3",
+      "<typescript-lib>/lib.es2019.object.d.ts": "2088bc26531e38fb05eedac2951480db5309f6be3fa4a08d2221abb0f5b4200d",
+      "<typescript-lib>/lib.es2019.string.d.ts": "cb9d366c425fea79716a8fb3af0d78e6b22ebbab3bd64d25063b42dc9f531c1e",
+      "<typescript-lib>/lib.es2019.symbol.d.ts": "500934a8089c26d57ebdb688fc9757389bb6207a3c8f0674d68efa900d2abb34",
+      "<typescript-lib>/lib.es2020.bigint.d.ts": "bc21cc8b6fee4f4c2440d08035b7ea3c06b3511314c8bab6bef7a92de58a2593",
+      "<typescript-lib>/lib.es2020.d.ts": "f59d0650799f8782fd74cf73c19223730c6d1b9198671b1c5b3a38e1188b5953",
+      "<typescript-lib>/lib.es2020.date.d.ts": "7ca53d13d2957003abb47922a71866ba7cb2068f8d154877c596d63c359fed25",
+      "<typescript-lib>/lib.es2020.full.d.ts": "577cc49be1979782a5a695b46049566d123e2a75382f10bb82f2e5c87e29059a",
+      "<typescript-lib>/lib.es2020.intl.d.ts": "db839fa0625981ae6e20a55e079c3613184310ca246879245b294573e7cc6926",
+      "<typescript-lib>/lib.es2020.number.d.ts": "b7bf9377723203b5a6a4b920164df22d56a43f593269ba6ae1fdc97774b68855",
+      "<typescript-lib>/lib.es2020.promise.d.ts": "54725f8c4df3d900cb4dac84b64689ce29548da0b4e9b7c2de61d41c79293611",
+      "<typescript-lib>/lib.es2020.sharedmemory.d.ts": "e5594bc3076ac29e6c1ebda77939bc4c8833de72f654b6e376862c0473199323",
+      "<typescript-lib>/lib.es2020.string.d.ts": "2f3eb332c2d73e729f3364fcc0c2b375e72a121e8157d25a82d67a138c83a95c",
+      "<typescript-lib>/lib.es2020.symbol.wellknown.d.ts": "6f4427f9642ce8d500970e4e69d1397f64072ab73b97e476b4002a646ac743b1",
+      "<typescript-lib>/lib.es5.d.ts": "6388847232654d7fcbed7fe89ea511a65ad1f5104b41e905c43f90910e1408b6",
+      "<typescript-lib>/lib.scripthost.d.ts": "f13f4b465c99041e912db5c44129a94588e1aafee35a50eab51044833f50b4ee",
+      "<typescript-lib>/lib.webworker.importscripts.d.ts": "2a2de5b9459b3fc44decd9ce6100b72f1b002ef523126c1d3d8b2a4a63d74d78"
+    },
+    "all_library_hashes_match_oracle_manifest": true
+  },
+  "validation": {
+    "driver_syntax": true,
+    "complete_multiline_diagnostic_control": true,
+    "extra_loaded_file_detected": true,
+    "extra_unrecognized_output_detected": true,
+    "full_checker_corpora": "not run; diagnostic-only controls, no retained production change"
+  }
+}
