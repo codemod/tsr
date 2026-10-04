@@ -22,13 +22,25 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
-### Current checker checkpoint — literals, module identities and conditional constraints
+### Current checker checkpoint — semantic signature positions
 
-Measured production tree **`033451b2`**, against published `d881bd20`:
-**459,598/478,855 assertions (95.98%)**, **7,173/9,538 complete cases
-(75.20%)**. The 99% target requires 474,067 matches; **14,469 remain**.
+Measured production tree **`382ee882`**, against published `d881bd20`:
+**459,614/478,855 assertions (95.98%)**, **7,174/9,538 complete cases
+(75.21%)**. The 99% target requires 474,067 matches; **14,453 remain**.
 Pinned native `5b1047d1` and both denominators are unchanged. Aligned verdicts:
-**474,251 total; 459,598 RIGHT; 2,183 GAP; 12,470 WRONG**.
+**474,251 total; 459,614 RIGHT; 2,183 GAP; 12,454 WRONG**.
+
+Fixed signature positions include optional/default `undefined` under strict null
+checks without changing stored annotations, rest lookup or write targets.
+Initialized parameters narrow their entry reads through the existing flow rule.
+A generic global-array candidate is skipped before inference only when a primitive
+provably lacks a required member and apparent-source enumeration is complete;
+empty noLib arrays and unsupported shapes are not rejected by identity alone.
+Against `033451b2`, this adds **16 WRONG→RIGHT**, zero RIGHT losses, GAP→WRONG or
+new/removed records, and one complete case. One remaining-WRONG callback payload
+now includes native positional `undefined` but still lacks its contextual object
+shape; that payload change is not counted as a gain. The synthetic contextual
+undefined-write TS2322 remains a separately verified pre-existing limitation.
 
 Nonfinite numeric values now use the existing ECMAScript formatter when interned
 as literals, negated literals and enum payloads. Finite formatting and scanner
@@ -68,13 +80,16 @@ roots remain refused rather than exposing unmapped written operands. Against
 prerequisite adds no existing-corpus matches. The broader conditional candidate
 remains held for GAP→WRONG transitions and changed WRONG payloads.
 
-Complete duplicate-aware diagnostics are byte-identical to `d881bd20` across
+Complete duplicate-aware diagnostics improve against `d881bd20` across
 **10,570 cases**, including all **5,082 empty baselines**:
-**2,840 RIGHT / 2,648 WRONG / 4,797 EMPTY_RIGHT / 285 EMPTY_WRONG**;
-**20,617 matched occurrences / 3,891 extras**. There are no correct-case,
-expected-occurrence, empty-positive, payload or population losses.
+**2,846 RIGHT / 2,642 WRONG / 4,798 EMPTY_RIGHT / 284 EMPTY_WRONG**;
+**20,653 matched occurrences / 3,890 extras**, up from 20,617 matches and down
+from 3,891 extras. Six wrong cases and one empty-positive case become correct.
+There are no correct-case, expected-occurrence, empty-positive or population
+losses, and no introduced extras. Two still-WRONG generic-signature diagnostic
+payloads gain expected TS2430 occurrences.
 
-**2,763 release workspace tests across 236 result blocks**, six existing ignores,
+**2,771 release workspace tests across 238 result blocks**, six existing ignores,
 strict release workspace/all-target Clippy, formatting and diff checks pass.
 Unfiltered scorepair agrees with the multiline-aware audit and accepts the new
 baseline; checker and diagnostics snapshots are refreshed after strict Clippy.
@@ -85,9 +100,9 @@ The standalone intrinsic-error negation patch is held despite 11 gains: three
 GAP→WRONG rows require constrained-parameter truthiness and loop-flow/binding
 prerequisites. Its complete diagnostics are unchanged, and both negation and
 the rejected unresolved supplier are restored. Function-export namespace copies,
-semantic signature positions and mapped consumers still require combined
-integration audits. The 99% goal is not reached; this is a checkpoint, not
-completion.
+nullable-union provenance and mapped consumers still require combined integration
+audits. Generic argument reporting remains a separate native-first consumer unit.
+The 99% goal is not reached; this is a checkpoint, not completion.
 
 ### Previous checker checkpoint — generic await, presence reads and JSDoc diagnostics
 
