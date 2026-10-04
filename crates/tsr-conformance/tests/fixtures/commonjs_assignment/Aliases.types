@@ -1,0 +1,188 @@
+//// [tests/cases/compiler/assignmentCommonJsAliases.ts] ////
+
+=== /use.ts ===
+import "./writes";
+import aliases = require("./aliases");
+>aliases : typeof aliases
+
+import Bound = require("./klass");
+>Bound : typeof Bound
+
+aliases.scalar;
+>aliases.scalar : number
+>aliases : typeof aliases
+>scalar : number
+
+aliases.shadow;
+>aliases.shadow : "shadow"
+>aliases : typeof aliases
+>shadow : "shadow"
+
+aliases.member;
+>aliases.member : boolean
+>aliases : typeof aliases
+>member : boolean
+
+const instance: Bound = new Bound();
+>instance : Bound
+>new Bound() : Bound
+>Bound : typeof Bound
+
+instance.field;
+>instance.field : number
+>instance : Bound
+>field : number
+
+=== /aliases.js ===
+let value = 1;
+>value : number
+>1 : 1
+
+exports.scalar = value;
+>exports.scalar = value : number
+>exports.scalar : number
+>exports : typeof import("./aliases")
+>scalar : number
+>value : number
+
+value = 2;
+>value = 2 : 2
+>value : number
+>2 : 2
+{
+    const value = "shadow";
+>value : "shadow"
+>"shadow" : "shadow"
+
+    exports.shadow = value;
+>exports.shadow = value : "shadow"
+>exports.shadow : "shadow"
+>exports : typeof import("./aliases")
+>shadow : "shadow"
+>value : "shadow"
+}
+const owner = { flag: true };
+>owner : { flag: boolean; }
+>{ flag: true } : { flag: boolean; }
+>flag : boolean
+>true : true
+
+exports.member = owner.flag;
+>exports.member = owner.flag : boolean
+>exports.member : boolean
+>exports : typeof import("./aliases")
+>member : boolean
+>owner.flag : boolean
+>owner : { flag: boolean; }
+>flag : boolean
+
+exports.scalar;
+>exports.scalar : number
+>exports : typeof import("./aliases")
+>scalar : number
+
+exports.shadow;
+>exports.shadow : "shadow"
+>exports : typeof import("./aliases")
+>shadow : "shadow"
+
+exports.member;
+>exports.member : boolean
+>exports : typeof import("./aliases")
+>member : boolean
+
+=== /klass.js ===
+module.exports = class Bound { field = 9; };
+>module.exports = class Bound { field = 9; } : typeof import("./klass")
+>module.exports : typeof import("./klass")
+>module : { exports: typeof import("./klass"); }
+>exports : typeof import("./klass")
+>class Bound { field = 9; } : typeof import("./klass")
+>Bound : typeof Bound
+>field : number
+>9 : 9
+
+module.exports;
+>module.exports : typeof import("./klass")
+>module : { exports: typeof import("./klass"); }
+>exports : typeof import("./klass")
+
+=== /writes.js ===
+exports.first = exports.second = void 0;
+>exports.first = exports.second = void 0 : undefined
+>exports.first : 1
+>exports : typeof import("./writes")
+>first : 1
+>exports.second = void 0 : undefined
+>exports.second : "ready"
+>exports : typeof import("./writes")
+>second : "ready"
+>void 0 : undefined
+>0 : 0
+
+exports.first = 1;
+>exports.first = 1 : 1
+>exports.first : 1
+>exports : typeof import("./writes")
+>first : 1
+>1 : 1
+
+exports.second = "ready";
+>exports.second = "ready" : "ready"
+>exports.second : "ready"
+>exports : typeof import("./writes")
+>second : "ready"
+>"ready" : "ready"
+
+/** @type {number} */
+exports.typed = 1;
+>exports.typed = 1 : 1
+>exports.typed : number
+>exports : typeof import("./writes")
+>typed : number
+>1 : 1
+
+exports.typed = undefined;
+>exports.typed = undefined : undefined
+>exports.typed : number
+>exports : typeof import("./writes")
+>typed : number
+>undefined : undefined
+
+exports.typed = "bad";
+>exports.typed = "bad" : "bad"
+>exports.typed : number
+>exports : typeof import("./writes")
+>typed : number
+>"bad" : "bad"
+
+const ordinary = { typed: 1 };
+>ordinary : { typed: number; }
+>{ typed: 1 } : { typed: number; }
+>typed : number
+>1 : 1
+
+ordinary.typed = undefined;
+>ordinary.typed = undefined : undefined
+>ordinary.typed : number
+>ordinary : { typed: number; }
+>typed : number
+>undefined : undefined
+
+/** @param {{typed: number}} exports */
+function shadow(exports) {
+>shadow : (exports: { typed: number; }) => void
+>exports : { typed: number; }
+
+    exports.typed = undefined;
+>exports.typed = undefined : undefined
+>exports.typed : number
+>exports : { typed: number; }
+>typed : number
+>undefined : undefined
+}
+shadow(ordinary);
+>shadow(ordinary) : void
+>shadow : (exports: { typed: number; }) => void
+>ordinary : { typed: number; }
+

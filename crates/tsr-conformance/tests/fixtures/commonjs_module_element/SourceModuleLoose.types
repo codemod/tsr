@@ -1,0 +1,35 @@
+//// [tests/cases/compiler/assignmentSourceModuleElementLoose.ts] ////
+
+=== /payload.ts ===
+export const available = 17;
+>available : 17
+>17 : 17
+
+export const alternate = "second";
+>alternate : "second"
+>"second" : "second"
+
+=== /usage.ts ===
+import * as x from "./payload";
+>x : typeof x
+
+x.missing;
+>x.missing : any
+>x : typeof x
+>missing : any
+
+x["missing"];
+>x["missing"] : any
+>x : typeof x
+>"missing" : "missing"
+
+x["availabl"];
+>x["availabl"] : any
+>x : typeof x
+>"availabl" : "availabl"
+
+x["available"];
+>x["available"] : 17
+>x : typeof x
+>"available" : "available"
+

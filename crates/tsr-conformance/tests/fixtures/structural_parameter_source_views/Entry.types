@@ -1,0 +1,79 @@
+//// [tests/cases/compiler/lazyReturnParameterEntry.ts] ////
+
+=== lazyReturnParameterEntry.ts ===
+type FormalInputs<F extends (...args: any[]) => any> = F extends (...args: infer P) => any ? P : never;
+>FormalInputs : FormalInputs<F>
+>args : any[]
+>args : P
+
+type ActualResult<F> = F extends (...args: any[]) => infer R ? R : never;
+>ActualResult : ActualResult<F>
+>args : any[]
+
+function foo(arg: FormalInputs<typeof bar>[0]) { return arg; }
+>foo : (arg: FormalInputs<typeof bar>[0]) => string
+>arg : string
+>bar : (arg: string, count: number) => string
+>arg : string
+
+function bar(arg: string, count: number) { return foo(arg); }
+>bar : (arg: string, count: number) => string
+>arg : string
+>count : number
+>foo(arg) : string
+>foo : (arg: FormalInputs<typeof bar>[0]) => string
+>arg : string
+
+const fooResult = foo('cold');
+>fooResult : string
+>foo('cold') : string
+>foo : (arg: FormalInputs<typeof bar>[0]) => string
+>'cold' : "cold"
+
+const barResult = bar('warm', 23);
+>barResult : string
+>bar('warm', 23) : string
+>bar : (arg: string, count: number) => string
+>'warm' : "warm"
+>23 : 23
+
+const fooAgain = foo('again');
+>fooAgain : string
+>foo('again') : string
+>foo : (arg: FormalInputs<typeof bar>[0]) => string
+>'again' : "again"
+
+const barAgain = bar('last', 5);
+>barAgain : string
+>bar('last', 5) : string
+>bar : (arg: string, count: number) => string
+>'last' : "last"
+>5 : 5
+
+function make() { return { value: 23 }; }
+>make : () => { value: number; }
+>{ value: 23 } : { value: number; }
+>value : number
+>23 : 23
+
+declare const returned: ActualResult<typeof make>;
+>returned : { value: number; }
+>make : () => { value: number; }
+
+const result = make();
+>result : { value: number; }
+>make() : { value: number; }
+>make : () => { value: number; }
+
+const returnedValue = returned.value;
+>returnedValue : number
+>returned.value : number
+>returned : { value: number; }
+>value : number
+
+const resultValue = result.value;
+>resultValue : number
+>result.value : number
+>result : { value: number; }
+>value : number
+

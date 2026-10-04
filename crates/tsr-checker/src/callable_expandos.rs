@@ -45,6 +45,7 @@ impl Checker<'_, '_> {
                 accessor_write: None,
                 method: false,
                 origin: Some(member),
+                checked_declaration: None,
                 name,
                 printed_name,
                 optional: self.property_is_optional(member),

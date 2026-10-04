@@ -515,6 +515,14 @@ impl Checker<'_, '_> {
             (raw_callee_type, false)
         };
         let result = self.check_call_expression_worker(node, callee, callee_type);
+        // checkCallExpression (native 5b1047d1): a CommonJS require in JS
+        // returns the resolved module value, not the ambient call signature's
+        // any. TS calls and a locally shadowing function keep ordinary calls.
+        if self.is_commonjs_require(node) {
+            return self
+                .commonjs_require_target(node)
+                .map_or(self.intrinsics.any, |target| self.get_type_of_symbol(target));
+        }
         // A generic call's final object-argument context follows inference.
         // Non-generic calls already supplied their concrete context on the
         // initial check; repeating it can re-enter a flow-dependent initializer.
@@ -552,6 +560,65 @@ impl Checker<'_, '_> {
             return result;
         }
         self.propagate_optional_type_marker_at(node.node_id, result, true)
+    }
+
+    /// isCommonJSRequire, native checker.go:15674. Resolve the binding before
+    /// treating the spelling as the implicit JS require symbol. Ambient
+    /// function/variable declarations qualify; local implementations and aliases
+    /// do not. No result is cached independently of the ordinary node worker.
+    pub(crate) fn is_commonjs_require(&self, node: &CallExpression<'_>) -> bool {
+        let Some(id) = node.node_id else { return false };
+        if !self.in_js_file(id)
+            || node.arguments.len() != 1
+            || !matches!(
+                node.arguments[0],
+                Expression::StringLiteral(_) | Expression::NoSubstitutionTemplateLiteral(_)
+            )
+        {
+            return false;
+        }
+        let Some(Expression::Identifier(callee)) = node.expression else { return false };
+        if callee.text != "require" {
+            return false;
+        }
+        let Some(reference) = callee.node_id else { return false };
+        let Some(symbol) = self.binder.resolve_name(
+            self.nodes,
+            self.node_map,
+            reference,
+            callee.text,
+            SymbolFlags::VALUE,
+        ) else {
+            // The native name resolver supplies its implicit requireSymbol in
+            // JS when no value binding shadows it. TSR leaves it unresolved.
+            return true;
+        };
+        let record = self.binder.symbols().get(symbol);
+        let kind = if record.flags.intersects(SymbolFlags::FUNCTION) {
+            tsr_ast::SyntaxKind::FunctionDeclaration
+        } else if record.flags.intersects(SymbolFlags::VARIABLE) {
+            tsr_ast::SyntaxKind::VariableDeclaration
+        } else {
+            return false;
+        };
+        !record.flags.intersects(SymbolFlags::ALIAS)
+            && record.declarations.iter().any(|&declaration| {
+                self.nodes.kind(declaration) == kind
+                    && self.combined_node_flags(declaration).contains(tsr_ast::NodeFlags::AMBIENT)
+            })
+    }
+
+    /// resolveExternalModuleTypeByLiteral's symbol half. Keep the original
+    /// module identity or its resolved export= value; consumers retain their
+    /// own written alias context. Existing module/alias workers own cycles and
+    /// completion, and this adds neither a module image nor a second cache.
+    pub(crate) fn commonjs_require_target(
+        &mut self,
+        node: &CallExpression<'_>,
+    ) -> Option<tsr_binder::SymbolId> {
+        let specifier = node.arguments.first()?.node_id()?;
+        let module = self.resolve_external_module_name(specifier, specifier)?;
+        Some(self.resolve_external_module_symbol(module))
     }
 
     fn check_call_expression_worker(
@@ -1433,7 +1500,8 @@ impl Checker<'_, '_> {
                 if counted {
                     bump(&COUNTERS.single_candidate);
                 }
-                return Some(signature.clone());
+                let signature = self.complete_signature_return(signature.clone())?;
+                return (signature.r#type != self.intrinsics.error).then_some(signature);
             }
             // §579: an OVERLOAD SET on an instantiated signature type is
             // selected here rather than gapped. The comment above says it
@@ -1463,7 +1531,8 @@ impl Checker<'_, '_> {
                 && let Some(signature) =
                     self.choose_overload(&signatures, arguments, has_type_arguments, call)
             {
-                return Some(signature);
+                let signature = self.complete_signature_return(signature)?;
+                return (signature.r#type != self.intrinsics.error).then_some(signature);
             }
             if counted {
                 bump(&COUNTERS.callee_no_signatures);
@@ -1514,7 +1583,7 @@ impl Checker<'_, '_> {
         } else {
             from_type
         };
-        match signatures.as_slice() {
+        let selected = match signatures.as_slice() {
             [signature] => {
                 if counted {
                     bump(&COUNTERS.single_candidate);
@@ -1550,7 +1619,12 @@ impl Checker<'_, '_> {
                 }
                 self.choose_overload(candidates, arguments, has_type_arguments, call)
             }
-        }
+        }?;
+        // A raw type vector can carry a declaration-owned pending return.
+        // Complete only the selected semantic return, preserving its target and
+        // mapper, and decline unsupported/active error without caching an image.
+        let selected = self.complete_signature_return(selected)?;
+        (selected.r#type != self.intrinsics.error).then_some(selected)
     }
 
     /// resolveNewExpression / resolveCall (checker.go:8575): construct
@@ -2488,6 +2562,48 @@ impl Checker<'_, '_> {
         }
         if call.is_none() && candidates.iter().any(|c| c.this_parameter.is_some()) {
             return None;
+        }
+        // Native checker.go:19836/10166 publishes original callable shape
+        // before body demand. No overload is selected here: every candidate's
+        // argument position must certify a completed absent contextual call
+        // signature. Unsupported/unfinished lookups and mapper frames decline.
+        if self.alias_evaluation_bindings.is_empty() && self.mapped_template_depth == 0 {
+            for (index, argument) in arguments.iter().enumerate() {
+                if !matches!(
+                    argument,
+                    Expression::ArrowFunction(_) | Expression::FunctionExpression(_)
+                ) {
+                    continue;
+                }
+                let Some(declaration) = argument.node_id() else { continue };
+                let absent = !candidates.is_empty()
+                    && candidates.iter().all(|candidate| {
+                        let Some(contextual) =
+                            self.contextual_argument_type(candidate, index, arguments.len())
+                        else {
+                            return false;
+                        };
+                        let contextual =
+                            if self.store.get(contextual).flags.contains(TypeFlags::TYPE_PARAMETER)
+                            {
+                                let Some(constraint) = self.base_constraint_of_type(contextual)
+                                else {
+                                    return false;
+                                };
+                                constraint
+                            } else {
+                                contextual
+                            };
+                        let contextual = self.apparent_type(contextual);
+                        matches!(
+                            self.contextual_call_signature(contextual, Some(declaration)),
+                            Some(crate::contextual::ContextualSignature::Absent)
+                        )
+                    });
+                if absent {
+                    self.prepare_uncontextual_callable(declaration);
+                }
+            }
         }
         let argument_types: Vec<TypeId> = arguments
             .iter()

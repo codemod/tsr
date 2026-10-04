@@ -1,0 +1,52 @@
+/writes.js(7,1): error TS2322: Type 'string' is not assignable to type 'number'.
+/writes.js(9,1): error TS2322: Type 'undefined' is not assignable to type 'number'.
+/writes.js(12,5): error TS2322: Type 'undefined' is not assignable to type 'number'.
+
+
+==== /use.ts (0 errors) ====
+    import "./writes";
+    import aliases = require("./aliases");
+    import Bound = require("./klass");
+    aliases.scalar;
+    aliases.shadow;
+    aliases.member;
+    const instance: Bound = new Bound();
+    instance.field;
+    
+==== /aliases.js (0 errors) ====
+    let value = 1;
+    exports.scalar = value;
+    value = 2;
+    {
+        const value = "shadow";
+        exports.shadow = value;
+    }
+    const owner = { flag: true };
+    exports.member = owner.flag;
+    exports.scalar;
+    exports.shadow;
+    exports.member;
+==== /klass.js (0 errors) ====
+    module.exports = class Bound { field = 9; };
+    module.exports;
+==== /writes.js (3 errors) ====
+    exports.first = exports.second = void 0;
+    exports.first = 1;
+    exports.second = "ready";
+    /** @type {number} */
+    exports.typed = 1;
+    exports.typed = undefined;
+    exports.typed = "bad";
+    ~~~~~~~~~~~~~
+!!! error TS2322: Type 'string' is not assignable to type 'number'.
+    const ordinary = { typed: 1 };
+    ordinary.typed = undefined;
+    ~~~~~~~~~~~~~~
+!!! error TS2322: Type 'undefined' is not assignable to type 'number'.
+    /** @param {{typed: number}} exports */
+    function shadow(exports) {
+        exports.typed = undefined;
+        ~~~~~~~~~~~~~
+!!! error TS2322: Type 'undefined' is not assignable to type 'number'.
+    }
+    shadow(ordinary);

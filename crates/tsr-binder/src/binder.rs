@@ -201,6 +201,11 @@ pub(crate) struct Binder<'a, 'n> {
     /// turns a `.js` script into a module and what makes `module` and `exports`
     /// locals of the file.
     commonjs_module: bool,
+    /// Native reparsed `node.Type` presence for `CommonJS` require-alias admission.
+    /// Owned by this file's binder only, filled from parsed @type attachments
+    /// before binding; statement and declaration hosts retain `NodeId` identity.
+    /// This immutable admission set does not cache any checker computation.
+    jsdoc_type_hosts: rustc_hash::FxHashSet<NodeId>,
     /// `declaration -> the computed name it was written with`.
     ///
     /// Recorded for every declaration whose name is a `ComputedPropertyName`,
@@ -418,6 +423,7 @@ impl<'a, 'n> Binder<'a, 'n> {
             file_symbol_name: "",
             module_symbol: None,
             commonjs_module: false,
+            jsdoc_type_hosts: rustc_hash::FxHashSet::default(),
             this_container: NodeId::ZERO,
             computed_names,
             name_nodes: rustc_hash::FxHashMap::default(),
@@ -475,6 +481,18 @@ impl<'a, 'n> Binder<'a, 'n> {
         let root = Node::SourceFile(file);
         let root_id = root.node_id().expect("the source file is registered");
 
+        self.jsdoc_type_hosts.extend(jsdoc.iter().filter_map(|(host, docs)| {
+            docs.iter()
+                .any(|doc| {
+                    doc.tags.iter().any(|tag| {
+                        matches!(
+                            tag,
+                            tsr_ast::JSDocTag::JSDocTypeTag(tag) if tag.type_expression.is_some()
+                        )
+                    })
+                })
+                .then_some(*host)
+        }));
         self.container = root_id;
         self.block = root_id;
 
@@ -2591,7 +2609,9 @@ impl<'a, 'n> Binder<'a, 'n> {
         // makes `a` a parameter.
         if matches!(node, Node::VariableDeclaration(_) | Node::BindingElement(_)) {
             return Some((
-                if self.is_block_or_catch_scoped(id) {
+                if self.is_require_alias_variable(node, id) {
+                    SymbolFlags::ALIAS
+                } else if self.is_block_or_catch_scoped(id) {
                     SymbolFlags::BLOCK_SCOPED_VARIABLE
                 } else {
                     SymbolFlags::FUNCTION_SCOPED_VARIABLE
@@ -2704,6 +2724,35 @@ impl<'a, 'n> Binder<'a, 'n> {
             return Some((flags, Destination::Exports));
         }
         Some((flags, destination))
+    }
+
+    /// `IsVariableDeclarationInitializedToRequire` (native utilities.go:2825).
+    /// This is syntactic, unlike the checker's admission of require CALLS.
+    /// Binding patterns are a separate import-specifier resolution path.
+    fn is_require_alias_variable(&self, node: Node<'a>, id: NodeId) -> bool {
+        let Node::VariableDeclaration(variable) = node else { return false };
+        if !self.in_js_file
+            || variable.r#type.is_some()
+            || !matches!(variable.name, Some(tsr_ast::BindingName::Identifier(_)))
+            || self.jsdoc_type_hosts.contains(&id)
+        {
+            return false;
+        }
+        let statement = self.nodes.parent(id).and_then(|list| self.nodes.parent(list));
+        if statement.is_some_and(|statement| self.jsdoc_type_hosts.contains(&statement)) {
+            return false;
+        }
+        if self.ancestors.iter().rev().any(|(ancestor, node)| {
+            Some(*ancestor) == statement
+                && matches!(node, Node::VariableStatement(statement)
+                    if has_export(statement.modifiers))
+        }) {
+            return false;
+        }
+        matches!(variable.initializer, Some(Expression::CallExpression(call))
+            if matches!(call.expression, Some(Expression::Identifier(name)) if name.text == "require")
+                && call.arguments.len() == 1
+                && matches!(call.arguments[0], Expression::StringLiteral(_) | Expression::NoSubstitutionTemplateLiteral(_)))
     }
 
     /// Whether a declaration is scoped to the nearest block rather than the
@@ -3344,12 +3393,15 @@ impl<'a, 'n> Binder<'a, 'n> {
                 };
                 let module = self.module_symbol?;
                 let file = self.file_node;
-                let symbol = self.declare_into(
+                // bindModuleExportsAssignment passes no exclusions, even
+                // when successive assignments mix property and alias meanings.
+                let symbol = self.declare_into_with_excludes(
                     Destination::Exports,
                     file,
                     Some(module),
                     INTERNAL_EXPORT_EQUALS,
                     flags,
+                    SymbolFlags::empty(),
                     id,
                 );
                 self.symbols.get_mut(symbol).value_declaration = Some(id);
@@ -3369,7 +3421,18 @@ impl<'a, 'n> Binder<'a, 'n> {
                 };
                 let module = self.module_symbol?;
                 let file = self.file_node;
-                Some(self.declare_into(Destination::Exports, file, Some(module), name, flags, id))
+                // bindExportsOrObjectDefineProperty uses variable exclusions
+                // for BOTH meanings; deriving AliasExcludes rejects ordinary
+                // export initialization followed by an alias/undefined write.
+                Some(self.declare_into_with_excludes(
+                    Destination::Exports,
+                    file,
+                    Some(module),
+                    name,
+                    flags,
+                    SymbolFlags::FUNCTION_SCOPED_VARIABLE.excludes(),
+                    id,
+                ))
             }
             JsDeclaration::ThisProperty => self.bind_this_property_assignment(node, id),
 
@@ -3682,6 +3745,17 @@ impl<'a, 'n> Binder<'a, 'n> {
         if let Some(name_node) = name_node_of(node) {
             self.name_nodes.insert(id, name_node);
         }
+        // bindCallExpression (native 5b1047d1 binder.go:920): syntactic
+        // require calls mark JS CommonJS modules even when the binding is
+        // shadowed. Semantic require-call recognition belongs to the checker.
+        if self.in_js_file
+            && !self.commonjs_module
+            && let Node::CallExpression(call) = node
+            && call.arguments.len() == 1
+            && matches!(call.expression, Some(Expression::Identifier(name)) if name.text == "require")
+        {
+            self.set_commonjs_module_indicator();
+        }
         // In a JavaScript file an assignment to a property can *be* a
         // declaration. Checked before anything else, because the node kinds
         // involved — a binary expression — declare nothing otherwise.
@@ -3713,6 +3787,12 @@ impl<'a, 'n> Binder<'a, 'n> {
         if let Some((internal, flags)) = anonymous_declaration(node) {
             let symbol = self.symbols.create(internal, flags);
             self.symbols.get_mut(symbol).declarations.push(id);
+            // bindAnonymousDeclaration -> addDeclarationToSymbol ->
+            // SetValueDeclaration (5b1047d1, binder.go:1230/2513). The named
+            // expression's constant self-reference uses this original owner.
+            if matches!(node, Node::FunctionExpression(_)) {
+                self.symbols.get_mut(symbol).value_declaration = Some(id);
+            }
             self.node_symbols[id.index()] = Some(symbol);
             return Some(symbol);
         }
@@ -4791,7 +4871,7 @@ fn file_has_export_declarations(file: &SourceFile<'_>) -> bool {
 /// ported.
 fn expression_is_alias(expression: Option<Expression<'_>>) -> bool {
     match expression {
-        Some(Expression::Identifier(_)) => true,
+        Some(Expression::Identifier(_) | Expression::ClassExpression(_)) => true,
         Some(Expression::PropertyAccessExpression(access)) => {
             expression_is_alias(access.expression)
         }

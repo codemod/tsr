@@ -71,10 +71,11 @@ const unsupported = arrayOrUnknown(uncertain);
             ("afterReadonly", "\"string\""),
             ("actualReadonly", "\"readonly\""),
             ("naked", "\"generic\""),
-            // Native accepts these, but the existing alias/unknown inference
-            // prerequisites are unsupported. They must not be skipped to
-            // manufacture a successful public answer.
-            ("shadowed", "error"),
+            // The identity alias exposes its instantiable body, so native's
+            // first generic overload succeeds without treating it as an array.
+            ("shadowed", "\"shadow\""),
+            // Native accepts unknown, but its inference prerequisite remains
+            // unsupported. It must not be skipped to manufacture a winner.
             ("unsupported", "error"),
         ] {
             let actual = actual[0].iter().find(|a| a.text == name).expect(name);

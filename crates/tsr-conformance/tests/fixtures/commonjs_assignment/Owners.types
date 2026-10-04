@@ -1,0 +1,177 @@
+//// [tests/cases/compiler/assignmentCommonJsOwners.ts] ////
+
+=== /validate.ts ===
+import "./use";
+import named = require("./named");
+>named : typeof named
+
+import whole = require("./whole");
+>whole : 3
+
+import element = require("./element");
+>element : 4
+
+named.item;
+>named.item : "ready" | 1
+>named : typeof named
+>item : "ready" | 1
+
+named.extra;
+>named.extra : 7
+>named : typeof named
+>extra : 7
+
+whole;
+>whole : 3
+
+element;
+>element : 4
+
+declare function require(path: string): { item: boolean };
+>require : (path: string) => { item: boolean; }
+>path : string
+>item : boolean
+
+const ordinary = require("./named");
+>ordinary : { item: boolean; }
+>require("./named") : { item: boolean; }
+>require : (path: string) => { item: boolean; }
+>"./named" : "./named"
+
+ordinary.item;
+>ordinary.item : boolean
+>ordinary : { item: boolean; }
+>item : boolean
+
+=== /named.js ===
+exports.item = undefined;
+>exports.item = undefined : undefined
+>exports.item : "ready" | 1
+>exports : typeof import("./named")
+>item : "ready" | 1
+>undefined : undefined
+
+exports.item = 1;
+>exports.item = 1 : 1
+>exports.item : "ready" | 1
+>exports : typeof import("./named")
+>item : "ready" | 1
+>1 : 1
+
+exports.item = "ready";
+>exports.item = "ready" : "ready"
+>exports.item : "ready" | 1
+>exports : typeof import("./named")
+>item : "ready" | 1
+>"ready" : "ready"
+
+module["exports"].extra = 7;
+>module["exports"].extra = 7 : 7
+>module["exports"].extra : 7
+>module["exports"] : typeof import("./named")
+>module : { exports: typeof import("./named"); }
+>"exports" : "exports"
+>extra : 7
+>7 : 7
+
+=== /whole.js ===
+module.exports = 3;
+>module.exports = 3 : 3
+>module.exports : 3
+>module : { exports: 3; }
+>exports : 3
+>3 : 3
+
+module.exports;
+>module.exports : 3
+>module : { exports: 3; }
+>exports : 3
+
+exports;
+>exports : 3
+
+=== /element.js ===
+module["exports"] = 4;
+>module["exports"] = 4 : 4
+>module["exports"] : 4
+>module : { exports: 4; }
+>"exports" : "exports"
+>4 : 4
+
+module["exports"];
+>module["exports"] : 4
+>module : { exports: 4; }
+>"exports" : "exports"
+
+=== /use.js ===
+const named = require("./named");
+>named : typeof named
+>require("./named") : typeof named
+>require : any
+>"./named" : "./named"
+
+named.item;
+>named.item : "ready" | 1
+>named : typeof named
+>item : "ready" | 1
+
+named.extra;
+>named.extra : 7
+>named : typeof named
+>extra : 7
+
+const whole = require("./whole");
+>whole : 3
+>require("./whole") : 3
+>require : any
+>"./whole" : "./whole"
+
+const element = require(`./element`);
+>element : 4
+>require(`./element`) : 4
+>require : any
+>`./element` : "./element"
+
+/** @type {any} */
+const annotated = require("./named");
+>annotated : any
+>require("./named") : typeof named
+>require : any
+>"./named" : "./named"
+
+annotated.item;
+>annotated.item : any
+>annotated : any
+>item : any
+
+whole;
+>whole : 3
+
+element;
+>element : 4
+
+function shadow() {
+>shadow : () => "ready" | 1
+
+    function require(path) { return { item: "local" }; }
+>require : (path: any) => { item: string; }
+>path : any
+>{ item: "local" } : { item: string; }
+>item : string
+>"local" : "local"
+
+    const named = require("./named");
+>named : typeof named
+>require("./named") : { item: string; }
+>require : (path: any) => { item: string; }
+>"./named" : "./named"
+
+    return named.item;
+>named.item : "ready" | 1
+>named : typeof named
+>item : "ready" | 1
+}
+shadow();
+>shadow() : "ready" | 1
+>shadow : () => "ready" | 1
+

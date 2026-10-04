@@ -551,12 +551,8 @@ impl Checker<'_, '_> {
         self.union_type_worker(types, TypeFlags::empty(), None, true, true)
     }
 
-    /// `getUnionTypeEx` with an alias (`checker.go:25628`), **minus the
-    /// single-constituent collapse**.
-    ///
-    /// Single-value enums now return their literal directly in
-    /// `get_declared_type_of_enum`. Other named union clients retain this helper's
-    /// display wrapper until their alias representation is ported.
+    /// `getUnionTypeEx` with an alias (`checker.go:25628`). Normalized
+    /// singletons return the existing constituent before alias attribution.
     pub(crate) fn get_named_union_type(
         &mut self,
         types: &[TypeId],
@@ -598,51 +594,58 @@ impl Checker<'_, '_> {
         // or its own origin entries if it carries them; sorted by the
         // comparator (`numberAssignableToEnumInsideUnion` wants
         // `boolean | E` for the written `E | boolean`).
-        let origin_entries: Option<Vec<TypeId>> = if includes.named_union
-            && !unprinted
-            && symbol.is_none()
-        {
-            let mut entries: Vec<TypeId> = Vec::new();
-            for &id in types {
-                let contributed: Vec<TypeId> =
-                    if let Some(own) = self.union_origin.get(&id) { own.clone() } else { vec![id] };
-                for entry in contributed {
-                    if !entries.contains(&entry) {
-                        entries.push(entry);
+        let origin_entries: Option<Vec<TypeId>> =
+            if includes.named_union && !unprinted && symbol.is_none() {
+                let mut entries: Vec<TypeId> = Vec::new();
+                for &id in types {
+                    // addNamedUnions (checker.go:25824) keeps the alias atomic,
+                    // even when its own normalized union has nested provenance.
+                    let aliased = matches!(&self.store.get(id).data,
+                    TypeData::Union { symbol: Some(symbol), .. }
+                        if self.binder.symbols().get(*symbol).flags
+                            .contains(tsr_binder::SymbolFlags::TYPE_ALIAS));
+                    let contributed = if aliased {
+                        vec![id]
+                    } else {
+                        self.union_origin.get(&id).cloned().unwrap_or_else(|| vec![id])
+                    };
+                    for entry in contributed {
+                        if !entries.contains(&entry) {
+                            entries.push(entry);
+                        }
                     }
                 }
-            }
-            // Entry order, from the baselines: nullable entries LAST
-            // (`MyEnum | undefined`), everything else by its first
-            // MEMBER's sort bits (`boolean | E` for the written
-            // `E | boolean`).
-            let key = |checker: &Self, id: TypeId| -> (bool, u32) {
-                let flags = checker.store.get(id).flags;
-                if flags.intersects(TypeFlags::NULLABLE) {
-                    return (true, 0);
-                }
-                let first = match &checker.store.get(id).data {
-                    TypeData::Union { types, .. } => types.first().copied().unwrap_or(id),
-                    _ => id,
+                // Entry order, from the baselines: nullable entries LAST
+                // (`MyEnum | undefined`), everything else by its first
+                // MEMBER's sort bits (`boolean | E` for the written
+                // `E | boolean`).
+                let key = |checker: &Self, id: TypeId| -> (bool, u32) {
+                    let flags = checker.store.get(id).flags;
+                    if flags.intersects(TypeFlags::NULLABLE) {
+                        return (true, 0);
+                    }
+                    let first = match &checker.store.get(id).data {
+                        TypeData::Union { types, .. } => types.first().copied().unwrap_or(id),
+                        _ => id,
+                    };
+                    (false, sort_order_flags(checker.store.get(first).flags))
                 };
-                (false, sort_order_flags(checker.store.get(first).flags))
+                entries.sort_by(|&a, &b| {
+                    let (ka, kb) = (key(self, a), key(self, b));
+                    ka.cmp(&kb).then_with(|| self.compare_types(a, b))
+                });
+                Some(entries)
+            } else {
+                // §742: a NAMED constituent inside an ALIASED union
+                // (`symbol.is_some()`) reaches here and proceeds — the union
+                // prints its own alias name, so upstream's `origin`
+                // denormalisation (the reason the unaliased road above exists)
+                // never comes into play. This arm used to answer `errorType` for
+                // that shape (`type T = S[] | S` DECLARED error and silenced
+                // every rule gating on the declared type, TS2454 first), which
+                // was the §42.1/§76 printing guard applied one road too wide.
+                None
             };
-            entries.sort_by(|&a, &b| {
-                let (ka, kb) = (key(self, a), key(self, b));
-                ka.cmp(&kb).then_with(|| self.compare_types(a, b))
-            });
-            Some(entries)
-        } else {
-            // §742: a NAMED constituent inside an ALIASED union
-            // (`symbol.is_some()`) reaches here and proceeds — the union
-            // prints its own alias name, so upstream's `origin`
-            // denormalisation (the reason the unaliased road above exists)
-            // never comes into play. This arm used to answer `errorType` for
-            // that shape (`type T = S[] | S` DECLARED error and silenced
-            // every rule gating on the declared type, TS2454 first), which
-            // was the §42.1/§76 printing guard applied one road too wide.
-            None
-        };
 
         if reduce_literals && includes.flags.intersects(TypeFlags::ANY_OR_UNKNOWN) {
             if includes.flags.contains(TypeFlags::ANY) {
@@ -702,7 +705,42 @@ impl Checker<'_, '_> {
         if let Some(entries) = origin_entries {
             return self.build_origin_union(set, extra_flags, entries);
         }
-        self.get_union_type_from_sorted_list(set, extra_flags, symbol)
+        // Pinned getUnionTypeWorker (checker.go:25705) retains nonoverlapping
+        // nested origins even when this union has its own alias. Publish that
+        // provenance under the completed, Checker-local union TypeId; its own
+        // alias still controls display until a native filter projects it.
+        // Reuse the existing source/member identities and origin table, with
+        // no extra type image, mapper or lookup cache.
+        if symbol.is_none() || !includes.named_union {
+            return self.get_union_type_from_sorted_list(set, extra_flags, symbol);
+        }
+        let mut named = Vec::new();
+        self.add_named_unions(&mut named, types);
+        let mut entries: Vec<_> = set
+            .iter()
+            .copied()
+            .filter(|part| {
+                !named.iter().any(|&id| {
+                    matches!(&self.store.get(id).data, TypeData::Union { types, .. }
+                        if types.contains(part))
+                })
+            })
+            .collect();
+        let named_count: usize = named
+            .iter()
+            .map(|&id| match &self.store.get(id).data {
+                TypeData::Union { types, .. } => types.len(),
+                _ => 0,
+            })
+            .sum();
+        let has_origin = !named.is_empty() && named_count + entries.len() == set.len();
+        let built = self.get_union_type_from_sorted_list(set, extra_flags, symbol);
+        if has_origin {
+            entries.extend(named);
+            entries.sort_by(|&a, &b| self.compare_types(a, b));
+            self.union_origin.entry(built).or_insert(entries);
+        }
+        built
     }
 
     /// removeConstrainedTypeVariables (internal/checker/checker.go:25881).
@@ -761,7 +799,10 @@ impl Checker<'_, '_> {
         {
             return declared;
         }
-        if types.len() == 1 && symbol.is_none() {
+        // Pinned 5b1047d getUnionTypeFromSortedList (checker.go:25743):
+        // aliases belong to a composite, not a new wrapper around its sole
+        // reduced constituent. Preserve the original constituent's owner.
+        if types.len() == 1 {
             return types[0];
         }
         let named = symbol.map(|id| (id, self.binder.symbols().get(id).name.to_string()));
@@ -1024,11 +1065,17 @@ impl Checker<'_, '_> {
         built
     }
 
-    /// §53's projection: rebuild `original`'s union keeping only `kept`
-    /// members. An origin entry survives WHOLE when all its members
-    /// survive; a partially-surviving entry decomposes to its surviving
-    /// members; no origin means a plain rebuild.
+    /// filterType (pinned 5b1047d checker.go:26558): retain a union origin only
+    /// when removing whole non-union entries accounts for every removed
+    /// normalized member. Filtering within a nested union discards the origin.
     pub(crate) fn rebuild_union_subset(&mut self, original: TypeId, kept: &[TypeId]) -> TypeId {
+        let TypeData::Union { types, .. } = &self.store.get(original).data else {
+            return self.get_union_type(kept);
+        };
+        if types == kept {
+            return original;
+        }
+        let removed = types.len() - kept.len();
         let Some(entries) = self.union_origin.get(&original).cloned() else {
             return self.get_union_type(kept);
         };
@@ -1038,21 +1085,15 @@ impl Checker<'_, '_> {
         {
             return self.get_union_type(kept);
         }
-        let mut projected: Vec<TypeId> = Vec::new();
-        for entry in entries {
-            let members: Vec<TypeId> = match &self.store.get(entry).data {
-                TypeData::Union { types, .. } => types.clone(),
-                _ => vec![entry],
-            };
-            if members.iter().all(|member| kept.contains(member)) {
-                projected.push(entry);
-            } else {
-                for member in members {
-                    if kept.contains(&member) {
-                        projected.push(member);
-                    }
-                }
-            }
+        let projected: Vec<TypeId> = entries
+            .iter()
+            .copied()
+            .filter(|&entry| {
+                self.store.get(entry).flags.contains(TypeFlags::UNION) || kept.contains(&entry)
+            })
+            .collect();
+        if entries.len() - projected.len() != removed {
+            return self.get_union_type(kept);
         }
         if projected.is_empty() {
             return self.intrinsics.never;

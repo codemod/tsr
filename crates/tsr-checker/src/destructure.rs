@@ -31,10 +31,10 @@
 //!   the source's index infos, distributes unions and drops nullable
 //!   constituents (`checker-99-rest-index-infos.md`); what that enumerator
 //!   refuses still gaps the rest element;
-//! - **pattern-named defaults**: `padObjectLiteralType`/`padTupleType`
-//!   (`checker.go:16808`). The identifier-named half of the original default
-//!   refusal (224 lines) LANDED at §315, both legs of `checker.go:17781` —
-//!   the reduction the refusal named as missing was built at §206;
+//! - **pattern-named defaults** now use bounded `padObjectLiteralType`/
+//!   `padTupleType` (`checker.go:16808`) in `binding_patterns`; defaults needing
+//!   unavailable explicit pattern context still decline. The identifier-named
+//!   half landed at §315; both retain the existing §206 subtype reduction;
 //! - **computed property names** (86): late-bound names (`bd tsr-y4u.11`);
 //! - **contextual pattern parameters** (604, 57% want-any): upstream
 //!   consults `getContextuallyTypedParameterType` (`checker.go:16735`) and
@@ -109,27 +109,9 @@ impl Checker<'_, '_> {
         // annotation-less union (`getUnionTypeEx(strip(t) ∪ init,
         // UnionReductionSubtype)`, `checker.go:17789`) — the reduction the
         // original refusal named as its missing piece exists now
-        // (`union_with_subtype_reduction`, §206's other client). The element's
-        // name must still be an identifier: a pattern-named default takes
-        // upstream through `padObjectLiteralType`/`padTupleType`
-        // (`checker.go:16808`), unported. `checker-notes-destructure.md` §6.
-        //
-        // §876: that padding runs **only for a PARAMETER**.
-        // `checkDeclarationInitializer` (`checker.go:16806`) guards it with
-        // `ast.IsParameterDeclaration(ast.GetRootDeclaration(declaration))`,
-        // and for a `const`/`let`/`for` destructuring it simply returns the
-        // initializer's type. So the refusal is right for a parameter-rooted
-        // element and unnecessary everywhere else — `for (let { s: { p } = { … } } of …)`
-        // never reaches `padObjectLiteralType` upstream at all.
-        if element.initializer.is_some()
-            && !matches!(element.name, Some(tsr_ast::BindingName::Identifier(_)))
-            && element.node_id.is_some_and(|id| {
-                let root = self.root_declaration_of(id);
-                self.nodes.kind(root) == tsr_ast::SyntaxKind::Parameter
-            })
-        {
-            return error;
-        }
+        // (`union_with_subtype_reduction`, §206's other client). Pattern-named
+        // parameter defaults consume native padding below, after the parent
+        // resolves. The existing variable-rooted default road is unchanged.
         // §691: a COMPUTED destructuring key is resolved against the source's
         // INDEX SIGNATURE, not declined. `let {[numed]: prop3} = numIndexed`
         // with `numed: number` and `numIndexed: { [idx: number]: string }`
@@ -189,19 +171,35 @@ impl Checker<'_, '_> {
                     if key == error {
                         return error;
                     }
-                    // AccessFlagsExpressionPosition: noUncheckedIndexedAccess
-                    // adds undefined to an index-signature result
-                    // (`checker.go:26947`, `:27117`).
-                    let Some(info) = self.get_applicable_index_info(parent_type, key) else {
+                    // Literal computed defaults project the named property and
+                    // consume the same default strip/union as ordinary keys.
+                    if element.initializer.is_some()
+                        && let Some(name) = self.property_name_from_index(key)
+                    {
+                        let numeric =
+                            self.store.get(key).flags.intersects(TypeFlags::NUMBER_LITERAL);
+                        self.destructuring_property_lookup(parent_type, &name, numeric)
+                    } else {
+                        // AccessFlagsExpressionPosition: noUncheckedIndexedAccess
+                        // adds undefined to an index-signature result
+                        // (`checker.go:26947`, `:27117`).
+                        let Some(info) = self.get_applicable_index_info(parent_type, key) else {
+                            return error;
+                        };
+                        let include = self.no_unchecked_indexed_access;
+                        return self.include_unchecked_undefined(
+                            info.value,
+                            include,
+                            parent_type,
+                            key,
+                        );
+                    }
+                } else {
+                    let Some((name, numeric)) = Self::binding_element_property_name(element) else {
                         return error;
                     };
-                    let include = self.no_unchecked_indexed_access;
-                    return self.include_unchecked_undefined(info.value, include, parent_type, key);
+                    self.destructuring_property_lookup(parent_type, &name, numeric)
                 }
-                let Some((name, numeric)) = Self::binding_element_property_name(element) else {
-                    return error;
-                };
-                self.destructuring_property_lookup(parent_type, &name, numeric)
             }
             SyntaxKind::ArrayBindingPattern => {
                 // The element's position is the property name
@@ -288,11 +286,19 @@ impl Checker<'_, '_> {
         // through `get_type_with_facts` untouched where upstream may consult
         // its constraint, stated rather than verified).
         let element_type = if let Some(default_expression) = element.initializer {
+            let default_type = if let Some(tsr_ast::BindingName::BindingPattern(pattern)) =
+                element.name
+                && self.nodes.kind(self.root_declaration_of(declaration)) == SyntaxKind::Parameter
+            {
+                self.check_binding_pattern_default(declaration, default_expression, pattern)
+                    .unwrap_or(error)
+            } else {
+                self.check_expression(default_expression)
+            };
+            if default_type == error {
+                return error;
+            }
             if self.binding_root_has_annotation(declaration) {
-                let default_type = self.check_expression(default_expression);
-                if default_type == error {
-                    return error;
-                }
                 if self.get_type_facts(default_type).contains(TypeFacts::IS_UNDEFINED) {
                     element_type
                 } else {
@@ -317,10 +323,6 @@ impl Checker<'_, '_> {
                 // `checker.go:17789`; this function's tail is that wrap) —
                 // the first draft widened the default BEFORE the union and
                 // flattened those elements to `number`/`string` (7 G→W).
-                let default_type = self.check_expression(default_expression);
-                if default_type == error {
-                    return error;
-                }
                 let stripped = self.get_type_with_facts(element_type, TypeFacts::NE_UNDEFINED);
                 let Some(reduced) = self.union_with_subtype_reduction(&[stripped, default_type])
                 else {
@@ -472,6 +474,16 @@ impl Checker<'_, '_> {
                         if expression_container && implied == self.intrinsics.any {
                             return error;
                         }
+                        if self.initializer_of(holder).is_some()
+                            && let Some(Node::ParameterDeclaration(parameter)) =
+                                self.node_map.get(holder)
+                            && let Some(tsr_ast::BindingName::BindingPattern(pattern)) =
+                                parameter.name
+                        {
+                            return self
+                                .pad_binding_parameter_type(holder, implied, pattern)
+                                .unwrap_or(error);
+                        }
                         return implied;
                     }
                     return error;
@@ -571,7 +583,7 @@ impl Checker<'_, '_> {
 
     /// The binding consumer of isArrayLikeType (checker.go:23520). Unknown
     /// relations remain unresolved instead of claiming a protocol failure.
-    fn binding_parent_is_array_like(&mut self, source: TypeId) -> Option<bool> {
+    pub(crate) fn binding_parent_is_array_like(&mut self, source: TypeId) -> Option<bool> {
         let source = self.binding_type_alias_body(source);
         if self.tuple_array_like(source) {
             return Some(true);

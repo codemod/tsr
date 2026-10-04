@@ -225,6 +225,7 @@ impl Checker<'_, '_> {
                                 .contains(tsr_binder::SymbolFlags::METHOD)
                         }),
                         origin: symbol,
+                        checked_declaration: None,
                         name: name.clone(),
                         printed_name: name.clone(),
                         printed_type: self.type_to_string(ty),

@@ -1809,10 +1809,17 @@ fn an_arrow_that_cannot_complete_is_never_and_one_that_can_is_void() {
         ),
         "() => void"
     );
-    // A literal-`true` loop still needs the real analysis (its end is
-    // unreachable without a `break`, and this port does not read breaks);
-    // §379 decided only the loops whose CONDITION can fail.
-    assert_eq!(type_of_declaration("const f = () => { while (true) {} };", "f"), "error");
+    // The native implicit-return flow boundary distinguishes a break from an
+    // inner loop's break. These are pinned by lazyReturnPortPublication.ts.
+    assert_eq!(type_of_declaration("const f = () => { while (true) {} };", "f"), "() => never");
+    assert_eq!(
+        type_of_declaration("const f = () => { while (true) { break; } };", "f"),
+        "() => void"
+    );
+    assert_eq!(
+        type_of_declaration("const f = () => { while (true) { while (true) { break; } } };", "f"),
+        "() => never"
+    );
     assert_eq!(
         type_of_declaration("const f = () => { while (Math.random() < 0.5) {} };", "f"),
         "() => void"

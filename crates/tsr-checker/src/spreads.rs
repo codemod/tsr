@@ -326,6 +326,7 @@ impl Checker<'_, '_> {
                     accessor_write: origin.and_then(|symbol| self.accessor_write_parameter(symbol)),
                     method: flags.contains(SymbolFlags::METHOD),
                     origin,
+                    checked_declaration: None,
                     printed_name: self.spread_property_name(origin?, &name)?,
                     printed_type: self.type_to_string(displayed),
                     optional: origin.is_some_and(|symbol| self.property_is_optional(symbol)),

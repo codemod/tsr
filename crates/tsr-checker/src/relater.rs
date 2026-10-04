@@ -1047,7 +1047,7 @@ impl Relater<'_, '_, '_> {
         if target_signatures.is_empty() {
             return Some(RelationResult::Related);
         }
-        let source_signatures = self.checker.signatures_of_type_kind(source, kind)?;
+        let source_signatures = self.checker.signature_shapes_of_type_kind(source, kind)?;
         if source_signatures.is_empty() {
             return Some(RelationResult::NotRelated);
         }
@@ -1396,6 +1396,14 @@ impl Relater<'_, '_, '_> {
         if target_signature.r#type != self.checker.intrinsics.void
             && target_signature.r#type != self.checker.intrinsics.any
         {
+            // compareSignaturesRelated reads target any/void before demanding
+            // the source return (relater.go:1595-1603). Parameter-only source
+            // metadata is not a completed error, predicate or mapper image.
+            let source_signature =
+                self.checker.complete_signature_return(source_signature.clone())?;
+            if source_signature.r#type == self.checker.intrinsics.error {
+                return None;
+            }
             if target_signature.predicate.is_some() {
                 if source_signature.predicate.is_some() {
                     if !source_signature.predicate_kinds_match(target_signature)? {
@@ -1974,6 +1982,77 @@ impl Relater<'_, '_, '_> {
         let source_intersection_result = if let Some(constituents) =
             self.intersection_constituents(source)
         {
+            // Pinned 5b1047d unionOrIntersectionRelatedTo (relater.go:2884)
+            // hoists instantiable constraints before SOME for primitive
+            // Comparable targets. Otherwise T alone falsely admits T & null
+            // against 42. This is a local projection using the existing
+            // Checker/mapper-keyed constraint supplier and intersection interner;
+            // no written type, member image or relation publication changes.
+            let constituents = if self.relation == Relation::Comparable
+                && self.checker.type_of(target).flags.intersects(TypeFlags::PRIMITIVE)
+            {
+                let mut constraints = Vec::with_capacity(constituents.len());
+                for &part in &constituents {
+                    let constraint = if self
+                        .checker
+                        .type_of(part)
+                        .flags
+                        .intersects(TypeFlags::INSTANTIABLE)
+                    {
+                        match self.checker.base_constraint_of_type(part) {
+                            Some(constraint) if !self.checker.is_error(constraint) => constraint,
+                            None if self.checker.type_parameter_symbols.get(&part).is_some_and(
+                                |&symbol| {
+                                    let declarations =
+                                        &self.checker.binder.symbols().get(symbol).declarations;
+                                    !declarations.is_empty()
+                                        && declarations.iter().all(|&node| {
+                                            matches!(
+                                                self.checker.node_map.get(node),
+                                                Some(tsr_ast::Node::TypeParameterDeclaration(p))
+                                                    if p.constraint.is_none()
+                                            ) && !matches!(
+                                                self.checker.nodes.parent(node).and_then(
+                                                    |parent| self.checker.node_map.get(parent)
+                                                ),
+                                                Some(tsr_ast::Node::InferTypeNode(_))
+                                            )
+                                        })
+                                },
+                            ) =>
+                            {
+                                self.checker.intrinsics.unknown
+                            }
+                            // Active or unsupported constraints are not a
+                            // proof of native's absent-constraint unknown.
+                            _ => return RelationResult::Unknown,
+                        }
+                    } else {
+                        part
+                    };
+                    constraints.push(constraint);
+                }
+                if constraints == constituents {
+                    constituents
+                } else {
+                    let reduced = self.checker.get_intersection_type(&constraints, None);
+                    if self.checker.type_of(reduced).flags.intersects(TypeFlags::NEVER) {
+                        return RelationResult::NotRelated;
+                    }
+                    let Some(parts) = self.intersection_constituents(reduced) else {
+                        let forward =
+                            self.is_related_to_with_flags(reduced, target, RecursionFlags::SOURCE);
+                        return if forward == RelationResult::NotRelated {
+                            self.is_related_to_with_flags(target, reduced, RecursionFlags::SOURCE)
+                        } else {
+                            forward
+                        };
+                    };
+                    parts
+                }
+            } else {
+                constituents
+            };
             // unionOrIntersectionRelatedTo first tries individual constituents.
             // A failed attempt must still reach the combined object comparison.
             let parts = constituents

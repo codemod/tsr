@@ -15,9 +15,15 @@ use crate::{checker::Checker, flags::TypeFlags, resolution::PropertyName, types:
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct TypeLiteralKey {
-    node: tsr_ast::NodeId,
+    pub(crate) node: tsr_ast::NodeId,
     bindings: Vec<(SymbolId, TypeId)>,
     mapped_template: bool,
+}
+
+impl TypeLiteralKey {
+    pub(crate) fn is_unmapped(&self) -> bool {
+        self.bindings.is_empty() && !self.mapped_template
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -1233,6 +1239,18 @@ impl<'a> Checker<'a, '_> {
                 self.check_this_expression(location)
             }
             tsr_ast::EntityName::Identifier(identifier) => {
+                if self.typeof_is_parameter_projection(node)
+                    && let Some(location) = identifier.node_id
+                    && let Some(symbol) = self.binder.resolve_name(
+                        self.nodes,
+                        self.node_map,
+                        location,
+                        identifier.text,
+                        SymbolFlags::VALUE,
+                    )
+                {
+                    self.defer_typeof_function_return(symbol);
+                }
                 self.check_expression(Expression::Identifier(identifier))
             }
             tsr_ast::EntityName::QualifiedName(qualified) => self.check_qualified_name(qualified),
@@ -1258,6 +1276,108 @@ impl<'a> Checker<'a, '_> {
             return self.intrinsics.any;
         }
         self.get_regular_type_of_literal_type(id)
+    }
+
+    /// Certify the source entry for parameter-only conditional inference
+    /// (native inference.go:838–907 / relater.go:1595–1603). Read the original
+    /// alias AST and binder identities, never a rendered signature or return.
+    /// Only the direct `F extends (...args: infer P) => any/void ? P : never`
+    /// projection can defer this typeof source. Return-demanding or wrapped
+    /// shapes retain the existing eager route. This writes no alias image.
+    fn typeof_is_parameter_projection(&self, query: &tsr_ast::TypeQueryNode<'a>) -> bool {
+        let referenced_symbol = |reference: &tsr_ast::TypeReferenceNode<'a>| {
+            if !reference.type_arguments.is_empty() {
+                return None;
+            }
+            let tsr_ast::EntityName::Identifier(name) = reference.type_name? else { return None };
+            self.binder
+                .resolve_name(
+                    self.nodes,
+                    self.node_map,
+                    name.node_id?,
+                    name.text,
+                    SymbolFlags::TYPE,
+                )
+                .map(|symbol| self.binder.merged_symbol(symbol))
+        };
+        let parameter_only_return = |function: &tsr_ast::FunctionTypeNode<'a>| {
+            function.type_parameters.is_empty()
+                && function.full_signature.is_none()
+                && matches!(function.r#type, Some(TypeNode::KeywordTypeNode(keyword))
+                    if matches!(keyword.kind, SyntaxKind::AnyKeyword | SyntaxKind::VoidKeyword))
+        };
+        (|| {
+            let id = query.node_id?;
+            let Node::TypeReferenceNode(application) = self.node_map.get(self.nodes.parent(id)?)?
+            else {
+                return None;
+            };
+            let [TypeNode::TypeQueryNode(argument)] = application.type_arguments else {
+                return None;
+            };
+            if argument.node_id != Some(id) {
+                return None;
+            }
+            let tsr_ast::EntityName::Identifier(name) = application.type_name? else {
+                return None;
+            };
+            let alias = self.binder.merged_symbol(self.binder.resolve_name(
+                self.nodes,
+                self.node_map,
+                name.node_id?,
+                name.text,
+                SymbolFlags::TYPE,
+            )?);
+            let owner = self.binder.symbols().get(alias);
+            if !owner.flags.contains(SymbolFlags::TYPE_ALIAS) {
+                return None;
+            }
+            let [declaration] = owner.declarations.as_slice() else { return None };
+            let Node::TypeAliasDeclaration(declaration) = self.node_map.get(*declaration)? else {
+                return None;
+            };
+            let [parameter] = declaration.type_parameters else { return None };
+            if let Some(constraint) = parameter.constraint {
+                let TypeNode::FunctionTypeNode(function) = constraint else { return None };
+                if !parameter_only_return(function) {
+                    return None;
+                }
+            }
+            let TypeNode::ConditionalTypeNode(conditional) = declaration.r#type? else {
+                return None;
+            };
+            let TypeNode::TypeReferenceNode(check) = conditional.check_type? else { return None };
+            let parameter_symbol = self.binder.symbol_of(parameter.node_id?)?;
+            if referenced_symbol(check) != Some(parameter_symbol) {
+                return None;
+            }
+            let TypeNode::FunctionTypeNode(function) = conditional.extends_type? else {
+                return None;
+            };
+            if !parameter_only_return(function) {
+                return None;
+            }
+            let [rest] = function.parameters else { return None };
+            let TypeNode::InferTypeNode(infer) = rest.r#type? else { return None };
+            let inferred = infer.type_parameter?;
+            if rest.dot_dot_dot_token.is_none()
+                || rest.question_token.is_some()
+                || rest.initializer.is_some()
+                || inferred.constraint.is_some()
+            {
+                return None;
+            }
+            let TypeNode::TypeReferenceNode(yes) = conditional.true_type? else { return None };
+            let inferred_symbol = self.binder.symbol_of(inferred.node_id?)?;
+            if referenced_symbol(yes) != Some(inferred_symbol)
+                || !matches!(conditional.false_type, Some(TypeNode::KeywordTypeNode(keyword))
+                    if keyword.kind == SyntaxKind::NeverKeyword)
+            {
+                return None;
+            }
+            Some(())
+        })()
+        .is_some()
     }
 
     /// Ported from `Checker.getTypeFromTypeReference` into
@@ -2028,6 +2148,7 @@ impl<'a> Checker<'a, '_> {
                         accessor_write: None,
                         method: true,
                         origin: Some(symbol),
+                        checked_declaration: None,
                         name: key,
                         printed_name,
                         printed_type,
@@ -2148,6 +2269,7 @@ impl<'a> Checker<'a, '_> {
                     accessor_write: None,
                     method: false,
                     origin: member.node_id().and_then(|id| self.binder.symbol_of(id)),
+                    checked_declaration: None,
                     name: accessor_name.text.to_string(),
                     printed_name: accessor_name.text.to_string(),
                     printed_type: printed.clone(),
@@ -2306,6 +2428,7 @@ impl<'a> Checker<'a, '_> {
                     accessor_write: None,
                     method: false,
                     origin: Some(symbol),
+                    checked_declaration: None,
                     name: self.type_literal_member_key(property.name, symbol, &name),
                     printed_name: name.clone(),
                     printed_type: printed.clone(),
@@ -2544,6 +2667,57 @@ impl<'a> Checker<'a, '_> {
         if let [single] = types[..] {
             return single;
         }
+        // Native 5b1047d checker.go:24218 compares emptyTypeLiteralType,
+        // not arbitrary empty objects. Its producer (checker.go:22933) uses
+        // that identity only for an empty literal without its own alias.
+        // Read the completed TypeId's original literal/host; no member forcing
+        // or new cache. Generated, named and active literal images do not qualify.
+        let mut no_supertype_reduction = types.len() == 2
+            && types.iter().enumerate().any(|(index, &id)| {
+                if !self.is_unaliased_empty_type_literal(id) {
+                    return false;
+                }
+                let other = types[1 - index];
+                let flags = self.store.get(other).flags;
+                flags.intersects(TypeFlags::STRING | TypeFlags::NUMBER | TypeFlags::BIG_INT)
+                    || flags.contains(TypeFlags::TEMPLATE_LITERAL)
+                        && self.is_pattern_template(other)
+            });
+        if no_supertype_reduction && !self.alias_evaluation_bindings.is_empty() {
+            // instantiateTypeWorker reconstructs intersections when the owning
+            // alias arguments change, even for Brand<T> = number & {}
+            // (native checker.go:22104,22244). Do not reselect a source flag
+            // from the substituted operands of NonNullable<T> = T & {}.
+            let reconstructed_alias = node.node_id
+                .and_then(|id| self.type_alias_host_for_type_node(id))
+                .and_then(|id| self.node_map.get(id))
+                .is_some_and(|host| matches!(host, Node::TypeAliasDeclaration(alias)
+                    if alias.type_parameters.iter().any(|parameter| {
+                        let Some(symbol) = parameter.node_id.and_then(|id| self.binder.symbol_of(id)) else { return false };
+                        self.alias_evaluation_bindings.iter().rev()
+                            .find_map(|frame| frame.get(&symbol))
+                            .is_some_and(|value| self.declared_types.get(&symbol) != Some(value))
+                    })));
+            if reconstructed_alias {
+                no_supertype_reduction = false;
+            } else {
+                // For nested source annotations under unrelated frames, prove
+                // both operands retained their original flags. This bounded
+                // AST/binder read neither forces original types nor publishes a
+                // second template/cache. Unsupported grammar is not a false
+                // eligibility proof; retain the alias evaluator's refusal.
+                for &operand in node.types {
+                    match self.source_operand_is_closed(operand, &[], &[], 32) {
+                        Some(true) => {}
+                        Some(false) => {
+                            no_supertype_reduction = false;
+                            break;
+                        }
+                        None => return error,
+                    }
+                }
+            }
+        }
         // §290, MEASURED AND REFUSED on the 08febc71 tree. The
         // never-reduction of a discriminant-conflicting intersection
         // (`getReducedType`'s intersection arm, `checker.go:21831`) was built
@@ -2573,14 +2747,128 @@ impl<'a> Checker<'a, '_> {
                 return reduced;
             }
             // §92: same alias-body rule as the union arm above.
-            return self.get_intersection_type(&types, None);
+            return self.get_intersection_type_with_reduction(
+                &types,
+                None,
+                true,
+                !no_supertype_reduction,
+            );
         }
         match node.node_id.and_then(|id| self.alias_symbol_for_type_node(id)) {
-            None => self.get_intersection_type(&types, None),
-            Some(alias) if self.local_type_parameters_of(alias).is_empty() => {
-                self.get_intersection_type(&types, Some(alias))
-            }
+            None => self.get_intersection_type_with_reduction(
+                &types,
+                None,
+                true,
+                !no_supertype_reduction,
+            ),
+            Some(alias) if self.local_type_parameters_of(alias).is_empty() => self
+                .get_intersection_type_with_reduction(
+                    &types,
+                    Some(alias),
+                    true,
+                    !no_supertype_reduction,
+                ),
             Some(_) => error,
+        }
+    }
+
+    /// emptyTypeLiteralType's completed source identity (checker.go:22933).
+    pub(crate) fn is_unaliased_empty_type_literal(&self, id: TypeId) -> bool {
+        self.type_literal_origins.get(&id).is_some_and(|&origin| {
+            matches!(self.node_map.get(origin), Some(Node::TypeLiteralNode(literal))
+                if literal.members.is_empty())
+                && self.type_alias_host_for_type_node(origin).is_none()
+        })
+    }
+
+    /// Source flag certificate for getTypeFromIntersectionTypeNode
+    /// (native 5b1047d, checker.go:24218), before alias instantiation.
+    /// Some(false) proves a retained parameter or non-pattern generic template;
+    /// None is unsupported/recursive normalization, not completed absence.
+    /// Checker-local AST/binder symbols and ordered written arguments identify
+    /// alias projections, independently of current concrete frames. Read-only:
+    /// no getters, cache, publication or mapper image. Traversal is bounded by
+    /// path depth and rejects alias cycles; its cost is not a measured speed win.
+    fn source_operand_is_closed(
+        &self,
+        node: TypeNode<'a>,
+        parameters: &[(SymbolId, Option<bool>)],
+        aliases: &[SymbolId],
+        remaining: u8,
+    ) -> Option<bool> {
+        let remaining = remaining.checked_sub(1)?;
+        let recurse = |node| self.source_operand_is_closed(node, parameters, aliases, remaining);
+        match node {
+            TypeNode::KeywordTypeNode(_) | TypeNode::LiteralTypeNode(_) => Some(true),
+            TypeNode::TypeLiteralNode(literal) if literal.members.is_empty() => Some(true),
+            TypeNode::ParenthesizedTypeNode(node) => recurse(node.r#type?),
+            TypeNode::TemplateLiteralTypeNode(template) => {
+                let mut closed = true;
+                for span in template.template_spans {
+                    closed &= recurse(span.r#type?)?;
+                }
+                Some(closed)
+            }
+            TypeNode::UnionTypeNode(union) => {
+                let mut closed = true;
+                for &node in union.types {
+                    closed &= recurse(node)?;
+                }
+                // A parameter dependency alone does not determine normalized
+                // flags: string | `west-${T}` still reduces to string before
+                // instantiation. Do not call that proved ineligible.
+                closed.then_some(true)
+            }
+            TypeNode::IntersectionTypeNode(intersection) => {
+                let mut closed = true;
+                for &node in intersection.types {
+                    closed &= recurse(node)?;
+                }
+                closed.then_some(true)
+            }
+            TypeNode::TypeReferenceNode(reference) => {
+                let tsr_ast::EntityName::Identifier(name) = reference.type_name? else {
+                    return None;
+                };
+                let symbol = self.binder.resolve_name(
+                    self.nodes,
+                    self.node_map,
+                    name.node_id?,
+                    name.text,
+                    SymbolFlags::TYPE,
+                )?;
+                if self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_PARAMETER) {
+                    return parameters
+                        .iter()
+                        .rev()
+                        .find(|(key, _)| *key == symbol)
+                        .map_or(Some(false), |(_, closed)| *closed);
+                }
+                if aliases.contains(&symbol) {
+                    return None;
+                }
+                let [declaration] = self.binder.symbols().get(symbol).declarations.as_slice()
+                else {
+                    return None;
+                };
+                let Node::TypeAliasDeclaration(alias) = self.node_map.get(*declaration)? else {
+                    return None;
+                };
+                if reference.type_arguments.len() != alias.type_parameters.len() {
+                    return None;
+                }
+                let mut projected = parameters.to_vec();
+                for (parameter, &argument) in
+                    alias.type_parameters.iter().zip(reference.type_arguments)
+                {
+                    let symbol = parameter.node_id.and_then(|id| self.binder.symbol_of(id))?;
+                    projected.push((symbol, recurse(argument)));
+                }
+                let mut aliases = aliases.to_vec();
+                aliases.push(symbol);
+                self.source_operand_is_closed(alias.r#type?, &projected, &aliases, remaining)
+            }
+            _ => None,
         }
     }
 
@@ -3309,24 +3597,7 @@ impl<'a> Checker<'a, '_> {
     /// `readonly` type operator, and it names the type only when it is a type
     /// alias declaration.
     pub(crate) fn alias_symbol_for_type_node(&self, node: tsr_ast::NodeId) -> Option<SymbolId> {
-        let mut host = self.nodes.parent(node)?;
-        loop {
-            let kind = self.nodes.kind(host);
-            let transparent = kind == SyntaxKind::ParenthesizedType
-                || kind == SyntaxKind::TypeOperator
-                    && matches!(
-                        self.node_map.get(host),
-                        Some(Node::TypeOperatorNode(operator))
-                            if operator.operator.kind == SyntaxKind::ReadonlyKeyword
-                    );
-            if !transparent {
-                break;
-            }
-            host = self.nodes.parent(host)?;
-        }
-        if self.nodes.kind(host) != SyntaxKind::TypeAliasDeclaration {
-            return None;
-        }
+        let host = self.type_alias_host_for_type_node(node)?;
         // §281: the alias's name is usable only when the DECLARATION is
         // accessible by a symbol chain from the print site — checker-2's §229
         // probe, five positions in one upstream fixture: top-level `A` and
@@ -3363,6 +3634,26 @@ impl<'a> Checker<'a, '_> {
             }
         }
         self.binder.symbol_of(host)
+    }
+
+    /// getAliasSymbolForTypeNode's source host, before display accessibility.
+    fn type_alias_host_for_type_node(&self, node: NodeId) -> Option<NodeId> {
+        let mut host = self.nodes.parent(node)?;
+        loop {
+            let kind = self.nodes.kind(host);
+            let transparent = kind == SyntaxKind::ParenthesizedType
+                || kind == SyntaxKind::TypeOperator
+                    && matches!(
+                        self.node_map.get(host),
+                        Some(Node::TypeOperatorNode(operator))
+                            if operator.operator.kind == SyntaxKind::ReadonlyKeyword
+                    );
+            if !transparent {
+                break;
+            }
+            host = self.nodes.parent(host)?;
+        }
+        (self.nodes.kind(host) == SyntaxKind::TypeAliasDeclaration).then_some(host)
     }
 
     /// A reference to a generic type: `C<number>`, `Tree<T>`.
@@ -7677,6 +7968,127 @@ mod conditional_error_tests {
     use super::*;
 
     #[test]
+    fn typeof_parameter_projection_certifies_original_symbols_without_return_work() {
+        for (alias, argument, certified) in [
+            (
+                "type Renamed<F> = F extends (...args: infer P) => any ? P : never;",
+                "typeof callable",
+                true,
+            ),
+            (
+                "type Renamed<F extends (...args: any[]) => any> = F extends (...args: infer P) => void ? P : never;",
+                "typeof callable",
+                true,
+            ),
+            (
+                "type Renamed<F> = F extends (...args: any[]) => infer R ? R : never;",
+                "typeof callable",
+                false,
+            ),
+            (
+                "type Renamed<F> = F extends (...args: infer P) => any ? (P) : never;",
+                "typeof callable",
+                false,
+            ),
+            (
+                "type Renamed<F> = F extends (...args: infer P) => any ? P[] : never;",
+                "typeof callable",
+                false,
+            ),
+            (
+                "type Renamed<F> = F extends (...args: infer P) => any ? P : (never);",
+                "typeof callable",
+                false,
+            ),
+            (
+                "type Renamed<F> = F extends (...args: infer P) => any ? P : string;",
+                "typeof callable",
+                false,
+            ),
+            (
+                "type Renamed<F> = F extends ((...args: infer P) => any) ? P : never;",
+                "typeof callable",
+                false,
+            ),
+            (
+                "type Renamed<F extends ((...args: any[]) => any)> = F extends (...args: infer P) => any ? P : never;",
+                "typeof callable",
+                false,
+            ),
+            (
+                "type Renamed<F extends (...args: any[]) => number> = F extends (...args: infer P) => any ? P : never;",
+                "typeof callable",
+                false,
+            ),
+            (
+                "type Renamed<F extends unknown> = F extends (...args: infer P) => any ? P : never;",
+                "typeof callable",
+                false,
+            ),
+            (
+                "type Renamed<F> = F extends (...args: infer P extends string[]) => any ? P : never;",
+                "typeof callable",
+                false,
+            ),
+            (
+                "type Renamed<F> = F extends (...args: infer P) => any ? P : never;",
+                "(typeof callable)",
+                false,
+            ),
+            (
+                "type Renamed<F> = F extends (...args: infer P) => any ? F : never;",
+                "typeof callable",
+                false,
+            ),
+        ] {
+            let source = format!(
+                "interface Array<T> {{ [index: number]: T; }} {alias} function callable(value: string) {{ return value; }} type Result = Renamed<{argument}>;"
+            );
+            let arena = tsr_core::Arena::new();
+            let parsed = tsr_parser::parse(&arena, &source);
+            assert!(parsed.diagnostics.is_empty());
+            let bound = tsr_binder::bind(
+                &arena,
+                parsed.source_file,
+                &parsed.nodes,
+                tsr_binder::FileInfo { name: "entry.ts", text: &source },
+            );
+            let root = parsed.source_file.node_id.unwrap();
+            let callable = bound.lookup_local(root, "callable").unwrap();
+            let declaration = bound.symbols().get(callable).value_declaration.unwrap();
+            let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+            let initial_types = checker.symbol_types.clone();
+            let mut walk = vec![Node::SourceFile(parsed.source_file)];
+            let query = loop {
+                let node = walk.pop().expect("typeof argument");
+                if let Node::TypeQueryNode(query) = node {
+                    break query;
+                }
+                tsr_ast::push_children(node, &mut walk);
+            };
+            for _ in 0..3 {
+                assert_eq!(checker.typeof_is_parameter_projection(query), certified, "{alias}");
+                assert!(checker.pending_signature_returns.is_empty());
+                assert!(checker.signature_returns.is_empty());
+                assert_eq!(checker.symbol_types, initial_types);
+            }
+            let ty = checker.get_type_from_type_query_node(query);
+            let key = checker.type_literal_key(declaration);
+            assert_eq!(checker.symbol_types[&callable], ty);
+            if certified {
+                assert!(
+                    checker.pending_signature_returns[&key]
+                        == crate::signatures::LazyReturnState::Pending
+                );
+                assert!(!checker.signature_returns.contains_key(&key));
+            } else {
+                assert!(checker.pending_signature_returns.is_empty());
+                assert_eq!(checker.signature_returns[&key], Some(checker.intrinsics.string));
+            }
+        }
+    }
+
+    #[test]
     fn an_unresolved_check_does_not_evaluate_any_branches() {
         let arena = tsr_core::Arena::new();
         let source = "type Choose<T> = T extends number ? 1 : 2; type Broken = Missing.Type;";
@@ -7706,5 +8118,143 @@ mod conditional_error_tests {
         let genuine_any = checker.intrinsics.any;
         let result = checker.evaluate_conditional_alias(symbol, &[genuine_any], None).unwrap();
         assert_eq!(checker.type_to_string(result), "1 | 2");
+    }
+}
+
+#[cfg(test)]
+mod source_intersection_tests {
+    use super::*;
+
+    #[test]
+    fn original_operand_certificate_distinguishes_parameters_from_closed_and_unsupported_work() {
+        let source = "type Scalar = string; type Id<U> = U; type Closed<U> = Scalar;
+type Opaque<U> = U extends number ? string : string;
+type Default<U = string> = U; type Cycle = Cycle;
+function read<X extends string>(pure: string, scalar: Scalar, projection: Id<X>,
+    constant: Closed<X>, parameter: X, pattern: `west-${X}`, closed: `west-${string}`,
+    opaque: Opaque<X>, defaulted: Default, cycle: Cycle,
+    absorbing: string | `west-${X}`, intersecting: X & string,
+    closedUnion: string | number, closedIntersection: Scalar & {}) {}";
+        let arena = tsr_core::Arena::new();
+        let parsed = tsr_parser::parse(&arena, source);
+        assert!(parsed.diagnostics.is_empty());
+        let bound = tsr_binder::bind(
+            &arena,
+            parsed.source_file,
+            &parsed.nodes,
+            tsr_binder::FileInfo { name: "source-flags.ts", text: source },
+        );
+        let tsr_ast::Statement::FunctionDeclaration(function) = parsed.source_file.statements[6]
+        else {
+            panic!("function")
+        };
+        let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+        let parameter = bound.symbol_of(function.type_parameters[0].node_id.unwrap()).unwrap();
+        // A concrete frame must not erase the original parameter dependency.
+        checker
+            .alias_evaluation_bindings
+            .push([(parameter, checker.intrinsics.string)].into_iter().collect());
+        let expected = [
+            Some(true),
+            Some(true),
+            Some(false),
+            Some(true),
+            Some(false),
+            Some(false),
+            Some(true),
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(true),
+            Some(true),
+        ];
+        let before = format!(
+            "{:?}|{:?}|{:?}|{:?}",
+            checker.store,
+            checker.declared_types,
+            checker.type_literal_types,
+            checker.alias_evaluation_bindings
+        );
+        for reverse in [false, true] {
+            let mut indexes: Vec<_> = (0..expected.len()).collect();
+            if reverse {
+                indexes.reverse();
+            }
+            for index in indexes {
+                for _ in 0..3 {
+                    assert_eq!(
+                        checker.source_operand_is_closed(
+                            function.parameters[index].r#type.unwrap(),
+                            &[],
+                            &[],
+                            32
+                        ),
+                        expected[index]
+                    );
+                }
+            }
+        }
+        assert_eq!(
+            format!(
+                "{:?}|{:?}|{:?}|{:?}",
+                checker.store,
+                checker.declared_types,
+                checker.type_literal_types,
+                checker.alias_evaluation_bindings
+            ),
+            before
+        );
+        assert!(checker.diagnostics().is_empty());
+    }
+
+    #[test]
+    fn source_exception_is_not_reselected_when_the_owning_alias_arguments_change() {
+        let source = "type Constant<T> = string & {}; type NonNullable<T> = T & {};";
+        let arena = tsr_core::Arena::new();
+        let parsed = tsr_parser::parse(&arena, source);
+        let bound = tsr_binder::bind(
+            &arena,
+            parsed.source_file,
+            &parsed.nodes,
+            tsr_binder::FileInfo { name: "source-flags.ts", text: source },
+        );
+        for reverse in [false, true] {
+            let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+            checker.strict_null_checks = true;
+            let mut indexes = [0, 1];
+            if reverse {
+                indexes.reverse();
+            }
+            for index in indexes {
+                let tsr_ast::Statement::TypeAliasDeclaration(alias) =
+                    parsed.source_file.statements[index]
+                else {
+                    panic!("alias")
+                };
+                let symbol = bound.symbol_of(alias.type_parameters[0].node_id.unwrap()).unwrap();
+                let original = checker.get_declared_type_of_symbol(symbol);
+                checker.alias_evaluation_bindings.push([(symbol, original)].into_iter().collect());
+                let source = checker.get_type_from_type_node(alias.r#type.unwrap());
+                assert!(
+                    matches!(&checker.type_of(source).data, crate::types::TypeData::Intersection { types, .. } if types.len() == 2)
+                );
+                checker.alias_evaluation_bindings.pop();
+                checker
+                    .alias_evaluation_bindings
+                    .push([(symbol, checker.intrinsics.string)].into_iter().collect());
+                for _ in 0..3 {
+                    assert_eq!(
+                        checker.get_type_from_type_node(alias.r#type.unwrap()),
+                        checker.intrinsics.string
+                    );
+                }
+                checker.alias_evaluation_bindings.pop();
+            }
+            let value =
+                checker.get_global_non_nullable_type_instantiation(checker.intrinsics.string);
+            assert_eq!(value, checker.intrinsics.string);
+        }
     }
 }

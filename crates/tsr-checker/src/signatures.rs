@@ -36,6 +36,13 @@ use tsr_binder::{SymbolFlags, SymbolId};
 
 use crate::{checker::Checker, flags::TypeFlags, types::TypeId};
 
+/// Pending declaration-owned return work, never a cached semantic answer.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LazyReturnState {
+    Pending,
+    Active,
+}
+
 /// One parameter of a [`Signature`], reduced to what a printed line needs.
 ///
 /// Upstream carries the parameter *symbol* and asks `getTypeOfSymbol` for its
@@ -490,6 +497,7 @@ impl<'a> Checker<'a, '_> {
                         accessor_write: None,
                         method,
                         origin: origin.and_then(|id| self.binder.symbol_of(id)),
+                        checked_declaration: None,
                         name: name.text.to_string(),
                         printed_name: name.text.to_string(),
                         printed_type: printed.clone(),
@@ -675,6 +683,18 @@ impl<'a> Checker<'a, '_> {
     ///
     /// `None` if any declaration is one this slice cannot answer exactly.
     pub fn get_signatures_of_symbol(&mut self, symbol: SymbolId) -> Option<Vec<Signature>> {
+        self.get_signatures_of_symbol_for_type(symbol)?
+            .into_iter()
+            .map(|signature| self.complete_signature_return(signature))
+            .collect()
+    }
+
+    /// Callable construction prepares shape without forcing a pending native
+    /// return slot. Semantic call/return consumers use the completed accessor.
+    pub(crate) fn get_signatures_of_symbol_for_type(
+        &mut self,
+        symbol: SymbolId,
+    ) -> Option<Vec<Signature>> {
         let declarations: Vec<NodeId> =
             self.binder.symbols().get(symbol).declarations.iter().copied().collect();
         let mut result = Vec::new();
@@ -1216,6 +1236,31 @@ impl<'a> Checker<'a, '_> {
         Some(function)
     }
 
+    /// getReturnTypeFromAnnotation's JSDoc @returns node. Return the source node
+    /// without resolving a callable/body; effects can then read that annotation
+    /// even though this port does not copy it into the declaration AST field.
+    pub(crate) fn jsdoc_return_annotation(&self, declaration: NodeId) -> Option<TypeNode<'a>> {
+        if !self.in_js_file(declaration) {
+            return None;
+        }
+        let mut current = Some(declaration);
+        while let Some(host) = current {
+            if self.jsdoc_function_host(host) == Some(declaration)
+                && let Some(docs) = self.jsdoc_entries.get(&host)
+            {
+                for doc in *docs {
+                    for tag in doc.tags {
+                        if let tsr_ast::JSDocTag::JSDocReturnTag(tag) = tag {
+                            return tag.type_expression;
+                        }
+                    }
+                }
+            }
+            current = self.nodes.parent(host);
+        }
+        None
+    }
+
     /// getThisTypeOfSignature for the explicit @this parameter inserted by
     /// reparseHosted (parser/reparser.go). Read only the annotation: constructing
     /// the full signature would re-enter the body currently typing its receiver.
@@ -1282,6 +1327,28 @@ impl<'a> Checker<'a, '_> {
         declaration: NodeId,
     ) -> Option<Signature> {
         let mut parts = self.signature_parts_of(declaration)?;
+        // Signatures can be requested before the declaration's value type.
+        // Native's anonymous callable identity exists before either entry
+        // point resolves return slots. The symbol worker reserves it before
+        // re-entering this function, so this preparation cannot loop.
+        if let Some(symbol) = self.binder.symbol_of(declaration)
+            && self
+                .binder
+                .symbols()
+                .get(symbol)
+                .flags
+                .intersects(tsr_binder::SymbolFlags::FUNCTION | tsr_binder::SymbolFlags::METHOD)
+            && !self.binder.symbols().get(symbol).flags.intersects(
+                tsr_binder::SymbolFlags::CLASS
+                    | tsr_binder::SymbolFlags::ENUM
+                    | tsr_binder::SymbolFlags::MODULE,
+            )
+            && !self.symbol_types.contains_key(&symbol)
+            && !self.resolutions.on_stack(symbol, crate::resolution::PropertyName::Type)
+            && self.declaration_takes_no_contextual_return(declaration, parts.may_return_never)
+        {
+            self.get_type_of_symbol(symbol);
+        }
         // §110 (`checker-notes-narrow.md`): a JS declaration's type
         // parameters live in its JSDoc `@template` tags — a side table the
         // module host carries; the node's own list is empty there.
@@ -1733,9 +1800,287 @@ impl<'a> Checker<'a, '_> {
         None
     }
 
-    /// `getReturnTypeOfSignature`'s `default` arm (`checker.go:20013`) and the
-    /// part of `getReturnTypeFromBody` (`checker.go:20126`) that can be answered
-    /// without unions.
+    /// Canonical semantic return accessor. Instantiated/composite signatures
+    /// already carry their mapped return; only an original declaration can use
+    /// its completed slot. Context-sensitive declarations retain their checked
+    /// result because their assigned context can still change in this port.
+    pub(crate) fn get_return_type_of_signature(&mut self, signature: &Signature) -> Option<TypeId> {
+        let key = self.type_literal_key(signature.declaration);
+        if signature.target.is_none()
+            && !signature.non_inferrable
+            && signature.r#type == self.intrinsics.error
+            && !self.pending_signature_returns.contains_key(&key)
+            && (self.pending_signature_returns.keys().any(|pending| pending.node == key.node)
+                || self.resolutions.active_signature_keys(signature.declaration).next().is_some())
+        {
+            // Parameter-only alias inference retains the original declaration
+            // vector. Its alias frame is not that original's captured key and
+            // cannot complete or rekey the pending source return.
+            return None;
+        }
+        if signature.target.is_none()
+            && !signature.non_inferrable
+            && self.pending_signature_returns.contains_key(&key)
+        {
+            return self
+                .complete_signature_return(signature.clone())
+                .map(|signature| signature.r#type);
+        }
+        if signature.target.is_some()
+            || signature.non_inferrable
+            || signature.r#type != self.intrinsics.error
+            || self.is_context_sensitive_function_like(signature.declaration)
+        {
+            return Some(signature.r#type);
+        }
+        self.signature_returns
+            .get(&self.type_literal_key(signature.declaration))
+            .copied()
+            .unwrap_or(Some(signature.r#type))
+    }
+
+    /// Complete the original return/predicate before a consumer clones or maps
+    /// it. Pending admission excludes alias-binding/template contexts; completing
+    /// in another mapper is not licensed. Existing signature vectors retain the
+    /// completed original, while instantiated/composite targets remain separate.
+    pub(crate) fn complete_signature_return(
+        &mut self,
+        mut signature: Signature,
+    ) -> Option<Signature> {
+        let key = self.type_literal_key(signature.declaration);
+        if signature.target.is_none()
+            && !signature.non_inferrable
+            && let Some(&state) = self.pending_signature_returns.get(&key)
+        {
+            if state == LazyReturnState::Active {
+                return self.get_signature_from_declaration(signature.declaration);
+            }
+            self.pending_signature_returns.insert(key.clone(), LazyReturnState::Active);
+            let completed = self.get_signature_from_declaration(signature.declaration);
+            self.pending_signature_returns.remove(&key);
+            signature = completed?;
+            if let Some(owner) = self.binder.symbol_of(signature.declaration)
+                && let Some(&ty) = self.symbol_types.get(&owner)
+                && let Some(signatures) = self.signature_types.get_mut(&ty)
+            {
+                for slot in signatures {
+                    if slot.target.is_none() && slot.declaration == signature.declaration {
+                        *slot = signature.clone();
+                    }
+                }
+            }
+            return Some(signature);
+        }
+        signature.r#type = self.get_return_type_of_signature(&signature)?;
+        Some(signature)
+    }
+
+    /// A mapper must not copy an unresolved return or infer "no parameter"
+    /// from pending metadata. Direct mapper hits precede this demand. Active
+    /// originals and unsupported completion decline without storing an image.
+    pub(crate) fn complete_pending_signature_returns_of_type(&mut self, ty: TypeId) -> bool {
+        let Some(signatures) = self.signature_types.get(&ty).cloned() else {
+            return !matches!(self.store.get(ty).data,
+                crate::types::TypeData::Anonymous { symbol, .. }
+                    if self.binder.symbols().get(self.binder.merged_symbol(symbol)).flags
+                        .intersects(SymbolFlags::FUNCTION | SymbolFlags::METHOD));
+        };
+        for signature in signatures {
+            if signature.target.is_some() || signature.non_inferrable {
+                continue;
+            }
+            let key = self.type_literal_key(signature.declaration);
+            match self.pending_signature_returns.get(&key) {
+                Some(LazyReturnState::Active) => return false,
+                Some(LazyReturnState::Pending) => {
+                    if self
+                        .complete_signature_return(signature)
+                        .is_none_or(|signature| signature.r#type == self.intrinsics.error)
+                    {
+                        return false;
+                    }
+                }
+                None if self
+                    .pending_signature_returns
+                    .keys()
+                    .any(|pending| pending.node == key.node) =>
+                {
+                    return false;
+                }
+                None if self.signature_returns.get(&key).is_some_and(|returned| {
+                    returned.is_none_or(|ty| ty == self.intrinsics.error)
+                }) =>
+                {
+                    return false;
+                }
+                None => {}
+            }
+        }
+        true
+    }
+
+    /// Native getSignatureFromDeclaration / getTypeOfParameter expose parameter
+    /// symbols independently of an active return (checker.go:19836). This
+    /// ephemeral view is only for inference/relater parameter consumers. Its
+    /// TypeId/symbol and unique successful empty captured key must already exist
+    /// on the resolution stack. Primitive source annotations cannot consume the
+    /// caller's alias mapper. Exact source parameter declarations/symbols, flags
+    /// and arity remain unchanged; the return is unavailable, not computed error.
+    /// No pending state, signature vector, object completion or image is written.
+    pub(crate) fn parameter_only_signature_of_active_function(
+        &mut self,
+        ty: TypeId,
+        symbol: SymbolId,
+    ) -> Option<Signature> {
+        let symbol = self.binder.merged_symbol(symbol);
+        let owner = self.binder.symbols().get(symbol);
+        if self.symbol_types.get(&symbol) != Some(&ty)
+            || !owner.flags.contains(SymbolFlags::FUNCTION)
+            || owner.flags.intersects(SymbolFlags::CLASS | SymbolFlags::ENUM | SymbolFlags::MODULE)
+        {
+            return None;
+        }
+        let [declaration] = owner.declarations.as_slice() else { return None };
+        let declaration = *declaration;
+        {
+            let mut active = self.resolutions.active_signature_keys(declaration);
+            let (key, true) = active.next()? else { return None };
+            if !key.is_unmapped() || active.next().is_some() {
+                return None;
+            }
+        }
+        let Some(Node::FunctionDeclaration(function)) = self.node_map.get(declaration) else {
+            return None;
+        };
+        if self.binder.symbol_of(declaration) != Some(symbol)
+            || !function.type_parameters.is_empty()
+            || function.asterisk_token.is_some()
+            || self.in_js_file(declaration)
+            || self.is_context_sensitive_function_like(declaration)
+        {
+            return None;
+        }
+        let mut parameters = Vec::with_capacity(function.parameters.len());
+        for parameter in function.parameters {
+            let tsr_ast::BindingName::Identifier(name) = parameter.name? else { return None };
+            let Some(TypeNode::KeywordTypeNode(annotation)) = parameter.r#type else { return None };
+            let declaration = parameter.node_id?;
+            let parameter_symbol = self.binder.symbol_of(declaration)?;
+            let original = self.binder.symbols().get(parameter_symbol);
+            if name.text == "this"
+                || annotation.kind == SyntaxKind::ObjectKeyword
+                || parameter.question_token.is_some()
+                || parameter.initializer.is_some()
+                || parameter.dot_dot_dot_token.is_some()
+                || original.value_declaration != Some(declaration)
+                || original.declarations.as_slice() != [declaration]
+            {
+                return None;
+            }
+            let r#type = self.get_type_from_type_node(TypeNode::KeywordTypeNode(annotation));
+            if r#type == self.intrinsics.error {
+                return None;
+            }
+            parameters.push(Parameter {
+                name: name.text.to_string(),
+                optional: false,
+                rest: false,
+                r#type,
+                written_text: None,
+            });
+        }
+        Some(Signature {
+            declaration,
+            target: None,
+            union_contains_abstract: false,
+            non_inferrable: false,
+            kind: SignatureKind::Call,
+            type_parameters: Vec::new(),
+            this_parameter: None,
+            parameters,
+            r#type: self.intrinsics.error,
+            written_return: None,
+            predicate: None,
+        })
+    }
+
+    /// getTypeFromTypeQueryNode reads a FUNCTION identity, not its return
+    /// (5b1047d1, checker.go:16904/19836). Prepare only an original plain
+    /// declaration at the unbound typeof source entry. The existing captured
+    /// key is retained; an active, completed or already prepared symbol cannot
+    /// gain Pending here. No parameter/return body or mapper work runs here.
+    pub(crate) fn defer_typeof_function_return(&mut self, symbol: SymbolId) {
+        let symbol = self.binder.merged_symbol(symbol);
+        let owner = self.binder.symbols().get(symbol);
+        if !owner.flags.contains(SymbolFlags::FUNCTION)
+            || owner.flags.intersects(SymbolFlags::CLASS | SymbolFlags::ENUM | SymbolFlags::MODULE)
+            || !self.alias_evaluation_bindings.is_empty()
+            || self.mapped_template_depth > 0
+            || self.symbol_types.contains_key(&symbol)
+        {
+            return;
+        }
+        let [declaration] = owner.declarations.as_slice() else { return };
+        let declaration = *declaration;
+        let Some(Node::FunctionDeclaration(function)) = self.node_map.get(declaration) else {
+            return;
+        };
+        if !function.type_parameters.is_empty()
+            || function.r#type.is_some()
+            || function.asterisk_token.is_some()
+            || self.in_js_file(declaration)
+            || self.is_context_sensitive_function_like(declaration)
+        {
+            return;
+        }
+        let key = self.type_literal_key(declaration);
+        if self.signature_returns.contains_key(&key)
+            || self.pending_signature_returns.contains_key(&key)
+            || self.resolutions.on_stack(
+                crate::resolution::ResolutionTarget::Signature(key.clone()),
+                crate::resolution::PropertyName::ResolvedReturnType,
+            )
+        {
+            return;
+        }
+        self.pending_signature_returns.insert(key, LazyReturnState::Pending);
+    }
+
+    /// checkFunctionExpressionOrObjectLiteralMethod leaves an uncontextualized
+    /// original return lazy (checker.go:10166). Scope this port to expression
+    /// members with noncontextual parameters and no JSDoc/captured mapper state;
+    /// contextual scheduling and other declaration families retain their path.
+    pub(crate) fn defer_object_member_return(&mut self, expression: tsr_ast::Expression<'_>) {
+        let Some(declaration) = expression.node_id() else { return };
+        if !matches!(
+            expression,
+            tsr_ast::Expression::ArrowFunction(_) | tsr_ast::Expression::FunctionExpression(_)
+        ) || self.in_js_file(declaration)
+            || self.is_context_sensitive_function_like(declaration)
+            || !self.has_no_contextual_type(declaration)
+            || !self.alias_evaluation_bindings.is_empty()
+            || self.mapped_template_depth > 0
+            || self
+                .signature_parts_of(declaration)
+                .is_none_or(|parts| parts.return_annotation.is_some())
+            || self
+                .binder
+                .symbol_of(declaration)
+                .is_none_or(|symbol| self.symbol_types.contains_key(&symbol))
+        {
+            return;
+        }
+        let key = self.type_literal_key(declaration);
+        if !self.signature_returns.contains_key(&key) {
+            self.pending_signature_returns.entry(key).or_insert(LazyReturnState::Pending);
+        }
+    }
+
+    /// Native getReturnTypeOfSignature (5b1047d1, checker.go:20001). A return
+    /// cycle fails every participating symbol/signature frame, then publishes
+    /// any on the return slot, not an error on the callable object itself.
+    /// Captured-binding identity uses the existing type-literal key; mutable
+    /// contextual assignment is deliberately not a completed reuse boundary.
     fn return_type_of(
         &mut self,
         declaration: NodeId,
@@ -1745,7 +2090,249 @@ impl<'a> Checker<'a, '_> {
         asterisk: bool,
         may_return_never: bool,
     ) -> Option<TypeId> {
+        let key = self.type_literal_key(declaration);
+        let reusable = annotation.is_some()
+            || self.declaration_takes_no_contextual_return(declaration, may_return_never)
+            || self.pending_signature_returns.get(&key) == Some(&LazyReturnState::Active);
+        if reusable && let Some(&completed) = self.signature_returns.get(&key) {
+            return completed;
+        }
+        if self.pending_signature_returns.get(&key) == Some(&LazyReturnState::Pending) {
+            // This sentinel is pending metadata, not a computed return/error.
+            // Canonical consumers complete it before using or mapping it.
+            return Some(self.intrinsics.error);
+        }
+        let mut resolutions = std::mem::take(&mut self.resolutions);
+        let pushed = resolutions.push_with(
+            crate::resolution::ResolutionTarget::Signature(key.clone()),
+            crate::resolution::PropertyName::ResolvedReturnType,
+            |target, property| self.resolution_has_published_identity(target, property),
+        );
+        self.resolutions = resolutions;
+        if !pushed {
+            return Some(self.intrinsics.error);
+        }
+        let computed = self.return_type_of_worker(
+            declaration,
+            annotation,
+            body,
+            modifiers,
+            asterisk,
+            may_return_never,
+        );
+        let computed = if self.resolutions.pop() {
+            computed
+        } else {
+            self.report_return_type_cycle(declaration, annotation);
+            Some(self.intrinsics.any)
+        };
+        if reusable {
+            // Match native's "publish only if still unresolved" after re-entry.
+            return *self.signature_returns.entry(key).or_insert(computed);
+        }
+        computed
+    }
+
+    /// Native getSignatureFromDeclaration publishes shape with no return
+    /// (5b1047d1, checker.go:19836); contextuallyCheckFunctionExpressionOrObjectLiteralMethod
+    /// (checker.go:10166) demands the body only with a contextual signature.
+    /// Admission owns the sole original FUNCTION declaration and its current
+    /// empty/unmapped key. Parameters must have readable annotations. The
+    /// caller certifies absence, never an unsupported contextual getter's None.
+    /// Only Pending is prepared; the canonical return getter owns Active and
+    /// completion. Existing active, completed or foreign-key slots are unchanged.
+    pub(crate) fn prepare_uncontextual_callable(&mut self, declaration: NodeId) {
+        let key = self.type_literal_key(declaration);
+        let Some(symbol) = self.binder.symbol_of(declaration) else { return };
+        let symbol = self.binder.merged_symbol(symbol);
+        let owner = self.binder.symbols().get(symbol);
+        if !key.is_unmapped()
+            || self.in_js_file(declaration)
+            || !owner.flags.contains(SymbolFlags::FUNCTION)
+            || owner.declarations.as_slice() != [declaration]
+            || !matches!(
+                self.nodes.kind(declaration),
+                SyntaxKind::ArrowFunction | SyntaxKind::FunctionExpression
+            )
+            || self.symbol_types.contains_key(&symbol)
+            || self.resolutions.on_stack(symbol, crate::resolution::PropertyName::Type)
+            || self.resolutions.active_signature_keys(declaration).next().is_some()
+            || self.signature_returns.keys().any(|key| key.node == declaration)
+            || self.pending_signature_returns.keys().any(|key| key.node == declaration)
+        {
+            return;
+        }
+        let Some(parts) = self.signature_parts_of(declaration) else { return };
+        if parts.asterisk
+            || parts.return_annotation.is_some()
+            || parts.parameters.iter().any(|parameter| {
+                parameter.r#type.is_none()
+                    || parameter.initializer.is_some()
+                    || parameter.dot_dot_dot_token.is_some()
+                    || parameter.question_token.is_some()
+                    || !matches!(parameter.name, Some(tsr_ast::BindingName::Identifier(_)))
+                    || Self::is_this_parameter_declaration(parameter)
+            })
+        {
+            return;
+        }
+        // Read only source annotations with a complete local contract. A
+        // missing reference can reduce to error-any in getTypeFromTypeNode,
+        // which is not evidence that the parameter was readable. This walk
+        // follows written function slots, never referenced alias bodies or
+        // return expressions; no image/cache is added.
+        let mut annotations: Vec<_> = parts.parameters.iter().filter_map(|p| p.r#type).collect();
+        while let Some(annotation) = annotations.pop() {
+            match annotation {
+                TypeNode::KeywordTypeNode(_) => {}
+                TypeNode::TypeReferenceNode(reference) if reference.type_arguments.is_empty() => {
+                    let Some(target) = reference
+                        .type_name
+                        .and_then(|name| self.resolve_entity_name(name, SymbolFlags::TYPE))
+                    else {
+                        return;
+                    };
+                    if !self
+                        .binder
+                        .symbols()
+                        .get(target)
+                        .flags
+                        .contains(SymbolFlags::TYPE_PARAMETER)
+                    {
+                        return;
+                    }
+                }
+                TypeNode::FunctionTypeNode(function) if function.type_parameters.is_empty() => {
+                    let Some(returned) = function.r#type else { return };
+                    annotations.push(returned);
+                    for parameter in function.parameters {
+                        let Some(annotation) = parameter.r#type else { return };
+                        if parameter.initializer.is_some()
+                            || parameter.question_token.is_some()
+                            || parameter.dot_dot_dot_token.is_some()
+                            || !matches!(parameter.name, Some(tsr_ast::BindingName::Identifier(_)))
+                        {
+                            return;
+                        }
+                        annotations.push(annotation);
+                    }
+                }
+                _ => return,
+            }
+        }
+        for parameter in parts.parameters {
+            let annotation = parameter.r#type.expect("annotated admission");
+            if self.get_type_from_type_node(annotation) == self.intrinsics.error {
+                return;
+            }
+        }
+        // Annotation work cannot replace a source slot through re-entry.
+        if self.symbol_types.contains_key(&symbol)
+            || self.signature_returns.keys().any(|key| key.node == declaration)
+            || self.pending_signature_returns.keys().any(|key| key.node == declaration)
+            || self.resolutions.active_signature_keys(declaration).next().is_some()
+        {
+            return;
+        }
+        self.pending_signature_returns.insert(key, LazyReturnState::Pending);
+    }
+
+    /// typeResolutionHasProperty's identity boundary, not member completeness.
+    /// Literal annotations have their own identity before eager metadata work;
+    /// native symbol Type publication has already returned that same identity.
+    fn resolution_has_published_identity(
+        &self,
+        target: &crate::resolution::ResolutionTarget,
+        property: crate::resolution::PropertyName,
+    ) -> bool {
+        use crate::resolution::{PropertyName, ResolutionTarget};
+        match (target, property) {
+            (ResolutionTarget::Signature(key), PropertyName::ResolvedReturnType) => {
+                self.signature_returns.get(key).is_some_and(Option::is_some)
+            }
+            (ResolutionTarget::Symbol(symbol), PropertyName::DeclaredType) => {
+                self.declared_types.get(symbol).is_some_and(|&ty| ty != self.intrinsics.error)
+            }
+            (ResolutionTarget::Symbol(symbol), PropertyName::Type) => {
+                if self.symbol_types.get(symbol).is_some_and(|&ty| ty != self.intrinsics.error) {
+                    return true;
+                }
+                self.binder
+                    .symbols()
+                    .get(*symbol)
+                    .value_declaration
+                    .and_then(|declaration| self.type_annotation_of(declaration))
+                    .filter(|annotation| {
+                        matches!(
+                            annotation,
+                            TypeNode::TypeLiteralNode(_)
+                                | TypeNode::FunctionTypeNode(_)
+                                | TypeNode::ConstructorTypeNode(_)
+                        )
+                    })
+                    .and_then(|annotation| Node::from(annotation).node_id())
+                    .and_then(|annotation| self.cached_type_literal(annotation))
+                    .is_some_and(|ty| ty != self.intrinsics.error)
+            }
+            _ => false,
+        }
+    }
+
+    /// getReturnTypeOfSignature's failed-pop diagnostic, anchored to the
+    /// annotation or declaration name, not the reference that closed the cycle.
+    fn report_return_type_cycle(&mut self, declaration: NodeId, annotation: Option<TypeNode<'a>>) {
+        use tsr_diagnostics::{Diagnostic, messages};
+        if annotation.is_none() && !self.no_implicit_any {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(declaration) else { return };
+        if !self.return_cycle_diagnostics.insert(declaration) {
+            return;
+        }
+        let diagnostic = if let Some(annotation) = annotation {
+            let anchor = Node::from(annotation).node_id().unwrap_or(declaration);
+            Diagnostic::new(
+                &messages::RETURN_TYPE_ANNOTATION_CIRCULARLY_REFERENCES_ITSELF,
+                self.error_span(anchor),
+            )
+        } else if let Some(name) = self.declaration_name_of(declaration) {
+            let text = match self.node_map.get(name) {
+                Some(Node::Identifier(name)) => name.text.to_string(),
+                Some(Node::StringLiteral(name)) => name.text.to_string(),
+                Some(Node::NumericLiteral(name)) => name.text.to_string(),
+                _ => return,
+            };
+            Diagnostic::with_args(
+                &messages::_0_IMPLICITLY_HAS_RETURN_TYPE_ANY_BECAUSE_IT_DOES_NOT_HAVE_A_RETURN_TYPE_ANNOTATION_AND_IS_REFERENCED_DIRECTLY_OR_INDIRECTLY_IN_ONE_OF_ITS_RETURN_EXPRESSIONS,
+                self.error_span(name), [text],
+            )
+        } else {
+            Diagnostic::new(
+                &messages::FUNCTION_IMPLICITLY_HAS_RETURN_TYPE_ANY_BECAUSE_IT_DOES_NOT_HAVE_A_RETURN_TYPE_ANNOTATION_AND_IS_REFERENCED_DIRECTLY_OR_INDIRECTLY_IN_ONE_OF_ITS_RETURN_EXPRESSIONS,
+                self.error_span(declaration),
+            )
+        };
+        self.report(file, diagnostic);
+    }
+
+    /// Annotation/body work, owned by the declaration's lazy return slot.
+    fn return_type_of_worker(
+        &mut self,
+        declaration: NodeId,
+        annotation: Option<TypeNode<'a>>,
+        body: Option<Body<'a>>,
+        modifiers: &[ModifierLike<'_>],
+        asterisk: bool,
+        may_return_never: bool,
+    ) -> Option<TypeId> {
         // `getReturnTypeFromAnnotation` (`checker.go:20058`) wins outright.
+        // A constructor's effective annotation is the enclosing instance type,
+        // never its body's return expressions (checker.go:20059).
+        if self.nodes.kind(declaration) == SyntaxKind::Constructor {
+            let class = self.nodes.parent(declaration)?;
+            let symbol = self.binder.merged_symbol(self.binder.symbol_of(class)?);
+            return Some(self.get_declared_type_of_symbol(symbol));
+        }
         if let Some(annotation) = annotation {
             let id = self.get_type_from_type_node(annotation);
             if id != self.intrinsics.error {
@@ -2797,14 +3384,14 @@ impl<'a> Checker<'a, '_> {
         }
         // `isNeverReturning` (`checker.go:20299`) at the plain arm: an
         // aggregate emptied by the self-call skip with an unreachable body
-        // end answers `neverType` (`:20173`). A reachable end falls through
-        // to the implicit-return arms below; undecidable gaps.
-        if types.is_empty() && !has_bare_return && has_return_of_type_never {
-            match self.block_completes_normally(block, declaration) {
-                Some(false) => return Some(self.intrinsics.never),
-                Some(true) => {}
-                None => return None,
-            }
+        // end answers `neverType` (`:20173`). Do not check the self-call a
+        // second time through the old syntactic reachability walk.
+        if types.is_empty()
+            && !has_bare_return
+            && has_return_of_type_never
+            && !self.function_has_implicit_return(declaration)
+        {
+            return Some(self.intrinsics.never);
         }
         // §741: the strict-mode implicit-return `| undefined`
         // (`checker.go:20301`), the plain arm's copy of what the async arm
@@ -2899,14 +3486,14 @@ impl<'a> Checker<'a, '_> {
         // A function expression, an arrow, or an object-literal method with no
         // `return`. Upstream separates `never` from `void` here by asking whether
         // the **end of the body is reachable** (`functionHasImplicitReturn`,
-        // `checker.go:20255`), which reads the flow graph. See
-        // [`Checker::block_completes_normally`] for the conservative syntactic
-        // stand-in and what it refuses to decide.
-        match self.block_completes_normally(block, declaration) {
-            Some(true) => Some(self.intrinsics.void),
-            Some(false) => Some(self.intrinsics.never),
-            None => None,
-        }
+        // `checker.go:20255`). Reading the flow graph is important here:
+        // checking an effect-only self-call as a return expression would
+        // incorrectly poison the active return slot.
+        Some(if self.function_has_implicit_return(declaration) {
+            self.intrinsics.void
+        } else {
+            self.intrinsics.never
+        })
     }
 
     /// The type of a concise arrow body, `x => x + 1`.
@@ -3345,21 +3932,86 @@ impl<'a> Checker<'a, '_> {
         found
     }
 
+    /// Negative effects eligibility without computing a callable or its return.
+    /// Native flow.go:2211 admits predicates and annotated never, not inferred
+    /// never. Inferred predicates require a value parameter and a valued return
+    /// (relater.go:2016, checker.go:20535). All declarations must prove absence;
+    /// JSDoc return/full-signature annotations and unknown ownership retain the
+    /// ordinary effects path. No signature or negative effects memo is published.
+    pub(crate) fn function_symbol_has_no_effects(&self, symbol: SymbolId) -> bool {
+        let symbol = self.binder.symbols().get(self.binder.merged_symbol(symbol));
+        symbol.flags.contains(tsr_binder::SymbolFlags::FUNCTION)
+            && !symbol.declarations.is_empty()
+            && symbol.declarations.iter().all(|&declaration| {
+                if self.in_js_file(declaration)
+                    && !self.jsdoc_has_no_function_return_annotation(declaration)
+                {
+                    return false;
+                }
+                let Some(parts) = self.signature_parts_of(declaration) else { return false };
+                parts.return_annotation.is_none()
+                    && (parts.parameters.iter().all(|p| Self::is_this_parameter_declaration(p))
+                        || matches!(parts.body, Some(Body::Block(body))
+                            if self.return_expressions_of(body, declaration).iter().all(Option::is_none)))
+            })
+    }
+
+    /// Native reparseHosted (reparser.go:342-397) consumes a variable @type
+    /// as the variable's annotation before the full-signature fallback. Do not
+    /// confuse that context with an annotation on a named expression's own
+    /// signature. This reads hosts/tags only; duplicate or uncertain ownership
+    /// declines instead of resolving a signature or return to prove absence.
+    fn jsdoc_has_no_function_return_annotation(&self, declaration: NodeId) -> bool {
+        let mut current = Some(declaration);
+        let mut variable_type_tags = 0;
+        while let Some(host) = current {
+            if self.jsdoc_function_host(host) == Some(declaration)
+                && let Some(docs) = self.jsdoc_entries.get(&host)
+            {
+                for doc in *docs {
+                    for tag in doc.tags {
+                        match tag {
+                            tsr_ast::JSDocTag::JSDocReturnTag(_) => return false,
+                            tsr_ast::JSDocTag::JSDocTypeTag(_) => {
+                                let variable = match self.node_map.get(host) {
+                                    Some(Node::VariableStatement(statement)) => statement
+                                        .declaration_list
+                                        .and_then(|list| list.declarations.first().copied()),
+                                    Some(Node::VariableDeclaration(variable)) => Some(variable),
+                                    _ => None,
+                                };
+                                if variable.is_none_or(|variable| {
+                                    variable.r#type.is_some()
+                                        || variable.initializer.and_then(|value| value.node_id())
+                                            != Some(declaration)
+                                }) {
+                                    return false;
+                                }
+                                variable_type_tags += 1;
+                                if variable_type_tags > 1 {
+                                    return false;
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+            current = self.nodes.parent(host);
+        }
+        true
+    }
+
     /// Whether a return expression (parens and `await` already skipped) is a
     /// bare call to the enclosing function itself — upstream's
     /// self-call skip in `checkAndAggregateReturnExpressionTypes`
     /// (`checker.go:20277`): such a return contributes nothing to the
     /// aggregate and flags the function never-returning.
     ///
-    /// Upstream compares the callee's checked type's symbol against
-    /// `getMergedSymbol(fn.Symbol())`; this resolves the identifier by name
-    /// instead, which is the same symbol wherever the name is not shadowed —
-    /// and a shadowing binding resolves to a *different* symbol, failing the
-    /// equality exactly as upstream's does. The second conjunct —
-    /// a function *expression* needs `isConstantReference` on top — is
-    /// unported, so expression/arrow containers decline the skip and keep
-    /// checking the call (worst case the §437 error-joins road, which is
-    /// where they already were).
+    /// Compare the callee's checked callable owner, not its binding symbol: a
+    /// const arrow's variable and its Anonymous FUNCTION symbol are distinct.
+    /// Native checker.go:20277 additionally requires isConstantReference for
+    /// expression/arrow declarations, preserving reassigned/shadowed aliases.
     fn return_is_a_bare_self_call(
         &mut self,
         declaration: NodeId,
@@ -3367,7 +4019,10 @@ impl<'a> Checker<'a, '_> {
     ) -> bool {
         if !matches!(
             self.nodes.kind(declaration),
-            SyntaxKind::FunctionDeclaration | SyntaxKind::MethodDeclaration
+            SyntaxKind::FunctionDeclaration
+                | SyntaxKind::MethodDeclaration
+                | SyntaxKind::FunctionExpression
+                | SyntaxKind::ArrowFunction
         ) {
             return false;
         }
@@ -3375,16 +4030,16 @@ impl<'a> Checker<'a, '_> {
         let Some(tsr_ast::Expression::Identifier(callee)) = call.expression else { return false };
         let Some(callee_id) = callee.node_id else { return false };
         let Some(own) = self.binder.symbol_of(declaration) else { return false };
-        let resolved = self.binder.resolve_name(
-            self.nodes,
-            self.node_map,
-            callee_id,
-            callee.text,
-            tsr_binder::SymbolFlags::VALUE,
-        );
-        resolved.is_some_and(|symbol| {
-            self.binder.merged_symbol(symbol) == self.binder.merged_symbol(own)
-        })
+        let callee_type = self.check_expression(tsr_ast::Expression::Identifier(callee));
+        let crate::types::TypeData::Anonymous { symbol, .. } = self.store.get(callee_type).data
+        else {
+            return false;
+        };
+        self.binder.merged_symbol(symbol) == self.binder.merged_symbol(own)
+            && (!matches!(
+                self.nodes.kind(declaration),
+                SyntaxKind::FunctionExpression | SyntaxKind::ArrowFunction
+            ) || self.is_constant_reference(callee_id))
     }
 
     /// Whether this function-like declaration can never take a **contextual
@@ -4150,38 +4805,15 @@ impl<'a> Checker<'a, '_> {
                     }
                     if node.initializer.is_some()
                         && let Some(tsr_ast::BindingName::BindingPattern(pattern)) = node.name
-                        && let Some((tuple_elements, _)) =
-                            self.tuple_element_lists.get(&computed).cloned()
-                        && tuple_elements.len() != pattern.elements.len()
                     {
-                        // §435: `padTupleType` (checker.go:16808) — a SHORT
-                        // default pads OPTIONAL slots from the pattern
-                        // elements' own defaults:
-                        // `function g4([x, y = 0] = [0])` prints
-                        // `[number, number?]` and `g5([x = 0, y = 0] = [])`
-                        // `[number?, number?]`
-                        // (`destructuringWithLiteralInitializers`). A missing
-                        // element default keeps the decline.
-                        if tuple_elements.len() > pattern.elements.len() {
-                            return None;
-                        }
-                        let mut padded: Vec<(crate::types::TypeId, bool)> =
-                            tuple_elements.iter().map(|&t| (t, false)).collect();
-                        for element in &pattern.elements[tuple_elements.len()..] {
-                            let default = element.initializer?;
-                            let checked = self.check_expression(default);
-                            if checked == self.intrinsics.error {
-                                return None;
-                            }
-                            let widened = self.get_widened_literal_type(checked);
-                            padded.push((widened, true));
-                        }
-                        let labels = vec![None; padded.len()];
+                        // The canonical native padding helper preserves source
+                        // tuple flags and fills missing object/tuple defaults.
+                        // Annotation and contextual admission remain above.
                         return Some(Parameter {
                             name: name_text,
                             optional: false,
                             rest: node.dot_dot_dot_token.is_some(),
-                            r#type: self.create_optional_tuple_type(&padded, &labels, false),
+                            r#type: self.pad_binding_parameter_type(id, computed, pattern)?,
                             written_text: None,
                         });
                     }
@@ -5762,8 +6394,25 @@ impl<'a> Checker<'a, '_> {
                             matches!(
                                 self.store.get(ty).data,
                                 crate::types::TypeData::Intrinsic { .. }
-                            )
+                            ) || (!self
+                                .store
+                                .get(ty)
+                                .flags
+                                .intersects(TypeFlags::UNION | TypeFlags::INTERSECTION)
+                                && matches!(self.binder.symbols().get(symbol).declarations.as_slice(),
+                                    &[declaration] if matches!(self.node_map.get(declaration),
+                                        Some(Node::TypeAliasDeclaration(alias))
+                                            if alias.type_parameters.is_empty()
+                                                && matches!(alias.r#type,
+                                                    Some(TypeNode::UnionTypeNode(_)
+                                                        | TypeNode::IntersectionTypeNode(_))))))
                         });
+                // Native reduced singletons retain the constituent TypeId,
+                // while serializeTypeForDeclaration can reuse the alias at an
+                // equivalent written slot. Read only its completed declaration
+                // type here; the existing caller verifies annotation equality
+                // and resolves accessibility at the viewer. No alias wrapper
+                // or cache is added; mapped signatures keep their own path.
                 let name = if self
                     .binder
                     .symbols()
@@ -5815,6 +6464,129 @@ impl<'a> Checker<'a, '_> {
         }
     }
 
+    /// Native 5b1047d serializeTypeForDeclaration reuses an equivalent source
+    /// annotation. An original function's published parameter vector certifies
+    /// the annotation already evaluated by `parameter_of`; no annotation getter
+    /// or cache lookup runs here. Require successful unmapped return publication
+    /// and a primitive slot, excluding object reservations and ephemeral views.
+    /// Reuse the existing query/literal spelling helpers only when both source
+    /// identifiers resolve to the same merged symbols at the viewing site.
+    fn signature_parameter_source_text_at(
+        &self,
+        signature: &Signature,
+        index: usize,
+        reference: NodeId,
+    ) -> Option<String> {
+        if signature.target.is_some()
+            || signature.non_inferrable
+            || !signature.type_parameters.is_empty()
+            || signature.this_parameter.is_some()
+            || signature.r#type == self.intrinsics.error
+            || !self.alias_evaluation_bindings.is_empty()
+            || self.mapped_template_depth != 0
+            || self.resolutions.has_active_return()
+        {
+            return None;
+        }
+        let owner = self.binder.symbol_of(signature.declaration)?;
+        let ty = *self.symbol_types.get(&owner)?;
+        if self.completed_callable_symbol(ty) != Some(owner) {
+            return None;
+        }
+        let symbol = self.binder.symbols().get(owner);
+        if !symbol.flags.contains(SymbolFlags::FUNCTION)
+            || symbol.declarations.as_slice() != [signature.declaration]
+            || symbol.value_declaration != Some(signature.declaration)
+            || self.resolutions.on_stack(owner, crate::resolution::PropertyName::Type)
+        {
+            return None;
+        }
+        let key = self.type_literal_key(signature.declaration);
+        if !key.is_unmapped()
+            || self.pending_signature_returns.keys().any(|pending| pending.node == key.node)
+            || self.signature_returns.get(&key) != Some(&Some(signature.r#type))
+        {
+            return None;
+        }
+        let [published] = self.signature_types.get(&ty)?.as_slice() else { return None };
+        if published.declaration != signature.declaration
+            || published.target.is_some()
+            || published.non_inferrable
+            || published.r#type != signature.r#type
+        {
+            return None;
+        }
+        let Node::FunctionDeclaration(function) = self.node_map.get(signature.declaration)? else {
+            return None;
+        };
+        if !function.type_parameters.is_empty()
+            || function.asterisk_token.is_some()
+            || self.in_js_file(signature.declaration)
+        {
+            return None;
+        }
+        let node = function.parameters.get(index)?;
+        let tsr_ast::BindingName::Identifier(name) = node.name? else { return None };
+        if name.text == "this"
+            || node.question_token.is_some()
+            || node.initializer.is_some()
+            || node.dot_dot_dot_token.is_some()
+        {
+            return None;
+        }
+        let declaration = node.node_id?;
+        let parameter_symbol = self.binder.symbol_of(declaration)?;
+        let source = self.binder.symbols().get(parameter_symbol);
+        if source.declarations.as_slice() != [declaration]
+            || source.value_declaration != Some(declaration)
+        {
+            return None;
+        }
+        let slot = signature.parameters.get(index)?;
+        let original = published.parameters.get(index)?;
+        if slot.r#type != original.r#type
+            || slot.name != name.text
+            || original.name != name.text
+            || slot.optional
+            || original.optional
+            || slot.rest
+            || original.rest
+            || ![self.intrinsics.string, self.intrinsics.number, self.intrinsics.boolean]
+                .contains(&slot.r#type)
+        {
+            return None;
+        }
+        let TypeNode::IndexedAccessTypeNode(annotation) = node.r#type? else { return None };
+        let TypeNode::TypeReferenceNode(alias) = annotation.object_type? else { return None };
+        let tsr_ast::EntityName::Identifier(alias_name) = alias.type_name? else { return None };
+        let [TypeNode::TypeQueryNode(query)] = alias.type_arguments else { return None };
+        let tsr_ast::EntityName::Identifier(query_name) = query.expr_name? else { return None };
+        let index_type = annotation.index_type?;
+        if !matches!(index_type, TypeNode::LiteralTypeNode(_)) {
+            return None;
+        }
+        let same_binding = |identifier: &tsr_ast::Identifier<'_>, meaning| {
+            let resolve = |site| {
+                self.binder
+                    .resolve_name(self.nodes, self.node_map, site, identifier.text, meaning)
+                    .map(|symbol| self.binder.merged_symbol(symbol))
+            };
+            identifier
+                .node_id
+                .and_then(resolve)
+                .zip(resolve(reference))
+                .is_some_and(|(source, viewer)| source == viewer)
+        };
+        if !same_binding(alias_name, SymbolFlags::TYPE)
+            || !same_binding(query_name, SymbolFlags::VALUE)
+        {
+            return None;
+        }
+        let query_text = Self::type_query_written_text(TypeNode::TypeQueryNode(query))?;
+        let index_text = Self::written_type_text(index_type, &mut false, &mut false)?;
+        Some(format!("{}<{query_text}>[{index_text}]", alias_name.text))
+    }
+
     pub(crate) fn signature_parameter_alias_text_at(
         &mut self,
         signature: &Signature,
@@ -5841,7 +6613,8 @@ impl<'a> Checker<'a, '_> {
             return None;
         }
         let annotation = self.signature_parts_of(signature.declaration)?.return_annotation?;
-        self.annotation_alias_text_at(annotation, signature.r#type, reference)
+        let return_type = self.get_return_type_of_signature(signature)?;
+        self.annotation_alias_text_at(annotation, return_type, reference)
     }
 
     /// Render a signature as a `FunctionTypeNode` is printed: `<T>(x?: A, ...r: B[]) => C`,
@@ -6068,7 +6841,9 @@ impl<'a> Checker<'a, '_> {
         // `...x: string[]` under a rest-tailed contextual tuple — so the empty
         // expansion is upstream's answer, and only the comma was wrong).
         let mut emitted_a_parameter = false;
-        for parameter in signature.this_parameter.iter().chain(signature.parameters.iter()) {
+        for (index, parameter) in
+            signature.this_parameter.iter().chain(signature.parameters.iter()).enumerate()
+        {
             let separator_before = out.len();
             if emitted_a_parameter {
                 out.push_str(", ");
@@ -6175,6 +6950,10 @@ impl<'a> Checker<'a, '_> {
             if let Some(written) = &parameter.written_text {
                 out.push_str(written);
             } else if let Some(text) =
+                self.signature_parameter_source_text_at(signature, index, reference)
+            {
+                out.push_str(&text);
+            } else if let Some(text) =
                 self.signature_parameter_alias_text_at(signature, parameter, reference)
             {
                 out.push_str(&text);
@@ -6194,7 +6973,9 @@ impl<'a> Checker<'a, '_> {
         } else if let Some(text) = self.signature_return_alias_text_at(signature, reference) {
             out.push_str(&text);
         } else {
-            let text = render(self, signature.r#type);
+            let return_type =
+                self.get_return_type_of_signature(signature).unwrap_or(self.intrinsics.error);
+            let text = render(self, return_type);
             out.push_str(&text);
         }
         out
@@ -6335,6 +7116,766 @@ pub(crate) fn written_type_literal_text(
 #[cfg(test)]
 mod tests {
     use tsr_ast::SyntaxKind;
+
+    // Exercise the production source-view path through the approved immutable
+    // certificate, retaining the explicit TypeId input of its predecessor test.
+    fn certified_indexed_parameter_annotation(
+        checker: &crate::Checker<'_, '_>,
+        ty: crate::types::TypeId,
+        signature: &super::Signature,
+        index: usize,
+    ) -> Option<String> {
+        let owner = checker.binder.symbol_of(signature.declaration)?;
+        (checker.symbol_types.get(&owner) == Some(&ty)).then(|| {
+            checker.signature_parameter_source_text_at(signature, index, signature.declaration)
+        })?
+    }
+
+    fn source_view_snapshot(state: &crate::Checker<'_, '_>) -> String {
+        format!(
+            "{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}",
+            state.store,
+            state.symbol_types,
+            state.signature_types,
+            state.signature_returns,
+            state
+                .pending_signature_returns
+                .iter()
+                .map(|(key, value)| (key, *value == super::LazyReturnState::Active))
+                .collect::<Vec<_>>(),
+            state.type_literal_types,
+            state.instantiated_signatures,
+            state.instantiated_objects,
+            state.alias_evaluation_bindings,
+            state.resolutions,
+            state.diagnostics(),
+        )
+    }
+
+    #[test]
+    fn parameter_source_views_reject_shadowed_qualified_and_imported_bindings_without_work() {
+        let files = [
+            (
+                "/source.ts",
+                "type Inputs<F extends (...args: any[]) => any> = F extends (...args: infer P) => any ? P : never; function helper(value: string, count: number) { return value; } function exposed(value: Inputs<typeof helper>[0]) { return value; } const rootView = exposed; function typeShadow() { type Inputs<F> = boolean; const typeView = exposed; } function valueShadow() { const helper = (value: boolean) => value; const valueView = exposed; } namespace Scoped { export type LocalInputs<F extends (...args: any[]) => any> = F extends (...args: infer P) => any ? P : never; export function peer(value: number) { return value; } export function nested(value: LocalInputs<typeof peer>[0]) { return value; } const insideView = nested; } const outsideView = Scoped.nested; namespace Sibling { const siblingView = exposed; }",
+            ),
+            ("/cross.ts", "const crossView = exposed;"),
+            (
+                "/entry.ts",
+                "export type ModuleInputs<F extends (...args: any[]) => any> = F extends (...args: infer P) => any ? P : never; export function peer(value: number) { return value; } export function moduleFoo(value: ModuleInputs<typeof peer>[0]) { return value; } const moduleInsideView = moduleFoo;",
+            ),
+            (
+                "/consumer.ts",
+                "import { moduleFoo } from './entry'; const importedView = moduleFoo;",
+            ),
+        ];
+        let arena = tsr_core::Arena::new();
+        let mut nodes = tsr_ast::NodeTable::new();
+        let mut map = tsr_ast::NodeMap::new();
+        let mut parsed = Vec::new();
+        for (name, text) in files {
+            let file = tsr_parser::parse_into(
+                &arena,
+                text,
+                tsr_parser::ParseOptions::default(),
+                &mut nodes,
+                &mut map,
+            );
+            assert!(file.diagnostics.is_empty());
+            parsed.push((name, text, file.source_file));
+        }
+        let mut bound = tsr_binder::BindResult::empty();
+        for (name, text, file) in parsed {
+            bound = tsr_binder::bind_into(
+                bound,
+                &arena,
+                file,
+                &nodes,
+                tsr_binder::FileInfo { name, text },
+            );
+        }
+        let identifier = |text: &str| {
+            (0..u32::try_from(nodes.len()).unwrap()).find_map(|index| {
+                let id = tsr_ast::NodeId::new(index);
+                matches!(map.get(id), Some(tsr_ast::Node::Identifier(name)) if name.text == text)
+                    .then_some(id)
+            }).unwrap()
+        };
+        for reverse in [false, true] {
+            let mut checker = crate::Checker::new(&bound, &nodes, &map);
+            let mut controls = [
+                ("exposed", "rootView", Some("Inputs<typeof helper>[0]")),
+                ("exposed", "typeView", None),
+                ("exposed", "valueView", None),
+                ("nested", "insideView", Some("LocalInputs<typeof peer>[0]")),
+                ("nested", "outsideView", None),
+                ("exposed", "siblingView", Some("Inputs<typeof helper>[0]")),
+                ("exposed", "crossView", Some("Inputs<typeof helper>[0]")),
+                ("moduleFoo", "moduleInsideView", Some("ModuleInputs<typeof peer>[0]")),
+                ("moduleFoo", "importedView", None),
+            ];
+            if reverse {
+                controls.reverse();
+            }
+            for (name, site, expected) in controls {
+                let declaration = nodes.parent(identifier(name)).unwrap();
+                let symbol = bound.symbol_of(declaration).unwrap();
+                let ty = checker.get_type_of_symbol(symbol);
+                let signature = checker.signature_types[&ty][0].clone();
+                let reference = identifier(site);
+                let before = source_view_snapshot(&checker);
+                for _ in 0..3 {
+                    assert_eq!(
+                        checker
+                            .signature_parameter_source_text_at(&signature, 0, reference)
+                            .as_deref(),
+                        expected,
+                        "{site}",
+                    );
+                    assert_eq!(source_view_snapshot(&checker), before, "{site}");
+                }
+                let expected_type = if name == "exposed" { "string" } else { "number" };
+                let expected_signature =
+                    format!("(value: {}) => {expected_type}", expected.unwrap_or(expected_type));
+                assert_eq!(
+                    checker.type_to_string_at(ty, reference).as_deref(),
+                    Some(expected_signature.as_str()),
+                    "{site}"
+                );
+                assert_eq!(source_view_snapshot(&checker), before, "full print {site}");
+            }
+        }
+    }
+
+    #[test]
+    fn indexed_parameter_source_completion_is_read_only_and_rejects_unpublished_images() {
+        let source = "type FormalInputs<F extends (...args: any[]) => any> = F extends (...args: infer P) => any ? P : never; function foo(arg: FormalInputs<typeof bar>[0]) { return arg; } function bar(arg: string, count: number) { return foo(arg); }";
+        let arena = tsr_core::Arena::new();
+        let parsed = tsr_parser::parse(&arena, source);
+        assert!(parsed.diagnostics.is_empty());
+        let bound = tsr_binder::bind(
+            &arena,
+            parsed.source_file,
+            &parsed.nodes,
+            tsr_binder::FileInfo { name: "parameters.ts", text: source },
+        );
+        let root = parsed.source_file.node_id.unwrap();
+        for first_name in ["foo", "bar"] {
+            let mut checker = crate::Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+            let foo = bound.lookup_local(root, "foo").unwrap();
+            let bar = bound.lookup_local(root, "bar").unwrap();
+            checker.get_type_of_symbol(bound.lookup_local(root, first_name).unwrap());
+            let ty = checker.get_type_of_symbol(foo);
+            let signature = checker.signature_types[&ty][0].clone();
+            assert_eq!(signature.parameters[0].r#type, checker.intrinsics.string);
+            assert_eq!(signature.r#type, checker.intrinsics.string);
+            assert_eq!(checker.type_to_string(ty), "(arg: string) => string");
+            let bar_ty = checker.get_type_of_symbol(bar);
+            let bar_signature = checker.signature_types[&bar_ty][0].clone();
+            let key = checker.type_literal_key(signature.declaration);
+            let tsr_ast::Statement::TypeAliasDeclaration(alias) = parsed.source_file.statements[0]
+            else {
+                panic!("alias declaration");
+            };
+            let frame_symbol = bound.symbol_of(alias.type_parameters[0].node_id.unwrap()).unwrap();
+            let mapped = checker
+                .instantiate_signature(
+                    signature.clone(),
+                    &[(checker.intrinsics.string, checker.intrinsics.number)],
+                    &[],
+                    &[],
+                )
+                .unwrap();
+            assert_eq!(mapped.parameters[0].r#type, checker.intrinsics.number);
+            assert!(mapped.target.is_some());
+            for case in 0..19 {
+                let mut candidate = signature.clone();
+                let mut candidate_ty = ty;
+                let mut slot = 0;
+                match case {
+                    1 => candidate.target = Some(std::sync::Arc::new(signature.clone())),
+                    2 => candidate.parameters[0].r#type = checker.intrinsics.number,
+                    3 => candidate.non_inferrable = true,
+                    4 => slot = 1,
+                    5 => checker
+                        .alias_evaluation_bindings
+                        .push([(frame_symbol, checker.intrinsics.number)].into_iter().collect()),
+                    6 => checker.mapped_template_depth = 1,
+                    7 => assert!(checker.resolutions.push(
+                        crate::resolution::ResolutionTarget::Signature(key.clone()),
+                        crate::resolution::PropertyName::ResolvedReturnType,
+                    )),
+                    8 => {
+                        checker
+                            .pending_signature_returns
+                            .insert(key.clone(), super::LazyReturnState::Pending);
+                    }
+                    9 => {
+                        candidate_ty = checker.store.new_anonymous(
+                            crate::flags::TypeFlags::OBJECT,
+                            "any".into(),
+                            foo,
+                            true,
+                        );
+                        checker.symbol_types.insert(foo, candidate_ty);
+                    }
+                    10 => {
+                        candidate_ty = bar_ty;
+                        candidate = bar_signature.clone();
+                    }
+                    11 => {
+                        checker.signature_returns.remove(&key);
+                    }
+                    12 => candidate = mapped.clone(),
+                    13 => {
+                        checker
+                            .pending_signature_returns
+                            .insert(key.clone(), super::LazyReturnState::Active);
+                    }
+                    14 => {
+                        checker.alias_evaluation_bindings.push(
+                            [(frame_symbol, checker.intrinsics.number)].into_iter().collect(),
+                        );
+                        let mapped_key = checker.type_literal_key(signature.declaration);
+                        checker.alias_evaluation_bindings.pop();
+                        assert!(checker.resolutions.push(
+                            crate::resolution::ResolutionTarget::Signature(mapped_key),
+                            crate::resolution::PropertyName::ResolvedReturnType,
+                        ));
+                    }
+                    15 => {
+                        assert!(checker.resolutions.push(
+                            crate::resolution::ResolutionTarget::Signature(key.clone()),
+                            crate::resolution::PropertyName::ResolvedReturnType,
+                        ));
+                        assert!(!checker.resolutions.push(
+                            crate::resolution::ResolutionTarget::Signature(key.clone()),
+                            crate::resolution::PropertyName::ResolvedReturnType,
+                        ));
+                    }
+                    16 => assert!(
+                        checker.resolutions.push(foo, crate::resolution::PropertyName::Type)
+                    ),
+                    17 => {
+                        checker.signature_returns.insert(key.clone(), None);
+                    }
+                    18 => candidate.r#type = checker.intrinsics.error,
+                    _ => {}
+                }
+                let before = source_view_snapshot(&checker);
+                for _ in 0..3 {
+                    let certified = certified_indexed_parameter_annotation(
+                        &checker,
+                        candidate_ty,
+                        &candidate,
+                        slot,
+                    );
+                    assert_eq!(certified.is_some(), case == 0, "case {case}");
+                    if case == 0 {
+                        assert_eq!(certified.as_deref(), Some("FormalInputs<typeof bar>[0]"));
+                    }
+                    assert_eq!(
+                        source_view_snapshot(&checker),
+                        before,
+                        "no demand/publication in case {case}"
+                    );
+                }
+                match case {
+                    5 => {
+                        checker.alias_evaluation_bindings.pop();
+                    }
+                    6 => checker.mapped_template_depth = 0,
+                    7 | 14 | 16 => assert!(checker.resolutions.pop()),
+                    8 | 13 => {
+                        checker.pending_signature_returns.remove(&key);
+                    }
+                    9 => {
+                        checker.symbol_types.insert(foo, ty);
+                    }
+                    11 | 17 => {
+                        checker.signature_returns.insert(key.clone(), Some(signature.r#type));
+                    }
+                    15 => assert!(!checker.resolutions.pop()),
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    fn with_original_entry(
+        source: &str,
+        test: impl FnOnce(&mut crate::Checker<'_, '_>, &tsr_binder::BindResult<'_>, tsr_ast::NodeId),
+    ) {
+        let arena = tsr_core::Arena::new();
+        let parsed = tsr_parser::parse(&arena, source);
+        assert!(parsed.diagnostics.is_empty());
+        let bound = tsr_binder::bind(
+            &arena,
+            parsed.source_file,
+            &parsed.nodes,
+            tsr_binder::FileInfo { name: "entry.ts", text: source },
+        );
+        let mut checker = crate::Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+        test(&mut checker, &bound, parsed.source_file.node_id.unwrap());
+    }
+
+    #[test]
+    fn original_const_callee_entry_preserves_identity_without_manual_preparation() {
+        for first in ["result", "container", "callable"] {
+            with_original_entry(
+                "const callable = <T>(value: T) => value; const container = { callable }; const result = callable(23);",
+                |checker, bound, root| {
+                    let owner = bound.lookup_local(root, "callable").unwrap();
+                    let declaration = bound.symbols().get(owner).value_declaration.unwrap();
+                    let Some(tsr_ast::Node::VariableDeclaration(variable)) =
+                        checker.node_map.get(declaration)
+                    else {
+                        panic!("variable")
+                    };
+                    let original = variable.initializer.unwrap().node_id().unwrap();
+                    let captured = checker.type_literal_key(original);
+                    assert!(captured.is_unmapped());
+                    assert!(checker.pending_signature_returns.is_empty());
+                    checker.get_type_of_symbol(bound.lookup_local(root, first).unwrap());
+                    // A declaration/member view is not an entry reservation.
+                    // A cold ordinary call completes at the original key.
+                    if first == "result" {
+                        assert!(checker.signature_returns.contains_key(&captured));
+                    }
+                    assert!(checker.pending_signature_returns.is_empty());
+                    let identity = checker.get_type_of_symbol(owner);
+                    let signature = checker.signature_types[&identity][0].clone();
+                    assert_eq!(signature.declaration, original);
+                    let parameter = signature.parameters[0].r#type;
+                    for _ in 0..3 {
+                        let result =
+                            checker.get_type_of_symbol(bound.lookup_local(root, "result").unwrap());
+                        assert_eq!(checker.type_to_string(result), "23");
+                        let container = checker
+                            .get_type_of_symbol(bound.lookup_local(root, "container").unwrap());
+                        assert_eq!(
+                            checker.get_type_of_property_of_type(container, "callable"),
+                            Some(identity)
+                        );
+                        assert_eq!(checker.get_type_of_symbol(owner), identity);
+                        assert_eq!(
+                            checker.get_return_type_of_signature(&signature),
+                            Some(parameter)
+                        );
+                        assert!(checker.pending_signature_returns.is_empty());
+                        assert_eq!(checker.type_literal_key(original), captured);
+                    }
+                    assert!(checker.diagnostics().is_empty());
+                },
+            );
+        }
+    }
+
+    #[test]
+    fn original_entry_keeps_pending_key_and_callable_identity_in_cold_reverse_warm_orders() {
+        for first in ["callable", "container", "result"] {
+            with_original_entry(
+                "type Frame<T> = T; const callable = <T>(value: T) => value; const container = { callable }; const result = callable(23);",
+                |checker, bound, root| {
+                    let variable = bound.lookup_local(root, "callable").unwrap();
+                    let declaration = bound.symbols().get(variable).value_declaration.unwrap();
+                    let Some(tsr_ast::Node::VariableDeclaration(variable_node)) =
+                        checker.node_map.get(declaration)
+                    else {
+                        panic!("variable declaration")
+                    };
+                    let original = variable_node.initializer.unwrap().node_id().unwrap();
+                    assert!(checker.has_no_contextual_type(original));
+                    checker.prepare_uncontextual_callable(original);
+                    let captured = checker.type_literal_key(original);
+                    assert!(
+                        checker.pending_signature_returns[&captured]
+                            == super::LazyReturnState::Pending
+                    );
+                    checker.get_type_of_symbol(bound.lookup_local(root, first).unwrap());
+                    let identity = checker.get_type_of_symbol(variable);
+                    let key = checker.type_literal_key(original);
+                    let signature = checker.signature_types[&identity][0].clone();
+                    assert_eq!(signature.declaration, original);
+                    assert_eq!(signature.type_parameters.len(), 1);
+                    let parameter = signature.parameters[0].r#type;
+                    let mut foreign = rustc_hash::FxHashMap::default();
+                    let Some(tsr_ast::Node::TypeAliasDeclaration(alias)) = checker.node_map.get(
+                        bound
+                            .symbols()
+                            .get(bound.lookup_local(root, "Frame").unwrap())
+                            .declarations[0],
+                    ) else {
+                        panic!("alias")
+                    };
+                    foreign.insert(
+                        bound.symbol_of(alias.type_parameters[0].node_id.unwrap()).unwrap(),
+                        checker.intrinsics.string,
+                    );
+                    if checker.pending_signature_returns.contains_key(&key) {
+                        checker.alias_evaluation_bindings.push(foreign);
+                        for _ in 0..3 {
+                            assert!(checker.get_return_type_of_signature(&signature).is_none());
+                            checker.prepare_uncontextual_callable(original);
+                            assert!(
+                                checker.pending_signature_returns[&key]
+                                    == super::LazyReturnState::Pending
+                            );
+                            assert_eq!(checker.pending_signature_returns.len(), 1);
+                            assert!(!checker.signature_returns.contains_key(&key));
+                        }
+                        checker.alias_evaluation_bindings.pop();
+                    }
+                    for names in
+                        [["result", "container"], ["container", "result"], ["result", "container"]]
+                    {
+                        for name in names {
+                            let ty =
+                                checker.get_type_of_symbol(bound.lookup_local(root, name).unwrap());
+                            if name == "result" {
+                                assert_eq!(checker.type_to_string(ty), "23");
+                            } else {
+                                assert_eq!(
+                                    checker.get_type_of_property_of_type(ty, "callable"),
+                                    Some(identity)
+                                );
+                            }
+                        }
+                        let completed =
+                            checker.complete_signature_return(signature.clone()).unwrap();
+                        assert_eq!(completed.r#type, parameter);
+                        assert_eq!(checker.signature_returns[&key], Some(parameter));
+                        assert!(!checker.pending_signature_returns.contains_key(&key));
+                        checker.prepare_uncontextual_callable(original);
+                        assert!(!checker.pending_signature_returns.contains_key(&key));
+                        assert_eq!(checker.get_type_of_symbol(variable), identity);
+                    }
+                    assert!(checker.diagnostics().is_empty());
+                },
+            );
+        }
+    }
+
+    #[test]
+    fn original_entry_rejections_do_not_publish_or_rekey_return_slots() {
+        for initializer in [
+            "(value) => value",
+            "(value?: number) => value",
+            "(value: number = 23) => value",
+            "(...value: number[]) => value",
+            "({value}: {value: number}) => value",
+            "function*(value: number) { yield value; }",
+            "function(this: number, value: number) { return value; }",
+            "(value: Unavailable) => value",
+        ] {
+            with_original_entry(
+                &format!("const callable = {initializer};"),
+                |checker, bound, root| {
+                    let owner = bound.lookup_local(root, "callable").unwrap();
+                    let declaration = bound.symbols().get(owner).value_declaration.unwrap();
+                    let Some(tsr_ast::Node::VariableDeclaration(variable)) =
+                        checker.node_map.get(declaration)
+                    else {
+                        panic!("variable")
+                    };
+                    let original = variable.initializer.unwrap().node_id().unwrap();
+                    checker.prepare_uncontextual_callable(original);
+                    assert!(checker.pending_signature_returns.is_empty(), "{initializer}");
+                    assert!(checker.signature_returns.is_empty(), "{initializer}");
+                    assert!(checker.instantiated_signatures.is_empty());
+                    assert!(checker.instantiated_objects.is_empty());
+                },
+            );
+        }
+        for state in 0..4 {
+            with_original_entry(
+                "const callable = (value: number) => value;",
+                |checker, bound, root| {
+                    let owner = bound.lookup_local(root, "callable").unwrap();
+                    let declaration = bound.symbols().get(owner).value_declaration.unwrap();
+                    let Some(tsr_ast::Node::VariableDeclaration(variable)) =
+                        checker.node_map.get(declaration)
+                    else {
+                        panic!("variable")
+                    };
+                    let original = variable.initializer.unwrap().node_id().unwrap();
+                    let key = checker.type_literal_key(original);
+                    match state {
+                        0 => {
+                            checker
+                                .signature_returns
+                                .insert(key.clone(), Some(checker.intrinsics.number));
+                        }
+                        1 => {
+                            assert!(checker.resolutions.push(
+                                crate::resolution::ResolutionTarget::Signature(key.clone()),
+                                crate::resolution::PropertyName::ResolvedReturnType
+                            ));
+                        }
+                        2 => {
+                            checker
+                                .pending_signature_returns
+                                .insert(key.clone(), super::LazyReturnState::Active);
+                        }
+                        _ => {
+                            checker.mapped_template_depth = 1;
+                            let foreign = checker.type_literal_key(original);
+                            checker
+                                .pending_signature_returns
+                                .insert(foreign, super::LazyReturnState::Pending);
+                            checker.mapped_template_depth = 0;
+                        }
+                    }
+                    let pending = checker.pending_signature_returns.clone();
+                    let completed = checker.signature_returns.clone();
+                    let symbols = checker.symbol_types.clone();
+                    checker.prepare_uncontextual_callable(original);
+                    assert!(checker.pending_signature_returns == pending);
+                    assert_eq!(checker.signature_returns, completed);
+                    assert_eq!(checker.symbol_types, symbols);
+                    assert!(checker.instantiated_signatures.is_empty());
+                    assert!(checker.instantiated_objects.is_empty());
+                },
+            );
+        }
+    }
+
+    #[test]
+    fn original_entry_does_not_use_unsupported_or_present_context_as_absence() {
+        for source in [
+            "declare function target(value: Unavailable): void; target((value: number) => value);",
+            "declare function target(value: (value: number) => unknown): void; target((value: number) => value);",
+        ] {
+            with_original_entry(source, |checker, _, root| {
+                let Some(tsr_ast::Node::SourceFile(file)) = checker.node_map.get(root) else {
+                    panic!("source")
+                };
+                let tsr_ast::Statement::ExpressionStatement(statement) = file.statements[1] else {
+                    panic!("call statement")
+                };
+                let Some(tsr_ast::Expression::CallExpression(call)) = statement.expression else {
+                    panic!("call")
+                };
+                let original = call.arguments[0].node_id().unwrap();
+                assert!(!checker.has_no_contextual_type(original));
+                checker.get_type_of_function_expression(original);
+                assert!(checker.pending_signature_returns.is_empty());
+                assert!(checker.signature_returns.is_empty());
+                assert!(
+                    checker
+                        .contextual_call_signature(checker.intrinsics.error, Some(original))
+                        .is_none()
+                );
+                assert!(matches!(
+                    checker.contextual_call_signature(
+                        checker.intrinsics.unknown_empty_object,
+                        Some(original)
+                    ),
+                    Some(crate::contextual::ContextualSignature::Absent)
+                ));
+            });
+        }
+    }
+
+    #[test]
+    fn active_parameter_projection_rejects_ambiguous_keys_and_nonprimitive_source_shapes() {
+        for (function, eligible) in [
+            ("function callable(value: string, count: number) { return value; }", true),
+            ("function callable(value?: string) { return value; }", false),
+            ("function callable(value: string = 'default') { return value; }", false),
+            ("function callable(...value: string[]) { return value; }", false),
+            ("function callable<T>(value: string) { return value; }", false),
+            ("function callable(this: number, value: string) { return value; }", false),
+            ("function callable(value: object) { return value; }", false),
+            ("function callable(value: { field: number }) { return value; }", false),
+            ("function callable(value: string | number) { return value; }", false),
+            ("function callable(value) { return value; }", false),
+            ("function* callable(value: string) { yield value; }", false),
+        ] {
+            for active_case in 0..5 {
+                let source = format!("type Frame<T> = T; {function}");
+                let arena = tsr_core::Arena::new();
+                let parsed = tsr_parser::parse(&arena, &source);
+                assert!(parsed.diagnostics.is_empty());
+                let bound = tsr_binder::bind(
+                    &arena,
+                    parsed.source_file,
+                    &parsed.nodes,
+                    tsr_binder::FileInfo { name: "active.ts", text: &source },
+                );
+                let root = parsed.source_file.node_id.unwrap();
+                let callable = bound.lookup_local(root, "callable").unwrap();
+                let declaration = bound.symbols().get(callable).value_declaration.unwrap();
+                let mut checker = crate::Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+                // The existing original identity is published before its
+                // signature vector in getTypeOfFuncClassEnumModule.
+                let ty = checker.store.new_anonymous(
+                    crate::flags::TypeFlags::OBJECT,
+                    "any".into(),
+                    callable,
+                    true,
+                );
+                checker.symbol_types.insert(callable, ty);
+                let key = checker.type_literal_key(declaration);
+                let target = crate::resolution::ResolutionTarget::Signature(key.clone());
+                let property = crate::resolution::PropertyName::ResolvedReturnType;
+                if active_case != 0 {
+                    assert!(checker.resolutions.push(target.clone(), property));
+                }
+                let tsr_ast::Statement::TypeAliasDeclaration(alias) =
+                    parsed.source_file.statements[0]
+                else {
+                    panic!("alias frame")
+                };
+                let parameter = bound.symbol_of(alias.type_parameters[0].node_id.unwrap()).unwrap();
+                checker
+                    .alias_evaluation_bindings
+                    .push([(parameter, checker.intrinsics.number)].into_iter().collect());
+                if active_case == 2 || active_case == 3 {
+                    let mapped_key = checker.type_literal_key(declaration);
+                    if active_case == 2 {
+                        assert!(checker.resolutions.pop());
+                    }
+                    assert!(checker.resolutions.push(
+                        crate::resolution::ResolutionTarget::Signature(mapped_key),
+                        property
+                    ));
+                } else if active_case == 4 {
+                    assert!(!checker.resolutions.push(target, property));
+                }
+                let original_types = checker.symbol_types.clone();
+                let expected = eligible && active_case == 1;
+                for _ in 0..3 {
+                    let projection =
+                        checker.parameter_only_signature_of_active_function(ty, callable);
+                    assert_eq!(projection.is_some(), expected, "{function}, active={active_case}");
+                    if let Some(signature) = projection {
+                        assert_eq!(signature.declaration, declaration);
+                        assert_eq!(signature.parameters.len(), 2);
+                        assert_eq!(signature.parameters[0].r#type, checker.intrinsics.string);
+                        assert_eq!(signature.parameters[1].r#type, checker.intrinsics.number);
+                        assert!(signature.parameters.iter().all(|p| !p.optional && !p.rest));
+                        assert_eq!(signature.r#type, checker.intrinsics.error);
+                        assert!(checker.get_return_type_of_signature(&signature).is_none());
+                    }
+                    assert!(checker.pending_signature_returns.is_empty());
+                    assert!(checker.signature_returns.is_empty());
+                    assert!(checker.signature_types.is_empty());
+                    assert!(checker.instantiated_signatures.is_empty());
+                    assert_eq!(checker.symbol_types, original_types);
+                }
+                checker.alias_evaluation_bindings.pop();
+                while checker.resolutions.depth() != 0 {
+                    assert_eq!(checker.resolutions.pop(), active_case != 4);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn parameter_only_vectors_preserve_original_pending_key_and_decline_an_alias_demand() {
+        let source = "type Frame<T> = T; function callable(value: string) { return 1 as any; }";
+        let arena = tsr_core::Arena::new();
+        let parsed = tsr_parser::parse(&arena, source);
+        assert!(parsed.diagnostics.is_empty());
+        let bound = tsr_binder::bind(
+            &arena,
+            parsed.source_file,
+            &parsed.nodes,
+            tsr_binder::FileInfo { name: "parameters.ts", text: source },
+        );
+        let root = parsed.source_file.node_id.unwrap();
+        let mut checker = crate::Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+        let callable = bound.lookup_local(root, "callable").unwrap();
+        checker.defer_typeof_function_return(callable);
+        let ty = checker.get_type_of_symbol(callable);
+        let signature = checker.signature_types[&ty][0].clone();
+        let key = checker.type_literal_key(signature.declaration);
+        let original_parameter = signature.parameters[0].r#type;
+        let tsr_ast::Statement::TypeAliasDeclaration(alias) = parsed.source_file.statements[0]
+        else {
+            panic!("alias frame declaration");
+        };
+        let parameter = bound.symbol_of(alias.type_parameters[0].node_id.unwrap()).unwrap();
+        let mut frame = rustc_hash::FxHashMap::default();
+        frame.insert(parameter, checker.intrinsics.number);
+        checker.alias_evaluation_bindings.push(frame);
+        for _ in 0..3 {
+            let shapes =
+                checker.signature_shapes_of_type_kind(ty, super::SignatureKind::Call).unwrap();
+            assert_eq!(shapes.len(), 1);
+            assert_eq!(shapes[0].declaration, signature.declaration);
+            assert_eq!(shapes[0].parameters[0].r#type, original_parameter);
+            assert!(checker.get_return_type_of_signature(&shapes[0]).is_none());
+            assert!(checker.pending_signature_returns[&key] == super::LazyReturnState::Pending);
+            assert!(!checker.signature_returns.contains_key(&key));
+            let image = checker.intrinsics.string;
+            assert_eq!(checker.instantiate_type(ty, &[(ty, image)], &[], &[]), image);
+            assert_eq!(checker.instantiate_type(ty, &[], &[], &[]), checker.intrinsics.error);
+            assert!(checker.instantiated_signatures.is_empty());
+            assert!(checker.instantiated_objects.is_empty());
+            assert_eq!(checker.get_type_of_symbol(callable), ty);
+        }
+        checker.alias_evaluation_bindings.pop();
+        for _ in 0..3 {
+            let selected = checker.resolve_call_signature(ty, None).unwrap();
+            assert_eq!(selected.parameters[0].r#type, original_parameter);
+            assert_eq!(selected.r#type, checker.intrinsics.any);
+            assert_eq!(checker.get_type_of_symbol(callable), ty);
+            assert!(!checker.pending_signature_returns.contains_key(&key));
+        }
+        assert!(checker.diagnostics().is_empty());
+    }
+
+    #[test]
+    fn pending_callable_mapping_preserves_direct_hits_and_declines_active_or_unsupported() {
+        for (initializer, supported) in [("() => 23", true), ("function*() { yield* []; }", false)]
+        {
+            let source = format!("const object = {{ f: {initializer} }};");
+            let arena = tsr_core::Arena::new();
+            let parsed = tsr_parser::parse(&arena, &source);
+            assert!(parsed.diagnostics.is_empty());
+            let bound = tsr_binder::bind(
+                &arena,
+                parsed.source_file,
+                &parsed.nodes,
+                tsr_binder::FileInfo { name: "control.ts", text: &source },
+            );
+            let root = tsr_ast::Node::SourceFile(parsed.source_file).node_id().unwrap();
+            let mut checker = crate::Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+            let object = checker.get_type_of_symbol(bound.lookup_local(root, "object").unwrap());
+            let callable = checker.get_type_of_property_of_type(object, "f").unwrap();
+            let declaration = checker.signature_types[&callable][0].declaration;
+            let key = checker.type_literal_key(declaration);
+            assert!(checker.pending_signature_returns[&key] == super::LazyReturnState::Pending);
+            let image = checker.intrinsics.string;
+            assert_eq!(checker.instantiate_type(callable, &[(callable, image)], &[], &[]), image);
+            assert!(checker.pending_signature_returns[&key] == super::LazyReturnState::Pending);
+            assert!(!checker.signature_returns.contains_key(&key));
+
+            checker.pending_signature_returns.insert(key.clone(), super::LazyReturnState::Active);
+            for _ in 0..3 {
+                assert_eq!(
+                    checker.instantiate_type(callable, &[], &[], &[]),
+                    checker.intrinsics.error
+                );
+                assert!(checker.instantiated_signatures.is_empty());
+                assert!(checker.instantiated_objects.is_empty());
+                assert!(!checker.signature_returns.contains_key(&key));
+            }
+            checker.pending_signature_returns.insert(key.clone(), super::LazyReturnState::Pending);
+            for _ in 0..3 {
+                let mapped = checker.instantiate_type(callable, &[], &[], &[]);
+                assert_eq!(mapped, if supported { callable } else { checker.intrinsics.error });
+                let returned = checker.signature_types[&callable][0].r#type;
+                assert_eq!(
+                    returned,
+                    if supported { checker.intrinsics.number } else { checker.intrinsics.error }
+                );
+                assert!(!checker.pending_signature_returns.contains_key(&key));
+            }
+        }
+    }
 
     /// Native 5b1047d keeps these signatures, including inherited ones. The
     /// unsupported parameter rendering must not become an empty or partial set.

@@ -19,7 +19,7 @@
 //! but each is a wrong code at a right position and the position is what the
 //! suite compares.
 
-use tsr_ast::{Node, NodeId};
+use tsr_ast::{Node, NodeId, SyntaxKind};
 use tsr_binder::SymbolFlags;
 use tsr_diagnostics::{Diagnostic, messages};
 
@@ -42,7 +42,10 @@ impl Checker<'_, '_> {
     /// `crate::type_argument_arity`, which declined for the same borrowed
     /// reason, is worth 3 cases.
     pub(crate) fn check_nonexistent_property(&mut self, node: NodeId, ambient: bool) {
-        if ambient || self.file_has_parse_errors {
+        // Pinned `checkPropertyAccessExpressionOrQualifiedName` reports this
+        // semantic error even with parse diagnostics. Existing receiver-image
+        // completeness and unsupported-access declines still own the work.
+        if ambient {
             return;
         }
         // **`a["nope"]` is the same question.** Eight of upstream's twelve
@@ -62,10 +65,26 @@ impl Checker<'_, '_> {
                 // note), and the corpus's private-name cases are a row of their
                 // own.
                 let tsr_ast::MemberName::Identifier(name) = member else { return };
+                // Native `right.Text() != ""` (`checker.go:11345`) declines a
+                // missing recovery name, not all accesses in a malformed file.
+                if name.text.is_empty() {
+                    return;
+                }
                 let Some(name_id) = name.node_id else { return };
+                // Native `IsPartOfTypeNode` excludes interface extends and
+                // implements from checked value property accesses. Use the
+                // name slot so nested `typeof` type arguments stay distinct.
+                if self.identifier_in_non_emitting_heritage_clause(name_id) {
+                    return;
+                }
                 (receiver, name.text, name_id, access.question_dot_token.is_some())
             }
             Some(Node::ElementAccessExpression(access)) => {
+                // Malformed element access is not part of this proven property
+                // recovery boundary; retain its existing parse-error decline.
+                if self.file_has_parse_errors {
+                    return;
+                }
                 let (Some(receiver), Some(argument)) =
                     (access.expression, access.argument_expression)
                 else {
@@ -85,6 +104,36 @@ impl Checker<'_, '_> {
         }
 
         let Some(receiver_id) = receiver.node_id() else { return };
+        if self.file_has_parse_errors {
+            // Constructor recovery can leave `this.x = ...` as a statement
+            // where native ended the body and owns class property declarations.
+            // This port cannot certify that recovered write's receiver image.
+            if self.nodes.kind(receiver_id) == SyntaxKind::ThisKeyword
+                && self.is_write_only_access(node)
+                && self
+                    .get_this_container(node, false)
+                    .is_some_and(|container| self.nodes.kind(container) == SyntaxKind::Constructor)
+            {
+                return;
+            }
+            if let Some(Node::Identifier(identifier)) = self.node_map.get(receiver_id) {
+                let Some(symbol) = self.binder.resolve_name(
+                    self.nodes,
+                    self.node_map,
+                    receiver_id,
+                    identifier.text,
+                    SymbolFlags::VALUE,
+                ) else {
+                    return;
+                };
+                // `getExplicitTypeOfSymbol` (pinned flow.go:2155) is also the
+                // assertion-effect supplier. Its unsupported for-of/mapped
+                // origins cannot certify a miss merely by flowed == declared.
+                if self.get_explicit_type_of_symbol(symbol).is_none() {
+                    return;
+                }
+            }
+        }
         let receiver_type = self.check_expression(receiver);
         if self.global_this_member_is_not_reported(receiver_type, name_text) {
             return;
@@ -97,7 +146,73 @@ impl Checker<'_, '_> {
         if self.get_property_of_type(receiver_type, name_text).is_some() {
             return;
         }
+        if let crate::types::TypeData::Anonymous { symbol, .. } =
+            &self.store.get(receiver_type).data
+        {
+            // `getPropertyOfType`/`reportNonexistentProperty`, native pin
+            // 5b1047d10d32e7d5b446be4de56b126ff42f82bb: absence is usable only
+            // after the receiver's declaration/export ownership is complete.
+            // Read only this Program symbol's declarations and dotted module
+            // bodies, after a miss; no member forcing, graph cache or new image.
+            // Missing names/bodies are unsupported recovery, not completion.
+            for &declaration in &self.binder.symbols().get(*symbol).declarations {
+                let mut declaration = self.node_map.get(declaration);
+                while let Some(Node::ModuleDeclaration(module)) = declaration {
+                    if module.name.is_none_or(|name| {
+                        matches!(name, tsr_ast::ModuleName::Identifier(name) if name.text.is_empty())
+                    }) || module.body.is_none()
+                    {
+                        return;
+                    }
+                    declaration = module.body.map(Node::from);
+                }
+            }
+        }
         if self.is_a_universal_object_member(name_text) {
+            return;
+        }
+        // getPropertyTypeForIndexType (5b1047d1 checker.go:27129-27182).
+        // Original source-module SymbolId/TypeId publication, not a class,
+        // object/JS literal, clone image or active module construction. Literal
+        // indices have no union constituent's SuppressNoImplicitAnyError state
+        // (26979); an applicable index is answered before this miss policy.
+        let module_element_miss =
+            matches!(self.node_map.get(node), Some(Node::ElementAccessExpression(_)))
+                && match self.store.get(receiver_type).data {
+                    crate::types::TypeData::Anonymous { symbol, .. } => {
+                        self.symbol_types.get(&symbol) == Some(&receiver_type)
+                            && !self
+                                .resolutions
+                                .on_stack(symbol, crate::resolution::PropertyName::Type)
+                            && !self.module_value_clones.contains_key(&receiver_type)
+                            && !self.js_literal_types.contains(&receiver_type)
+                            && !self.is_object_literal_type(receiver_type)
+                            && self
+                                .binder
+                                .symbols()
+                                .get(symbol)
+                                .flags
+                                .contains(SymbolFlags::VALUE_MODULE)
+                            && !self
+                                .binder
+                                .symbols()
+                                .get(symbol)
+                                .flags
+                                .intersects(SymbolFlags::MODULE_EXPORTS | SymbolFlags::CLASS)
+                            && self.binder.symbols().get(symbol).value_declaration.is_some_and(
+                                |declaration| {
+                                    self.nodes.kind(declaration) == tsr_ast::SyntaxKind::SourceFile
+                                },
+                            )
+                            && self
+                                .get_index_infos_of_type(receiver_type)
+                                .is_some_and(|infos| infos.is_empty())
+                    }
+                    _ => false,
+                };
+        // Native 27147 guards static and spelling suggestions as well as the
+        // final implicit-any index error. Dot property policy stays unchanged.
+        if module_element_miss && !self.no_implicit_any {
             return;
         }
         // **The other side of the class is not silence, it is TS2576.**
@@ -134,7 +249,11 @@ impl Checker<'_, '_> {
         // is **TS2551**, not TS2339. §33 made the same move for TS2304/TS2552 —
         // the spelling algorithm is already exact, so reporting the code it
         // selects costs one message.
-        let candidates = self.property_names_of(receiver_type);
+        let candidates = if module_element_miss {
+            self.get_property_names_of_type(receiver_type).unwrap_or_default()
+        } else {
+            self.property_names_of(receiver_type)
+        };
         if let Some(suggestion) = crate::check::spelling_suggestion(
             name_text,
             &candidates.iter().map(String::as_str).collect::<Vec<_>>(),
@@ -149,6 +268,25 @@ impl Checker<'_, '_> {
                     &messages::PROPERTY_0_DOES_NOT_EXIST_ON_TYPE_1_DID_YOU_MEAN_2,
                     span,
                     [name_text.to_string(), printed, suggestion],
+                ),
+            );
+            return;
+        }
+        // Native's outer 7053 chain is at the whole expression; 27196's
+        // argument-level 2339 fallback has no accessExpression and is not this
+        // original-source-module expression branch.
+        if module_element_miss
+            && let Some(Node::ElementAccessExpression(access)) = self.node_map.get(node)
+        {
+            let Some(index) = access.argument_expression else { return };
+            let index_type = self.check_expression(index);
+            let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+            self.report(
+                file,
+                Diagnostic::with_args(
+                    &messages::ELEMENT_IMPLICITLY_HAS_AN_ANY_TYPE_BECAUSE_EXPRESSION_OF_TYPE_0_CAN_T_BE_USED_TO_INDEX_TYPE_1,
+                    self.error_span(node),
+                    [self.type_to_string(index_type), self.type_to_string(receiver_type)],
                 ),
             );
             return;

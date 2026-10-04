@@ -421,8 +421,21 @@ impl<'a> Checker<'a, '_> {
         // use site. A resolvable module this port cannot type keeps the
         // `errorType` gap below instead.
         if let Some(declaration) = self.declaration_of_alias_symbol(symbol)
-            && let Some(Node::ImportEqualsDeclaration(node)) = self.node_map.get(declaration)
-            && let Some(ModuleReference::ExternalModuleReference(reference)) = node.module_reference
+            && let Some(specifier) = match self.node_map.get(declaration) {
+                Some(Node::ImportEqualsDeclaration(node)) => match node.module_reference {
+                    Some(ModuleReference::ExternalModuleReference(reference)) => {
+                        reference.expression.and_then(|expression| expression.node_id())
+                    }
+                    _ => None,
+                },
+                Some(Node::VariableDeclaration(variable)) => match variable.initializer {
+                    Some(Expression::CallExpression(call)) => {
+                        call.arguments.first().and_then(tsr_ast::Expression::node_id)
+                    }
+                    _ => None,
+                },
+                _ => None,
+            }
         {
             // Position is IRRELEVANT to the type: upstream still resolves
             // the require() against ambient modules inside a namespace
@@ -430,10 +443,7 @@ impl<'a> Checker<'a, '_> {
             // `privacyGloImportParseErrors` wants `typeof errorImport` for a
             // namespace-positioned import of a QUOTED ambient module, the
             // §31 first pair's 4 adverse lines. Findability alone decides.
-            let unresolvable = reference
-                .expression
-                .and_then(|e| e.node_id())
-                .is_some_and(|id| self.module_specifier_unfindable(id));
+            let unresolvable = self.module_specifier_unfindable(specifier);
             if unresolvable {
                 let any = self.intrinsics.any;
                 let any = if self.resolutions.pop() { any } else { self.intrinsics.error };
@@ -628,6 +638,7 @@ impl<'a> Checker<'a, '_> {
                     accessor_write: None,
                     method: false,
                     origin: Some(default),
+                    checked_declaration: None,
                     name: "default".to_owned(),
                     printed_name: "default".to_owned(),
                     printed_type: self.type_to_string(value),
@@ -698,22 +709,24 @@ impl<'a> Checker<'a, '_> {
     /// [`Checker::resolve_alias`] for the measurement and for what would make it
     /// necessary.
     ///
-    /// # One divergence, and it is in the safe direction
+    /// # Unsupported alias targets still decline
     ///
     /// When `resolveAlias` yields `unknownSymbol`, upstream returns
-    /// `SymbolFlagsAll` — every meaning, so the caller proceeds. There is no
-    /// `unknownSymbol` here and [`Checker::resolve_alias`] answers `None`
-    /// instead, which stops the walk and leaves the flags at what was
-    /// accumulated. `getTypeOfAlias`'s `Value` test then fails and the answer is
-    /// `errorType`: a gap rather than a claim. Returning "all meanings" for a
-    /// target we could not find would send `get_type_of_symbol` a symbol that
-    /// does not exist.
+    /// `SymbolFlagsAll`. This port's `None` also covers unsupported targets,
+    /// so it cannot imply native absence. Only a completed canonical-any
+    /// receiver of a `CommonJS` property alias establishes the native unknown
+    /// target here; its alias type still declines to `errorType`.
     pub(crate) fn get_symbol_flags(&mut self, symbol: SymbolId) -> SymbolFlags {
         let mut seen: Vec<SymbolId> = Vec::new();
         let mut current = symbol;
         let mut flags = self.binder.symbols().get(current).flags;
         while self.binder.symbols().get(current).flags.intersects(SymbolFlags::ALIAS) {
-            let Some(target) = self.resolve_alias(current) else { break };
+            let Some(target) = self.resolve_alias(current) else {
+                if self.commonjs_property_alias_has_unknown_target(current) {
+                    return SymbolFlags::from_bits_retain(u32::MAX);
+                }
+                break;
+            };
             let target_flags = self.binder.symbols().get(target).flags;
             if target_flags.intersects(SymbolFlags::ALIAS) {
                 if target == current || seen.contains(&target) {
@@ -728,6 +741,48 @@ impl<'a> Checker<'a, '_> {
             current = target;
         }
         flags
+    }
+
+    /// Native getTargetOfAliasLikeExpression -> resolveAlias -> getSymbolFlagsEx
+    /// (5b1047d1 checker.go:14996/16266/16376). A completed canonical-any
+    /// receiver has no property symbol. Read the original expression cache,
+    /// never evaluate again or publish a synthetic target. Error/missing cache,
+    /// active receiver ownership and loop-fixpoint state prove no such absence.
+    fn commonjs_property_alias_has_unknown_target(&self, symbol: SymbolId) -> bool {
+        if !self.flow_loop_stack.is_empty() {
+            return false;
+        }
+        let Some(declaration) = self.declaration_of_alias_symbol(symbol) else { return false };
+        let Some(Node::BinaryExpression(binary)) = self.node_map.get(declaration) else {
+            return false;
+        };
+        let Some(Expression::PropertyAccessExpression(access)) = binary.right else {
+            return false;
+        };
+        let Some(receiver) = access.expression else { return false };
+        if receiver.node_id().and_then(|id| self.node_types.get(&id).copied())
+            != Some(self.intrinsics.any)
+        {
+            return false;
+        }
+        let mut root = receiver;
+        while let Expression::PropertyAccessExpression(access) = root {
+            let Some(receiver) = access.expression else { return false };
+            root = receiver;
+        }
+        let Expression::Identifier(root) = root else { return false };
+        let Some(owner) = root.node_id.and_then(|id| {
+            self.binder.resolve_name(
+                self.nodes,
+                self.node_map,
+                id,
+                root.text,
+                SymbolFlags::VALUE | SymbolFlags::TYPE | SymbolFlags::NAMESPACE,
+            )
+        }) else {
+            return false;
+        };
+        !self.resolutions.on_stack(owner, PropertyName::Type)
     }
 
     /// The symbol an alias names, for the forms that resolve inside one file.
@@ -855,6 +910,59 @@ impl<'a> Checker<'a, '_> {
     pub fn resolve_alias(&mut self, symbol: SymbolId) -> Option<SymbolId> {
         let declaration = self.declaration_of_alias_symbol(symbol)?;
         match self.nodes.kind(declaration) {
+            // getTargetOfImportEqualsDeclaration also accepts syntactic JS
+            // require-initialized variables, independently of call admission.
+            SyntaxKind::VariableDeclaration => {
+                let Node::VariableDeclaration(variable) = self.node_map.get(declaration)? else {
+                    return None;
+                };
+                let Some(Expression::CallExpression(call)) = variable.initializer else {
+                    return None;
+                };
+                // Keep the immediate target. The existing alias-chain worker
+                // owns cycle detection, including require/export= loops.
+                return self.commonjs_require_target(call);
+            }
+            // getTargetOfBinaryExpression (native checker.go:14990): an
+            // assignment alias points at the RHS symbol in its lexical scope,
+            // not the type of the whole module or an identically spelled local.
+            SyntaxKind::BinaryExpression => {
+                let Node::BinaryExpression(binary) = self.node_map.get(declaration)? else {
+                    return None;
+                };
+                return match binary.right? {
+                    Expression::Identifier(name) => self
+                        .binder
+                        .resolve_name(
+                            self.nodes,
+                            self.node_map,
+                            name.node_id?,
+                            name.text,
+                            SymbolFlags::VALUE | SymbolFlags::TYPE | SymbolFlags::NAMESPACE,
+                        )
+                        .map(|target| self.binder.merged_symbol(target)),
+                    Expression::ClassExpression(class) => self.binder.symbol_of(class.node_id?),
+                    Expression::PropertyAccessExpression(access) => {
+                        let tsr_ast::MemberName::Identifier(name) = access.name? else {
+                            return None;
+                        };
+                        let receiver = access.expression?;
+                        if let Some(owner) =
+                            self.heritage_entity_symbol(receiver, SymbolFlags::NAMESPACE)
+                            && let Some(&target) =
+                                self.binder.symbols().get(owner).exports.get(name.text)
+                        {
+                            return Some(target);
+                        }
+                        // getTargetOfAliasLikeExpression's checked-expression
+                        // fallback: mutable object members retain their actual
+                        // receiver/property symbol, not a namespace name fit.
+                        let receiver = self.check_expression(receiver);
+                        self.get_property_of_type(receiver, name.text)
+                    }
+                    _ => None,
+                };
+            }
             // `getTargetOfExportSpecifier` (`checker.go:14951`) — both halves,
             // `export { q }` and `export { q } from "./m"`.
             SyntaxKind::ExportSpecifier => return self.export_specifier_target(declaration),
@@ -1042,8 +1150,11 @@ impl<'a> Checker<'a, '_> {
                 let specifier = reference.expression?.node_id()?;
                 let module = self.resolve_external_module_name(declaration, specifier)?;
                 let resolved = self.resolve_external_module_symbol(module);
-                if resolved == module {
-                    return Some(module);
+                // resolveExternalModuleSymbol(..., dontResolveAlias=false)
+                // follows alias exports, but a property-valued export= is
+                // already the target (e.g. module.exports = 3 in JS).
+                if !self.binder.symbols().get(resolved).flags.intersects(SymbolFlags::ALIAS) {
+                    return Some(resolved);
                 }
                 self.resolve_alias(resolved)
             }
@@ -1151,6 +1262,48 @@ impl<'a> Checker<'a, '_> {
                 | SyntaxKind::NamespaceExport
                 | SyntaxKind::ImportSpecifier
                 | SyntaxKind::ExportSpecifier => true,
+                // The binder admits only unannotated, unexported JS variables
+                // initialized to a bare string-literal require call.
+                SyntaxKind::VariableDeclaration => {
+                    self.in_js_file(declaration)
+                        && matches!(self.node_map.get(declaration),
+                            Some(Node::VariableDeclaration(variable))
+                                if variable.r#type.is_none()
+                                    && matches!(variable.initializer,
+                                        Some(Expression::CallExpression(call))
+                                            if call.arguments.len() == 1
+                                                && matches!(call.expression, Some(Expression::Identifier(name)) if name.text == "require")
+                                                && matches!(call.arguments[0], Expression::StringLiteral(_) | Expression::NoSubstitutionTemplateLiteral(_))))
+                        && self.binder.symbol_of(declaration).is_some_and(|symbol| {
+                            self.binder.symbols().get(symbol).flags.contains(SymbolFlags::ALIAS)
+                        })
+                }
+                // IsAliasSymbolDeclaration accepts only CommonJS assignment
+                // kinds with an alias-like RHS. A merged ALIAS flag alone
+                // cannot admit later ordinary writes as new alias targets.
+                SyntaxKind::BinaryExpression => {
+                    self.in_js_file(declaration)
+                        && matches!(self.node_map.get(declaration),
+                            Some(Node::BinaryExpression(binary))
+                                if binary.operator_token.is_some_and(|token| token.kind == SyntaxKind::EqualsToken)
+                                    && (self.is_commonjs_export_property_assignment(binary)
+                                        || binary.left.is_some_and(crate::assignment_declarations::is_module_exports_access)
+                                            && !matches!(binary.right, Some(Expression::Identifier(name)) if name.text == "exports")))
+                        && matches!(self.node_map.get(declaration),
+                            Some(Node::BinaryExpression(binary)) if binary.right.is_some_and(|mut expression| {
+                                if matches!(expression, Expression::ClassExpression(_)) {
+                                    return true;
+                                }
+                                while let Expression::PropertyAccessExpression(access) = expression {
+                                    if !matches!(access.name, Some(tsr_ast::MemberName::Identifier(_))) {
+                                        return false;
+                                    }
+                                    let Some(receiver) = access.expression else { return false };
+                                    expression = receiver;
+                                }
+                                matches!(expression, Expression::Identifier(_))
+                            }))
+                }
                 // `KindExportAssignment` needs `ExpressionIsAlias`
                 // (`ast/utilities.go:2631`); the shape this port resolves is an
                 // identifier, and testing it here rather than answering by kind
@@ -2152,19 +2305,20 @@ impl<'a> Checker<'a, '_> {
         location: NodeId,
         module_specifier: NodeId,
     ) -> Option<SymbolId> {
-        let Node::StringLiteral(literal) = self.node_map.get(module_specifier)? else {
-            // `resolveExternalModuleNameWorker` returns `nil` for anything that
-            // is not a string literal (`checker.go:15123`).
-            return None;
+        let text = match self.node_map.get(module_specifier)? {
+            Node::StringLiteral(literal) => literal.text,
+            Node::NoSubstitutionTemplateLiteral(literal) => literal.text,
+            // resolveExternalModuleNameWorker accepts StringLiteralLike.
+            _ => return None,
         };
         // `tryFindAmbientModule` (`checker.go:15533`), consulted **before** the
         // host exactly as `resolveExternalModule` (`checker.go:15154`) does: a
         // non-relative specifier may name a `declare module "x"`.
-        if let Some(ambient) = self.ambient_module(literal.text) {
+        if let Some(ambient) = self.ambient_module(text) {
             return Some(ambient);
         }
         let importing_file = self.source_file_of(location)?;
-        let target = self.module_host?.resolved_module(importing_file, literal.text)?;
+        let target = self.module_host?.resolved_module(importing_file, text)?;
         // `sourceFile.Symbol != nil` (`checker.go:15321`). `None` here is a file
         // that is not an external module — upstream's `File_0_is_not_a_module` —
         // and it is the reason the host answers a *file* rather than a symbol:
@@ -2448,114 +2602,55 @@ impl<'a> Checker<'a, '_> {
         self.declared_types.get(&symbol).copied().unwrap_or(enum_type)
     }
 
-    /// `getTypeFromObjectBindingPattern` (`checker.go:17904`): the implied type
-    /// of an object binding pattern with no annotation. §895 made it a method so
-    /// a NESTED pattern can use it on itself, which is what upstream's
-    /// `getTypeFromBindingElement` does for a pattern-named element.
-    ///
-    /// `None` where this port cannot key a member or cannot type an element —
-    /// the caller then keeps §429's decline rather than minting a partial type.
-    ///
-    /// The per-element rules are §893's and §894's: a DEFAULT makes the member
-    /// optional and supplies its type (read syntactically — see §893.1 on the
-    /// stack overflow that forced it); a RENAMED element is keyed by its
-    /// property name while the local identifier stays the binding.
-    fn object_pattern_implied_type(
-        &mut self,
-        pattern: &tsr_ast::BindingPattern<'_>,
-    ) -> Option<crate::types::TypeId> {
-        let any = self.intrinsics.any;
-        let mut members: Vec<crate::objects::Member> = Vec::new();
-        let mut names: Vec<(String, crate::types::TypeId)> = Vec::new();
-        for element in pattern.elements {
-            if element.dot_dot_dot_token.is_some() {
-                return None;
-            }
-            let member_name = match element.property_name {
-                Some(tsr_ast::PropertyName::Identifier(name)) => Some(name.text),
-                Some(tsr_ast::PropertyName::StringLiteral(name)) => Some(name.text),
-                Some(_) => return None,
-                None => None,
-            };
-            let (member_name, member_type) = match element.name {
-                Some(tsr_ast::BindingName::Identifier(local)) => {
-                    let ty = match element.initializer {
-                        Some(tsr_ast::Expression::StringLiteral(_)) => self.intrinsics.string,
-                        Some(tsr_ast::Expression::NumericLiteral(_)) => self.intrinsics.number,
-                        Some(tsr_ast::Expression::KeywordExpression(keyword))
-                            if matches!(
-                                keyword.kind,
-                                SyntaxKind::TrueKeyword | SyntaxKind::FalseKeyword
-                            ) =>
-                        {
-                            self.intrinsics.boolean
-                        }
-                        _ => any,
-                    };
-                    (member_name.unwrap_or(local.text).to_string(), ty)
-                }
-                // §895: a NESTED pattern's member type is that pattern's own
-                // implied type. Object patterns only — an array pattern's
-                // implied type is a tuple whose element types this arm does not
-                // compute (§893's scope), so it declines rather than minting
-                // `any` positions.
-                Some(tsr_ast::BindingName::BindingPattern(inner)) => {
-                    let name = member_name?;
-                    if inner.node_id.map(|p| self.nodes.kind(p))
-                        != Some(SyntaxKind::ObjectBindingPattern)
-                    {
-                        return None;
-                    }
-                    let ty = self.object_pattern_implied_type(inner)?;
-                    (name.to_string(), ty)
-                }
-                None => return None,
-            };
-            names.push((member_name.clone(), member_type));
-            let printed = self.type_to_string(member_type);
-            members.push(crate::objects::Member::Property {
-                name: member_name,
-                optional: element.initializer.is_some(),
-                readonly: false,
-                printed,
-            });
-        }
-        let printed = crate::objects::render_object_type(&members);
-        let minted = self.store.new_named(TypeFlags::OBJECT, printed, None);
-        // §565: the members exist only in the printed text — the mint carries no
-        // symbol, so record them for the destructuring lookup. See
-        // `Checker::pattern_implied_members`.
-        self.pattern_implied_members.insert(minted, names);
-        Some(minted)
-    }
-
     /// The type of a function, method, class, enum or value-module symbol.
     ///
     /// Ported from `Checker.getTypeOfFuncClassEnumModule` (`checker.go:16904`),
     /// sharing the memo upstream shares — `valueSymbolLinks.resolvedType`, which
     /// is [`Checker::symbol_types`] here.
     ///
-    /// # A resolution frame upstream does not need here
-    ///
-    /// Upstream's worker creates an *empty* anonymous object type and resolves
-    /// its signatures only when something asks; the recursion guard lives in
-    /// `getReturnTypeOfSignature` (`checker.go:20004`) instead. This port
-    /// computes a named type's printed form once, at creation
-    /// ([`crate::types::TypeData::Named`]), so building the type *is* resolving
-    /// the signature and the guard has to be here. The frame is a consequence of
-    /// that divergence rather than an invention: without it, eagerly printing a
-    /// signature that reached its own symbol would not return.
+    /// Native 5b1047d1 publishes the callable object independently of its lazy
+    /// return slots. Reserve the same declaration-owned identity before asking
+    /// for signatures: returning the function is not circular return inference.
+    /// The existing worker still prepares metadata/text eagerly; only its
+    /// successful completion publishes `signature_types` on the reserved identity.
+    /// Symbol-owned reuse and options have the private Checker lifetime. The
+    /// return-body work/circularity boundary lives in `return_type_of` instead.
     fn get_type_of_func_class_enum_module(&mut self, symbol: SymbolId) -> TypeId {
         if let Some(&cached) = self.symbol_types.get(&symbol) {
             return cached;
         }
+        let flags = self.binder.symbols().get(symbol).flags;
+        if flags.intersects(SymbolFlags::FUNCTION | SymbolFlags::METHOD)
+            && !flags.intersects(SymbolFlags::CLASS | SymbolFlags::ENUM | SymbolFlags::MODULE)
+        {
+            let reserved = self.store.new_anonymous(TypeFlags::OBJECT, "any".into(), symbol, true);
+            self.symbol_types.insert(symbol, reserved);
+            let computed = self.get_type_of_func_class_enum_module_worker(symbol, Some(reserved));
+            self.symbol_types.insert(symbol, computed);
+            return computed;
+        }
         if !self.resolutions.push(symbol, PropertyName::Type) {
             return self.intrinsics.error;
         }
-        let computed = self.get_type_of_func_class_enum_module_worker(symbol);
+        let computed = self.get_type_of_func_class_enum_module_worker(symbol, None);
         let computed = if self.resolutions.pop() { computed } else { self.intrinsics.error };
         self.symbol_types.insert(symbol, computed);
         computed
+    }
+
+    /// Completed declaration metadata only. Native typeof admission, assignment
+    /// naming and value accessibility are decisions of the site renderer.
+    pub(crate) fn completed_callable_symbol(&self, ty: TypeId) -> Option<SymbolId> {
+        self.signature_types.get(&ty)?;
+        let crate::types::TypeData::Anonymous { symbol, .. } = self.store.get(ty).data else {
+            return None;
+        };
+        self.binder
+            .symbols()
+            .get(symbol)
+            .flags
+            .intersects(SymbolFlags::FUNCTION | SymbolFlags::METHOD)
+            .then_some(symbol)
     }
 
     /// Ported from `Checker.getTypeOfFuncClassEnumModuleWorker`
@@ -2601,7 +2696,11 @@ impl<'a> Checker<'a, '_> {
     ///   refusal for many sessions with the note *"only the excuse expired"*; the
     ///   arm it described is written, and the limitation is retired rather than
     ///   deleted so the list still reads as a history.
-    fn get_type_of_func_class_enum_module_worker(&mut self, symbol: SymbolId) -> TypeId {
+    fn get_type_of_func_class_enum_module_worker(
+        &mut self,
+        symbol: SymbolId,
+        reserved: Option<TypeId>,
+    ) -> TypeId {
         let flags = self.binder.symbols().get(symbol).flags;
         // `isShorthandAmbientModuleSymbol` (`utilities.go:198`): `declare module
         // "x";` with no body has the type `any`. A computed answer, so `anyType`.
@@ -2726,7 +2825,7 @@ impl<'a> Checker<'a, '_> {
         let signatures = if let Some(merged) = late_bound_overloads {
             merged
         } else {
-            let Some(signatures) = self.get_signatures_of_symbol(symbol) else {
+            let Some(signatures) = self.get_signatures_of_symbol_for_type(symbol) else {
                 return self.intrinsics.error;
             };
             signatures
@@ -2806,7 +2905,13 @@ impl<'a> Checker<'a, '_> {
                 crate::objects::render_object_type(&members)
             }
         };
-        let built = self.store.new_anonymous(TypeFlags::OBJECT, printed, symbol, signature_node);
+        let resolved = self.store.new_anonymous(TypeFlags::OBJECT, printed, symbol, signature_node);
+        let built = if let Some(reserved) = reserved {
+            self.store.complete_object(reserved, resolved);
+            reserved
+        } else {
+            resolved
+        };
         // The structure `printed` was rendered from, kept reachable from the id
         // for `instantiate_type` — see `Checker::signature_types`
         // (`bd tsr-0hc`). Both arms are recorded; the single/many distinction
@@ -2815,6 +2920,7 @@ impl<'a> Checker<'a, '_> {
             self.anonymous_properties.insert(built, (export_properties, false));
         }
         self.signature_types.insert(built, signatures);
+        debug_assert_eq!(self.completed_callable_symbol(built), Some(symbol));
         // `checker.go:16930`: an OPTIONAL method carries `| undefined`.
         //
         // ```go
@@ -3716,10 +3822,36 @@ impl<'a> Checker<'a, '_> {
         }
         if self.resolutions.on_stack(symbol, PropertyName::Type)
             && let Some(declaration) = self.binder.symbols().get(symbol).value_declaration
-            && let Some(TypeNode::TypeLiteralNode(node)) = self.type_annotation_of(declaration)
-            && let Some(ty) = node.node_id.and_then(|id| self.cached_type_literal(id))
         {
-            return self.add_optionality_for_declaration(ty, declaration);
+            let annotation = self.type_annotation_of(declaration);
+            if let Some(annotation) = annotation
+                && matches!(
+                    annotation,
+                    TypeNode::TypeLiteralNode(_)
+                        | TypeNode::FunctionTypeNode(_)
+                        | TypeNode::ConstructorTypeNode(_)
+                )
+                && let Some(ty) =
+                    Node::from(annotation).node_id().and_then(|id| self.cached_type_literal(id))
+            {
+                return self.add_optionality_for_declaration(ty, declaration);
+            }
+            // Native obtains an unannotated variable's callable initializer
+            // identity before resolving that callable's lazy returns. Only a
+            // direct function initializer supplies that fact; a call result or
+            // arbitrary expression still participates in symbol circularity.
+            if annotation.is_none()
+                && let Some(initializer) = self.initializer_of(declaration)
+                && matches!(
+                    initializer,
+                    Expression::ArrowFunction(_) | Expression::FunctionExpression(_)
+                )
+                && let Some(function) =
+                    initializer.node_id().and_then(|id| self.binder.symbol_of(id))
+                && let Some(&ty) = self.symbol_types.get(&function)
+            {
+                return self.add_optionality_for_declaration(ty, declaration);
+            }
         }
         let computed = self.get_type_of_variable_or_parameter_or_property_worker(symbol);
         self.symbol_types.insert(symbol, computed);
@@ -3735,6 +3867,22 @@ impl<'a> Checker<'a, '_> {
         let Some(declaration) = self.binder.symbols().get(symbol).value_declaration else {
             return self.intrinsics.error;
         };
+        // Native 5b1047d1 getTypeOfVariableOrParameterOrPropertyWorker:
+        // CommonJS `exports` denotes the source file's resolved export value;
+        // `module` is an anonymous object whose own members contain `exports`.
+        // The symbol cache owns completion. Constructing the wrapper does not
+        // force its exports, so recursive module values still use the existing
+        // value/alias resolution stack rather than publishing an active result.
+        if self.binder.symbols().get(symbol).flags.contains(SymbolFlags::MODULE_EXPORTS) {
+            if self.binder.symbols().get(symbol).name == "exports" {
+                let Some(module) = self.binder.symbol_of(declaration) else {
+                    return self.intrinsics.error;
+                };
+                let target = self.resolve_external_module_symbol(module);
+                return self.get_type_of_symbol(target);
+            }
+            return self.store.new_anonymous(TypeFlags::OBJECT, "{}".to_owned(), symbol, false);
+        }
         // §14 (`checker-notes-narrow.md`): upstream finalizes an evolving
         // array (`const data = []`) by walking every mutation in the
         // container; past 2,000 the depth cap trips and TS2563 disables flow
@@ -3828,14 +3976,12 @@ impl<'a> Checker<'a, '_> {
                     self.intrinsics.error
                 } else {
                     match self.node_map.get(declaration) {
-                        // `export =` keeps its own roads (§219's territory);
-                        // only the DEFAULT form types here — and a JSDoc CAST
+                        // Native's property-valued ExportAssignment arm also
+                        // handles non-alias `export =` expressions. A JSDoc CAST
                         // on the expression itself is the same §158 wall as a
                         // tag on the statement (`export default
                         // /** @type {..} */([])`, exportDefaultWithJSDoc2).
-                        Some(Node::ExportAssignment(assignment))
-                            if !assignment.is_export_equals =>
-                        {
+                        Some(Node::ExportAssignment(assignment)) => {
                             match assignment.expression {
                                 Some(expression)
                                     if expression.node_id().is_none_or(|id| {
@@ -3843,7 +3989,23 @@ impl<'a> Checker<'a, '_> {
                                     }) =>
                                 {
                                     let checked = self.check_expression(expression);
-                                    self.get_regular_type_of_literal_type(checked)
+                                    // Native widenTypeForVariableLikeDeclaration
+                                    // (checker.go:18254) widens a foreign unique
+                                    // symbol. is_valid_es_symbol_declaration admits
+                                    // only const/readonly producers, never an
+                                    // ExportAssignment, so this unannotated,
+                                    // non-alias export= cannot own checked's unique.
+                                    if assignment.is_export_equals
+                                        && self
+                                            .store
+                                            .get(checked)
+                                            .flags
+                                            .intersects(TypeFlags::UNIQUE_ES_SYMBOL)
+                                    {
+                                        self.intrinsics.es_symbol
+                                    } else {
+                                        self.get_regular_type_of_literal_type(checked)
+                                    }
                                 }
                                 _ => self.intrinsics.error,
                             }
@@ -4168,8 +4330,8 @@ impl<'a> Checker<'a, '_> {
                 // implied type (`getTypeFromBindingPattern`,
                 // checker.go:17904) — `function fun([a, b]) {}` prints
                 // `([a, b]: [any, any]) => void` (`iterableArrayPattern10`).
-                // Plain identifier elements only; defaults, rests and nested
-                // patterns keep the implicit any.
+                // The canonical builder owns bounded defaults, rests and
+                // nested patterns; annotation/context admission stays here.
                 if let Some(Node::ParameterDeclaration(parameter)) =
                     self.node_map.get(declaration)
                     && parameter.r#type.is_none()
@@ -4207,133 +4369,13 @@ impl<'a> Checker<'a, '_> {
                         _ => false,
                     })
                     && let Some(tsr_ast::BindingName::BindingPattern(pattern)) = parameter.name
-                    && {
-                        // §893: an element with a DEFAULT is admitted for an
-                        // OBJECT pattern, where upstream makes it an optional
-                        // member (`checker.go:17938`) typed from the
-                        // initializer. An ARRAY pattern's defaulted element has
-                        // its own upstream answer — the element type comes from
-                        // the initializer, not `any` — and the tuple branch
-                        // below fills `any` for every position, so admitting it
-                        // there would mint a confident wrong tuple.
-                        let object_pattern = pattern.node_id.is_some_and(|p| {
-                            self.nodes.kind(p) == SyntaxKind::ObjectBindingPattern
-                        });
-                        pattern.elements.iter().all(|element| {
-                            element.dot_dot_dot_token.is_none()
-                                && (object_pattern || element.initializer.is_none())
-                                // §894: a RENAMED element (`{ primary: p }`) is
-                                // admitted for an object pattern. The member's
-                                // name is the PROPERTY name and the binding's is
-                                // the local one, which is the whole reason §429
-                                // excluded them — it read `element.name` for
-                                // both. Only the names this port can key a
-                                // member by are admitted, matching
-                                // `hasBindableName`'s reduction elsewhere.
-                                && (element.property_name.is_none()
-                                    || (object_pattern
-                                        && matches!(
-                                            element.property_name,
-                                            Some(
-                                                tsr_ast::PropertyName::Identifier(_)
-                                                    | tsr_ast::PropertyName::StringLiteral(_)
-                                            )
-                                        )))
-                                // §895: a NESTED pattern is admitted for an
-                                // object pattern; the builder recurses and
-                                // declines on its own if the inner pattern is
-                                // one it cannot type. The gate no longer has to
-                                // decide that, which is why it can stop asking.
-                                && (object_pattern
-                                    || matches!(
-                                        element.name,
-                                        Some(tsr_ast::BindingName::Identifier(_))
-                                    ))
-                        })
-                    }
-                // §455: the EMPTY pattern is served too —
-                // `getTypeFromBindingPattern`'s implied type of `{}` is the
-                // empty object literal and of `[]` the empty tuple
-                // (`function f(a, {}) {}` prints `{}: {}`,
-                // `parserErrorRecovery_ParameterList1/2`). The earlier
-                // non-empty guard predates the empty-tuple mint (§371) and
-                // excluded them for no upstream reason.
                 {
-                    let any = self.intrinsics.any;
-                    let is_array = pattern
-                        .node_id
-                        .is_some_and(|p| self.nodes.kind(p) == SyntaxKind::ArrayBindingPattern);
-                    if is_array {
-                        // §541: an **empty** array pattern is NOT the empty
-                        // tuple. `getTypeFromArrayBindingPattern`
-                        // (`checker.go:17964-17969`) short-circuits before it
-                        // builds any tuple:
-                        //
-                        // ```go
-                        // if len(elements) == 0 || len(elements) == 1 && restElement != nil {
-                        //     if c.languageVersion >= core.ScriptTargetES2015 {
-                        //         return c.createIterableType(c.anyType)
-                        //     }
-                        //     return c.anyArrayType
-                        // }
-                        // ```
-                        //
-                        // `createIterableType(anyType)` is the global
-                        // `Iterable` over `[any, void, undefined]`, which is
-                        // what `emptyArrayBindingPatternParameter01-03`
-                        // record: `function f([]) {}` prints
-                        // `([]: Iterable<any, void, undefined>) => void`.
-                        //
-                        // §455 added the empty pattern to this arm and read
-                        // BOTH halves off the OBJECT rule — `{}` really is the
-                        // empty object literal — but the array half has its own
-                        // upstream answer and never was the empty tuple.
-                        //
-                        // The rest-only shape (`len == 1 && restElement`) takes
-                        // the same exit upstream; it cannot arrive here,
-                        // because the guard above requires every element to
-                        // have no `...` token. Stated rather than handled, so
-                        // that relaxing the guard does not silently mint a
-                        // one-element tuple for `function f([...r])`.
-                        //
-                        // The pre-ES2015 `anyArrayType` half is NOT ported:
-                        // the corpus's cases are all ES2015+, and answering
-                        // `any[]` for a target this port does not track would
-                        // be a guess. A missing global `Iterable` keeps the
-                        // decline for the same reason.
-                        // A missing global `Iterable` keeps §455's empty tuple
-                        // rather than gapping: the lib may simply not be
-                        // mounted (pre-ES2015 target), and upstream's own
-                        // answer there is `anyArrayType`, so a decline must not
-                        // be WORSE than what this arm already produced.
-                        if pattern.elements.is_empty()
-                            // Arity **3**, not `global_type_symbol`'s default 1:
-                            // the modern lib declares
-                            // `Iterable<T, TReturn = void, TNext = undefined>`,
-                            // and `getGlobalType`'s arity check is what makes
-                            // the lookup answer the right declaration. At arity
-                            // 1 this returned `None` on every case and the arm
-                            // measured a clean zero.
-                            && let Some(iterable) =
-                                self.global_type_symbol_with_arity("Iterable", 3)
-                        {
-                            let (void, undefined) =
-                                (self.intrinsics.void, self.intrinsics.undefined);
-                            return self
-                                .create_type_reference(iterable, vec![any, void, undefined]);
-                        }
-                        let elements = vec![any; pattern.elements.len()];
-                        return self.create_tuple_type(elements, false);
-                    }
-                    // §895: the builder is a method so a NESTED pattern can
-                    // use it on itself. `getTypeFromBindingElement`
-                    // (`checker.go:17950`) recurses into
-                    // `getTypeFromBindingPattern` for a pattern-named element,
-                    // and this port could not, because the builder lived inline
-                    // in this function keyed off a `ParameterDeclaration`.
-                    if let Some(minted) = self.object_pattern_implied_type(pattern) {
-                        return minted;
-                    }
+                    // Admission above is unchanged. The builder owns default,
+                    // nested, rest and literal-key support; unsupported work is
+                    // not the computed absence that justifies implicit any.
+                    return self
+                        .binding_pattern_implied_type(pattern)
+                        .unwrap_or(self.intrinsics.error);
                 }
                 if let Some(Node::ParameterDeclaration(parameter)) =
                     self.node_map.get(declaration)
@@ -5833,6 +5875,66 @@ mod tests {
     use crate::types::{TypeData, TypeId};
     use tsr_ast::{Node, NodeId};
 
+    #[test]
+    fn commonjs_unknown_alias_requires_completed_any_receiver() {
+        use crate::resolution::PropertyName;
+        use tsr_ast::{Expression, NodeFlags};
+        use tsr_binder::SymbolFlags;
+
+        let source = "var receiver; exports.item = receiver.field;
+                      exports.missing = notDeclared.field;
+                      exports.cycle = exports.cycle;";
+        let arena = tsr_core::Arena::new();
+        let mut parsed = tsr_parser::parse(&arena, source);
+        let root = parsed.source_file.node_id.unwrap();
+        parsed.nodes.add_flags(root, NodeFlags::JAVASCRIPT_FILE);
+        let bound = tsr_binder::bind(
+            &arena,
+            parsed.source_file,
+            &parsed.nodes,
+            tsr_binder::FileInfo { name: "control.js", text: source },
+        );
+        let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+        let module = bound.symbol_of(root).unwrap();
+        let exports = &bound.symbols().get(module).exports;
+        let item = exports["item"];
+        let declaration = checker.declaration_of_alias_symbol(item).unwrap();
+        let Some(Node::BinaryExpression(binary)) = parsed.node_map.get(declaration) else {
+            panic!("assignment declaration");
+        };
+        let Some(Expression::PropertyAccessExpression(rhs)) = binary.right else {
+            panic!("property RHS");
+        };
+        let receiver = rhs.expression.unwrap().node_id().unwrap();
+        let owner = bound
+            .resolve_name(&parsed.nodes, &parsed.node_map, receiver, "receiver", SymbolFlags::VALUE)
+            .unwrap();
+        let computations = checker.computations;
+        assert!(!checker.commonjs_property_alias_has_unknown_target(item), "cold/missing cache");
+        for ty in [checker.intrinsics.error, checker.intrinsics.empty_object] {
+            checker.node_types.insert(receiver, ty);
+            assert!(
+                !checker.commonjs_property_alias_has_unknown_target(item),
+                "error/typed receiver"
+            );
+        }
+        checker.node_types.insert(receiver, checker.intrinsics.any);
+        assert!(checker.commonjs_property_alias_has_unknown_target(item));
+        assert!(checker.resolutions.push(owner, PropertyName::Type));
+        assert!(!checker.commonjs_property_alias_has_unknown_target(item), "active owner");
+        assert!(!checker.resolutions.push(owner, PropertyName::Type));
+        assert!(!checker.commonjs_property_alias_has_unknown_target(item), "failed cycle");
+        assert!(!checker.resolutions.pop());
+        checker.flow_loop_stack.push(((0, 0, checker.intrinsics.any), Vec::new()));
+        assert!(!checker.commonjs_property_alias_has_unknown_target(item), "provisional fixpoint");
+        checker.flow_loop_stack.pop();
+        assert!(checker.commonjs_property_alias_has_unknown_target(item));
+        assert!(!checker.commonjs_property_alias_has_unknown_target(exports["missing"]));
+        assert!(!checker.commonjs_property_alias_has_unknown_target(exports["cycle"]));
+        assert_eq!(checker.computations, computations, "completion probe is read-only");
+        assert_eq!(checker.resolutions.depth(), 0);
+    }
+
     fn with_context(
         context: &str,
         strict: bool,
@@ -5972,6 +6074,7 @@ mod tests {
                                         accessor_write: None,
                                         method: false,
                                         origin: None,
+                                        checked_declaration: None,
                                         name: "x".into(),
                                         printed_name: "x".into(),
                                         printed_type: "V".into(),

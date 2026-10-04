@@ -1,0 +1,21 @@
+/use.ts(6,5): error TS2540: Cannot assign to 'readonly' because it is a read-only property.
+
+
+==== /use.ts (1 errors) ====
+    import mod = require("./mod");
+    mod.value;
+    mod.readonly;
+    mod.setonly;
+    mod.value = 2;
+    mod.readonly = "write";
+        ~~~~~~~~
+!!! error TS2540: Cannot assign to 'readonly' because it is a read-only property.
+    mod.setonly = false;
+    
+==== /mod.js (0 errors) ====
+    Object.defineProperty(exports, "value", { value: 42, writable: true });
+    Object.defineProperty(module.exports, "readonly", { get() { return "read"; } });
+    Object.defineProperty(exports, "setonly", {
+        /** @param {boolean} v */
+        set(v) {}
+    });

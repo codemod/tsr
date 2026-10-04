@@ -1,0 +1,84 @@
+//// [tests/cases/compiler/assignmentCommonJsDescriptors.ts] ////
+
+=== /use.ts ===
+import mod = require("./mod");
+>mod : typeof mod
+
+mod.value;
+>mod.value : number
+>mod : typeof mod
+>value : number
+
+mod.readonly;
+>mod.readonly : string
+>mod : typeof mod
+>readonly : string
+
+mod.setonly;
+>mod.setonly : boolean
+>mod : typeof mod
+>setonly : boolean
+
+mod.value = 2;
+>mod.value = 2 : 2
+>mod.value : number
+>mod : typeof mod
+>value : number
+>2 : 2
+
+mod.readonly = "write";
+>mod.readonly = "write" : "write"
+>mod.readonly : any
+>mod : typeof mod
+>readonly : any
+>"write" : "write"
+
+mod.setonly = false;
+>mod.setonly = false : false
+>mod.setonly : boolean
+>mod : typeof mod
+>setonly : boolean
+>false : false
+
+=== /mod.js ===
+Object.defineProperty(exports, "value", { value: 42, writable: true });
+>Object.defineProperty(exports, "value", { value: 42, writable: true }) : typeof import("./mod")
+>Object.defineProperty : <T>(o: T, p: PropertyKey, attributes: PropertyDescriptor & ThisType<any>) => T
+>Object : ObjectConstructor
+>defineProperty : <T>(o: T, p: PropertyKey, attributes: PropertyDescriptor & ThisType<any>) => T
+>exports : typeof import("./mod")
+>"value" : "value"
+>{ value: 42, writable: true } : { value: number; writable: true; }
+>value : number
+>42 : 42
+>writable : true
+>true : true
+
+Object.defineProperty(module.exports, "readonly", { get() { return "read"; } });
+>Object.defineProperty(module.exports, "readonly", { get() { return "read"; } }) : typeof import("./mod")
+>Object.defineProperty : <T>(o: T, p: PropertyKey, attributes: PropertyDescriptor & ThisType<any>) => T
+>Object : ObjectConstructor
+>defineProperty : <T>(o: T, p: PropertyKey, attributes: PropertyDescriptor & ThisType<any>) => T
+>module.exports : typeof import("./mod")
+>module : { exports: typeof import("./mod"); }
+>exports : typeof import("./mod")
+>"readonly" : "readonly"
+>{ get() { return "read"; } } : { get(): string; }
+>get : () => string
+>"read" : "read"
+
+Object.defineProperty(exports, "setonly", {
+>Object.defineProperty(exports, "setonly", {    /** @param {boolean} v */    set(v) {}}) : typeof import("./mod")
+>Object.defineProperty : <T>(o: T, p: PropertyKey, attributes: PropertyDescriptor & ThisType<any>) => T
+>Object : ObjectConstructor
+>defineProperty : <T>(o: T, p: PropertyKey, attributes: PropertyDescriptor & ThisType<any>) => T
+>exports : typeof import("./mod")
+>"setonly" : "setonly"
+>{    /** @param {boolean} v */    set(v) {}} : { set(v: boolean): void; }
+
+    /** @param {boolean} v */
+    set(v) {}
+>set : (v: boolean) => void
+>v : boolean
+
+});

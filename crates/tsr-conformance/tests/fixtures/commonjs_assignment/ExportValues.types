@@ -1,0 +1,94 @@
+//// [tests/cases/compiler/assignmentCommonJsExportValues.ts] ////
+
+=== /use.ts ===
+import literal = require("./literal");
+>literal : 13
+
+import object = require("./object");
+>object : { value: string; run: () => string; }
+
+import fn = require("./function");
+>fn : () => number
+
+import parenthesized = require("./parenthesized");
+>parenthesized : () => boolean
+
+import symbol = require("./symbol");
+>symbol : symbol
+
+import alias = require("./symbolAlias");
+>alias : unique symbol
+
+literal;
+>literal : 13
+
+object.value;
+>object.value : string
+>object : { value: string; run: () => string; }
+>value : string
+
+object.run();
+>object.run() : string
+>object.run : () => string
+>object : { value: string; run: () => string; }
+>run : () => string
+
+fn();
+>fn() : number
+>fn : () => number
+
+parenthesized();
+>parenthesized() : boolean
+>parenthesized : () => boolean
+
+symbol;
+>symbol : symbol
+
+alias;
+>alias : unique symbol
+
+=== /literal.ts ===
+export = (13);
+>(13) : 13
+>13 : 13
+
+=== /object.ts ===
+export = ({ value: "fresh", run: function() { return "done"; } });
+>({ value: "fresh", run: function() { return "done"; } }) : { value: string; run: () => string; }
+>{ value: "fresh", run: function() { return "done"; } } : { value: string; run: () => string; }
+>value : string
+>"fresh" : "fresh"
+>run : () => string
+>function() { return "done"; } : () => string
+>"done" : "done"
+
+=== /function.ts ===
+export = function() { return 1; };
+>function() { return 1; } : () => number
+>1 : 1
+
+=== /parenthesized.ts ===
+export = (function() { return true; });
+>(function() { return true; }) : () => boolean
+>function() { return true; } : () => boolean
+>true : true
+
+=== /symbol.ts ===
+const original = Symbol();
+>original : unique symbol
+>Symbol() : unique symbol
+>Symbol : SymbolConstructor
+
+export = (original);
+>(original) : unique symbol
+>original : unique symbol
+
+=== /symbolAlias.ts ===
+const original = Symbol();
+>original : unique symbol
+>Symbol() : unique symbol
+>Symbol : SymbolConstructor
+
+export = original;
+>original : unique symbol
+

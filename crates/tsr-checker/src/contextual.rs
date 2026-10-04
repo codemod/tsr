@@ -858,13 +858,20 @@ impl<'a> Checker<'a, '_> {
         Some(field)
     }
 
-    fn contextual_call_signature(
+    pub(crate) fn contextual_call_signature(
         &mut self,
         contextual: TypeId,
         function: Option<NodeId>,
     ) -> Option<ContextualSignature> {
         if contextual == self.intrinsics.error {
             return None;
+        }
+        // Native canonical empty-object identities have resolved empty call
+        // sets; unlike an unsupported object getter this is a computed nil.
+        if contextual == self.intrinsics.empty_object
+            || contextual == self.intrinsics.unknown_empty_object
+        {
+            return Some(ContextualSignature::Absent);
         }
         if self.store.get(contextual).flags.intersects(
             crate::flags::TypeFlags::PRIMITIVE
@@ -2025,7 +2032,7 @@ impl<'a> Checker<'a, '_> {
 
     /// The rest-argument context used by `getSpreadArgumentType`, alongside
     /// ordinary `getTypeAtPosition` parameters (internal/checker/checker.go).
-    fn contextual_argument_type(
+    pub(crate) fn contextual_argument_type(
         &mut self,
         signature: &Signature,
         index: usize,

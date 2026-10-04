@@ -330,10 +330,9 @@ fn a_generic_object_rest_that_omits_nothing_is_the_source() {
 /// comment says *"defaults, rests and nested patterns keep the implicit any"* —
 /// so a pattern holding any default declined whole.
 ///
-/// The initializer is read **syntactically**. Calling `check_expression` on it
-/// overflows the stack: a defaulted parameter's initializer is checked with the
-/// parameter's own contextual type, which is the implied type being computed.
-/// Upstream is re-entrant there and this port is not.
+/// The bounded implied-type builder checks context-independent initializers
+/// through the existing semantic supplier. Defaults needing an explicit context
+/// still decline; they must not recurse through the implied type being built.
 ///
 /// Corpus effect: `+14 W→R`, `+5 G→R` against `6 G→W`, **zero `RIGHT→`** — the
 /// safety leg exactly as the bar predicted, since the change only admits
@@ -354,12 +353,11 @@ fn a_defaulted_element_widens_its_literal() {
     assert_eq!(type_of_binding("function f({ n = 1, t = true }) { }", "t"), "boolean");
 }
 
-/// An ARRAY pattern's defaulted element stays refused. Its upstream answer is
-/// the element type from the initializer, and the tuple branch fills `any` for
-/// every position, so admitting it there would mint a confident wrong tuple.
+/// An ARRAY pattern's defaulted element now consumes its own initializer,
+/// rather than an approximation that fills every tuple position with `any`.
 #[test]
-fn a_defaulted_array_pattern_element_is_still_refused() {
-    assert_ne!(type_of_binding("function f([a = 1]) { }", "a"), "number");
+fn a_defaulted_array_pattern_element_takes_the_initializers_type() {
+    assert_eq!(type_of_binding("function f([a = 1]) { }", "a"), "number");
 }
 
 /// §894: a RENAMED element is admitted too. The member is named by the PROPERTY
@@ -387,12 +385,10 @@ fn a_nested_object_pattern_takes_its_own_implied_type() {
     assert_eq!(type_of_binding(source, "inner"), "string");
 }
 
-/// A nested ARRAY pattern still declines: its implied type is a tuple whose
-/// element types this arm does not compute, so minting `any` positions would be
-/// a confident wrong answer where the gap is honest.
+/// A nested ARRAY pattern uses the same implied-type builder recursively.
 #[test]
-fn a_nested_array_pattern_is_still_refused() {
-    assert_ne!(type_of_binding("function f({ outer: [a = 1] }) { }", "a"), "number");
+fn a_nested_array_pattern_takes_its_own_implied_type() {
+    assert_eq!(type_of_binding("function f({ outer: [a = 1] }) { }", "a"), "number");
 }
 
 /// §902: a CATCH CLAUSE's variable is `any` — `unknown` under

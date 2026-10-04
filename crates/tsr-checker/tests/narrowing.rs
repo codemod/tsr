@@ -22,6 +22,14 @@ fn type_of_last_expression(source: &str) -> String {
 }
 
 fn type_of_last_expression_in_file(source: &str, name: &str) -> String {
+    type_of_last_expression_with_null_checks(source, name, true)
+}
+
+fn type_of_last_expression_with_null_checks(
+    source: &str,
+    name: &str,
+    strict_null_checks: bool,
+) -> String {
     let arena = Arena::new();
     let mut parsed =
         tsr_parser::parse_with_options(&arena, source, tsr_parser::ParseOptions::for_file(name));
@@ -59,6 +67,7 @@ fn type_of_last_expression_in_file(source: &str, name: &str) -> String {
         ..Default::default()
     };
     checker.apply_compiler_options(&options);
+    checker.set_strict_null_checks(strict_null_checks);
 
     let last = last_expression_statement(parsed.source_file.statements)
         .expect("the fixture must end with an expression statement");
@@ -1577,4 +1586,161 @@ fn unknown_switch_defaults_and_ungrounded_cases_keep_unknown() {
     ] {
         assert_eq!(type_of_last_expression(source), "unknown", "{source}");
     }
+}
+
+#[test]
+fn named_union_equality_projects_members_and_surviving_alias_origins() {
+    // Pinned flow.go:555/filterType: aliases do not prevent equality
+    // narrowing. Keep a complete nested Word origin, but decompose a
+    // partially surviving Route. Unchanged reads keep their original alias.
+    let declarations = "type Word = 'east' | 'west'; type Route = Word | 13;";
+    for (body, expected) in [
+        ("if (value === 'west') { value; }", "\"west\""),
+        ("if (value === 'west') {} else { value; }", "\"east\" | 13"),
+        ("if (value !== 13) { value; }", "Word"),
+        ("if (value === 13) { value; }", "13"),
+        ("if (value === 'west') {} value;", "Route"),
+    ] {
+        assert_eq!(
+            type_of_last_expression(&format!(
+                "{declarations} function f(value: Route) {{ {body} }}"
+            )),
+            expected,
+            "{body}",
+        );
+    }
+    for operator in ["==", "==="] {
+        assert_eq!(
+            type_of_last_expression(&format!(
+                "type Wide = string | number; function f(value: Wide) {{
+                    if (value {operator} 13) {{ value; }}
+                 }}"
+            )),
+            "13",
+            "{operator}",
+        );
+    }
+    assert_eq!(
+        type_of_last_expression(
+            "type Wide = string | number; function f(value: Wide) {
+                if (value == 13) {} else { value; }
+             }"
+        ),
+        "Wide",
+    );
+}
+
+#[test]
+fn named_union_equality_keeps_branded_members_and_distinct_receivers() {
+    let declarations =
+        "type Right = 'right' & { readonly side: 'right' }; type Either = 'left' | Right;";
+    for (body, expected) in [
+        ("if (value === 'left') { value; }", "\"left\""),
+        ("if (value === 'left') {} else if (value === 'right') { value; }", "Right"),
+        ("if (value === 'left') {} else if (value === 'right') {} else { value; }", "never"),
+    ] {
+        assert_eq!(
+            type_of_last_expression(&format!(
+                "{declarations} function f(value: Either) {{ {body} }}"
+            )),
+            expected,
+            "{body}",
+        );
+    }
+    assert_eq!(
+        type_of_last_expression(
+            "type Fields = { kind: 'east' } | { kind: 'west' };
+             type Route = 'east' | 'west' | 13;
+             function f(value: Fields, other: Route) {
+                if (other === 'east') { value; }
+             }"
+        ),
+        "Fields",
+    );
+}
+
+#[test]
+fn typed_nullable_equality_operands_use_strict_and_loose_facts() {
+    // Pinned 5b1047d typedNullableEqualityWave47: flags of the computed
+    // comparand select nullable facts, even when its syntax is not a literal.
+    let declarations = "const nullValue: null = null; const undefinedValue: undefined = undefined;
+         type Empty = null; declare const aliasedNull: Empty;";
+    for (comparison, yes, no) in [
+        ("value === nullValue", "null", "number | undefined"),
+        ("nullValue !== value", "number | undefined", "null"),
+        ("value === aliasedNull", "null", "number | undefined"),
+        ("value === undefinedValue", "undefined", "number | null"),
+        ("undefinedValue !== value", "number | null", "undefined"),
+        ("value == nullValue", "null | undefined", "number"),
+        ("nullValue != value", "number", "null | undefined"),
+        ("value == undefinedValue", "null | undefined", "number"),
+    ] {
+        for (branch, expected) in [("{ value; }", yes), ("{} else { value; }", no)] {
+            let source = format!(
+                "{declarations} function f(value: number | null | undefined) {{
+                     if ({comparison}) {branch}
+                 }}"
+            );
+            assert_eq!(type_of_last_expression(&source), expected, "{comparison} {branch}");
+            assert_eq!(
+                type_of_last_expression_with_null_checks(&source, "test.ts", false),
+                "number",
+                "loose mode: {comparison} {branch}",
+            );
+        }
+    }
+    for (body, expected) in [
+        ("if (value.item === nullValue) { value.item; }", "null"),
+        ("if (undefinedValue !== value.item) { value.item; }", "number | null"),
+    ] {
+        assert_eq!(
+            type_of_last_expression(&format!(
+                "{declarations} function f(value: {{ item: number | null | undefined }}) {{
+                     {body}
+                 }}"
+            )),
+            expected,
+            "{body}",
+        );
+    }
+}
+
+#[test]
+fn nullable_unions_and_any_do_not_take_scalar_nullable_facts() {
+    for (comparison, yes) in [
+        ("value === nullOrUndefined", "null | undefined"),
+        ("value == nullOrUndefined", "null | undefined"),
+        ("value === nullOrNumber", "number | null"),
+    ] {
+        for (branch, expected) in
+            [("{ value; }", yes), ("{} else { value; }", "number | null | undefined")]
+        {
+            assert_eq!(
+                type_of_last_expression(&format!(
+                    "declare const nullOrUndefined: null | undefined;
+                     declare const nullOrNumber: null | number;
+                     function f(value: number | null | undefined) {{
+                         if ({comparison}) {branch}
+                     }}"
+                )),
+                expected,
+                "{comparison} {branch}",
+            );
+        }
+    }
+    assert_eq!(
+        type_of_last_expression(
+            "const nullValue: null = null;
+             function f(value: any) { if (value === nullValue) { value; } }"
+        ),
+        "any",
+    );
+    assert_eq!(
+        type_of_last_expression(
+            "function f(undefined: string, value: string | null) {
+                 if (value === undefined) { value; }
+             }"
+        ),
+        "string",
+    );
 }

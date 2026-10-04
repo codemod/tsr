@@ -61,6 +61,17 @@ pub(crate) struct AnonymousProperty {
     /// First declaration provenance used by getNamedMembers/compareSymbols.
     /// A merged optional spread keeps the left origin, independently of its type.
     pub(crate) origin: Option<SymbolId>,
+    /// Pinned tsgo 5b1047d10d32e7d5b446be4de56b126ff42f82bb,
+    /// `checkObjectLiteral` (checker.go:13225-13332): the assignment
+    /// actually checked for the surviving property, not its merged symbol's
+    /// first value declaration. Together with name/origin this is the producer's
+    /// display-slot key. Only the original property writer supplies it, in the
+    /// typed/display upsert; the completed image's `TypeId` owns publication.
+    /// Regular/widened clones retain it as member types transform. Synthetic
+    /// or reconstructed images leave it absent; it never enters an intern key.
+    /// This private Checker metadata certifies node-builder source reuse only;
+    /// recording/copying it forces no signature or member work.
+    pub(crate) checked_declaration: Option<tsr_ast::NodeId>,
     pub(crate) name: String,
     pub(crate) printed_name: String,
     pub(crate) printed_type: String,
@@ -349,6 +360,7 @@ impl Checker<'_, '_> {
                             self.binder.symbols().get(symbol).flags.contains(SymbolFlags::METHOD)
                         }),
                         origin: symbol,
+                        checked_declaration: None,
                         printed_name: name.clone(),
                         printed_type: self.type_to_string(ty),
                         name,
@@ -649,6 +661,80 @@ impl<'a> Checker<'a, '_> {
                 (self.nodes.kind(pattern.node_id?) == tsr_ast::SyntaxKind::ObjectBindingPattern)
                     .then_some(pattern)
             }
+            tsr_ast::Node::ParameterDeclaration(declaration) => {
+                if declaration.r#type.is_some()
+                    || declaration.initializer.and_then(|initializer| initializer.node_id())
+                        != Some(literal)
+                {
+                    return None;
+                }
+                let function = self.nodes.parent(parent)?;
+                if self.immediately_invoked_call(function).is_some()
+                    || !matches!(
+                        self.nodes.kind(function),
+                        tsr_ast::SyntaxKind::FunctionDeclaration
+                            | tsr_ast::SyntaxKind::MethodDeclaration
+                    ) && !self.has_no_contextual_type(function)
+                {
+                    return None;
+                }
+                let Some(tsr_ast::BindingName::BindingPattern(pattern)) = declaration.name else {
+                    return None;
+                };
+                let tsr_ast::Node::ObjectLiteralExpression(node) = self.node_map.get(literal)?
+                else {
+                    return None;
+                };
+                (self.nodes.kind(pattern.node_id?) == tsr_ast::SyntaxKind::ObjectBindingPattern
+                    && self.binding_default_pattern_context_available(
+                        pattern,
+                        tsr_ast::Expression::ObjectLiteralExpression(node),
+                    ))
+                .then_some(pattern)
+            }
+            tsr_ast::Node::BindingElement(element) => {
+                if element.initializer.and_then(|initializer| initializer.node_id())
+                    != Some(literal)
+                {
+                    return None;
+                }
+                // getContextualTypeForBindingElement (checker.go:29583)
+                // projects an annotation/initializer/contextual parent before
+                // the implied-pattern fallback. Certify only a parameter
+                // whose parent has none of those sources; never replace a
+                // present source's property type with the implied pattern.
+                let root = self.root_declaration_of(parent);
+                let tsr_ast::Node::ParameterDeclaration(declaration) = self.node_map.get(root)?
+                else {
+                    return None;
+                };
+                if declaration.r#type.is_some() || declaration.initializer.is_some() {
+                    return None;
+                }
+                let function = self.nodes.parent(root)?;
+                if self.immediately_invoked_call(function).is_some()
+                    || !matches!(
+                        self.nodes.kind(function),
+                        tsr_ast::SyntaxKind::FunctionDeclaration
+                            | tsr_ast::SyntaxKind::MethodDeclaration
+                    ) && !self.has_no_contextual_type(function)
+                {
+                    return None;
+                }
+                let Some(tsr_ast::BindingName::BindingPattern(pattern)) = element.name else {
+                    return None;
+                };
+                let tsr_ast::Node::ObjectLiteralExpression(node) = self.node_map.get(literal)?
+                else {
+                    return None;
+                };
+                (self.nodes.kind(pattern.node_id?) == tsr_ast::SyntaxKind::ObjectBindingPattern
+                    && self.binding_default_pattern_context_available(
+                        pattern,
+                        tsr_ast::Expression::ObjectLiteralExpression(node),
+                    ))
+                .then_some(pattern)
+            }
             tsr_ast::Node::PropertyAssignment(assignment) => {
                 let object = self.nodes.parent(parent)?;
                 let outer = self.contextual_binding_pattern(object)?;
@@ -746,6 +832,22 @@ impl Checker<'_, '_> {
     /// declaration whose `.types` line is being printed, which encloses this
     /// literal — same scope chain, since a literal opens no scope of its own.
     fn member_text_at(&mut self, id: TypeId, reference: Option<tsr_ast::NodeId>) -> String {
+        // checkObjectLiteral does not run the native node builder while collecting
+        // members. This port still bakes a placeholder at the mint; a declaration-
+        // owned Pending return must not be demanded by that bookkeeping before
+        // the object publishes. Actual site rendering later uses semantic slots.
+        if self.signature_types.get(&id).is_some_and(|signatures| {
+            signatures.iter().any(|signature| {
+                signature.target.is_none()
+                    && !signature.non_inferrable
+                    && self
+                        .pending_signature_returns
+                        .get(&self.type_literal_key(signature.declaration))
+                        == Some(&crate::signatures::LazyReturnState::Pending)
+            })
+        }) {
+            return self.type_to_string(id);
+        }
         match reference.and_then(|reference| self.type_to_string_at(id, reference)) {
             Some(text) => text,
             None => self.type_to_string(id),
@@ -1504,6 +1606,12 @@ impl Checker<'_, '_> {
                 tsr_ast::PropertyName::PrivateIdentifier(_) => continue,
                 _ => return error,
             };
+            if let PropertyValue::Initializer(initializer) = value {
+                // Native property function values have a completed callable
+                // shape but a lazy original return when no context requests it.
+                // Object identity/member publication remains at the normal tail.
+                self.defer_object_member_return(initializer);
+            }
             let member_type = match value {
                 // Const context first — upstream's own order in
                 // `checkExpressionForMutableLocation`: `isConstContext` wins
@@ -1704,6 +1812,12 @@ impl Checker<'_, '_> {
                         accessor_write: None,
                         method: false,
                         origin: property.node_id().and_then(|id| self.binder.symbol_of(id)),
+                        checked_declaration: matches!(
+                            property,
+                            tsr_ast::ObjectLiteralElementLike::PropertyAssignment(_)
+                        )
+                        .then(|| property.node_id())
+                        .flatten(),
                         name: semantic_name,
                         printed_name: name.clone(),
                         printed_type: printed.clone(),
@@ -1955,6 +2069,7 @@ impl Checker<'_, '_> {
         let property = AnonymousProperty {
             accessor_write: self.accessor_write_parameter(symbol),
             origin: Some(symbol),
+            checked_declaration: None,
             method,
             name,
             printed_name,
@@ -2536,5 +2651,144 @@ fn element_name_text<'a>(element: &tsr_ast::BindingElement<'a>) -> Option<&'a st
     match element.name {
         Some(tsr_ast::BindingName::Identifier(identifier)) => Some(identifier.text),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod display_source_tests {
+    use super::*;
+    use tsr_ast::{Node, push_children};
+    use tsr_core::Arena;
+
+    #[test]
+    fn surviving_assignment_keys_copy_without_changing_original_regular_or_widened_identity() {
+        for (source, boolean_return) in [
+            (
+                "const value = { item: 17, item: 'last', callback: () => 23,
+                    callback: () => true, nested: { marker: 41 } } as const;",
+                true,
+            ),
+            (
+                "const value = { item: 'first', item: 19, callback: () => false,
+                    callback: () => 31, nested: { marker: 43 } } as const;",
+                false,
+            ),
+        ] {
+            for reverse in [false, true] {
+                let arena = Arena::new();
+                let parsed = tsr_parser::parse(&arena, source);
+                let root = parsed.source_file.node_id.unwrap();
+                let bound = tsr_binder::bind(
+                    &arena,
+                    parsed.source_file,
+                    &parsed.nodes,
+                    tsr_binder::FileInfo { name: "/survivor.ts", text: source },
+                );
+                let mut nodes = vec![parsed.node_map.get(root).unwrap()];
+                let mut literal = None;
+                while let Some(node) = nodes.pop() {
+                    if let Node::ObjectLiteralExpression(node) = node
+                        && node.properties.len() == 5
+                    {
+                        literal = Some(node);
+                    }
+                    push_children(node, &mut nodes);
+                }
+                let literal = literal.unwrap();
+                let mut last = std::collections::HashMap::new();
+                for property in literal.properties {
+                    let tsr_ast::ObjectLiteralElementLike::PropertyAssignment(assignment) =
+                        property
+                    else {
+                        panic!("property-only native control");
+                    };
+                    let declaration = assignment.node_id.unwrap();
+                    let symbol = bound.symbol_of(declaration).unwrap();
+                    last.insert(bound.symbols().get(symbol).name, (symbol, declaration));
+                }
+                let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+                let fresh =
+                    checker.check_expression(tsr_ast::Expression::ObjectLiteralExpression(literal));
+                let (regular, widened) = if reverse {
+                    let widened = checker.widen_object_literal_freshness(fresh);
+                    (checker.get_regular_type_of_object_literal(fresh), widened)
+                } else {
+                    let regular = checker.get_regular_type_of_object_literal(fresh);
+                    (regular, checker.widen_object_literal_freshness(fresh))
+                };
+                assert_ne!(fresh, regular);
+                assert_ne!(fresh, widened);
+                assert_ne!(regular, widened);
+                let mut images = vec![fresh, regular, widened];
+                if reverse {
+                    images.reverse();
+                }
+                let mut snapshots = Vec::new();
+                for id in images {
+                    let properties = checker.anonymous_properties[&id].0.clone();
+                    assert_eq!(properties.len(), 3);
+                    for property in &properties {
+                        let &(symbol, declaration) = last.get(property.name.as_str()).unwrap();
+                        assert_eq!(property.origin, Some(symbol));
+                        assert_eq!(property.checked_declaration, Some(declaration));
+                        if property.name == "callback" {
+                            assert_ne!(
+                                bound.symbols().get(symbol).value_declaration,
+                                Some(declaration)
+                            );
+                            let tsr_ast::Node::PropertyAssignment(assignment) =
+                                parsed.node_map.get(declaration).unwrap()
+                            else {
+                                panic!();
+                            };
+                            let signature = checker.signature_types[&property.r#type][0].clone();
+                            assert_eq!(
+                                signature.declaration,
+                                assignment.initializer.unwrap().node_id().unwrap()
+                            );
+                            assert_eq!(
+                                checker.get_return_type_of_signature(&signature),
+                                Some(if boolean_return {
+                                    checker.intrinsics.boolean
+                                } else {
+                                    checker.intrinsics.number
+                                })
+                            );
+                        }
+                    }
+                    snapshots.push((id, checker.store.get(id).data.clone(), properties));
+                }
+                let nested = |id| {
+                    checker.anonymous_properties[&id]
+                        .0
+                        .iter()
+                        .find(|property| property.name == "nested")
+                        .unwrap()
+                        .r#type
+                };
+                assert_ne!(
+                    nested(fresh),
+                    nested(regular),
+                    "member types transform while source keys copy"
+                );
+                assert_ne!(nested(fresh), nested(widened));
+                for _ in 0..4 {
+                    snapshots.reverse();
+                    assert_eq!(checker.get_regular_type_of_object_literal(fresh), regular);
+                    assert_eq!(checker.widen_object_literal_freshness(fresh), widened);
+                    for (id, data, properties) in &snapshots {
+                        assert_eq!(&checker.store.get(*id).data, data);
+                        for (current, original) in
+                            checker.anonymous_properties[id].0.iter().zip(properties)
+                        {
+                            assert_eq!(current.origin, original.origin);
+                            assert_eq!(current.name, original.name);
+                            assert_eq!(current.checked_declaration, original.checked_declaration);
+                            assert_eq!(current.r#type, original.r#type);
+                        }
+                    }
+                }
+            }
+        }
     }
 }

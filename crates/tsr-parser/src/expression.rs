@@ -506,6 +506,8 @@ impl<'a> Parser<'a> {
         let start = self.pos();
         let mut expression = if self.at(SyntaxKind::NewKeyword) {
             self.parse_new_expression()
+        } else if self.at(SyntaxKind::SuperKeyword) {
+            self.parse_super_expression()
         } else {
             self.parse_primary_expression()
         };
@@ -600,9 +602,18 @@ impl<'a> Parser<'a> {
                 SyntaxKind::OpenParenToken => {
                     let arguments = self.parse_arguments();
                     let arguments = self.arena.alloc_slice(&arguments);
+                    // `parseCallExpressionRest` absorbs an instantiation into
+                    // the call; notably `parseSuperExpression` can return one.
+                    let (callee, type_arguments) = match expression {
+                        Expression::ExpressionWithTypeArguments(instantiation) => (
+                            instantiation.expression.unwrap_or(expression),
+                            instantiation.type_arguments,
+                        ),
+                        _ => (expression, &[] as &[TypeNode<'a>]),
+                    };
                     let is_chain = self.try_reparse_optional_chain(expression);
                     let node = self.finish_node(
-                        CallExpression::new(Some(expression), None, &[], arguments),
+                        CallExpression::new(Some(callee), None, type_arguments, arguments),
                         SyntaxKind::CallExpression,
                         start,
                     );
@@ -693,6 +704,61 @@ impl<'a> Parser<'a> {
             }
         }
         expression
+    }
+
+    /// Pinned `parseSuperExpression` (`parser.go:5215`, 5b1047d10d32e7d5b446be4de56b126ff42f82bb).
+    /// Recovery owns a property-access node and its missing/name child, rather
+    /// than leaving a bare keyword. Nodes remain in the existing parser arena
+    /// and parent table; no semantic query or additional traversal is introduced.
+    fn parse_super_expression(&mut self) -> Expression<'a> {
+        let start = self.pos();
+        let mut expression = self.parse_primary_expression();
+        if self.at(SyntaxKind::LessThanToken) {
+            let arguments_start = self.node_end();
+            if let Some(arguments) = self.try_parse(|parser| {
+                let arguments = parser.parse_type_arguments_for_call()?;
+                parser.at_instantiation_terminator().then_some(arguments)
+            }) {
+                self.error_at(
+                    &messages::SUPER_MAY_NOT_USE_TYPE_ARGUMENTS,
+                    Span::new(arguments_start, self.node_end()),
+                );
+                // Native discards the arguments before a tagged template.
+                if !matches!(
+                    self.token.kind,
+                    SyntaxKind::NoSubstitutionTemplateLiteral | SyntaxKind::TemplateHead
+                ) {
+                    let arguments = self.arena.alloc_slice(&arguments);
+                    expression = Expression::ExpressionWithTypeArguments(self.finish_node(
+                        ExpressionWithTypeArguments::new(Some(expression), arguments),
+                        SyntaxKind::ExpressionWithTypeArguments,
+                        start,
+                    ));
+                }
+            }
+        }
+        if matches!(
+            self.token.kind,
+            SyntaxKind::OpenParenToken | SyntaxKind::DotToken | SyntaxKind::OpenBracketToken
+        ) {
+            return expression;
+        }
+        self.error_at_current(
+            &messages::SUPER_MUST_BE_FOLLOWED_BY_AN_ARGUMENT_LIST_OR_MEMBER_ACCESS,
+        );
+        let name = if self.right_side_of_dot_is_missing() {
+            // `parseRightSideOfDot` reports at TokenFullStart, before the
+            // following line's trivia, distinct from TS1034 on that token.
+            self.error_at(&messages::IDENTIFIER_EXPECTED, Span::at(self.node_end()));
+            MemberName::Identifier(self.missing_identifier())
+        } else {
+            self.parse_member_name()
+        };
+        Expression::PropertyAccessExpression(self.finish_node(
+            PropertyAccessExpression::new(Some(expression), None, Some(name)),
+            SyntaxKind::PropertyAccessExpression,
+            start,
+        ))
     }
 
     /// `parser.go:5414` `tryReparseOptionalChain`: is `node` already part of
@@ -828,7 +894,7 @@ impl<'a> Parser<'a> {
                     let argument = if self.at(SyntaxKind::CloseBracketToken) {
                         self.error_at(
                             &messages::AN_ELEMENT_ACCESS_EXPRESSION_SHOULD_TAKE_AN_ARGUMENT,
-                            Span::at(self.pos()),
+                            Span::at(self.node_end()),
                         );
                         Expression::Identifier(self.missing_identifier())
                     } else {
@@ -1391,7 +1457,22 @@ impl<'a> Parser<'a> {
             let name = self.parse_property_name();
             let parameters = self.parse_parameter_list();
             let return_type = self.parse_return_type_annotation();
-            let body = FunctionBody::Block(self.parse_block());
+            // Pinned `parseFunctionBlockOrSemicolon`/`parseBlock`: semicolon
+            // or ASI means no body; a missing `{` instead owns an empty Block.
+            // Neither recovery may consume the next object member as a body.
+            let body = if self.at(SyntaxKind::OpenBraceToken) {
+                Some(FunctionBody::Block(self.parse_block()))
+            } else if self.can_parse_semicolon() {
+                self.parse_semicolon();
+                None
+            } else {
+                self.expect(SyntaxKind::OpenBraceToken);
+                Some(FunctionBody::Block(self.finish_node(
+                    Block::new(&[], false),
+                    SyntaxKind::Block,
+                    self.pos(),
+                )))
+            };
             let modifiers = self.arena.alloc_slice(&modifiers);
             let parameters = self.arena.alloc_slice(&parameters);
             return if is_getter {
@@ -1403,7 +1484,7 @@ impl<'a> Parser<'a> {
                         parameters,
                         return_type,
                         None,
-                        Some(body),
+                        body,
                         None,
                         None,
                     ),
@@ -1419,7 +1500,7 @@ impl<'a> Parser<'a> {
                         parameters,
                         return_type,
                         None,
-                        Some(body),
+                        body,
                         None,
                         None,
                     ),
@@ -1673,25 +1754,34 @@ impl<'a> Parser<'a> {
         Some(Expression::ArrowFunction(node))
     }
 
-    /// Whether the token after `f<T>` rules out a comparison.
-    ///
-    /// `a < b > c` is arithmetic; `f<T>;` is an instantiation expression. The
-    /// difference is whether an operand could follow — TypeScript decides the same
-    /// way.
-    fn at_instantiation_terminator(&self) -> bool {
-        matches!(
-            self.token.kind,
-            SyntaxKind::SemicolonToken
-                | SyntaxKind::CommaToken
-                | SyntaxKind::CloseParenToken
-                | SyntaxKind::CloseBracketToken
-                | SyntaxKind::CloseBraceToken
-                | SyntaxKind::QuestionDotToken
-                | SyntaxKind::ColonToken
-                | SyntaxKind::EndOfFile
-                | SyntaxKind::NoSubstitutionTemplateLiteral
-                | SyntaxKind::TemplateHead
-        ) || self.token.has_preceding_line_break()
+    /// Pinned `canFollowTypeArgumentsInExpression` (`parser.go:5270`): binary
+    /// operators and non-expression starters favor instantiation, but `<`, `>`,
+    /// unary `+` and `-` never do, even after a line break. Keep the `NoIn` context.
+    fn at_instantiation_terminator(&mut self) -> bool {
+        match self.token.kind {
+            SyntaxKind::OpenParenToken
+            | SyntaxKind::NoSubstitutionTemplateLiteral
+            | SyntaxKind::TemplateHead => true,
+            SyntaxKind::LessThanToken
+            | SyntaxKind::GreaterThanToken
+            // Native Scan returns a single `>`; it packs shifts only through
+            // reScanGreaterThanToken. Our scanner packs them eagerly. A `>`
+            // still following the speculative close must therefore reject
+            // instantiation too (`0 < u >>> 0` is a shift/comparison, not `0<u>`).
+            | SyntaxKind::GreaterThanEqualsToken
+            | SyntaxKind::GreaterThanGreaterThanToken
+            | SyntaxKind::GreaterThanGreaterThanGreaterThanToken
+            | SyntaxKind::GreaterThanGreaterThanEqualsToken
+            | SyntaxKind::GreaterThanGreaterThanGreaterThanEqualsToken
+            | SyntaxKind::PlusToken
+            | SyntaxKind::MinusToken => false,
+            kind => {
+                self.token.has_preceding_line_break()
+                    || (binary_precedence(kind).is_some()
+                        && !(self.no_in != 0 && kind == SyntaxKind::InKeyword))
+                    || !self.is_start_of_expression()
+            }
+        }
     }
 
     /// Whether `async` here prefixes an arrow rather than naming something.

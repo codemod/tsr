@@ -324,7 +324,13 @@ pub struct Checker<'a, 'n> {
     /// other.
     pub(crate) declared_types: FxHashMap<SymbolId, TypeId>,
     /// In-progress resolutions, for circularity detection.
-    pub(crate) resolutions: Resolutions<SymbolId>,
+    pub(crate) resolutions: Resolutions<crate::resolution::ResolutionTarget>,
+    /// Pinned `NodeCheckFlagsInCheckIdentifier` (checker.go:13766): immediate
+    /// binding holder `NodeId`s whose parent/constraint lookup is active in
+    /// this private Checker. No result or completeness is published; re-entry
+    /// falls back to ordinary symbol/flow checking. Cleared before narrowing,
+    /// including unsupported parent lookup, so flow can re-enter independently.
+    pub(crate) dependent_binding_parents_in_flight: rustc_hash::FxHashSet<tsr_ast::NodeId>,
     /// Whether control-flow analysis has given up in the current container.
     ///
     /// Upstream's `c.flowAnalysisDisabled` (`checker.go:801`). Set when
@@ -1026,6 +1032,26 @@ pub struct Checker<'a, 'n> {
     pub(crate) signature_types: FxHashMap<TypeId, Vec<crate::signatures::Signature>>,
     /// Native decorator signature links belong to the decorated declaration.
     pub(crate) decorator_types: crate::decorators::DecoratorTypes,
+    /// Declaration-owned resolved return slots (native getReturnTypeOfSignature,
+    /// typescript-go 5b1047d1). The key retains captured bindings/template mode;
+    /// contextual functions still recheck rather than reusing a premature return.
+    /// Absence is uncomputed/active (the resolution stack distinguishes them),
+    /// Some(None) is unsupported, Some(Some(type)) is completed including any
+    /// from a failed circular resolution. Private Checker lifetime/options.
+    /// Only `return_type_of` publishes; its body worker is the expensive boundary.
+    pub(crate) signature_returns: FxHashMap<crate::declared::TypeLiteralKey, Option<TypeId>>,
+    /// Native uncontextualized object-member function values retain lazy return
+    /// slots (5b1047d1, checker.go:10166/19836). Declaration/captured key owned
+    /// by this Checker; no mapper or contextual assignment is reused. Absence
+    /// differs from pending here, active in resolutions, completed/unsupported
+    /// in `signature_returns`. Only the canonical return accessor removes pending
+    /// and completes the original signature; no provisional any is published.
+    pub(crate) pending_signature_returns:
+        FxHashMap<crate::declared::TypeLiteralKey, crate::signatures::LazyReturnState>,
+    /// Native return-slot errors report once per declaration, even when this
+    /// port rechecks a mutable contextual signature. Diagnostic ownership only;
+    /// this set never certifies completion or substitutes a semantic return.
+    pub(crate) return_cycle_diagnostics: rustc_hash::FxHashSet<NodeId>,
     /// resolveAnonymousTypeMembers / getDefaultConstructSignatures (checker.go).
     /// None marks an active or unsupported class constructor resolution.
     pub(crate) class_construct_signatures:
@@ -1274,6 +1300,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             deferred_indexed_access_types: FxHashMap::default(),
             deferred_indexed_access_cache: FxHashMap::default(),
             resolutions: Resolutions::new(),
+            dependent_binding_parents_in_flight: rustc_hash::FxHashSet::default(),
             flow_analysis_disabled: false,
             flow_disabled_containers: rustc_hash::FxHashSet::default(),
             shared_flows: Vec::new(),
@@ -1437,6 +1464,9 @@ impl<'a, 'n> Checker<'a, 'n> {
             reference_types_from_nodes: rustc_hash::FxHashSet::default(),
             signature_types: FxHashMap::default(),
             decorator_types: crate::decorators::DecoratorTypes::default(),
+            signature_returns: FxHashMap::default(),
+            pending_signature_returns: FxHashMap::default(),
+            return_cycle_diagnostics: rustc_hash::FxHashSet::default(),
             class_construct_signatures: FxHashMap::default(),
             instantiated_signatures: FxHashMap::default(),
             instantiated_signature_mappers: FxHashMap::default(),
@@ -1840,6 +1870,23 @@ impl<'a, 'n> Checker<'a, 'n> {
         if let Some(&symbol) = self.type_parameter_symbols.get(&id) {
             return Some(self.type_parameter_name_at(id, symbol, reference));
         }
+        // Native createAnonymousTypeNodeEx checks the visited semantic identity
+        // before expanding completed signatures again. Replaying a baked
+        // signature here would add an extra recursive layer on every print.
+        if self.rendering_composites.contains(&id)
+            && self.signature_types.contains_key(&id)
+            && matches!(self.store.get(id).data, crate::types::TypeData::Anonymous { .. })
+            && !self.alias_named_signature_types.contains(&id)
+        {
+            return Some(
+                self.recursive_callable_text_at(id, reference).unwrap_or_else(|| "any".to_string()),
+            );
+        }
+        if let crate::types::TypeData::Anonymous { symbol, .. } = self.store.get(id).data
+            && self.binder.symbols().get(symbol).flags.contains(SymbolFlags::MODULE_EXPORTS)
+        {
+            return self.module_exports_text_at(id, symbol, reference);
+        }
         if let Some(&(_, source)) = self.module_value_clones.get(&id) {
             let crate::types::TypeData::Anonymous { symbol, .. } = self.store.get(source).data
             else {
@@ -1861,9 +1908,12 @@ impl<'a, 'n> Checker<'a, 'n> {
             }
             return self.module_clone_name_at(id, reference).map(|name| format!("typeof {name}"));
         }
+        if let Some(text) = self.export_equals_class_text_at(id, reference) {
+            return Some(text);
+        }
         // A cloned module alias cannot name the original class instance or
-        // constructor. Import-type fallback for inaccessible export-equals
-        // classes is not implemented here: keep it unsupported.
+        // constructor. The published original constructor's export= container
+        // is handled above; inaccessible instance routes remain unsupported.
         let original = match self.store.get(id).data {
             crate::types::TypeData::Named { members, .. } => members,
             crate::types::TypeData::Anonymous { symbol, .. } => Some(symbol),
@@ -1921,6 +1971,9 @@ impl<'a, 'n> Checker<'a, 'n> {
             if let Some(text) = self.type_literal_text_at(id, reference) {
                 return Some(text);
             }
+            if let Some(text) = self.object_literal_text_at(id, reference, true) {
+                return Some(text);
+            }
             if self.signature_types.contains_key(&id)
                 && self.anonymous_properties.contains_key(&id)
                 && !self.rendering_composites.contains(&id)
@@ -1935,8 +1988,8 @@ impl<'a, 'n> Checker<'a, 'n> {
             // single-signature type re-renders from its structure at the site,
             // so embedded named types take their qualifiers and renames. The
             // visiting set is the cycle guard a self-referential function type
-            // needs (`type F = () => F`): a re-entered id falls back to its
-            // baked text, exactly what the site-less renderer would produce.
+            // needs: re-entry uses the completed semantic callable's native
+            // typeof/anonymous fallback above, without reading baked text.
             if let Some(signatures) = self.signature_types.get(&id)
                 && signatures.len() == 1
                 && !self.rendering_composites.contains(&id)
@@ -1998,7 +2051,14 @@ impl<'a, 'n> Checker<'a, 'n> {
             // entries re-renders each entry at the site — the alias-named
             // entries qualify through the same stack §95 uses; any decline
             // keeps the baked spelling.
+            // Native nodebuilderimpl.go:3362 chooses this union's own alias
+            // before rendering its origin. Its nested provenance belongs to
+            // filtering, not to the spelling of an unchanged aliased union.
             if let Some(entries) = self.union_origin.get(&id).cloned()
+                && matches!(
+                    self.store.get(id).data,
+                    crate::types::TypeData::Union { symbol: None, .. }
+                )
                 && !self.rendering_composites.contains(&id)
             {
                 self.rendering_composites.insert(id);
@@ -2119,6 +2179,92 @@ impl<'a, 'n> Checker<'a, 'n> {
         None
     }
 
+    /// Pinned tsgo 5b1047d shouldWriteTypeOfFunctionSymbol: typeof is admitted
+    /// for a static method or nonlocal function only on recursive re-entry.
+    /// Completed declaration metadata supplies identity, not spelling. The
+    /// native baseline's enclosing declaration is the assertion's parent;
+    /// top-level expression/arrow symbols rewrite to their variable except
+    /// when that variable is the enclosing declaration being printed. Existing
+    /// accessibility/alias naming owns qualification; no site result is cached.
+    fn recursive_callable_text_at(&mut self, id: TypeId, reference: NodeId) -> Option<String> {
+        let mut symbol = self.completed_callable_symbol(id)?;
+        let record = self.binder.symbols().get(symbol);
+        let static_method = record.flags.contains(SymbolFlags::METHOD)
+            && record.declarations.iter().any(|&declaration| {
+                matches!(self.node_map.get(declaration), Some(Node::MethodDeclaration(node))
+                    if tsr_ast::has_syntactic_modifier(node.modifiers, SyntaxKind::StaticKeyword)
+                        && matches!(node.name, tsr_ast::PropertyName::Identifier(_)))
+            });
+        let mut nonlocal = record.flags.contains(SymbolFlags::FUNCTION) && record.parent.is_some();
+        let mut expression_parent = None;
+        if record.flags.contains(SymbolFlags::FUNCTION) && record.parent.is_none() {
+            for &declaration in &record.declarations {
+                let Some(parent) = self.nodes.parent(declaration) else { continue };
+                if matches!(
+                    self.nodes.kind(parent),
+                    SyntaxKind::SourceFile | SyntaxKind::ModuleBlock
+                ) {
+                    nonlocal = true;
+                    break;
+                }
+                if matches!(
+                    self.nodes.kind(declaration),
+                    SyntaxKind::FunctionExpression | SyntaxKind::ArrowFunction
+                ) && self.nodes.kind(parent) == SyntaxKind::VariableDeclaration
+                    && let Some(list) = self.nodes.parent(parent)
+                    && self.nodes.kind(list) == SyntaxKind::VariableDeclarationList
+                    && let Some(statement) = self.nodes.parent(list)
+                    && self.nodes.kind(statement) == SyntaxKind::VariableStatement
+                    && self.nodes.parent(statement).is_some_and(|scope| {
+                        matches!(
+                            self.nodes.kind(scope),
+                            SyntaxKind::SourceFile | SyntaxKind::ModuleBlock
+                        )
+                    })
+                {
+                    nonlocal = true;
+                    let named = matches!(self.node_map.get(declaration), Some(Node::FunctionExpression(node)) if node.name.is_some());
+                    expression_parent = Some((parent, named));
+                    break;
+                }
+            }
+        }
+        if !static_method && !nonlocal {
+            return None;
+        }
+        // Anonymous-expression symbols in this binder have declarations but no
+        // value_declaration. Native getNameOfSymbol also takes the assigned
+        // variable's name for an unnamed expression/arrow; a written expression
+        // name is retained only while printing its own variable declaration.
+        if let Some((variable, named)) = expression_parent
+            && (!named || Some(variable) != self.nodes.parent(reference))
+        {
+            symbol = self.binder.merged_symbol(self.binder.symbol_of(variable)?);
+        }
+        let own = self.binder.symbols().get(symbol).name;
+        let name = if static_method {
+            let class = self.binder.symbols().get(symbol).parent?;
+            let class_name = self.value_symbol_name_at(class, reference);
+            format!("{class_name}.{own}")
+        } else {
+            self.value_symbol_name_at(symbol, reference)
+        };
+        Some(format!("typeof {name}"))
+    }
+
+    fn value_symbol_name_at(&mut self, symbol: SymbolId, reference: NodeId) -> String {
+        let own = self.binder.symbols().get(symbol).name;
+        if let Some(name) = self.best_name(symbol, reference, false)
+            && name != own
+        {
+            return name;
+        }
+        match self.symbol_chain(symbol, reference, SymbolFlags::VALUE, 0) {
+            Some(prefix) => format!("{prefix}{own}"),
+            None => own.to_string(),
+        }
+    }
+
     /// §99's member-form twin of [`crate::objects::signature_member_text`]:
     /// same slots, same written-text precedence, every RENDERED slot through
     /// [`Checker::type_to_string_at`] with the baked text as the per-slot
@@ -2199,10 +2345,12 @@ impl<'a, 'n> Checker<'a, 'n> {
             (Some(predicate), _) => out.push_str(&self.type_predicate_to_string(predicate)),
             (None, Some(written)) => out.push_str(written),
             (None, None) => {
+                let return_type =
+                    self.get_return_type_of_signature(signature).unwrap_or(self.intrinsics.error);
                 let rendered = self
                     .signature_return_alias_text_at(signature, reference)
-                    .or_else(|| self.type_to_string_at(signature.r#type, reference))
-                    .unwrap_or_else(|| self.type_to_string(signature.r#type));
+                    .or_else(|| self.type_to_string_at(return_type, reference))
+                    .unwrap_or_else(|| self.type_to_string(return_type));
                 out.push_str(&rendered);
             }
         }
@@ -3353,7 +3501,7 @@ impl<'a, 'n> Checker<'a, 'n> {
     /// `typeof m1_M1_public`, and admitting the local alias there lost 130
     /// lines in exactly the four `privacy*` cases — the §10.16 bar's named
     /// falsifier, fired and honoured).
-    fn best_name(
+    pub(crate) fn best_name(
         &mut self,
         symbol: SymbolId,
         reference: NodeId,
@@ -3380,6 +3528,17 @@ impl<'a, 'n> Checker<'a, 'n> {
                 let module = self.binder.merged_symbol(module);
                 let exports = &self.binder.symbols().get(module).exports;
                 tables.push(exports.iter().map(|(&name, &id)| (name, id)).collect());
+            }
+            // someSymbolTableInScope / getClassExpressionNameTable (native
+            // symbolaccessibility.go:794): the private self-name is an AST
+            // binding, not a container locals entry in either implementation.
+            // Publish its one-entry display table at this exact scope, before
+            // outer aliases and after the scope's existing locals.
+            if let Some(Node::ClassExpression(class)) = self.node_map.get(node)
+                && let Some(name) = class.name
+                && let Some(symbol) = self.binder.symbol_of(node)
+            {
+                tables.push(vec![(name.text, symbol)]);
             }
             current = self.nodes.parent(node);
         }

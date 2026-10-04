@@ -86,6 +86,25 @@ impl<'a> Checker<'a, '_> {
         // type there is a wrong diagnostic on correct code.
         let Some(target) = self.assignment_target_type(left_id) else { return };
         let source = self.check_expression(right);
+        // checkAssignmentOperator (native 5b1047d1 checker.go:12760) ignores
+        // undefined writes to named CommonJS exports with multiple declarations.
+        // Unlike inference's first-initializer rule, this applies to later
+        // undefined writes too. Resolve the actual receiver's property, since a
+        // shadowed `exports` may not name the binder's file-module declaration.
+        if self.is_commonjs_export_property_assignment(binary)
+            && self.type_of(source).flags.intersects(TypeFlags::UNDEFINED)
+            && let tsr_ast::Expression::PropertyAccessExpression(access) = left
+            && let Some(tsr_ast::MemberName::Identifier(name)) = access.name
+            && let Some(receiver) = access.expression
+        {
+            let receiver = self.check_expression(receiver);
+            if self
+                .get_property_of_type(receiver, name.text)
+                .is_some_and(|property| self.binder.symbols().get(property).declarations.len() > 1)
+            {
+                return;
+            }
+        }
         let Some(right_id) = right.node_id() else { return };
         // §72's rule: if the **elaboration** spoke, the outer message does not.
         // `checkTypeRelatedToAndOptionallyElaborate` reports an object

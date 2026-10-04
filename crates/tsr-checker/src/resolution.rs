@@ -27,17 +27,29 @@
 //! whatever half-built answer was on the stack, which is both wrong and
 //! order-dependent.
 //!
-//! # What is not ported
-//!
-//! `findResolutionCycleStartIndex` also consults `typeResolutionHasProperty`,
-//! which lets a resolution that has *already* been memoised short-circuit the
-//! search. That is an optimisation over a stack that is at most a few deep in
-//! practice, and it needs the memo of every property kind to exist first. Left
-//! out deliberately, with the behaviour unchanged: without it the search simply
-//! scans further, and a memoised entry never reaches the stack anyway because the
-//! caller returns before pushing.
+//! `findResolutionCycleStartIndex` stops at a published property identity. This
+//! is not merely a scan optimization once object identity and member/return
+//! completion are separate: later preparation can re-enter an older frame
+//! through an identity already available to native lazy consumers. Return-slot
+//! pushes supply the checker's existing publication facts through `push_with`;
+//! callers without independently published identities retain ordinary `push`.
 
 use tsr_ast::NodeId;
+use tsr_binder::SymbolId;
+
+/// Native `TypeSystemEntity`: a symbol and its declaration-owned return slot
+/// are different entities even when the declaration belongs to that symbol.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ResolutionTarget {
+    Symbol(SymbolId),
+    Signature(crate::declared::TypeLiteralKey),
+}
+
+impl From<SymbolId> for ResolutionTarget {
+    fn from(symbol: SymbolId) -> Self {
+        Self::Symbol(symbol)
+    }
+}
 
 /// How the checker reaches another file.
 ///
@@ -199,6 +211,8 @@ pub enum PropertyName {
     /// the other is in progress. Sharing one key would report a cycle that is
     /// not there.
     DeclaredType,
+    /// `TypeSystemPropertyNameResolvedReturnType`, not the callable's type.
+    ResolvedReturnType,
 }
 
 /// One frame of the resolution stack.
@@ -228,7 +242,7 @@ impl<K> Default for Resolutions<K> {
     }
 }
 
-impl<K: Copy + PartialEq> Resolutions<K> {
+impl<K: Clone + PartialEq> Resolutions<K> {
     /// An empty stack.
     #[must_use]
     pub fn new() -> Self {
@@ -241,11 +255,17 @@ impl<K: Copy + PartialEq> Resolutions<K> {
         self.stack.len()
     }
 
+    /// Return work is active even before a nested symbol/frame closes a cycle.
+    pub(crate) fn has_active_return(&self) -> bool {
+        self.stack.iter().any(|frame| frame.property == PropertyName::ResolvedReturnType)
+    }
+
     /// Whether `(target, property)` is currently resolving, WITHOUT marking
     /// the cycle as failed — the §29 alias placeholder's read-only probe
     /// (`checker-notes-narrow.md`).
     #[must_use]
-    pub fn on_stack(&self, target: K, property: PropertyName) -> bool {
+    pub fn on_stack(&self, target: impl Into<K>, property: PropertyName) -> bool {
+        let target = target.into();
         self.stack.iter().any(|r| r.target == target && r.property == property)
     }
 
@@ -256,10 +276,31 @@ impl<K: Copy + PartialEq> Resolutions<K> {
     /// participants report the circularity rather than only the one that closed
     /// it. The caller must **not** pop when this returns `false`; nothing was
     /// pushed.
-    pub fn push(&mut self, target: K, property: PropertyName) -> bool {
-        if let Some(start) =
-            self.stack.iter().rposition(|r| r.target == target && r.property == property)
-        {
+    pub fn push(&mut self, target: impl Into<K>, property: PropertyName) -> bool {
+        self.push_with(target, property, |_, _| false)
+    }
+
+    /// Native findResolutionCycleStartIndex / typeResolutionHasProperty
+    /// (5b1047d1, checker.go:18786). Check publication before matching a frame;
+    /// a resolved property stops the search, even if it is the requested pair.
+    pub(crate) fn push_with(
+        &mut self,
+        target: impl Into<K>,
+        property: PropertyName,
+        mut has_property: impl FnMut(&K, PropertyName) -> bool,
+    ) -> bool {
+        let target = target.into();
+        let mut cycle = None;
+        for (index, frame) in self.stack.iter().enumerate().rev() {
+            if has_property(&frame.target, frame.property) {
+                break;
+            }
+            if frame.target == target && frame.property == property {
+                cycle = Some(index);
+                break;
+            }
+        }
+        if let Some(start) = cycle {
             for frame in &mut self.stack[start..] {
                 frame.succeeded = false;
             }
@@ -277,6 +318,27 @@ impl<K: Copy + PartialEq> Resolutions<K> {
     /// `false` was popped anyway.
     pub fn pop(&mut self) -> bool {
         self.stack.pop().expect("popped a resolution that was never pushed").succeeded
+    }
+}
+
+impl Resolutions<ResolutionTarget> {
+    /// Read native signature resolution ownership without publishing anything
+    /// or marking a cycle. Parameter-only projection requires exactly one
+    /// successful original key; canonical return demand can decline an active
+    /// original even when the caller carries an unrelated alias frame.
+    pub(crate) fn active_signature_keys(
+        &self,
+        declaration: NodeId,
+    ) -> impl Iterator<Item = (&crate::declared::TypeLiteralKey, bool)> {
+        self.stack.iter().filter_map(move |frame| match &frame.target {
+            ResolutionTarget::Signature(key)
+                if frame.property == PropertyName::ResolvedReturnType
+                    && key.node == declaration =>
+            {
+                Some((key, frame.succeeded))
+            }
+            _ => None,
+        })
     }
 }
 
@@ -340,5 +402,21 @@ mod tests {
         assert!(!r.pop(), "b is in the cycle");
         assert!(!r.pop(), "a is in the cycle");
         assert!(r.pop(), "outer merely contained it");
+    }
+
+    #[test]
+    fn published_identity_stops_the_scan_but_not_a_newer_actual_cycle() {
+        let mut r: Resolutions<u32> = Resolutions::new();
+        assert!(r.push(0u32, PropertyName::ResolvedReturnType));
+        assert!(r.push(1u32, PropertyName::Type));
+        assert!(r.push_with(0u32, PropertyName::ResolvedReturnType, |key, property| {
+            *key == 1 && property == PropertyName::Type
+        }));
+        assert!(r.pop());
+        assert!(r.push(2u32, PropertyName::ResolvedReturnType));
+        assert!(!r.push_with(2u32, PropertyName::ResolvedReturnType, |key, _| *key == 1));
+        assert!(!r.pop(), "the newer return cycle must still fail");
+        assert!(r.pop(), "the published identity was outside that cycle");
+        assert!(r.pop());
     }
 }

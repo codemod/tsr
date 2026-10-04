@@ -136,7 +136,15 @@ impl Checker<'_, '_> {
             let symbol = self.jsx_type_symbol(opening, INTRINSIC_ELEMENTS)?;
             let table = self.get_declared_type_of_symbol(symbol);
             return self.get_type_of_property_of_type(table, name.text).or_else(|| {
-                self.get_applicable_index_info(table, self.intrinsics.string).map(|info| info.value)
+                // getIntrinsicAttributesTypeFromJsxOpeningLikeElement
+                // (pinned 5b1047d jsx.go:1190) uses the actual tag key, so
+                // overlapping pattern indexes retain their intersection.
+                let key = self.store.intern_literal(
+                    crate::flags::TypeFlags::STRING_LITERAL,
+                    crate::types::TypeData::StringLiteral(name.text.to_owned()),
+                    false,
+                );
+                self.get_applicable_index_info(table, key).map(|info| info.value)
             });
         }
         let expression = Expression::try_from(Node::from(tag)).ok()?;
@@ -291,6 +299,10 @@ impl Checker<'_, '_> {
             Node::JsxSelfClosingElement(node) => node.attributes?,
             _ => return None,
         };
+        // createJsxAttributesTypeFromAttributesProperty (jsx.go:742/853)
+        // carries propagating flags from expressions, including placeholders.
+        // The source is still partially inferable through its other properties.
+        let mut non_inferrable = false;
         let mut properties: Vec<crate::objects::AnonymousProperty> = Vec::new();
         for attribute in attributes.properties {
             let property = match attribute {
@@ -303,6 +315,7 @@ impl Checker<'_, '_> {
                         Some(expression) => self.jsx_inference_expression(expression, skip)?,
                         None => self.intrinsics.true_type,
                     };
+                    non_inferrable |= self.non_inferrable_types.contains(&ty);
                     if !skip
                         && let Some(Expression::JsxExpression(wrapper)) = expression
                         && let Some(inner) = wrapper.expression
@@ -317,6 +330,7 @@ impl Checker<'_, '_> {
                         printed_type: self.type_to_string(ty),
                         r#type: ty,
                         origin: node.node_id.and_then(|id| self.binder.symbol_of(id)),
+                        checked_declaration: None,
                         optional: false,
                         readonly: false,
                         method: false,
@@ -325,6 +339,7 @@ impl Checker<'_, '_> {
                 }
                 JsxAttributeLike::JsxSpreadAttribute(node) => {
                     let ty = self.check_expression(node.expression?);
+                    non_inferrable |= self.non_inferrable_types.contains(&ty);
                     let (spread, _) = self.spread_properties(ty, false)?;
                     for property in spread {
                         if let Some(index) = properties.iter().position(|p| p.name == property.name)
@@ -350,6 +365,7 @@ impl Checker<'_, '_> {
             let children: Vec<_> =
                 element.children.iter().copied().filter(semantic_jsx_child).collect();
             let mut types = Vec::new();
+            let mut non_inferrable_children = false;
             for child in &children {
                 let ty = match child {
                     tsr_ast::JsxChild::JsxText(_) => self.intrinsics.string,
@@ -358,6 +374,7 @@ impl Checker<'_, '_> {
                         skip,
                     )?,
                 };
+                non_inferrable_children |= self.non_inferrable_types.contains(&ty);
                 types.push(ty);
             }
             if !types.is_empty()
@@ -385,6 +402,10 @@ impl Checker<'_, '_> {
                         self.create_type_reference(array, vec![element])
                     }
                 };
+                if non_inferrable_children {
+                    self.non_inferrable_types.insert(ty);
+                    non_inferrable = true;
+                }
                 properties.retain(|p| p.name != name);
                 properties.push(crate::objects::AnonymousProperty {
                     name: name.clone(),
@@ -392,6 +413,7 @@ impl Checker<'_, '_> {
                     printed_type: self.type_to_string(ty),
                     r#type: ty,
                     origin: None,
+                    checked_declaration: None,
                     optional: false,
                     readonly: false,
                     method: false,
@@ -405,6 +427,9 @@ impl Checker<'_, '_> {
             crate::objects::render_object_type(&members),
             None,
         );
+        if non_inferrable {
+            self.non_inferrable_types.insert(ty);
+        }
         self.anonymous_properties.insert(ty, (properties, true));
         self.object_literal_members.insert(ty, members);
         Some(ty)
@@ -489,10 +514,33 @@ impl Checker<'_, '_> {
             {
                 continue;
             }
-            let optional = types.iter().copied().any(|part| {
-                self.get_property_of_type(part, &name)
-                    .is_some_and(|symbol| self.property_is_optional(symbol))
-            });
+            let mut optional = false;
+            for &part in &types {
+                // Pinned checker.go:21455-21479 ORs optionality for unions,
+                // ANDs intersection contributors, and changes the flag only
+                // for ClassMember roots. Name enumeration above certifies
+                // declaration completion and declines mapped modifiers; raw
+                // composite getPropertyOfType has no synthetic symbol here.
+                let roots = self.intersection_property_symbols(part, &name);
+                if roots.is_empty() {
+                    return None;
+                }
+                let intersection =
+                    matches!(self.store.get(part).data, TypeData::Intersection { .. });
+                let mut part_optional = intersection;
+                for root in roots {
+                    if !self.binder.symbols().get(root).flags.intersects(SymbolFlags::CLASS_MEMBER)
+                    {
+                        continue;
+                    }
+                    if intersection {
+                        part_optional &= self.property_is_optional(root);
+                    } else {
+                        part_optional |= self.property_is_optional(root);
+                    }
+                }
+                optional |= part_optional;
+            }
             if optional && self.jsx_is_discriminant_property(&types, &name)? {
                 items.push((name, self.intrinsics.undefined));
             }
@@ -633,6 +681,22 @@ impl Checker<'_, '_> {
         let attributes = self.nodes.parent(attribute)?;
         let opening = self.nodes.parent(attributes)?;
         let props = self.jsx_attributes_context(opening)?;
+        let context_sensitive = match self.node_map.get(attribute)? {
+            Node::JsxAttribute(node) => node.initializer.is_some_and(|initializer| {
+                tsr_ast::Expression::try_from(Node::from(initializer))
+                    .is_ok_and(|expression| self.is_context_sensitive_argument(&expression))
+            }),
+            _ => false,
+        };
+        // getApparentTypeOfContextualType(attributes, Signature),
+        // jsx.go:219/checker.go:30683, resolves instantiable operands through
+        // the live non-fixing mapper before apparent type and property lookup.
+        // Scalar context keeps its original generic type for literal inference.
+        let props = if context_sensitive {
+            self.instantiate_contextual_inference_type(props, attributes)
+        } else {
+            props
+        };
         let props = self.apparent_contextual_type(props);
         if self.store.get(props).flags.contains(crate::flags::TypeFlags::ANY) {
             return None;
@@ -646,13 +710,7 @@ impl Checker<'_, '_> {
         match self.node_map.get(attribute)? {
             Node::JsxAttribute(node) => {
                 let tsr_ast::JsxAttributeName::Identifier(name) = node.name? else { return None };
-                // Only context-sensitive expressions need callback-signature
-                // certification. A scalar source must keep its original
-                // generic context (e.g. C | undefined) for literal inference.
-                if node.initializer.is_some_and(|initializer| {
-                    tsr_ast::Expression::try_from(Node::from(initializer))
-                        .is_ok_and(|expression| self.is_context_sensitive_argument(&expression))
-                }) {
+                if context_sensitive {
                     self.certified_jsx_property_context(props, name.text)
                 } else {
                     self.contextual_property_type(props, name.text)
@@ -702,10 +760,11 @@ impl Checker<'_, '_> {
         );
         let mut types = Vec::new();
         for part in parts {
-            let array_like = self.tuple_element_lists.contains_key(&part)
-                || self.variadic_tuple_elements.contains_key(&part)
-                || self.tuple_spread_array_element(part).is_some();
-            types.push(if array_like {
+            // jsx.go:241 maps array-like constituents, not arbitrary
+            // iterables or numeric-indexed objects. Reuse checker.go:23520's
+            // canonical alias-body/ReadonlyArray assignability consumer;
+            // an unknown relation remains unsupported, not false.
+            types.push(if self.binding_parent_is_array_like(part)? {
                 self.resolved_indexed_access_type(part, index, false)?
             } else {
                 part

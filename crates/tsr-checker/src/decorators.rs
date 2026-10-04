@@ -391,6 +391,7 @@ impl<'a> Checker<'a, '_> {
             accessor_write: None,
             method: false,
             origin: None,
+            checked_declaration: None,
             name: name.to_owned(),
             printed_name: name.to_owned(),
             printed_type: self.type_to_string(ty),

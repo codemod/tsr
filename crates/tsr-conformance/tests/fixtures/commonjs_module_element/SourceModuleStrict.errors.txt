@@ -1,0 +1,37 @@
+/usage.ts(2,3): error TS2339: Property 'missing' does not exist on type 'typeof import("/payload")'.
+/usage.ts(3,1): error TS7053: Element implicitly has an 'any' type because expression of type '"missing"' can't be used to index type 'typeof import("/payload")'.
+  Property 'missing' does not exist on type 'typeof import("/payload")'.
+/usage.ts(4,3): error TS2551: Property 'availabl' does not exist on type 'typeof import("/payload")'. Did you mean 'available'?
+
+
+==== /usage.ts (3 errors) ====
+    import * as x from "./payload";
+    x.missing;
+      ~~~~~~~
+!!! error TS2339: Property 'missing' does not exist on type 'typeof import("/payload")'.
+    x["missing"];
+    ~~~~~~~~~~~~
+!!! error TS7053: Element implicitly has an 'any' type because expression of type '"missing"' can't be used to index type 'typeof import("/payload")'.
+!!! error TS7053:   Property 'missing' does not exist on type 'typeof import("/payload")'.
+    x["availabl"];
+      ~~~~~~~~~~
+!!! error TS2551: Property 'availabl' does not exist on type 'typeof import("/payload")'. Did you mean 'available'?
+    x["available"];
+    import indexed = require("./indexed");
+    indexed["newKey"];
+    const object = { available: 1 };
+    object["available"];
+    
+==== /payload.ts (0 errors) ====
+    export const available = 17;
+    export const alternate = "second";
+==== /indexed.ts (0 errors) ====
+    const dictionary: { [key: string]: number } = { present: 5 };
+    export = dictionary;
+==== /classValue.ts (0 errors) ====
+    class Value { static count = 3; }
+    export = Value;
+==== /clone.ts (0 errors) ====
+    import * as clone from "./classValue";
+    clone.count;
+    clone["count"];

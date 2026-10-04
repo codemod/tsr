@@ -69,6 +69,110 @@ export async function mixedThen<T extends (number | { tag: string }) & { then():
 }
 
 #[test]
+fn awaited_operands_retain_constraints_before_unwrapping_intersection_thenables() {
+    // Fresh native 5b1047d TestLocal/awaitedOperandsNativeControls controls.
+    // Different literal values distinguish generic retention from eager bound
+    // unwrapping, intersected callbacks from callback overloads, and this-filtered
+    // candidates from the first/all overloads. Repeated queries follow cycles to
+    // expose a recursion stack accidentally retained across separate operands.
+    let source = r#"// @strict: true
+// @target: esnext
+interface Tagged { tag: "left" }
+interface Then<T> { then(onfulfilled: (value: T) => void): void }
+interface OwnThis { tag: "left"; then(this: OwnThis, onfulfilled: (value: "receiver") => void): void }
+interface WrongThis { then(this: { missing: "right" }, onfulfilled: (value: 91) => void): void }
+interface Overloads { then(this: { missing: "right" }, onfulfilled: (value: 91) => void): void; then(this: Tagged, onfulfilled: (value: "selected") => void): void }
+interface CycleA { then(onfulfilled: (value: CycleB) => void): void }
+interface CycleB { then(onfulfilled: (value: CycleA) => void): void }
+interface SelfCycle { then(onfulfilled: (value: SelfCycle) => void): void }
+async function operands<T, P extends string, O extends Tagged, F extends Then<17>, K extends keyof T, I extends { value: Promise<31> }, Q extends { value: 67 }>(
+  free: T, primitive: P, object: O, constrainedThen: F, key: K, indexed: I["value"], directKey: keyof T, primitiveIndexed: Q["value"],
+  both: Then<23> & Tagged, plain: Tagged & { other: 42 }, branded: number & Then<29>,
+  nested: Then<Promise<37>> & Tagged, own: OwnThis & { other: 42 }, wrong: WrongThis & Tagged,
+  overloads: Overloads & Tagged, self: SelfCycle & Tagged, cycle: CycleA & Tagged,
+  nullable: (Then<41> & Tagged) | undefined, optional: { then?: (cb: (value: 43) => void) => void } & Tagged,
+  anyThen: { then: any } & Tagged, badCallback: { then(cb: 47): void } & Tagged,
+  distinct: Then<"left"> & { then(cb: (value: 53) => void): void },
+  primitiveBound: P & Then<59>, genericIntersection: T & Tagged
+) {
+  const freeValue = await free;
+  const primitiveValue = await primitive;
+  const objectValue = await object;
+  const constrainedThenValue = await constrainedThen;
+  const keyValue = await key;
+  const indexedValue = await indexed;
+  const directKeyValue = await directKey;
+  const primitiveIndexedValue = await primitiveIndexed;
+  const bothValue = await both;
+  const plainValue = await plain;
+  const brandedValue = await branded;
+  const nestedValue = await nested;
+  const ownValue = await own;
+  const wrongValue = await wrong;
+  const overloadsValue = await overloads;
+  const selfValue = await self;
+  const cycleValue = await cycle;
+  const nullableValue = await nullable;
+  const optionalValue = await optional;
+  const anyThenValue = await anyThen;
+  const badCallbackValue = await badCallback;
+  const distinctValue = await distinct;
+  const primitiveBoundValue = await primitiveBound;
+  const genericIntersectionValue = await genericIntersection;
+}
+async function independent(left: Then<61> & Tagged, right: Then<"right"> & Tagged) {
+  const leftValue = await left;
+  const rightValue = await right;
+  const leftAgainValue = await left;
+}
+"#;
+    let case = TestCase::parse("probe/awaited-operands", "awaited-operands.ts", source);
+    let expected: Vec<_> = case
+        .files
+        .iter()
+        .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
+        .collect();
+    let lines: Vec<_> = types_producer::assertions_for_case(&case, &expected, false)
+        .iter()
+        .flatten()
+        .map(types_producer::Assertion::line)
+        .collect();
+    for wanted in [
+        "freeValue : Awaited<T>",
+        "primitiveValue : P",
+        "objectValue : O",
+        "constrainedThenValue : Awaited<F>",
+        "keyValue : K",
+        "indexedValue : Awaited<I[\"value\"]>",
+        "directKeyValue : keyof T",
+        "primitiveIndexedValue : Q[\"value\"]",
+        "bothValue : 23",
+        "plainValue : Tagged & { other: 42; }",
+        "brandedValue : number & Then<29>",
+        "nestedValue : 37",
+        "ownValue : \"receiver\"",
+        "overloadsValue : \"selected\"",
+        "nullableValue : 41 | undefined",
+        "anyThenValue : { then: any; } & Tagged",
+        "distinctValue : never",
+        "primitiveBoundValue : P & Then<59>",
+        "genericIntersectionValue : T & Tagged",
+        "leftValue : 61",
+        "rightValue : \"right\"",
+        "leftAgainValue : 61",
+        // Native error recovery prints any with TS1320/TS1062. These remain
+        // unsupported error images, not claimed native-matching answers.
+        "wrongValue : error",
+        "selfValue : error",
+        "cycleValue : error",
+        "optionalValue : error",
+        "badCallbackValue : error",
+    ] {
+        assert!(lines.iter().any(|line| line == wanted), "missing {wanted}: {lines:?}");
+    }
+}
+
+#[test]
 fn async_contextual_calls_do_not_publish_foreign_uninstantiated_parameters() {
     // Native infers Count through the contextual union. Our call mapper still
     // declines that case; preserving no-alias parameters must not turn that

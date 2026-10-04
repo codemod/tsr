@@ -627,8 +627,8 @@ impl<'a> BindResult<'a> {
             {
                 return Some(found);
             }
-            // **A named function expression's own name is in scope inside it,
-            // and this walk does not answer it — REFUSED, §216/§217.**
+            // A named function expression's own name is in scope inside it.
+            // The historical refusal (§216/§217) and its prerequisite:
             //
             // The arm is four lines and upstream's is at
             // `nameresolver.go:233-244`: `bindFunctionExpression` gives the name
@@ -667,6 +667,17 @@ impl<'a> BindResult<'a> {
             // four lines. If `function y() { return y; }` reads `() => any`, the
             // row converts. §217's resolution key is the *second* half of that
             // and was reverted with this, being unreachable without the first.
+            // tsr-6.47.1 installs the stable callable identity before any return
+            // slot resolves, removing that whole-symbol failure. Restore the
+            // pinned native arm after locals, with the existing exclusion rule.
+            if meaning.intersects(SymbolFlags::FUNCTION)
+                && let Some(tsr_ast::Node::FunctionExpression(function)) = node_map.get(node)
+                && function.name.is_some_and(|written| written.text == name)
+                && let Some(symbol) = self.symbol_of(node)
+                && !self.symbol_is_declared_within(symbol, exclude, nodes)
+            {
+                return Some(symbol);
+            }
             if matches!(
                 nodes.kind(node),
                 SyntaxKind::ClassDeclaration

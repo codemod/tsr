@@ -509,16 +509,36 @@ impl<'a> Checker<'a, '_> {
                 .modifiers_source
                 .is_some_and(|source| self.signature_parameter_type_is_generic(source))
             {
-                self.get_property_names_of_type(source)?
+                let names = self.get_property_names_of_type(source)?;
+                // Native 5b1047d resolveMappedTypeMembers (checker.go:20943)
+                // links composite source declarations and modifier flags.
+                // A complete name list is not that symbol image: generic
+                // composite modifiers still need represented property roots
+                // before this producer can publish mapped members. tsr-6.47.4.1.
+                if self
+                    .store
+                    .get(source)
+                    .flags
+                    .intersects(TypeFlags::UNION | TypeFlags::INTERSECTION)
+                    && names.iter().any(|name| self.get_property_of_type(source, name).is_none())
+                {
+                    return None;
+                }
+                names
             } else {
                 self.property_names_of(source)
             };
             for name in names {
-                keys.push(self.store.intern_literal(
-                    TypeFlags::STRING_LITERAL,
-                    TypeData::StringLiteral(name),
-                    false,
-                ));
+                // Native 5b1047d resolveMappedTypeMembers enumerates through
+                // getLiteralTypeFromProperty (checker.go:22729), preserving
+                // numeric versus quoted names from the source member's origin.
+                // Reuse the Checker-owned provenance read, not a printed name;
+                // this walk publishes no key or member image of its own.
+                let key = self.literal_type_of_property(source, &name);
+                if key == self.intrinsics.error {
+                    return None;
+                }
+                keys.push(key);
             }
             if let Some(indexes) = self.get_index_infos_of_type(source) {
                 keys.extend(indexes.into_iter().map(|index| index.key));
@@ -526,15 +546,39 @@ impl<'a> Checker<'a, '_> {
         } else {
             let mut pending = vec![info.constraint];
             while let Some(key) = pending.pop() {
+                // getLowerBoundOfKeyType (native checker.go:21040) preserves
+                // only primitive-first canonical-empty intersections. Other
+                // concrete intersections use ordinary reduction before this
+                // producer publishes their index key, without erasing literals
+                // elsewhere in the constraint union. Open work still declines.
+                if let TypeData::Intersection { types, .. } = &self.store.get(key).data {
+                    let types = types.clone();
+                    if self.signature_parameter_type_is_generic(key) {
+                        return None;
+                    }
+                    let preserved =
+                        types.len() == 2
+                            && self.store.get(types[0]).flags.intersects(
+                                TypeFlags::STRING | TypeFlags::NUMBER | TypeFlags::BIG_INT,
+                            )
+                            && self.is_unaliased_empty_type_literal(types[1]);
+                    if !preserved {
+                        let reduced = self.get_intersection_type(&types, None);
+                        if reduced != key {
+                            pending.push(reduced);
+                            continue;
+                        }
+                    }
+                }
                 if let TypeData::Union { types, .. } = &self.store.get(key).data {
                     pending.extend(types.iter().rev().copied());
                 } else if info.name_type.is_some()
-                    || self.store.get(key).flags.intersects(
-                        TypeFlags::STRING_LITERAL
-                            | TypeFlags::NUMBER_LITERAL
-                            | TypeFlags::STRING
-                            | TypeFlags::NUMBER,
-                    )
+                    || self.store.get(key).flags.intersects(TypeFlags::STRING_LITERAL | TypeFlags::NUMBER_LITERAL)
+                    // Native 5b1047d resolveMappedTypeMembers (checker.go:20956)
+                    // also admits concrete index keys, including string & {}.
+                    // Reuse the existing validity worker; retain the original
+                    // key TypeId in the existing member/index publication.
+                    || self.is_valid_index_key_type(key)
                 {
                     if self.signature_parameter_type_is_generic(key) {
                         return None;
@@ -704,6 +748,7 @@ impl<'a> Checker<'a, '_> {
                 accessor_write: None,
                 method: false,
                 origin,
+                checked_declaration: None,
                 name,
                 printed_name,
                 printed_type: self.type_to_string(value),
@@ -1289,6 +1334,138 @@ function read<T extends { a: string; b: number } | { a: string; c: boolean }, K 
             assert_eq!(checker.get_property_names_of_type(mapped), None);
             assert!(!checker.anonymous_properties.contains_key(&mapped));
             assert_eq!(checker.get_property_of_type(mapped, "a"), None);
+        }
+    }
+
+    #[test]
+    fn concrete_mapped_index_keys_keep_literal_members_and_original_index_identity() {
+        for (domain, lookup, preserved) in [
+            ("string & {}", "other", true),
+            ("{} & string", "other", false),
+            ("number & {}", "7", true),
+            ("`west-${string}` & {}", "west-two", false),
+        ] {
+            let source = format!(
+                "type Keys = ({domain}) | 'fixed';
+                 function read(map: {{ [P in Keys]: string }}) {{}}"
+            );
+            let arena = Arena::new();
+            let parsed = tsr_parser::parse(&arena, &source);
+            assert!(parsed.diagnostics.is_empty());
+            let bound = tsr_binder::bind(
+                &arena,
+                parsed.source_file,
+                &parsed.nodes,
+                tsr_binder::FileInfo { name: "mapped-index-keys.ts", text: &source },
+            );
+            let Statement::FunctionDeclaration(function) = parsed.source_file.statements[1] else {
+                panic!("function");
+            };
+            for indexes_first in [false, true] {
+                let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+                checker.strict_null_checks = true;
+                let mapped =
+                    checker.get_type_from_type_node(function.parameters[0].r#type.unwrap());
+                let constraint = checker.mapped_types[&mapped].constraint;
+                let TypeData::Union { types, .. } = &checker.store.get(constraint).data else {
+                    panic!("key union");
+                };
+                let key = *types
+                    .iter()
+                    .find(|&&key| {
+                        matches!(checker.store.get(key).data, TypeData::Intersection { .. })
+                    })
+                    .unwrap();
+                assert!(checker.is_valid_index_key_type(key));
+                let expected_key = if preserved {
+                    key
+                } else {
+                    let TypeData::Intersection { types, .. } = &checker.store.get(key).data else {
+                        unreachable!()
+                    };
+                    *types
+                        .iter()
+                        .find(|&&id| {
+                            checker
+                                .store
+                                .get(id)
+                                .flags
+                                .intersects(TypeFlags::STRING | TypeFlags::TEMPLATE_LITERAL)
+                        })
+                        .unwrap()
+                };
+                if indexes_first {
+                    assert_eq!(
+                        checker.get_index_infos_of_type(mapped).unwrap()[0].key,
+                        expected_key
+                    );
+                } else {
+                    checker.resolve_mapped_type_members(mapped);
+                }
+                assert_eq!(checker.get_property_names_of_type(mapped), Some(vec!["fixed".into()]));
+                let indexes = checker.get_index_infos_of_type(mapped).unwrap();
+                assert_eq!(indexes.len(), 1);
+                assert_eq!(indexes[0].key, expected_key);
+                assert_eq!(indexes[0].value, checker.intrinsics.string);
+                assert!(!indexes[0].readonly);
+                let numeric = domain == "number & {}";
+                let lookup = checker.store.intern_literal(
+                    if numeric { TypeFlags::NUMBER_LITERAL } else { TypeFlags::STRING_LITERAL },
+                    if numeric {
+                        TypeData::NumberLiteral(lookup.into())
+                    } else {
+                        TypeData::StringLiteral(lookup.into())
+                    },
+                    false,
+                );
+                let index = checker.get_applicable_index_info(mapped, lookup).unwrap();
+                assert_eq!(index.key, expected_key);
+                assert_eq!(index.value, checker.intrinsics.string);
+                let properties = checker.anonymous_properties[&mapped].clone();
+                assert!(properties.1);
+                assert_eq!(properties.0.len(), 1);
+                assert_eq!(properties.0[0].r#type, checker.intrinsics.string);
+                assert_eq!(properties.0[0].origin, None);
+                assert!(!properties.0[0].optional);
+                let count = checker.type_count();
+                for _ in 0..3 {
+                    checker.resolve_mapped_type_members(mapped);
+                    assert_eq!(
+                        checker.get_property_names_of_type(mapped),
+                        Some(vec!["fixed".into()])
+                    );
+                    assert_eq!(checker.get_index_infos_of_type(mapped), Some(indexes.clone()));
+                    let (properties, complete) = &checker.anonymous_properties[&mapped];
+                    assert!(complete);
+                    assert_eq!(properties.len(), 1);
+                    let property = &properties[0];
+                    assert_eq!(
+                        (
+                            &*property.name,
+                            &*property.printed_name,
+                            &*property.printed_type,
+                            property.r#type,
+                            property.optional,
+                            property.readonly,
+                            property.origin,
+                            property.method,
+                            property.accessor_write.is_none()
+                        ),
+                        (
+                            "fixed",
+                            "fixed",
+                            "string",
+                            checker.intrinsics.string,
+                            false,
+                            false,
+                            None,
+                            false,
+                            true
+                        )
+                    );
+                    assert_eq!(checker.type_count(), count);
+                }
+            }
         }
     }
 }

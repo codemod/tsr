@@ -1572,7 +1572,7 @@ impl Checker<'_, '_> {
         false
     }
 
-    fn is_constant_reference(&mut self, reference: NodeId) -> bool {
+    pub(crate) fn is_constant_reference(&mut self, reference: NodeId) -> bool {
         match self.node_map.get(reference) {
             Some(Node::Identifier(identifier)) => {
                 if self.is_this_in_type_query(reference) {
@@ -2587,6 +2587,22 @@ impl Checker<'_, '_> {
     ) -> Option<crate::signatures::Signature> {
         let callee = call.expression?;
         let callee_id = callee.node_id()?;
+        // Native signatures retain lazy returns when checking effects. This
+        // port still materializes vectors, so prove the negative before any
+        // callee typing; no provisional return can leak to a cold helper's
+        // completed slot. Unknown ownership keeps the ordinary effects path.
+        if let Some(Node::Identifier(identifier)) = self.node_map.get(callee_id)
+            && let Some(symbol) = self.binder.resolve_name(
+                self.nodes,
+                self.node_map,
+                callee_id,
+                identifier.text,
+                SymbolFlags::VALUE,
+            )
+            && self.function_symbol_has_no_effects(symbol)
+        {
+            return None;
+        }
         let parent_is_statement = self
             .nodes
             .parent(call_node)
@@ -2639,7 +2655,10 @@ impl Checker<'_, '_> {
     /// (`getReturnTypeFromAnnotation`), never the inferred return — a
     /// function whose body only throws does not truncate flow at its
     /// callers upstream either, which corrects §744's residue note.
-    fn has_type_predicate_or_never_return(&self, signature: &crate::signatures::Signature) -> bool {
+    fn has_type_predicate_or_never_return(
+        &mut self,
+        signature: &crate::signatures::Signature,
+    ) -> bool {
         if signature.predicate.is_some() {
             return true;
         }
@@ -2653,7 +2672,15 @@ impl Checker<'_, '_> {
             Some(Node::CallSignatureDeclaration(c)) => c.r#type.is_some(),
             _ => false,
         };
-        annotated && self.store.get(signature.r#type).flags.contains(TypeFlags::NEVER)
+        if annotated {
+            return self.store.get(signature.r#type).flags.contains(TypeFlags::NEVER);
+        }
+        // A JSDoc return node is not copied into this AST's type field. Native
+        // effects read the annotation itself, never an inferred or mapped return.
+        self.jsdoc_return_annotation(signature.declaration).is_some_and(|annotation| {
+            let returned = self.get_type_from_type_node(annotation);
+            self.store.get(returned).flags.contains(TypeFlags::NEVER)
+        })
     }
 
     /// `getSignaturesOfType(t, SignatureKindCall)` reads declared, instantiated
@@ -2663,6 +2690,44 @@ impl Checker<'_, '_> {
         t: TypeId,
     ) -> Option<Vec<crate::signatures::Signature>> {
         self.signatures_of_type_kind(t, crate::signatures::SignatureKind::Call)
+    }
+
+    /// Native parameter-only inference/comparison reads signature links without
+    /// getReturnTypeOfSignature (inference.go:838, relater.go:4452). Retain the
+    /// existing original vector/TypeId instead of rebuilding its declarations
+    /// under an alias mapper. An unpublished FUNCTION vector requires exact
+    /// active-source proof for an ephemeral primitive-parameter projection;
+    /// other active/unsupported work cannot certify an empty or completed set.
+    pub(crate) fn signature_shapes_of_type_kind(
+        &mut self,
+        ty: TypeId,
+        kind: crate::signatures::SignatureKind,
+    ) -> Option<Vec<crate::signatures::Signature>> {
+        let ty = self.apparent_type(ty);
+        if let Some(signatures) = self.signature_types.get(&ty) {
+            return Some(
+                signatures
+                    .iter()
+                    .filter(|signature| {
+                        (signature.kind == crate::signatures::SignatureKind::Call)
+                            == (kind == crate::signatures::SignatureKind::Call)
+                    })
+                    .cloned()
+                    .collect(),
+            );
+        }
+        if let TypeData::Anonymous { symbol, .. } = self.store.get(ty).data
+            && self
+                .binder
+                .symbols()
+                .get(self.binder.merged_symbol(symbol))
+                .flags
+                .intersects(SymbolFlags::FUNCTION | SymbolFlags::METHOD)
+        {
+            let signature = self.parameter_only_signature_of_active_function(ty, symbol)?;
+            return Some((signature.kind == kind).then_some(signature).into_iter().collect());
+        }
+        self.signatures_of_type_kind(ty, kind)
     }
 
     /// getSignaturesOfType (internal/checker/checker.go) uses separate call
@@ -2689,14 +2754,12 @@ impl Checker<'_, '_> {
         if self.intersection_has_never_discriminant(t) {
             return Some(Vec::new());
         }
-        if let Some(signatures) = self.signature_types.get(&t) {
-            return Some(
-                signatures
-                    .iter()
-                    .filter(|s| (s.kind == crate::signatures::SignatureKind::Call) == is_call)
-                    .cloned()
-                    .collect(),
-            );
+        if let Some(signatures) = self.signature_types.get(&t).cloned() {
+            return signatures
+                .into_iter()
+                .filter(|s| (s.kind == crate::signatures::SignatureKind::Call) == is_call)
+                .map(|signature| self.complete_signature_return(signature))
+                .collect();
         }
         match self.store.get(t).data {
             TypeData::Anonymous { symbol, .. } => {
@@ -2770,7 +2833,7 @@ impl Checker<'_, '_> {
     /// only when its declaration carries an annotation. Not ported: the
     /// mapped-symbol origin arm, the `for..of` iterated-type arm, and the
     /// related-info diagnostic (this caller passes `nil`).
-    fn get_explicit_type_of_symbol(&mut self, symbol: SymbolId) -> Option<TypeId> {
+    pub(crate) fn get_explicit_type_of_symbol(&mut self, symbol: SymbolId) -> Option<TypeId> {
         let symbol = self.resolve_alias_fully(symbol);
         let flags = self.binder.symbols().get(symbol).flags;
         if flags.intersects(
@@ -7136,26 +7199,14 @@ impl Checker<'_, '_> {
         let double_equals =
             matches!(operator, SyntaxKind::EqualsEqualsToken | SyntaxKind::ExclamationEqualsToken);
 
-        // Only the *literal* nullable operands are read, rather than typing
-        // the expression: `checkExpression` from inside a flow walk would
-        // re-enter narrowing for the operand's own reference and could recurse
-        // through the same flow node. `null` and `undefined` written literally
-        // are the whole of what the nullable branch can act on anyway —
-        // upstream reaches the same two types through `getTypeOfExpression`,
-        // and a non-literal operand lands in the unported comparability branch
-        // either way, so nothing reachable is given up.
-        let Some(value_type) = self.nullable_literal_type(value) else {
-            // §52 (`checker-notes-narrow.md`): the comparable-filter half
-            // (`flow.go:580`) for a NON-nullable value. Loose equality also
-            // keeps the exact primitive pairs admitted by native
-            // `isCoercibleUnderDoubleEquals`: number/string/boolean-literal
-            // sources against number/string/boolean targets. This is
-            // constituent-wise; declining the whole union loses
-            // `narrowByEquality`'s broad primitive comparisons.
-            // Reentrancy: typing the operand can re-enter this same walk
-            // through the operand's own narrowing (the recursion the
-            // nullable-only port declined to risk) — a node already being
-            // typed for narrowing answers unchanged.
+        // Pinned 5b1047d narrowTypeByEquality dispatches by the computed
+        // operand's flags, not literal syntax. Keep the literal fast path and
+        // the existing Checker-owned NodeId memo/re-entry guard for all other
+        // operands. This routes an already-computed nullable leaf through the
+        // same facts worker; no new cache, mapper image or forcing is added.
+        let value_type = if let Some(literal) = self.nullable_literal_type(value) {
+            literal
+        } else {
             if !self.narrow_value_stack.insert(value) {
                 return t;
             }
@@ -7171,11 +7222,19 @@ impl Checker<'_, '_> {
                 computed
             };
             self.narrow_value_stack.remove(&value);
-            let value_flags = self.store.get(value_type).flags;
+            value_type
+        };
+        let value_flags = self.store.get(value_type).flags;
+        if !value_flags.intersects(TypeFlags::NULLABLE) {
+            // §52 (`checker-notes-narrow.md`): the comparable-filter half
+            // (`flow.go:580`) for a NON-nullable value. Loose equality also
+            // keeps the exact primitive pairs admitted by native
+            // `isCoercibleUnderDoubleEquals`: number/string/boolean-literal
+            // sources against number/string/boolean targets. This is
+            // constituent-wise; declining the whole union loses
+            // `narrowByEquality`'s broad primitive comparisons.
             if value_type == self.intrinsics.error
                 || value_flags.intersects(TypeFlags::ANY_OR_UNKNOWN)
-                || (value_flags.intersects(TypeFlags::NULLABLE)
-                    && !matches!(self.store.get(value_type).data, TypeData::Union { .. }))
             {
                 return t;
             }
@@ -7215,27 +7274,12 @@ impl Checker<'_, '_> {
                     return self.intrinsics.non_primitive;
                 }
             }
-            // §52's contained leg: an alias-NAMED union declines — the
-            // narrowed rebuild loses the alias spelling and the corpus
-            // wants BOTH spellings for one member set by creation path
-            // (`numericLiteralTypes1` position 175 wants `1 | 2` beside
-            // 178's `Tag`), which is the §39 origin reshape's territory.
-            // The §52 wins are all ANONYMOUS unions (`Thing | undefined`).
+            // Pinned 5b1047d flow.go:555 and checker.go:26558 filter named
+            // unions too. Existing origin projection retains a nested alias
+            // only when all its members survive; undecidable comparisons
+            // below still leave the whole input unchanged. No new image/cache.
             let constituents: Vec<TypeId> = match &self.store.get(t).data {
-                TypeData::Union { types, symbol, .. } => {
-                    // A named union keeps its name rather than being filtered —
-                    // EXCEPT an enum, whose declared type is a union carrying
-                    // the enum's own symbol and which upstream does narrow.
-                    // Paired with §666's comparability arm: neither half moves a
-                    // line alone, because this guard stops the walk before the
-                    // filter and the filter answers `false` without that arm.
-                    if symbol.is_some()
-                        && !self.store.get(t).flags.intersects(TypeFlags::ENUM_LITERAL)
-                    {
-                        return t;
-                    }
-                    types.clone()
-                }
+                TypeData::Union { types, .. } => types.clone(),
                 _ => vec![t],
             };
             let total = constituents.len();
@@ -7284,7 +7328,16 @@ impl Checker<'_, '_> {
                     return t;
                 }
                 for constituent in constituents {
-                    let unit_like = self.store.get(constituent).flags.intersects(TypeFlags::UNIT);
+                    // isUnitLikeType (pinned checker.go:25414) includes
+                    // constrained and branded literals, but not an intersection
+                    // whose base constraint has reduced to never.
+                    let constrained = self.base_constraint_or_type(constituent);
+                    let unit_like = match &self.store.get(constrained).data {
+                        TypeData::Intersection { types, .. } => types
+                            .iter()
+                            .any(|&part| self.store.get(part).flags.intersects(TypeFlags::UNIT)),
+                        _ => self.store.get(constrained).flags.intersects(TypeFlags::UNIT),
+                    };
                     if !unit_like {
                         kept.push(constituent);
                         continue;
@@ -7307,7 +7360,7 @@ impl Checker<'_, '_> {
                 }
                 return t;
             }
-            let filtered = self.get_union_type(&kept);
+            let filtered = self.rebuild_union_subset(t, &kept);
             if assume_true {
                 let replaced = self.replace_primitives_with_literals(filtered, value_type);
                 // SS151: the chain strip, after the filter.
@@ -7318,8 +7371,7 @@ impl Checker<'_, '_> {
                 return replaced;
             }
             return filtered;
-        };
-        let value_flags = self.store.get(value_type).flags;
+        }
         debug_assert!(value_flags.intersects(TypeFlags::NULLABLE));
         // `if !c.strictNullChecks { return t }` (`flow.go:565`). Upstream
         // narrows nothing by a nullable comparison in that mode, because every

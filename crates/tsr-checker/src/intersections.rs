@@ -138,7 +138,7 @@ impl Checker<'_, '_> {
         types: &[TypeId],
         symbol: Option<SymbolId>,
     ) -> TypeId {
-        self.get_intersection_type_with_reduction(types, symbol, true)
+        self.get_intersection_type_with_reduction(types, symbol, true, true)
     }
 
     /// getIntersectionTypeEx with `IntersectionFlagsNoConstraintReduction`.
@@ -148,14 +148,15 @@ impl Checker<'_, '_> {
         &mut self,
         types: &[TypeId],
     ) -> TypeId {
-        self.get_intersection_type_with_reduction(types, None, false)
+        self.get_intersection_type_with_reduction(types, None, false, true)
     }
 
-    fn get_intersection_type_with_reduction(
+    pub(crate) fn get_intersection_type_with_reduction(
         &mut self,
         types: &[TypeId],
         symbol: Option<SymbolId>,
         reduce_constraints: bool,
+        reduce_supertypes: bool,
     ) -> TypeId {
         let (mut set, includes) = self.add_types_to_intersection(types);
 
@@ -211,23 +212,21 @@ impl Checker<'_, '_> {
             };
         }
 
-        set = self.remove_redundant_supertypes(set, includes.flags);
+        // NoSupertypeReduction belongs to the source-node operation, not to
+        // all intersections containing an empty object (checker.go:24218).
+        if reduce_supertypes {
+            set = self.remove_redundant_supertypes(set, includes.flags);
+        }
 
         if set.is_empty() {
             // `checker.go:26124`. Not `never`: an intersection of nothing is the
             // type that constrains nothing.
             return self.intrinsics.unknown;
         }
-        // Native returns a singleton after supertype reduction regardless of
-        // the written alias. Restrict the newly observable alias elision to
-        // this unit's template/string-mapping intersections; general alias
-        // identity remains unchanged.
-        if set.len() == 1
-            && (symbol.is_none()
-                || includes
-                    .flags
-                    .intersects(TypeFlags::TEMPLATE_LITERAL | TypeFlags::STRING_MAPPING))
-        {
+        // Pinned 5b1047d getIntersectionTypeEx (checker.go:26127) returns
+        // the reduced singleton before alias attribution. Reuse that existing
+        // identity; multiconstituent aliases and written annotations stay separate.
+        if set.len() == 1 {
             return set[0];
         }
         let mut constrained_variable = None;
@@ -260,6 +259,7 @@ impl Checker<'_, '_> {
                 symbol,
                 types.len(),
                 reduce_constraints,
+                reduce_supertypes,
             );
         }
         let result = create_intersection(&mut self.store, set, named);
@@ -354,9 +354,15 @@ impl Checker<'_, '_> {
         symbol: Option<SymbolId>,
         input_count: usize,
         reduce_constraints: bool,
+        reduce_supertypes: bool,
     ) -> TypeId {
         if let Some(reduced) = self.intersect_primitive_unions(types) {
-            return self.get_intersection_type_with_reduction(&reduced, symbol, reduce_constraints);
+            return self.get_intersection_type_with_reduction(
+                &reduced,
+                symbol,
+                reduce_constraints,
+                reduce_supertypes,
+            );
         }
         // Upstream factors a shared nullable constituent out before expanding.
         for nullable in [self.intrinsics.undefined, self.intrinsics.null] {
@@ -369,7 +375,7 @@ impl Checker<'_, '_> {
                     let remaining: Vec<_> = types.iter().copied().filter(|&id| id != nullable).collect();
                     non_nullable.push(self.get_union_type(&remaining));
                 }
-                let intersected = self.get_intersection_type_with_reduction(&non_nullable, None, reduce_constraints);
+                let intersected = self.get_intersection_type_with_reduction(&non_nullable, None, reduce_constraints, reduce_supertypes);
                 return self.intersection_result_union(&[intersected, nullable], symbol);
             }
         }
@@ -380,16 +386,19 @@ impl Checker<'_, '_> {
                 &types[..middle],
                 None,
                 reduce_constraints,
+                reduce_supertypes,
             );
             let right = self.get_intersection_type_with_reduction(
                 &types[middle..],
                 None,
                 reduce_constraints,
+                reduce_supertypes,
             );
             return self.get_intersection_type_with_reduction(
                 &[left, right],
                 symbol,
                 reduce_constraints,
+                reduce_supertypes,
             );
         }
         let mut count = 1usize;
@@ -411,8 +420,12 @@ impl Checker<'_, '_> {
                     selection /= types.len();
                 }
             }
-            let intersected =
-                self.get_intersection_type_with_reduction(&constituents, None, reduce_constraints);
+            let intersected = self.get_intersection_type_with_reduction(
+                &constituents,
+                None,
+                reduce_constraints,
+                reduce_supertypes,
+            );
             if !self.store.get(intersected).flags.contains(TypeFlags::NEVER) {
                 intersections.push(intersected);
             }

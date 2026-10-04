@@ -396,6 +396,47 @@ impl<'a> Checker<'a, '_> {
         false
     }
 
+    /// `GetAssignmentDeclarationKind`'s named `CommonJS` export assignment arm.
+    /// Syntax determines the kind; each consumer still resolves the receiver's
+    /// actual symbol before inspecting declarations or their value types.
+    pub(crate) fn is_commonjs_export_property_assignment(
+        &self,
+        binary: &tsr_ast::BinaryExpression<'_>,
+    ) -> bool {
+        if !binary.node_id.is_some_and(|id| self.in_js_file(id))
+            || binary.operator_token.is_none_or(|token| token.kind != SyntaxKind::EqualsToken)
+        {
+            return false;
+        }
+        let target = match binary.left {
+            Some(Expression::PropertyAccessExpression(access))
+                if matches!(access.name, Some(tsr_ast::MemberName::Identifier(_))) =>
+            {
+                access.expression
+            }
+            Some(Expression::ElementAccessExpression(access)) => {
+                let mut argument = access.argument_expression;
+                while let Some(Expression::ParenthesizedExpression(parentheses)) = argument {
+                    argument = parentheses.expression;
+                }
+                if !matches!(
+                    argument,
+                    Some(
+                        Expression::StringLiteral(_)
+                            | Expression::NoSubstitutionTemplateLiteral(_)
+                            | Expression::NumericLiteral(_)
+                    )
+                ) {
+                    return false;
+                }
+                access.expression
+            }
+            _ => None,
+        };
+        matches!(target, Some(Expression::Identifier(name)) if name.text == "exports")
+            || target.is_some_and(is_module_exports_access)
+    }
+
     pub(crate) fn get_widened_type_for_assignment_declaration(
         &mut self,
         symbol: SymbolId,
@@ -441,11 +482,14 @@ impl<'a> Checker<'a, '_> {
                     {
                         continue;
                     }
-                    let exports = matches!(target, Some(Expression::Identifier(name)) if name.text == "exports")
-                        || matches!(target, Some(Expression::PropertyAccessExpression(access))
-                            if matches!(access.expression, Some(Expression::Identifier(name)) if name.text == "module")
-                                && matches!(access.name, Some(tsr_ast::MemberName::Identifier(name)) if name.text == "exports"));
-                    let assigned = if exports {
+                    // ast.GetAssignmentDeclarationKind: both module.exports
+                    // itself and its named properties preserve regular literals.
+                    // Only the named-property kind ignores initial undefined.
+                    let exports = self.is_commonjs_export_property_assignment(binary);
+                    let module_exports = self.in_js_file(declaration)
+                        && is_module_exports_access(left)
+                        && !matches!(right, Expression::Identifier(name) if name.text == "exports");
+                    let assigned = if exports || module_exports {
                         let mut rightmost = right;
                         while let Expression::BinaryExpression(assignment) = rightmost {
                             if assignment
@@ -517,6 +561,10 @@ impl<'a> Checker<'a, '_> {
         if t == self.intrinsics.error {
             return t;
         }
+        // Native getWidenedType descends inferred object/array images. Reuse
+        // the checker-owned widening worker and its context/publication rules;
+        // regular CommonJS literals are not fresh and keep their identity.
+        let t = self.widen_object_literal_freshness(t);
         // getWidenedType does not widen regular CommonJS literal types. Mutable
         // assignment and descriptor values have already widened at their own
         // expression boundary. JS all-nullable assignment inference is any,
@@ -606,4 +654,31 @@ impl<'a> Checker<'a, '_> {
 fn is_this_keyword(expression: Option<Expression<'_>>) -> bool {
     matches!(expression, Some(Expression::KeywordExpression(keyword))
         if keyword.kind == SyntaxKind::ThisKeyword)
+}
+
+/// `ast.IsModuleExportsAccessExpression`, native 5b1047d1 utilities.go:2869.
+pub(crate) fn is_module_exports_access(expression: Expression<'_>) -> bool {
+    let (target, name) = match expression {
+        Expression::PropertyAccessExpression(access) => (
+            access.expression,
+            match access.name {
+                Some(tsr_ast::MemberName::Identifier(name)) => Some(name.text),
+                _ => None,
+            },
+        ),
+        Expression::ElementAccessExpression(access) => (access.expression, {
+            let mut argument = access.argument_expression;
+            while let Some(Expression::ParenthesizedExpression(parentheses)) = argument {
+                argument = parentheses.expression;
+            }
+            match argument {
+                Some(Expression::StringLiteral(name)) => Some(name.text),
+                Some(Expression::NoSubstitutionTemplateLiteral(name)) => Some(name.text),
+                _ => None,
+            }
+        }),
+        _ => return false,
+    };
+    matches!(target, Some(Expression::Identifier(name)) if name.text == "module")
+        && name == Some("exports")
 }

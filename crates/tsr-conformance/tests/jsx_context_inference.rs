@@ -26,6 +26,40 @@ declare namespace JSX {
 "#;
 
 #[test]
+fn jsx_composite_own_members_keep_optional_discriminant_metadata() {
+    let source = format!(
+        r#"{PRELUDE}
+declare namespace JSX {{ interface IntrinsicAttributes {{ key?: string | number; readonly sharedTag?: "same" }} }}
+interface TextProps {{ mode?: false; onValue: (value: string) => number; content?: (value: string) => number }}
+interface NumberProps {{ mode: true; onValue: (value: number) => string; content?: (value: number) => string }}
+type ChoiceProps = TextProps | NumberProps;
+declare function Choice(props: ChoiceProps): JSX.Element;
+const omitted = <Choice onValue={{absentWord => absentWord.length}} />;
+const explicit = <Choice mode onValue={{explicitNumber => explicitNumber.toFixed()}} />;
+const body = <Choice onValue={{parentWord => parentWord.length}}>{{childWord => childWord.length}}</Choice>;
+const reversed = <Choice onValue={{laterNumber => laterNumber.toFixed()}} mode />;
+interface RequiredTag {{ readonly sharedTag: "same"; onValue: (value: string) => void }}
+interface OptionalTag {{ readonly sharedTag?: "same"; onValue: (value: number) => void }}
+declare function BySharedTag(props: RequiredTag | OptionalTag): JSX.Element;
+const absentTag = <BySharedTag onValue={{absentTagNumber => absentTagNumber.toFixed()}} />;
+const undefinedTag = <BySharedTag sharedTag={{undefined}} onValue={{undefinedTagNumber => undefinedTagNumber.toFixed()}} />;
+"#
+    );
+    assert_types(
+        &source,
+        &[
+            "absentWord => absentWord.length : (absentWord: string) => number",
+            "explicitNumber => explicitNumber.toFixed() : (explicitNumber: number) => string",
+            "parentWord => parentWord.length : (parentWord: string) => number",
+            "childWord => childWord.length : (childWord: string) => number",
+            "laterNumber => laterNumber.toFixed() : (laterNumber: number) => string",
+            "absentTagNumber => absentTagNumber.toFixed() : (absentTagNumber: number) => string",
+            "undefinedTagNumber => undefinedTagNumber.toFixed() : (undefinedTagNumber: number) => string",
+        ],
+    );
+}
+
+#[test]
 fn jsx_scalar_generic_context_is_not_a_callback_certification_query() {
     let source = format!(
         r#"{PRELUDE}
@@ -320,6 +354,90 @@ const tuple = <Tuple>{value => value + "!"}{"word"}</Tuple>;
             "enabled => !enabled : (enabled: boolean) => boolean",
             "instance => instance.props.value.toFixed() : (instance: Component<number>) => string",
             "value => value + \"!\" : (value: string) => string",
+        ],
+    );
+}
+
+#[test]
+fn jsx_intrinsic_context_uses_literal_tag_index_keys() {
+    // Native jsx.go:1190 uses a tag's literal key. Broad string fallback is
+    // lower precedence; overlapping patterns intersect; named members win.
+    let source = r#"// @strict: true
+// @target: es2015
+// @jsx: preserve
+declare namespace JSX {
+    interface Element { readonly brand: "element" }
+    interface IntrinsicElements {
+        [name: string]: { consume?: (value: any) => void };
+        [name: `widget-${string}`]: { consume?: (value: number) => void; selection?: string };
+        [name: `widget-special-${string}`]: { consume?: (value: number) => void; selection?: "west"; only?: (value: string) => void };
+        explicit: { consume?: (value: string) => void; selection?: "east" };
+        fallback: { consume?: (value: boolean) => void };
+    }
+}
+const broad = <fallback consume={flag => !flag} />;
+const ordinary = <widget-normal consume={count => count.toFixed()} selection="free" />;
+const overlapping = <widget-special-normal consume={overlapCount => overlapCount.toFixed()} only={overlapWord => overlapWord.length} selection="west" />;
+const wrongLiteral = <widget-special-invalid selection="east" />;
+const named = <explicit consume={namedWord => namedWord.length} />;
+const nearMiss = <widget consume={flag => !flag} />;
+"#;
+    assert_types(
+        source,
+        &[
+            "flag => !flag : (flag: boolean) => boolean",
+            "count => count.toFixed() : (count: number) => string",
+            "overlapCount => overlapCount.toFixed() : (overlapCount: number) => string",
+            "overlapWord => overlapWord.length : (overlapWord: string) => number",
+            "namedWord => namedWord.length : (namedWord: string) => number",
+            "selection : \"west\"",
+            "selection : \"east\"",
+            "selection : string",
+            "flag => !flag : (flag: any) => boolean",
+        ],
+    );
+}
+
+#[test]
+fn jsx_multi_child_context_indexes_only_native_array_like_types() {
+    let source = r#"// @strict: true
+// @target: es2015
+// @jsx: preserve
+declare namespace JSX {
+    interface Element { readonly brand: "element" }
+    interface ElementChildrenAttribute { content: {} }
+}
+interface Words extends ReadonlyArray<(value: string) => void> {}
+interface Counts extends ReadonlyArray<(value: any) => void> {
+    readonly 0: (value: 7) => void;
+    readonly 1: (value: 13) => void;
+}
+declare function WordList(props: {content: Words}): JSX.Element;
+const words = <WordList>{leftWord => leftWord.length}{/* semantic index ignores comments */}{rightWord => rightWord.toUpperCase()}</WordList>;
+declare function CountList(props: {content: Counts}): JSX.Element;
+const counts = <CountList>{leftCount => { leftCount.toFixed(); }}{rightCount => { rightCount.toFixed(); }}</CountList>;
+declare function Compound(props: {content: ReadonlyArray<(value: boolean) => void> & {readonly marker?: "compound"}}): JSX.Element;
+const compound = <Compound>{leftFlag => !leftFlag}{rightFlag => !rightFlag}</Compound>;
+declare function Structural(props: {content: {readonly length: number; readonly [index: number]: (value: boolean) => void}}): JSX.Element;
+const merelyIndexed = <Structural>{notAnArray => {}}{stillNotAnArray => {}}</Structural>;
+declare function SetList(props: {content: ReadonlySet<(value: string) => void>}): JSX.Element;
+const merelyIterable = <SetList>{iterableOnly => {}}{alsoIterableOnly => {}}</SetList>;
+const singleArrayChild = <WordList>{oneChild => {}}</WordList>;
+"#;
+    assert_types(
+        source,
+        &[
+            "leftWord => leftWord.length : (leftWord: string) => number",
+            "rightWord => rightWord.toUpperCase() : (rightWord: string) => string",
+            "leftCount => { leftCount.toFixed(); } : (leftCount: 7) => void",
+            "rightCount => { rightCount.toFixed(); } : (rightCount: 13) => void",
+            "leftFlag => !leftFlag : (leftFlag: boolean) => boolean",
+            "rightFlag => !rightFlag : (rightFlag: boolean) => boolean",
+            "notAnArray => {} : (notAnArray: any) => void",
+            "stillNotAnArray => {} : (stillNotAnArray: any) => void",
+            "iterableOnly => {} : (iterableOnly: any) => void",
+            "alsoIterableOnly => {} : (alsoIterableOnly: any) => void",
+            "oneChild => {} : (oneChild: any) => void",
         ],
     );
 }

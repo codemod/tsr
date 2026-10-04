@@ -1,0 +1,15 @@
+/usage.js(2,3): error TS2339: Property 'missing' does not exist on type 'typeof import("/payload")'.
+
+
+==== /usage.js (1 errors) ====
+    const x = require("./payload");
+    x.missing;
+      ~~~~~~~
+!!! error TS2339: Property 'missing' does not exist on type 'typeof import("/payload")'.
+    x["missing"];
+    x["availabl"];
+    x["available"];
+    
+==== /payload.js (0 errors) ====
+    exports.available = 1;
+    exports.alternate = 2;

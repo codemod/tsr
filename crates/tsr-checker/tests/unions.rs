@@ -286,6 +286,29 @@ fn a_union_containing_a_named_union_keeps_the_origin_spelling() {
     });
 }
 
+#[test]
+fn nested_alias_origins_keep_the_outer_alias_at_reference_sites() {
+    // Native nodebuilderimpl.go:3362 chooses the alias before its origin;
+    // addNamedUnions likewise treats an aliased union as an atomic entry.
+    with_checker(
+        "type Word = 'east' | 'west'; type Route = Word | 13;
+         var direct: Route; var nullable: Route | undefined;",
+        |checker, bound, statements| {
+            let route = declared_type_id(checker, bound, statements, 1);
+            let direct = annotation_type(checker, statements, 2);
+            assert_eq!(route, direct);
+            let nullable = annotation_type(checker, statements, 3);
+            for (id, index, expected) in [(nullable, 3, "Route | undefined"), (direct, 2, "Route")]
+            {
+                let reference = statements[index].node_id().expect("a reference scope");
+                assert_eq!(checker.type_to_string_at(id, reference).as_deref(), Some(expected));
+                assert_eq!(checker.type_to_string(id), expected);
+                assert_eq!(checker.type_to_string_at(id, reference).as_deref(), Some(expected));
+            }
+        },
+    );
+}
+
 /// Check the last variable's expression without declaration widening. This
 /// exercises `checkConditionalExpression`'s `UnionReductionSubtype` road.
 fn last_initializer(checker: &mut Checker, statements: &[Statement<'_>]) -> TypeId {
@@ -493,4 +516,112 @@ fn resolved_empty_interfaces_do_not_absorb_strict_nullable_types() {
             assert_eq!(checker.type_to_string(result), expected);
         });
     }
+}
+
+#[test]
+fn reduced_singleton_aliases_reuse_the_existing_constituent_identity() {
+    // Native 5b1047d returns the sole reduced constituent before attaching
+    // the new alias. Primitive and nominal singletons need no wrapper;
+    // repeated inputs only collapse when their normalized set is singleton.
+    for (body, bare, expected) in [
+        ("number | 17", "number", "number"),
+        ("17 & number", "17", "17"),
+        ("'east' & string", "'east'", "\"east\""),
+        ("Shape | never", "Shape", "Shape"),
+        ("Shape & Shape", "Shape", "Shape"),
+        ("17 | 17", "17", "17"),
+        ("'east' | 'east'", "'east'", "\"east\""),
+        ("('east' & 'west') | Shape", "Shape", "Shape"),
+    ] {
+        for reverse in [false, true] {
+            let source = format!(
+                "interface Shape {{ tag: 'shape' }}
+                 type Word = 'east' | 'west';
+                 type Brand = 'east' & {{ readonly side: 'east' }};
+                 type Single = {body};
+                 declare let bare: {bare}; declare let aliased: Single;"
+            );
+            with_checker(&source, |checker, bound, statements| {
+                let (first, second) = if reverse { (5, 4) } else { (4, 5) };
+                let left = annotation_type(checker, statements, first);
+                let right = annotation_type(checker, statements, second);
+                assert_eq!(left, right, "{body}, reverse={reverse}");
+                assert_eq!(checker.type_to_string(left), expected, "{body}");
+                assert_eq!(declared_type_id(checker, bound, statements, 3), left);
+                assert_eq!(annotation_type(checker, statements, first), left);
+                assert_eq!(annotation_type(checker, statements, second), left);
+            });
+        }
+    }
+}
+
+#[test]
+fn source_brand_identity_stays_distinct_from_its_reduced_primitive() {
+    for primitive in ["string", "number", "bigint", "`west-${string}`"] {
+        for reverse in [false, true] {
+            let source = format!(
+                "type Brand = {primitive} & {{}};
+                 declare let bare: {primitive}; declare let branded: Brand;"
+            );
+            with_checker(&source, |checker, bound, statements| {
+                let (first, second) = if reverse { (2, 1) } else { (1, 2) };
+                let first_id = annotation_type(checker, statements, first);
+                let second_id = annotation_type(checker, statements, second);
+                assert_ne!(first_id, second_id, "{primitive}, reverse={reverse}");
+                let brand = declared_type_id(checker, bound, statements, 0);
+                assert_eq!(checker.type_to_string(brand), "Brand");
+                assert!(
+                    matches!(&checker.type_of(brand).data, TypeData::Intersection { types, .. } if types.len() == 2)
+                );
+                for _ in 0..3 {
+                    assert_eq!(annotation_type(checker, statements, first), first_id);
+                    assert_eq!(annotation_type(checker, statements, second), second_id);
+                }
+            });
+        }
+    }
+}
+
+#[test]
+fn repeated_multi_constituent_inputs_keep_the_new_alias_after_flattening() {
+    // Native's singleton check is after flattening/reduction: Word | Word
+    // and Brand & Brand still have two constituents, unlike literal repeats.
+    for (body, bare) in [("Word | Word", "Word"), ("Brand & Brand", "Brand")] {
+        let source = format!(
+            "type Word = 'east' | 'west';
+             type Brand = 'east' & {{ readonly side: 'east' }};
+             type Repeated = {body};
+             declare let bare: {bare}; declare let aliased: Repeated;"
+        );
+        with_checker(&source, |checker, _bound, statements| {
+            let bare = annotation_type(checker, statements, 3);
+            let aliased = annotation_type(checker, statements, 4);
+            assert_ne!(bare, aliased, "{body}");
+            assert_eq!(checker.type_to_string(aliased), "Repeated", "{body}");
+        });
+    }
+}
+
+#[test]
+fn singleton_reduction_preserves_written_signature_aliases() {
+    // The semantic alias becomes number/17, while native's declaration
+    // serializer still reuses the written annotation at signature slots.
+    with_checker(
+        "interface Shape { tag: 'shape' }
+         type NumberUnion = number | 17;
+         type LiteralIntersection = 17 & number;
+         type ShapeUnion = Shape | never;
+         declare function preserveSource(value: NumberUnion, item: LiteralIntersection): ShapeUnion;",
+        |checker, bound, statements| {
+            let Statement::FunctionDeclaration(function) = statements[4] else {
+                panic!("function")
+            };
+            let symbol = bound.symbol_of(function.node_id.unwrap()).unwrap();
+            let ty = checker.get_type_of_symbol(symbol);
+            assert_eq!(
+                checker.type_to_string_at(ty, function.node_id.unwrap()).as_deref(),
+                Some("(value: NumberUnion, item: LiteralIntersection) => ShapeUnion"),
+            );
+        },
+    );
 }

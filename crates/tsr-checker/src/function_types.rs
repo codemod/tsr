@@ -129,21 +129,16 @@ impl<'a> Checker<'a, '_> {
     /// The shared tail of the two arms above.
     fn signature_bearing_type_node(&mut self, id: tsr_ast::NodeId) -> TypeId {
         let error = self.intrinsics.error;
-        let Some(signature) = self.get_signature_from_declaration(id) else {
-            return error;
-        };
         // §72 (`checker-notes-narrow.md`): `getAliasForTypeNode`'s three arms,
         // the SAME three the type-literal and union nodes take — a body under
         // a non-generic alias prints the alias's name (`type F2 = ({ a:
         // string }: O) => any` records `>F2 : F2`), a generic one gaps rather
         // than dropping its arguments, an unaliased node renders structurally.
 
-        let mut alias_named = false;
-        let text = match self.alias_symbol_for_type_node(id) {
-            None => self.signature_to_string(&signature),
+        let alias_name = match self.alias_symbol_for_type_node(id) {
+            None => None,
             Some(alias) if self.local_type_parameters_of(alias).is_empty() => {
-                alias_named = true;
-                self.binder.symbols().get(alias).name.to_string()
+                Some(self.binder.symbols().get(alias).name.to_string())
             }
             // §947.2: the alias currently being re-resolved renders its body
             // STRUCTURALLY here, which is §92's exemption for the union road
@@ -151,9 +146,7 @@ impl<'a> Checker<'a, '_> {
             // alias §947.2's caller inserted before re-resolving — so an
             // unrelated function type reached during some other evaluation still
             // declines.
-            Some(alias) if self.variadic_alias_in_progress.contains(&alias) => {
-                self.signature_to_string(&signature)
-            }
+            Some(alias) if self.variadic_alias_in_progress.contains(&alias) => None,
             Some(_) => return error,
         };
         // The symbol is `bindFunctionOrConstructorType`'s `__type` symbol, whose
@@ -161,12 +154,28 @@ impl<'a> Checker<'a, '_> {
         // has none is a gap rather than a type with a synthetic identity — see
         // the note above.
         let Some(symbol) = self.binder.symbol_of(id) else { return error };
-        // Reuse successful nodes in the same captured-binding/template context,
-        // but only after the current signature and alias eligibility checks.
+        // Native getTypeFromTypeLiteralOrFunctionOrConstructorTypeNode installs
+        // the identity before the signature's parameter/return slots resolve.
+        // Reuse stays in the existing declaration/captured-binding/template key,
+        // after alias eligibility. Metadata is published only after success;
+        // unsupported preparation removes the reservation, not a completed any.
         let key = self.type_literal_key(id);
         if let Some(&ty) = self.type_literal_types.get(&key) {
             return ty;
         }
+        let alias_named = alias_name.is_some();
+        let reserved = self.store.new_anonymous(
+            TypeFlags::OBJECT,
+            alias_name.clone().unwrap_or_else(|| "any".into()),
+            symbol,
+            !alias_named,
+        );
+        self.type_literal_types.insert(key.clone(), reserved);
+        let Some(signature) = self.get_signature_from_declaration(id) else {
+            self.type_literal_types.remove(&key);
+            return error;
+        };
+        let text = alias_name.unwrap_or_else(|| self.signature_to_string(&signature));
         // §447: the `signature` flag records which NODE KIND the node builder
         // would emit (`TypeData::Anonymous::signature`'s own contract), and an
         // alias-NAMED bake emits a `TypeReferenceNode` — highest precedence,
@@ -175,7 +184,9 @@ impl<'a> Checker<'a, '_> {
         // records `F1 | F2`. The flag's other consumer (`crate::flow`'s
         // typeof facts) is unaffected: it falls through to the
         // `signature_types` table this same function populates below.
-        let built = self.store.new_anonymous(TypeFlags::OBJECT, text, symbol, !alias_named);
+        let resolved = self.store.new_anonymous(TypeFlags::OBJECT, text, symbol, !alias_named);
+        self.store.complete_object(reserved, resolved);
+        let built = reserved;
         // §89 (`checker-notes-narrow.md`): the site renderer's composite
         // re-render (§10.13) rebuilds a single-signature type from its
         // STRUCTURE — which is right for qualifier/rename sites and WRONG

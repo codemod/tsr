@@ -58,6 +58,10 @@ impl Checker<'_, '_> {
         // the stack is non-empty is the dual for this port's single cache.
         // See docs/architecture/checker-notes-narrow.md §12.6.
         if self.flow_loop_stack.is_empty()
+            // An unresolved return-cycle read is not a completed expression
+            // answer. Keep unrelated unsupported expressions as errors too;
+            // only withhold their cache entry until active return work finishes.
+            && !(computed == self.intrinsics.error && self.resolutions.has_active_return())
             && let Some(id) = node.node_id()
         {
             self.node_types.insert(id, computed);
@@ -472,30 +476,7 @@ impl Checker<'_, '_> {
         if self.nodes.kind(root) == SyntaxKind::Parameter && self.is_some_symbol_assigned(root) {
             return None;
         }
-        let parent_type = self.get_type_for_binding_element_parent(holder);
-        let parent_type = self.binding_type_alias_body(parent_type);
-        if parent_type == self.intrinsics.error {
-            return None;
-        }
-        // §766 (`checker.go:13768`): `mapType(parentType, getBaseConstraintOrType)`.
-        // The union test is on the CONSTRAINT, so a destructured parameter
-        // typed `T extends A | B` reaches the road — the constraint is the
-        // union, the written type is a type parameter, and testing the written
-        // type declined every generic destructuring.
-        let parent_constraint = {
-            let constituents: Vec<TypeId> = match &self.store.get(parent_type).data {
-                crate::types::TypeData::Union { types, .. } => types.clone(),
-                _ => vec![parent_type],
-            };
-            let mapped: Vec<TypeId> = constituents
-                .iter()
-                .map(|&constituent| {
-                    let constraint = self.base_constraint_or_type(constituent);
-                    self.binding_type_alias_body(constraint)
-                })
-                .collect();
-            if mapped == constituents { parent_type } else { self.get_union_type(&mapped) }
-        };
+        let parent_constraint = self.dependent_binding_parent_constraint(holder)?;
         if !self.store.get(parent_constraint).flags.intersects(crate::flags::TypeFlags::UNION) {
             return None;
         }
@@ -514,6 +495,40 @@ impl Checker<'_, '_> {
         }
         let projected = self.project_binding_element(declaration, narrowed);
         (projected != self.intrinsics.error).then_some(projected)
+    }
+
+    /// Pinned getNarrowedTypeOfSymbol, 5b1047d's checker.go:13766-13772.
+    /// Guard only the immediate holder's parent/constraint work. This is an
+    /// in-flight marker, not a result cache: repeated active lookup is None,
+    /// and completed/unsupported lookup clears it before any flow walk. Alias
+    /// and base-constraint projection retain their existing semantic suppliers.
+    fn dependent_binding_parent_constraint(&mut self, holder: NodeId) -> Option<TypeId> {
+        if !self.dependent_binding_parents_in_flight.insert(holder) {
+            return None;
+        }
+        let result = (|| {
+            let parent_type = self.get_type_for_binding_element_parent(holder);
+            let parent_type = self.binding_type_alias_body(parent_type);
+            if parent_type == self.intrinsics.error {
+                return None;
+            }
+            // §766: the union test is on the constraint, not the written
+            // type parameter. Keep the existing alias/constraint mapping.
+            let constituents: Vec<TypeId> = match &self.store.get(parent_type).data {
+                crate::types::TypeData::Union { types, .. } => types.clone(),
+                _ => vec![parent_type],
+            };
+            let mapped: Vec<TypeId> = constituents
+                .iter()
+                .map(|&constituent| {
+                    let constraint = self.base_constraint_or_type(constituent);
+                    self.binding_type_alias_body(constraint)
+                })
+                .collect();
+            Some(if mapped == constituents { parent_type } else { self.get_union_type(&mapped) })
+        })();
+        self.dependent_binding_parents_in_flight.remove(&holder);
+        result
     }
 
     /// `getNarrowedTypeOfSymbol`'s contextual parameter arm: an unannotated
@@ -685,6 +700,25 @@ impl Checker<'_, '_> {
                             id, node.text, symbol,
                         ) {
                             return self.intrinsics.error;
+                        }
+                        // Native checkIdentifier/getTypeOfSymbol observes the
+                        // original callable's shape before its return. Scope
+                        // this entry to a direct const callee, not declaration
+                        // views, aliases, mutable bindings or named properties.
+                        if self.nodes.parent(id).is_some_and(|parent| matches!(
+                            self.node_map.get(parent), Some(Node::CallExpression(call))
+                                if call.expression.and_then(|expression| expression.node_id()) == Some(id)))
+                            && self.is_constant_variable(symbol)
+                            && !self.resolutions.on_stack(symbol, crate::resolution::PropertyName::Type)
+                            && self.binder.symbols().get(symbol).declarations.len() == 1
+                            && let Some(declaration) = self.binder.symbols().get(symbol).value_declaration
+                            && let Some(Node::VariableDeclaration(variable)) = self.node_map.get(declaration)
+                            && variable.r#type.is_none()
+                            && let Some(initializer) = variable.initializer
+                            && let Some(original) = initializer.node_id()
+                            && self.has_no_contextual_type(original)
+                        {
+                            self.prepare_uncontextual_callable(original);
                         }
                         let declared = self.get_type_of_symbol(symbol);
                         // `getNarrowedTypeOfSymbol` (`checker.go`): only a
@@ -3255,9 +3289,8 @@ impl Checker<'_, '_> {
     ///   `errorType` never reaches here (both callers screen it first).
     /// - A **union** awaits per constituent (`:31285`); one undecidable
     ///   constituent gaps the whole.
-    /// - A type parameter retains its identity. The separate `awaited_type`
-    ///   consumer introduces Awaited<T> only when isAwaitedTypeNeeded requires
-    ///   it; async return aggregation keeps the unwrapped parameter.
+    /// - Generic types retain their identity only when isAwaitedTypeNeeded
+    ///   requires it. Otherwise promised-type lookup uses their constraints.
     /// - A reference to the **global `Promise`** unwraps to its argument
     ///   (`getPromisedTypeOfPromiseEx`'s short-circuit, `checker.go:28941`),
     ///   recursively. `PromiseLike<T>` reaches the same `T` upstream through
@@ -3270,6 +3303,13 @@ impl Checker<'_, '_> {
     ///   unwrap their fulfillment callback's first parameter, recursively;
     ///   noncallable members leave the object unchanged. Unsupported signature
     ///   or relation lookups and recursive fulfillment types decline.
+    ///
+    /// Native 5b1047d getAwaitedTypeNoAliasEx: recursion is owned by this call's
+    /// `TypeId` stack in the private Checker, not a persistent completion cache.
+    /// Active repeats and unsupported images return None; only completed walks
+    /// return Some. Constraint/member/signature work uses the existing owners
+    /// and mapper/alias frames; lookup and this filtering retain the original
+    /// receiver. No new member image or publication state is introduced.
     pub(crate) fn awaited_type_no_alias(&mut self, id: TypeId) -> Option<TypeId> {
         self.awaited_type_no_alias_worker(id, &mut Vec::new())
     }
@@ -3286,6 +3326,17 @@ impl Checker<'_, '_> {
         if flags.intersects(TypeFlags::ANY | TypeFlags::UNKNOWN) {
             return Some(id);
         }
+        // Native recognizes an existing Awaited alias before constraint work.
+        if flags.contains(TypeFlags::CONDITIONAL)
+            && self.type_reference_targets.get(&id).is_some_and(|(symbol, arguments)| {
+                arguments.len() == 1
+                    && self.global_type_symbol("Awaited").is_some_and(|awaited| {
+                        self.binder.merged_symbol(awaited) == self.binder.merged_symbol(*symbol)
+                    })
+            })
+        {
+            return Some(id);
+        }
         if let crate::types::TypeData::Union { types, .. } = &self.store.get(id).data {
             let constituents = types.clone();
             stack.push(id);
@@ -3299,25 +3350,10 @@ impl Checker<'_, '_> {
         if flags.intersects(TypeFlags::PRIMITIVE | TypeFlags::NEVER) {
             return Some(id);
         }
-        // getAwaitedTypeNoAlias preserves unresolved conditional types. Their
-        // eventual branch is chosen during instantiation; introducing the
-        // Awaited wrapper is the separate getAwaitedType/createAwaitedTypeIfNeeded
-        // step. This also preserves an existing Awaited<T> instantiation.
-        if flags.contains(TypeFlags::CONDITIONAL) {
+        // Retention must precede promised-type lookup: awaiting a constrained
+        // generic thenable yields Awaited<T>, not its constraint's value type.
+        if self.is_awaited_type_needed(id)? {
             return Some(id);
-        }
-        if flags.contains(TypeFlags::TYPE_PARAMETER) {
-            return Some(id);
-        }
-        // `isAwaitedTypeNeeded`'s domain plus the deferred kinds whose
-        // members this port cannot probe: all decline rather than guess.
-        if flags.intersects(
-            TypeFlags::INDEX
-                .union(TypeFlags::INDEXED_ACCESS)
-                .union(TypeFlags::SUBSTITUTION)
-                .union(TypeFlags::INTERSECTION),
-        ) {
-            return None;
         }
         if let Some((target, arguments)) = self.type_reference_targets.get(&id).cloned()
             && arguments.len() == 1
@@ -3333,6 +3369,13 @@ impl Checker<'_, '_> {
                 stack.pop();
                 return result;
             }
+        }
+        // Both promised-type lookup and its native fallback exclude primitive
+        // constraints, including branded primitives with callable then members.
+        // The existing relation/member worker distinguishes absent from
+        // unsupported members without replacing the concrete receiver by a bound.
+        if !self.is_thenable_type(id)? {
+            return Some(id);
         }
         let Some(then) = self.get_type_of_property_of_type(id, "then") else {
             return Some(id);
@@ -4074,5 +4117,121 @@ mod tests {
                 assert_eq!(checker.check_property_access_expression(access), original);
             },
         );
+    }
+
+    #[test]
+    fn binding_parent_guard_is_holder_local_and_clears_before_flow() {
+        let source = format!(
+            "{}\nconst observed = 0;",
+            include_str!("../tests/binding_pattern_controls.ts")
+        );
+        with_initializer(&source, |checker, _| {
+            let holders = (0..checker.nodes.len())
+                .filter_map(|index| {
+                    let id = NodeId::new(u32::try_from(index).unwrap());
+                    let Node::ParameterDeclaration(_) = checker.node_map.get(id)? else {
+                        return None;
+                    };
+                    let parent = checker.nodes.parent(id)?;
+                    let Node::FunctionDeclaration(function) = checker.node_map.get(parent)? else {
+                        return None;
+                    };
+                    Some((function.name?.text, id))
+                })
+                .collect::<Vec<_>>();
+            let holder = |name| holders.iter().find(|(held, _)| *held == name).unwrap().1;
+            let first = holder("guarded");
+            let second = holder("independent");
+            checker.dependent_binding_parents_in_flight.insert(first);
+            let computations = checker.computations;
+            assert_eq!(checker.dependent_binding_parent_constraint(first), None);
+            assert_eq!(checker.computations, computations, "active repeat performed work");
+            assert!(checker.dependent_binding_parents_in_flight.contains(&first));
+            let other = checker.dependent_binding_parent_constraint(second).unwrap();
+            assert_eq!(checker.dependent_binding_parent_constraint(second), Some(other));
+            assert_eq!(
+                checker.dependent_binding_parents_in_flight.len(),
+                1,
+                "different holder cleared its caller's guard"
+            );
+            checker.dependent_binding_parents_in_flight.remove(&first);
+            let cold = checker.dependent_binding_parent_constraint(first).unwrap();
+            assert_eq!(checker.dependent_binding_parent_constraint(first), Some(cold));
+            assert!(checker.dependent_binding_parents_in_flight.is_empty());
+            assert_eq!(checker.dependent_binding_parent_constraint(holder("unsupported")), None);
+            assert!(
+                checker.dependent_binding_parents_in_flight.is_empty(),
+                "unsupported completion leaked the marker"
+            );
+
+            let nested = (0..checker.nodes.len())
+                .filter_map(|index| {
+                    let id = NodeId::new(u32::try_from(index).unwrap());
+                    let Node::BindingElement(element) = checker.node_map.get(id)? else {
+                        return None;
+                    };
+                    let Some(tsr_ast::BindingName::BindingPattern(_)) = element.name else {
+                        return None;
+                    };
+                    let Some(tsr_ast::PropertyName::Identifier(name)) = element.property_name
+                    else {
+                        return None;
+                    };
+                    matches!(name.text, "one" | "two").then_some(id)
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(nested.len(), 2);
+            assert_eq!(
+                checker.root_declaration_of(nested[0]),
+                checker.root_declaration_of(nested[1])
+            );
+            checker.dependent_binding_parents_in_flight.insert(nested[0]);
+            assert_eq!(checker.dependent_binding_parent_constraint(nested[0]), None);
+            assert!(
+                checker.dependent_binding_parent_constraint(nested[1]).is_some(),
+                "root-keyed guard suppressed a different immediate holder"
+            );
+            assert!(checker.dependent_binding_parents_in_flight.contains(&nested[0]));
+            checker.dependent_binding_parents_in_flight.remove(&nested[0]);
+
+            // Each branch re-enters ordinary identifier checking while the
+            // dependent-parent flow walk evaluates its sibling discriminant.
+            // Keeping the marker across flow loses these asymmetric results.
+            for (name, expected) in [
+                ("current", "number"),
+                ("other", "string"),
+                ("nestedCurrent", "number"),
+                ("secondCurrent", "string"),
+            ] {
+                let reference = (0..checker.nodes.len())
+                    .find_map(|index| {
+                        let id = NodeId::new(u32::try_from(index).unwrap());
+                        let Node::Identifier(identifier) = checker.node_map.get(id)? else {
+                            return None;
+                        };
+                        (identifier.text == name
+                            && checker.nodes.parent(id).is_some_and(|parent| {
+                                checker.nodes.kind(parent) == SyntaxKind::ExpressionStatement
+                            }))
+                        .then_some(id)
+                    })
+                    .unwrap();
+                let symbol = checker
+                    .binder
+                    .resolve_name(
+                        checker.nodes,
+                        checker.node_map,
+                        reference,
+                        name,
+                        SymbolFlags::VALUE,
+                    )
+                    .unwrap();
+                for _ in 0..2 {
+                    let result = checker.dependent_destructured_type(symbol, reference).unwrap();
+                    assert_eq!(checker.type_to_string(result), expected);
+                    assert!(checker.dependent_binding_parents_in_flight.is_empty());
+                }
+            }
+        });
     }
 }

@@ -104,6 +104,7 @@ pub mod assertions;
 mod assignment_declarations;
 pub mod assignreport;
 pub mod binary;
+mod binding_patterns;
 pub mod call_arity;
 mod callable_expandos;
 pub mod calls;

@@ -1818,3 +1818,80 @@ fn source_intersection_relation_reduction_preserves_written_identity_and_reads()
         },
     );
 }
+
+#[test]
+fn comparable_primitive_targets_hoist_intersection_constraints_before_some() {
+    use tsr_checker::relater::{Relation, Ternary};
+    // Pinned 5b1047d relater.go:2884: an unconstrained T cannot make
+    // T & null comparable to 42, nor may T extends 1 | 2 make T & 1
+    // comparable to 2. The literal/structural positive controls prevent
+    // rejecting every generic intersection instead of reducing it locally.
+    for (bound, source, target, expected) in [
+        ("", "T & null", "42", Ternary::NotRelated),
+        (" extends {} | null", "T & null", "42", Ternary::NotRelated),
+        (" extends 1 | 2", "T & 1", "2", Ternary::NotRelated),
+        (" extends 1 | 2", "T & 1", "1", Ternary::Related),
+        ("", "T & null", "null", Ternary::Related),
+        (" extends string", "T & { tag: 'x' }", "number", Ternary::NotRelated),
+        ("", "T & { tag: 'x' }", "{ tag: 'x' }", Ternary::Related),
+    ] {
+        for reverse_first in [false, true] {
+            with_checker(
+                &format!("function f<T{bound}>(source: {source}, target: {target}) {{}}"),
+                |checker, statements| {
+                    checker.set_strict_null_checks(true);
+                    let Statement::FunctionDeclaration(function) = statements[0] else {
+                        panic!("function")
+                    };
+                    let source_node = function.parameters[0].r#type.unwrap();
+                    let from = checker.get_type_from_type_node(source_node);
+                    let to =
+                        checker.get_type_from_type_node(function.parameters[1].r#type.unwrap());
+                    let written = checker.type_to_string(from);
+                    for reverse in [reverse_first, !reverse_first, reverse_first] {
+                        // Comparable is directional. Reverse queries exercise
+                        // order/reuse, but only the intersection-source arm
+                        // owns this primitive-target constraint projection.
+                        let (left, right) = if reverse { (to, from) } else { (from, to) };
+                        let answer = checker.relate_ternary(left, right, Relation::Comparable);
+                        if !reverse {
+                            assert_eq!(answer, expected, "{source} -> {target}, bound={bound}");
+                        }
+                    }
+                    assert_eq!(
+                        checker.are_types_comparable(from, to),
+                        expected == Ternary::Related,
+                        "{source}, {target}, bound={bound}",
+                    );
+                    assert_eq!(checker.get_type_from_type_node(source_node), from);
+                    assert_eq!(checker.type_to_string(from), written);
+                },
+            );
+        }
+    }
+}
+
+#[test]
+fn inferred_parameter_constraint_absence_does_not_certify_primitive_projection() {
+    use tsr_ast::TypeNode;
+    use tsr_checker::relater::{Relation, Ternary};
+    // Native infer U in a rest parameter has an inferred array constraint.
+    // This port's base-constraint supplier does not supply that constraint;
+    // an unannotated infer declaration is not an unconstrained ordinary T.
+    with_checker(
+        "type Rest<X> = X extends (...args: infer U) => void ? U & null : never;
+         let target: 42;",
+        |checker, statements| {
+            checker.set_strict_null_checks(true);
+            let Statement::TypeAliasDeclaration(alias) = statements[0] else { panic!("alias") };
+            let Some(TypeNode::ConditionalTypeNode(conditional)) = alias.r#type else {
+                panic!("conditional")
+            };
+            let from = checker.get_type_from_type_node(conditional.true_type.unwrap());
+            let to = annotation_type(checker, statements, 1);
+            let written = checker.type_to_string(from);
+            assert_eq!(checker.relate_ternary(from, to, Relation::Comparable), Ternary::Unknown,);
+            assert_eq!(checker.type_to_string(from), written);
+        },
+    );
+}

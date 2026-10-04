@@ -2185,9 +2185,9 @@ impl Checker<'_, '_> {
     /// the nearest function-like container is not a constructor. Arm three needs
     /// `isLegalUsageOfSuperExpression`'s full walk and is not attempted. §482.
     fn check_super_call_outside_constructor(&mut self, node: NodeId) {
-        if self.file_has_parse_errors {
-            return;
-        }
+        // Pinned `checkSuperExpression` uses semantic `error`, not the
+        // file-parse-gated `grammarErrorOnNode` (5b1047d10d32e7d5b446be4de56b126ff42f82bb).
+        // Keep the existing computed-name, callee and container declines.
         // Arm one first — §103's order.
         if self
             .nodes
@@ -2334,9 +2334,8 @@ impl Checker<'_, '_> {
     /// where there is none. An arrow function is **not** a boundary: an arrow
     /// keeps `super`, so a call inside one still counts. §485.
     fn check_derived_constructor_calls_super(&mut self, node: NodeId) {
-        if self.file_has_parse_errors {
-            return;
-        }
+        // Pinned `checkConstructorDeclaration` reports this semantic error
+        // even with parse diagnostics; its early decline is a missing body.
         let Some(Node::ClassDeclaration(class)) = self.node_map.get(node) else { return };
         let Some(extends) = class
             .heritage_clauses
@@ -2357,6 +2356,10 @@ impl Checker<'_, '_> {
                 continue;
             };
             let Some(body) = constructor.body.and_then(|body| body.node_id()) else { continue };
+            // `ast.NodeIsMissing(node.Body())` includes an empty recovery Block.
+            if self.nodes.span(body).is_empty() {
+                continue;
+            }
             if self.subtree_has_super_call(body) {
                 continue;
             }
@@ -4571,7 +4574,7 @@ impl Checker<'_, '_> {
     /// `buttonVariants` has a `TypeQueryNode` parent, the loop stops there, and
     /// `typeof x` stays the value position §79 made it. Widening this to "any
     /// ancestor is a heritage clause" would silence that.
-    fn identifier_in_non_emitting_heritage_clause(&self, node: NodeId) -> bool {
+    pub(crate) fn identifier_in_non_emitting_heritage_clause(&self, node: NodeId) -> bool {
         if self.nodes.kind(node) != SyntaxKind::Identifier {
             return false;
         }
@@ -5206,14 +5209,18 @@ impl Checker<'_, '_> {
             // keyed on this predicate. `compiler/protoAssignment`
             // (`interface Number extends Comparable<number>`) is the case, and
             // declining here silently lost it.
+            // Pinned `checkExpressionWithTypeArguments` checks the expression
+            // as a value outside heritage clauses. Type arguments are not this
+            // slot; keep the existing extends/implements distinction unchanged.
             Node::ExpressionWithTypeArguments(n) => {
                 is(n.expression.and_then(|e| e.node_id()))
-                    && self.nodes.parent(parent).is_some_and(|clause| {
-                        matches!(
-                            self.node_map.get(clause),
-                            Some(Node::HeritageClause(heritage))
-                                if heritage.token.kind == SyntaxKind::ExtendsKeyword
-                        )
+                    && self.nodes.parent(parent).is_some_and(|owner| {
+                        match self.node_map.get(owner) {
+                            Some(Node::HeritageClause(heritage)) => {
+                                heritage.token.kind == SyntaxKind::ExtendsKeyword
+                            }
+                            _ => true,
+                        }
                     })
             }
             // `typeof A` — the one place in the grammar where a *type node*
@@ -8844,9 +8851,8 @@ impl Checker<'_, '_> {
     /// one of those is a node-kind list or an ancestor walk, so their conditions
     /// are evaluated here and their messages declined — §228's shape. §313.
     fn check_super_in_derived_class(&mut self, node: NodeId) {
-        if self.file_has_parse_errors {
-            return;
-        }
+        // `checkSuperExpression`'s extends error is semantic, not a grammar
+        // diagnostic suppressed by an unrelated syntax error in the file.
         if self.nodes.kind(node) != SyntaxKind::SuperKeyword {
             return;
         }

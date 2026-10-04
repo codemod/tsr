@@ -2160,6 +2160,11 @@ impl Checker<'_, '_> {
         name: &str,
     ) -> Option<SymbolId> {
         let data = self.binder.symbols().get(symbol);
+        // The synthetic CommonJS `module` object owns a members table, not a
+        // static exports table (getTypeOfVariableOrParameterOrPropertyWorker).
+        if data.flags.contains(SymbolFlags::MODULE_EXPORTS) {
+            return data.members.get(name).copied().filter(|&member| self.symbol_is_value(member));
+        }
         if !data.flags.intersects(
             SymbolFlags::FUNCTION
                 | SymbolFlags::METHOD
@@ -2554,6 +2559,197 @@ impl Checker<'_, '_> {
     /// The `None`-on-an-unfollowable-base rule is [`Checker::base_symbols_of`]'s
     /// and is why the walk cannot silently under-report a requirement.
     pub(crate) fn get_property_names_of_type(&mut self, id: TypeId) -> Option<Vec<String>> {
+        // Pinned 5b1047d checker.go:18846/18861: composite enumeration reads
+        // completed constituent own tables, then certifies combined properties.
+        // Checker-local TypeIds retain alias/receiver identity; temporary name
+        // lists publish only as a complete Some, never a recursive assumption.
+        // No synthetic symbol, member image or cache is created. Alias/member,
+        // index and property workers keep their existing completion boundaries;
+        // this traversal and type forcing run per query (tsr-1yb.11), not a speed
+        // claim. Unknown tables or unsupported partial/privacy metadata decline.
+        if id == self.intrinsics.empty_object || id == self.intrinsics.unknown_empty_object {
+            return Some(Vec::new());
+        }
+        let composite = match &self.store.get(id).data {
+            TypeData::Union { types, .. } => Some((types.clone(), true)),
+            TypeData::Intersection { types, .. } => Some((types.clone(), false)),
+            _ => None,
+        };
+        if let Some((types, is_union)) = composite {
+            let mut completed = Vec::with_capacity(types.len());
+            let mut candidates = Vec::new();
+            for part in types {
+                let body = self.binding_type_alias_body(part);
+                if self.is_error(body) || body == self.intrinsics.unresolved {
+                    return None;
+                }
+                let apparent = self.apparent_type(body);
+                if self.is_error(apparent) || apparent == self.intrinsics.unresolved {
+                    return None;
+                }
+                // Declaration roots do not carry mapped optional modifiers.
+                // The type supplier can read those values, but composite
+                // metadata is not represented by a synthetic symbol here.
+                if self.mapped_types.contains_key(&body)
+                    || self.mapped_types.contains_key(&apparent)
+                    || self.mapped_identity_optionality.contains_key(&body)
+                    || self.mapped_identity_optionality.contains_key(&apparent)
+                {
+                    return None;
+                }
+                if apparent != self.intrinsics.empty_object
+                    && apparent != self.intrinsics.unknown_empty_object
+                {
+                    // A lookup-mode boolean is not MembersResolved. This
+                    // existing traversal certifies names, including fresh
+                    // literal capture, without trusting active placeholders.
+                    self.declared_property_table(apparent)?;
+                }
+                // Complete every table before filtering even a known partial.
+                let names = self.get_property_names_of_type(apparent)?;
+                for name in &names {
+                    if !candidates.contains(name) {
+                        candidates.push(name.clone());
+                    }
+                }
+                completed.push((apparent, names));
+            }
+            let mut names = Vec::new();
+            for name in candidates {
+                let mut read_partial = false;
+                for (part, own_names) in &completed {
+                    if own_names.contains(&name) {
+                        let image = self
+                            .anonymous_properties
+                            .get(part)
+                            .filter(|(_, instantiated)| *instantiated)
+                            .and_then(|(properties, _)| {
+                                properties.iter().find(|property| property.name == name)
+                            })
+                            .cloned();
+                        let origin = image
+                            .as_ref()
+                            .and_then(|property| property.origin)
+                            .or_else(|| self.get_property_of_type_ex(*part, &name, true));
+                        if let Some(origin) = origin {
+                            if self
+                                .property_has_modifier(origin, tsr_ast::SyntaxKind::PrivateKeyword)
+                                || self.property_has_modifier(
+                                    origin,
+                                    tsr_ast::SyntaxKind::ProtectedKeyword,
+                                )
+                                || self
+                                    .binder
+                                    .symbols()
+                                    .get(origin)
+                                    .declarations
+                                    .iter()
+                                    .any(|&node| self.declaration_names_a_private(node))
+                            {
+                                // Common private declaration identity is not
+                                // represented by the existing type supplier.
+                                return None;
+                            }
+                        } else if image.is_none() {
+                            return None;
+                        }
+                        let receiver = if is_union { *part } else { id };
+                        let member = self.get_type_of_property_with_this_argument(
+                            *part, &name, receiver, true,
+                        )?;
+                        if self.is_error(member) || member == self.intrinsics.unresolved {
+                            return None;
+                        }
+                        let this_types: Vec<_> = self
+                            .this_types
+                            .values()
+                            .chain(self.this_type_nodes.values())
+                            .copied()
+                            .collect();
+                        if self.mentions_type_parameter(member, &this_types, &[]) {
+                            // The supplier has not substituted inherited this.
+                            return None;
+                        }
+                    } else if is_union {
+                        if *part == self.intrinsics.empty_object
+                            || *part == self.intrinsics.unknown_empty_object
+                        {
+                            read_partial = true;
+                            continue;
+                        }
+                        // None here is incomplete index work, not no indexes.
+                        let indexes = self.get_index_infos_of_type(*part)?;
+                        if indexes.iter().any(|info| {
+                            self.is_error(info.key)
+                                || info.key == self.intrinsics.unresolved
+                                || self.is_error(info.value)
+                                || info.value == self.intrinsics.unresolved
+                        }) {
+                            return None;
+                        }
+                        let key = self.store.intern_literal(
+                            TypeFlags::STRING_LITERAL,
+                            TypeData::StringLiteral(name.clone()),
+                            false,
+                        );
+                        for info in &indexes {
+                            if self.relate_ternary(
+                                key,
+                                info.key,
+                                crate::relater::Relation::Assignable,
+                            ) == crate::relater::Ternary::Unknown
+                            {
+                                // The applicable-index bool supplier declines
+                                // Unknown; it cannot prove ReadPartial absence.
+                                return None;
+                            }
+                        }
+                        if self.get_applicable_index_info(*part, key).is_none() {
+                            // Plain declared-object absence is ReadPartial.
+                            // Object-literal/spread WritePartial is unrepresented
+                            // by the existing semantic composite supplier.
+                            let declared = match self.store.get(*part).data {
+                                TypeData::Named { members: Some(owner), .. } => {
+                                    self.binder.symbols().get(owner).flags.intersects(
+                                        SymbolFlags::CLASS
+                                            | SymbolFlags::INTERFACE
+                                            | SymbolFlags::TYPE_LITERAL,
+                                    )
+                                }
+                                _ => false,
+                            } || self.type_literal_origins.contains_key(part)
+                                || *part == self.intrinsics.empty_object
+                                || *part == self.intrinsics.unknown_empty_object;
+                            if !declared {
+                                return None;
+                            }
+                            read_partial = true;
+                        }
+                    }
+                }
+                if read_partial {
+                    continue;
+                }
+                // Intersection own enumeration must not augment Object or
+                // Function, and polymorphic this uses the entire composite.
+                let member =
+                    self.get_type_of_property_with_this_argument(id, &name, id, !is_union)?;
+                if self.is_error(member) || member == self.intrinsics.unresolved {
+                    return None;
+                }
+                let this_types: Vec<_> = self
+                    .this_types
+                    .values()
+                    .chain(self.this_type_nodes.values())
+                    .copied()
+                    .collect();
+                if self.mentions_type_parameter(member, &this_types, &[]) {
+                    return None;
+                }
+                names.push(name);
+            }
+            return Some(names);
+        }
         if let Some(&(alias, source)) = self.module_value_clones.get(&id) {
             let mut names = self.get_property_names_of_type(source)?;
             if self.class_static_symbol(source).is_some() {
@@ -2593,6 +2789,20 @@ impl Checker<'_, '_> {
             return self
                 .collect_static_property_names(symbol, &mut names, &mut Vec::new())
                 .then_some(names);
+        }
+        if let TypeData::Anonymous { symbol, .. } = self.type_of(id).data
+            && self.binder.symbols().get(symbol).flags.contains(SymbolFlags::MODULE_EXPORTS)
+        {
+            return Some(
+                self.binder
+                    .symbols()
+                    .get(symbol)
+                    .members
+                    .iter()
+                    .filter(|(_, member)| self.symbol_is_value(**member))
+                    .map(|(&name, _)| name.to_owned())
+                    .collect(),
+            );
         }
         // resolveAnonymousTypeMembers: function, enum and module values expose
         // exports. Class statics were handled above; instance members stay separate.
@@ -2935,7 +3145,7 @@ impl Checker<'_, '_> {
 
     /// resolveEntityName for the expression-shaped names in heritage clauses.
     /// Intermediate namespaces and imported aliases are resolved before exports.
-    fn heritage_entity_symbol(
+    pub(crate) fn heritage_entity_symbol(
         &mut self,
         expression: tsr_ast::Expression<'_>,
         meaning: SymbolFlags,
@@ -3523,6 +3733,212 @@ static readonly fixed = 29; static optional?: number; static #secret = 31;"#;
         assert_eq!(
             names("type Alias = number; interface A extends Alias { a: number }", "A"),
             None
+        );
+    }
+
+    #[test]
+    fn composite_names_complete_constituents_in_cold_reverse_and_warm_order() {
+        let source = "interface Left { left: string; shared?: number } interface Right { right: boolean; shared: 13 } type Either = Left | Right; type Both = Left & Right;";
+        for order in [["Either", "Both", "Either"], ["Both", "Either", "Both"]] {
+            with_checker(source, |checker, root| {
+                for owner in order {
+                    let symbol = checker.binder.lookup_local(root, owner).unwrap();
+                    let ty = checker.get_declared_type_of_symbol(symbol);
+                    let mut names = checker.get_property_names_of_type(ty).unwrap();
+                    names.sort();
+                    assert_eq!(
+                        names,
+                        if owner == "Either" {
+                            vec!["shared"]
+                        } else {
+                            vec!["left", "right", "shared"]
+                        }
+                    );
+                }
+            });
+        }
+    }
+
+    #[test]
+    fn composite_union_names_accept_only_applicable_indexes() {
+        let mut found = names(
+            "interface Named { 'data-west': string; local: number } interface Indexed { [key: `data-${string}`]: boolean } type Either = Named | Indexed;",
+            "Either",
+        ).unwrap();
+        found.sort();
+        assert_eq!(found, ["data-west"]);
+        assert_eq!(names(
+            "interface Named { 7: string } interface Indexed { [key: number]: boolean } type Either = Named | Indexed;",
+            "Either",
+        ).unwrap(), ["7"]);
+        assert_eq!(names(
+            "interface Left { west: string } interface Right { east: number } type Either = Left | Right;",
+            "Either",
+        ).unwrap(), Vec::<String>::new());
+    }
+
+    #[test]
+    fn composite_unknown_index_relation_is_not_certified_read_partial() {
+        with_checker("interface Named { value: number } interface Indexed {}", |checker, root| {
+            let named = checker.binder.lookup_local(root, "Named").unwrap();
+            let indexed = checker.binder.lookup_local(root, "Indexed").unwrap();
+            let named = checker.get_declared_type_of_symbol(named);
+            let indexed = checker.get_declared_type_of_symbol(indexed);
+            let key =
+                checker.store.new_named(crate::flags::TypeFlags::OBJECT, "opaque".to_owned(), None);
+            // Existing table with an unsupported key stands for incomplete
+            // index preparation: the bool supplier cannot prove applicability
+            // but that does not make the union property's absence completed.
+            checker.object_literal_index_infos.insert(
+                indexed,
+                vec![crate::index_signatures::IndexInfo {
+                    key,
+                    value: checker.intrinsics.number,
+                    readonly: true,
+                    declaration: None,
+                    components: None,
+                }],
+            );
+            let union = checker.get_union_type_without_reduction(&[named, indexed]);
+            assert_eq!(checker.get_property_names_of_type(union), None);
+        });
+    }
+
+    #[test]
+    fn composite_this_member_keeps_the_whole_intersection_receiver() {
+        with_checker(
+            "interface Left { self: this; left: number } interface Right { self: this; right: string } type Both = Left & Right;",
+            |checker, root| {
+                let owner = checker.binder.lookup_local(root, "Both").unwrap();
+                let ty = checker.get_declared_type_of_symbol(owner);
+                let mut names = checker.get_property_names_of_type(ty).unwrap();
+                names.sort();
+                assert_eq!(names, ["left", "right", "self"]);
+                let member =
+                    checker.get_type_of_property_with_this_argument(ty, "self", ty, true).unwrap();
+                let mut receiver_names = checker.get_property_names_of_type(member).unwrap();
+                receiver_names.sort();
+                assert_eq!(receiver_names, ["left", "right", "self"]);
+            },
+        );
+        // The existing supplier maps direct owners, but not a base owner's
+        // minted this through a derived non-generic receiver. Do not certify
+        // the previously observed wrong Base result as a completed property.
+        assert_eq!(
+            names(
+                "interface Base { self: this } interface Left extends Base { left: number } interface Right extends Base { right: string } type Both = Left & Right;",
+                "Both",
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn composite_unknown_owners_and_unreadable_types_do_not_become_empty() {
+        use crate::{flags::TypeFlags, types::TypeData};
+        with_checker("interface Known { value: number }", |checker, root| {
+            let owner = checker.binder.lookup_local(root, "Known").unwrap();
+            let known = checker.get_declared_type_of_symbol(owner);
+            assert_eq!(
+                checker.get_property_names_of_type(checker.intrinsics.empty_object),
+                Some(Vec::new())
+            );
+            assert_eq!(
+                checker.get_property_names_of_type(checker.intrinsics.unknown_empty_object),
+                Some(Vec::new())
+            );
+            let both =
+                checker.get_intersection_type(&[known, checker.intrinsics.empty_object], None);
+            assert_eq!(checker.get_property_names_of_type(both).unwrap(), ["value"]);
+            let either =
+                checker.get_union_type_without_reduction(&[known, checker.intrinsics.empty_object]);
+            assert_eq!(checker.get_property_names_of_type(either).unwrap(), Vec::<String>::new());
+            let unknown = checker.store.new_named(TypeFlags::OBJECT, "opaque".to_owned(), None);
+            assert_eq!(checker.get_property_names_of_type(unknown), None);
+            for unfinished in [unknown, checker.intrinsics.error, checker.intrinsics.unresolved] {
+                for types in [vec![known, unfinished], vec![unfinished, known]] {
+                    let composite = checker.store.intern_intersection(
+                        TypeFlags::INTERSECTION,
+                        TypeData::Intersection { text: "probe".to_owned(), types, symbol: None },
+                    );
+                    assert_eq!(checker.get_property_names_of_type(composite), None);
+                }
+            }
+        });
+        assert_eq!(
+            names(
+                "interface Known { value: number } interface Incomplete extends Missing { other: string } type Both = Known & Incomplete;",
+                "Both",
+            ),
+            None
+        );
+        assert_eq!(
+            names(
+                "interface Known { value: number } interface Unreadable { bad: Missing } type Both = Known & Unreadable;",
+                "Both",
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn composite_own_names_exclude_prototypes_and_decline_mapped_metadata() {
+        let mut found = names(
+            "interface Object { toString(): string } interface Function { apply(): number } interface Callable { (): number; field: string } interface Other { other: boolean } type Both = Callable & Other;",
+            "Both",
+        ).unwrap();
+        found.sort();
+        assert_eq!(found, ["field", "other"]);
+        assert_eq!(
+            names(
+                "interface Written { readonly value?: number } interface Other { other: string } type Maybe<T> = { readonly [K in keyof T]?: T[K] }; type Both = Maybe<Written> & Other;",
+                "Both",
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn composite_private_and_write_partial_metadata_stay_declined() {
+        assert_eq!(
+            names(
+                "class Hidden { private secret: number; shared: string } interface Public { shared: string } type Either = Hidden | Public;",
+                "Either",
+            ),
+            None
+        );
+        assert_eq!(
+            names(
+                "class Hidden { protected secret: number; shared: string } interface Public { shared: string } type Both = Hidden & Public;",
+                "Both",
+            ),
+            None
+        );
+        with_checker("const empty = {}; const field = { value: 13 };", |checker, root| {
+            let empty = checker.binder.lookup_local(root, "empty").unwrap();
+            let field = checker.binder.lookup_local(root, "field").unwrap();
+            let empty = checker.get_type_of_symbol(empty);
+            let field = checker.get_type_of_symbol(field);
+            let either = checker.get_union_type_without_reduction(&[empty, field]);
+            assert_eq!(checker.get_property_names_of_type(either), None);
+        });
+    }
+
+    #[test]
+    fn composite_enumeration_does_not_publish_active_late_bound_names() {
+        with_checker(
+            "const key = 'late'; interface Left { early: number; [key]: string } interface Right { other: boolean } type Both = Left & Right;",
+            |checker, root| {
+                let left = checker.binder.lookup_local(root, "Left").unwrap();
+                checker.late_bound_member_names.insert((left, false), Vec::new());
+                let both = checker.binder.lookup_local(root, "Both").unwrap();
+                let both = checker.get_declared_type_of_symbol(both);
+                assert_eq!(checker.get_property_names_of_type(both), None);
+                checker.late_bound_member_names.remove(&(left, false));
+                // The existing completion contract does not certify computed
+                // names even when a separate lookup has forced their value.
+                assert_eq!(checker.get_property_names_of_type(both), None);
+            },
         );
     }
 }

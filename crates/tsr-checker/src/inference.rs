@@ -1722,6 +1722,29 @@ impl Checker<'_, '_> {
         if self.store.get(ty).flags.intersects(crate::flags::TypeFlags::INSTANTIABLE) {
             return self.instantiate_type(ty, map, parameters, names);
         }
+        // Native aliases already carry their body's flags. Reference shells
+        // here must expose a union/intersection or instantiable body before
+        // this walk; object bodies still retain their uninstantiated template.
+        // evaluate_alias_body retains its private Checker cache keyed by alias
+        // SymbolId and ordered argument TypeIds; this read uses the caller's
+        // mapper and existing depth guard, without publishing a new mapper or
+        // member image. Body evaluation and its bindings remain with that owner.
+        if let Some((symbol, arguments)) = self.type_reference_targets.get(&ty).cloned()
+            && self.binder.symbols().get(symbol).flags.contains(tsr_binder::SymbolFlags::TYPE_ALIAS)
+            && self.instantiation_depth < 100
+            && let Some(body) = self.evaluate_alias_body(symbol, &arguments)
+            && body != ty
+            && self.store.get(body).flags.intersects(
+                crate::flags::TypeFlags::INSTANTIABLE
+                    | crate::flags::TypeFlags::UNION
+                    | crate::flags::TypeFlags::INTERSECTION,
+            )
+        {
+            self.instantiation_depth += 1;
+            let image = self.instantiate_instantiable_types(body, map, parameters, names);
+            self.instantiation_depth -= 1;
+            return image;
+        }
         match self.store.get(ty).data.clone() {
             TypeData::Union { types, .. } => {
                 let types: Vec<_> = types
@@ -1730,12 +1753,12 @@ impl Checker<'_, '_> {
                     .collect();
                 self.get_union_type_without_reduction(&types)
             }
-            TypeData::Intersection { types, .. } => {
+            TypeData::Intersection { types, symbol, .. } => {
                 let types: Vec<_> = types
                     .into_iter()
                     .map(|ty| self.instantiate_instantiable_types(ty, map, parameters, names))
                     .collect();
-                self.get_intersection_type(&types, None)
+                self.get_intersection_type(&types, symbol)
             }
             _ => ty,
         }
@@ -3494,6 +3517,7 @@ impl Checker<'_, '_> {
                 accessor_write: None,
                 method: false,
                 origin,
+                checked_declaration: None,
                 name,
                 printed_name,
                 printed_type: String::new(),
@@ -4287,6 +4311,24 @@ impl Checker<'_, '_> {
             self.inference_observed_priority = self.inference_observed_priority.min(saved);
             return;
         }
+        // Native aliases already expose their instantiable/union/intersection
+        // operands to inferFromTypes. Expose this port's reference shell body
+        // before selecting its structural dispatch. An original alias target
+        // must also expose that same body for native's top-level widening test.
+        if let Some((symbol, arguments)) = self.type_reference_targets.get(&target).cloned()
+            && self.binder.symbols().get(symbol).flags.contains(tsr_binder::SymbolFlags::TYPE_ALIAS)
+            && let Some(body) = self.evaluate_alias_body(symbol, &arguments)
+            && body != target
+            && self.store.get(body).flags.intersects(
+                crate::flags::TypeFlags::INSTANTIABLE
+                    | crate::flags::TypeFlags::UNION
+                    | crate::flags::TypeFlags::INTERSECTION,
+            )
+        {
+            let original = if original == target { body } else { original };
+            self.infer_from_types_within(source, body, original, parameters, out, depth + 1);
+            return;
+        }
         if let TypeData::Union { types, .. } = self.store.get(target).data.clone() {
             self.infer_to_union(source, &types, original, parameters, out, depth);
             return;
@@ -4620,7 +4662,7 @@ impl Checker<'_, '_> {
         {
             let (Some(target_signatures), Some(source_signatures)) = (
                 self.signatures_of_type_kind(target, kind),
-                self.signatures_of_type_kind(source, kind),
+                self.signature_shapes_of_type_kind(source, kind),
             ) else {
                 continue;
             };
@@ -4643,6 +4685,15 @@ impl Checker<'_, '_> {
                 if !s.non_inferrable {
                     self.infer_from_signature_parameters(&s, &t, original, parameters, out, depth);
                 }
+                // applyToReturnTypes (inference.go:895-907) reads the target
+                // first. Parameters<F> has target any, so its source's native
+                // return slot must stay lazy while parameter inference runs.
+                let target_return = t.predicate.as_ref().and_then(|p| p.r#type).unwrap_or(t.r#type);
+                if !self.target_could_contain_parameter(target_return, parameters, &mut Vec::new())
+                {
+                    continue;
+                }
+                let Some(s) = self.complete_signature_return(s) else { continue };
                 let (source_return, target_return) = s.inference_return_types(&t);
                 self.infer_from_types_within(
                     source_return,
@@ -5087,6 +5138,12 @@ impl Checker<'_, '_> {
     ) -> TypeId {
         if let Some(&(_, image)) = map.iter().find(|&&(from, _)| from == id) {
             return image;
+        }
+        // A return mapper may inspect the original signature only after its
+        // declaration-owned lazy return completes. Active/unsupported originals
+        // decline before a no-type-parameter decision or mapper image is stored.
+        if !self.complete_pending_signature_returns_of_type(id) {
+            return self.intrinsics.error;
         }
         if !self.mentions_type_parameter(id, parameters, names) {
             return id;
@@ -7042,7 +7099,9 @@ impl Checker<'_, '_> {
         if id == parameter {
             return true;
         }
-        if let crate::types::TypeData::Union { types, .. } = self.store.get(id).data.clone() {
+        if let crate::types::TypeData::Union { types, .. }
+        | crate::types::TypeData::Intersection { types, .. } = self.store.get(id).data.clone()
+        {
             return types
                 .iter()
                 .any(|&t| self.is_type_parameter_at_top_level_with_depth(t, parameter, depth));

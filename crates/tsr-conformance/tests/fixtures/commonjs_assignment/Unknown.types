@@ -1,0 +1,43 @@
+//// [tests/cases/compiler/assignmentCommonJsUnknown.ts] ////
+
+=== node.d.ts ===
+declare function require(moduleName: string): any;
+>require : (moduleName: string) => any
+>moduleName : string
+
+declare module "assert" {
+>"assert" : typeof import("assert")
+
+    export function equal(actual: any, expected: any): void;
+>equal : (actual: any, expected: any) => void
+>actual : any
+>expected : any
+}
+=== ns.ts ===
+/// <reference path="node.d.ts"/>
+namespace receiver {
+    export type label = "label";
+>label : "label"
+}
+var receiver = require("assert");
+>receiver : any
+>require("assert") : any
+>require : (moduleName: string) => any
+>"assert" : "assert"
+
+=== app.js ===
+exports.equal = receiver.equal;
+>exports.equal = receiver.equal : any
+>exports.equal : error
+>exports : typeof import("./app")
+>equal : any
+>receiver.equal : any
+>receiver : any
+>equal : any
+
+exports.equal();
+>exports.equal() : error
+>exports.equal : error
+>exports : typeof import("./app")
+>equal : any
+

@@ -1,0 +1,65 @@
+//// [tests/cases/compiler/assignmentSourceModuleElementStrict.ts] ////
+
+=== /usage.ts ===
+import * as x from "./payload";
+>x : typeof x
+
+x.missing;
+>x.missing : any
+>x : typeof x
+>missing : any
+
+x["missing"];
+>x["missing"] : any
+>x : typeof x
+>"missing" : "missing"
+
+x["availabl"];
+>x["availabl"] : any
+>x : typeof x
+>"availabl" : "availabl"
+
+x["available"];
+>x["available"] : 17
+>x : typeof x
+>"available" : "available"
+
+import indexed = require("./indexed");
+>indexed : { [key: string]: number; }
+
+indexed["newKey"];
+>indexed["newKey"] : number
+>indexed : { [key: string]: number; }
+>"newKey" : "newKey"
+
+const object = { available: 1 };
+>object : { available: number; }
+>{ available: 1 } : { available: number; }
+>available : number
+>1 : 1
+
+object["available"];
+>object["available"] : number
+>object : { available: number; }
+>"available" : "available"
+
+=== /payload.ts ===
+export const available = 17;
+>available : 17
+>17 : 17
+
+export const alternate = "second";
+>alternate : "second"
+>"second" : "second"
+
+=== /indexed.ts ===
+const dictionary: { [key: string]: number } = { present: 5 };
+>dictionary : { [key: string]: number; }
+>key : string
+>{ present: 5 } : { present: number; }
+>present : number
+>5 : 5
+
+export = dictionary;
+>dictionary : { [key: string]: number; }
+

@@ -152,12 +152,36 @@ fn a_constituent_this_port_cannot_type_makes_the_whole_intersection_a_gap() {
 #[test]
 fn an_empty_object_is_removed_beside_a_definitely_non_nullable_type() {
     assert_eq!(with_two_interfaces("A & {}"), "A");
-    assert_eq!(with_two_interfaces("{} & string"), "string");
     assert_eq!(with_two_interfaces("{} & {}"), "{}");
     assert_eq!(with_two_interfaces("{} & unknown"), "{}");
     assert_eq!(with_two_interfaces("{} & any"), "any");
     // A *non*-empty object literal type is unaffected.
     assert_eq!(with_two_interfaces("A & { a: string }"), "A & { a: string; }");
+}
+
+#[test]
+fn source_empty_intersections_preserve_only_native_branded_domains() {
+    // getTypeFromIntersectionTypeNode at native 5b1047d preserves exactly
+    // two operands: an unaliased empty literal and a broad primitive/pattern.
+    for primitive in ["string", "number", "bigint", "`west-${string}`"] {
+        for body in [format!("{{}} & {primitive}"), format!("{primitive} & {{}}")] {
+            assert_eq!(with_two_interfaces(&body), body);
+        }
+    }
+    for (body, expected) in [
+        ("{} & boolean", "boolean"),
+        ("{} & symbol", "symbol"),
+        ("{} & object", "object"),
+        ("{} & 'west'", "\"west\""),
+        ("{} & `west-${'one' | 'two'}`", "\"west-one\" | \"west-two\""),
+        ("{} & (string | null)", "string"),
+        ("{} & string & {}", "string"),
+        ("({} & string) & {}", "string"),
+    ] {
+        assert_eq!(with_two_interfaces(body), expected, "{body}");
+    }
+    // A named empty alias is not native's canonical emptyTypeLiteralType.
+    assert_eq!(type_of_annotation_at("type Empty = ({}); var x: Empty & string;", 1), "string");
 }
 
 #[test]

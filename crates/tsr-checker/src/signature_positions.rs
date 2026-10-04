@@ -49,7 +49,6 @@ impl Checker<'_, '_> {
             || signature.this_parameter.as_ref().is_some_and(|parameter| {
                 !self.store.get(parameter.r#type).flags.contains(TypeFlags::ANY)
             })
-            || !self.store.get(signature.r#type).flags.intersects(TypeFlags::ANY_OR_UNKNOWN)
         {
             return false;
         }
@@ -58,7 +57,15 @@ impl Checker<'_, '_> {
             return false;
         }
         let rest = self.signature_array_element(parameter.r#type).unwrap_or(parameter.r#type);
-        self.store.get(rest).flags.intersects(TypeFlags::ANY | TypeFlags::NEVER)
+        if !self.store.get(rest).flags.intersects(TypeFlags::ANY | TypeFlags::NEVER) {
+            return false;
+        }
+        // relater.go:1673-1684 demands return only after structural top
+        // admission. Pending error's ANY flags are not a resolved return.
+        self.get_return_type_of_signature(signature).is_some_and(|returned| {
+            returned != self.intrinsics.error
+                && self.store.get(returned).flags.intersects(TypeFlags::ANY_OR_UNKNOWN)
+        })
     }
 
     /// Ported from `getParameterCount` (`internal/checker/relater.go`).
@@ -258,6 +265,54 @@ mod tests {
     use super::*;
     use tsr_ast::Statement;
     use tsr_core::Arena;
+
+    #[test]
+    fn top_signature_demand_follows_structural_admission_not_pending_any_flags() {
+        for (initializer, top, demand, returned) in [
+            ("(...args: any[]) => 1 as any", true, true, Some("any")),
+            ("(...args: any[]) => 23", false, true, Some("number")),
+            ("(...args: string[]) => 1 as any", false, false, None),
+            ("(value: any) => 1 as any", false, false, None),
+            ("<T>(...args: any[]) => 1 as any", false, false, None),
+            ("function(this: number, ...args: any[]) { return 1 as any; }", false, false, None),
+            ("function*(...args: any[]) { yield* []; }", false, true, None),
+        ] {
+            let source = format!(
+                "interface Array<T> {{ [index: number]: T; }} const object = {{ f: {initializer} }};"
+            );
+            let arena = Arena::new();
+            let parsed = tsr_parser::parse(&arena, &source);
+            assert!(parsed.diagnostics.is_empty());
+            let bound = tsr_binder::bind(
+                &arena,
+                parsed.source_file,
+                &parsed.nodes,
+                tsr_binder::FileInfo { name: "top.ts", text: &source },
+            );
+            let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+            let root = parsed.source_file.node_id.unwrap();
+            let object = checker.get_type_of_symbol(bound.lookup_local(root, "object").unwrap());
+            let callable = checker.get_type_of_property_of_type(object, "f").unwrap();
+            let signature = checker.signature_types[&callable][0].clone();
+            let key = checker.type_literal_key(signature.declaration);
+            assert_eq!(signature.r#type, checker.intrinsics.error);
+            for _ in 0..3 {
+                assert_eq!(checker.signature_is_top(&signature), top, "{initializer}");
+                assert_eq!(checker.pending_signature_returns.contains_key(&key), !demand);
+                if demand {
+                    assert_eq!(
+                        checker.signature_returns[&key]
+                            .map(|ty| checker.type_to_string(ty))
+                            .as_deref(),
+                        returned,
+                        "{initializer}"
+                    );
+                } else {
+                    assert!(!checker.signature_returns.contains_key(&key), "{initializer}");
+                }
+            }
+        }
+    }
 
     #[test]
     fn fixed_positions_add_optionality_without_mutating_parameters_or_rests() {

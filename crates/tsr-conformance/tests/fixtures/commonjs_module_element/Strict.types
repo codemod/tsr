@@ -1,0 +1,77 @@
+//// [tests/cases/compiler/assignmentCommonJsElementStrict.ts] ////
+
+=== /usage.js ===
+const x = require("./payload");
+>x : typeof x
+>require("./payload") : typeof x
+>require : any
+>"./payload" : "./payload"
+
+x.missing;
+>x.missing : any
+>x : typeof x
+>missing : any
+
+x["missing"];
+>x["missing"] : any
+>x : typeof x
+>"missing" : "missing"
+
+x["availabl"];
+>x["availabl"] : any
+>x : typeof x
+>"availabl" : "availabl"
+
+x["available"];
+>x["available"] : 1
+>x : typeof x
+>"available" : "available"
+
+const indexed = require("./indexed");
+>indexed : { [key: string]: number; }
+>require("./indexed") : { [key: string]: number; }
+>require : any
+>"./indexed" : "./indexed"
+
+indexed["newKey"];
+>indexed["newKey"] : number
+>indexed : { [key: string]: number; }
+>"newKey" : "newKey"
+
+const object = { available: 1 };
+>object : { available: number; }
+>{ available: 1 } : { available: number; }
+>available : number
+>1 : 1
+
+object["available"];
+>object["available"] : number
+>object : { available: number; }
+>"available" : "available"
+
+=== /payload.js ===
+exports.available = 1;
+>exports.available = 1 : 1
+>exports.available : 1
+>exports : typeof import("./payload")
+>available : 1
+>1 : 1
+
+exports.alternate = 2;
+>exports.alternate = 2 : 2
+>exports.alternate : 2
+>exports : typeof import("./payload")
+>alternate : 2
+>2 : 2
+
+=== /indexed.ts ===
+const dictionary: { [key: string]: number } = { present: 5 };
+>dictionary : { [key: string]: number; }
+>key : string
+>{ present: 5 } : { present: number; }
+>present : number
+>5 : 5
+
+export = dictionary;
+>dictionary : { [key: string]: number; }
+

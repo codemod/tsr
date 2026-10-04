@@ -35,6 +35,94 @@ pub(crate) struct TypeParameterNames {
 }
 
 impl Checker<'_, '_> {
+    /// Pinned tsgo 5b1047d: getTypeOfVariableOrParameterOrPropertyWorker /
+    /// createTypeNodesFromResolvedType. The synthetic `CommonJS` wrapper keeps
+    /// its binder `MODULE_EXPORTS` symbol and completed members table. Only its
+    /// published symbol type can be serialized; active members decline without
+    /// marking a semantic cycle failed. Force an export's lazy semantic type
+    /// through the ordinary getter, then name it at this viewer. No wrapper
+    /// text, receiver image, print-site result or provisional value is cached.
+    pub(crate) fn module_exports_text_at(
+        &mut self,
+        id: TypeId,
+        symbol: tsr_binder::SymbolId,
+        reference: tsr_ast::NodeId,
+    ) -> Option<String> {
+        if self.symbol_types.get(&symbol) != Some(&id)
+            || self.resolutions.on_stack(symbol, crate::resolution::PropertyName::Type)
+            || !self.rendering_composites.insert(id)
+        {
+            return None;
+        }
+        let mut properties: Vec<_> =
+            self.binder.symbols().get(symbol).members.values().copied().collect();
+        properties.sort_by(|&a, &b| self.compare_symbols(a, b));
+        let result = properties
+            .into_iter()
+            .map(|property| {
+                if self.resolutions.on_stack(property, crate::resolution::PropertyName::Type) {
+                    return None;
+                }
+                let ty = self.get_type_of_symbol(property);
+                let printed = self.type_to_string_at(ty, reference)?;
+                Some(crate::objects::Member::Property {
+                    name: self.binder.symbols().get(property).name.to_string(),
+                    optional: false,
+                    readonly: false,
+                    printed,
+                })
+            })
+            .collect::<Option<Vec<_>>>()
+            .map(|members| crate::objects::render_object_type(&members));
+        self.rendering_composites.remove(&id);
+        result
+    }
+
+    /// Pinned tsgo 5b1047d getFileSymbolIfFileSymbolExportEqualsContainer /
+    /// getSpecifierForModuleSymbol. A completed original class constructor can
+    /// be named by its file only when the file's export= resolves to that very
+    /// symbol. Module-value clones retain their own naming route. Visibility
+    /// starts at the assertion's parent, so a class expression's whole value
+    /// cannot see its private self-name, but its name/body can. No type, alias,
+    /// or per-site result is published here; existing semantic alias resolution
+    /// certifies the container without forcing its export value type. Keep the
+    /// current file-module renderer's rooted single-directory specifier boundary.
+    pub(crate) fn export_equals_class_text_at(
+        &mut self,
+        id: TypeId,
+        reference: tsr_ast::NodeId,
+    ) -> Option<String> {
+        use tsr_binder::SymbolFlags;
+
+        let TypeData::Anonymous { symbol, .. } = self.store.get(id).data else {
+            return None;
+        };
+        if !self.binder.symbols().get(symbol).flags.contains(SymbolFlags::CLASS)
+            || self.symbol_types.get(&symbol) != Some(&id)
+            || self.resolutions.on_stack(symbol, crate::resolution::PropertyName::Type)
+        {
+            return None;
+        }
+        let declarations = self.binder.symbols().get(symbol).declarations.to_vec();
+        let module = declarations.into_iter().find_map(|declaration| {
+            let file = self.source_file_of_for_diagnostics(declaration)?;
+            let module = self.binder.symbol_of(file)?;
+            let exported = self.resolve_external_module_symbol(module);
+            (exported != module
+                && self.binder.merged_symbol(self.resolve_alias_fully(exported)) == symbol)
+                .then_some(module)
+        })?;
+        let enclosing = self.nodes.parent(reference).unwrap_or(reference);
+        if let Some(name) = self.best_name(symbol, enclosing, false) {
+            return Some(format!("typeof {name}"));
+        }
+        let relative = self.binder.symbols().get(module).name.strip_prefix('/')?;
+        if relative.contains('/') {
+            return None;
+        }
+        Some(format!("typeof import({})", quote(&format!("./{relative}"))))
+    }
+
     pub(crate) fn allocate_type_parameter_name(
         &mut self,
         id: TypeId,
@@ -82,6 +170,262 @@ impl Checker<'_, '_> {
         }
         self.render_type_parameter_names.allocations.push((id, text.clone()));
         text
+    }
+
+    /// Native createAnonymousTypeNodeEx / createTypeNodesFromResolvedType.
+    /// `check_object_literal_members` publishes the original fresh image only
+    /// after checking members and indices; regularization/widening explicitly
+    /// transfer that image to a distinct `TypeId`. These identities own the
+    /// plan, not arbitrary `anonymous_properties` or baked placeholders.
+    /// All three completed maps and source-only property syntax are required.
+    /// Reuse the writer's actual member order/flags/names and replace only its
+    /// typed slots. The per-print visiting set elides anonymous re-entry to any
+    /// and resets on success/refusal. Canonical signature returns are forced
+    /// only after image publication; no semantic owner/member/type is rewritten.
+    /// A certified inline initializer follows native pseudoTypeToNode instead:
+    /// it writes source properties/signatures without visiting their type id.
+    pub(crate) fn object_literal_text_at(
+        &mut self,
+        id: TypeId,
+        reference: tsr_ast::NodeId,
+        visit_identity: bool,
+    ) -> Option<String> {
+        let mut source = id;
+        while !self.fresh_object_literal_types.contains(&source) {
+            // Widening's temporary source -> source entry is not completion.
+            // A distinct target is allocated and published only after its
+            // member transformation finishes. Follow existing transfers back
+            // to the original image, without resolving or constructing types.
+            source = self
+                .regular_object_literal_types
+                .iter()
+                .chain(self.widened_object_types.iter())
+                .find_map(|(&original, &target)| {
+                    (target == source && original.index() < target.index()).then_some(original)
+                })?;
+        }
+        let TypeData::Named { members: Some(owner), .. } = self.store.get(source).data else {
+            return None;
+        };
+        if !matches!(self.store.get(id).data, TypeData::Named { members: Some(current), .. } if current == owner)
+        {
+            return None;
+        }
+        let [declaration] = self.binder.symbols().get(owner).declarations.as_slice() else {
+            return None;
+        };
+        let tsr_ast::Node::ObjectLiteralExpression(literal) = self.node_map.get(*declaration)?
+        else {
+            return None;
+        };
+        // A completed inner image can still be baked into an active enclosing
+        // variable's value. Node building is not part of member collection;
+        // demanding a captured return here would fail that variable's type
+        // resolution before normal publication. Decline without forcing it.
+        let mut parent = self.nodes.parent(*declaration);
+        while let Some(node) = parent {
+            if self.nodes.kind(node) == tsr_ast::SyntaxKind::VariableDeclaration
+                && let Some(symbol) = self.binder.symbol_of(node)
+                && self.resolutions.on_stack(symbol, crate::resolution::PropertyName::Type)
+            {
+                return None;
+            }
+            parent = self.nodes.parent(node);
+        }
+        if !self.object_literal_index_infos.get(&source)?.is_empty()
+            // Widening omits an empty index table. Its completed transfer
+            // plus the original empty table certifies that absence; a real
+            // index or an untracked image still cannot enter this renderer.
+            || self.object_literal_index_infos.get(&id).is_some_and(|indices| !indices.is_empty())
+            || !self.anonymous_properties.contains_key(&source)
+            || !self.object_literal_members.contains_key(&source)
+        {
+            return None;
+        }
+        let properties = self.anonymous_properties.get(&id)?.0.clone();
+        let mut members = self.object_literal_members.get(&id)?.clone();
+        if !self.object_member_plan_matches_source(literal, &members, &properties) {
+            return None;
+        }
+        if visit_identity && !self.rendering_composites.insert(id) {
+            return Some("any".to_string());
+        }
+        let result = members
+            .iter_mut()
+            .zip(properties)
+            .try_for_each(|(member, property)| {
+                // Method/accessor overrides retain their producer's display.
+                // Only original property assignments and shorthand slots are
+                // admitted to the dynamic property serializer below.
+                if property.checked_declaration.is_none()
+                    && self.binder.symbols().get(property.origin?).flags.intersects(
+                        tsr_binder::SymbolFlags::METHOD | tsr_binder::SymbolFlags::ACCESSOR,
+                    )
+                {
+                    return Some(());
+                }
+                let crate::objects::Member::Property { printed, .. } = member else {
+                    unreachable!("certified original property slot");
+                };
+                // Primitive/literal slots have no site-dependent symbol.
+                // Keep the actual writer's source-reuse display, including
+                // single-quoted const literals, rather than reformatting it.
+                if matches!(
+                    self.store.get(property.r#type).data,
+                    TypeData::Intrinsic { .. }
+                        | TypeData::StringLiteral(_)
+                        | TypeData::NumberLiteral(_)
+                        | TypeData::BigIntLiteral(_)
+                        | TypeData::BooleanLiteral(_)
+                ) {
+                    return Some(());
+                }
+                // Native serializeTypeForDeclaration can reuse an original
+                // SingleCallSignature initializer. pseudoTypeToNode builds
+                // its signature directly, without visiting the callable
+                // object identity; the return still visits semantic objects.
+                // Certify that exact source, not an arbitrary callable slot
+                // or a mapper's image, before taking the same print route.
+                let initializer = property.checked_declaration.and_then(|declaration| {
+                    // serializeTypeForDeclaration (nodebuilderimpl.go:2181)
+                    // requires source/semantic pseudo-type equivalence. A
+                    // merged symbol's surviving type need not match its source
+                    // reuse declaration. Keep the final checked slot, but use
+                    // ordinary visited TypeId serialization for such symbols.
+                    if self.binder.symbols().get(property.origin?).declarations.len() != 1 {
+                        return None;
+                    }
+                    let tsr_ast::Node::PropertyAssignment(assignment) =
+                        self.node_map.get(declaration)?
+                    else {
+                        return None;
+                    };
+                    assignment.initializer
+                });
+                let source_signature = initializer.and_then(|initializer| {
+                    if !matches!(
+                        initializer,
+                        tsr_ast::Expression::ArrowFunction(_)
+                            | tsr_ast::Expression::FunctionExpression(_)
+                    ) {
+                        return None;
+                    }
+                    let symbol = self.completed_callable_symbol(property.r#type)?;
+                    if self.binder.symbol_of(initializer.node_id()?) != Some(symbol) {
+                        return None;
+                    }
+                    let [signature] = self.signature_types.get(&property.r#type)?.as_slice() else {
+                        return None;
+                    };
+                    (signature.declaration == initializer.node_id()?).then(|| signature.clone())
+                });
+                let source_object = initializer.is_some_and(|initializer| {
+                    matches!(initializer, tsr_ast::Expression::ObjectLiteralExpression(_))
+                        && matches!(self.store.get(property.r#type).data,
+                            TypeData::Named { members: Some(owner), .. }
+                                if initializer.node_id().and_then(|node| self.binder.symbol_of(node)) == Some(owner))
+                });
+                *printed = if let Some(signature) = source_signature {
+                    self.signature_to_string_at(&signature, reference)
+                } else if source_object {
+                    self.object_literal_text_at(property.r#type, reference, false)
+                        .or_else(|| self.type_to_string_at(property.r#type, reference))?
+                } else {
+                    self.type_to_string_at(property.r#type, reference)?
+                };
+                Some(())
+            })
+            .map(|()| crate::objects::render_object_type(&members));
+        if visit_identity {
+            self.rendering_composites.remove(&id);
+        }
+        result
+    }
+
+    /// Certify the existing producer plan's semantic slot association, not its
+    /// rendered type text. Source keys retain producer order in both published
+    /// tables. A replaced assignment must carry the producer's exact surviving
+    /// checked declaration; a merged symbol's first declaration cannot certify
+    /// it. Only one complementary get/set pair may merge without that key.
+    /// Private names, unresolved computed keys and mixed-kind collisions decline.
+    /// Stored printed names are an additional association check after matching
+    /// source `SymbolId`, canonical member key and method/property kind.
+    fn object_member_plan_matches_source(
+        &self,
+        literal: &tsr_ast::ObjectLiteralExpression<'_>,
+        members: &[crate::objects::Member],
+        properties: &[crate::objects::AnonymousProperty],
+    ) -> bool {
+        const ASSIGNMENT: u8 = 1;
+        const SHORTHAND: u8 = 2;
+        const METHOD: u8 = 4;
+        const GET: u8 = 8;
+        const SET: u8 = 16;
+        let mut source_slots = Vec::new();
+        for element in literal.properties {
+            let (name, kind) = match element {
+                tsr_ast::ObjectLiteralElementLike::PropertyAssignment(node) => {
+                    (node.name, ASSIGNMENT)
+                }
+                tsr_ast::ObjectLiteralElementLike::ShorthandPropertyAssignment(node) => {
+                    (node.name, SHORTHAND)
+                }
+                tsr_ast::ObjectLiteralElementLike::MethodDeclaration(node) => (node.name, METHOD),
+                tsr_ast::ObjectLiteralElementLike::GetAccessorDeclaration(node) => (node.name, GET),
+                tsr_ast::ObjectLiteralElementLike::SetAccessorDeclaration(node) => (node.name, SET),
+                tsr_ast::ObjectLiteralElementLike::SpreadAssignment(_) => return false,
+            };
+            if matches!(name, tsr_ast::PropertyName::PrivateIdentifier(_))
+                || matches!(name, tsr_ast::PropertyName::ComputedPropertyName(computed)
+                    if !matches!(computed.expression,
+                        Some(tsr_ast::Expression::StringLiteral(_) | tsr_ast::Expression::NumericLiteral(_))))
+            {
+                return false;
+            }
+            let Some(declaration) = element.node_id() else {
+                return false;
+            };
+            let Some(symbol) = self.binder.symbol_of(declaration) else {
+                return false;
+            };
+            let key = self.binder.symbols().get(symbol).name;
+            if let Some((previous, previous_kind, checked_declaration)) = source_slots
+                .iter_mut()
+                .find(|(previous, _, _)| self.binder.symbols().get(*previous).name == key)
+            {
+                if *previous != symbol {
+                    return false;
+                }
+                match (*previous_kind, kind) {
+                    (ASSIGNMENT, ASSIGNMENT) => *checked_declaration = Some(declaration),
+                    (GET, SET) | (SET, GET) => *previous_kind |= kind,
+                    _ => return false,
+                }
+            } else {
+                source_slots.push((symbol, kind, (kind == ASSIGNMENT).then_some(declaration)));
+            }
+        }
+        if source_slots.len() != properties.len() || members.len() != properties.len() {
+            return false;
+        }
+        source_slots.iter().zip(properties).zip(members).all(
+            |((&(symbol, kind, checked_declaration), property), member)| {
+                if property.origin != Some(symbol)
+                    || property.name != self.binder.symbols().get(symbol).name
+                    || property.method != (kind == METHOD)
+                    || property.checked_declaration != checked_declaration
+                {
+                    return false;
+                }
+                match member {
+                    crate::objects::Member::Property { name, .. } => name == &property.printed_name,
+                    crate::objects::Member::Method { name, .. } => {
+                        kind == METHOD && name == &property.printed_name
+                    }
+                    _ => false,
+                }
+            },
+        )
     }
 
     pub(crate) fn union_text_at(
@@ -626,5 +970,66 @@ mod tests {
     #[test]
     fn an_unparseable_literal_keeps_its_text_rather_than_inventing_a_value() {
         assert_eq!(normalise_number("not-a-number"), "not-a-number");
+    }
+
+    #[test]
+    fn a_duplicate_slot_requires_its_actual_checked_declaration_not_the_merged_first_one() {
+        let source = "const value = { item: 17, item: 'last',
+            callback: () => 23, callback: () => true };";
+        let arena = tsr_core::Arena::new();
+        let parsed = tsr_parser::parse(&arena, source);
+        let root = parsed.source_file.node_id.unwrap();
+        let bound = tsr_binder::bind(
+            &arena,
+            parsed.source_file,
+            &parsed.nodes,
+            tsr_binder::FileInfo { name: "/survivor.ts", text: source },
+        );
+        let mut nodes = vec![parsed.node_map.get(root).unwrap()];
+        let mut literal = None;
+        while let Some(node) = nodes.pop() {
+            if let tsr_ast::Node::ObjectLiteralExpression(node) = node {
+                literal = Some(node);
+            }
+            tsr_ast::push_children(node, &mut nodes);
+        }
+        let literal = literal.unwrap();
+        let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+        let id = checker.check_expression(tsr_ast::Expression::ObjectLiteralExpression(literal));
+        let data = checker.store.get(id).data.clone();
+        let members = &checker.object_literal_members[&id];
+        let mut properties = checker.anonymous_properties[&id].0.clone();
+        assert!(checker.object_member_plan_matches_source(literal, members, &properties));
+        let slot = properties.iter().position(|property| property.name == "callback").unwrap();
+        let surviving = properties[slot].checked_declaration;
+        let first = bound.symbols().get(properties[slot].origin.unwrap()).value_declaration;
+        assert_ne!(surviving, first);
+        properties[slot].checked_declaration = first;
+        assert!(!checker.object_member_plan_matches_source(literal, members, &properties));
+        properties[slot].checked_declaration = None;
+        assert!(!checker.object_member_plan_matches_source(literal, members, &properties));
+        properties[slot].checked_declaration = surviving;
+        properties[slot].name = "item".to_string();
+        assert!(!checker.object_member_plan_matches_source(literal, members, &properties));
+        assert_eq!(checker.store.get(id).data, data);
+        let regular = checker.get_regular_type_of_object_literal(id);
+        let widened = checker.widen_object_literal_freshness(id);
+        assert_ne!(id, regular);
+        assert_ne!(id, widened);
+        assert_ne!(regular, widened);
+        let mut images =
+            [id, regular, widened].map(|image| (image, checker.store.get(image).data.clone()));
+        for _ in 0..4 {
+            images.reverse();
+            for (image, original) in &images {
+                assert_eq!(
+                    checker.type_to_string_at(*image, literal.node_id.unwrap()).as_deref(),
+                    Some("{ item: string; callback: () => boolean; }")
+                );
+                assert_eq!(&checker.store.get(*image).data, original);
+            }
+            assert_eq!(checker.get_regular_type_of_object_literal(id), regular);
+            assert_eq!(checker.widen_object_literal_freshness(id), widened);
+        }
     }
 }
