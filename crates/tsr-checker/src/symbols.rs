@@ -5913,9 +5913,8 @@ mod tests {
         }
         with_context("{ x?: undefined }", true, true, |checker, target, _, _| {
             let ordinary = checker.get_type_of_property_of_type(target, "x").unwrap();
-            let mut expected = vec![checker.intrinsics.undefined, checker.intrinsics.missing];
-            expected.sort_by_key(|ty| ty.index());
-            assert_eq!(leaves(checker, ordinary), expected);
+            assert_eq!(ordinary, checker.intrinsics.undefined);
+            assert_eq!(leaves(checker, ordinary), vec![checker.intrinsics.undefined]);
             assert_eq!(
                 checker.contextual_property_type(target, "x"),
                 Some(checker.intrinsics.undefined)

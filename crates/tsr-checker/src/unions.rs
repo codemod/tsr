@@ -631,6 +631,11 @@ impl Checker<'_, '_> {
             return self.intrinsics.unknown;
         }
 
+        // getUnionTypeWorker (checker.go:25661): genuine undefined dominates missing.
+        if reduce_literals && set.contains(&self.intrinsics.undefined) {
+            set.retain(|&member| member != self.intrinsics.missing);
+        }
+
         if reduce_literals
             && includes.flags.intersects(
                 TypeFlags::ENUM
@@ -1878,3 +1883,6 @@ impl crate::checker::Checker<'_, '_> {
         })
     }
 }
+
+#[cfg(test)]
+mod tests;
