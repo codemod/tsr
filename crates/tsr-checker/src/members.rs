@@ -1909,7 +1909,15 @@ impl Checker<'_, '_> {
             {
                 return Some(default);
             }
-            self.get_property_of_type_ex(source, name, true)
+            let member = self.get_property_of_type_ex(source, name, true);
+            if self.class_static_symbol(source).is_some() {
+                // Synthetic-default imports spread the resolved static surface
+                // before cloning it. Filter the winning raw symbol, not an
+                // alias target or a hidden member from a base class.
+                member.filter(|&member| self.is_spreadable_property(member))
+            } else {
+                member
+            }
         } else {
             match owner {
                 Owner::Declared(owner) => {
@@ -2489,6 +2497,22 @@ impl Checker<'_, '_> {
     pub(crate) fn get_property_names_of_type(&mut self, id: TypeId) -> Option<Vec<String>> {
         if let Some(&(alias, source)) = self.module_value_clones.get(&id) {
             let mut names = self.get_property_names_of_type(source)?;
+            if self.class_static_symbol(source).is_some() {
+                let mut copied = Vec::with_capacity(names.len());
+                for name in names {
+                    // Class name enumeration supplies this synthetic property;
+                    // its instance type has no corresponding binder symbol.
+                    if name == "prototype" {
+                        copied.push(name);
+                        continue;
+                    }
+                    let member = self.get_property_of_type_ex(source, &name, true)?;
+                    if self.is_spreadable_property(member) {
+                        copied.push(name);
+                    }
+                }
+                names = copied;
+            }
             if self.module_clone_default_symbol(alias).is_some()
                 && !names.iter().any(|name| name == "default")
             {
@@ -3227,6 +3251,160 @@ mod property_name_tests {
         ).unwrap();
         names.sort();
         assert_eq!(names, ["base", "late", "literal", "regular"]);
+    }
+
+    /// Native 5b1047d spreads the synthetic default wrapper before cloning its
+    /// resolved members. Its raw export table still holds excluded methods.
+    #[test]
+    fn class_module_copy_members_filter_after_source_shadowing() {
+        use tsr_ast::{NodeMap, NodeTable};
+
+        struct Library(NodeId);
+        impl crate::resolution::ModuleHost for Library {
+            fn resolved_module(&self, _: NodeId, specifier: &str) -> Option<NodeId> {
+                (specifier == "./lib").then_some(self.0)
+            }
+
+            fn module_resolution_found(&self, file: NodeId, specifier: &str) -> bool {
+                self.resolved_module(file, specifier).is_some()
+            }
+        }
+
+        let own = r#"static field = 11; static arrow = (n: number): string => 'field';
+static opaque = function({ "value": value }: { value: number }): number { return value; };
+static own(n: number): string { return 'method'; }
+static get getter(): number { return 13; } static set setter(n: number) {}
+private static hidden = 19; protected static guarded = 23;
+static readonly fixed = 29; static optional?: number; static #secret = 31;"#;
+        let base = "class Base { static baseField = 101; static baseArrow = (n: number): string => 'base'; static baseMethod(n: number): string { return 'base-method'; } static dropShadow = (n: number): string => 'base-field'; static keepShadow(n: number): string { return 'base-method'; } }";
+        let overrides = "static dropShadow(n: number): string { return 'derived-method'; } static keepShadow = (n: number): string => 'derived-field';";
+        let merged = "namespace Foo { export const mergedField = 'merged'; export function mergedFn(n: number): string { return 'merged'; } export class Box {} export namespace Inner { export const field = 37; } export interface OnlyType { field: number; } export import aliasOwn = Foo.own; }";
+        for (library, inherited, namespace, function, incomplete) in [
+            (format!("class Foo {{ {own} }} export = Foo;"), false, false, false, false),
+            (
+                format!("{base} class Foo extends Base {{ {own} {overrides} }} {merged} export = Foo;"),
+                true,
+                true,
+                false,
+                false,
+            ),
+            (
+                "function Foo(n: number): string { return 'raw'; } namespace Foo { export const field = 11; export function own(n: number): string { return 'namespace'; } } export = Foo;".to_owned(),
+                false,
+                true,
+                true,
+                false,
+            ),
+            (
+                format!("class Foo extends Missing {{ constructor() {{ super(); }} {own} }} export = Foo;"),
+                false,
+                false,
+                false,
+                true,
+            ),
+        ] {
+            for strict_null in [false, true] {
+                for cold in ["Head", "Tail"] {
+                    let arena = Arena::new();
+                    let source = "import * as Head from './lib'; import * as Twin from './lib'; import Raw = require('./lib'); import Tail = Linked; import Linked = Head;";
+                    let mut nodes = NodeTable::new();
+                    let mut map = NodeMap::new();
+                    let mut bound = tsr_binder::BindResult::empty();
+                    let mut roots = Vec::new();
+                    for (name, text) in [("/lib.ts", library.as_str()), ("/use.ts", source)] {
+                        let parsed = tsr_parser::parse_into(
+                            &arena,
+                            text,
+                            tsr_parser::ParseOptions::default(),
+                            &mut nodes,
+                            &mut map,
+                        );
+                        assert!(parsed.diagnostics.is_empty());
+                        roots.push(parsed.source_file.node_id().unwrap());
+                        bound = tsr_binder::bind_into(
+                            bound,
+                            &arena,
+                            parsed.source_file,
+                            &nodes,
+                            tsr_binder::FileInfo { name, text },
+                        );
+                    }
+                    let locals = bound.locals(roots[1]).unwrap();
+                    let host = Library(roots[0]);
+                    let mut checker = Checker::with_module_host(&bound, &nodes, &map, Some(&host));
+                    checker.set_strict_null_checks(strict_null);
+                    let cold_type = checker.get_type_of_symbol(locals[cold]);
+                    let head = checker.get_type_of_symbol(locals["Head"]);
+                    let raw = checker.get_type_of_symbol(locals["Raw"]);
+                    let twin = checker.get_type_of_symbol(locals["Twin"]);
+                    assert!(checker.module_value_clones.contains_key(&head), "{library}");
+                    assert_ne!(head, raw);
+                    assert_ne!(head, twin);
+                    if cold == "Head" || namespace {
+                        assert_eq!(cold_type, head);
+                    } else {
+                        assert_eq!(cold_type, checker.intrinsics().error);
+                    }
+                    assert_eq!(checker.get_type_of_property_of_type(head, "default"), Some(raw));
+                    for name in ["field", "own"] {
+                        assert!(checker.get_property_of_type(raw, name).is_some());
+                    }
+                    if function {
+                        for name in ["field", "own"] {
+                            assert_eq!(
+                                checker.get_property_of_type(head, name),
+                                checker.get_property_of_type(raw, name),
+                            );
+                        }
+                        continue;
+                    }
+                    let mut retained = vec!["field", "arrow", "opaque", "hidden", "guarded", "fixed", "optional"];
+                    let mut excluded = vec!["own", "getter", "setter"];
+                    if inherited {
+                        retained.extend(["baseField", "baseArrow", "keepShadow"]);
+                        excluded.extend(["baseMethod", "dropShadow"]);
+                    }
+                    if namespace {
+                        retained.extend(["mergedField", "mergedFn", "Box", "Inner", "aliasOwn"]);
+                    }
+                    for name in &retained {
+                        let original = checker.get_property_of_type(raw, name).unwrap();
+                        for copy in [head, twin] {
+                            assert_eq!(checker.get_property_of_type(copy, name), Some(original), "{name}");
+                        }
+                    }
+                    for name in &excluded {
+                        let original = checker.get_property_of_type(raw, name).unwrap();
+                        assert!(!checker.is_spreadable_property(original));
+                        assert_eq!(checker.get_property_of_type(head, name), None, "{name}");
+                        assert_eq!(checker.get_property_of_type(twin, name), None, "{name}");
+                    }
+                    assert_eq!(checker.get_property_of_type(head, "OnlyType"), None);
+                    assert_eq!(
+                        checker.get_type_of_property_of_type(head, "opaque"),
+                        Some(checker.intrinsics().error),
+                        "a known retained field with an unreadable signature is not absent",
+                    );
+                    let prototype = checker.get_type_of_property_of_type(raw, "prototype");
+                    assert!(prototype.is_some());
+                    assert_eq!(checker.get_type_of_property_of_type(head, "prototype"), prototype);
+                    if incomplete {
+                        assert_eq!(checker.get_property_names_of_type(head), None);
+                    } else {
+                        retained.extend(["default", "prototype"]);
+                        retained.sort_unstable();
+                        let mut copied = checker.get_property_names_of_type(head).unwrap();
+                        copied.sort_unstable();
+                        assert_eq!(copied, retained);
+                        assert_eq!(
+                            checker.declared_members_are_complete(head),
+                            !inherited,
+                            "filtering does not widen completeness",
+                        );
+                    }
+                }
+            }
+        }
     }
 
     #[test]
