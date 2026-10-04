@@ -2056,7 +2056,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             let printed = self.type_to_string(id);
             return self.qualified_name_at(id, printed, reference);
         };
-        if let Some(name) = self.module_name_at(module, reference) {
+        if let Some(name) = self.module_name_at(module, reference, SymbolFlags::VALUE) {
             // SS197 (measured -66 cases, reverted): qualifying with
             // `globalThis.` when the bare name resolves to a DIFFERENT symbol
             // at the reference is far too broad — 12 cases want the
@@ -2077,7 +2077,7 @@ impl<'a, 'n> Checker<'a, 'n> {
         // "no alias at all" is simply `None`; AUGMENTED ambients (2+
         // declarations, moduleAugmentationExtend*'s bare-name wants) gate
         // out; FILE modules wait for the relative-specifier half.
-        if self.module_alias_at(module, reference).is_none() {
+        if self.module_alias_at(module, reference, SymbolFlags::VALUE).is_none() {
             let declarations = &self.binder.symbols().get(module).declarations;
             if let [declaration] = declarations.as_slice()
                 && let Some(tsr_ast::Node::ModuleDeclaration(node)) =
@@ -2615,7 +2615,14 @@ impl<'a, 'n> Checker<'a, 'n> {
             // 582-586`), and this port now computes the same order, so an
             // ambiguous container yields a name rather than declining. Only a
             // container no alias reaches falls through to `import("…")`.
-            if let Some(alias) = self.module_alias_at(parent, reference) {
+            // Native getQualifiedLeftMeaning: only exact VALUE keeps value
+            // meaning; a type or combined meaning qualifies through a namespace.
+            let left_meaning = if meaning == SymbolFlags::VALUE {
+                SymbolFlags::VALUE
+            } else {
+                SymbolFlags::NAMESPACE
+            };
+            if let Some(alias) = self.module_alias_at(parent, reference, left_meaning) {
                 return Some(format!("{alias}."));
             }
             // The ambient branch of `getSpecifierForModuleSymbol`
@@ -3147,8 +3154,13 @@ impl<'a, 'n> Checker<'a, 'n> {
         None
     }
 
-    fn module_name_at(&mut self, module: SymbolId, reference: NodeId) -> Option<&'a str> {
-        self.module_alias_at(module, reference)
+    fn module_name_at(
+        &mut self,
+        module: SymbolId,
+        reference: NodeId,
+        meaning: SymbolFlags,
+    ) -> Option<&'a str> {
+        self.module_alias_at(module, reference, meaning)
     }
 
     /// The in-scope alias naming `module` at `reference`, **choosing** when
@@ -3204,7 +3216,12 @@ impl<'a, 'n> Checker<'a, 'n> {
     /// which is the same shape. Flattening the tables and sorting globally
     /// would let a file-scope alias at offset 10 beat a block-scope alias at
     /// offset 500 that upstream would have returned first.
-    fn module_alias_at(&mut self, module: SymbolId, reference: NodeId) -> Option<&'a str> {
+    fn module_alias_at(
+        &mut self,
+        module: SymbolId,
+        reference: NodeId,
+        meaning: SymbolFlags,
+    ) -> Option<&'a str> {
         let mut tables: Vec<Vec<SymbolId>> = Vec::new();
         let mut current = Some(reference);
         while let Some(node) = current {
@@ -3241,6 +3258,10 @@ impl<'a, 'n> Checker<'a, 'n> {
                     continue;
                 }
                 if self.alias_targets_module_clone(candidate) {
+                    continue;
+                }
+                let name = self.binder.symbols().get(candidate).name;
+                if self.is_shadowed_at(candidate, name, reference, meaning) {
                     continue;
                 }
                 candidates.push(candidate);
