@@ -1,0 +1,139 @@
+--- a/crates/tsr-module/src/resolver.rs
++++ b/crates/tsr-module/src/resolver.rs
+@@ -269,16 +269,18 @@
+         state.trace(&messages::RESOLVING_MODULE_0_FROM_1, &[module_name, containing_file]);
+ 
+         let module_resolution = self.compiler_options.module_resolution_kind();
+-        if self.compiler_options.module_resolution == module_resolution {
+-            state.trace(
+-                &messages::EXPLICITLY_SPECIFIED_MODULE_RESOLUTION_KIND_COLON_0,
+-                &[&module_resolution.to_string()],
+-            );
+-        } else {
+-            state.trace(
+-                &messages::MODULE_RESOLUTION_KIND_IS_NOT_SPECIFIED_USING_0,
+-                &[&module_resolution.to_string()],
+-            );
++        if tracing {
++            if self.compiler_options.module_resolution == module_resolution {
++                state.trace(
++                    &messages::EXPLICITLY_SPECIFIED_MODULE_RESOLUTION_KIND_COLON_0,
++                    &[&module_resolution.to_string()],
++                );
++            } else {
++                state.trace(
++                    &messages::MODULE_RESOLUTION_KIND_IS_NOT_SPECIFIED_USING_0,
++                    &[&module_resolution.to_string()],
++                );
++            }
+         }
+ 
+         assert!(
+@@ -292,20 +294,22 @@
+         );
+         let result = state.resolve_node_like();
+ 
+-        if result.is_resolved() {
+-            if result.package_id.is_set() {
+-                state.trace(
+-                    &messages::MODULE_NAME_0_WAS_SUCCESSFULLY_RESOLVED_TO_1_WITH_PACKAGE_ID_2,
+-                    &[module_name, &result.resolved_file_name, &result.package_id.to_string()],
+-                );
++        if tracing {
++            if result.is_resolved() {
++                if result.package_id.is_set() {
++                    state.trace(
++                        &messages::MODULE_NAME_0_WAS_SUCCESSFULLY_RESOLVED_TO_1_WITH_PACKAGE_ID_2,
++                        &[module_name, &result.resolved_file_name, &result.package_id.to_string()],
++                    );
++                } else {
++                    state.trace(
++                        &messages::MODULE_NAME_0_WAS_SUCCESSFULLY_RESOLVED_TO_1,
++                        &[module_name, &result.resolved_file_name],
++                    );
++                }
+             } else {
+-                state.trace(
+-                    &messages::MODULE_NAME_0_WAS_SUCCESSFULLY_RESOLVED_TO_1,
+-                    &[module_name, &result.resolved_file_name],
+-                );
+-            }
+-        } else {
+-            state.trace(&messages::MODULE_NAME_0_WAS_NOT_RESOLVED, &[module_name]);
++                state.trace(&messages::MODULE_NAME_0_WAS_NOT_RESOLVED, &[module_name]);
++            }
+         }
+ 
+         // `moduleResolutionCache.Set` keeps the first result, including failure.
+@@ -659,14 +663,16 @@
+ 
+     /// `resolutionState.resolveNodeLike`.
+     fn resolve_node_like(&mut self) -> ResolvedModule {
+-        let conditions = self
+-            .conditions
+-            .iter()
+-            .map(|condition| format!("'{condition}'"))
+-            .collect::<Vec<_>>()
+-            .join(", ");
+-        let mode = if self.esm_mode { "ESM" } else { "CJS" };
+-        self.trace(&messages::RESOLVING_IN_0_MODE_WITH_CONDITIONS_1, &[mode, &conditions]);
++        if self.tracing {
++            let conditions = self
++                .conditions
++                .iter()
++                .map(|condition| format!("'{condition}'"))
++                .collect::<Vec<_>>()
++                .join(", ");
++            let mode = if self.esm_mode { "ESM" } else { "CJS" };
++            self.trace(&messages::RESOLVING_IN_0_MODE_WITH_CONDITIONS_1, &[mode, &conditions]);
++        }
+ 
+         let mut result = self.resolve_node_like_worker();
+ 
+@@ -733,18 +739,22 @@
+             return self.create_resolved_module_handling_symlink(Some(resolved));
+         }
+         if self.name.contains(':') {
++            if self.tracing {
++                let (name, extensions) = (self.name.clone(), self.extensions.to_string());
++                self.trace(
++                    &messages::SKIPPING_MODULE_0_THAT_LOOKS_LIKE_AN_ABSOLUTE_URI_TARGET_FILE_TYPES_COLON_1,
++                    &[&name, &extensions],
++                );
++            }
++            return self.create_resolved_module(None, false);
++        }
++        if self.tracing {
+             let (name, extensions) = (self.name.clone(), self.extensions.to_string());
+             self.trace(
+-                &messages::SKIPPING_MODULE_0_THAT_LOOKS_LIKE_AN_ABSOLUTE_URI_TARGET_FILE_TYPES_COLON_1,
++                &messages::LOADING_MODULE_0_FROM_NODE_MODULES_FOLDER_TARGET_FILE_TYPES_COLON_1,
+                 &[&name, &extensions],
+             );
+-            return self.create_resolved_module(None, false);
+-        }
+-        let (name, extensions) = (self.name.clone(), self.extensions.to_string());
+-        self.trace(
+-            &messages::LOADING_MODULE_0_FROM_NODE_MODULES_FOLDER_TARGET_FILE_TYPES_COLON_1,
+-            &[&name, &extensions],
+-        );
++        }
+         if let Some(resolved) = self.load_module_from_nearest_node_modules_directory(false) {
+             return self.create_resolved_module_handling_symlink(Some(resolved));
+         }
+@@ -807,8 +817,13 @@
+             || (self.name.starts_with("#/")
+                 && !self.features.intersects(NodeResolutionFeatures::IMPORTS_PATTERN_ROOT))
+         {
+-            let name = self.name.clone();
+-            self.trace(&messages::INVALID_IMPORT_SPECIFIER_0_HAS_NO_POSSIBLE_RESOLUTIONS, &[&name]);
++            if self.tracing {
++                let name = self.name.clone();
++                self.trace(
++                    &messages::INVALID_IMPORT_SPECIFIER_0_HAS_NO_POSSIBLE_RESOLUTIONS,
++                    &[&name],
++                );
++            }
+             return continue_searching();
+         }
+         let directory_path =

@@ -1,0 +1,513 @@
+diff --git a/crates/tsr-compiler/src/loader.rs b/crates/tsr-compiler/src/loader.rs
+index 6100f934..26d3275c 100644
+--- a/crates/tsr-compiler/src/loader.rs
++++ b/crates/tsr-compiler/src/loader.rs
+@@ -412,6 +412,7 @@ impl<'host, 'a> FileLoader<'host, 'a> {
+         host: &'host dyn ResolutionHost,
+         load_options: LoadOptions,
+     ) -> LoadedFiles<'a> {
++        let _origin = tsr_module::origin_probe::Scope::enter("loader");
+         let LoadOptions { compiler_options: options, root_file_names, default_library_path } =
+             load_options;
+         let load_started = options.extended_diagnostics.is_true().then(Instant::now);
+@@ -1095,6 +1096,7 @@ impl<'host, 'a> FileLoader<'host, 'a> {
+     /// not found, a file referencing itself. None of them is a resolution, so
+     /// none of them is visible in the oracle this slice is judged on.
+     fn source_file_from_reference(&self, file_name: &str, containing_file: &str) -> Option<String> {
++        let _origin = tsr_module::origin_probe::Scope::enter("root_or_path_reference");
+         let allow_non_ts_extensions = self.options.allow_non_ts_extensions.is_true();
+         let case_sensitive = self.host.fs().use_case_sensitive_file_names();
+ 
+@@ -1144,6 +1146,7 @@ impl<'host, 'a> FileLoader<'host, 'a> {
+ 
+     /// `fileLoader.loadSourceFileMetaData`.
+     fn load_source_file_meta_data(&self, file_name: &str) -> SourceFileMetaData {
++        let _origin = tsr_module::origin_probe::Scope::enter("source_metadata");
+         let scope = self.resolver.get_package_scope_for_path(get_directory_path(file_name));
+         let module_resolution = self.options.module_resolution_kind();
+ 
+diff --git a/crates/tsr-execute/src/compile.rs b/crates/tsr-execute/src/compile.rs
+index c8388078..e9dc35d2 100644
+--- a/crates/tsr-execute/src/compile.rs
++++ b/crates/tsr-execute/src/compile.rs
+@@ -107,6 +107,7 @@ pub fn run_compilation(
+     command_line: &ParsedCommandLine,
+     config_file_name: &str,
+ ) -> ExitStatus {
++    let _origin = tsr_vfs::origin_probe::Scope::enter("compilation");
+     let compilation_started = sys.since_start();
+     let current_directory = sys.current_directory().to_string();
+ 
+@@ -304,6 +305,7 @@ pub fn run_compilation(
+     let checker_initialized = sys.since_start();
+ 
+     let mut diagnostics: Vec<(String, Diagnostic)> = Vec::new();
++    let capture_scope = std::env::var_os("TSR_META_SCOPE").is_some();
+     let mut checked_file_count = 0;
+     if !options.no_check.is_true() {
+         for file in program.root_and_referenced_files() {
+@@ -333,6 +335,9 @@ pub fn run_compilation(
+             if options.skip_default_lib_check.is_true() && is_default_library(&program, file) {
+                 continue;
+             }
++            if capture_scope {
++                eprintln!("TSR_META_CHECKED\t{name}");
++            }
+             checker.check_source_file(
+                 id,
+                 tsr_checker::check::FileContext {
+@@ -344,6 +349,9 @@ pub fn run_compilation(
+         }
+     }
+     let checking_finished = sys.since_start();
++    if std::env::var_os("TSR_META_PROFILE").is_some() {
++        eprintln!("TSR_META_COUNTS\t{}", tsr_vfs::origin_probe::snapshot_json());
++    }
+     if !options.no_check.is_true() {
+         for (file_id, diagnostic) in checker.diagnostics() {
+             if let Some(file) = program
+diff --git a/crates/tsr-execute/src/lib.rs b/crates/tsr-execute/src/lib.rs
+index 1132c528..ddce63d0 100644
+--- a/crates/tsr-execute/src/lib.rs
++++ b/crates/tsr-execute/src/lib.rs
+@@ -69,6 +69,7 @@ fn build_not_implemented(sys: &mut dyn System) -> ExitStatus {
+ /// command line with both `--project` and file names is rejected before either
+ /// is looked at.
+ fn tsc_compilation(sys: &mut dyn System, args: &[String]) -> ExitStatus {
++    let _origin = tsr_vfs::origin_probe::Scope::enter("cli_discovery");
+     let current_directory = sys.current_directory().to_string();
+     let command_line =
+         tsr_tsoptions::command_line::parse_command_line(args, sys.fs(), &current_directory);
+@@ -196,6 +197,7 @@ fn tsc_compilation(sys: &mut dyn System, args: &[String]) -> ExitStatus {
+ 
+ /// `findConfigFile` — the nearest `tsconfig.json` at or above `search_path`.
+ fn find_config_file(sys: &dyn System, search_path: &str) -> String {
++    let _origin = tsr_vfs::origin_probe::Scope::enter("config_ancestor");
+     for_each_ancestor_directory(search_path, |ancestor| {
+         let candidate = combine_paths(ancestor, &["tsconfig.json"]);
+         if sys.fs().file_exists(&candidate) { Some(candidate) } else { None }
+diff --git a/crates/tsr-module/src/lib.rs b/crates/tsr-module/src/lib.rs
+index 019f5988..1865d08e 100644
+--- a/crates/tsr-module/src/lib.rs
++++ b/crates/tsr-module/src/lib.rs
+@@ -9,3 +9,6 @@ pub mod resolver;
+ pub mod semver;
+ pub mod types;
+ pub mod util;
++
++// Temporary probe access through the compiler's existing module dependency.
++pub use tsr_vfs::origin_probe;
+diff --git a/crates/tsr-module/src/resolver.rs b/crates/tsr-module/src/resolver.rs
+index 07fd5b11..309a06bd 100644
+--- a/crates/tsr-module/src/resolver.rs
++++ b/crates/tsr-module/src/resolver.rs
+@@ -215,6 +215,7 @@ impl<'host> Resolver<'host> {
+     /// baseline sanitiser exists precisely to make that unobservable.
+     #[must_use]
+     pub fn get_package_scope_for_path(&self, directory: &str) -> Option<Rc<PackageJsonInfo>> {
++        let _origin = tsr_vfs::origin_probe::Scope::enter("source_package_scope");
+         let mut state = ResolutionState::new(
+             self,
+             String::new(),
+@@ -244,6 +245,7 @@ impl<'host> Resolver<'host> {
+         containing_file: &str,
+         resolution_mode: ResolutionMode,
+     ) -> (ResolvedModule, Vec<Trace>) {
++        let _origin = tsr_vfs::origin_probe::Scope::enter("module_query");
+         let containing_directory = get_directory_path(containing_file).to_string();
+         let tracing = self.compiler_options.trace_resolution == Tristate::True;
+         let cache_key = ModuleResolutionCacheKey {
+@@ -336,6 +338,7 @@ impl<'host> Resolver<'host> {
+     /// from its directory.
+     #[must_use]
+     pub fn resolve_config(&self, module_name: &str, containing_file: &str) -> ResolvedModule {
++        let _origin = tsr_vfs::origin_probe::Scope::enter("config_module_query");
+         let containing_directory = get_directory_path(containing_file).to_string();
+         let mut state = ResolutionState::new(
+             self,
+@@ -358,6 +361,7 @@ impl<'host> Resolver<'host> {
+         containing_file: &str,
+         resolution_mode: ResolutionMode,
+     ) -> (ResolvedTypeReferenceDirective, Vec<Trace>) {
++        let _origin = tsr_vfs::origin_probe::Scope::enter("type_reference_query");
+         let containing_directory = get_directory_path(containing_file).to_string();
+         let tracing = self.compiler_options.trace_resolution == Tristate::True;
+         let from_inferred_types_containing_file =
+@@ -624,6 +628,7 @@ impl<'a, 'host> ResolutionState<'a, 'host> {
+ 
+     /// `resolutionState.resolveFromTypeRoot`.
+     fn resolve_from_type_root(&mut self) -> Search {
++        let _origin = tsr_vfs::origin_probe::Scope::enter("type_root");
+         let Some(type_roots) = self.options().type_roots.clone() else {
+             return continue_searching();
+         };
+@@ -758,6 +763,7 @@ impl<'a, 'host> ResolutionState<'a, 'host> {
+ 
+     /// `resolutionState.loadModuleFromSelfNameReference`.
+     fn load_module_from_self_name_reference(&mut self) -> Search {
++        let _origin = tsr_vfs::origin_probe::Scope::enter("self_name");
+         let directory_path =
+             get_normalized_absolute_path(&self.containing_directory, self.current_directory());
+         let scope = self.get_package_scope_for_path(&directory_path);
+@@ -803,6 +809,7 @@ impl<'a, 'host> ResolutionState<'a, 'host> {
+ 
+     /// `resolutionState.loadModuleFromImports`.
+     fn load_module_from_imports(&mut self) -> Search {
++        let _origin = tsr_vfs::origin_probe::Scope::enter("imports");
+         if self.name == "#"
+             || (self.name.starts_with("#/")
+                 && !self.features.intersects(NodeResolutionFeatures::IMPORTS_PATTERN_ROOT))
+@@ -849,6 +856,7 @@ impl<'a, 'host> ResolutionState<'a, 'host> {
+         extensions: Extensions,
+         subpath: &str,
+     ) -> Search {
++        let _origin = tsr_vfs::origin_probe::Scope::enter("exports");
+         let Some(contents) = package_info.contents.clone() else { return continue_searching() };
+         if contents.exports.is_falsy() {
+             return continue_searching();
+@@ -1216,6 +1224,7 @@ impl<'a, 'host> ResolutionState<'a, 'host> {
+         package_path: &str,
+         is_imports: bool,
+     ) -> Search {
++        let _origin = tsr_vfs::origin_probe::Scope::enter("output_to_input");
+         let options = self.options().clone();
+         if self.is_config_lookup
+             || (options.declaration_dir.is_empty() && options.out_dir.is_empty())
+@@ -1326,6 +1335,7 @@ impl<'a, 'host> ResolutionState<'a, 'host> {
+         &mut self,
+         types_scope_only: bool,
+     ) -> Search {
++        let _origin = tsr_vfs::origin_probe::Scope::enter("node_modules_ancestor");
+         let priority =
+             self.extensions.intersection(Extensions::TYPESCRIPT.union(Extensions::DECLARATION));
+         let secondary =
+@@ -1391,6 +1401,7 @@ impl<'a, 'host> ResolutionState<'a, 'host> {
+         directory: &str,
+         types_scope_only: bool,
+     ) -> Search {
++        let _origin = tsr_vfs::origin_probe::Scope::enter("node_modules_directory");
+         let node_modules_folder = combine_paths(directory, &["node_modules"]);
+         if !self.fs().directory_exists(&node_modules_folder) {
+             self.trace(
+@@ -1661,6 +1672,7 @@ impl<'a, 'host> ResolutionState<'a, 'host> {
+         path_patterns: &ParsedPatterns,
+         loader: &Loader,
+     ) -> Search {
++        let _origin = tsr_vfs::origin_probe::Scope::enter("paths");
+         let matched = match_pattern_or_exact(path_patterns, module_name);
+         if !matched.is_valid() {
+             return continue_searching();
+@@ -1707,6 +1719,7 @@ impl<'a, 'host> ResolutionState<'a, 'host> {
+ 
+     /// `resolutionState.tryLoadModuleUsingRootDirs`.
+     fn try_load_module_using_root_dirs(&mut self) -> Search {
++        let _origin = tsr_vfs::origin_probe::Scope::enter("root_dirs");
+         let root_dirs = self.options().root_dirs.clone();
+         if root_dirs.is_empty() {
+             return continue_searching();
+@@ -1783,6 +1796,7 @@ impl<'a, 'host> ResolutionState<'a, 'host> {
+         candidate: &str,
+         consider_package_json: bool,
+     ) -> Search {
++        let _origin = tsr_vfs::origin_probe::Scope::enter("relative_name");
+         self.trace(
+             &messages::LOADING_MODULE_AS_FILE_SLASH_FOLDER_CANDIDATE_MODULE_LOCATION_0_TARGET_FILE_TYPES_COLON_1,
+             &[candidate, &extensions.to_string()],
+@@ -1876,6 +1890,7 @@ impl<'a, 'host> ResolutionState<'a, 'host> {
+         extensions: Extensions,
+         original_extension: &str,
+     ) -> Search {
++        let _origin = tsr_vfs::origin_probe::Scope::enter("extensions");
+         let directory = get_directory_path(extensionless).to_string();
+         if !directory.is_empty() && !self.fs().directory_exists(&directory) {
+             return continue_searching();
+@@ -2020,6 +2035,7 @@ impl<'a, 'host> ResolutionState<'a, 'host> {
+ 
+     /// `resolutionState.tryFileLookup` — the probe every baseline is made of.
+     fn try_file_lookup(&mut self, file_name: &str) -> bool {
++        let _origin = tsr_vfs::origin_probe::Scope::enter("candidate_file");
+         if self.fs().file_exists(file_name) {
+             self.trace(&messages::FILE_0_EXISTS_USE_IT_AS_A_NAME_RESOLUTION_RESULT, &[file_name]);
+             true
+@@ -2211,6 +2227,7 @@ impl<'a, 'host> ResolutionState<'a, 'host> {
+ 
+     /// `resolutionState.getPackageScopeForPath`.
+     fn get_package_scope_for_path(&mut self, directory: &str) -> Option<Rc<PackageJsonInfo>> {
++        let _origin = tsr_vfs::origin_probe::Scope::enter("package_scope_ancestor");
+         let mut directory = directory.to_string();
+         loop {
+             if let Some(result) = self.get_package_json_info(&directory) {
+@@ -2232,6 +2249,7 @@ impl<'a, 'host> ResolutionState<'a, 'host> {
+     /// `package.json` here" *and* `Some` with no contents never happens — an
+     /// entry without contents is cached but reported as absent.
+     fn get_package_json_info(&mut self, package_directory: &str) -> Option<Rc<PackageJsonInfo>> {
++        let _origin = tsr_vfs::origin_probe::Scope::enter("package_json");
+         let package_json_path = combine_paths(package_directory, &["package.json"]);
+         let key = to_path(
+             &package_json_path,
+@@ -2574,6 +2592,7 @@ pub fn get_automatic_type_directive_names(
+     options: &CompilerOptions,
+     host: &dyn ResolutionHost,
+ ) -> Vec<String> {
++    let _origin = tsr_vfs::origin_probe::Scope::enter("automatic_types");
+     if !options.uses_wildcard_types() {
+         return options.types.clone().unwrap_or_default();
+     }
+diff --git a/crates/tsr-tsoptions/src/lib.rs b/crates/tsr-tsoptions/src/lib.rs
+index 9b0b804b..b400ae81 100644
+--- a/crates/tsr-tsoptions/src/lib.rs
++++ b/crates/tsr-tsoptions/src/lib.rs
+@@ -98,6 +98,7 @@ pub fn parse_config_file(
+     base_path: &str,
+     fs: &dyn FileSystem,
+ ) -> ParsedCommandLine {
++    let _origin = tsr_vfs::origin_probe::Scope::enter("config_parse");
+     let config_dir = if config_file_name.is_empty() {
+         normalize_slashes(base_path)
+     } else {
+@@ -332,6 +333,7 @@ fn extended_configs(
+ /// it — which is why the earlier decision to decline was wrong in practice even
+ /// though it was defensible in the abstract.
+ fn resolve_extends_path(name: &str, base_path: &str, fs: &dyn FileSystem) -> Option<String> {
++    let _origin = tsr_vfs::origin_probe::Scope::enter("config_extends_path");
+     let name = normalize_slashes(name);
+     if !(tsr_path::is_rooted_disk_path(&name) || name.starts_with("./") || name.starts_with("../"))
+     {
+@@ -362,6 +364,7 @@ fn resolve_extends_path(name: &str, base_path: &str, fs: &dyn FileSystem) -> Opt
+ /// file system and a current directory — so the config's own directory serves
+ /// as both.
+ fn resolve_extends_module(name: &str, base_path: &str, fs: &dyn FileSystem) -> Option<String> {
++    let _origin = tsr_vfs::origin_probe::Scope::enter("config_extends_module");
+     struct ConfigHost<'a> {
+         fs: &'a dyn FileSystem,
+         current_directory: String,
+diff --git a/crates/tsr-vfs/src/cached.rs b/crates/tsr-vfs/src/cached.rs
+index 6b471d7a..d5609d45 100644
+--- a/crates/tsr-vfs/src/cached.rs
++++ b/crates/tsr-vfs/src/cached.rs
+@@ -81,7 +81,9 @@ impl FileSystem for CachedFileSystem<'_> {
+     }
+ 
+     fn file_exists(&self, path: &str) -> bool {
+-        self.cached(&self.files, path, || self.fs.file_exists(path))
++        let result = self.cached(&self.files, path, || self.fs.file_exists(path));
++        crate::origin_probe::cached("cached.file", path, result);
++        result
+     }
+ 
+     fn read_file(&self, path: &str) -> Option<String> {
+@@ -89,7 +91,9 @@ impl FileSystem for CachedFileSystem<'_> {
+     }
+ 
+     fn directory_exists(&self, path: &str) -> bool {
+-        self.cached(&self.directories, path, || self.fs.directory_exists(path))
++        let result = self.cached(&self.directories, path, || self.fs.directory_exists(path));
++        crate::origin_probe::cached("cached.directory", path, result);
++        result
+     }
+ 
+     fn get_accessible_entries(&self, path: &str) -> DirectoryEntries {
+diff --git a/crates/tsr-vfs/src/glob.rs b/crates/tsr-vfs/src/glob.rs
+index 442f6303..b75fe569 100644
+--- a/crates/tsr-vfs/src/glob.rs
++++ b/crates/tsr-vfs/src/glob.rs
+@@ -71,6 +71,7 @@ pub fn read_directory(
+     excludes: &[String],
+     includes: &[String],
+ ) -> Vec<String> {
++    let _origin = crate::origin_probe::Scope::enter("config_include_walk");
+     let path = normalize_path(path);
+     let current_directory = normalize_path(current_directory);
+     let absolute_path = combine_paths(&current_directory, &[&path]);
+diff --git a/crates/tsr-vfs/src/lib.rs b/crates/tsr-vfs/src/lib.rs
+index 1ae5d0bf..5af85ef9 100644
+--- a/crates/tsr-vfs/src/lib.rs
++++ b/crates/tsr-vfs/src/lib.rs
+@@ -389,3 +389,5 @@ mod tests {
+         assert!(insensitive.file_exists("/a/b.ts"));
+     }
+ }
++
++pub mod origin_probe;
+diff --git a/crates/tsr-vfs/src/os.rs b/crates/tsr-vfs/src/os.rs
+index c933a504..d97b9bb3 100644
+--- a/crates/tsr-vfs/src/os.rs
++++ b/crates/tsr-vfs/src/os.rs
+@@ -172,7 +172,7 @@ impl FileSystem for OsFileSystem {
+     /// listing does not offer it as a candidate.
+     fn file_exists(&self, path: &str) -> bool {
+         assert_rooted(path);
+-        std::fs::metadata(path).is_ok_and(|metadata| !metadata.is_dir())
++        crate::origin_probe::disk_metadata(path, false)
+     }
+ 
+     /// `Common.ReadFile` — bytes off the disk, decoded by byte-order mark.
+@@ -188,7 +188,7 @@ impl FileSystem for OsFileSystem {
+     /// `Common.DirectoryExists` — stat, and require a directory.
+     fn directory_exists(&self, path: &str) -> bool {
+         assert_rooted(path);
+-        std::fs::metadata(path).is_ok_and(|metadata| metadata.is_dir())
++        crate::origin_probe::disk_metadata(path, true)
+     }
+ 
+     /// `Common.GetAccessibleEntries` — one level, with symlinks followed.
+--- /dev/null
++++ b/crates/tsr-vfs/src/origin_probe.rs
+@@ -0,0 +1,157 @@
++//! Temporary attribution only. No filesystem answers or cache semantics change.
++use std::{
++    cell::RefCell,
++    collections::{BTreeMap, HashSet},
++    marker::PhantomData,
++    rc::Rc,
++    sync::{Mutex, OnceLock},
++    time::Instant,
++};
++thread_local! { static ORIGINS: RefCell<Vec<&'static str>> = const { RefCell::new(Vec::new()) }; }
++fn enabled() -> bool {
++    static FLAG: OnceLock<bool> = OnceLock::new();
++    *FLAG.get_or_init(|| std::env::var_os("TSR_META_PROFILE").is_some())
++}
++/// Origin stack guard; remains on its creating thread.
++pub struct Scope {
++    name: Option<&'static str>,
++    _thread: PhantomData<Rc<()>>,
++}
++impl Scope {
++    /// Enter a diagnostic origin without changing any lookup.
++    pub fn enter(name: &'static str) -> Self {
++        let name = if enabled() {
++            ORIGINS.with(|s| s.borrow_mut().push(name));
++            Some(name)
++        } else {
++            None
++        };
++        Self { name, _thread: PhantomData }
++    }
++}
++impl Drop for Scope {
++    fn drop(&mut self) {
++        if let Some(name) = self.name {
++            ORIGINS.with(|s| assert_eq!(s.borrow_mut().pop(), Some(name)));
++        }
++    }
++}
++fn origin() -> String {
++    ORIGINS.with(|s| {
++        let s = s.borrow();
++        if s.is_empty() { "unclassified".into() } else { s.join(" > ") }
++    })
++}
++#[derive(Default)]
++struct Row {
++    calls: u64,
++    yes: u64,
++    no: u64,
++    ns: u64,
++    paths: HashSet<String>,
++    outcomes: BTreeMap<String, u64>,
++}
++#[derive(Default)]
++struct State {
++    rows: BTreeMap<(String, String), Row>,
++    global_paths: BTreeMap<String, HashSet<String>>,
++}
++fn state() -> &'static Mutex<State> {
++    static S: OnceLock<Mutex<State>> = OnceLock::new();
++    S.get_or_init(|| Mutex::new(State::default()))
++}
++/// Start a disjoint metadata timer when enabled.
++pub fn start() -> Option<Instant> {
++    enabled().then(Instant::now)
++}
++/// Record an operation after its answer was computed.
++pub fn record(operation: &str, path: &str, yes: bool, ns: Option<u64>, outcome: &str) {
++    if !enabled() {
++        return;
++    }
++    let mut s = state().lock().unwrap();
++    s.global_paths.entry(operation.into()).or_default().insert(path.into());
++    let r = s.rows.entry((operation.into(), origin())).or_default();
++    r.calls += 1;
++    r.yes += u64::from(yes);
++    r.no += u64::from(!yes);
++    r.ns += ns.unwrap_or(0);
++    r.paths.insert(path.into());
++    *r.outcomes.entry(outcome.into()).or_default() += 1;
++}
++/// Count logical cached queries separately from disk calls.
++pub fn cached(operation: &str, path: &str, yes: bool) {
++    record(operation, path, yes, None, if yes { "yes" } else { "no" });
++}
++/// Run the unchanged metadata query and record its origin.
++pub fn disk_metadata(path: &str, directory: bool) -> bool {
++    let clock = start();
++    let m = std::fs::metadata(path);
++    let ns = clock.map(|s| s.elapsed().as_nanos() as u64);
++    let yes = m.as_ref().is_ok_and(|m| if directory { m.is_dir() } else { !m.is_dir() });
++    if enabled() {
++        let outcome = match &m {
++            Ok(_) if yes => "found",
++            Ok(_) => "wrong_kind",
++            Err(e) if e.kind() == std::io::ErrorKind::NotFound => "not_found",
++            Err(_) => "other_error",
++        };
++        record(if directory { "disk.directory" } else { "disk.file" }, path, yes, ns, outcome);
++    }
++    yes
++}
++/// Render counts without exposing filesystem paths.
++pub fn snapshot_json() -> String {
++    let s = state().lock().unwrap();
++    let rows=s.rows.iter().map(|((op,origin),r)| {
++        let outcomes=r.outcomes.iter().map(|(k,v)|format!("\"{k}\":{v}")).collect::<Vec<_>>().join(",");
++        format!("{{\"operation\":\"{op}\",\"origin\":\"{origin}\",\"calls\":{},\"yes\":{},\"no\":{},\"stat_ns\":{},\"unique_paths\":{},\"outcomes\":{{{outcomes}}}}}",r.calls,r.yes,r.no,r.ns,r.paths.len())
++    }).collect::<Vec<_>>().join(",");
++    let global = s
++        .global_paths
++        .iter()
++        .map(|(k, v)| format!("\"{k}\":{}", v.len()))
++        .collect::<Vec<_>>()
++        .join(",");
++    format!("{{\"rows\":[{rows}],\"global_unique_paths\":{{{global}}}}}")
++}
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use crate::FileSystem;
++    #[test]
++    fn origin_scopes_restore_after_nested_work_and_unwind() {
++        assert!(enabled(), "run probe controls with TSR_META_PROFILE=1");
++        assert_eq!(origin(), "unclassified");
++        let _outer = Scope::enter("probe_test.outer");
++        assert_eq!(origin(), "probe_test.outer");
++        {
++            let _inner = Scope::enter("probe_test.inner");
++            assert_eq!(origin(), "probe_test.outer > probe_test.inner");
++        }
++        let result = std::panic::catch_unwind(|| {
++            let _panic = Scope::enter("probe_test.panic");
++            panic!("forced unwind");
++        });
++        assert!(result.is_err());
++        assert_eq!(origin(), "probe_test.outer");
++    }
++    #[test]
++    fn cached_repeats_and_underlying_calls_are_counted_separately() {
++        assert!(enabled(), "run probe controls with TSR_META_PROFILE=1");
++        let _scope = Scope::enter("probe_test.cache");
++        let unique = format!("/tmp/tsr-origin-probe-missing-{}", std::process::id());
++        let fs = crate::OsFileSystem::new();
++        let cached = crate::CachedFileSystem::new(&fs);
++        assert!(!cached.file_exists(&unique));
++        assert!(!cached.file_exists(&unique));
++        let s = state().lock().unwrap();
++        let logical = &s.rows[&("cached.file".into(), "probe_test.cache".into())];
++        let disk = &s.rows[&("disk.file".into(), "probe_test.cache".into())];
++        assert_eq!(
++            (logical.calls, logical.paths.len(), disk.calls, disk.paths.len()),
++            (2, 1, 1, 1)
++        );
++        assert_eq!(disk.outcomes["not_found"], 1);
++    }
++}

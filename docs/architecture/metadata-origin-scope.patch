@@ -1,0 +1,18 @@
+--- a/crates/tsr-execute/src/compile.rs
++++ b/crates/tsr-execute/src/compile.rs
+@@ -304,6 +304,7 @@
+     let checker_initialized = sys.since_start();
+ 
+     let mut diagnostics: Vec<(String, Diagnostic)> = Vec::new();
++    let capture_scope = std::env::var_os("TSR_META_SCOPE").is_some();
+     let mut checked_file_count = 0;
+     if !options.no_check.is_true() {
+         for file in program.root_and_referenced_files() {
+@@ -333,6 +334,7 @@
+             if options.skip_default_lib_check.is_true() && is_default_library(&program, file) {
+                 continue;
+             }
++            if capture_scope { eprintln!("TSR_META_CHECKED\t{name}"); }
+             checker.check_source_file(
+                 id,
+                 tsr_checker::check::FileContext {
