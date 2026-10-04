@@ -2986,6 +2986,30 @@ same lines, unnamed, are indistinguishable from the corpus's noise.**
 
 ## §842: REFUSED at 136 lines and ZERO cases — the flow-depth bail
 
+**Corrected 2026-10-04 by read-only tsr-gc4 on published `a0df934c`, native
+`5b1047d1`: the depth-bail explanation below is not the executed mechanism.**
+The focused replay still has 3,765 RIGHT and 137 WRONG, but raw probes show 136
+native intrinsic-error → Rust genuine-any mismatches and one native-number →
+Rust-any mismatch. Native reports `flow_disabled=false`. The earliest demonstrated
+loss is `u` at byte 829: its RHS `r` at 802 is number on both backends. Rust reaches
+JS loop label Flow6081 at depth 1; `get_type_at_flow_node` refuses `LOOP_LABEL`
+for JS, and the generic single-antecedent fallback returns declared any because
+the label instead has two list edges. The first later `T` read reaches that same
+label. No recursion, depth, binder or renderer repair is demonstrated. Evidence:
+`target/gc4-a0df934c-readonly-evidence.tar.gz`, SHA256
+`3fa3edda6c304dafba3aeb413276c6138f05221d265eca316b73513cafb2538d`.
+The prior reasoning and refusal remain below as history, not a current diagnosis;
+JS loop admission was separately audited as tsr-wsb and remains **held**. Its
+one-line dispatch candidate on `dc16a8de` gains 131 checker matches without
+corpus losses and leaves all complete diagnostics byte-identical, but twelve
+native control observations lose JSDoc any/number after the loop to Rust
+intrinsic error. The release regression fails. Native `reparseHosted` installs
+JSDoc into declaration.Type before auto classification; Rust's syntactic
+auto gate misses that annotation. No prerequisite repair or loop integration
+is included here. Preservation evidence:
+`target/wsb-dc16a8de-held-evidence.tar.gz`, SHA256
+`fd778c45ed9ffb80488e35600ba2d6274cbc68e147c104154d99767531c9d704`.
+
 `compiler/parsingDeepParenthensizedExpression` heads the wrong-line board outside the
 priced subsystems at **137 WRONG**, and **136 of those want exactly `error`**. It is
 the whole of the "oracle itself says `error`" population: across the corpus only

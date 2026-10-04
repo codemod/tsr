@@ -22,17 +22,54 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
-### Current checker checkpoint — omitted IIFE contextual undefined
+### Current checker checkpoint — instantiated anonymous property context
 
-Measured production tree **`f7115134`**, against published `dc16a8de`:
-**459,938/478,855 assertions (96.05%)**, **7,188/9,538 complete cases
-(75.36%)**. The 99% target requires 474,067 matches; **14,129 remain**.
+Measured production tree **`d7b56928`**, against published `e260f7e0`:
+**459,962/478,855 assertions (96.05%)**, **7,189/9,538 complete cases
+(75.37%)**. The 99% target requires 474,067 matches; **14,105 remain**.
 Pinned native `5b1047d1` and both denominators are unchanged. Aligned verdicts:
-**474,251 total; 459,938 RIGHT; 2,105 GAP; 12,208 WRONG**.
+**474,251 total; 459,962 RIGHT; 2,094 GAP; 12,195 WRONG**.
 The static-context/class-copy prefix `ef3b10a5` is production-identical to audited
 `f6b00125`; rebasing preserved concurrent documentation-only `bc27fae2` and
 the exact `crates` tree. Parameter-context publication preserved documentation-only
 `a7901196`, with source `302573c6` identical to measured `2def452d`.
+
+An existing named property of an already-instantiated anonymous, nonreference
+context now supplies its substituted semantic value instead of rereading the
+original declaration symbol's type parameter. Property existence/refusal,
+mapped/intersection/union priority and later reference/inference substitution
+are unchanged. No producer, member API, mapper, readiness, cache or reporter
+changes are included. The worker consumer/private test/conformance bodies are
+byte-identical after integration; all existing contextual tests were retained.
+Fresh full captures add **13 WRONG→RIGHT and 11 GAP→RIGHT**, with **zero RIGHT
+losses, GAP→WRONG, changed checker payloads or population changes**. Complete
+10,570-case diagnostics retain all **20,685 matched occurrences** and reduce
+extras **3,841→3,838**. `coAndContraVariantInferences7` becomes EMPTY_RIGHT.
+One still-WRONG payload changes: `intraExpressionInferences` loses false
+TS2367(194:24)/TS2322(196:9), but native TS2322(131:5)/TS2339(133:26) remain
+missing. No correct-case/occurrence loss or new extra site is introduced.
+Archived matrix verification covers **28 native and 26 Rust runs, 972 class
+reads** without cold/warm/query/declaration-order drift; the wrong literal
+remains wrong. This is an archived-output replay, not a fresh native execution.
+Private/conformance controls pass; workspace release passes **2,826 tests,
+zero failures, six existing ignores**, plus six separate loader-example
+controls. Formatting, strict release workspace/all-target Clippy, scorepair
+and coverage pass. Checker coverage gains one complete case; the diagnostics
+snapshot excludes empty baselines and remains unchanged. The pre-existing
+strict callback TS7006 residue remains. Evidence is retained in
+`target/parameter-generic-wave28-evidence.tar.gz`.
+
+**JS loop admission remains held despite +131 checker matches.** Preservation-only
+`2ecd65a3` on exact `dc16a8de` has loss-free full corpus audits and byte-identical
+complete diagnostics, but its native annotation controls fail: post-loop
+JSDoc any/number become Rust intrinsic error, producing twelve disagreements
+across strict-JS modes/orders and one new release regression. The helper is
+unchanged and no supplier repair is included. Bundle/raw SHA256 are
+`cf773e353dc23093f2b699a15125e3c11062938a0eb24ba81920cda3c028f605` /
+`fd778c45ed9ffb80488e35600ba2d6274cbc68e147c104154d99767531c9d704`.
+Native copies JSDoc into declaration.Type before auto classification; the
+effective-annotation prerequisite is read-only tsr-h5u, not a production
+reservation. Annotated array-binding tsr-1gr is a separate pending candidate.
 
 The two omitted/no-initializer IIFE contextual parameter fallbacks now select
 active undefined-widening, including an empty effective tuple spread. Supplied
@@ -117,8 +154,9 @@ initializers before inference. That stage left unannotated defaults and binding
 contexts unchanged; annotated object bindings are now included above.
 Native strict/loose controls accept the intended literals and
 reject the wrong literal with TS2322. Real Program reads retain literal arrow
-defaults and nongeneric class fields; generic class-default field widening is
-still a separate pre-existing gap. Against `06511f00`, this adds **35 WRONG→RIGHT**,
+defaults and nongeneric class fields; instantiated-anonymous generic class
+defaults now use the semantic-property consumer included above. Against
+`06511f00`, the annotation unit adds **35 WRONG→RIGHT**,
 with **zero RIGHT losses, GAP→WRONG, changed checker payloads or population
 changes**; complete-case counts do not change. Complete diagnostics recover one
 expected occurrence and remove eight extras with no retention losses or new
