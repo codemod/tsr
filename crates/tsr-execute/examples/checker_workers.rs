@@ -1,6 +1,6 @@
 //! Opt-in whole-project worker ownership and cost probe; the CLI stays serial.
 //!
-//! Run `checker_workers /absolute/tsconfig.json 1|2|4` from the project directory.
+//! Run `checker_workers /absolute/tsconfig.json [positive-count]` from the project directory.
 //! Stdout contains plain diagnostics. Stderr contains tab-separated scope,
 //! phase and worker counters for an external fresh-process/RSS harness.
 
@@ -15,6 +15,9 @@ use tsr_vfs::{CachedFileSystem, FileSystem};
 
 #[path = "checker_workers/diagnostics.rs"]
 mod worker_diagnostics;
+
+#[path = "checker_workers/selection.rs"]
+mod selection;
 
 struct Host<'a> {
     fs: &'a dyn FileSystem,
@@ -39,10 +42,6 @@ struct WorkerResult {
     computations: usize,
     initialization_seconds: f64,
     checking_seconds: f64,
-}
-
-fn worker_count(requested: usize, cpus: usize, files: usize, single_threaded: bool) -> usize {
-    if single_threaded { 1 } else { requested.min(4).min(cpus.max(1)).min(files.max(1)) }
 }
 
 fn check_group(program: &Program<'_>, options: &CompilerOptions, group: &[usize]) -> WorkerResult {
@@ -87,13 +86,12 @@ fn check_group(program: &Program<'_>, options: &CompilerOptions, group: &[usize]
 
 fn run() -> Result<bool, Box<dyn std::error::Error>> {
     let args: Vec<_> = std::env::args().skip(1).collect();
-    let [project, requested] = args.as_slice() else {
-        return Err("usage: checker_workers /absolute/tsconfig.json 1|2|4".into());
+    let (project, requested) = match args.as_slice() {
+        [project] => (project, None),
+        [project, requested] => (project, Some(requested.as_str())),
+        _ => return Err("usage: checker_workers /absolute/tsconfig.json [positive-count]".into()),
     };
-    let requested: usize = requested.parse()?;
-    if requested == 0 {
-        return Err("worker count must be positive".into());
-    }
+    let override_count = selection::parse_override(requested)?;
     let started = Instant::now();
     let sys = OsSystem::new();
     let text = sys.fs().read_file(project).ok_or("cannot read project")?;
@@ -107,6 +105,7 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
         return Err(format!("config errors: {:?}", parsed.errors).into());
     }
     let options = &mut parsed.compiler_options;
+    options.checkers = override_count.or(options.checkers);
     options.no_emit = Tristate::True;
     options.incremental = Tristate::False;
     options.composite = Tristate::False;
@@ -126,11 +125,16 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
     );
     let loaded = Instant::now();
     let cpus = std::thread::available_parallelism().map_or(1, usize::from);
-    let workers = worker_count(
+    let requested = options.checkers;
+    let workers = selection::checker_count(
         requested,
-        cpus,
         program.source_files().len(),
         options.single_threaded.is_true(),
+    );
+    eprintln!(
+        "POLICY\t{}\t{workers}\t{}",
+        requested.map_or_else(|| "default".into(), |n| n.to_string()),
+        options.single_threaded.is_true()
     );
     let lib_count = program.lib_files().len();
     let eligible: Vec<_> = program
@@ -248,19 +252,5 @@ fn main() -> std::process::ExitCode {
             eprintln!("{error}");
             std::process::ExitCode::from(2)
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::worker_count;
-
-    #[test]
-    fn probe_workers_are_bounded_and_single_threaded_wins() {
-        assert_eq!(worker_count(4, 1, 100, false), 1);
-        assert_eq!(worker_count(8, 16, 100, false), 4);
-        assert_eq!(worker_count(4, 16, 2, false), 2);
-        assert_eq!(worker_count(4, 16, 100, true), 1);
-        assert_eq!(worker_count(1, 16, 100, false), 1);
     }
 }

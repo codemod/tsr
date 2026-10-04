@@ -159,9 +159,11 @@ does not establish whole-app determinism or ship a parallel CLI. Those belong to
 `bd tsr-1yb.6`, with complete-project measurements and broader augmentation,
 recursion and emit controls before enabling workers by default.
 
-Start production measurements at 1, 2 and 4 workers. Default worker selection must
-be bounded by available CPUs and a documented memory policy, and
-`singleThreaded` must force one. Measure per-worker initialization and redundant
+Start production measurements at 1, 2 and 4 checker instances. Preserve native
+checker-count selection separately from execution or memory admission policy;
+`singleThreaded` must force one. Native does not clamp instance counts to CPU
+availability. Any adaptive TSR default must be an explicit policy decision,
+with its effect on full-array affinity verified. Measure per-worker initialization and redundant
 cross-file type forcing before choosing the final default. The initial real-app
 measurements show 0.926 GB peak RSS with `noCheck` and 1.118 GB with checking. This
 suggests immutable program storage dominates, but subtracting two high-water marks
@@ -278,13 +280,17 @@ discovery costs before turning this prototype into a production executor.
 
 `cargo build --release -p tsr-execute --example checker_workers` builds a
 standalone ownership/cost probe. Run the resulting absolute executable from the
-project directory with `/absolute/tsconfig.json 1`, `2`, or `4`. The production
-CLI remains serial. The probe shares a fully bound Program and gives each scoped
+project directory with `/absolute/tsconfig.json` and an optional positive
+32-bit count such as `1`, `2`, `4`, or `8`. The production CLI remains serial. The probe shares a fully bound Program and gives each scoped
 worker a private checker; file affinity follows the complete Program array
-index modulo worker count, before filtering eligible files. It caps the requested
-count at four, available CPUs and Program files, and honors `singleThreaded`.
-These are probe limits, not an approved production default or the full native
-`checkers` option contract.
+index modulo checker count, before filtering eligible files. With no positional
+override it uses parsed `checkers`, or native's default of four. A positional
+count replaces parsed `checkers`; `singleThreaded` then forces one. The final
+count is clamped to 1 through the smaller of the full Program array length and
+256, including libraries and skipped declarations. It no longer silently caps
+explicit counts at four or available CPUs. CPU availability is telemetry, not a
+count input. This selection matches pinned `checkerpool.go`; it does not approve
+a production default or establish a memory bound.
 
 Stdout contains checker diagnostics after comment directives. Stderr records
 loaded/checked identities, phase times and each worker's checked count, initial
@@ -385,12 +391,13 @@ skew: in one four-worker sample, checking ranged from 0.492 to 0.761 s and one
 worker retained 104,752 types versus 50,693 in another. These are checker-local
 counts, not independent memory estimates or native instantiation counters.
 
-The evidence supports evaluating a default of at most four workers, bounded by
-available CPUs and files, with `singleThreaded` forcing one. It does not approve
-the production default: broader augmentation/recursion/emit/query controls and
-constrained-memory behavior remain in `tsr-1yb.3.1` and `tsr-1yb.3.2`. Explicit
-native `checkers` overrides must be audited separately from the probe's four-worker
-limit. Both tasks precede production scheduling.
+The historical evidence supports evaluating four checker instances. The native
+selection audit below supersedes the probe's former CPU/four cap; available CPUs
+can limit execution without changing instance count or file affinity. The
+historical measurements do not approve a production default: broader augmentation/recursion/emit/query controls and
+constrained-memory behavior remain in `tsr-1yb.3.1` and `tsr-1yb.3.2`. The explicit
+native count boundary now has direct controls, while the remaining memory and
+fidelity requirements still precede production scheduling.
 
 Loading remains about 2.3 s, already above half the previously observed native
 total of 3.305 s. Checker parallelism alone cannot reach the overall 2x target.
@@ -398,3 +405,93 @@ This is a TSR probe comparison; the CLI remains serial and native scope/config
 alignment remains incomplete. Local evidence is
 `/tmp/tsr-1yb-worker-scaling-repeated.json` and
 `/tmp/tsr-1yb-worker-diagnostic-normalization.json`.
+
+
+### Native count selection and memory admission
+
+`checker_workers/selection.rs` follows pinned native
+`internal/compiler/checkerpool.go:40-48`: default four, `singleThreaded` before
+explicit `checkers`, then `max(min(count, full-file-count, 256), 1)`. An empty
+Program still selects one checker. Defensive zero/negative internal values
+clamp to one; the standalone probe rejects nonpositive, fractional, malformed
+or out-of-i32-range positional counts before reading the project. This probe
+argument parser is not proof of compiler CLI numeric parsing parity.
+
+Two hundred observations taken by calling the pinned native `newCheckerPool`
+are committed as a Rust regression fixture. Native results are byte-identical
+at default, `GOMAXPROCS=1` and `GOMAXPROCS=16`. GOMAXPROCS controls native Go
+execution capacity, not the number of checker instances; it is not a simulated
+Rust host CPU limit or a memory constraint. Public probe controls compare full
+loaded-file order and complete diagnostics with normal TSR and pinned native,
+including parsed/positional eight, skipped declarations, all-skipped checking
+and `singleThreaded`. See [selection evidence](worker-selection-policy.json)
+and [the portable controls](worker-selection-controls.py).
+
+No measured per-checker byte upper bound exists yet. Type-store counts and
+expression computations expose duplication and skew, but cannot certify
+concurrent admission under a declared memory budget. Unknown or constrained
+memory therefore remains a production gate in `tsr-1yb.3.1.1`: retain the serial
+CLI and do not present this opt-in probe as memory-safe admission. Serial
+checking itself also has no hard RSS ceiling. Do not silently rewrite an
+explicit native count to satisfy an unproved estimate. A future resource policy
+must either prove its bound, reject an unenforceable requested limit explicitly,
+or document an intentional selection/affinity policy change. A queue, CPU limit
+or subtraction of independently sampled RSS maxima proves none of these.
+
+
+On source `064d40db`, one warmup per mode and five rotated fresh-process samples
+refresh the measurement on **new input bytes**: 14,015 loaded files, 1,364 checks
+and 122 complete diagnostics. Every probe process preserves these identities,
+physical inputs and diagnostics against the fresh normal CLI controls before and
+after the samples. The normal CLI exposes loaded identities but no direct
+checked marker; actual checking identities and completed group counts come from
+the probe. Serialized effective options also stay fixed at both boundaries;
+`checkers` is omitted from `showConfig` by both compilers, so its value is proved
+by `POLICY` and native constructor/parser controls instead.
+
+| Checkers | Median wall | Wall range | Median CPU | Median peak RSS | Median Program | Median check/join |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 4.233 s | 4.072–4.262 s | 4.168 s | 1.081 GB | 1.610 s | 2.308 s |
+| 2 | 3.139 s | 3.036–3.408 s | 4.320 s | 1.146 GB | 1.579 s | 1.270 s |
+| 4 | 2.596 s | 2.531–2.680 s | 4.616 s | 1.135 GB | 1.596 s | 0.754 s |
+
+Four versus one reduces probe wall 38.7% while increasing CPU 10.7%. Each mode's
+summed final types and expression computations are stable across the five
+samples: 184,223 / 223,219 / 269,246 types and 250,905 / 266,244 / 279,995
+computations at 1 / 2 / 4. Four therefore retains 46.2% more type entries and
+performs 11.6% more expression computations. Initialization totals remain
+small (about 1.2 ms in a four-checker sample), while that sample's private check
+intervals range 0.569–0.706 s. RSS ranges overlap. None of these counts is a
+per-checker byte bound, and builds/tests were serial outside measurements;
+other agents' host activity was not controlled.
+
+The config transport control is deliberately **not native-equivalent**:
+a base config with `checkers: 8, singleThreaded: true` and an own config with
+`2, false` yields native `2, false`, but TSR retains `8, true` and selects one.
+`tsr-1yb.3.1.1.2` owns this missing field merge and the separate numeric CLI
+carrier audit, and now directly blocks production `.6`. The standalone probe's
+positive-i32 override is not the native numeric CLI contract: native accepts
+`2147483648` and caps the pool at 256. The portable success cases and count
+fixture do not turn this failing transport case into a passing readiness gate.
+
+Reproduce the count matrix by overlaying
+[the native Go helper](worker-selection-native_test.go) as a compiler-package
+`_test.go` in the exact pinned source, then run its two named tests with
+`TSR_WORKER_ORACLE` and `TSR_WORKER_OPTIONS_ORACLE` output paths. The local run
+restored two earlier instrumentation files through the overlay and excluded two
+unrelated compiler tests to avoid adding their uncached test dependency; this is
+not the native compiler suite. The native constructor observations count slots
+without binding or constructing checkers. Valid JSON controls use the native
+JSON text parser with absolute file names. The aggregate retains the corrected
+parser results; early malformed harness setup attempts are excluded.
+
+Build the release CLI and `checker_workers` before running the portable Python
+control with `--normal`, `--probe`, `--tsgo`, `--project` and a fresh `--output`
+directory. `--public-only` runs its six public cases and five invalid standalone
+arguments. Raw private paths, config contents and diagnostic text stay in
+`/tmp/tsr-checker-worker-selection`; the committed aggregate retains fingerprints
+and numerical evidence. Only the probe's selection and documentation change;
+production CLI/checker/loader code and full-corpus snapshots remain unchanged.
+This completes the count slice `.3.1.1.1`; memory admission, config transport and
+query/augmentation/emit fidelity remain open. The comparable native wall target
+of 0.50 remains unverified.

@@ -1,0 +1,2931 @@
+{
+  "task": "tsr-1yb.3.1.1.1",
+  "source": "064d40db2be28a63e3fb85ae9ebbba2aba5b4b42",
+  "kind": "Opt-in count-contract correction and current-input worker scaling; production CLI stays serial",
+  "production_cli_parallel": false,
+  "native_target_verified": false,
+  "native_source": "5b1047d10d32e7d5b446be4de56b126ff42f82bb",
+  "native_source_sha256": {
+    "internal/compiler/checkerpool.go": "86946fd4ecec2dd7e85cde73021b86c2520b0ba499f49ad7a100144aaad533e8",
+    "internal/compiler/program.go": "993c7836e4a360c698257f83eb17ec0821c050ed67c105d5c610cb294741d384",
+    "internal/tsoptions/declscompiler.go": "33e0ce02235da400c3ce7c4947ab17b21c9a8326ec13cfe54da0421764f8b4ed",
+    "internal/tsoptions/tsconfigparsing.go": "6f026ace9074a1dbaf7eeccc519e1d3412d3f12f793b95eac441326ccec279c8",
+    "internal/tsoptions/commandlineparser.go": "83462786e3a0bff6376f13a8644cff289655f2b3599a3500e1140e381425384b"
+  },
+  "native_oracle": {
+    "rows": [
+      {
+        "requested": null,
+        "files": 0,
+        "single": false,
+        "workers": 1
+      },
+      {
+        "requested": null,
+        "files": 0,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": -3,
+        "files": 0,
+        "single": false,
+        "workers": 1
+      },
+      {
+        "requested": -3,
+        "files": 0,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 0,
+        "files": 0,
+        "single": false,
+        "workers": 1
+      },
+      {
+        "requested": 0,
+        "files": 0,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 1,
+        "files": 0,
+        "single": false,
+        "workers": 1
+      },
+      {
+        "requested": 1,
+        "files": 0,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 2,
+        "files": 0,
+        "single": false,
+        "workers": 1
+      },
+      {
+        "requested": 2,
+        "files": 0,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 4,
+        "files": 0,
+        "single": false,
+        "workers": 1
+      },
+      {
+        "requested": 4,
+        "files": 0,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 8,
+        "files": 0,
+        "single": false,
+        "workers": 1
+      },
+      {
+        "requested": 8,
+        "files": 0,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 256,
+        "files": 0,
+        "single": false,
+        "workers": 1
+      },
+      {
+        "requested": 256,
+        "files": 0,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 257,
+        "files": 0,
+        "single": false,
+        "workers": 1
+      },
+      {
+        "requested": 257,
+        "files": 0,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 2147483647,
+        "files": 0,
+        "single": false,
+        "workers": 1
+      },
+      {
+        "requested": 2147483647,
+        "files": 0,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": null,
+        "files": 1,
+        "single": false,
+        "workers": 1
+      },
+      {
+        "requested": null,
+        "files": 1,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": -3,
+        "files": 1,
+        "single": false,
+        "workers": 1
+      },
+      {
+        "requested": -3,
+        "files": 1,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 0,
+        "files": 1,
+        "single": false,
+        "workers": 1
+      },
+      {
+        "requested": 0,
+        "files": 1,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 1,
+        "files": 1,
+        "single": false,
+        "workers": 1
+      },
+      {
+        "requested": 1,
+        "files": 1,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 2,
+        "files": 1,
+        "single": false,
+        "workers": 1
+      },
+      {
+        "requested": 2,
+        "files": 1,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 4,
+        "files": 1,
+        "single": false,
+        "workers": 1
+      },
+      {
+        "requested": 4,
+        "files": 1,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 8,
+        "files": 1,
+        "single": false,
+        "workers": 1
+      },
+      {
+        "requested": 8,
+        "files": 1,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 256,
+        "files": 1,
+        "single": false,
+        "workers": 1
+      },
+      {
+        "requested": 256,
+        "files": 1,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 257,
+        "files": 1,
+        "single": false,
+        "workers": 1
+      },
+      {
+        "requested": 257,
+        "files": 1,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 2147483647,
+        "files": 1,
+        "single": false,
+        "workers": 1
+      },
+      {
+        "requested": 2147483647,
+        "files": 1,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": null,
+        "files": 2,
+        "single": false,
+        "workers": 2
+      },
+      {
+        "requested": null,
+        "files": 2,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": -3,
+        "files": 2,
+        "single": false,
+        "workers": 1
+      },
+      {
+        "requested": -3,
+        "files": 2,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 0,
+        "files": 2,
+        "single": false,
+        "workers": 1
+      },
+      {
+        "requested": 0,
+        "files": 2,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 1,
+        "files": 2,
+        "single": false,
+        "workers": 1
+      },
+      {
+        "requested": 1,
+        "files": 2,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 2,
+        "files": 2,
+        "single": false,
+        "workers": 2
+      },
+      {
+        "requested": 2,
+        "files": 2,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 4,
+        "files": 2,
+        "single": false,
+        "workers": 2
+      },
+      {
+        "requested": 4,
+        "files": 2,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 8,
+        "files": 2,
+        "single": false,
+        "workers": 2
+      },
+      {
+        "requested": 8,
+        "files": 2,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 256,
+        "files": 2,
+        "single": false,
+        "workers": 2
+      },
+      {
+        "requested": 256,
+        "files": 2,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 257,
+        "files": 2,
+        "single": false,
+        "workers": 2
+      },
+      {
+        "requested": 257,
+        "files": 2,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 2147483647,
+        "files": 2,
+        "single": false,
+        "workers": 2
+      },
+      {
+        "requested": 2147483647,
+        "files": 2,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": null,
+        "files": 3,
+        "single": false,
+        "workers": 3
+      },
+      {
+        "requested": null,
+        "files": 3,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": -3,
+        "files": 3,
+        "single": false,
+        "workers": 1
+      },
+      {
+        "requested": -3,
+        "files": 3,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 0,
+        "files": 3,
+        "single": false,
+        "workers": 1
+      },
+      {
+        "requested": 0,
+        "files": 3,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 1,
+        "files": 3,
+        "single": false,
+        "workers": 1
+      },
+      {
+        "requested": 1,
+        "files": 3,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 2,
+        "files": 3,
+        "single": false,
+        "workers": 2
+      },
+      {
+        "requested": 2,
+        "files": 3,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 4,
+        "files": 3,
+        "single": false,
+        "workers": 3
+      },
+      {
+        "requested": 4,
+        "files": 3,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 8,
+        "files": 3,
+        "single": false,
+        "workers": 3
+      },
+      {
+        "requested": 8,
+        "files": 3,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 256,
+        "files": 3,
+        "single": false,
+        "workers": 3
+      },
+      {
+        "requested": 256,
+        "files": 3,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 257,
+        "files": 3,
+        "single": false,
+        "workers": 3
+      },
+      {
+        "requested": 257,
+        "files": 3,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 2147483647,
+        "files": 3,
+        "single": false,
+        "workers": 3
+      },
+      {
+        "requested": 2147483647,
+        "files": 3,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": null,
+        "files": 4,
+        "single": false,
+        "workers": 4
+      },
+      {
+        "requested": null,
+        "files": 4,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": -3,
+        "files": 4,
+        "single": false,
+        "workers": 1
+      },
+      {
+        "requested": -3,
+        "files": 4,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 0,
+        "files": 4,
+        "single": false,
+        "workers": 1
+      },
+      {
+        "requested": 0,
+        "files": 4,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 1,
+        "files": 4,
+        "single": false,
+        "workers": 1
+      },
+      {
+        "requested": 1,
+        "files": 4,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 2,
+        "files": 4,
+        "single": false,
+        "workers": 2
+      },
+      {
+        "requested": 2,
+        "files": 4,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 4,
+        "files": 4,
+        "single": false,
+        "workers": 4
+      },
+      {
+        "requested": 4,
+        "files": 4,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 8,
+        "files": 4,
+        "single": false,
+        "workers": 4
+      },
+      {
+        "requested": 8,
+        "files": 4,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 256,
+        "files": 4,
+        "single": false,
+        "workers": 4
+      },
+      {
+        "requested": 256,
+        "files": 4,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 257,
+        "files": 4,
+        "single": false,
+        "workers": 4
+      },
+      {
+        "requested": 257,
+        "files": 4,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 2147483647,
+        "files": 4,
+        "single": false,
+        "workers": 4
+      },
+      {
+        "requested": 2147483647,
+        "files": 4,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": null,
+        "files": 5,
+        "single": false,
+        "workers": 4
+      },
+      {
+        "requested": null,
+        "files": 5,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": -3,
+        "files": 5,
+        "single": false,
+        "workers": 1
+      },
+      {
+        "requested": -3,
+        "files": 5,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 0,
+        "files": 5,
+        "single": false,
+        "workers": 1
+      },
+      {
+        "requested": 0,
+        "files": 5,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 1,
+        "files": 5,
+        "single": false,
+        "workers": 1
+      },
+      {
+        "requested": 1,
+        "files": 5,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 2,
+        "files": 5,
+        "single": false,
+        "workers": 2
+      },
+      {
+        "requested": 2,
+        "files": 5,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 4,
+        "files": 5,
+        "single": false,
+        "workers": 4
+      },
+      {
+        "requested": 4,
+        "files": 5,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 8,
+        "files": 5,
+        "single": false,
+        "workers": 5
+      },
+      {
+        "requested": 8,
+        "files": 5,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 256,
+        "files": 5,
+        "single": false,
+        "workers": 5
+      },
+      {
+        "requested": 256,
+        "files": 5,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 257,
+        "files": 5,
+        "single": false,
+        "workers": 5
+      },
+      {
+        "requested": 257,
+        "files": 5,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 2147483647,
+        "files": 5,
+        "single": false,
+        "workers": 5
+      },
+      {
+        "requested": 2147483647,
+        "files": 5,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": null,
+        "files": 8,
+        "single": false,
+        "workers": 4
+      },
+      {
+        "requested": null,
+        "files": 8,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": -3,
+        "files": 8,
+        "single": false,
+        "workers": 1
+      },
+      {
+        "requested": -3,
+        "files": 8,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 0,
+        "files": 8,
+        "single": false,
+        "workers": 1
+      },
+      {
+        "requested": 0,
+        "files": 8,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 1,
+        "files": 8,
+        "single": false,
+        "workers": 1
+      },
+      {
+        "requested": 1,
+        "files": 8,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 2,
+        "files": 8,
+        "single": false,
+        "workers": 2
+      },
+      {
+        "requested": 2,
+        "files": 8,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 4,
+        "files": 8,
+        "single": false,
+        "workers": 4
+      },
+      {
+        "requested": 4,
+        "files": 8,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 8,
+        "files": 8,
+        "single": false,
+        "workers": 8
+      },
+      {
+        "requested": 8,
+        "files": 8,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 256,
+        "files": 8,
+        "single": false,
+        "workers": 8
+      },
+      {
+        "requested": 256,
+        "files": 8,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 257,
+        "files": 8,
+        "single": false,
+        "workers": 8
+      },
+      {
+        "requested": 257,
+        "files": 8,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 2147483647,
+        "files": 8,
+        "single": false,
+        "workers": 8
+      },
+      {
+        "requested": 2147483647,
+        "files": 8,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": null,
+        "files": 17,
+        "single": false,
+        "workers": 4
+      },
+      {
+        "requested": null,
+        "files": 17,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": -3,
+        "files": 17,
+        "single": false,
+        "workers": 1
+      },
+      {
+        "requested": -3,
+        "files": 17,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 0,
+        "files": 17,
+        "single": false,
+        "workers": 1
+      },
+      {
+        "requested": 0,
+        "files": 17,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 1,
+        "files": 17,
+        "single": false,
+        "workers": 1
+      },
+      {
+        "requested": 1,
+        "files": 17,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 2,
+        "files": 17,
+        "single": false,
+        "workers": 2
+      },
+      {
+        "requested": 2,
+        "files": 17,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 4,
+        "files": 17,
+        "single": false,
+        "workers": 4
+      },
+      {
+        "requested": 4,
+        "files": 17,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 8,
+        "files": 17,
+        "single": false,
+        "workers": 8
+      },
+      {
+        "requested": 8,
+        "files": 17,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 256,
+        "files": 17,
+        "single": false,
+        "workers": 17
+      },
+      {
+        "requested": 256,
+        "files": 17,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 257,
+        "files": 17,
+        "single": false,
+        "workers": 17
+      },
+      {
+        "requested": 257,
+        "files": 17,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 2147483647,
+        "files": 17,
+        "single": false,
+        "workers": 17
+      },
+      {
+        "requested": 2147483647,
+        "files": 17,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": null,
+        "files": 256,
+        "single": false,
+        "workers": 4
+      },
+      {
+        "requested": null,
+        "files": 256,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": -3,
+        "files": 256,
+        "single": false,
+        "workers": 1
+      },
+      {
+        "requested": -3,
+        "files": 256,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 0,
+        "files": 256,
+        "single": false,
+        "workers": 1
+      },
+      {
+        "requested": 0,
+        "files": 256,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 1,
+        "files": 256,
+        "single": false,
+        "workers": 1
+      },
+      {
+        "requested": 1,
+        "files": 256,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 2,
+        "files": 256,
+        "single": false,
+        "workers": 2
+      },
+      {
+        "requested": 2,
+        "files": 256,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 4,
+        "files": 256,
+        "single": false,
+        "workers": 4
+      },
+      {
+        "requested": 4,
+        "files": 256,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 8,
+        "files": 256,
+        "single": false,
+        "workers": 8
+      },
+      {
+        "requested": 8,
+        "files": 256,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 256,
+        "files": 256,
+        "single": false,
+        "workers": 256
+      },
+      {
+        "requested": 256,
+        "files": 256,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 257,
+        "files": 256,
+        "single": false,
+        "workers": 256
+      },
+      {
+        "requested": 257,
+        "files": 256,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 2147483647,
+        "files": 256,
+        "single": false,
+        "workers": 256
+      },
+      {
+        "requested": 2147483647,
+        "files": 256,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": null,
+        "files": 1000,
+        "single": false,
+        "workers": 4
+      },
+      {
+        "requested": null,
+        "files": 1000,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": -3,
+        "files": 1000,
+        "single": false,
+        "workers": 1
+      },
+      {
+        "requested": -3,
+        "files": 1000,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 0,
+        "files": 1000,
+        "single": false,
+        "workers": 1
+      },
+      {
+        "requested": 0,
+        "files": 1000,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 1,
+        "files": 1000,
+        "single": false,
+        "workers": 1
+      },
+      {
+        "requested": 1,
+        "files": 1000,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 2,
+        "files": 1000,
+        "single": false,
+        "workers": 2
+      },
+      {
+        "requested": 2,
+        "files": 1000,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 4,
+        "files": 1000,
+        "single": false,
+        "workers": 4
+      },
+      {
+        "requested": 4,
+        "files": 1000,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 8,
+        "files": 1000,
+        "single": false,
+        "workers": 8
+      },
+      {
+        "requested": 8,
+        "files": 1000,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 256,
+        "files": 1000,
+        "single": false,
+        "workers": 256
+      },
+      {
+        "requested": 256,
+        "files": 1000,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 257,
+        "files": 1000,
+        "single": false,
+        "workers": 256
+      },
+      {
+        "requested": 257,
+        "files": 1000,
+        "single": true,
+        "workers": 1
+      },
+      {
+        "requested": 2147483647,
+        "files": 1000,
+        "single": false,
+        "workers": 256
+      },
+      {
+        "requested": 2147483647,
+        "files": 1000,
+        "single": true,
+        "workers": 1
+      }
+    ],
+    "observations_per_mode": 200,
+    "modes": [
+      "default",
+      "GOMAXPROCS=1",
+      "GOMAXPROCS=16"
+    ],
+    "identical_json_sha256": "921863794534a23b853eb72d4aa894a9d98ca07e700230c8c41ada688a2156ba",
+    "constructs_pool_slots_only": true,
+    "native_source_inputs": "Original Go/build inputs match pinned manifest after an overlay restores existing checker/main instrumentation; two unrelated compiler test files excluded."
+  },
+  "native_options_oracle": [
+    {
+      "case": "root-config",
+      "checkers": 8,
+      "single": true,
+      "errors": 0
+    },
+    {
+      "case": "inherited-config",
+      "checkers": 8,
+      "single": true,
+      "errors": 0
+    },
+    {
+      "case": "inherited-override",
+      "checkers": 2,
+      "single": false,
+      "errors": 0
+    },
+    {
+      "case": "cli-2",
+      "checkers": 2,
+      "single": false,
+      "errors": 0
+    },
+    {
+      "case": "cli-0",
+      "checkers": null,
+      "single": false,
+      "errors": 1
+    },
+    {
+      "case": "cli--1",
+      "checkers": null,
+      "single": false,
+      "errors": 1
+    },
+    {
+      "case": "cli-1.5",
+      "checkers": null,
+      "single": false,
+      "errors": 1
+    },
+    {
+      "case": "cli-many",
+      "checkers": null,
+      "single": false,
+      "errors": 1
+    },
+    {
+      "case": "cli-2147483648",
+      "checkers": 2147483648,
+      "single": false,
+      "errors": 0
+    }
+  ],
+  "standalone_argument_parser_is_native_cli_parser": false,
+  "public_controls": [
+    {
+      "case": "default",
+      "configured": null,
+      "override": null,
+      "single": false,
+      "loaded_count": 59,
+      "checked_count": 2,
+      "policy": {
+        "requested": "default",
+        "effective": 4,
+        "single": false
+      },
+      "diagnostics": {
+        "count": 1,
+        "fingerprint": "3bccf9d372222ddeb84118b651af077277999e411857b32fe5ef75833e7d1db5",
+        "entries": [
+          "main.ts(2,7): error TS2322: Type 'string' is not assignable to type 'number'."
+        ]
+      },
+      "workers": [
+        {
+          "worker": 0,
+          "checked": 1,
+          "initial_types": 25,
+          "final_types": 25,
+          "computations": 1,
+          "initialization_seconds": 0.000119375,
+          "checking_seconds": 0.000494417
+        },
+        {
+          "worker": 1,
+          "checked": 0,
+          "initial_types": 25,
+          "final_types": 25,
+          "computations": 0,
+          "initialization_seconds": 0.000116791,
+          "checking_seconds": 4.2e-08
+        },
+        {
+          "worker": 2,
+          "checked": 0,
+          "initial_types": 25,
+          "final_types": 25,
+          "computations": 0,
+          "initialization_seconds": 9.9667e-05,
+          "checking_seconds": 4.1e-08
+        },
+        {
+          "worker": 3,
+          "checked": 1,
+          "initial_types": 25,
+          "final_types": 25,
+          "computations": 0,
+          "initialization_seconds": 8.8709e-05,
+          "checking_seconds": 0.00028525
+        }
+      ],
+      "phase": {
+        "effective_workers": 4,
+        "available_cpus": 16,
+        "program_seconds": 0.02976175,
+        "check_join_seconds": 0.000756542,
+        "before_scope_log_seconds": 0.03056725
+      },
+      "config_sha256": "13a804851af4ae77aebf027a8641b4c8a6fab68bc4b2375c438863eda32eef2d",
+      "input_fingerprint": "ca81934a2170c85ec7c778b3419d7aa3eaf26a4931aa32313786c78ac661cfff",
+      "matched_normal_and_native": true
+    },
+    {
+      "case": "parsed-eight",
+      "configured": 8,
+      "override": null,
+      "single": false,
+      "loaded_count": 59,
+      "checked_count": 2,
+      "policy": {
+        "requested": "8",
+        "effective": 8,
+        "single": false
+      },
+      "diagnostics": {
+        "count": 1,
+        "fingerprint": "3bccf9d372222ddeb84118b651af077277999e411857b32fe5ef75833e7d1db5",
+        "entries": [
+          "main.ts(2,7): error TS2322: Type 'string' is not assignable to type 'number'."
+        ]
+      },
+      "workers": [
+        {
+          "worker": 0,
+          "checked": 0,
+          "initial_types": 25,
+          "final_types": 25,
+          "computations": 0,
+          "initialization_seconds": 7.1291e-05,
+          "checking_seconds": 0.0
+        },
+        {
+          "worker": 1,
+          "checked": 0,
+          "initial_types": 25,
+          "final_types": 25,
+          "computations": 0,
+          "initialization_seconds": 6.8292e-05,
+          "checking_seconds": 0.0
+        },
+        {
+          "worker": 2,
+          "checked": 0,
+          "initial_types": 25,
+          "final_types": 25,
+          "computations": 0,
+          "initialization_seconds": 5.2083e-05,
+          "checking_seconds": 0.0
+        },
+        {
+          "worker": 3,
+          "checked": 1,
+          "initial_types": 25,
+          "final_types": 25,
+          "computations": 0,
+          "initialization_seconds": 5.3167e-05,
+          "checking_seconds": 9.1875e-05
+        },
+        {
+          "worker": 4,
+          "checked": 1,
+          "initial_types": 25,
+          "final_types": 25,
+          "computations": 1,
+          "initialization_seconds": 3.2292e-05,
+          "checking_seconds": 0.000210166
+        },
+        {
+          "worker": 5,
+          "checked": 0,
+          "initial_types": 25,
+          "final_types": 25,
+          "computations": 0,
+          "initialization_seconds": 4.167e-06,
+          "checking_seconds": 4.2e-08
+        },
+        {
+          "worker": 6,
+          "checked": 0,
+          "initial_types": 25,
+          "final_types": 25,
+          "computations": 0,
+          "initialization_seconds": 3.75e-06,
+          "checking_seconds": 0.0
+        },
+        {
+          "worker": 7,
+          "checked": 0,
+          "initial_types": 25,
+          "final_types": 25,
+          "computations": 0,
+          "initialization_seconds": 4.584e-06,
+          "checking_seconds": 0.0
+        }
+      ],
+      "phase": {
+        "effective_workers": 8,
+        "available_cpus": 16,
+        "program_seconds": 0.023341708,
+        "check_join_seconds": 0.000410208,
+        "before_scope_log_seconds": 0.023804208
+      },
+      "config_sha256": "7859dc8e098f191d5550489c5337abc1afdd966a1bbd393b9b952bb2fee5c555",
+      "input_fingerprint": "c86fe8e2f7cce85473e65519bdc7e95ecfe9e8160a133c35d3b857d31e56a57d",
+      "matched_normal_and_native": true
+    },
+    {
+      "case": "positional-eight",
+      "configured": 2,
+      "override": 8,
+      "single": false,
+      "loaded_count": 59,
+      "checked_count": 2,
+      "policy": {
+        "requested": "8",
+        "effective": 8,
+        "single": false
+      },
+      "diagnostics": {
+        "count": 1,
+        "fingerprint": "3bccf9d372222ddeb84118b651af077277999e411857b32fe5ef75833e7d1db5",
+        "entries": [
+          "main.ts(2,7): error TS2322: Type 'string' is not assignable to type 'number'."
+        ]
+      },
+      "workers": [
+        {
+          "worker": 0,
+          "checked": 0,
+          "initial_types": 25,
+          "final_types": 25,
+          "computations": 0,
+          "initialization_seconds": 5.6584e-05,
+          "checking_seconds": 0.0
+        },
+        {
+          "worker": 1,
+          "checked": 0,
+          "initial_types": 25,
+          "final_types": 25,
+          "computations": 0,
+          "initialization_seconds": 5.5583e-05,
+          "checking_seconds": 0.0
+        },
+        {
+          "worker": 2,
+          "checked": 0,
+          "initial_types": 25,
+          "final_types": 25,
+          "computations": 0,
+          "initialization_seconds": 4.7833e-05,
+          "checking_seconds": 0.0
+        },
+        {
+          "worker": 3,
+          "checked": 1,
+          "initial_types": 25,
+          "final_types": 25,
+          "computations": 0,
+          "initialization_seconds": 2.3125e-05,
+          "checking_seconds": 8.7541e-05
+        },
+        {
+          "worker": 4,
+          "checked": 1,
+          "initial_types": 25,
+          "final_types": 25,
+          "computations": 1,
+          "initialization_seconds": 2.175e-05,
+          "checking_seconds": 0.000192166
+        },
+        {
+          "worker": 5,
+          "checked": 0,
+          "initial_types": 25,
+          "final_types": 25,
+          "computations": 0,
+          "initialization_seconds": 5.667e-06,
+          "checking_seconds": 0.0
+        },
+        {
+          "worker": 6,
+          "checked": 0,
+          "initial_types": 25,
+          "final_types": 25,
+          "computations": 0,
+          "initialization_seconds": 2.75e-06,
+          "checking_seconds": 4.1e-08
+        },
+        {
+          "worker": 7,
+          "checked": 0,
+          "initial_types": 25,
+          "final_types": 25,
+          "computations": 0,
+          "initialization_seconds": 3.084e-06,
+          "checking_seconds": 0.0
+        }
+      ],
+      "phase": {
+        "effective_workers": 8,
+        "available_cpus": 16,
+        "program_seconds": 0.023641875,
+        "check_join_seconds": 0.0003835,
+        "before_scope_log_seconds": 0.024074792
+      },
+      "config_sha256": "2f7b8ac19857533e3ae913db59f9f35949dbc42a84303f3c9d077dfdcf57a00e",
+      "input_fingerprint": "dd7e06b044ffb1865ae9b1d59065ee42383e7ec055eae54287ddb8e3b68e4951",
+      "matched_normal_and_native": true
+    },
+    {
+      "case": "single-wins",
+      "configured": 8,
+      "override": 8,
+      "single": true,
+      "loaded_count": 59,
+      "checked_count": 2,
+      "policy": {
+        "requested": "8",
+        "effective": 1,
+        "single": true
+      },
+      "diagnostics": {
+        "count": 1,
+        "fingerprint": "3bccf9d372222ddeb84118b651af077277999e411857b32fe5ef75833e7d1db5",
+        "entries": [
+          "main.ts(2,7): error TS2322: Type 'string' is not assignable to type 'number'."
+        ]
+      },
+      "workers": [
+        {
+          "worker": 0,
+          "checked": 2,
+          "initial_types": 25,
+          "final_types": 25,
+          "computations": 1,
+          "initialization_seconds": 3.1709e-05,
+          "checking_seconds": 0.000174083
+        }
+      ],
+      "phase": {
+        "effective_workers": 1,
+        "available_cpus": 16,
+        "program_seconds": 0.022998666,
+        "check_join_seconds": 0.000343667,
+        "before_scope_log_seconds": 0.023388166
+      },
+      "config_sha256": "0a325544b951b57a7d6e93ebe29c7dcc811be22a9d75610c250a17212dd6f4a8",
+      "input_fingerprint": "dc43dcd5c734643245a89eef6b21c56a8ff1cfcda0f6c96830b86bbb49c3c117",
+      "matched_normal_and_native": true
+    },
+    {
+      "case": "parsed-one",
+      "configured": 1,
+      "override": null,
+      "single": false,
+      "loaded_count": 59,
+      "checked_count": 2,
+      "policy": {
+        "requested": "1",
+        "effective": 1,
+        "single": false
+      },
+      "diagnostics": {
+        "count": 1,
+        "fingerprint": "3bccf9d372222ddeb84118b651af077277999e411857b32fe5ef75833e7d1db5",
+        "entries": [
+          "main.ts(2,7): error TS2322: Type 'string' is not assignable to type 'number'."
+        ]
+      },
+      "workers": [
+        {
+          "worker": 0,
+          "checked": 2,
+          "initial_types": 25,
+          "final_types": 25,
+          "computations": 1,
+          "initialization_seconds": 3.1292e-05,
+          "checking_seconds": 0.000193417
+        }
+      ],
+      "phase": {
+        "effective_workers": 1,
+        "available_cpus": 16,
+        "program_seconds": 0.023199584,
+        "check_join_seconds": 0.000361875,
+        "before_scope_log_seconds": 0.023611542
+      },
+      "config_sha256": "341b41011fcc49cc5cdd4957da3ac0da25347c1406286467633eadda3b77ef26",
+      "input_fingerprint": "a1c7d8331dfa4281dba044835a19215367bf81a6a64cd79b4209e8aa921ac85b",
+      "matched_normal_and_native": true
+    },
+    {
+      "case": "all-skipped",
+      "configured": 8,
+      "override": null,
+      "single": false,
+      "loaded_count": 57,
+      "checked_count": 0,
+      "policy": {
+        "requested": "8",
+        "effective": 8,
+        "single": false
+      },
+      "diagnostics": {
+        "count": 0,
+        "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "entries": []
+      },
+      "workers": [
+        {
+          "worker": 0,
+          "checked": 0,
+          "initial_types": 25,
+          "final_types": 25,
+          "computations": 0,
+          "initialization_seconds": 4.8958e-05,
+          "checking_seconds": 0.0
+        },
+        {
+          "worker": 1,
+          "checked": 0,
+          "initial_types": 25,
+          "final_types": 25,
+          "computations": 0,
+          "initialization_seconds": 3.8708e-05,
+          "checking_seconds": 4.2e-08
+        },
+        {
+          "worker": 2,
+          "checked": 0,
+          "initial_types": 25,
+          "final_types": 25,
+          "computations": 0,
+          "initialization_seconds": 6.6583e-05,
+          "checking_seconds": 4.2e-08
+        },
+        {
+          "worker": 3,
+          "checked": 0,
+          "initial_types": 25,
+          "final_types": 25,
+          "computations": 0,
+          "initialization_seconds": 2.8875e-05,
+          "checking_seconds": 4.2e-08
+        },
+        {
+          "worker": 4,
+          "checked": 0,
+          "initial_types": 25,
+          "final_types": 25,
+          "computations": 0,
+          "initialization_seconds": 1.4292e-05,
+          "checking_seconds": 4.1e-08
+        },
+        {
+          "worker": 5,
+          "checked": 0,
+          "initial_types": 25,
+          "final_types": 25,
+          "computations": 0,
+          "initialization_seconds": 3.375e-06,
+          "checking_seconds": 4.2e-08
+        },
+        {
+          "worker": 6,
+          "checked": 0,
+          "initial_types": 25,
+          "final_types": 25,
+          "computations": 0,
+          "initialization_seconds": 2.416e-06,
+          "checking_seconds": 0.0
+        },
+        {
+          "worker": 7,
+          "checked": 0,
+          "initial_types": 25,
+          "final_types": 25,
+          "computations": 0,
+          "initialization_seconds": 5.334e-06,
+          "checking_seconds": 0.0
+        }
+      ],
+      "phase": {
+        "effective_workers": 8,
+        "available_cpus": 16,
+        "program_seconds": 0.024224667,
+        "check_join_seconds": 0.000242667,
+        "before_scope_log_seconds": 0.024472584
+      },
+      "config_sha256": "8ad6efac13e5f4ad7a2f3b0a777ac856bcce2062a9c5cce7a3ffe2fef559e485",
+      "input_fingerprint": "0a3c61842f93c94a02fdeb99ec90e9fc9eea7b9cc5c442d9809cc5680bdaeed6",
+      "matched_normal_and_native": true
+    }
+  ],
+  "invalid_standalone_arguments": 5,
+  "cli_control": {
+    "input_fingerprint": "966c00b414cce61c02d5f77669b075e50d54bac83dffdceb2d41f7ce80a2b9e9",
+    "root_config_sha256": "b4b750e84eff33acac9c4917e880660f65064643863759eda3b804f1b804a870",
+    "loaded_count": 14015,
+    "diagnostics": {
+      "count": 122,
+      "fingerprint": "f9a1895331fa3bff9d931c478757cb788414bf33a32ce3dad582371b10759216"
+    },
+    "loaded_order_fingerprint": "ae434744f4996eefbe5a7c33051f63070d17a8b4c85aa7c41838644b6d3230bf"
+  },
+  "runs": [
+    {
+      "wall_seconds": 3.9732268750085495,
+      "user_seconds": 3.497667,
+      "system_seconds": 0.46617699999999995,
+      "peak_rss_bytes": 1066319872,
+      "exit_code": 1,
+      "timed_out": false,
+      "iteration": 0,
+      "warmup": true,
+      "requested": 1,
+      "workers": [
+        {
+          "worker": 0,
+          "checked": 1364,
+          "initial_types": 25,
+          "final_types": 184223,
+          "computations": 250905,
+          "initialization_seconds": 0.000244416,
+          "checking_seconds": 2.124612
+        }
+      ],
+      "phase": {
+        "effective_workers": 1,
+        "available_cpus": 16,
+        "program_seconds": 1.544915417,
+        "check_join_seconds": 2.220685125,
+        "before_scope_log_seconds": 3.861747459
+      },
+      "loaded_count": 14015,
+      "checked_count": 1364,
+      "loaded_fingerprint": "ae434744f4996eefbe5a7c33051f63070d17a8b4c85aa7c41838644b6d3230bf",
+      "checked_fingerprint": "c0abafd29b2e9650e30af89714bdaca7d1fcbb4d364b80569aa939c300324f5a",
+      "checked_input_fingerprint": "da0090477ceb4a9191d4722a7d3f60cdf14708d864467c81956ee81f913991b1",
+      "input_fingerprint": "966c00b414cce61c02d5f77669b075e50d54bac83dffdceb2d41f7ce80a2b9e9",
+      "diagnostics": {
+        "count": 122,
+        "fingerprint": "f9a1895331fa3bff9d931c478757cb788414bf33a32ce3dad582371b10759216"
+      }
+    },
+    {
+      "wall_seconds": 3.0064374579815194,
+      "user_seconds": 3.741628,
+      "system_seconds": 0.48889499999999997,
+      "peak_rss_bytes": 1135460352,
+      "exit_code": 1,
+      "timed_out": false,
+      "iteration": 0,
+      "warmup": true,
+      "requested": 2,
+      "workers": [
+        {
+          "worker": 0,
+          "checked": 675,
+          "initial_types": 25,
+          "final_types": 115525,
+          "computations": 133979,
+          "initialization_seconds": 0.000230333,
+          "checking_seconds": 1.155295792
+        },
+        {
+          "worker": 1,
+          "checked": 689,
+          "initial_types": 25,
+          "final_types": 107694,
+          "computations": 132265,
+          "initialization_seconds": 0.000229125,
+          "checking_seconds": 1.162529791
+        }
+      ],
+      "phase": {
+        "effective_workers": 2,
+        "available_cpus": 16,
+        "program_seconds": 1.555469583,
+        "check_join_seconds": 1.243986375,
+        "before_scope_log_seconds": 2.891961208
+      },
+      "loaded_count": 14015,
+      "checked_count": 1364,
+      "loaded_fingerprint": "ae434744f4996eefbe5a7c33051f63070d17a8b4c85aa7c41838644b6d3230bf",
+      "checked_fingerprint": "c0abafd29b2e9650e30af89714bdaca7d1fcbb4d364b80569aa939c300324f5a",
+      "checked_input_fingerprint": "da0090477ceb4a9191d4722a7d3f60cdf14708d864467c81956ee81f913991b1",
+      "input_fingerprint": "966c00b414cce61c02d5f77669b075e50d54bac83dffdceb2d41f7ce80a2b9e9",
+      "diagnostics": {
+        "count": 122,
+        "fingerprint": "f9a1895331fa3bff9d931c478757cb788414bf33a32ce3dad582371b10759216"
+      }
+    },
+    {
+      "wall_seconds": 2.6186489579849876,
+      "user_seconds": 4.072069,
+      "system_seconds": 0.528639,
+      "peak_rss_bytes": 1168490496,
+      "exit_code": 1,
+      "timed_out": false,
+      "iteration": 0,
+      "warmup": true,
+      "requested": 4,
+      "workers": [
+        {
+          "worker": 0,
+          "checked": 343,
+          "initial_types": 25,
+          "final_types": 75194,
+          "computations": 65105,
+          "initialization_seconds": 0.000272709,
+          "checking_seconds": 0.571783083
+        },
+        {
+          "worker": 1,
+          "checked": 346,
+          "initial_types": 25,
+          "final_types": 71962,
+          "computations": 74745,
+          "initialization_seconds": 0.000286625,
+          "checking_seconds": 0.605799958
+        },
+        {
+          "worker": 2,
+          "checked": 332,
+          "initial_types": 25,
+          "final_types": 61934,
+          "computations": 75315,
+          "initialization_seconds": 0.000288959,
+          "checking_seconds": 0.718096541
+        },
+        {
+          "worker": 3,
+          "checked": 343,
+          "initial_types": 25,
+          "final_types": 60156,
+          "computations": 64830,
+          "initialization_seconds": 0.000284542,
+          "checking_seconds": 0.700541958
+        }
+      ],
+      "phase": {
+        "effective_workers": 4,
+        "available_cpus": 16,
+        "program_seconds": 1.653360167,
+        "check_join_seconds": 0.753025,
+        "before_scope_log_seconds": 2.503877792
+      },
+      "loaded_count": 14015,
+      "checked_count": 1364,
+      "loaded_fingerprint": "ae434744f4996eefbe5a7c33051f63070d17a8b4c85aa7c41838644b6d3230bf",
+      "checked_fingerprint": "c0abafd29b2e9650e30af89714bdaca7d1fcbb4d364b80569aa939c300324f5a",
+      "checked_input_fingerprint": "da0090477ceb4a9191d4722a7d3f60cdf14708d864467c81956ee81f913991b1",
+      "input_fingerprint": "966c00b414cce61c02d5f77669b075e50d54bac83dffdceb2d41f7ce80a2b9e9",
+      "diagnostics": {
+        "count": 122,
+        "fingerprint": "f9a1895331fa3bff9d931c478757cb788414bf33a32ce3dad582371b10759216"
+      }
+    },
+    {
+      "wall_seconds": 3.0363862499943934,
+      "user_seconds": 3.777087,
+      "system_seconds": 0.48526899999999995,
+      "peak_rss_bytes": 1171308544,
+      "exit_code": 1,
+      "timed_out": false,
+      "iteration": 1,
+      "warmup": false,
+      "requested": 2,
+      "workers": [
+        {
+          "worker": 0,
+          "checked": 675,
+          "initial_types": 25,
+          "final_types": 115525,
+          "computations": 133979,
+          "initialization_seconds": 0.000274167,
+          "checking_seconds": 1.155071542
+        },
+        {
+          "worker": 1,
+          "checked": 689,
+          "initial_types": 25,
+          "final_types": 107694,
+          "computations": 132265,
+          "initialization_seconds": 0.000395125,
+          "checking_seconds": 1.170400625
+        }
+      ],
+      "phase": {
+        "effective_workers": 2,
+        "available_cpus": 16,
+        "program_seconds": 1.5674914580000001,
+        "check_join_seconds": 1.258690292,
+        "before_scope_log_seconds": 2.9225192079999998
+      },
+      "loaded_count": 14015,
+      "checked_count": 1364,
+      "loaded_fingerprint": "ae434744f4996eefbe5a7c33051f63070d17a8b4c85aa7c41838644b6d3230bf",
+      "checked_fingerprint": "c0abafd29b2e9650e30af89714bdaca7d1fcbb4d364b80569aa939c300324f5a",
+      "checked_input_fingerprint": "da0090477ceb4a9191d4722a7d3f60cdf14708d864467c81956ee81f913991b1",
+      "input_fingerprint": "966c00b414cce61c02d5f77669b075e50d54bac83dffdceb2d41f7ce80a2b9e9",
+      "diagnostics": {
+        "count": 122,
+        "fingerprint": "f9a1895331fa3bff9d931c478757cb788414bf33a32ce3dad582371b10759216"
+      }
+    },
+    {
+      "wall_seconds": 2.5307110830035526,
+      "user_seconds": 4.048168,
+      "system_seconds": 0.505774,
+      "peak_rss_bytes": 1063731200,
+      "exit_code": 1,
+      "timed_out": false,
+      "iteration": 1,
+      "warmup": false,
+      "requested": 4,
+      "workers": [
+        {
+          "worker": 0,
+          "checked": 343,
+          "initial_types": 25,
+          "final_types": 75194,
+          "computations": 65105,
+          "initialization_seconds": 0.000291166,
+          "checking_seconds": 0.568629417
+        },
+        {
+          "worker": 1,
+          "checked": 346,
+          "initial_types": 25,
+          "final_types": 71962,
+          "computations": 74745,
+          "initialization_seconds": 0.000285125,
+          "checking_seconds": 0.60201525
+        },
+        {
+          "worker": 2,
+          "checked": 332,
+          "initial_types": 25,
+          "final_types": 61934,
+          "computations": 75315,
+          "initialization_seconds": 0.00034775,
+          "checking_seconds": 0.705902333
+        },
+        {
+          "worker": 3,
+          "checked": 343,
+          "initial_types": 25,
+          "final_types": 60156,
+          "computations": 64830,
+          "initialization_seconds": 0.000260084,
+          "checking_seconds": 0.705352041
+        }
+      ],
+      "phase": {
+        "effective_workers": 4,
+        "available_cpus": 16,
+        "program_seconds": 1.560947333,
+        "check_join_seconds": 0.754095042,
+        "before_scope_log_seconds": 2.411927
+      },
+      "loaded_count": 14015,
+      "checked_count": 1364,
+      "loaded_fingerprint": "ae434744f4996eefbe5a7c33051f63070d17a8b4c85aa7c41838644b6d3230bf",
+      "checked_fingerprint": "c0abafd29b2e9650e30af89714bdaca7d1fcbb4d364b80569aa939c300324f5a",
+      "checked_input_fingerprint": "da0090477ceb4a9191d4722a7d3f60cdf14708d864467c81956ee81f913991b1",
+      "input_fingerprint": "966c00b414cce61c02d5f77669b075e50d54bac83dffdceb2d41f7ce80a2b9e9",
+      "diagnostics": {
+        "count": 122,
+        "fingerprint": "f9a1895331fa3bff9d931c478757cb788414bf33a32ce3dad582371b10759216"
+      }
+    },
+    {
+      "wall_seconds": 4.143990207987372,
+      "user_seconds": 3.596205,
+      "system_seconds": 0.49699899999999997,
+      "peak_rss_bytes": 1114193920,
+      "exit_code": 1,
+      "timed_out": false,
+      "iteration": 1,
+      "warmup": false,
+      "requested": 1,
+      "workers": [
+        {
+          "worker": 0,
+          "checked": 1364,
+          "initial_types": 25,
+          "final_types": 184223,
+          "computations": 250905,
+          "initialization_seconds": 0.000234083,
+          "checking_seconds": 2.205638834
+        }
+      ],
+      "phase": {
+        "effective_workers": 1,
+        "available_cpus": 16,
+        "program_seconds": 1.595571125,
+        "check_join_seconds": 2.30754975,
+        "before_scope_log_seconds": 4.006838833
+      },
+      "loaded_count": 14015,
+      "checked_count": 1364,
+      "loaded_fingerprint": "ae434744f4996eefbe5a7c33051f63070d17a8b4c85aa7c41838644b6d3230bf",
+      "checked_fingerprint": "c0abafd29b2e9650e30af89714bdaca7d1fcbb4d364b80569aa939c300324f5a",
+      "checked_input_fingerprint": "da0090477ceb4a9191d4722a7d3f60cdf14708d864467c81956ee81f913991b1",
+      "input_fingerprint": "966c00b414cce61c02d5f77669b075e50d54bac83dffdceb2d41f7ce80a2b9e9",
+      "diagnostics": {
+        "count": 122,
+        "fingerprint": "f9a1895331fa3bff9d931c478757cb788414bf33a32ce3dad582371b10759216"
+      }
+    },
+    {
+      "wall_seconds": 2.679631667007925,
+      "user_seconds": 4.198145,
+      "system_seconds": 0.565596,
+      "peak_rss_bytes": 1121894400,
+      "exit_code": 1,
+      "timed_out": false,
+      "iteration": 2,
+      "warmup": false,
+      "requested": 4,
+      "workers": [
+        {
+          "worker": 0,
+          "checked": 343,
+          "initial_types": 25,
+          "final_types": 75194,
+          "computations": 65105,
+          "initialization_seconds": 0.00028975,
+          "checking_seconds": 0.584105333
+        },
+        {
+          "worker": 1,
+          "checked": 346,
+          "initial_types": 25,
+          "final_types": 71962,
+          "computations": 74745,
+          "initialization_seconds": 0.000283375,
+          "checking_seconds": 0.614837958
+        },
+        {
+          "worker": 2,
+          "checked": 332,
+          "initial_types": 25,
+          "final_types": 61934,
+          "computations": 75315,
+          "initialization_seconds": 0.000424209,
+          "checking_seconds": 0.722278541
+        },
+        {
+          "worker": 3,
+          "checked": 343,
+          "initial_types": 25,
+          "final_types": 60156,
+          "computations": 64830,
+          "initialization_seconds": 0.000244,
+          "checking_seconds": 0.720970375
+        }
+      ],
+      "phase": {
+        "effective_workers": 4,
+        "available_cpus": 16,
+        "program_seconds": 1.675621292,
+        "check_join_seconds": 0.773382208,
+        "before_scope_log_seconds": 2.553947
+      },
+      "loaded_count": 14015,
+      "checked_count": 1364,
+      "loaded_fingerprint": "ae434744f4996eefbe5a7c33051f63070d17a8b4c85aa7c41838644b6d3230bf",
+      "checked_fingerprint": "c0abafd29b2e9650e30af89714bdaca7d1fcbb4d364b80569aa939c300324f5a",
+      "checked_input_fingerprint": "da0090477ceb4a9191d4722a7d3f60cdf14708d864467c81956ee81f913991b1",
+      "input_fingerprint": "966c00b414cce61c02d5f77669b075e50d54bac83dffdceb2d41f7ce80a2b9e9",
+      "diagnostics": {
+        "count": 122,
+        "fingerprint": "f9a1895331fa3bff9d931c478757cb788414bf33a32ce3dad582371b10759216"
+      }
+    },
+    {
+      "wall_seconds": 4.26238383402233,
+      "user_seconds": 3.713924,
+      "system_seconds": 0.5366799999999999,
+      "peak_rss_bytes": 1060339712,
+      "exit_code": 1,
+      "timed_out": false,
+      "iteration": 2,
+      "warmup": false,
+      "requested": 1,
+      "workers": [
+        {
+          "worker": 0,
+          "checked": 1364,
+          "initial_types": 25,
+          "final_types": 184223,
+          "computations": 250905,
+          "initialization_seconds": 0.000259958,
+          "checking_seconds": 2.254526667
+        }
+      ],
+      "phase": {
+        "effective_workers": 1,
+        "available_cpus": 16,
+        "program_seconds": 1.6922775410000002,
+        "check_join_seconds": 2.351370042,
+        "before_scope_log_seconds": 4.142983875
+      },
+      "loaded_count": 14015,
+      "checked_count": 1364,
+      "loaded_fingerprint": "ae434744f4996eefbe5a7c33051f63070d17a8b4c85aa7c41838644b6d3230bf",
+      "checked_fingerprint": "c0abafd29b2e9650e30af89714bdaca7d1fcbb4d364b80569aa939c300324f5a",
+      "checked_input_fingerprint": "da0090477ceb4a9191d4722a7d3f60cdf14708d864467c81956ee81f913991b1",
+      "input_fingerprint": "966c00b414cce61c02d5f77669b075e50d54bac83dffdceb2d41f7ce80a2b9e9",
+      "diagnostics": {
+        "count": 122,
+        "fingerprint": "f9a1895331fa3bff9d931c478757cb788414bf33a32ce3dad582371b10759216"
+      }
+    },
+    {
+      "wall_seconds": 3.16216812498169,
+      "user_seconds": 3.827188,
+      "system_seconds": 0.509603,
+      "peak_rss_bytes": 1145651200,
+      "exit_code": 1,
+      "timed_out": false,
+      "iteration": 2,
+      "warmup": false,
+      "requested": 2,
+      "workers": [
+        {
+          "worker": 0,
+          "checked": 675,
+          "initial_types": 25,
+          "final_types": 115525,
+          "computations": 133979,
+          "initialization_seconds": 0.000221875,
+          "checking_seconds": 1.171224166
+        },
+        {
+          "worker": 1,
+          "checked": 689,
+          "initial_types": 25,
+          "final_types": 107694,
+          "computations": 132265,
+          "initialization_seconds": 0.00022875,
+          "checking_seconds": 1.193123625
+        }
+      ],
+      "phase": {
+        "effective_workers": 2,
+        "available_cpus": 16,
+        "program_seconds": 1.681995042,
+        "check_join_seconds": 1.270193125,
+        "before_scope_log_seconds": 3.049443375
+      },
+      "loaded_count": 14015,
+      "checked_count": 1364,
+      "loaded_fingerprint": "ae434744f4996eefbe5a7c33051f63070d17a8b4c85aa7c41838644b6d3230bf",
+      "checked_fingerprint": "c0abafd29b2e9650e30af89714bdaca7d1fcbb4d364b80569aa939c300324f5a",
+      "checked_input_fingerprint": "da0090477ceb4a9191d4722a7d3f60cdf14708d864467c81956ee81f913991b1",
+      "input_fingerprint": "966c00b414cce61c02d5f77669b075e50d54bac83dffdceb2d41f7ce80a2b9e9",
+      "diagnostics": {
+        "count": 122,
+        "fingerprint": "f9a1895331fa3bff9d931c478757cb788414bf33a32ce3dad582371b10759216"
+      }
+    },
+    {
+      "wall_seconds": 4.072171000007074,
+      "user_seconds": 3.583406,
+      "system_seconds": 0.484068,
+      "peak_rss_bytes": 1081475072,
+      "exit_code": 1,
+      "timed_out": false,
+      "iteration": 3,
+      "warmup": false,
+      "requested": 1,
+      "workers": [
+        {
+          "worker": 0,
+          "checked": 1364,
+          "initial_types": 25,
+          "final_types": 184223,
+          "computations": 250905,
+          "initialization_seconds": 0.00022225,
+          "checking_seconds": 2.177078208
+        }
+      ],
+      "phase": {
+        "effective_workers": 1,
+        "available_cpus": 16,
+        "program_seconds": 1.585941,
+        "check_join_seconds": 2.27140625,
+        "before_scope_log_seconds": 3.954712333
+      },
+      "loaded_count": 14015,
+      "checked_count": 1364,
+      "loaded_fingerprint": "ae434744f4996eefbe5a7c33051f63070d17a8b4c85aa7c41838644b6d3230bf",
+      "checked_fingerprint": "c0abafd29b2e9650e30af89714bdaca7d1fcbb4d364b80569aa939c300324f5a",
+      "checked_input_fingerprint": "da0090477ceb4a9191d4722a7d3f60cdf14708d864467c81956ee81f913991b1",
+      "input_fingerprint": "966c00b414cce61c02d5f77669b075e50d54bac83dffdceb2d41f7ce80a2b9e9",
+      "diagnostics": {
+        "count": 122,
+        "fingerprint": "f9a1895331fa3bff9d931c478757cb788414bf33a32ce3dad582371b10759216"
+      }
+    },
+    {
+      "wall_seconds": 3.13884687499376,
+      "user_seconds": 3.809376,
+      "system_seconds": 0.511004,
+      "peak_rss_bytes": 1149517824,
+      "exit_code": 1,
+      "timed_out": false,
+      "iteration": 3,
+      "warmup": false,
+      "requested": 2,
+      "workers": [
+        {
+          "worker": 0,
+          "checked": 675,
+          "initial_types": 25,
+          "final_types": 115525,
+          "computations": 133979,
+          "initialization_seconds": 0.000236917,
+          "checking_seconds": 1.165526083
+        },
+        {
+          "worker": 1,
+          "checked": 689,
+          "initial_types": 25,
+          "final_types": 107694,
+          "computations": 132265,
+          "initialization_seconds": 0.000231,
+          "checking_seconds": 1.1975419170000001
+        }
+      ],
+      "phase": {
+        "effective_workers": 2,
+        "available_cpus": 16,
+        "program_seconds": 1.572313667,
+        "check_join_seconds": 1.271027958,
+        "before_scope_log_seconds": 2.967426958
+      },
+      "loaded_count": 14015,
+      "checked_count": 1364,
+      "loaded_fingerprint": "ae434744f4996eefbe5a7c33051f63070d17a8b4c85aa7c41838644b6d3230bf",
+      "checked_fingerprint": "c0abafd29b2e9650e30af89714bdaca7d1fcbb4d364b80569aa939c300324f5a",
+      "checked_input_fingerprint": "da0090477ceb4a9191d4722a7d3f60cdf14708d864467c81956ee81f913991b1",
+      "input_fingerprint": "966c00b414cce61c02d5f77669b075e50d54bac83dffdceb2d41f7ce80a2b9e9",
+      "diagnostics": {
+        "count": 122,
+        "fingerprint": "f9a1895331fa3bff9d931c478757cb788414bf33a32ce3dad582371b10759216"
+      }
+    },
+    {
+      "wall_seconds": 2.596209582989104,
+      "user_seconds": 4.107568,
+      "system_seconds": 0.544739,
+      "peak_rss_bytes": 1152909312,
+      "exit_code": 1,
+      "timed_out": false,
+      "iteration": 3,
+      "warmup": false,
+      "requested": 4,
+      "workers": [
+        {
+          "worker": 0,
+          "checked": 343,
+          "initial_types": 25,
+          "final_types": 75194,
+          "computations": 65105,
+          "initialization_seconds": 0.00029,
+          "checking_seconds": 0.577818
+        },
+        {
+          "worker": 1,
+          "checked": 346,
+          "initial_types": 25,
+          "final_types": 71962,
+          "computations": 74745,
+          "initialization_seconds": 0.000284583,
+          "checking_seconds": 0.606164584
+        },
+        {
+          "worker": 2,
+          "checked": 332,
+          "initial_types": 25,
+          "final_types": 61934,
+          "computations": 75315,
+          "initialization_seconds": 0.000271958,
+          "checking_seconds": 0.707067458
+        },
+        {
+          "worker": 3,
+          "checked": 343,
+          "initial_types": 25,
+          "final_types": 60156,
+          "computations": 64830,
+          "initialization_seconds": 0.000266041,
+          "checking_seconds": 0.714938625
+        }
+      ],
+      "phase": {
+        "effective_workers": 4,
+        "available_cpus": 16,
+        "program_seconds": 1.62191725,
+        "check_join_seconds": 0.753701542,
+        "before_scope_log_seconds": 2.475336208
+      },
+      "loaded_count": 14015,
+      "checked_count": 1364,
+      "loaded_fingerprint": "ae434744f4996eefbe5a7c33051f63070d17a8b4c85aa7c41838644b6d3230bf",
+      "checked_fingerprint": "c0abafd29b2e9650e30af89714bdaca7d1fcbb4d364b80569aa939c300324f5a",
+      "checked_input_fingerprint": "da0090477ceb4a9191d4722a7d3f60cdf14708d864467c81956ee81f913991b1",
+      "input_fingerprint": "966c00b414cce61c02d5f77669b075e50d54bac83dffdceb2d41f7ce80a2b9e9",
+      "diagnostics": {
+        "count": 122,
+        "fingerprint": "f9a1895331fa3bff9d931c478757cb788414bf33a32ce3dad582371b10759216"
+      }
+    },
+    {
+      "wall_seconds": 3.059138874989003,
+      "user_seconds": 3.80281,
+      "system_seconds": 0.488284,
+      "peak_rss_bytes": 1111916544,
+      "exit_code": 1,
+      "timed_out": false,
+      "iteration": 4,
+      "warmup": false,
+      "requested": 2,
+      "workers": [
+        {
+          "worker": 0,
+          "checked": 675,
+          "initial_types": 25,
+          "final_types": 115525,
+          "computations": 133979,
+          "initialization_seconds": 0.000352,
+          "checking_seconds": 1.160282375
+        },
+        {
+          "worker": 1,
+          "checked": 689,
+          "initial_types": 25,
+          "final_types": 107694,
+          "computations": 132265,
+          "initialization_seconds": 0.00023675,
+          "checking_seconds": 1.190763458
+        }
+      ],
+      "phase": {
+        "effective_workers": 2,
+        "available_cpus": 16,
+        "program_seconds": 1.578597291,
+        "check_join_seconds": 1.261482209,
+        "before_scope_log_seconds": 2.939939291
+      },
+      "loaded_count": 14015,
+      "checked_count": 1364,
+      "loaded_fingerprint": "ae434744f4996eefbe5a7c33051f63070d17a8b4c85aa7c41838644b6d3230bf",
+      "checked_fingerprint": "c0abafd29b2e9650e30af89714bdaca7d1fcbb4d364b80569aa939c300324f5a",
+      "checked_input_fingerprint": "da0090477ceb4a9191d4722a7d3f60cdf14708d864467c81956ee81f913991b1",
+      "input_fingerprint": "966c00b414cce61c02d5f77669b075e50d54bac83dffdceb2d41f7ce80a2b9e9",
+      "diagnostics": {
+        "count": 122,
+        "fingerprint": "f9a1895331fa3bff9d931c478757cb788414bf33a32ce3dad582371b10759216"
+      }
+    },
+    {
+      "wall_seconds": 2.5471270410052966,
+      "user_seconds": 4.019875,
+      "system_seconds": 0.495932,
+      "peak_rss_bytes": 1134804992,
+      "exit_code": 1,
+      "timed_out": false,
+      "iteration": 4,
+      "warmup": false,
+      "requested": 4,
+      "workers": [
+        {
+          "worker": 0,
+          "checked": 343,
+          "initial_types": 25,
+          "final_types": 75194,
+          "computations": 65105,
+          "initialization_seconds": 0.000282542,
+          "checking_seconds": 0.572885333
+        },
+        {
+          "worker": 1,
+          "checked": 346,
+          "initial_types": 25,
+          "final_types": 71962,
+          "computations": 74745,
+          "initialization_seconds": 0.000269792,
+          "checking_seconds": 0.599393125
+        },
+        {
+          "worker": 2,
+          "checked": 332,
+          "initial_types": 25,
+          "final_types": 61934,
+          "computations": 75315,
+          "initialization_seconds": 0.000265875,
+          "checking_seconds": 0.691621333
+        },
+        {
+          "worker": 3,
+          "checked": 343,
+          "initial_types": 25,
+          "final_types": 60156,
+          "computations": 64830,
+          "initialization_seconds": 0.000252042,
+          "checking_seconds": 0.684898417
+        }
+      ],
+      "phase": {
+        "effective_workers": 4,
+        "available_cpus": 16,
+        "program_seconds": 1.595661625,
+        "check_join_seconds": 0.73148225,
+        "before_scope_log_seconds": 2.425823208
+      },
+      "loaded_count": 14015,
+      "checked_count": 1364,
+      "loaded_fingerprint": "ae434744f4996eefbe5a7c33051f63070d17a8b4c85aa7c41838644b6d3230bf",
+      "checked_fingerprint": "c0abafd29b2e9650e30af89714bdaca7d1fcbb4d364b80569aa939c300324f5a",
+      "checked_input_fingerprint": "da0090477ceb4a9191d4722a7d3f60cdf14708d864467c81956ee81f913991b1",
+      "input_fingerprint": "966c00b414cce61c02d5f77669b075e50d54bac83dffdceb2d41f7ce80a2b9e9",
+      "diagnostics": {
+        "count": 122,
+        "fingerprint": "f9a1895331fa3bff9d931c478757cb788414bf33a32ce3dad582371b10759216"
+      }
+    },
+    {
+      "wall_seconds": 4.23378483299166,
+      "user_seconds": 3.597394,
+      "system_seconds": 0.5757059999999999,
+      "peak_rss_bytes": 1108934656,
+      "exit_code": 1,
+      "timed_out": false,
+      "iteration": 4,
+      "warmup": false,
+      "requested": 1,
+      "workers": [
+        {
+          "worker": 0,
+          "checked": 1364,
+          "initial_types": 25,
+          "final_types": 184223,
+          "computations": 250905,
+          "initialization_seconds": 0.000241291,
+          "checking_seconds": 2.174920292
+        }
+      ],
+      "phase": {
+        "effective_workers": 1,
+        "available_cpus": 16,
+        "program_seconds": 1.7454414169999999,
+        "check_join_seconds": 2.267547208,
+        "before_scope_log_seconds": 4.110311167
+      },
+      "loaded_count": 14015,
+      "checked_count": 1364,
+      "loaded_fingerprint": "ae434744f4996eefbe5a7c33051f63070d17a8b4c85aa7c41838644b6d3230bf",
+      "checked_fingerprint": "c0abafd29b2e9650e30af89714bdaca7d1fcbb4d364b80569aa939c300324f5a",
+      "checked_input_fingerprint": "da0090477ceb4a9191d4722a7d3f60cdf14708d864467c81956ee81f913991b1",
+      "input_fingerprint": "966c00b414cce61c02d5f77669b075e50d54bac83dffdceb2d41f7ce80a2b9e9",
+      "diagnostics": {
+        "count": 122,
+        "fingerprint": "f9a1895331fa3bff9d931c478757cb788414bf33a32ce3dad582371b10759216"
+      }
+    },
+    {
+      "wall_seconds": 2.6026783749985043,
+      "user_seconds": 4.103442,
+      "system_seconds": 0.512666,
+      "peak_rss_bytes": 1139539968,
+      "exit_code": 1,
+      "timed_out": false,
+      "iteration": 5,
+      "warmup": false,
+      "requested": 4,
+      "workers": [
+        {
+          "worker": 0,
+          "checked": 343,
+          "initial_types": 25,
+          "final_types": 75194,
+          "computations": 65105,
+          "initialization_seconds": 0.000277,
+          "checking_seconds": 0.624634166
+        },
+        {
+          "worker": 1,
+          "checked": 346,
+          "initial_types": 25,
+          "final_types": 71962,
+          "computations": 74745,
+          "initialization_seconds": 0.000264333,
+          "checking_seconds": 0.648306917
+        },
+        {
+          "worker": 2,
+          "checked": 332,
+          "initial_types": 25,
+          "final_types": 61934,
+          "computations": 75315,
+          "initialization_seconds": 0.000257125,
+          "checking_seconds": 0.756052167
+        },
+        {
+          "worker": 3,
+          "checked": 343,
+          "initial_types": 25,
+          "final_types": 60156,
+          "computations": 64830,
+          "initialization_seconds": 0.000250709,
+          "checking_seconds": 0.765876583
+        }
+      ],
+      "phase": {
+        "effective_workers": 4,
+        "available_cpus": 16,
+        "program_seconds": 1.5823534160000001,
+        "check_join_seconds": 0.80087475,
+        "before_scope_log_seconds": 2.483306166
+      },
+      "loaded_count": 14015,
+      "checked_count": 1364,
+      "loaded_fingerprint": "ae434744f4996eefbe5a7c33051f63070d17a8b4c85aa7c41838644b6d3230bf",
+      "checked_fingerprint": "c0abafd29b2e9650e30af89714bdaca7d1fcbb4d364b80569aa939c300324f5a",
+      "checked_input_fingerprint": "da0090477ceb4a9191d4722a7d3f60cdf14708d864467c81956ee81f913991b1",
+      "input_fingerprint": "966c00b414cce61c02d5f77669b075e50d54bac83dffdceb2d41f7ce80a2b9e9",
+      "diagnostics": {
+        "count": 122,
+        "fingerprint": "f9a1895331fa3bff9d931c478757cb788414bf33a32ce3dad582371b10759216"
+      }
+    },
+    {
+      "wall_seconds": 4.233089332992677,
+      "user_seconds": 3.673277,
+      "system_seconds": 0.494786,
+      "peak_rss_bytes": 1060306944,
+      "exit_code": 1,
+      "timed_out": false,
+      "iteration": 5,
+      "warmup": false,
+      "requested": 1,
+      "workers": [
+        {
+          "worker": 0,
+          "checked": 1364,
+          "initial_types": 25,
+          "final_types": 184223,
+          "computations": 250905,
+          "initialization_seconds": 0.000241375,
+          "checking_seconds": 2.276562
+        }
+      ],
+      "phase": {
+        "effective_workers": 1,
+        "available_cpus": 16,
+        "program_seconds": 1.6097330840000001,
+        "check_join_seconds": 2.386666541,
+        "before_scope_log_seconds": 4.0945855
+      },
+      "loaded_count": 14015,
+      "checked_count": 1364,
+      "loaded_fingerprint": "ae434744f4996eefbe5a7c33051f63070d17a8b4c85aa7c41838644b6d3230bf",
+      "checked_fingerprint": "c0abafd29b2e9650e30af89714bdaca7d1fcbb4d364b80569aa939c300324f5a",
+      "checked_input_fingerprint": "da0090477ceb4a9191d4722a7d3f60cdf14708d864467c81956ee81f913991b1",
+      "input_fingerprint": "966c00b414cce61c02d5f77669b075e50d54bac83dffdceb2d41f7ce80a2b9e9",
+      "diagnostics": {
+        "count": 122,
+        "fingerprint": "f9a1895331fa3bff9d931c478757cb788414bf33a32ce3dad582371b10759216"
+      }
+    },
+    {
+      "wall_seconds": 3.408007624995662,
+      "user_seconds": 3.947454,
+      "system_seconds": 0.663598,
+      "peak_rss_bytes": 1143734272,
+      "exit_code": 1,
+      "timed_out": false,
+      "iteration": 5,
+      "warmup": false,
+      "requested": 2,
+      "workers": [
+        {
+          "worker": 0,
+          "checked": 675,
+          "initial_types": 25,
+          "final_types": 115525,
+          "computations": 133979,
+          "initialization_seconds": 0.00027125,
+          "checking_seconds": 1.197213458
+        },
+        {
+          "worker": 1,
+          "checked": 689,
+          "initial_types": 25,
+          "final_types": 107694,
+          "computations": 132265,
+          "initialization_seconds": 0.000262166,
+          "checking_seconds": 1.204943542
+        }
+      ],
+      "phase": {
+        "effective_workers": 2,
+        "available_cpus": 16,
+        "program_seconds": 1.872409209,
+        "check_join_seconds": 1.302448041,
+        "before_scope_log_seconds": 3.277218417
+      },
+      "loaded_count": 14015,
+      "checked_count": 1364,
+      "loaded_fingerprint": "ae434744f4996eefbe5a7c33051f63070d17a8b4c85aa7c41838644b6d3230bf",
+      "checked_fingerprint": "c0abafd29b2e9650e30af89714bdaca7d1fcbb4d364b80569aa939c300324f5a",
+      "checked_input_fingerprint": "da0090477ceb4a9191d4722a7d3f60cdf14708d864467c81956ee81f913991b1",
+      "input_fingerprint": "966c00b414cce61c02d5f77669b075e50d54bac83dffdceb2d41f7ce80a2b9e9",
+      "diagnostics": {
+        "count": 122,
+        "fingerprint": "f9a1895331fa3bff9d931c478757cb788414bf33a32ce3dad582371b10759216"
+      }
+    }
+  ],
+  "samples_per_mode": 5,
+  "warmups_per_mode": 1,
+  "effective_show_config_without_worker_count_fingerprints": {
+    "1": "56c84f470beef7cb92d03b9fabc3b911c7dcb2b295a7e3d3b393c4f3f0f75a06",
+    "2": "56c84f470beef7cb92d03b9fabc3b911c7dcb2b295a7e3d3b393c4f3f0f75a06",
+    "4": "56c84f470beef7cb92d03b9fabc3b911c7dcb2b295a7e3d3b393c4f3f0f75a06"
+  },
+  "show_config_limit": "Both native and TSR omit command-line category checkers from serialized showConfig; actual requested/effective selection comes from POLICY, not this serialization. Other serialized options unchanged before/after all samples.",
+  "summary": {
+    "1": {
+      "wall_seconds": {
+        "median": 4.233089332992677,
+        "min": 4.072171000007074,
+        "max": 4.26238383402233
+      },
+      "user_seconds": {
+        "median": 3.597394,
+        "min": 3.583406,
+        "max": 3.713924
+      },
+      "system_seconds": {
+        "median": 0.49699899999999997,
+        "min": 0.484068,
+        "max": 0.5757059999999999
+      },
+      "peak_rss_bytes": {
+        "median": 1081475072,
+        "min": 1060306944,
+        "max": 1114193920
+      },
+      "cpu_seconds": {
+        "median": 4.168063,
+        "min": 4.067474,
+        "max": 4.250604
+      },
+      "program_seconds": {
+        "median": 1.6097330840000001,
+        "min": 1.585941,
+        "max": 1.7454414169999999
+      },
+      "check_join_seconds": {
+        "median": 2.30754975,
+        "min": 2.267547208,
+        "max": 2.386666541
+      },
+      "initialization_total_seconds": {
+        "median": 0.000241291,
+        "min": 0.00022225,
+        "max": 0.000259958
+      },
+      "stable_counts": {
+        "checked": [
+          1364
+        ],
+        "initial_types": [
+          25
+        ],
+        "final_types": [
+          184223
+        ],
+        "computations": [
+          250905
+        ]
+      }
+    },
+    "2": {
+      "wall_seconds": {
+        "median": 3.13884687499376,
+        "min": 3.0363862499943934,
+        "max": 3.408007624995662
+      },
+      "user_seconds": {
+        "median": 3.809376,
+        "min": 3.777087,
+        "max": 3.947454
+      },
+      "system_seconds": {
+        "median": 0.509603,
+        "min": 0.48526899999999995,
+        "max": 0.663598
+      },
+      "peak_rss_bytes": {
+        "median": 1145651200,
+        "min": 1111916544,
+        "max": 1171308544
+      },
+      "cpu_seconds": {
+        "median": 4.32038,
+        "min": 4.262356,
+        "max": 4.611052
+      },
+      "program_seconds": {
+        "median": 1.578597291,
+        "min": 1.5674914580000001,
+        "max": 1.872409209
+      },
+      "check_join_seconds": {
+        "median": 1.270193125,
+        "min": 1.258690292,
+        "max": 1.302448041
+      },
+      "initialization_total_seconds": {
+        "median": 0.000533416,
+        "min": 0.000450625,
+        "max": 0.000669292
+      },
+      "stable_counts": {
+        "checked": [
+          1364
+        ],
+        "initial_types": [
+          50
+        ],
+        "final_types": [
+          223219
+        ],
+        "computations": [
+          266244
+        ]
+      }
+    },
+    "4": {
+      "wall_seconds": {
+        "median": 2.596209582989104,
+        "min": 2.5307110830035526,
+        "max": 2.679631667007925
+      },
+      "user_seconds": {
+        "median": 4.103442,
+        "min": 4.019875,
+        "max": 4.198145
+      },
+      "system_seconds": {
+        "median": 0.512666,
+        "min": 0.495932,
+        "max": 0.565596
+      },
+      "peak_rss_bytes": {
+        "median": 1134804992,
+        "min": 1063731200,
+        "max": 1152909312
+      },
+      "cpu_seconds": {
+        "median": 4.6161080000000005,
+        "min": 4.515807,
+        "max": 4.7637410000000004
+      },
+      "program_seconds": {
+        "median": 1.595661625,
+        "min": 1.560947333,
+        "max": 1.675621292
+      },
+      "check_join_seconds": {
+        "median": 0.754095042,
+        "min": 0.73148225,
+        "max": 0.80087475
+      },
+      "initialization_total_seconds": {
+        "median": 0.001112582,
+        "min": 0.001049167,
+        "max": 0.001241334
+      },
+      "stable_counts": {
+        "checked": [
+          1364
+        ],
+        "initial_types": [
+          100
+        ],
+        "final_types": [
+          269246
+        ],
+        "computations": [
+          279995
+        ]
+      }
+    }
+  },
+  "four_vs_one_wall_reduction_percent": 38.66867956803416,
+  "worker_entry_counts_are_memory_bytes": false,
+  "checked_identity_scope": "Probe checks all assigned groups to completion and reports full eligibility identities plus each executed group count. Normal CLI has no actual checked identity marker; full normal loaded order/diagnostics/input bytes verified before/after.",
+  "binary_sha256": {
+    "normal": "2f49c18d276cdf767a9f5478d3ca343c09b069acab8ed02b76a00e35e9a17b99",
+    "probe": "ddba6ef05fe483e82ec443b018d65ff013122eae6266cc684abf9d7cc4e5757f",
+    "tsgo": "6340b230f887095fb7c82fedb41eecadd7dc49e4baa65a05ef4abb8ab4b74bc4"
+  },
+  "source_sha256": {
+    "crates/tsr-execute/examples/checker_workers.rs": "717c6baaaa4dd559b84aa69a5d573eb795e9423632153a75719b986d03e6275d",
+    "crates/tsr-execute/examples/checker_workers/selection.rs": "04b3c62601ee27422048054d066d4afd226ff7fd63d11dfff86ae71cdb86f271",
+    "crates/tsr-execute/examples/checker_workers/native-selection-cases.rs": "8875ab76d029742c4df3e5e1272dd7b6306451b184b626e590e587fcd3f2241c"
+  },
+  "driver_sha256": "3064bfac6e8b4e6680b92a3d6a608e637c4ed1d8f045d0f1efa8c1483750fd37",
+  "native_test_sha256": "2b85b65957ebf347b50e1f88172f2c09e9a675a569742ea1de2d51598db3ea5b",
+  "raw_results_sha256": "71d61fa77f2a2c5d46c27eefbca42e3468c9d4ba7e20e4c4ccae413a66bdba35",
+  "raw_results": "/tmp/tsr-checker-worker-selection/current-project-controls-v2/results.json",
+  "physical_bundled_libs_match_all_pinned_manifest_entries": 108,
+  "scope_and_complete_diagnostics_stable": true,
+  "complete": true,
+  "known_transport_defect": {
+    "issue": "tsr-1yb.3.1.1.2",
+    "base": {
+      "checkers": 8,
+      "singleThreaded": true
+    },
+    "own": {
+      "checkers": 2,
+      "singleThreaded": false
+    },
+    "tsr_requested": 8,
+    "tsr_single": true,
+    "tsr_effective": 1,
+    "native_requested": 2,
+    "native_single": false,
+    "native_expected_effective": 2,
+    "native_parser_errors": 0,
+    "matched_native": false,
+    "cli_carrier_source_audit": "execute::apply_cli_option omits numeric checkers when overlaying CLI options on parsed project options; direct production-pool observation not available while CLI is serial."
+  },
+  "gates_remaining": [
+    "tsr-1yb.3.1.1 memory admission, no per-worker byte bound proved",
+    "tsr-1yb.3.1.1.2 config/CLI count transport",
+    "tsr-1yb.3.2 including module augmentation fidelity and future semantic emit/query ownership",
+    "Full production CLI scoped benchmark/corpus before worker retention; native wall target<=0.50"
+  ],
+  "limits": [
+    "Current private inputs differ from the previous23563207 sample; do not compare its diagnostics/scope/wall as the same workload.",
+    "Warm OS pages allowed; owned builds/tests/measurements serial, other agents host activity uncontrolled.",
+    "Fresh1/2/4 whole-project worker processes are a probe comparison, not a TSR/native ratio.",
+    "CPU/type/expression counts and overlapping RSS do not prove a worker memory budget. No constrained-memory admission test passed.",
+    "Six public cases match full diagnostics, normal loaded paths and native loaded identities including lib order. Native embedded library identity is compared by basename; the physical TSR bundle matches all108 pinned lib manifest hashes.",
+    "Native options oracle records parsed values/error counts only, not full numeric diagnostics. Early misconstructed JSON/relative-filename oracle setup attempts are excluded.",
+    "Full checker corpora not rerun for an example-only change; production checker/loader/CLI source unchanged."
+  ],
+  "tests": {
+    "release_example": {
+      "passed": 6,
+      "failed": 0,
+      "ignored": 0,
+      "native_expected_count_rows": 200
+    },
+    "strict_release_example_clippy": true,
+    "strict_example_and_tests_clippy": true,
+    "format_check": true,
+    "public_cases": 6,
+    "public_normal_native_diagnostics_and_loaded_order_match": true,
+    "invalid_standalone_overrides": 5,
+    "native_pool_modes": 3,
+    "native_parser_cases": 9,
+    "full_checker_corpus": "Not rerun; example/docs-only production code unchanged."
+  },
+  "worktree_archived_verified": true,
+  "main_portable_public_replay_complete": true,
+  "main_portable_public_replay_sha256": "3512529c3911cfb6c3efef25a1bc3acf16f2f3e4066ea2d22f4a37e1dfcc5cfd"
+}
