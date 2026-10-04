@@ -22,13 +22,39 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
-### Current checker checkpoint — certified empty-Function module-copy calls
+### Current checker checkpoint — class-field context absence and parameter-property optionality
 
-Measured production tree **`5956a9fd`**, against published `a7bbb454`:
-**459,629/478,855 assertions (95.99%)**, **7,176/9,538 complete cases
-(75.24%)**. The 99% target requires 474,067 matches; **14,438 remain**.
+Measured production tree **`8bc504ef`**, against published `63ca73e4`:
+**459,798/478,855 assertions (96.02%)**, **7,187/9,538 complete cases
+(75.35%)**. The 99% target requires 474,067 matches; **14,269 remain**.
 Pinned native `5b1047d1` and both denominators are unchanged. Aligned verdicts:
-**474,251 total; 459,629 RIGHT; 2,182 GAP; 12,440 WRONG**.
+**474,251 total; 459,798 RIGHT; 2,120 GAP; 12,333 WRONG**.
+
+Unannotated instance-field initializers and static fields of class declarations
+now reuse the existing proof of contextual absence. Callback defaults and returns
+infer through the existing signature paths; annotated fields and static
+class-expression contexts remain contextual. Native controls retain inherited
+field incompatibility rather than borrowing a base-field annotation. This unit
+adds **107 WRONG→RIGHT and 62 GAP→RIGHT**, with **zero RIGHT losses, GAP→WRONG,
+changed WRONG payloads or population changes**; eleven complete cases improve.
+All 76 mismatches in `isolatedDeclarationErrorsReturnTypes` disappear.
+
+Constructor parameter properties now read optionality from the question token in
+both member readers; defaulted and required parameters remain required. Their
+complete member tables retire the optional-parameter refusal only after that
+metadata is represented. Generic completeness refusals remain. The mapped
+object-value prerequisite uses the existing exact-mode missing/undefined helper;
+the mapped tuple template retains its native `NE_UNDEFINED` behavior. The
+metadata unit gains one diagnostic match and removes three false extras:
+`propertyParameterWithQuestionMark` becomes RIGHT and `assignmentCompatability10`
+becomes EMPTY_RIGHT. Broader inherited generic lookup, mapped private/protected
+keys and identity-map real-undefined stripping remain separate gaps.
+
+The earlier Function publication incorporated concurrent binder changes before
+the merged tree had been re-audited. Fresh verification of published `63ca73e4`
+now closes that gap: all 474,251 checker and 10,570 diagnostic records are
+byte-identical to measured `5956a9fd`; release tests, strict Clippy and formatting
+pass. The newer combined source above is independently audited and gated.
 
 Known module-copy calls return genuine `any` only through an independently
 certified empty arity-zero class/interface global `Function`. Failed direct or
@@ -58,8 +84,9 @@ Captured mapped optional/readonly flags now participate in structural relations.
 Complete mapped-reference tables and ordinary multi-property lists report native
 missing-member heads in declaration order. Fresh written excess keys require a
 certified target lookup before this reporting path runs; spread-inherited keys
-are not treated as written excess keys. Unrepresented optional constructor
-parameter-property metadata remains refused. These guards preserve all five
+are not treated as written excess keys. Optional constructor parameter-property
+metadata is now represented by the separately verified unit above. The remaining
+guards preserve all five
 previously exposed false TS2322→TS2741 transitions as their original rows, with
 no selector exceptions. The mapped-modifier/missing-head capture is byte-identical to
 `31b00461`. Complete diagnostics gain **28 matched occurrences**, remove **28
@@ -138,9 +165,9 @@ remains held for GAP→WRONG transitions and changed WRONG payloads.
 
 Complete duplicate-aware diagnostics improve against `d881bd20` across
 **10,570 cases**, including all **5,082 empty baselines**:
-**2,855 RIGHT / 2,633 WRONG / 4,802 EMPTY_RIGHT / 280 EMPTY_WRONG**;
-**20,683 matched occurrences / 3,858 extras**, up from 20,617 matches and down
-from 3,891 extras. Fifteen wrong cases and five empty-positive cases become correct.
+**2,856 RIGHT / 2,632 WRONG / 4,803 EMPTY_RIGHT / 279 EMPTY_WRONG**;
+**20,684 matched occurrences / 3,855 extras**, up from 20,617 matches and down
+from 3,891 extras. Sixteen wrong cases and six empty-positive cases become correct.
 There are no correct-case, expected-occurrence, empty-positive or population
 losses, and no introduced extras. Two still-WRONG generic-signature diagnostic
 payloads gain expected TS2430 occurrences; one still-WRONG mapped-relationship
@@ -148,7 +175,7 @@ payload gains the two expected TS2322 occurrences. Function copies remove the
 false TS2339 at `esModuleInteropImportNamespace/index.ts:2:5` without losing a
 matched occurrence.
 
-**2,788 release workspace tests across 239 result blocks**, six existing ignores,
+**2,798 release workspace tests across 241 result blocks**, six existing ignores,
 strict release workspace/all-target Clippy, formatting and diff checks pass.
 Unfiltered scorepair agrees with the multiline-aware audit and accepts the new
 baseline; checker and diagnostics snapshots are refreshed after strict Clippy.
