@@ -1025,12 +1025,9 @@ impl<'a> Checker<'a, '_> {
             // whose first three lines are the whole of this arm: if the
             // declaration has a type node, the contextual type *is* that type.
             //
-            // Restricted to a `VariableDeclaration`. The other variable-like
-            // carriers of an annotation — a `PropertyDeclaration`, a
-            // `PropertySignature`, a parameter with a function-typed annotation
-            // and a function initialiser — reach the same upstream function, but
-            // each is a separate corpus shape and none is measured, so each is a
-            // gap rather than an untested generalisation.
+            // This arm handles variable declarations. Written parameter and
+            // property annotations have their separately measured arms below;
+            // other variable-like carriers remain unsupported here.
             //
             // No check that `node` is the *initialiser*. A `VariableDeclaration`
             // has three children — name, type annotation, initialiser — and only
@@ -1044,6 +1041,17 @@ impl<'a> Checker<'a, '_> {
             // which is the call `crate::members` records making for the same
             // reason.
             Node::VariableDeclaration(declaration) => {
+                let annotation = declaration.r#type?;
+                Some(self.get_type_from_type_node(annotation))
+            }
+            Node::ParameterDeclaration(declaration) => {
+                if declaration.initializer.and_then(|initializer| initializer.node_id())
+                    != Some(node)
+                {
+                    return None;
+                }
+                // A written annotation precedes contextual-signature/default
+                // inference in getContextualTypeForVariableLikeDeclaration.
                 let annotation = declaration.r#type?;
                 Some(self.get_type_from_type_node(annotation))
             }
@@ -2576,5 +2584,31 @@ mod tests {
         ] {
             assert_eq!(field_context(source), None, "{source}");
         }
+    }
+
+    #[test]
+    fn written_parameter_defaults_supply_annotation_context() {
+        for source in [
+            r#"interface I { x: { a: "right" }; } function f(c: I = class { static x = { a: "right" }; }) {}"#,
+            r#"interface I<T> { x: { a: T }; } function f(c: I<"right"> = ((class { static x = { a: "right" }; }))) {}"#,
+            r#"interface I { x: { a: "right" }; } class C { constructor(c: I = class { static x = { a: "right" }; }) {} }"#,
+        ] {
+            assert_eq!(field_context(source).as_deref(), Some("{ a: \"right\"; }"), "{source}");
+        }
+        assert_eq!(
+            field_context(r#"function f(c: { x: (value: "right") => "right" } = class { static x = value => value; }) {}"#).as_deref(),
+            Some("(value: \"right\") => \"right\"")
+        );
+        assert_eq!(
+            field_context(r#"function f(c = class { static x = { a: "right" }; }) {}"#),
+            None
+        );
+        assert_eq!(
+            field_context(
+                r#"function f(c: { x: "right" } = class { static x: "left" = "left"; }) {}"#
+            )
+            .as_deref(),
+            Some("\"left\"")
+        );
     }
 }
