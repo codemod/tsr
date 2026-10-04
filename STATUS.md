@@ -88,7 +88,49 @@ The issue-ID check retains 190 unresolved historical IDs (`tsr-10`); all new
 task references were checked directly. The verified equivalent-work TSR/tsgo
 median wall target remains <=0.50.
 
-### Current checker checkpoint — bounded file-module Function absence
+### Current checker checkpoint — legacy module refusal restored
+
+The module-negative proof published in the checkpoint below is **withdrawn**.
+An independently replayed native-positive augmentation witness falsifies its
+closure gate: native merges `requiredToken` into the file-module owner and
+returns genuine any for original/copy calls, while Rust leaves the augmentation
+unmerged, retains one SourceFile declaration and incorrectly answered
+NotRelated. The binder deliberately omits module augmentation merging. A local
+declaration count or export table cannot establish native export completeness.
+
+The entire new negative proof is removed, restoring legacy Unknown rather than
+inventing a smaller local completeness certificate. The augmentation regression
+fails with NotRelated before removal and passes with Unknown afterward across
+interop/synthetic-default options, file order, three relation kinds and repeats.
+This does not repair the existing module-call error/genuine-any gap. No TS2349
+consumer or augmentation producer is reserved; authoritative augmentation
+ownership/closure remains a prerequisite.
+
+The checker production tree is restored byte-for-byte to pre-module
+`9c176c03`, whose verified checkpoint remains **460,045/478,855 assertions
+(96.07%)**, **7,193/9,538 cases**, **14,022 matches short of 99%**.
+Those complete-corpus numbers are retained exact-source measurements, not new
+captures taken for this withdrawal. The 1,392-run/148,624-record/64,240-call
+read-only audit and all **2,854 payload lengths/hashes** replay independently:
+1,080 augmentation counterexamples, 1,080 invalid-global consumer counterexamples,
+216 host controls, zero normalized semantic order/warm drift. All 928 native
+query-added and 424 Rust precheck diagnostic occurrences remain explicit.
+The getter span difference remains separate.
+
+Withdrawal validation: **2,864 workspace release passes, zero failures, six
+existing ignores**, the new regression RED→GREEN, formatting and strict release
+workspace/all-target Clippy. Initial harness failures are retained separately
+from the genuine failing absence assertion. Evidence is in
+`target/module-augmentation-wave43-evidence.tar.gz`; the native-positive worker
+archive and all earlier module candidates remain preserved.
+
+Verified negation source `104b14fc`, its three scored gains, raw evidence and
+checkpoint draft are preserved on a separate local branch/stash, **not pushed**.
+Optional-add is also retained locally and unadopted. Both require a new audit on
+the corrected published prefix. JSDoc capture/registration remains unproved;
+rejected `lh1` is never integrated. The 99% task remains open.
+
+### Withdrawn checkpoint — bounded file-module Function absence
 
 Measured production tree **`3954bb4b`**, against published `181b5e29`:
 **460,045/478,855 assertions (96.07%)**, **7,193/9,538 complete cases
@@ -96,11 +138,11 @@ Measured production tree **`3954bb4b`**, against published `181b5e29`:
 native `5b1047d1` and both denominators are unchanged; aligned verdicts remain
 **474,251 total; 460,045 RIGHT; 2,094 GAP; 12,112 WRONG**.
 
-The relater can prove only a required actual-global-Function named member
-absent from a closed file-module export/Object/default upper bound. It requires
-affirmative mounted nondeclaration TS ownership and declines numeric declaration
+The withdrawn relater attempted to prove a required actual-global-Function member
+absent from a closed file-module export/Object/default upper bound. It required
+affirmative mounted nondeclaration TS ownership and declined numeric declaration
 keys, unsupported/open/replaced surfaces and default-only absence. This is a
-one-way negative for assignable/subtype relations, not general module-view
+failed closure certificate, not a valid one-way negative, general module-view
 completeness, copy identity, a call-result repair or a TS2349 gain. Earlier
 host-incomplete and numeric-unsafe candidates remain rejected and preserved.
 
