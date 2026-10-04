@@ -69,6 +69,12 @@ must be measured before retaining that candidate. No bound-handle or private
 clone calls occur on this workload yet; future consumer costs need fresh
 measurement rather than extrapolating from the 34,572 private stamp clones.
 
+The [compact storage experiment](checker-compact-table-performance.md) has now
+been measured against source `63ca73e4` and reverted. Its smaller records reduce
+observed RSS, but neither independent full-CLI timing round confirms a wall
+gain. That report also distinguishes bound-table cloning allocations from the
+private symbol-clone requests counted here. The inline field remains in production.
+
 Replay the native patch in the exact pinned tree with Go 1.26 using the
 existing dependency cache and `go build -buildvcs=false ./cmd/symbol-table-presence`.
 The Rust controls live in binder unit/bind/program tests and checker

@@ -1,0 +1,385 @@
+{
+  "task": "tsr-1yb.7.7.1.1.3",
+  "outcome": "reverted",
+  "source_snapshot": "63ca73e43773309cfa1786e05bbdc612e527ed31",
+  "candidate_source_hashes": {
+    "crates/tsr-binder/src/symbol.rs": "d8fa6fa829213f8d2783905e399c0218c8619873b47e6fc700dcee1fb46c081a"
+  },
+  "normal_binaries": {
+    "baseline": "96c79c5abee3467b4a86a9af788ce36a5f5207900d05b5e8fe97a8f4129d7f00",
+    "candidate": "574aa576d533c6b578819ffc818ce652101dc7ac79618bacda576ee00145e952"
+  },
+  "profile": {
+    "baseline_source": "63ca73e43773309cfa1786e05bbdc612e527ed31",
+    "candidate_source_hashes": {
+      "crates/tsr-binder/src/symbol.rs": "d8fa6fa829213f8d2783905e399c0218c8619873b47e6fc700dcee1fb46c081a"
+    },
+    "normal_binary_sha256": {
+      "baseline": "96c79c5abee3467b4a86a9af788ce36a5f5207900d05b5e8fe97a8f4129d7f00",
+      "candidate": "574aa576d533c6b578819ffc818ce652101dc7ac79618bacda576ee00145e952"
+    },
+    "actual_checked_count": 1341,
+    "checked_fingerprint": "04d5f55be4e9253b8d9291375c46f171c6a829377ae41e28a2590b6480ede474",
+    "checked_input_fingerprint": "c88bfc76a5b5fba807593a481ba3c4fbad93e58a3d45413681d8d7aa9106a0ad",
+    "diagnostic_count": 118,
+    "diagnostic_fingerprint": "8a839817547597c2e75d128324fed44fdc3b67a4f4564bdbe43c8a04915e6eb6",
+    "counts": {
+      "baseline": {
+        "bound_stamp_clones": 0,
+        "bound_stamp_drops": 13097,
+        "bound_record_reads": 36353228,
+        "table_gets": 6009379,
+        "absent_gets": 399534,
+        "present_get_hits": 1776062,
+        "present_get_misses": 3833783,
+        "table_initializations": 172122,
+        "insertions": 566958,
+        "table_capacity_growths": 201822,
+        "initialization_allocations": 0,
+        "initialization_requested_bytes": 0,
+        "initialization_usable_bytes": 0,
+        "initialization_reallocations": 0,
+        "initialization_zeroed_allocations": 0,
+        "initialization_map_size_allocations": 0,
+        "insertion_allocations": 201822,
+        "insertion_requested_bytes": 40797576,
+        "insertion_usable_bytes": 42828304,
+        "insertion_reallocations": 0,
+        "insertion_zeroed_allocations": 0,
+        "insertion_map_size_allocations": 0,
+        "clone_allocations": 1206,
+        "clone_requested_bytes": 246348,
+        "clone_usable_bytes": 259104,
+        "clone_reallocations": 0,
+        "clone_zeroed_allocations": 0,
+        "clone_map_size_allocations": 0,
+        "private_stamp_clones": 34888,
+        "private_stamp_drops": 34266,
+        "symbol_ref_clones": 34522,
+        "validated_views": 34259,
+        "bound_handle_constructions": 0,
+        "private_record_creations": 365,
+        "unresolved_requests": 16853,
+        "unresolved_completed_hits": 16488,
+        "symbol_clone_requests": 0,
+        "bound_records": 1082855,
+        "bound_record_capacity": 2097152,
+        "bound_inline_record_bytes": 268435456,
+        "bound_symbol_size": 128,
+        "members_present": 145798,
+        "exports_present": 26324,
+        "retained_map_object_usable_bytes": 0,
+        "bound_member_capacity": 700506,
+        "bound_export_capacity": 186254
+      },
+      "candidate": {
+        "bound_stamp_clones": 0,
+        "bound_stamp_drops": 13097,
+        "bound_record_reads": 36353228,
+        "table_gets": 6009379,
+        "absent_gets": 399534,
+        "present_get_hits": 1776062,
+        "present_get_misses": 3833783,
+        "table_initializations": 172122,
+        "insertions": 566958,
+        "table_capacity_growths": 201822,
+        "initialization_allocations": 172122,
+        "initialization_requested_bytes": 5507904,
+        "initialization_usable_bytes": 5507904,
+        "initialization_reallocations": 0,
+        "initialization_zeroed_allocations": 0,
+        "initialization_map_size_allocations": 172122,
+        "insertion_allocations": 201822,
+        "insertion_requested_bytes": 40797576,
+        "insertion_usable_bytes": 42828304,
+        "insertion_reallocations": 0,
+        "insertion_zeroed_allocations": 0,
+        "insertion_map_size_allocations": 0,
+        "clone_allocations": 2412,
+        "clone_requested_bytes": 284940,
+        "clone_usable_bytes": 297696,
+        "clone_reallocations": 0,
+        "clone_zeroed_allocations": 0,
+        "clone_map_size_allocations": 1206,
+        "private_stamp_clones": 34888,
+        "private_stamp_drops": 34266,
+        "symbol_ref_clones": 34522,
+        "validated_views": 34259,
+        "bound_handle_constructions": 0,
+        "private_record_creations": 365,
+        "unresolved_requests": 16853,
+        "unresolved_completed_hits": 16488,
+        "symbol_clone_requests": 0,
+        "bound_records": 1082855,
+        "bound_record_capacity": 2097152,
+        "bound_inline_record_bytes": 167772160,
+        "bound_symbol_size": 80,
+        "members_present": 145798,
+        "exports_present": 26324,
+        "retained_map_object_usable_bytes": 5507904,
+        "bound_member_capacity": 700506,
+        "bound_export_capacity": 186254
+      }
+    },
+    "profile_elapsed_seconds": {
+      "baseline": [
+        4.98039612499997,
+        4.705043166002724,
+        4.6682606670074165
+      ],
+      "candidate": [
+        4.766767207998782,
+        4.777816125017125,
+        4.681906541984063
+      ]
+    },
+    "actual_work_and_complete_diagnostics_match": true,
+    "allocator_limits": "Tagged actual allocation events/requested and macOS usable sizes; cumulative bucket bytes are not retained bytes. malloc_size excludes zone metadata/page fragmentation; whole-process normal RSS measures net effect. Diagnostic allocator/TLS/counters do not ship and are excluded from timing."
+  },
+  "comparisons": [
+    {
+      "round": "initial",
+      "kind": "same-source normal TSR baseline versus boxed-table candidate; tsgo slot contains TSR, not native",
+      "baseline_source": "63ca73e43773309cfa1786e05bbdc612e527ed31",
+      "candidate_source_hashes": {
+        "crates/tsr-binder/src/symbol.rs": "d8fa6fa829213f8d2783905e399c0218c8619873b47e6fc700dcee1fb46c081a"
+      },
+      "baseline_binary_sha256": "96c79c5abee3467b4a86a9af788ce36a5f5207900d05b5e8fe97a8f4129d7f00",
+      "candidate_binary_sha256": "574aa576d533c6b578819ffc818ce652101dc7ac79618bacda576ee00145e952",
+      "reference_summary": {
+        "wall_seconds": {
+          "median": 4.566939334006747,
+          "p95": 4.608850249991519,
+          "min": 4.498760332993697,
+          "max": 4.608850249991519
+        },
+        "user_seconds": {
+          "median": 3.532125,
+          "p95": 3.5489829999999998,
+          "min": 3.466674,
+          "max": 3.5489829999999998
+        },
+        "system_seconds": {
+          "median": 0.472975,
+          "p95": 0.495403,
+          "min": 0.46697099999999997,
+          "max": 0.495403
+        },
+        "peak_rss_bytes": {
+          "median": 1095008256,
+          "p95": 1142472704,
+          "min": 1025622016,
+          "max": 1142472704
+        }
+      },
+      "candidate_summary": {
+        "wall_seconds": {
+          "median": 4.6243827500147745,
+          "p95": 4.693567333975807,
+          "min": 4.594989041012013,
+          "max": 4.693567333975807
+        },
+        "user_seconds": {
+          "median": 3.5428479999999998,
+          "p95": 3.617194,
+          "min": 3.512601,
+          "max": 3.617194
+        },
+        "system_seconds": {
+          "median": 0.488602,
+          "p95": 0.516199,
+          "min": 0.472207,
+          "max": 0.516199
+        },
+        "peak_rss_bytes": {
+          "median": 1055506432,
+          "p95": 1089617920,
+          "min": 1030995968,
+          "max": 1089617920
+        }
+      },
+      "wall_samples": {
+        "baseline": [
+          4.566939334006747,
+          4.608850249991519,
+          4.5781090410018805,
+          4.539702416019281,
+          4.498760332993697
+        ],
+        "candidate": [
+          4.693567333975807,
+          4.624782957980642,
+          4.619902832986554,
+          4.594989041012013,
+          4.6243827500147745
+        ]
+      },
+      "options_match": true,
+      "loaded_scope_match": true,
+      "actual_checked_scope_match": true,
+      "complete_diagnostics_match": true,
+      "inputs_unchanged": true,
+      "no_previous_right_losses": null,
+      "candidate_minus_baseline_ms": 57.44341600802727,
+      "native_target_verified": false,
+      "artifact": "/tmp/tsr-compact-tables-63ca73e4/initial-timing.json",
+      "timing_decision": {
+        "decision": "revert",
+        "eligible": false,
+        "next_measurement": "none",
+        "target_reached": false,
+        "improved_objectives": [],
+        "violated_objectives": [
+          "wall_seconds"
+        ],
+        "comparisons": {
+          "wall_seconds": {
+            "verdict": "regressed",
+            "delta": -0.05744341600802727,
+            "relative": -0.012578099205366499,
+            "violated": true
+          }
+        },
+        "primary_delta": -0.05744341600802727,
+        "rank_score": -0.012578099205366499,
+        "reason": "violated wall_seconds"
+      },
+      "decision_scope": "Isolated wall comparison with proven full app output/work; full type/diagnostic corpus gates would also be required before retaining code. They were not run for this rejected experiment.",
+      "total_cpu_seconds": {
+        "baseline": 4.0074819999999995,
+        "candidate": 4.041383
+      },
+      "rss_median_reduction_bytes": 39501824
+    },
+    {
+      "round": "confirmation",
+      "kind": "same-source normal TSR baseline versus boxed-table candidate; tsgo slot contains TSR, not native",
+      "baseline_source": "63ca73e43773309cfa1786e05bbdc612e527ed31",
+      "candidate_source_hashes": {
+        "crates/tsr-binder/src/symbol.rs": "d8fa6fa829213f8d2783905e399c0218c8619873b47e6fc700dcee1fb46c081a"
+      },
+      "baseline_binary_sha256": "96c79c5abee3467b4a86a9af788ce36a5f5207900d05b5e8fe97a8f4129d7f00",
+      "candidate_binary_sha256": "574aa576d533c6b578819ffc818ce652101dc7ac79618bacda576ee00145e952",
+      "reference_summary": {
+        "wall_seconds": {
+          "median": 4.604288959002588,
+          "p95": 4.628535416006343,
+          "min": 4.485410374996718,
+          "max": 4.628535416006343
+        },
+        "user_seconds": {
+          "median": 3.526501,
+          "p95": 3.54189,
+          "min": 3.454027,
+          "max": 3.54189
+        },
+        "system_seconds": {
+          "median": 0.492928,
+          "p95": 0.536451,
+          "min": 0.471315,
+          "max": 0.536451
+        },
+        "peak_rss_bytes": {
+          "median": 1094483968,
+          "p95": 1168752640,
+          "min": 1050394624,
+          "max": 1168752640
+        }
+      },
+      "candidate_summary": {
+        "wall_seconds": {
+          "median": 4.617514874989865,
+          "p95": 4.7525830829981714,
+          "min": 4.464019417006057,
+          "max": 4.7525830829981714
+        },
+        "user_seconds": {
+          "median": 3.563507,
+          "p95": 3.604845,
+          "min": 3.456608,
+          "max": 3.604845
+        },
+        "system_seconds": {
+          "median": 0.487149,
+          "p95": 0.527748,
+          "min": 0.450192,
+          "max": 0.527748
+        },
+        "peak_rss_bytes": {
+          "median": 1053392896,
+          "p95": 1064648704,
+          "min": 1031274496,
+          "max": 1064648704
+        }
+      },
+      "wall_samples": {
+        "baseline": [
+          4.485410374996718,
+          4.624261958000716,
+          4.576349541981472,
+          4.628535416006343,
+          4.604288959002588
+        ],
+        "candidate": [
+          4.591185167024378,
+          4.654592707986012,
+          4.617514874989865,
+          4.7525830829981714,
+          4.464019417006057
+        ]
+      },
+      "options_match": true,
+      "loaded_scope_match": true,
+      "actual_checked_scope_match": true,
+      "complete_diagnostics_match": true,
+      "inputs_unchanged": true,
+      "no_previous_right_losses": null,
+      "candidate_minus_baseline_ms": 13.225915987277403,
+      "native_target_verified": false,
+      "artifact": "/tmp/tsr-compact-tables-63ca73e4/confirmation-timing.json",
+      "timing_decision": {
+        "decision": "inconclusive",
+        "eligible": false,
+        "next_measurement": "none",
+        "target_reached": false,
+        "improved_objectives": [],
+        "violated_objectives": [],
+        "comparisons": {
+          "wall_seconds": {
+            "verdict": "inconclusive",
+            "delta": -0.013225915987277403,
+            "relative": -0.002872520839817684,
+            "violated": false
+          }
+        },
+        "primary_delta": -0.013225915987277403,
+        "rank_score": -0.002872520839817684,
+        "reason": "delta inside the comparison threshold"
+      },
+      "decision_scope": "Isolated wall comparison with proven full app output/work; full type/diagnostic corpus gates would also be required before retaining code. They were not run for this rejected experiment.",
+      "total_cpu_seconds": {
+        "baseline": 4.027946,
+        "candidate": 4.050656
+      },
+      "rss_median_reduction_bytes": 41091072
+    }
+  ],
+  "focused_tests_passed": 130,
+  "strict_affected_clippy_passed": true,
+  "fmt_passed": true,
+  "candidate_patch_sha256": "5397704c1952efd455ec6f68dc10c617970c34110477c94e2c4e427f5a8d23cf",
+  "probe_patch_sha256": {
+    "baseline": "00760868cd027506e72206eef78f80c8fba0f758b7fd02098761988f95884bcd",
+    "candidate": "37b8fe753d130f071fbc4130fe700fc846871943e322a04c3bd677b765f9fbdf"
+  },
+  "production_source_restored": true,
+  "restored_symbol_sha256": "537b372824ab9285fc1d77296ca6b524ca470a43ebd02cf0cab6673fe3ad5558",
+  "full_type_and_diagnostic_corpora_run": false,
+  "native_speed_target_verified": false,
+  "private_symbol_consumers_or_node_cache_enabled": false,
+  "existing_native_table_content_gaps": [
+    "class prototype exports",
+    "anonymous call/construct signature members"
+  ],
+  "conclusion": "Both normal-CLI timing rounds lack a gain beyond the unchanged 20ms comparison threshold. Retain original inline maps. Lower observed RSS is not a throughput win; no full-corpus preservation claim is made for the unshipped candidate."
+}

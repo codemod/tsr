@@ -1,0 +1,93 @@
+diff --git a/crates/tsr-binder/src/symbol.rs b/crates/tsr-binder/src/symbol.rs
+index 9149f3b1..8ed6a78e 100644
+--- a/crates/tsr-binder/src/symbol.rs
++++ b/crates/tsr-binder/src/symbol.rs
+@@ -331,9 +331,11 @@ pub type SymbolTable<'a> = FxHashMap<&'a str, SymbolId>;
+ /// A symbol's native nil-or-present member/export table.
+ /// Reads preserve absence. Initialization and insertion publish a present table;
+ /// clearing or removing entries never turns that table back into absence.
+-/// Scope tables remain ordinary `SymbolTable`s.
++/// Present tables are owned separately so absent fields occupy only a pointer.
++/// Cloning still copies the table independently. Scope tables remain ordinary
++/// `SymbolTable`s.
+ #[derive(Clone, Debug, Default)]
+-pub struct SymbolTableField<'a>(Option<SymbolTable<'a>>);
++pub struct SymbolTableField<'a>(Option<Box<SymbolTable<'a>>>);
+ 
+ impl<'a> SymbolTableField<'a> {
+     /// Whether the native table has been initialized, independently of completion.
+@@ -345,12 +347,12 @@ impl<'a> SymbolTableField<'a> {
+     /// Borrow a present table without initializing an absent one.
+     #[must_use]
+     pub fn as_ref(&self) -> Option<&SymbolTable<'a>> {
+-        self.0.as_ref()
++        self.0.as_deref()
+     }
+ 
+     /// Native `GetSymbolTable`: initialize even when the table remains empty.
+     pub fn initialize(&mut self) -> &mut SymbolTable<'a> {
+-        self.0.get_or_insert_with(SymbolTable::default)
++        self.0.get_or_insert_with(|| Box::new(SymbolTable::default())).as_mut()
+     }
+ 
+     /// One existing edge; this read does not publish a table.
+@@ -360,7 +362,7 @@ impl<'a> SymbolTableField<'a> {
+         &'a str: std::borrow::Borrow<Q>,
+         Q: ?Sized + Hash + Eq,
+     {
+-        self.0.as_ref()?.get(name)
++        self.0.as_deref()?.get(name)
+     }
+ 
+     /// One existing mutable edge, without initializing an absent table.
+@@ -369,7 +371,7 @@ impl<'a> SymbolTableField<'a> {
+         &'a str: std::borrow::Borrow<Q>,
+         Q: ?Sized + Hash + Eq,
+     {
+-        self.0.as_mut()?.get_mut(name)
++        self.0.as_deref_mut()?.get_mut(name)
+     }
+ 
+     /// Insert an edge, initializing its table first.
+@@ -383,7 +385,7 @@ impl<'a> SymbolTableField<'a> {
+         &'a str: std::borrow::Borrow<Q>,
+         Q: ?Sized + Hash + Eq,
+     {
+-        self.0.as_mut()?.remove(name)
++        self.0.as_deref_mut()?.remove(name)
+     }
+ 
+     /// Clear an existing table, preserving its presence and capacity.
+@@ -406,7 +408,7 @@ impl<'a> SymbolTableField<'a> {
+     /// The number of existing edges. Absence and a present empty table both have zero.
+     #[must_use]
+     pub fn len(&self) -> usize {
+-        self.0.as_ref().map_or(0, SymbolTable::len)
++        self.0.as_deref().map_or(0, SymbolTable::len)
+     }
+ 
+     /// Whether there are no edges; this does not answer whether a table is present.
+@@ -418,12 +420,12 @@ impl<'a> SymbolTableField<'a> {
+     /// Retained edge capacity, without initializing an absent table.
+     #[must_use]
+     pub fn capacity(&self) -> usize {
+-        self.0.as_ref().map_or(0, SymbolTable::capacity)
++        self.0.as_deref().map_or(0, SymbolTable::capacity)
+     }
+ 
+     /// Existing edges in the unchanged underlying table's iteration order.
+     pub fn iter(&self) -> SymbolTableFieldIter<'_, 'a> {
+-        self.0.as_ref().map(SymbolTable::iter).into_iter().flatten()
++        self.0.as_deref().map(SymbolTable::iter).into_iter().flatten()
+     }
+ 
+     /// Existing names, without publishing a table.
+@@ -457,7 +459,7 @@ where
+ {
+     type Output = SymbolId;
+     fn index(&self, name: &Q) -> &Self::Output {
+-        &self.0.as_ref().expect("no entry found for key")[name]
++        &self.0.as_deref().expect("no entry found for key")[name]
+     }
+ }
+ 
