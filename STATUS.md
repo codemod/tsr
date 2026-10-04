@@ -22,16 +22,39 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
-### Current checker checkpoint — class-field context absence and parameter-property optionality
+### Current checker checkpoint — static class-expression context and class module-copy surface
 
-Measured production tree **`8bc504ef`**, against published `63ca73e4`:
-**459,798/478,855 assertions (96.02%)**, **7,187/9,538 complete cases
-(75.35%)**. The 99% target requires 474,067 matches; **14,269 remain**.
+Measured production tree **`ef3b10a5`**, against published `8bc504ef`:
+**459,840/478,855 assertions (96.03%)**, **7,188/9,538 complete cases
+(75.36%)**. The 99% target requires 474,067 matches; **14,227 remain**.
 Pinned native `5b1047d1` and both denominators are unchanged. Aligned verdicts:
-**474,251 total; 459,798 RIGHT; 2,120 GAP; 12,333 WRONG**.
+**474,251 total; 459,840 RIGHT; 2,120 GAP; 12,291 WRONG**.
+The source is production-identical to audited `f6b00125`; rebasing preserved
+the concurrent documentation-only `bc27fae2` and the exact `crates` tree.
+
+Unannotated static class-expression fields now read the named property of their
+enclosing apparent contextual type. Written field annotations still win; there
+is no index-signature fallback. Singleton computed string/number names and
+generic property projection reuse existing APIs; unique-symbol names remain
+unsupported. The unit adds **42 WRONG→RIGHT**, with **zero RIGHT losses,
+GAP→WRONG, changed checker payloads or population changes**; one complete case
+improves. `staticFieldWithInterfaceContext` gains 18 of its 45 mismatches and
+loses six false TS2322 diagnostics, but retains 27 mismatches and three false
+diagnostics. Parameter-default and destructuring contexts remain separate gaps.
+
+Known class-source module copies now filter lookup and enumeration through the
+existing spreadable-property predicate on winning raw symbols after shadowing.
+Methods/accessors are excluded without resurrecting hidden bases or resolving
+aliases before filtering. Retained fields, raw aliases, synthetic default and
+prototype, unreadable signatures and incomplete enumeration preserve their
+previous contracts. Native 72/Rust 36 controls and the 16-combination regression
+correct the directed member surfaces. Its newer-prefix checker and complete
+diagnostic captures are **byte-identical** to the static-field-only source;
+this targeted correctness unit claims no existing-corpus gain.
 
 Unannotated instance-field initializers and static fields of class declarations
-now reuse the existing proof of contextual absence. Callback defaults and returns
+reuse the proof of contextual absence from the previous `8bc504ef` checkpoint.
+Callback defaults and returns
 infer through the existing signature paths; annotated fields and static
 class-expression contexts remain contextual. Native controls retain inherited
 field incompatibility rather than borrowing a base-field annotation. This unit
@@ -166,7 +189,7 @@ remains held for GAP→WRONG transitions and changed WRONG payloads.
 Complete duplicate-aware diagnostics improve against `d881bd20` across
 **10,570 cases**, including all **5,082 empty baselines**:
 **2,856 RIGHT / 2,632 WRONG / 4,803 EMPTY_RIGHT / 279 EMPTY_WRONG**;
-**20,684 matched occurrences / 3,855 extras**, up from 20,617 matches and down
+**20,684 matched occurrences / 3,849 extras**, up from 20,617 matches and down
 from 3,891 extras. Sixteen wrong cases and six empty-positive cases become correct.
 There are no correct-case, expected-occurrence, empty-positive or population
 losses, and no introduced extras. Two still-WRONG generic-signature diagnostic
@@ -175,7 +198,7 @@ payload gains the two expected TS2322 occurrences. Function copies remove the
 false TS2339 at `esModuleInteropImportNamespace/index.ts:2:5` without losing a
 matched occurrence.
 
-**2,798 release workspace tests across 241 result blocks**, six existing ignores,
+**2,801 release workspace tests across 241 result blocks**, six existing ignores,
 strict release workspace/all-target Clippy, formatting and diff checks pass.
 Unfiltered scorepair agrees with the multiline-aware audit and accepts the new
 baseline; checker and diagnostics snapshots are refreshed after strict Clippy.
