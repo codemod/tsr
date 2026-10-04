@@ -22,7 +22,42 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
-### Current checker checkpoint — annotated primitive binding-default reporting
+### Current checker checkpoint — exact-optional concrete contextual properties
+
+Measured production tree **`c7e5acc0`**, against published `51743d67`:
+**459,974/478,855 assertions (96.06%)**, **7,190/9,538 complete cases
+(75.38%)**. The 99% target requires 474,067 matches; **14,093 remain**.
+Pinned native `5b1047d1` and both denominators are unchanged. Aligned verdicts:
+**474,251 total; 459,974 RIGHT; 2,094 GAP; 12,183 WRONG**.
+
+Concrete default and per-intersection contextual-property reads now remove only
+intrinsic missing under exact optionality. Effective optionality follows
+instantiated synthetic metadata, then an explicit mapped override, then inherited
+syntax. Missing-only retains **Some(never)** instead of reaching index fallback;
+ordinary undefined survives. The ordinary supplier, generic/union/refusal/index
+priority, error and static-caller bodies are unchanged. The integrated source is
+byte-identical to worker `2f54329c`; exact reconstruction verifies one helper and
+two existing substitutions are the only production changes.
+
+Independent archived-output replay verifies **43 fixtures, 774 native Programs
+and 774 bare Rust states per stage**, with nine exact reader-image groups repaired
+and no ordinary/class/caller or semantic warm/query/repeat changes. This is not
+fresh native execution or general Rust Program parity. Part's ordinary-U/missing,
+Need's real-U removal, bare optional-U identity, broad static callers/naming and
+deliberate union/type-parameter intersection refusals remain separate boundaries.
+**No corpus gain is claimed.** Fresh full checker and complete **10,570 diagnostic
+records are byte-identical** to pre-edit published captures, including duplicates
+and 5,082 empty baselines: **20,685 matches, 3,838 extras**. There are zero
+RIGHT/payload/GAP→WRONG/correct-case/matched-occurrence/new-extra/population losses
+and zero changed remaining-WRONG payloads. Three focused tests and workspace
+release pass: **2,841 tests, zero failures, six existing ignores**, plus six loader
+controls. Formatting, strict release workspace/all-target Clippy, unfiltered
+scorepair and fresh coverage pass; both snapshots remain unchanged. JSDoc
+selection and original-file default readers remain unintegrated; query-this flow
+guards are separately reserved. JS loop admission remains held. Evidence is in
+`target/concrete-context-wave33-evidence.tar.gz`.
+
+### Previous checker checkpoint — annotated primitive binding-default reporting
 
 Measured production tree **`14ab1460`**, against published `3d1f822d`:
 **459,974/478,855 assertions (96.06%)**, **7,190/9,538 complete cases
