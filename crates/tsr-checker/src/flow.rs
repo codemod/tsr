@@ -7836,12 +7836,10 @@ impl Checker<'_, '_> {
         // return so the three sets can be read against upstream's three
         // constants.
         //
-        // **The non-strict aggregates are deliberately not ported.** With
-        // `strictNullChecks` off every type also carries `EQUndefined | EQNull
-        // | EQUndefinedOrNull` (`checker.go:433`), and it does not matter:
-        // `narrow_type_by_equality` returns the type unchanged in that mode
-        // before it ever asks for facts, exactly as upstream does
-        // (`flow.go:565`). Adding them would be an unreachable arm.
+        // Object/non-primitive aggregates below select the null mode: their
+        // loose nullable and falsy bits also affect truthiness narrowing,
+        // even though loose equality narrowing does not ask for those bits.
+        // Primitive aggregates retain their existing strict-mode limitation.
         let nullable_never =
             TypeFacts::NE_UNDEFINED | TypeFacts::NE_NULL | TypeFacts::NE_UNDEFINED_OR_NULL;
         let undefined_facts =
@@ -7934,7 +7932,8 @@ impl Checker<'_, '_> {
                 | TypeFacts::TYPEOF_EQ_SYMBOL
                 | (typeof_ne_all - TypeFacts::TYPEOF_NE_SYMBOL);
         }
-        // An object or a non-primitive is always truthy and never nullable.
+        // An object or a non-primitive is always truthy and never nullable in
+        // strict mode; loose native facts also admit falsy/nullable values.
         // Which `typeof` family it carries splits by shape, and the split errs
         // toward `both` — a wrong NE bit deletes a constituent:
         //
@@ -7951,18 +7950,28 @@ impl Checker<'_, '_> {
         //   `FunctionStrictFacts`, and otherwise `ObjectStrictFacts`;
         // - remaining object representations use ObjectStrictFacts.
         if flags.intersects(TypeFlags::OBJECT | TypeFlags::NON_PRIMITIVE) {
+            let mode_facts = if self.strict_null_checks {
+                TypeFacts::empty()
+            } else {
+                TypeFacts::FALSY
+                    | TypeFacts::EQ_UNDEFINED
+                    | TypeFacts::EQ_NULL
+                    | TypeFacts::EQ_UNDEFINED_OR_NULL
+            };
             let object_strict = TypeFacts::TRUTHY
                 | nullable_never
                 | TypeFacts::TYPEOF_EQ_OBJECT
                 | TypeFacts::TYPEOF_EQ_HOST_OBJECT
-                | (typeof_ne_all - TypeFacts::TYPEOF_NE_OBJECT - TypeFacts::TYPEOF_NE_HOST_OBJECT);
+                | (typeof_ne_all - TypeFacts::TYPEOF_NE_OBJECT - TypeFacts::TYPEOF_NE_HOST_OBJECT)
+                | mode_facts;
             let function_strict = TypeFacts::TRUTHY
                 | nullable_never
                 | TypeFacts::TYPEOF_EQ_FUNCTION
                 | TypeFacts::TYPEOF_EQ_HOST_OBJECT
                 | (typeof_ne_all
                     - TypeFacts::TYPEOF_NE_FUNCTION
-                    - TypeFacts::TYPEOF_NE_HOST_OBJECT);
+                    - TypeFacts::TYPEOF_NE_HOST_OBJECT)
+                | mode_facts;
             if flags.intersects(TypeFlags::NON_PRIMITIVE) {
                 return object_strict;
             }
@@ -8191,3 +8200,7 @@ fn is_left_hand_side_expression(expression: tsr_ast::Expression<'_>) -> bool {
 #[cfg(test)]
 #[path = "flow_query_this_tests.rs"]
 mod query_this_tests;
+
+#[cfg(test)]
+#[path = "flow_object_facts_tests.rs"]
+mod object_facts_tests;
