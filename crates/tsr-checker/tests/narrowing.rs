@@ -1539,3 +1539,42 @@ fn an_ambient_var_with_no_annotation_is_any() {
     // And still evolving after one.
     assert_eq!(type_of_last_expression("let c;\nc = 1;\nc;"), "number");
 }
+
+#[test]
+fn unknown_switch_uses_ground_clause_values_and_object_identity() {
+    // Pinned flow.go:1102 maps object cases to nonPrimitive rather than to
+    // the compared object's specific members or callable signature.
+    for (prefix, clauses, expected) in [
+        ("", "case 13:", "13"),
+        ("", "case \"west\":", "\"west\""),
+        ("", "case true:", "true"),
+        ("", "case null:", "null"),
+        ("", "case undefined:", "undefined"),
+        ("", "case 13: case \"west\":", "\"west\" | 13"),
+        ("enum Mode { Words = 'words', Counts = 'counts' }", "case Mode.Counts:", "Mode.Counts"),
+        ("declare const token: unique symbol;", "case token:", "unique symbol"),
+        ("declare const callback: () => void;", "case callback:", "object"),
+        ("declare const value: { property: number };", "case value:", "object"),
+        ("declare const value: object;", "case value:", "object"),
+    ] {
+        assert_eq!(
+            type_of_last_expression(&format!(
+                "{prefix} declare let x: unknown; switch (x) {{ {clauses} x; }}"
+            )),
+            expected,
+            "{prefix} {clauses}",
+        );
+    }
+}
+
+#[test]
+fn unknown_switch_defaults_and_ungrounded_cases_keep_unknown() {
+    for source in [
+        "declare let x: unknown; switch (x) { case 13: default: x; }",
+        "declare let x: unknown; switch (x) { case 13: break; } x;",
+        "declare let x: unknown; declare const dynamic: any; switch (x) { case 13: case dynamic: x; }",
+        "function f<T>(x: unknown, generic: T) { switch (x) { case 'west': case generic: x; } }",
+    ] {
+        assert_eq!(type_of_last_expression(source), "unknown", "{source}");
+    }
+}

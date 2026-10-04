@@ -101,11 +101,9 @@ const jsChildren = <GenericView>{missingJsChild => {}}</GenericView>;
 }
 
 #[test]
-fn jsx_declines_uncertified_union_callbacks_but_keeps_common_inputs() {
-    // Decline pins, NOT native parity: jsx.go's attribute discriminator selects
-    // string/number using bare, explicit, and absent optional discriminants.
-    // Until that operation is ported, these callbacks must not publish an any
-    // signature. The identical-input union is independently native-supported.
+fn jsx_discriminates_attribute_and_body_callback_contexts() {
+    // Pinned jsx.go:267: attributes discriminate the complete props union,
+    // including absent optional fields but excluding semantic body children.
     let source = format!(
         r#"{PRELUDE}
 declare function Mixed(props:
@@ -126,14 +124,111 @@ const common = <Shared kind="left" onValue={{same => same.length}} />;
     assert_types(
         &source,
         &[
-            "word => word.length : error",
-            "bodyWord => bodyWord.length : error",
-            "count => count.toFixed() : error",
-            "bodyCount => bodyCount.toFixed() : error",
-            "missing => missing.toFixed() : error",
-            "bodyMissing => bodyMissing.toFixed() : error",
-            "undefinedMode => undefinedMode.toFixed() : error",
+            "word => word.length : (word: string) => number",
+            "bodyWord => bodyWord.length : (bodyWord: string) => number",
+            "count => count.toFixed() : (count: number) => string",
+            "bodyCount => bodyCount.toFixed() : (bodyCount: number) => string",
+            "missing => missing.toFixed() : (missing: number) => string",
+            "bodyMissing => bodyMissing.toFixed() : (bodyMissing: number) => string",
+            "undefinedMode => undefinedMode.toFixed() : (undefinedMode: number) => string",
             "same => same.length : (same: string) => number",
+        ],
+    );
+}
+
+#[test]
+fn jsx_discriminants_resolve_symbols_and_preserve_unmatched_unions() {
+    let source = format!(
+        r#"{PRELUDE}
+declare function Mixed(props:
+    | {{mode: true; onValue: (value: string) => void}}
+    | {{mode?: false; onValue: (value: number) => void}}
+): JSX.Element;
+const beforeTag = <Mixed onValue={{laterTag => laterTag.length}} mode />;
+const shadowed = true;
+{{
+    const shadowed = false;
+    const inside = <Mixed mode={{shadowed}} onValue={{lexical => lexical.toFixed()}} />;
+}}
+const outside = <Mixed mode={{shadowed}} onValue={{lexical => lexical.length}} />;
+declare const dynamic: boolean;
+const wide = <Mixed mode={{dynamic}} onValue={{wide => {{}}}} />;
+const invalid = <Mixed mode={{"invalid"}} onValue={{unmatched => {{}}}} />;
+enum Variant {{ Words = 7, Counts = 13 }}
+declare function EnumView(props:
+    | {{mode: Variant.Words; onValue: (value: string) => void}}
+    | {{mode: Variant.Counts; onValue: (value: number) => void}}
+): JSX.Element;
+const words = <EnumView mode={{Variant.Words}} onValue={{word => word.length}} />;
+const counts = <EnumView mode={{Variant.Counts}} onValue={{count => count.toFixed()}} />;
+declare function ByChildren(props:
+    | {{content: "required"; onValue: (value: string) => void}}
+    | {{content?: "optional"; onValue: (value: number) => void}}
+): JSX.Element;
+const empty = <ByChildren onValue={{emptyBody => emptyBody.toFixed()}}>
+    {{/* no semantic child */}}
+</ByChildren>;
+const body = <ByChildren onValue={{presentBody => {{}}}}>{{"required"}}</ByChildren>;
+"#
+    );
+    assert_types(
+        &source,
+        &[
+            "laterTag => laterTag.length : (laterTag: string) => number",
+            "lexical => lexical.toFixed() : (lexical: number) => string",
+            "lexical => lexical.length : (lexical: string) => number",
+            "wide => {} : (wide: any) => void",
+            "unmatched => {} : (unmatched: any) => void",
+            "word => word.length : (word: string) => number",
+            "count => count.toFixed() : (count: number) => string",
+            "emptyBody => emptyBody.toFixed() : (emptyBody: number) => string",
+            "presentBody => {} : (presentBody: any) => void",
+        ],
+    );
+}
+
+#[test]
+fn jsx_unmatched_discriminants_preserve_prior_selection_in_source_order() {
+    // Native ignores a value matching no remaining constituent. Swapping the
+    // two inconsistent attributes therefore changes the selected context.
+    let source = format!(
+        r#"{PRELUDE}
+declare function Multi(props:
+    | {{mode: "north"; phase: 7; onValue: (value: string) => void}}
+    | {{mode: "north"; phase: 13; onValue: (value: number) => void}}
+    | {{mode: "south"; phase: 13; onValue: (value: boolean) => void}}
+): JSX.Element;
+const matching = <Multi mode="north" phase={{13}} onValue={{matched => matched.toFixed()}} />;
+const afterNarrow = <Multi mode="south" phase={{7}} onValue={{after => !after}} />;
+const beforeNarrow = <Multi phase={{7}} mode="south" onValue={{before => before.length}} />;
+const noMatch = <Multi mode="north" phase={{99}} onValue={{uncertain => {{}}}} />;
+declare function NullView(props:
+    | {{tag: null; onValue: (value: string) => void}}
+    | {{tag?: false; onValue: (value: number) => void}}
+): JSX.Element;
+const nullValue = <NullView tag={{null}} onValue={{nullTag => nullTag.length}} />;
+const absentNullValue = <NullView onValue={{absentTag => absentTag.toFixed()}} />;
+declare function Tuples(props:
+    | {{mode: true; content: [(value: string) => void, (value: boolean) => void]}}
+    | {{mode: false; content: [(value: number) => void, (value: number) => void]}}
+): JSX.Element;
+const wordAndFlag = <Tuples mode>{{left => left.length}}{{/* trivia */}}{{right => !right}}</Tuples>;
+const counts = <Tuples mode={{false}}>{{left => left.toFixed()}}{{right => right.toFixed()}}</Tuples>;
+"#
+    );
+    assert_types(
+        &source,
+        &[
+            "matched => matched.toFixed() : (matched: number) => string",
+            "after => !after : (after: boolean) => boolean",
+            "before => before.length : (before: string) => number",
+            "uncertain => {} : (uncertain: any) => void",
+            "nullTag => nullTag.length : (nullTag: string) => number",
+            "absentTag => absentTag.toFixed() : (absentTag: number) => string",
+            "left => left.length : (left: string) => number",
+            "right => !right : (right: boolean) => boolean",
+            "left => left.toFixed() : (left: number) => string",
+            "right => right.toFixed() : (right: number) => string",
         ],
     );
 }

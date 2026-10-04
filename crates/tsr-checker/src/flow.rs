@@ -2676,7 +2676,14 @@ impl Checker<'_, '_> {
         let t = self.apparent_type(t);
         // getSignaturesOfType resolves the intrinsic object type to an empty
         // member table; it does not make an intersected callable unresolved.
-        if self.store.get(t).flags.contains(TypeFlags::NON_PRIMITIVE) {
+        // Native getReducedApparentType can already have replaced `object`
+        // with a canonical empty object (5b1047d, checker.go:18959/21754).
+        // These completed intrinsic objects have no call or construct slots;
+        // symbol-less objects without this identity still decline below.
+        if self.store.get(t).flags.contains(TypeFlags::NON_PRIMITIVE)
+            || t == self.intrinsics.empty_object
+            || t == self.intrinsics.unknown_empty_object
+        {
             return Some(Vec::new());
         }
         if self.intersection_has_never_discriminant(t) {
@@ -4455,7 +4462,27 @@ impl Checker<'_, '_> {
         let slice = &clause_types[start.min(clause_types.len())..end.min(clause_types.len())];
         let has_default = start == end || slice.contains(&self.intrinsics.never);
         if self.store.get(t).flags.intersects(TypeFlags::UNKNOWN) {
-            return t;
+            if has_default {
+                return t;
+            }
+            // Pinned 5b1047d, flow.go:1102-1124. The existing switch-node
+            // cache supplies regular clause identities; unknown narrows only
+            // when the whole range is grounded. Object values select the
+            // canonical nonPrimitive type, not their specific object image.
+            let mut grounded = Vec::with_capacity(slice.len());
+            for &clause_type in slice {
+                let flags = self.store.get(clause_type).flags;
+                grounded.push(
+                    if flags.intersects(TypeFlags::PRIMITIVE | TypeFlags::NON_PRIMITIVE) {
+                        clause_type
+                    } else if flags.intersects(TypeFlags::OBJECT) {
+                        self.intrinsics.non_primitive
+                    } else {
+                        return t;
+                    },
+                );
+            }
+            return self.get_union_type(&grounded);
         }
         let discriminant = self.get_union_type(slice);
         let case_type = if self.store.get(discriminant).flags.intersects(TypeFlags::NEVER) {

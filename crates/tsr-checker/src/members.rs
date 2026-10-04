@@ -910,15 +910,12 @@ impl Checker<'_, '_> {
     /// | `TypeFlagsIntersection` | `getApparentTypeOfIntersectionType` | `intersections.rs` |
     /// | `TypeFlagsNonPrimitive` / `Index` / `Unknown` | `emptyObjectType`, `stringNumberSymbolType` | `intrinsics.rs` |
     ///
-    /// **AUDITED and HOLDS** (2026-08-11, under checker-1's §203 heuristic —
-    /// a refusal naming a prerequisite subsystem is the cheapest kind to
-    /// check and the easiest to write carelessly). Four such claims were
-    /// checked across both lanes this session and four were FALSE; this one
-    /// is true: the port mints no `emptyObjectType` intrinsic at all
-    /// (`intrinsics.rs` has none, and `intersections.rs` only tracks an
-    /// `empty_object` INCLUDES bit while folding). The arm therefore needs
-    /// the intrinsic first, exactly as written. Recorded so the next audit
-    /// does not re-run this grep.
+    /// The earlier intrinsic prerequisite is now satisfied: `empty_object`
+    /// and `unknown_empty_object` are canonical, store-owned identities with
+    /// completed empty own members. The non-primitive and loose-unknown arms
+    /// below reuse those identities; strict free unknown remains unchanged.
+    /// This does not certify missing-member diagnostics, whose receiver and
+    /// completeness gates are owned by `nonexistent_property`.
     ///
     /// **This is why the slice is 1,165 lines and not 13,156.** The row
     /// `property access, the receiver has no such property` blocks 13,156 gap
@@ -1148,6 +1145,13 @@ impl Checker<'_, '_> {
             "Boolean"
         } else if flags.intersects(TypeFlags::ES_SYMBOL_LIKE) {
             "Symbol"
+        } else if flags.contains(TypeFlags::NON_PRIMITIVE)
+            || (flags.contains(TypeFlags::UNKNOWN) && !self.strict_null_checks)
+        {
+            // Pinned 5b1047d getApparentType (checker.go:21754-21759).
+            // Reuse the canonical completed empty object; keep the original
+            // receiver as the caller's this_argument, not a fresh wrapper.
+            return self.intrinsics.empty_object;
         } else {
             return id;
         };
@@ -1942,6 +1946,20 @@ impl Checker<'_, '_> {
         let owner = match &self.store.get(id).data {
             TypeData::Named { members: Some(owner), .. } => Owner::Declared(*owner),
             TypeData::Anonymous { symbol, .. } => Owner::Anonymous(*symbol),
+            _ if id == self.intrinsics.empty_object
+                || id == self.intrinsics.unknown_empty_object =>
+            {
+                // getPropertyOfTypeEx (checker.go:18939): these store-owned
+                // canonical objects have completed empty own members and no
+                // signatures. Their only augment is the existing global
+                // Object owner. A skipped augment or missing lib stays absent;
+                // do not infer completeness for other symbol-less objects.
+                if skip_object_function_augment {
+                    return None;
+                }
+                let object = self.global_type_symbol_with_arity("Object", 0)?;
+                return self.get_property_of_declared_symbol(object, name, &mut Vec::new());
+            }
             _ => return None,
         };
         let found = if let Some(&(alias, source)) = self.module_value_clones.get(&id) {
@@ -3137,6 +3155,53 @@ mod property_name_tests {
         let root = parsed.source_file.node_id().unwrap();
         let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
         test(&mut checker, root)
+    }
+
+    #[test]
+    fn canonical_empty_objects_augment_only_when_allowed_and_keep_the_global_member_identity() {
+        with_checker("interface Object { toString(): string }", |checker, root| {
+            let object = checker.binder.lookup_local(root, "Object").unwrap();
+            let object_type = checker.get_declared_type_of_symbol(object);
+            let member = checker.get_property_of_type(object_type, "toString").unwrap();
+            for empty in [
+                checker.intrinsics.empty_object,
+                checker.intrinsics.unknown_empty_object,
+                checker.intrinsics.empty_object,
+            ] {
+                assert_eq!(checker.get_property_of_type_ex(empty, "toString", true), None);
+                assert_eq!(checker.get_property_of_type(empty, "toString"), Some(member));
+                assert_eq!(checker.get_property_of_type(empty, "missing"), None);
+                assert!(
+                    checker.call_signatures_of_type(empty).is_some_and(|slots| slots.is_empty())
+                );
+                assert!(
+                    checker
+                        .signatures_of_type_kind(empty, crate::signatures::SignatureKind::Construct)
+                        .is_some_and(|slots| slots.is_empty()),
+                );
+                assert_eq!(checker.get_property_of_type_ex(empty, "toString", true), None);
+            }
+            let other = checker.store.new_named(crate::flags::TypeFlags::OBJECT, "{}".into(), None);
+            assert_eq!(checker.get_property_of_type(other, "toString"), None);
+            assert!(checker.call_signatures_of_type(other).is_none());
+        });
+        with_checker("", |checker, _| {
+            for strict in [true, false, true] {
+                checker.strict_null_checks = strict;
+                let unknown = checker.intrinsics.unknown;
+                let expected = if strict { unknown } else { checker.intrinsics.empty_object };
+                assert_eq!(checker.apparent_type(unknown), expected);
+                assert_eq!(
+                    checker.apparent_type(checker.intrinsics.non_primitive),
+                    checker.intrinsics.empty_object,
+                );
+                assert_eq!(
+                    checker.get_property_of_type(checker.intrinsics.empty_object, "toString"),
+                    None,
+                    "a missing global Object must not manufacture a property",
+                );
+            }
+        });
     }
 
     fn names(source: &str, owner: &str) -> Option<Vec<String>> {

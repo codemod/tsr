@@ -174,3 +174,91 @@ export function mapped<T>(v:Record<string,T>){if(!v)return v;throw 0;}
         ],
     );
 }
+
+#[test]
+fn apparent_empty_objects_retain_object_methods_without_narrowing_free_unknown() {
+    // Pinned getApparentType/getPropertyOfTypeEx controls distinguish the
+    // canonical empty-object images from free unknown and missing members.
+    let source = r#"// @strict: true
+// @target: es2015
+function nonprimitive(value: object) {
+    value.toString();
+    value.hasOwnProperty("own");
+    value.missing;
+    return value;
+}
+function empty(value: {}) {
+    value.toString();
+    value.hasOwnProperty("own");
+    value.missing;
+    return value;
+}
+function narrowed(value: unknown) {
+    if (value) {
+        value.toString();
+        value.hasOwnProperty("own");
+        value.missing;
+    }
+    if (typeof value === "object" && value) {
+        value.toString();
+        value.hasOwnProperty("own");
+    }
+    return value;
+}
+function constrained<T extends object>(value: T) {
+    value.toString();
+    value.hasOwnProperty("own");
+    return value;
+}
+function objectText(value: object) { return value.toString(); }
+function unknownText(value: unknown) { if (value) return value.toString(); throw 0; }
+function genericOwn<T extends object>(value: T) { return value.hasOwnProperty("own"); }
+function freeUnknown(value: unknown) { return value.toString(); }
+"#;
+    expect(
+        source,
+        &[
+            "nonprimitive : (value: object) => object",
+            "empty : (value: {}) => {}",
+            "narrowed : (value: unknown) => unknown",
+            "constrained : <T extends object>(value: T) => T",
+            "value.toString() : string",
+            "value.toString : () => string",
+            "value.hasOwnProperty(\"own\") : boolean",
+            "value.hasOwnProperty : (v: PropertyKey) => boolean",
+            "objectText : (value: object) => string",
+            "unknownText : (value: unknown) => string",
+            "genericOwn : <T extends object>(value: T) => boolean",
+            "freeUnknown : (value: unknown) => any",
+        ],
+    );
+    let case = TestCase::parse("probe/apparent-empty", "apparent-empty.ts", source);
+    let diagnostics: Vec<_> = tsr_conformance::diagnostics_suite::reported_for(&case)
+        .into_iter()
+        .map(|diagnostic| (diagnostic.line, diagnostic.column, diagnostic.code))
+        .collect();
+    // Preserve the native diagnostic on the declared {} receiver. Raw object
+    // and narrowed-unknown missing-member diagnostics still decline at the
+    // separate receiver/completeness gate (tracked under tsr-6.47.6); free
+    // unknown's TS18046 is also unported. This is a lookup control, not a claim
+    // of complete diagnostic equality for this source.
+    assert!(diagnostics.contains(&(10, 11, 2339)), "{diagnostics:?}");
+}
+
+#[test]
+fn loose_unknown_augments_object_without_becoming_callable() {
+    expect(
+        r#"// @strictNullChecks: false
+function unknownText(value: unknown) { return value.toString(); }
+function unknownOwn(value: unknown) { return value.hasOwnProperty("own"); }
+function unknownApply(value: unknown) { return value.apply(); }
+function objectApply(value: object) { return value.apply(); }
+"#,
+        &[
+            "unknownText : (value: unknown) => string",
+            "unknownOwn : (value: unknown) => boolean",
+            "unknownApply : (value: unknown) => any",
+            "objectApply : (value: object) => any",
+        ],
+    );
+}

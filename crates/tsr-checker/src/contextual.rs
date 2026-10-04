@@ -827,10 +827,9 @@ impl<'a> Checker<'a, '_> {
         self.contextual_call_signature(contextual, None)?.into_signature()
     }
 
-    /// JSX first discriminates the attributes' apparent union (jsx.go:275),
-    /// then reads a property with getTypeOfPropertyOfContextualType. That
-    /// discriminator is not yet ported here. Only publish a union callback
-    /// context if its callable constituents have the same input signature,
+    /// Fallback when JSX apparent-union discrimination (jsx.go:275) cannot be
+    /// certified by the bounded port. Only publish a union callback context
+    /// if its callable constituents have the same input signature,
     /// using getContextualSignature's existing identity check. An unresolved
     /// signature or distinct inputs decline, rather than treating a missing
     /// discrimination result as native's computed absence of a signature.

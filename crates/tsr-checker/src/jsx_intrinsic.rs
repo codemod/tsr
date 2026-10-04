@@ -410,6 +410,222 @@ impl Checker<'_, '_> {
         Some(ty)
     }
 
+    /// Pinned jsx.go:267 / relater.go:1212. Attributes supply explicit values
+    /// (including bare true); absent optional discriminants supply undefined,
+    /// except the children field when semantic body children are present.
+    /// Some is completed selection, including an unchanged union; None is an
+    /// unsupported property/value/relation, never computed signature absence.
+    /// Only non-generic primitive/unit discriminant metadata is certified here.
+    /// The opening-like `NodeId` and contextual `TypeId` stay Checker-local; no new
+    /// cache or provisional publication. This repeats the native selection walk
+    /// per contextual query, retaining the existing opening-signature cache.
+    /// Work attribution remains tsr-1yb.11, not a performance claim.
+    fn discriminate_jsx_attributes(
+        &mut self,
+        opening: NodeId,
+        contextual: crate::types::TypeId,
+    ) -> Option<crate::types::TypeId> {
+        use crate::{
+            flags::TypeFlags,
+            relater::{Relation, Ternary},
+            types::TypeData,
+        };
+        use tsr_ast::{Expression, JsxAttributeLike, JsxAttributeName};
+        let TypeData::Union { types, .. } = self.store.get(contextual).data.clone() else {
+            return None;
+        };
+        let attributes = match self.node_map.get(opening)? {
+            Node::JsxOpeningElement(node) => node.attributes?,
+            Node::JsxSelfClosingElement(node) => node.attributes?,
+            _ => return None,
+        };
+        let mut items = Vec::new();
+        let mut present = Vec::new();
+        for attribute in attributes.properties {
+            let JsxAttributeLike::JsxAttribute(attribute) = attribute else { continue };
+            let JsxAttributeName::Identifier(name) = attribute.name? else { return None };
+            present.push(name.text);
+            let expression = attribute
+                .initializer
+                .and_then(|value| Expression::try_from(Node::from(value)).ok());
+            if expression.is_some_and(|expression| !possibly_jsx_discriminant_value(expression)) {
+                continue;
+            }
+            if !self.jsx_is_discriminant_property(&types, name.text)? {
+                continue;
+            }
+            let value = match expression {
+                Some(expression) => self.jsx_discriminant_value_type(expression)?,
+                None => self.intrinsics.true_type,
+            };
+            if value == self.intrinsics.error {
+                return None;
+            }
+            items.push((name.text.to_string(), self.get_regular_type_of_literal_type(value)));
+        }
+        let semantic_children =
+            self.nodes.parent(opening).and_then(|parent| self.node_map.get(parent)).is_some_and(
+                |parent| {
+                    matches!(parent, Node::JsxElement(element)
+                if element.opening_element.and_then(|node| node.node_id) == Some(opening)
+                    && element.children.iter().any(semantic_jsx_child))
+                },
+            );
+        let children_name = self.jsx_children_name(opening);
+        let mut common: Option<Vec<String>> = None;
+        for &part in &types {
+            if self.store.get(part).flags.intersects(TypeFlags::PRIMITIVE | TypeFlags::NEVER) {
+                continue;
+            }
+            let names = self.get_property_names_of_type(part)?;
+            match &mut common {
+                None => common = Some(names),
+                Some(common) => common.retain(|name| names.contains(name)),
+            }
+        }
+        for name in common.unwrap_or_default() {
+            if present.contains(&name.as_str())
+                || (semantic_children && children_name.as_deref() == Some(name.as_str()))
+            {
+                continue;
+            }
+            let optional = types.iter().copied().any(|part| {
+                self.get_property_of_type(part, &name)
+                    .is_some_and(|symbol| self.property_is_optional(symbol))
+            });
+            if optional && self.jsx_is_discriminant_property(&types, &name)? {
+                items.push((name, self.intrinsics.undefined));
+            }
+        }
+        let mut include: Vec<_> = types
+            .iter()
+            .map(|&part| {
+                !self.store.get(part).flags.intersects(TypeFlags::PRIMITIVE | TypeFlags::NEVER)
+            })
+            .collect();
+        for (name, value) in items {
+            let values = match self.store.get(value).data.clone() {
+                TypeData::Union { types, .. } => types,
+                _ => vec![value],
+            };
+            let mut matched = false;
+            let mut maybe = Vec::new();
+            for (index, &part) in types.iter().enumerate() {
+                if !include[index] {
+                    continue;
+                }
+                let key = self.store.intern_literal(
+                    TypeFlags::STRING_LITERAL,
+                    TypeData::StringLiteral(name.clone()),
+                    false,
+                );
+                let member = self
+                    .get_type_of_property_of_type(part, &name)
+                    .or_else(|| self.get_applicable_index_info(part, key).map(|info| info.value));
+                let Some(member) = member else { continue };
+                let mut accepts = false;
+                for &value in &values {
+                    match self.relate_ternary(value, member, Relation::Assignable) {
+                        Ternary::Related => {
+                            accepts = true;
+                            break;
+                        }
+                        Ternary::NotRelated => {}
+                        Ternary::Unknown => return None,
+                    }
+                }
+                if accepts {
+                    matched = true;
+                } else {
+                    maybe.push(index);
+                }
+            }
+            if matched {
+                for index in maybe {
+                    include[index] = false;
+                }
+            }
+        }
+        let survivors: Vec<_> = types
+            .iter()
+            .enumerate()
+            .filter_map(|(index, &part)| include[index].then_some(part))
+            .collect();
+        Some(if survivors.is_empty() || survivors.len() == types.len() {
+            contextual
+        } else {
+            self.get_union_type_without_reduction(&survivors)
+        })
+    }
+
+    /// getContextFreeTypeOfExpression uses a raw expression check, not the
+    /// mutable-location inference image (which asks this contextual query
+    /// again). Nonconstant templates still need native's scoped any-context;
+    /// decline them until that override exists rather than recurse or widen.
+    fn jsx_discriminant_value_type(
+        &mut self,
+        expression: tsr_ast::Expression<'_>,
+    ) -> Option<crate::types::TypeId> {
+        use tsr_ast::Expression;
+        match expression {
+            Expression::JsxExpression(node) => self.jsx_discriminant_value_type(node.expression?),
+            Expression::ParenthesizedExpression(node) => {
+                self.jsx_discriminant_value_type(node.expression?)
+            }
+            Expression::TemplateExpression(_) => None,
+            _ => Some(self.check_expression(expression)),
+        }
+    }
+
+    /// isDiscriminantProperty's nonuniform/literal, nongeneric metadata slice.
+    fn jsx_is_discriminant_property(
+        &mut self,
+        types: &[crate::types::TypeId],
+        name: &str,
+    ) -> Option<bool> {
+        use crate::{flags::TypeFlags, types::TypeData};
+        let mut first = None;
+        let mut nonuniform = false;
+        let mut literal = false;
+        let mut primitive = true;
+        for &part in types {
+            let Some(member) = self.get_type_of_property_of_type(part, name) else { continue };
+            let member = self.binding_type_alias_body(member);
+            if member == self.intrinsics.error {
+                return None;
+            }
+            let regular = self.get_regular_type_of_literal_type(member);
+            if let Some(first) = first {
+                nonuniform |= first != regular;
+            } else {
+                first = Some(regular);
+            }
+            let leaves = match self.store.get(member).data.clone() {
+                TypeData::Union { types, .. } => types,
+                _ => vec![member],
+            };
+            if leaves
+                .iter()
+                .any(|&part| self.store.get(part).flags.intersects(TypeFlags::INSTANTIABLE))
+            {
+                return None;
+            }
+            literal |= self.store.get(member).flags.contains(TypeFlags::BOOLEAN)
+                || leaves
+                    .iter()
+                    .all(|&part| self.store.get(part).flags.intersects(TypeFlags::UNIT));
+            primitive &= leaves.iter().all(|&part| {
+                self.store.get(part).flags.intersects(
+                    TypeFlags::PRIMITIVE | TypeFlags::ANY | TypeFlags::UNKNOWN | TypeFlags::NEVER,
+                )
+            });
+        }
+        if nonuniform && literal && !primitive {
+            return None;
+        }
+        Some(nonuniform && literal)
+    }
+
     pub(crate) fn jsx_attribute_context(
         &mut self,
         attribute: NodeId,
@@ -420,6 +636,12 @@ impl Checker<'_, '_> {
         let props = self.apparent_contextual_type(props);
         if self.store.get(props).flags.contains(crate::flags::TypeFlags::ANY) {
             return None;
+        }
+        if let Node::JsxAttribute(node) = self.node_map.get(attribute)?
+            && let tsr_ast::JsxAttributeName::Identifier(name) = node.name?
+            && let Some(selected) = self.discriminate_jsx_attributes(opening, props)
+        {
+            return self.contextual_property_type(selected, name.text);
         }
         match self.node_map.get(attribute)? {
             Node::JsxAttribute(node) => {
@@ -457,7 +679,9 @@ impl Checker<'_, '_> {
         if self.store.get(props).flags.contains(crate::flags::TypeFlags::ANY) {
             return None;
         }
-        let field = if tsr_ast::Expression::try_from(Node::from(*children[index]))
+        let field = if let Some(selected) = self.discriminate_jsx_attributes(opening, props) {
+            self.contextual_property_type(selected, &name)?
+        } else if tsr_ast::Expression::try_from(Node::from(*children[index]))
             .is_ok_and(|expression| self.is_context_sensitive_argument(&expression))
         {
             self.certified_jsx_property_context(props, &name)?
@@ -818,5 +1042,31 @@ fn semantic_jsx_child(child: &tsr_ast::JsxChild<'_>) -> bool {
         tsr_ast::JsxChild::JsxText(text) => !text.contains_only_trivia_white_spaces,
         tsr_ast::JsxChild::JsxExpression(expression) => expression.expression.is_some(),
         _ => true,
+    }
+}
+
+fn possibly_jsx_discriminant_value(expression: tsr_ast::Expression<'_>) -> bool {
+    use tsr_ast::{Expression, SyntaxKind};
+    match expression {
+        Expression::StringLiteral(_)
+        | Expression::NumericLiteral(_)
+        | Expression::BigIntLiteral(_)
+        | Expression::NoSubstitutionTemplateLiteral(_)
+        | Expression::TemplateExpression(_)
+        | Expression::Identifier(_) => true,
+        Expression::KeywordExpression(keyword) => matches!(
+            keyword.kind,
+            SyntaxKind::TrueKeyword | SyntaxKind::FalseKeyword | SyntaxKind::NullKeyword
+        ),
+        Expression::PropertyAccessExpression(node) => {
+            node.expression.is_some_and(possibly_jsx_discriminant_value)
+        }
+        Expression::ParenthesizedExpression(node) => {
+            node.expression.is_some_and(possibly_jsx_discriminant_value)
+        }
+        Expression::JsxExpression(node) => {
+            node.expression.is_none_or(possibly_jsx_discriminant_value)
+        }
+        _ => false,
     }
 }
