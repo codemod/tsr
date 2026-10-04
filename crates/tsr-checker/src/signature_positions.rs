@@ -124,7 +124,16 @@ impl Checker<'_, '_> {
         let rest = signature.parameters.last().filter(|parameter| parameter.rest);
         let leading = signature.parameters.len() - usize::from(rest.is_some());
         if position < leading {
-            return Some(signature.parameters[position].r#type);
+            let parameter_type = signature.parameters[position].r#type;
+            return Some(
+                if self.strict_null_checks
+                    && self.signature_parameter_includes_undefined(signature, position)
+                {
+                    self.get_union_type(&[parameter_type, self.intrinsics.undefined])
+                } else {
+                    parameter_type
+                },
+            );
         }
         let rest = rest?;
         let index = position - leading;
@@ -241,5 +250,73 @@ impl Checker<'_, '_> {
                 })
             })
             .then_some(*element)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tsr_ast::Statement;
+    use tsr_core::Arena;
+
+    #[test]
+    fn fixed_positions_add_optionality_without_mutating_parameters_or_rests() {
+        let source = "interface Array<T> { [index: number]: T; }
+            function optional(p?: number) {}
+            function defaulted(d: number = 1) {}
+            function before(this: void, b: number = 1, r: string) {}
+            function required(r: number) {}
+            function explicit(r: number | undefined) {}
+            function rest(...values: number[]) {}
+            function tuple(...values: [number, string?]) {}";
+        for strict in [false, true] {
+            let arena = Arena::new();
+            let parsed = tsr_parser::parse(&arena, source);
+            assert!(parsed.diagnostics.is_empty());
+            let bound = tsr_binder::bind(
+                &arena,
+                parsed.source_file,
+                &parsed.nodes,
+                tsr_binder::FileInfo { name: "positions.ts", text: source },
+            );
+            let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+            checker.set_strict_null_checks(strict);
+            for statement in parsed.source_file.statements {
+                let Statement::FunctionDeclaration(function) = statement else { continue };
+                let name = function.name.unwrap().text;
+                let signature = checker
+                    .get_signature_from_declaration(function.node_id.unwrap())
+                    .expect("signature");
+                let stored: Vec<_> = signature.parameters.iter().map(|p| p.r#type).collect();
+                if matches!(name, "optional" | "defaulted" | "before" | "required") {
+                    assert_eq!(checker.type_to_string(stored[0]), "number", "stored {name}");
+                }
+                let wide_number = if strict { "number | undefined" } else { "number" };
+                let wide_string = if strict { "string | undefined" } else { "string" };
+                let expected = match name {
+                    "optional" | "defaulted" | "explicit" => vec![Some(wide_number), None],
+                    "before" => vec![Some(wide_number), Some("string"), None],
+                    "required" => vec![Some("number"), None],
+                    "rest" => vec![Some("number"), Some("number"), Some("number")],
+                    "tuple" => vec![Some("number"), Some(wide_string), None],
+                    _ => panic!("unexpected function"),
+                };
+                for (position, expected) in expected.into_iter().enumerate() {
+                    let got = checker
+                        .signature_type_at_position(&signature, position)
+                        .map(|ty| checker.type_to_string(ty));
+                    assert_eq!(got.as_deref(), expected, "{name}[{position}], strict={strict}");
+                }
+                assert_eq!(
+                    signature.parameters.iter().map(|p| p.r#type).collect::<Vec<_>>(),
+                    stored,
+                    "positional reads do not alter stored annotations"
+                );
+                if name == "before" {
+                    assert!(!signature.parameters[0].optional);
+                    assert_eq!(checker.signature_min_argument_count(&signature), 2);
+                }
+            }
+        }
     }
 }
