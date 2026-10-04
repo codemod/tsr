@@ -22,7 +22,47 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
-### Current checker checkpoint — variable JSDoc ownership and original-file defaults
+### Current checker checkpoint — query-this flow matching
+
+Measured production tree **`588ba9a8`**, against published `93ea330a`:
+**460,042/478,855 assertions (96.07%)**, **7,192/9,538 complete cases
+(75.40%)**. The 99% target requires 474,067 matches; **14,025 remain**.
+Pinned native `5b1047d1` and both denominators are unchanged. Aligned verdicts:
+**474,251 total; 460,042 RIGHT; 2,094 GAP; 12,115 WRONG**.
+
+Only a leftmost `this` identifier in a type query uses the query-this flow
+rules. Query sources match runtime `ThisKeyword` targets after existing
+normalization; reverse and query-root/qualified self matches remain false.
+Query-this is never constant, including with an explicit `this` parameter.
+Ordinary reference shortcuts and wrapper normalization are unchanged. Already
+admitted dotted queries now narrow; bare-query and identifier dispatch, this
+helpers, binder, keys, caches, reporters and negative-instanceof behavior are
+unchanged.
+
+Fresh full multiline checker captures reproduce exactly **10 WRONG→RIGHT**
+transitions in `typeofThis`; all worker keys and complete before/after payloads
+match. There are zero RIGHT/GAP→WRONG/other-payload/population losses and no
+changed remaining-WRONG checker payloads. Complete **10,570 diagnostic records**,
+including duplicates and 5,082 empty baselines, are **byte-identical**:
+**20,685 matches, 3,831 extras**. No diagnostic gain or broader dispatch parity
+is claimed.
+
+Independent archived-output replays verify 780 native Programs and 1,584 Rust
+lanes, 50,640 matching, 3,720 self/constant and 1,344 order comparisons plus
+exact Test10 raw identities. All 16,084 worker payload hashes pass before and
+after replay. The 136 allocation-ID-only differences and native optional-member
+rendering discrepancy remain disclosed; bare error and module error-any gaps
+remain held. This is not fresh native execution or general Program parity.
+Four focused tests, **2,854 workspace release tests, zero failures, six existing
+ignores**, six loader and six worker controls pass. Formatting, strict release
+workspace/all-target Clippy, unfiltered scorepair and fresh coverage pass; only
+the checker snapshot changes. The accepted baseline equals the fresh checker
+capture apart from its terminal newline. Evidence is
+in `target/query-this-flow-wave35-evidence.tar.gz`. Mapped-required supplier
+integration remains separate; optional-add, broad module callability and JS loops
+remain held. The 99% task is not complete.
+
+### Previous checker checkpoint — variable JSDoc ownership and original-file defaults
 
 Measured production tree **`cecc50bb`**, against published `23040326`:
 **460,032/478,855 assertions (96.07%)**, **7,192/9,538 complete cases
