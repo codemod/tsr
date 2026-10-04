@@ -59,7 +59,7 @@ median wall target remains <=0.50.
 
 ### Current checker checkpoint — canonical undefined/missing identities
 
-Measured production tree **`3915dd67`**, against published `e7bbe0ac`:
+Measured production tree **`79fe7681`**, against published `e7bbe0ac`:
 **460,042/478,855 assertions (96.07%)**, **7,192/9,538 complete cases
 (75.40%)**. The 99% target requires 474,067 matches; **14,025 remain**.
 Pinned native `5b1047d1` and both denominators are unchanged. Aligned verdicts:
@@ -90,10 +90,13 @@ after replay; exact sole-parent scope reconstruction verifies the runtime,
 private regression and approved symbols test-only correction. **2,859 workspace
 release tests pass, zero failures, six existing ignores**, as do the focused
 canonical/context controls, six loader and six worker controls, formatting and
-strict release workspace/all-target Clippy. Concurrent `258d699a` documentation
-and example are preserved; runtime sources equal measured `33ea29bb`, and
-post-rebase gates pass. Initial worker failures remain archived. Evidence is in
-`target/canonical-missing-wave37-evidence.tar.gz`.
+strict release workspace/all-target Clippy. Concurrent `258d699a` and `271e4585`
+documentation/examples are preserved; runtime sources equal measured
+`33ea29bb`, and final post-rebase gates plus five opt-in read-preparation controls
+pass. The source citation was corrected after the final rebase; measurements
+are unchanged. Initial worker failures remain archived. Evidence is in
+`target/canonical-missing-wave37-evidence.tar.gz`, with final-rebase receipts in
+`target/canonical-missing-wave37-final-rebase-evidence.tar.gz`.
 
 Optional-add/template, broader source identity, static, generic/circular/tuple/
 index/clone boundaries remain held. Rejected `lh1` is not integrated: independent
