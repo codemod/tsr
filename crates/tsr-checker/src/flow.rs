@@ -1541,9 +1541,31 @@ impl Checker<'_, '_> {
             .is_some_and(|container| self.nodes.kind(container) == SyntaxKind::SourceFile)
     }
 
+    /// `ast.IsThisInTypeQuery`: only the leftmost identifier in the entity
+    /// name is query `this`; a property named `this` is an ordinary identifier.
+    fn is_this_in_type_query(&self, node: NodeId) -> bool {
+        if !matches!(self.node_map.get(node), Some(Node::Identifier(name)) if name.text == "this") {
+            return false;
+        }
+        let mut current = node;
+        while let Some(parent) = self.nodes.parent(current) {
+            if let Some(Node::QualifiedName(name)) = self.node_map.get(parent)
+                && name.left.and_then(|left| left.node_id()) == Some(current)
+            {
+                current = parent;
+            } else {
+                return self.nodes.kind(parent) == SyntaxKind::TypeQuery;
+            }
+        }
+        false
+    }
+
     fn is_constant_reference(&mut self, reference: NodeId) -> bool {
         match self.node_map.get(reference) {
             Some(Node::Identifier(identifier)) => {
+                if self.is_this_in_type_query(reference) {
+                    return false;
+                }
                 let Some(symbol) = self.binder.resolve_name(
                     self.nodes,
                     self.node_map,
@@ -3900,6 +3922,17 @@ impl Checker<'_, '_> {
     /// on its text.
     pub(crate) fn references_match(&mut self, source: NodeId, target: NodeId) -> bool {
         if source == target {
+            // Native query identifiers match runtime ThisKeyword only; a
+            // qualified query is likewise not an access-expression target.
+            // Keep the shortcut for every ordinary reference.
+            let mut root = source;
+            while let Some(Node::QualifiedName(name)) = self.node_map.get(root) {
+                let Some(left) = name.left.and_then(|left| left.node_id()) else { break };
+                root = left;
+            }
+            if self.is_this_in_type_query(root) {
+                return false;
+            }
             return true;
         }
         // `flow.go`'s two switches, in full. §844: this block previously
@@ -4059,6 +4092,9 @@ impl Checker<'_, '_> {
             // An identifier against an identifier, or against the declaration
             // the binder recorded the flow node on.
             (Some(Node::Identifier(identifier)), _) => {
+                if self.is_this_in_type_query(source) {
+                    return self.nodes.kind(target) == SyntaxKind::ThisKeyword;
+                }
                 let Some(resolved) = self.binder.resolve_name(
                     self.nodes,
                     self.node_map,
@@ -8151,3 +8187,7 @@ fn is_left_hand_side_expression(expression: tsr_ast::Expression<'_>) -> bool {
         ),
     }
 }
+
+#[cfg(test)]
+#[path = "flow_query_this_tests.rs"]
+mod query_this_tests;
