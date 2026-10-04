@@ -149,3 +149,10 @@ immutable borrowing retain their ordinary edge behavior; mutable raw access
 requires explicit initialization. Full workspace all-target compilation covers
 the existing consumers. The separate native synthetic-content/internal-key
 tasks remain required before declaring completed member images reusable.
+
+Main code delivery `8ad07e6a` has the same tracked source tree as the isolated
+candidate. Its separately rebuilt normal release CLI independently preserves
+all 119 complete app diagnostics. Its executable byte hash differs from the
+frozen isolated binary, so saved timings remain attributed to that exact
+frozen artifact; they are not measurements of the rebuilt main executable.
+Both identities and source hashes are recorded in the controls.

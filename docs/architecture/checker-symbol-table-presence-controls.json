@@ -1647,5 +1647,26 @@
       }
     },
     "native_speed_target_verified": false
+  },
+  "main_delivery_control": {
+    "main_commit": "8ad07e6a57b487c804674e87cfcb61a9cb1d9f51",
+    "owned_source": {
+      "crates/tsr-binder/src/binder.rs": "d6442e31b742b3fbc6948453e278bfe13b27cf1a8dcc2f1c68169a2f596f7548",
+      "crates/tsr-binder/src/lib.rs": "6c600192b98da54bc99cb6afe13b5ab2604b9980693529f2d79c625c2f6eb7a0",
+      "crates/tsr-binder/src/symbol.rs": "537b372824ab9285fc1d77296ca6b524ca470a43ebd02cf0cab6673fe3ad5558",
+      "crates/tsr-binder/tests/bind.rs": "19baeeaed5663ccc70e783cf13e401ee24226683870d4aa085527772dd3d30c0",
+      "crates/tsr-checker/src/symbol_access.rs": "62b2026192529ae814fc4226b5a5cf802228320a733c1a8faa8d646adc7d6835",
+      "crates/tsr-checker/tests/symbol_domain_contract.rs": "91483fabbb2804d7659d40c7d2798de938aaf2d33585d535996d027c2b478f80",
+      "crates/tsr-binder/tests/program.rs": "360ad7825a66b8fa86e14d5f55f98f6027dc360a0db7c407cc4770b226f70d23"
+    },
+    "production_cli_sha256": "0bcde299f717a6475d257af40400d2ca73a4e85f866d52dad2bf0e9bdae04486",
+    "timed_cli_sha256": "50de838334a775a7ee147df552417a5b80f8ba3ccbf909560fc4d44bc0eb4de4",
+    "production_equals_timed": false,
+    "exit": 1,
+    "diagnostic_count": 119,
+    "diagnostic_fingerprint": "0f471143d3253ffbc1d9bbf83464c438229ceb06c86c0df137bedee7822ee347",
+    "complete_diagnostics_equal": true,
+    "same_tracked_source_tree_as_isolated_candidate": true,
+    "timing_attribution": "Saved paired timings use the exact frozen isolated normal executable hashes; separately rebuilt main CLI has a different byte hash and independently preserves complete app diagnostics. No native or main-binary speed claim."
   }
 }
