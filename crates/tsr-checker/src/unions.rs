@@ -217,6 +217,24 @@ fn create_union_with_text(
 /// longer consulted for printing at all — it would be a branch this one already
 /// covers.
 fn format_union_types(store: &TypeStore, types: &[TypeId]) -> Vec<String> {
+    union_print_parts(store, types)
+        .into_iter()
+        .map(|part| match part {
+            UnionPrintPart::Type(id) => parenthesised(store, id),
+            UnionPrintPart::Keyword(text) => text.to_string(),
+        })
+        .collect()
+}
+
+/// formatUnionTypes' display plan retains constituent identities for both the
+/// baked renderer and the site-aware renderer. Keywords are synthesized by the
+/// native nullable/boolean clauses, not inferred from rendered text.
+pub(crate) enum UnionPrintPart {
+    Type(TypeId),
+    Keyword(&'static str),
+}
+
+pub(crate) fn union_print_parts(store: &TypeStore, types: &[TypeId]) -> Vec<UnionPrintPart> {
     let is_boolean_literal = |id: TypeId| matches!(store.get(id).data, TypeData::BooleanLiteral(_));
     let mut printed = Vec::with_capacity(types.len());
     let mut seen = TypeFlags::empty();
@@ -234,20 +252,20 @@ fn format_union_types(store: &TypeStore, types: &[TypeId]) -> Vec<String> {
                 Some(TypeData::BooleanLiteral(true))
             )
         {
-            printed.push("boolean".to_string());
+            printed.push(UnionPrintPart::Keyword("boolean"));
             index += 2;
             continue;
         }
-        printed.push(parenthesised(store, id));
+        printed.push(UnionPrintPart::Type(id));
         index += 1;
     }
     // `null` first, then `undefined` — upstream's order (`printer.go:407`), and
     // `>d : object | null | undefined` is what the baselines record.
     if seen.contains(TypeFlags::NULL) {
-        printed.push("null".to_string());
+        printed.push(UnionPrintPart::Keyword("null"));
     }
     if seen.contains(TypeFlags::UNDEFINED) {
-        printed.push("undefined".to_string());
+        printed.push(UnionPrintPart::Keyword("undefined"));
     }
     printed
 }
