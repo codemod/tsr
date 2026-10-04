@@ -2109,6 +2109,17 @@ impl<'a> Checker<'a, '_> {
             self.contextual_property_type(contextual, &name)?
         } else {
             match self.get_property_of_type(contextual, &name) {
+                Some(_)
+                    if !self.type_reference_targets.contains_key(&contextual)
+                        && self
+                            .anonymous_properties
+                            .get(&contextual)
+                            .is_some_and(|(_, instantiated)| *instantiated) =>
+                {
+                    // Instantiated anonymous properties retain their declaration
+                    // origins, but their semantic values are already substituted.
+                    self.get_type_of_property_of_type(contextual, &name)?
+                }
                 Some(property) => self.get_type_of_symbol(property),
                 None => self.union_contextual_property_type(contextual, &name, object_literal)?,
             }
@@ -3048,5 +3059,51 @@ mod tests {
             }
         }
         assert!(mismatches.is_empty(), "raw identity mismatches: {mismatches:?}");
+    }
+
+    #[test]
+    fn instantiated_anonymous_context_uses_semantic_values_and_preserves_error() {
+        let source = r#"interface I<T> { x: { a: T }; }
+function f(c: I<"right"> = class { static x = { a: "right" }; }) {}"#;
+        let arena = tsr_core::Arena::new();
+        let parsed = tsr_parser::parse(&arena, source);
+        let bound = tsr_binder::bind(
+            &arena,
+            parsed.source_file,
+            &parsed.nodes,
+            tsr_binder::FileInfo { name: "t.ts", text: source },
+        );
+        let mut field = None;
+        let mut literal = None;
+        for index in 0..parsed.nodes.len() {
+            let id = NodeId::new(u32::try_from(index).expect("fixture node"));
+            match parsed.node_map.get(id) {
+                Some(Node::PropertyDeclaration(node)) => {
+                    field = node.initializer.and_then(|initializer| initializer.node_id());
+                }
+                Some(Node::PropertyAssignment(node)) => {
+                    literal = node.initializer.and_then(|initializer| initializer.node_id());
+                }
+                _ => {}
+            }
+        }
+        let mut checker = crate::Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+        let context = checker.get_contextual_type(field.expect("field")).expect("context");
+        assert!(!checker.type_reference_targets.contains_key(&context));
+        assert!(checker.anonymous_properties[&context].1);
+        let semantic = checker.get_type_of_property_of_type(context, "a").expect("property");
+        let symbol = checker.get_property_of_type(context, "a").expect("origin symbol");
+        let declared = checker.get_type_of_symbol(symbol);
+        assert_ne!(semantic, declared);
+        assert_eq!(checker.type_to_string(semantic), "\"right\"");
+        assert_eq!(checker.type_to_string(declared), "T");
+        let literal = literal.expect("literal");
+        assert_eq!(checker.get_contextual_type(literal), Some(semantic));
+
+        // Some(error) is an existing semantic value, not an absent property or
+        // permission to fall back to the original declaration's type parameter.
+        let error = checker.intrinsics.error;
+        checker.anonymous_properties.get_mut(&context).expect("captured").0[0].r#type = error;
+        assert_eq!(checker.get_contextual_type(literal), Some(error));
     }
 }
