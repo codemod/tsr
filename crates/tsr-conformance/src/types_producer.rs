@@ -459,20 +459,25 @@ fn source_text(source: &str, span: tsr_core::Span) -> String {
     let start = skip_trivia(source, span.start as usize);
     let end = (span.end as usize).min(source.len());
     let raw = source.get(start..end).unwrap_or_default();
-    raw.replace(['\r', '\n'], "")
+    // `lineDelimiter` in tsbaseline/util.go is \r?\n, not every ECMAScript
+    // line break. A lone CR, LS or PS inside a template remains source text.
+    raw.replace("\r\n", "").replace('\n', "")
 }
 
 /// Advance past whitespace and comments, as `scanner.SkipTrivia` does.
 fn skip_trivia(source: &str, mut pos: usize) -> usize {
     let bytes = source.as_bytes();
+    if pos == 0 && tsr_scanner::is_shebang_trivia(source) {
+        pos = tsr_scanner::scan_shebang_trivia(source);
+    }
     while pos < bytes.len() {
         match bytes[pos] {
             b' ' | b'\t' | b'\r' | b'\n' | 0x0b | 0x0c => pos += 1,
             b'/' if bytes.get(pos + 1) == Some(&b'/') => {
                 pos += 2;
-                while pos < bytes.len() && bytes[pos] != b'\n' {
-                    pos += 1;
-                }
+                pos += source[pos..]
+                    .find(['\r', '\n', '\u{2028}', '\u{2029}'])
+                    .unwrap_or(source.len() - pos);
             }
             b'/' if bytes.get(pos + 1) == Some(&b'*') => {
                 pos += 2;
@@ -482,6 +487,13 @@ fn skip_trivia(source: &str, mut pos: usize) -> usize {
                     pos += 1;
                 }
                 pos = (pos + 2).min(bytes.len());
+            }
+            byte if !byte.is_ascii() => {
+                let Some(ch) = source[pos..].chars().next() else { break };
+                if !tsr_scanner::is_whitespace_single_line(ch) && !tsr_scanner::is_line_break(ch) {
+                    break;
+                }
+                pos += ch.len_utf8();
             }
             _ => break,
         }
@@ -2758,6 +2770,40 @@ mod tests {
     }
 
     #[test]
+    fn new_member_chains_keep_native_preorder_and_callee_source() {
+        // Pinned ForEachChild/SkipTrivia controls, not reordered baseline text.
+        // The index belongs inside the constructor callee; an index following
+        // its argument list instead belongs to the constructed result.
+        assert_eq!(
+            texts("new d[1].f(2, ...args);"),
+            ["new d[1].f(2, ...args)", "d[1].f", "d[1]", "d", "1", "f", "2", "...args", "args"],
+        );
+        assert_eq!(
+            texts("new ns.C[key].D<T>(3);"),
+            [
+                "new ns.C[key].D<T>(3)",
+                "ns.C[key].D",
+                "ns.C[key]",
+                "ns.C",
+                "ns",
+                "C",
+                "key",
+                "D",
+                "3"
+            ],
+        );
+        assert_eq!(
+            texts("new C()[1].f(4);"),
+            ["new C()[1].f(4)", "new C()[1].f", "new C()[1]", "new C()", "C", "1", "f", "4"],
+        );
+        assert_eq!(texts("new C[0]!();"), ["new C[0]!()", "C[0]!", "C[0]", "C", "0"]);
+        assert_eq!(
+            texts("new new C[1](5);"),
+            ["new new C[1](5)", "new C[1](5)", "C[1]", "C", "1", "5"],
+        );
+    }
+
+    #[test]
     fn a_type_annotation_gets_no_assertion() {
         // `IsPartOfTypeNode` — "don't try to get the type of something that's
         // already a type". Without it, `string` would gain a line that upstream
@@ -3128,6 +3174,23 @@ mod tests {
         assert_eq!(source_text("  /* c */ x", tsr_core::Span::new(0, 11)), "x");
         assert_eq!(source_text("// c\nx", tsr_core::Span::new(0, 6)), "x");
         assert_eq!(source_text("a +\nb", tsr_core::Span::new(0, 5)), "a +b");
+    }
+
+    #[test]
+    fn source_text_preserves_lone_cr_and_unicode_separators_inside_nodes() {
+        assert_eq!(texts("`a\rb\r\nc\nd\u{2028}e\u{2029}f`;"), ["`a\rbcd\u{2028}e\u{2029}f`"]);
+        // Not `str::lines`: that would also discard the lone CR, and Unicode
+        // separators are whitespace only at the node's leading-trivia boundary.
+        let source = "\u{feff}\u{a0} // c\r\u{2028}/* λ */ \u{200b}x";
+        let span = tsr_core::Span::new(0, u32::try_from(source.len()).unwrap());
+        assert_eq!(source_text(source, span), "x");
+        for delimiter in ['\r', '\n', '\u{2028}', '\u{2029}'] {
+            let source = format!("// λ{delimiter}x");
+            assert_eq!(skip_trivia(&source, 0), source.len() - 1);
+        }
+        assert_eq!(skip_trivia("#! /usr/bin/env node\r\nx", 0), 22);
+        assert_eq!(skip_trivia("x#! /usr/bin/env node\nx", 1), 1);
+        assert_eq!(source_text(" /* λ */ ", tsr_core::Span::at(0)), "");
     }
 
     #[test]

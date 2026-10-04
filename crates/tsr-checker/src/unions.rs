@@ -159,6 +159,7 @@ fn create_union_with_text(
     {
         flags |= TypeFlags::BOOLEAN;
     }
+    let from_constituents = symbol.is_none() && origin_text.is_none();
     let text = match (&symbol, origin_text) {
         // The node builder reaches a named union through its enum-like branch
         // (`nodebuilderimpl.go:3260`) or its alias branch (`:3362`), and both
@@ -169,7 +170,11 @@ fn create_union_with_text(
         (None, None) => format_union_types(store, &types).join(" | "),
     };
     let symbol = symbol.map(|(id, _)| id);
-    store.intern_union(flags, TypeData::Union { text, types, symbol })
+    store.intern_union_with_display_plan(
+        flags,
+        TypeData::Union { text, types, symbol },
+        from_constituents,
+    )
 }
 
 /// The constituents as they are *printed*: `Checker.formatUnionTypes`

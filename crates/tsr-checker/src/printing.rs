@@ -84,7 +84,7 @@ impl Checker<'_, '_> {
         text
     }
 
-    pub(crate) fn shadowed_parameter_union_text_at(
+    pub(crate) fn union_text_at(
         &mut self,
         id: TypeId,
         reference: tsr_ast::NodeId,
@@ -92,11 +92,15 @@ impl Checker<'_, '_> {
         let TypeData::Union { types, symbol: None, .. } = &self.store.get(id).data else {
             return None;
         };
-        // Origin-bearing unions already use their written entries. This seam
-        // only needs inferred unions with site-sensitive declared parameters.
-        if !types.iter().any(|member| self.type_parameter_symbols.contains_key(member))
-            || !self.rendering_composites.insert(id)
-        {
+        // Native typeToTypeNode formats the union before recursively naming
+        // its slots. Keep the existing nullable order and boolean collapse;
+        // aliases and written origins are handled before this inferred arm.
+        // The mint's completed provenance certifies this display plan. Opaque
+        // overrides cannot be reconstructed from the semantic list alone.
+        if !self.store.has_union_display_plan(id) {
+            return None;
+        }
+        if !self.rendering_composites.insert(id) {
             return None;
         }
         let parts = crate::unions::union_print_parts(&self.store, types);
@@ -120,6 +124,132 @@ impl Checker<'_, '_> {
             .map(|parts| parts.join(" | "));
         self.rendering_composites.remove(&id);
         result
+    }
+
+    /// Pinned tsgo 5b1047d: createTypeNodesFromResolvedType /
+    /// addPropertyToElementList. Consume the already-completed type-literal
+    /// image, keyed by `TypeId` in this Checker, without resolving members again
+    /// or changing its mapper/alias identity. Nothing is cached by spelling or
+    /// site. The existing per-print guard is removed after success or refusal;
+    /// each signature inherits the naming scope and isolates its allocations
+    /// from siblings. Indices and whole written-node overrides keep their
+    /// existing renderer until their complete display structure is available.
+    pub(crate) fn type_literal_text_at(
+        &mut self,
+        id: TypeId,
+        reference: tsr_ast::NodeId,
+    ) -> Option<String> {
+        let origin = *self.type_literal_origins.get(&id)?;
+        let tsr_ast::Node::TypeLiteralNode(node) = self.node_map.get(origin)? else {
+            return None;
+        };
+        if node
+            .members
+            .iter()
+            .any(|member| matches!(member, tsr_ast::TypeElement::IndexSignatureDeclaration(_)))
+            || self.object_literal_index_infos.get(&id).is_some_and(|infos| !infos.is_empty())
+        {
+            return None;
+        }
+        let mut single_quoted = false;
+        crate::signatures::written_type_literal_text(node, &mut single_quoted, &mut false);
+        if single_quoted {
+            return None;
+        }
+        let properties = self.anonymous_properties.get(&id)?.0.clone();
+        let signatures = self.signature_types.get(&id).cloned().unwrap_or_default();
+        // Preserve the existing node kind of single call/construct literals.
+        if properties.is_empty() && signatures.len() == 1 {
+            return None;
+        }
+        if !self.rendering_composites.insert(id) {
+            return None;
+        }
+        let mut members = Vec::new();
+        let mut claimed = rustc_hash::FxHashSet::default();
+        for signature in signatures {
+            members.push(crate::objects::Member::Signature {
+                printed: self.type_literal_signature_at(signature, reference, &mut claimed),
+            });
+        }
+        for property in properties {
+            if property.method {
+                let Some(signatures) = self.signature_types.get(&property.r#type).cloned() else {
+                    self.rendering_composites.remove(&id);
+                    return None;
+                };
+                // A method's overload set has its own name claims, not those
+                // of a sibling method or the object's call signatures.
+                let mut claimed = rustc_hash::FxHashSet::default();
+                for signature in signatures {
+                    let text = self.type_literal_signature_at(signature, reference, &mut claimed);
+                    members.push(crate::objects::Member::Signature {
+                        printed: format!(
+                            "{}{}{text}",
+                            property.printed_name,
+                            if property.optional { "?" } else { "" },
+                        ),
+                    });
+                }
+            } else {
+                let annotation = property.origin.and_then(|symbol| {
+                    let declaration = *self.binder.symbols().get(symbol).declarations.first()?;
+                    match self.node_map.get(declaration)? {
+                        tsr_ast::Node::PropertySignatureDeclaration(node) => node.r#type,
+                        tsr_ast::Node::GetAccessorDeclaration(node) => node.r#type,
+                        _ => None,
+                    }
+                });
+                let alias = annotation.and_then(|annotation| {
+                    self.annotation_alias_text_at(annotation, property.r#type, reference)
+                });
+                // Preserve the producer's written-node precedence using its
+                // declaration, not equality of two rendered strings. An
+                // unresolved annotation keeps its published spelling too.
+                let written = annotation.is_some_and(|annotation| {
+                    let semantic = self.get_type_from_type_node(annotation);
+                    self.is_error(semantic)
+                        || (matches!(
+                            annotation,
+                            tsr_ast::TypeNode::TypeLiteralNode(_)
+                                | tsr_ast::TypeNode::ArrayTypeNode(_)
+                                | tsr_ast::TypeNode::UnionTypeNode(_)
+                        ) && self.written_annotation_text(annotation).is_some())
+                });
+                let printed = if let Some(alias) = alias {
+                    alias
+                } else if written {
+                    property.printed_type
+                } else {
+                    self.type_to_string_at(property.r#type, reference)
+                        .unwrap_or(property.printed_type)
+                };
+                members.push(crate::objects::Member::Property {
+                    name: property.printed_name,
+                    optional: property.optional,
+                    readonly: property.readonly,
+                    printed,
+                });
+            }
+        }
+        self.rendering_composites.remove(&id);
+        Some(crate::objects::render_object_type(&members))
+    }
+
+    fn type_literal_signature_at(
+        &mut self,
+        signature: crate::signatures::Signature,
+        reference: tsr_ast::NodeId,
+        claimed: &mut rustc_hash::FxHashSet<String>,
+    ) -> String {
+        let names_depth = self.render_type_parameter_names.allocations.len();
+        let signature = self.rename_type_parameters_for_site(signature, reference, claimed);
+        let scope_depth = self.render_type_parameter_scope.len();
+        self.push_render_type_parameter_scope(&signature);
+        let text = self.signature_member_text_at(&signature, reference);
+        self.render_type_parameter_scope.truncate(scope_depth);
+        self.render_type_parameter_names.allocations.truncate(names_depth);
+        text
     }
 }
 

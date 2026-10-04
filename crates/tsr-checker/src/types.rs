@@ -243,6 +243,16 @@ pub struct TypeStore {
     types: Vec<Type>,
     /// Literal types only. See the note above on why intrinsics are excluded.
     interned: FxHashMap<(TypeFlags, TypeData, bool), TypeId>,
+    /// Pinned tsgo 5b1047d typeToTypeNode / formatUnionTypes display plans.
+    /// Private store-owned publication keyed by EXISTING interned `TypeId`, never
+    /// part of its semantic key. `create_union_with_text` certifies the ordinary
+    /// constituent plan only after mint completion; arbitrary/opaque writers
+    /// publish false. An opaque publication cannot be promoted by a later hit.
+    /// This records display provenance, not alias accessibility or a receiver
+    /// mapper; written origins still have priority in the site renderer. No
+    /// traversal/forcing or serialized text is cached here, and no speed claim
+    /// follows from admitting an existing constituent walk.
+    union_display_plans: FxHashMap<TypeId, bool>,
 }
 
 impl TypeStore {
@@ -370,7 +380,25 @@ impl TypeStore {
     /// component is always `false` for a union — freshness is a property of
     /// literal types (`TypeFlagsFreshable`), and a union is not one.
     pub fn intern_union(&mut self, flags: TypeFlags, data: TypeData) -> TypeId {
-        self.intern_literal(flags, data, false)
+        self.intern_union_with_display_plan(flags, data, false)
+    }
+
+    pub(crate) fn intern_union_with_display_plan(
+        &mut self,
+        flags: TypeFlags,
+        data: TypeData,
+        from_constituents: bool,
+    ) -> TypeId {
+        let id = self.intern_literal(flags, data, false);
+        self.union_display_plans
+            .entry(id)
+            .and_modify(|plan| *plan &= from_constituents)
+            .or_insert(from_constituents);
+        id
+    }
+
+    pub(crate) fn has_union_display_plan(&self, id: TypeId) -> bool {
+        self.union_display_plans.get(&id) == Some(&true)
     }
 
     /// Create or reuse an intersection type.
@@ -387,5 +415,36 @@ impl TypeStore {
         let id = TypeId(u32::try_from(self.types.len()).expect("type count fits in u32"));
         self.types.push(ty);
         id
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{TypeData, TypeStore};
+    use crate::flags::TypeFlags;
+
+    #[test]
+    fn opaque_union_publication_never_splits_identity_or_promotes_on_warm_hits() {
+        for opaque_first in [false, true] {
+            let mut store = TypeStore::new();
+            let a = store.new_intrinsic(TypeFlags::STRING, "string");
+            let b = store.new_intrinsic(TypeFlags::NUMBER, "number");
+            let data =
+                TypeData::Union { text: "string | number".into(), types: vec![a, b], symbol: None };
+            let flags = TypeFlags::UNION;
+            let first = store.intern_union_with_display_plan(flags, data.clone(), !opaque_first);
+            assert_eq!(store.has_union_display_plan(first), !opaque_first);
+            let second = store.intern_union_with_display_plan(flags, data.clone(), opaque_first);
+            assert_eq!(first, second);
+            assert!(!store.has_union_display_plan(first));
+            for _ in 0..4 {
+                assert_eq!(store.intern_union_with_display_plan(flags, data.clone(), true), first);
+                assert_eq!(store.intern_union(flags, data.clone()), first);
+                assert!(!store.has_union_display_plan(first));
+                assert_eq!(store.get(first).data, data);
+                assert_eq!(crate::printing::type_to_string(store.get(first)), "string | number");
+            }
+            assert_eq!(store.len(), 3);
+        }
     }
 }

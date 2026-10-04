@@ -739,6 +739,12 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Ported from typescript-go's `Parser.parseNewExpressionOrNewDotTarget`
+    /// and `Parser.parseMemberExpressionRest` (`internal/parser/parser.go`) at
+    /// 5b1047d10d32e7d5b446be4de56b126ff42f82bb, with optional chains disabled.
+    /// Callees use the parser's existing arena and node table. Ordinary generic
+    /// constructors absorb their final type arguments without allocating an
+    /// unused wrapper identity; nested members keep their actual AST owners.
     fn parse_new_expression(&mut self) -> Expression<'a> {
         let start = self.pos();
         // The `new` token's kind and span, captured WITHOUT allocating. Using
@@ -784,24 +790,150 @@ impl<'a> Parser<'a> {
         // largest single source of `.types` walker divergence once the
         // predicates were right.
         let callee_start = self.pos();
-        let mut callee = self.parse_primary_expression();
-        // `new a.b.C()` — the callee is a member chain, but not a call, since the
-        // parentheses belong to `new`.
-        while self.at(SyntaxKind::DotToken) {
-            self.next_token();
-            let name = self.parse_member_name();
-            let node = self.finish_node(
-                PropertyAccessExpression::new(Some(callee), None, Some(name)),
-                SyntaxKind::PropertyAccessExpression,
-                callee_start,
-            );
-            callee = Expression::PropertyAccessExpression(node);
-        }
-        let type_arguments = if self.at(SyntaxKind::LessThanToken) {
-            self.try_parse(Parser::parse_type_arguments_for_call).unwrap_or_default()
+        let mut callee = if self.at(SyntaxKind::NewKeyword) {
+            let Some(callee) = self.descend(|parser| {
+                tsr_core::stack::ensure_sufficient(|| parser.parse_new_expression())
+            }) else {
+                self.error_at_current(&messages::EXPRESSION_EXPECTED);
+                return Expression::Identifier(self.missing_identifier());
+            };
+            callee
         } else {
-            Vec::new()
+            self.parse_primary_expression()
         };
+        // `parseNewExpressionOrNewDotTarget` calls `parseMemberExpressionRest`
+        // with allowOptionalChain=false (pinned parser.go). Brackets, tags and
+        // non-null assertions bind to the constructor just as dots do; calls
+        // and optional chains do not. In `new a[0].C(x)` the old dot-only loop
+        // instead built `(new a)[0].C(x)`, changing both types and source spans.
+        let mut type_arguments = Vec::new();
+        loop {
+            match self.token.kind {
+                SyntaxKind::DotToken => {
+                    self.next_token();
+                    let name = if self.right_side_of_dot_is_missing() {
+                        self.error_at_current(&messages::IDENTIFIER_EXPECTED);
+                        MemberName::Identifier(self.missing_identifier())
+                    } else {
+                        self.parse_member_name()
+                    };
+                    callee = Expression::PropertyAccessExpression(self.finish_node(
+                        PropertyAccessExpression::new(Some(callee), None, Some(name)),
+                        SyntaxKind::PropertyAccessExpression,
+                        callee_start,
+                    ));
+                }
+                SyntaxKind::OpenBracketToken => {
+                    self.next_token();
+                    let argument = if self.at(SyntaxKind::CloseBracketToken) {
+                        self.error_at(
+                            &messages::AN_ELEMENT_ACCESS_EXPRESSION_SHOULD_TAKE_AN_ARGUMENT,
+                            Span::at(self.pos()),
+                        );
+                        Expression::Identifier(self.missing_identifier())
+                    } else {
+                        let saved_no_in = std::mem::take(&mut self.no_in);
+                        let argument = self.parse_expression();
+                        self.no_in = saved_no_in;
+                        argument
+                    };
+                    self.expect(SyntaxKind::CloseBracketToken);
+                    callee = Expression::ElementAccessExpression(self.finish_node(
+                        ElementAccessExpression::new(Some(callee), None, Some(argument)),
+                        SyntaxKind::ElementAccessExpression,
+                        callee_start,
+                    ));
+                }
+                SyntaxKind::ExclamationToken if !self.token.has_preceding_line_break() => {
+                    self.next_token();
+                    callee = Expression::NonNullExpression(self.finish_node(
+                        NonNullExpression::new(Some(callee)),
+                        SyntaxKind::NonNullExpression,
+                        callee_start,
+                    ));
+                }
+                SyntaxKind::LessThanToken | SyntaxKind::LessThanLessThanToken => {
+                    let Some(arguments) = self.try_parse(|p| {
+                        if p.at(SyntaxKind::LessThanLessThanToken) {
+                            p.rescan_less_than();
+                        }
+                        let arguments = p.parse_type_arguments_for_call()?;
+                        // `canFollowTypeArgumentsInExpression`: favor a type
+                        // argument list at a binary operator or where another
+                        // expression cannot start, except for the four tokens
+                        // native explicitly treats as relational/unary.
+                        let follows = match p.token.kind {
+                            SyntaxKind::OpenParenToken
+                            | SyntaxKind::NoSubstitutionTemplateLiteral
+                            | SyntaxKind::TemplateHead => true,
+                            SyntaxKind::LessThanToken
+                            | SyntaxKind::GreaterThanToken
+                            | SyntaxKind::PlusToken
+                            | SyntaxKind::MinusToken => false,
+                            kind => {
+                                p.token.has_preceding_line_break()
+                                    || (binary_precedence(kind).is_some()
+                                        && !(p.no_in != 0 && kind == SyntaxKind::InKeyword))
+                                    || !p.is_start_of_expression()
+                            }
+                        };
+                        follows.then_some(arguments)
+                    }) else {
+                        break;
+                    };
+                    // The final instantiation is absorbed into NewExpression.
+                    // Avoid allocating its discarded wrapper: ordinary generic
+                    // `new C<T>()` keeps its existing program-local node IDs.
+                    if !matches!(
+                        self.token.kind,
+                        SyntaxKind::DotToken
+                            | SyntaxKind::OpenBracketToken
+                            | SyntaxKind::ExclamationToken
+                            | SyntaxKind::LessThanToken
+                            | SyntaxKind::LessThanLessThanToken
+                            | SyntaxKind::NoSubstitutionTemplateLiteral
+                            | SyntaxKind::TemplateHead
+                    ) {
+                        type_arguments = arguments;
+                        break;
+                    }
+                    let arguments = self.arena.alloc_slice(&arguments);
+                    callee = Expression::ExpressionWithTypeArguments(self.finish_node(
+                        ExpressionWithTypeArguments::new(Some(callee), arguments),
+                        SyntaxKind::ExpressionWithTypeArguments,
+                        callee_start,
+                    ));
+                }
+                SyntaxKind::NoSubstitutionTemplateLiteral | SyntaxKind::TemplateHead => {
+                    let template = self.parse_template_literal(true);
+                    let (tag, arguments) = match callee {
+                        Expression::ExpressionWithTypeArguments(instantiation) => (
+                            instantiation.expression.unwrap_or(callee),
+                            instantiation.type_arguments,
+                        ),
+                        _ => (callee, &[] as &[TypeNode<'a>]),
+                    };
+                    callee = Expression::TaggedTemplateExpression(self.finish_node(
+                        TaggedTemplateExpression::new(Some(tag), None, arguments, Some(template)),
+                        SyntaxKind::TaggedTemplateExpression,
+                        callee_start,
+                    ));
+                }
+                _ => break,
+            }
+        }
+        if let Expression::ExpressionWithTypeArguments(instantiation) = callee {
+            callee = instantiation.expression.unwrap_or(callee);
+            type_arguments = instantiation.type_arguments.to_vec();
+        }
+        if self.at(SyntaxKind::QuestionDotToken) {
+            let span = self.nodes.span(callee.node_id().expect("a parsed callee has an id"));
+            let text = &self.source[span.start as usize..span.end as usize];
+            self.error_at_current_with(
+                &messages::INVALID_OPTIONAL_CHAIN_FROM_NEW_EXPRESSION_DID_YOU_MEAN_TO_CALL_0,
+                &[text],
+            );
+        }
         let arguments = if self.at(SyntaxKind::OpenParenToken) {
             let args = self.parse_arguments();
             self.arena.alloc_slice(&args)

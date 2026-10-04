@@ -32,7 +32,7 @@ use tsr_ast::{
     ModifierLike, Node, NodeId, ParameterDeclaration, SyntaxKind, TypeNode,
     TypeParameterDeclaration, TypePredicateNode,
 };
-use tsr_binder::SymbolId;
+use tsr_binder::{SymbolFlags, SymbolId};
 
 use crate::{checker::Checker, flags::TypeFlags, types::TypeId};
 
@@ -5729,6 +5729,121 @@ impl<'a> Checker<'a, '_> {
         parameter.r#type == self.intrinsics.any
     }
 
+    /// Pinned tsgo 5b1047d serializeTypeForDeclaration /
+    /// serializeReturnTypeForSignature: an equivalent annotated slot can
+    /// retain an alias that semantic primitive reduction erased. Resolve the
+    /// original annotation's symbols, then name them at the viewer; never
+    /// recover alias identity by parsing the rendered primitive. No new cache
+    /// is published, and mapped signatures must use their substituted slots.
+    pub(crate) fn annotation_alias_text_at(
+        &mut self,
+        annotation: TypeNode<'a>,
+        semantic: TypeId,
+        reference: NodeId,
+    ) -> Option<String> {
+        if self.is_error(semantic) {
+            return None;
+        }
+        let (text, erased_alias) = self.annotation_alias_node_at(annotation, reference)?;
+        (erased_alias && self.get_type_from_type_node(annotation) == semantic).then_some(text)
+    }
+
+    fn annotation_alias_node_at(
+        &mut self,
+        annotation: TypeNode<'a>,
+        reference: NodeId,
+    ) -> Option<(String, bool)> {
+        match annotation {
+            TypeNode::TypeReferenceNode(node) => {
+                let symbol = self.resolve_entity_name(node.type_name?, SymbolFlags::TYPE)?;
+                let erased_alias =
+                    self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_ALIAS)
+                        && self.declared_types.get(&symbol).is_some_and(|&ty| {
+                            matches!(
+                                self.store.get(ty).data,
+                                crate::types::TypeData::Intrinsic { .. }
+                            )
+                        });
+                let name = if self
+                    .binder
+                    .symbols()
+                    .get(symbol)
+                    .flags
+                    .contains(SymbolFlags::TYPE_PARAMETER)
+                {
+                    let semantic = *self.declared_types.get(&symbol)?;
+                    self.type_to_string_at(semantic, reference)?
+                } else {
+                    self.reference_text_at(symbol, &[], reference)?
+                };
+                let mut arguments = Vec::new();
+                let mut has_alias = erased_alias;
+                for &argument in node.type_arguments {
+                    let (text, alias) = self.annotation_alias_node_at(argument, reference)?;
+                    arguments.push(text);
+                    has_alias |= alias;
+                }
+                let text = if arguments.is_empty() {
+                    name
+                } else {
+                    format!("{name}<{}>", arguments.join(", "))
+                };
+                Some((text, has_alias))
+            }
+            TypeNode::ArrayTypeNode(node) => {
+                let (text, alias) = self.annotation_alias_node_at(node.element_type?, reference)?;
+                Some((format!("{text}[]"), alias))
+            }
+            TypeNode::ParenthesizedTypeNode(node) => {
+                let (text, alias) = self.annotation_alias_node_at(node.r#type?, reference)?;
+                Some((format!("({text})"), alias))
+            }
+            TypeNode::UnionTypeNode(node) => {
+                let mut parts = Vec::new();
+                let mut has_alias = false;
+                for &member in node.types {
+                    let (text, alias) = self.annotation_alias_node_at(member, reference)?;
+                    parts.push(text);
+                    has_alias |= alias;
+                }
+                Some((parts.join(" | "), has_alias))
+            }
+            TypeNode::KeywordTypeNode(_) | TypeNode::LiteralTypeNode(_) => {
+                Some((Self::written_type_text(annotation, &mut false, &mut false)?, false))
+            }
+            _ => None,
+        }
+    }
+
+    pub(crate) fn signature_parameter_alias_text_at(
+        &mut self,
+        signature: &Signature,
+        parameter: &Parameter,
+        reference: NodeId,
+    ) -> Option<String> {
+        if signature.target.is_some() {
+            return None;
+        }
+        let parts = self.signature_parts_of(signature.declaration)?;
+        let annotation = parts.parameters.iter().find_map(|node| {
+            let tsr_ast::BindingName::Identifier(name) = node.name? else { return None };
+            (name.text == parameter.name).then_some(node.r#type).flatten()
+        })?;
+        self.annotation_alias_text_at(annotation, parameter.r#type, reference)
+    }
+
+    pub(crate) fn signature_return_alias_text_at(
+        &mut self,
+        signature: &Signature,
+        reference: NodeId,
+    ) -> Option<String> {
+        if signature.target.is_some() {
+            return None;
+        }
+        let annotation = self.signature_parts_of(signature.declaration)?.return_annotation?;
+        self.annotation_alias_text_at(annotation, signature.r#type, reference)
+    }
+
     /// Render a signature as a `FunctionTypeNode` is printed: `<T>(x?: A, ...r: B[]) => C`,
     /// or as a `ConstructorTypeNode`: `new (x: A) => C`, `abstract new () => C`.
     ///
@@ -6059,6 +6174,10 @@ impl<'a> Checker<'a, '_> {
             out.push_str(if parameter.optional { "?: " } else { ": " });
             if let Some(written) = &parameter.written_text {
                 out.push_str(written);
+            } else if let Some(text) =
+                self.signature_parameter_alias_text_at(signature, parameter, reference)
+            {
+                out.push_str(&text);
             } else {
                 let text = render(self, parameter.r#type);
                 out.push_str(&text);
@@ -6072,6 +6191,8 @@ impl<'a> Checker<'a, '_> {
         out.push_str(") => ");
         if let Some(written) = &signature.written_return {
             out.push_str(written);
+        } else if let Some(text) = self.signature_return_alias_text_at(signature, reference) {
+            out.push_str(&text);
         } else {
             let text = render(self, signature.r#type);
             out.push_str(&text);

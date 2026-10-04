@@ -1911,6 +1911,9 @@ impl<'a, 'n> Checker<'a, 'n> {
             _ => None,
         };
         let Some(module) = module else {
+            if let Some(text) = self.type_literal_text_at(id, reference) {
+                return Some(text);
+            }
             if self.signature_types.contains_key(&id)
                 && self.anonymous_properties.contains_key(&id)
                 && !self.rendering_composites.contains(&id)
@@ -2017,10 +2020,9 @@ impl<'a, 'n> Checker<'a, 'n> {
                     return Some(parts.join(" | "));
                 }
             }
-            // An inferred union can have no written origin. Its semantic
-            // constituents, rather than its baked `T | T`, carry the distinct
-            // parameter identities needed by typeParameterToName.
-            if let Some(out) = self.shadowed_parameter_union_text_at(id, reference) {
+            // Inferred unions have no written origin, but their semantic slots
+            // still need the site's alias, qualifier and parameter allocation.
+            if let Some(out) = self.union_text_at(id, reference) {
                 return Some(out);
             }
             // §95 (`checker-notes-narrow.md`): a GENERIC reference re-renders
@@ -2174,6 +2176,10 @@ impl<'a, 'n> Checker<'a, 'n> {
             out.push_str(if parameter.optional { "?: " } else { ": " });
             if let Some(written) = &parameter.written_text {
                 out.push_str(written);
+            } else if let Some(text) =
+                self.signature_parameter_alias_text_at(signature, parameter, reference)
+            {
+                out.push_str(&text);
             } else {
                 let rendered = self
                     .type_to_string_at(parameter.r#type, reference)
@@ -2187,7 +2193,8 @@ impl<'a, 'n> Checker<'a, 'n> {
             (None, Some(written)) => out.push_str(written),
             (None, None) => {
                 let rendered = self
-                    .type_to_string_at(signature.r#type, reference)
+                    .signature_return_alias_text_at(signature, reference)
+                    .or_else(|| self.type_to_string_at(signature.r#type, reference))
                     .unwrap_or_else(|| self.type_to_string(signature.r#type));
                 out.push_str(&rendered);
             }
@@ -2200,7 +2207,7 @@ impl<'a, 'n> Checker<'a, 'n> {
     /// [`Checker::qualified_name_at`]'s tail names it (rename, else chain
     /// qualifier, else bare), and the `Array`/`ReadonlyArray` shorthands
     /// preserved. `None` when any argument cannot be site-rendered.
-    fn reference_text_at(
+    pub(crate) fn reference_text_at(
         &mut self,
         target: tsr_binder::SymbolId,
         arguments: &[TypeId],
