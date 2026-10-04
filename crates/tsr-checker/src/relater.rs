@@ -927,6 +927,26 @@ impl Relater<'_, '_, '_> {
         if self.checker.type_of(id).flags.contains(TypeFlags::TYPE_PARAMETER) {
             return false;
         }
+        // A bounded open homomorphic map can supply a complete member table
+        // independently of its declaration owner. Closed maps keep their
+        // existing structural path; nominal roots need a separate proof.
+        if self.checker.is_generic_homomorphic_mapped_type(id)
+            && let Some((properties, true)) = self.checker.anonymous_properties.get(&id)
+            && properties.iter().all(|property| {
+                !self.checker.is_error(property.r#type)
+                    && property.origin.is_some_and(|origin| {
+                        !self
+                            .checker
+                            .property_has_modifier(origin, tsr_ast::SyntaxKind::PrivateKeyword)
+                            && !self.checker.property_has_modifier(
+                                origin,
+                                tsr_ast::SyntaxKind::ProtectedKeyword,
+                            )
+                    })
+            })
+        {
+            return true;
+        }
         // An anonymous object type is structured whenever it carries call or
         // construct signatures. `signature` records only the printed node kind
         // (a bare FunctionTypeNode): an aliased function type such as
@@ -2114,19 +2134,53 @@ impl Relater<'_, '_, '_> {
         // Native's late apparent-source phase (relater.go:3814) combines an
         // intersection's instantiable constraints before comparing members.
         // A union-shaped apparent source does not re-enter union dispatch here;
-        // the structural gate only admits objects and intersections. Open
-        // generic mapped members still need native synthesis; retain their
-        // constituent verdict instead of exposing unsupported Unknown to calls.
+        // open mapped sources may enter only when each generic constituent has
+        // complete bounded members. Other generic shapes retain their verdict.
         let generic_source = source_intersection_result.is_some()
             && self.checker.spread_generic_flags(source, &mut Vec::new()).0;
         let source = if let Some(intersection_result) = source_intersection_result {
             let apparent = self.checker.apparent_type(source);
+            let generic_apparent = self.checker.spread_generic_flags(apparent, &mut Vec::new()).0;
+            let bounded_members = !generic_apparent
+                || self
+                    .intersection_constituents(apparent)
+                    .unwrap_or_else(|| vec![apparent])
+                    .into_iter()
+                    .all(|part| {
+                        if !self.checker.spread_generic_flags(part, &mut Vec::new()).0 {
+                            return true;
+                        }
+                        self.checker.is_generic_homomorphic_mapped_type(part)
+                            && self.checker.get_property_names_of_type(part).is_some()
+                            && self.has_members(part)
+                    });
+            // Newly exposed mapped constituents can prove a missing member,
+            // but that is not a proof about the combined source's nominal
+            // requirements. Keep unsupported targets at their prior Unknown.
+            if generic_apparent
+                && bounded_members
+                && !self.checker.get_property_names_of_type(target).is_some_and(|names| {
+                    names.into_iter().all(|name| {
+                        self.checker.get_property_of_type(target, &name).is_some_and(|property| {
+                            !self.checker.property_has_modifier(
+                                property,
+                                tsr_ast::SyntaxKind::PrivateKeyword,
+                            ) && !self.checker.property_has_modifier(
+                                property,
+                                tsr_ast::SyntaxKind::ProtectedKeyword,
+                            )
+                        })
+                    })
+                })
+            {
+                return RelationResult::Unknown;
+            }
             if !self
                 .checker
                 .type_of(apparent)
                 .flags
                 .intersects(TypeFlags::OBJECT | TypeFlags::INTERSECTION)
-                || self.checker.spread_generic_flags(apparent, &mut Vec::new()).0
+                || !bounded_members
             {
                 return intersection_result;
             }

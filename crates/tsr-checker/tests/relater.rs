@@ -1568,3 +1568,154 @@ fn combined_readonly_flags_order_only_strict_subtypes_and_use_all_contributions(
         );
     }
 }
+
+#[test]
+fn bounded_mapped_source_intersections_admit_complete_member_proofs() {
+    use tsr_checker::relater::{Relation, Ternary};
+    for (bound, source, target, expected) in [
+        ("{ a: string; extra: number }", "Req<T> & { d: boolean }", "State", Ternary::Related),
+        ("{ a: string; extra: number }", "{ d: boolean } & Req<T>", "State", Ternary::Related),
+        (
+            "{ a: string; extra: number }",
+            "Part<T> & { d: boolean }",
+            "OptionalState",
+            Ternary::Related,
+        ),
+        (
+            "{ a: string; extra: number }",
+            "{ d: boolean } & Part<T>",
+            "OptionalState",
+            Ternary::Related,
+        ),
+        ("{ a?: string }", "Req<T> & { d: boolean }", "State", Ternary::NotRelated),
+        ("{ a: number }", "Req<T> & { d: boolean }", "State", Ternary::NotRelated),
+        ("{ a: string }", "Part<T> & { d: boolean }", "RequiredAny", Ternary::NotRelated),
+        ("{ other: string }", "Req<T> & { d: boolean }", "State", Ternary::NotRelated),
+    ] {
+        for exact in [false, true] {
+            let source_text = format!(
+                "type Req<T> = {{ [P in keyof T]-?: T[P] }};
+                type Part<T> = {{ [P in keyof T]?: T[P] }};
+                interface State {{ a: string; d: boolean }}
+                interface OptionalState {{ a?: string; d: boolean }}
+                interface RequiredAny {{ a: any; d: boolean }}
+                function f<T extends {bound}>(source: {source}, target: {target}) {{}}"
+            );
+            with_checker(&source_text, |checker, statements| {
+                checker.apply_compiler_options(&tsr_core::CompilerOptions {
+                    strict: tsr_core::Tristate::True,
+                    exact_optional_property_types: if exact {
+                        tsr_core::Tristate::True
+                    } else {
+                        tsr_core::Tristate::False
+                    },
+                    ..Default::default()
+                });
+                let Statement::FunctionDeclaration(function) = statements.last().unwrap() else {
+                    panic!("function");
+                };
+                let from = checker.get_type_from_type_node(function.parameters[0].r#type.unwrap());
+                let to = checker.get_type_from_type_node(function.parameters[1].r#type.unwrap());
+                assert_eq!(
+                    checker.relate_ternary(from, to, Relation::Assignable),
+                    expected,
+                    "{source}, T extends {bound}, target {target}, exact={exact}"
+                );
+            });
+        }
+    }
+}
+
+#[test]
+fn unsupported_mapped_source_intersection_shapes_retain_unknown() {
+    use tsr_checker::relater::{Relation, Ternary};
+    for (parameters, source, target) in [
+        ("K extends 'a'", "{ [P in K]: string } & { d: boolean }", "State"),
+        (
+            "T extends { a: string; first: number } | { a: string; second: boolean }",
+            "Req<T> & { d: boolean }",
+            "State",
+        ),
+        ("T extends { a: string }", "Req<T> & { d: boolean }", "ProtectedState"),
+        ("T extends PrivateState", "Req<T> & { extra: number }", "PrivateState"),
+    ] {
+        let source_text = format!(
+            "type Req<T> = {{ [P in keyof T]-?: T[P] }};
+            interface State {{ a: string; d: boolean }}
+            declare class ProtectedState {{ protected a: string; d: boolean }}
+            declare class PrivateState {{ private a: string; d: boolean }}
+            function f<{parameters}>(source: {source}, target: {target}) {{}}"
+        );
+        with_checker(&source_text, |checker, statements| {
+            checker.set_strict_null_checks(true);
+            let Statement::FunctionDeclaration(function) = statements.last().unwrap() else {
+                panic!("function");
+            };
+            let from = checker.get_type_from_type_node(function.parameters[0].r#type.unwrap());
+            let to = checker.get_type_from_type_node(function.parameters[1].r#type.unwrap());
+            assert_eq!(
+                checker.relate_ternary(from, to, Relation::Assignable),
+                Ternary::Unknown,
+                "{source}, {parameters}, target {target}"
+            );
+        });
+    }
+}
+
+#[test]
+fn bounded_mapped_source_admission_preserves_constraint_call_results() {
+    for (parameters, source, expected) in [
+        ("T extends { a: string }", "T & { d: boolean }", "T & { d: boolean; }"),
+        (
+            "T extends { a: string; first: number } | { a: string; second: boolean }",
+            "T & { d: boolean }",
+            "State",
+        ),
+        ("T extends { a: string }", "Req<T> & { d: boolean }", "Req<T> & { d: boolean; }"),
+    ] {
+        let source_text = format!(
+            "type Req<T> = {{ [P in keyof T]-?: T[P] }};
+            interface State {{ a: string; d: boolean }}
+            declare function identity<T extends State>(value: T): T;
+            function f<{parameters}>(source: {source}) {{ const result = identity(source); }}"
+        );
+        with_checker(&source_text, |checker, statements| {
+            checker.set_strict_null_checks(true);
+            let Statement::FunctionDeclaration(function) = statements.last().unwrap() else {
+                panic!("function");
+            };
+            let tsr_ast::FunctionBody::Block(body) = function.body.unwrap();
+            let Statement::VariableStatement(statement) = body.statements[0] else {
+                panic!("variable");
+            };
+            let initializer =
+                statement.declaration_list.unwrap().declarations[0].initializer.unwrap();
+            let result = checker.check_expression(initializer);
+            assert_eq!(checker.type_to_string(result), expected, "{parameters}, {source}");
+        });
+    }
+}
+
+#[test]
+fn closed_mapped_targets_keep_their_intersection_callback_context() {
+    let source = "declare function createSlice<T>(
+        reducers: { [K: string]: (state: string) => void } & { [K in keyof T]: object }
+    ): void;
+    const result = createSlice({ f(a) {} });";
+    with_checker(source, |checker, statements| {
+        checker.apply_compiler_options(&tsr_core::CompilerOptions {
+            strict: tsr_core::Tristate::True,
+            ..Default::default()
+        });
+        let Statement::VariableStatement(statement) = statements.last().unwrap() else {
+            panic!("variable");
+        };
+        let initializer = statement.declaration_list.unwrap().declarations[0].initializer.unwrap();
+        let tsr_ast::Expression::CallExpression(call) = initializer else {
+            panic!("call");
+        };
+        checker.check_expression(initializer);
+        let argument = checker.check_expression(call.arguments[0]);
+        assert_eq!(checker.type_to_string(argument), "{ f(a: string): void; }");
+    });
+}
