@@ -573,18 +573,22 @@ pub(crate) fn full_check_exclusion(
     if tsr_parser::ScriptKind::from_file_name(file.file_name()) == tsr_parser::ScriptKind::Json {
         return Some("json_source");
     }
-    let extension = file.file_name().rsplit('.').next().unwrap_or_default();
-    let is_js = ["js", "jsx", "cjs", "mjs"].iter().any(|ext| extension.eq_ignore_ascii_case(ext));
     // `IsPlainJSFile` includes JS with checkJs unset, but not explicitly false.
     // A file directive overrides the option. Skipped files remain bound and
     // available to cross-file queries; this is not a loader filter.
-    if is_js && directive.is_none() && options.check_js.is_false() {
+    if is_javascript_file(file.file_name()) && directive.is_none() && options.check_js.is_false() {
         return Some("check_js_false");
     }
     if file.source_file().node_id.is_none() {
         return Some("missing_source_node");
     }
     None
+}
+
+/// Shared immutable file-kind fact for eligibility and its opt-in observer.
+pub(crate) fn is_javascript_file(name: &str) -> bool {
+    let extension = name.rsplit('.').next().unwrap_or_default();
+    ["js", "jsx", "cjs", "mjs"].iter().any(|ext| extension.eq_ignore_ascii_case(ext))
 }
 
 /// The `ResolutionHost` the driver hands to the loader.

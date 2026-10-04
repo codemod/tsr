@@ -152,6 +152,9 @@ impl WorkTrace {
             return;
         }
         state.program_observed = true;
+        let option = |value: tsr_core::Tristate| {
+            if value.is_unknown() { None } else { Some(value.is_true()) }
+        };
         state.record(&json!({
             "event": "program", "current_directory": current_directory,
             "case_sensitive": case_sensitive, "root_files": roots,
@@ -160,6 +163,16 @@ impl WorkTrace {
                 options, roots, raw, current_directory, case_sensitive),
             "complete_input_equivalence_verified": false,
             "native_eligibility_equivalence_verified": false,
+            // Immutable facts let a consumer validate the exclusion rule,
+            // without inferring library membership from names or directives
+            // from source text. Older schema-1 readers ignore these additions.
+            "default_library_file_count": program.lib_files().len(),
+            "full_check_options": {
+                "no_check": option(options.no_check),
+                "skip_lib_check": option(options.skip_lib_check),
+                "skip_default_lib_check": option(options.skip_default_lib_check),
+                "check_js": option(options.check_js),
+            },
         }));
         for (file_id, file) in program.source_files().iter().enumerate() {
             let source_node_id = file.source_file().node_id.map(NodeId::as_u32);
@@ -173,6 +186,10 @@ impl WorkTrace {
                 "source_node_id": source_node_id, "text_bytes": file.text().len(),
                 "full_check_eligible": exclusion.is_none(),
                 "full_check_exclusion": exclusion,
+                "declaration_file": tsr_path::is_declaration_file_name(name),
+                "javascript_source": crate::compile::is_javascript_file(name),
+                "json_source": tsr_parser::ScriptKind::from_file_name(name) == tsr_parser::ScriptKind::Json,
+                "check_js_directive": file.file_references().check_js_directive.map(|directive| directive.enabled),
             }));
         }
     }

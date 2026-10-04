@@ -271,3 +271,111 @@ native actual-construction/admission evidence. `.1.2.4` owns strict trace
 validation and benchmark integration; `.1.2.2` owns complete query input
 coverage. The comparable whole-project TSR/pinned-tsgo median wall target
 <=0.50 remains unmet and unverified.
+
+## Qualified artifact reader
+
+`scripts/checker_work_trace.py` implements the bounded artifact-integrity slice
+`tsr-1yb.1.2.4.1`. A parseable trace with an end marker cannot establish that
+the measured child completed: final flush failure already leaves complete
+records visible, and a child can be signaled after writing them. The reader
+therefore validates a trusted supervising-process receipt before accepting
+the producer's records. It does not change the existing observational CI or
+enable any whole-project comparison gate.
+
+The receipt has schema version 1 and carries these independently captured facts:
+
+- `child`: the harness `process()` result, including actual PID, command,
+  `started_at_unix_ns`, exit code, timeout status and stderr.
+- `current_directory`, `invocation_id`, `source_sha`, `binary_sha256` and
+  `source_files_sha256`: invocation context and qualified file fingerprints.
+- `inputs_before` / `inputs_after`: identical, valid `benchmark_inputs.snapshot`
+  rows for the explicitly observed input paths.
+- `show_config` / `loaded_files`: independent preflight configuration and
+  ordered loaded-path inventory; worker request fields are
+  `requested_checkers` and `requested_single_threaded`.
+- `trace_sha256`: the supervising capture's digest of the artifact bytes.
+
+The reader rehashes the executable and qualified source/patch files, resnapshots
+the observed inputs, and hashes the trace as it streams. Compiler-supplied hash
+claims may be absent; a supplied claim must match the receipt. The qualified
+OS producer in `crates/tsr-execute/src/os_system.rs` uses PID plus Unix
+nanoseconds as its invocation identity. Checking the PID alone would admit
+an older artifact when the operating system reuses that PID. The identity must
+use that exact format and its timestamp must be at least the supervising
+child's start time. A backwards wall-clock change can conservatively reject
+an otherwise valid capture; this is not a clock-independent authenticity proof.
+
+The additive schema-1 producer facts are `default_library_file_count` and
+`full_check_options` on the Program, and `declaration_file`, `javascript_source`,
+`json_source`, `check_js_directive` on each file. The consumer applies the
+qualified driver exclusion order to those immutable facts. It does not guess
+default-library membership from names or re-parse directives. Older artifacts
+without these facts are unsupported and rejected; existing readers can ignore
+the additive fields. These facts validate the recorded policy, not independent
+native eligibility or complete input coverage.
+
+Inventory IDs must be contiguous, source-node IDs unique, and every work
+reference must resolve or explicitly identify an unmapped query. The reader
+supports the current single TSR checker lifetime and four observed operations.
+Span starts have monotonically increasing identities; completions must match
+active starts and report a normal return. Every eligible full-file worker must
+start and return exactly once. End-record instance, peak-activity and unfinished
+counts must agree with the stream. Unknown producers, operations and schemas,
+duplicate/reordered records, inconsistent exclusions, omitted full workers,
+trace warnings, signals and timeouts fail artifact validation. Only inventory
+and active spans are retained, rather than all completed query events.
+
+For a captured trace and receipt:
+
+```bash
+python3 scripts/checker_work_trace.py \
+  --trace /tmp/run.ndjson --receipt /tmp/run-receipt.json \
+  --output /tmp/run-integrity.json
+```
+
+Exit 0 means `artifact_integrity_valid`; malformed receipt/artifact input yields
+a structured failure and exit 1. The receipt is a trust boundary supplied by a
+supervisor, not an authenticated document this reader can prove. Source hashes
+do not establish that the executable was compiled from those sources; partial
+snapshots cannot detect all transient inputs. Caller booleans never override
+the checks. `actual_checked_work_verified`,
+`complete_input_equivalence_verified`, `complete_provenance_verified` and
+`target_verified` remain false even for an accepted artifact. Lazy/initialization
+coverage, native admission and semantic comparison retain their separate tasks.
+
+Controls at pre-work `e3acf869` plus qualified producer/reader patch use 13
+public modes and 52 fresh preflight/off/on/repeat children. All 26 producer
+artifacts pass integrity validation while complete output/status and loaded
+identities remain unchanged. Default/single/two-worker requests perform three
+full checks, noCheck zero, declaration-enabled 67 and default-library-skipped
+four. Seven JS directive/option modes retain counts 1/0/1/1/0/1/0. These are
+structural controls, not representative performance measurements.
+
+Three additional children exercise the real compiler's existing-sidecar
+warning, a toy producer killed by the actual harness after flushing a parseable
+end marker, and the consumer CLI on a genuine positive artifact. The toy
+control proves outcome rejection, not a Rust/native cancellation race.
+Fifteen focused reader tests cover malformed JSON/schema, replay including
+reused PID, changed binary/source/options/observed inputs, absent or duplicate
+work, contradictory exclusions/counts and failure outcomes. All 60 script
+tests pass. The ordinary compiler remains free of observer hooks; no checker
+corpus or throughput result is remeasured by the reader.
+
+The final positive receipt is `controls.json` under the local directory
+`/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-trace-reader-e3-84xrbw2n`;
+negative controls are under `tsr-trace-reader-negative-hfpcx5pd` in the same
+temporary parent. Private paths remain local. Artifact SHA256 values:
+
+| Artifact | SHA256 |
+| --- | --- |
+| Probe binary | `0fbdcb387f3c0d95f0a332f34aab9e6210986c37dec211777e8389a7b6dc86cb` |
+| Positive control helper | `7ff7b226d5c1d86a79a00bcf43066ba435536139fe960c6ec8780f9336847ed3` |
+| Positive control receipt | `8bf25bf05bbe6bc6150d180b180e09d579ece9f994ef0aa229da696dabea043b` |
+| Negative control helper | `3ec00d21fd5bc161bbed7534af3ff0177646d71c82cb6b3b4ce3a0fb337d46f8` |
+| Negative control receipt | `24e600bb0c2ecf453ee9cce548c4fca2b73a62e2bd5a5b12fa620256a626ed74` |
+
+The completed inline code review found the reused-PID replay gap; its regression
+fails before the timestamp binding and passes afterwards. Receipt and review
+authenticity/build coverage remain explicit limitations. This bounded reader
+does not close the broader performed-work producer or semantic comparator and
+does not prove a TSR/pinned-tsgo median wall ratio <=0.50.

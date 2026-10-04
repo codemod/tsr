@@ -173,6 +173,15 @@ fn cli_trace_preserves_output_and_distinguishes_lazy_work_from_file_checks() {
 fn eligible_identities_equal_full_workers_started_and_returned() {
     for flags in [&[][..], &["--skipLibCheck", "false"][..], &["--noCheck"][..]] {
         let (_, _, records) = run(flags, true);
+        let program = records.iter().find(|row| row["event"] == "program").unwrap();
+        assert_eq!(program["default_library_file_count"], 0);
+        assert!(program["full_check_options"].is_object());
+        for file in records.iter().filter(|row| row["event"] == "program_file") {
+            assert!(file["declaration_file"].is_boolean());
+            assert!(file["javascript_source"].is_boolean());
+            assert!(file["json_source"].is_boolean());
+            assert!(file["check_js_directive"].is_null());
+        }
         let eligible: std::collections::BTreeSet<_> = records
             .iter()
             .filter(|row| row["event"] == "program_file" && row["full_check_eligible"] == true)

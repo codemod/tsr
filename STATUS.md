@@ -22,6 +22,19 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
+Trace artifact integrity (`tsr-1yb.1.2.4.1`), pre-work `e3acf869` plus the
+qualified producer/reader patch, validates supervising PID/start time/outcome,
+file fingerprints, resolved options, eligibility, span references and cumulative
+counts. Thirteen public modes use 52 fresh children; all 26 producer artifacts
+pass with unchanged complete output. Fifteen reader controls reject malformed,
+replayed, partial or contradictory evidence, including a reused PID; all 60
+script tests pass. The feature workspace passes 2,933 tests with six existing
+ignores; ordinary CLI/execution tests pass 49 with one existing ignore. Strict
+Clippy in both modes, formatting and anchor/section checks pass. This is bounded
+artifact validation: receipt authenticity, build provenance, complete inputs,
+all forcing, native admission and comparable median <=0.50 remain unverified.
+[Reader contract and evidence](docs/architecture/tsr-work-trace-producer.md#qualified-artifact-reader).
+
 Whole-project CI reporting (`tsr-1yb.8.1`) is locally validated at frozen TSR
 `02fafbc0` and pinned native `5b1047d`: five pairs in each worker-request mode
 preserve 66 loaded files and one complete intentional diagnostic. Remote run
@@ -2664,9 +2677,10 @@ Performed-work producer `.1.2.3` has a verified, feature-gated Rust slice;
 broader native forcing, qualified provenance and admission evidence remain in
 progress. The `.1.1.2` patch aligns public JSON/library/JS full-check
 eligibility; child `.1.1.2.1` retains resolved merged-parameter identity beyond
-the bounded omission/optional-count fix. Ready P1 `.1.2.3.1` lazy/initialization
-forcing, `.1.2.3.2` actual worker admission and `.1.2.4.1` artifact integrity
-precede dependent semantic comparison `.1.2.4.2`. Preserve current
+the bounded omission/optional-count fix. Artifact integrity `.1.2.4.1` now has
+a validated bounded reader; ready P1 `.1.2.3.1` lazy/initialization forcing and
+`.1.2.3.2` actual worker admission still precede dependent semantic comparison
+`.1.2.4.2`. Preserve current
 mapper/receiver/worker claims and keep `.1.2.2` input coverage, `.1.2.4` trace
 validation and representative-workload gates separate. The median TSR/native
 wall requirement <=0.50 remains unmet and unverified.
@@ -6067,6 +6081,18 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+### Artifact integrity as verified semantic work — patch on `e3acf869`
+
+All 26 fresh producer artifacts pass the qualified reader in 13 public modes;
+the 52 preflight/off/on/repeat children preserve complete output and loaded
+identities. This validates stream/process consistency, not all required lazy
+or initialization work, complete transient inputs, compiled-source provenance
+or native worker admission. Source hashes and caller booleans cannot close
+those gates. Fifteen focused tests include a same-PID older-invocation replay
+that was accepted before the start-time binding and is now rejected. A toy
+child's flushed end marker survives actual SIGKILL but never certifies normal
+completion. All broader verification flags stay false; no speed ratio follows.
 
 ### Matching full-file identities as complete work — patch on `58cfa176`
 
@@ -12608,6 +12634,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
+| 2026-10-04 | `e3acf869` plus qualified producer/reader patch | not remeasured | not remeasured | Trace artifact integrity; no speed claim | `tsr-1yb.1.2.4.1`: strict process/start-time/file/options/eligibility/span validation; 52 fresh public children preserve output and 26 artifacts pass. Fifteen reader controls/60 script tests, 2,933 feature-workspace tests/six existing ignores, 49 ordinary CLI tests/one existing ignore, strict Clippy both modes and format/anchors/sections pass. Inline review found and fixed same-PID replay; no independent model coverage claimed. Ordinary build ignores tracing. Receipt authenticity, compiled provenance, complete inputs, lazy forcing/native admission and comparable median <=0.50 remain unverified. |
 | 2026-10-04 | `58cfa176` plus qualified eligibility patch | 461,575 RIGHT preserved; 474,852 type rows identical | six diagnostic case gains; zero previous passing losses | Native public checking scope aligned; no speed claim | `.1.1.2`/`.1.1.2.1`: complete Program eligibility, shared trace/directive rule, JSON lazy availability, native-supported optional/omitted merged parameters and never rest, deterministic diagnostic ordering. Thirty-six public children preserve 68 loaded identities and native full checks 3/0/67/4 with complete ordered diagnostics; seven JS/eight parameter controls. All 10,570 diagnostic cases retained; 2,931 feature-workspace/49 ordinary CLI tests, strict Clippy both modes, format/anchors/sections pass. Issue-ID gate retains unchanged 190 historical missing IDs (`tsr-10`). Broader resolved identity, plain-JS diagnostic policy, forcing/input/worker admission and native median <=0.50 remain unverified. |
 | 2026-10-04 | `7762af68` plus qualified producer patch | not remeasured | not remeasured | Opt-in actual-work producer; no speed claim | `tsr-1yb.1.2.3`: 15 public off/on/repeat children preserve 68 loaded identities/output, 4/0/5 TSR full checks versus native 3/0/67, one actual serial instance. Seven virtual/two physical controls cover write/flush, stale-file and abort boundaries; 2,924 feature-enabled release workspace tests/258 blocks, strict Clippy both modes and formatting. Forty separate paired overhead children preserve output. Ordinary build ignores observer environment. New P1 `.1.1.2` owns eligibility alignment; forcing/provenance/input/worker admission and native median <=0.50 remain unverified. |
 | 2026-10-04 | `8209086f` (CI fix; native trace inspection) | not remeasured | not remeasured | CI publication verified and native work boundary evidence | Portable status fix pushed with45 script passes; fixed run37232944393 passed, downloaded reports verify5pairs/mode,20measuredPIDs,66loaded/1diagnostic. Publication8.1 completed. Native15 off/on/repeat controls preserve68loaded/output, count3/0/67fullchecks; a16th proves trace I/O failure can return normal diagnostic exit. Native synthetic IDs/type dumps cannot certify forcing/budgets; no checker corpus or speed claim. |
