@@ -78,7 +78,43 @@ The issue-ID check retains 190 unresolved historical IDs (`tsr-10`); all new
 task references were checked directly. The verified equivalent-work TSR/tsgo
 median wall target remains <=0.50.
 
-### Current checker checkpoint — mode-specific object/function flow facts
+### Current checker checkpoint — bounded file-module Function absence
+
+Measured production tree **`3954bb4b`**, against published `181b5e29`:
+**460,045/478,855 assertions (96.07%)**, **7,193/9,538 complete cases
+(75.41%)**. The 99% target still requires **14,022 more matches**. Pinned
+native `5b1047d1` and both denominators are unchanged; aligned verdicts remain
+**474,251 total; 460,045 RIGHT; 2,094 GAP; 12,112 WRONG**.
+
+The relater can prove only a required actual-global-Function named member
+absent from a closed file-module export/Object/default upper bound. It requires
+affirmative mounted nondeclaration TS ownership and declines numeric declaration
+keys, unsupported/open/replaced surfaces and default-only absence. This is a
+one-way negative for assignable/subtype relations, not general module-view
+completeness, copy identity, a call-result repair or a TS2349 gain. Earlier
+host-incomplete and numeric-unsafe candidates remain rejected and preserved.
+
+Fresh full multiline checker and **10,570 duplicate/empty diagnostic records
+are byte-identical** to the rebuilt published baseline: **20,685 diagnostic
+matches, 3,831 extras**, zero transitions, payload, correct-case, matched-
+occurrence, new-extra or population losses. Independent worker replay checks
+**15,938 payload hashes** before and after 7,872 runs/249,728 records/80,000
+calls: 2,400 prior negatives retained, 640 native-positive corrections to
+Unknown, 320 conservative numeric refusals and 320 supported named negatives.
+The 216 mounted-host controls are retained. These are distinct native Program
+and Rust observation surfaces, not a general Program-parity certificate.
+
+**2,873 workspace release tests pass, zero failures, six existing ignores**,
+plus ten focused, six loader, six worker and ten upstream read-budget-pool
+controls, formatting, strict release workspace/all-target Clippy, accepted
+unfiltered scorepair and coverage. Evidence is in
+`target/module-numeric-wave41-evidence.tar.gz`. Preserved upstream read-budget
+examples do not change the measured production runtime or claim a speed win.
+Optional-add and object negation await separate integration audits; JSDoc
+capture/registration remains unproved and rejected `lh1` is never integrated.
+The 99% task is not complete.
+
+### Previous checker checkpoint — mode-specific object/function flow facts
 
 Measured production tree **`7dcbbf68`**, against published `17c4db04`:
 **460,045/478,855 assertions (96.07%)**, **7,193/9,538 complete cases
