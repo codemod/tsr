@@ -319,6 +319,17 @@ class InputEvidenceTests(unittest.TestCase):
             self.assertIn("rejected_measurement", report)
             self.assertFalse(report["target_verified"])
 
+    def test_failed_warmup_preserves_child_failure_before_aborting(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result, report = self.run_harness(Path(directory), "sys.exit(5)", warmups=1)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(report["status"], "tool_failed")
+            self.assertEqual(report["tools"]["tsr"]["samples"], [])
+            self.assertEqual(report["rejected_measurement"]["exit_code"], 5)
+            self.assertFalse(report["rejected_measurement"]["timed_out"])
+            self.assertFalse(report["target_verified"])
+            self.assertIsNone(report["verified_wall_ratio"])
+
     def test_partial_inputs_and_loaded_scope_cannot_verify_speed(self):
         for require_comparable in (False, True):
             with self.subTest(require_comparable=require_comparable), tempfile.TemporaryDirectory() as directory:

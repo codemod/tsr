@@ -80,9 +80,38 @@ jobs:
         working-directory: vendor/typescript-go
         run: go test -run '^$' -bench '^$' ./internal/parser/
 
+      # A reporting-only build failure must not suppress the existing gate.
+      # Check outcome (before continue-on-error) before using cached binaries.
+      - name: Build whole-project CLIs
+        id: build_whole_project
+        continue-on-error: true
+        run: |
+          cargo build --release --jobs 1 --bin tsr
+          go -C vendor/typescript-go build -p 1 -buildvcs=false -o ../../target/perf-tsgo ./cmd/tsgo
+
       - name: Compare
         id: compare
         run: cargo run -p xtask -- perf
+
+      - name: Check whole-project reporting controls
+        if: always()
+        run: |
+          PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
+            -s scripts -p 'test_*whole_project_perf.py'
+
+      # Reporting is independently useful while work/input telemetry and a
+      # representative suite are incomplete. The tiny public project exercises
+      # plumbing, not the <=0.50 release target or a timing regression ratchet.
+      # Both modes run serially under the existing exclusive runner group.
+      - name: Whole-project observations
+        if: always()
+        continue-on-error: true
+        run: |
+          PYTHONDONTWRITEBYTECODE=1 python3 scripts/report_whole_project_perf.py \
+            --project benches/projects/generic-imports/tsconfig.json \
+            --tsr target/release/tsr --tsgo target/perf-tsgo \
+            --output-dir whole-project-results --samples 5 --timeout 60 \
+            --builds-ready '${{ steps.build_whole_project.outcome == 'success' }}'
 
       # The conformance rates ride along with the perf artifacts so one download
       # answers "where is the port?" without reading a log. `ci.yml` also runs the
@@ -110,6 +139,7 @@ jobs:
             perf-results.json
             perf-summary.md
             conformance-summary.txt
+            whole-project-results/
             crates/tsr-conformance/snapshots/
           if-no-files-found: warn
           retention-days: 90
@@ -118,6 +148,7 @@ jobs:
         if: always()
         run: |
           cat perf-summary.md >> "$GITHUB_STEP_SUMMARY" || true
+          cat whole-project-results/summary.md >> "$GITHUB_STEP_SUMMARY" || true
           {
             echo
             echo '## Conformance'

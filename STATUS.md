@@ -22,6 +22,14 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
+Whole-project CI reporting (`tsr-1yb.8.1`) is locally validated at frozen TSR
+`02fafbc0` and pinned native `5b1047d`: five pairs in each worker-request mode
+preserve 66 loaded files and one complete intentional diagnostic. All 44 script
+tests pass. This is smoke reporting evidence; actual checked-work/input coverage
+and the comparable native wall ratio <=0.50 remain unverified. No checker corpus
+or production throughput numbers are remeasured by this reporting change.
+[Reporting boundaries](docs/architecture/whole-project-ci-reporting.md).
+
 ### Current checker checkpoint — four parallel native fidelity ports
 
 Production revision **`7942ce47`**, pinned native **`5b1047d`**:
@@ -2607,6 +2615,13 @@ rendering `any` for `errorType` (ADR-0038).
 ---
 
 ## 4. What is next — the scored board
+
+Observational CI `.8.1` now has local success/failure/stale-output controls and
+real paired smoke receipts; remote workflow/artifact publication remains to be
+verified after delivery. Public acquisition `.1.3.1` and work/worker producers
+`.1.2.3` can start now. Their follow-ups `.1.3.2` and `.1.2.4` validate workload
+suitability and performed-work evidence. Mapper/receiver/private-store contracts
+and representative ratchet `.13` retain their existing gates and active owners.
 
 CJS component inspection `.2.1.3.1.2` passes its isolated timing/fidelity gates.
 Refresh residual cost attribution on the retained source before choosing a
@@ -5994,6 +6009,14 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+### Verified speed from CI smoke — frozen `02fafbc0`
+
+Five pairs per mode agree on 66 loaded files and one diagnostic, but have two
+explicit completeness failures: actual semantic work/worker budgets and complete
+cross-tool query-input coverage. The smoke fixture is reporting plumbing, so
+`release_target_verified` stays false regardless of its observed timing. A local
+report also does not prove that GitHub published the artifact.
 
 ### RSS or native-target claim from CJS inspection — base `9c176c03`
 
@@ -12487,6 +12510,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
+| 2026-10-04 | `02fafbc0` (frozen compiler; reporting changes separately reviewed) | not remeasured | not remeasured | Whole-project observational CI plumbing | `tsr-1yb.8.1`: 44 script tests, workflow syntax/order guards and five public pairs per mode; 66 loaded files and one complete diagnostic match. Warmup/preflight failures persist child evidence; setup failure cannot reuse stale output. Remote workflow/artifact verification remains pending. No representative throughput, corpus delta or verified native <=0.50 claim. |
 | 2026-10-04 | `9c176c03` (base plus hashed helper) | unchanged | unchanged | CJS component-vector removal; isolated speed gain | `tsr-1yb.2.1.3.1.2`: normal paired5+5 gains1.04%/1.52%, median saves43.423/63.893ms;474251type rows and10570eligible diagnostics byte-identical,460045RIGHT preserved.45852native path pairs,1364checked identities/order,14015loaded,122complete app diagnostics;204release tests/1existingignore, strictClippy/format, native95resolver/96loader snapshots unchanged. Observed51018inputs stable; no RSS or comparable native<=0.50 claim. |
 | 2026-10-04 | `181b5e29` (base plus hashed temporary probe) | not remeasured | not remeasured | Resolver construction attribution; no speed claim | `tsr-1yb.2.1.3.1.1`: five app variants preserve122diagnostics/14015loaded, four marked variants1364checked, 51018observed input paths stable. Final relative helper41.637/42.101ms;90release tests, four mutation tests, strictClippy/format, native95resolver/96loader unchanged. Seven physical projects expose known empty-suffix/CLI-trace failures. CJS component candidate2.1.3.1.2 owns next normal paired experiment; broad attribution/input completeness and comparable native<=0.50 remain open. |
 | 2026-10-04 | `17c4db04` (base plus hashed examples) | not remeasured | not remeasured | Fixed-plan leased-read progress proof | `tsr-1yb.19.2.2.1`: 12 cases/48 audits, 10 release example tests and four time-bounded fault tests; all charges balance. Bounded full-batch drop then serial retry, no FIFO reopen, explicit release-abort classification. Read-only 1/2/4 observations include CPU/RSS/startup, not a normal whole-project win. Dynamic replay `.19.2.2.2` and parent `.19.2.2` remain open; production `.5` gates and comparable native <=0.50 target unchanged. |

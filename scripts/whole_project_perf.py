@@ -295,6 +295,10 @@ def main() -> int:
         if listing is None or not listing["input_validation"]["stable"]:
             return 1
         if config["exit_code"] != 0 or listing["exit_code"] != 0:
+            rejected = config if config["exit_code"] != 0 else listing
+            report["rejected_preflight"] = rejected
+            report["status"] = "timed_out" if rejected["timed_out"] else "tool_failed"
+            save()
             raise RuntimeError(f"{name} preflight failed: {config['stdout']} {listing['stdout']} {listing['stderr']}")
         if DIAGNOSTIC.search(listing["stdout"]):
             raise RuntimeError(f"{name} file listing contains diagnostics")
@@ -335,6 +339,11 @@ def main() -> int:
             print(f"{name}: {measurement['wall_seconds']:.3f}s, exit {measurement['exit_code']}, "
                   f"{measurement['diagnostics']['count']} diagnostics", file=sys.stderr, flush=True)
             if measurement["timed_out"] or measurement["exit_code"] not in (0, 1, 2):
+                # Warmups do not enter samples, but their failures are still
+                # evidence. Preserve resources and failure kind before aborting.
+                report["rejected_measurement"] = measurement
+                report["status"] = "timed_out" if measurement["timed_out"] else "tool_failed"
+                save()
                 raise RuntimeError(f"{name} did not complete a compiler check")
         if index >= args.warmups:
             report["pairs"].append({"order": order, "wall_ratio":
