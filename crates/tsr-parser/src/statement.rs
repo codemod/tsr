@@ -660,6 +660,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_variable_declaration(&mut self) -> &'a VariableDeclaration<'a> {
+        let docs = self.parse_leading_jsdoc();
         let start = self.pos();
         let name = self.parse_binding_name();
         let exclamation =
@@ -670,11 +671,13 @@ impl<'a> Parser<'a> {
         } else {
             None
         };
-        self.finish_node(
+        let node = self.finish_node(
             VariableDeclaration::new(Some(name), exclamation, type_node, initializer),
             SyntaxKind::VariableDeclaration,
             start,
-        )
+        );
+        self.attach_jsdoc(Node::VariableDeclaration(node), docs);
+        node
     }
 
     fn parse_if_statement(&mut self) -> Statement<'a> {
