@@ -982,7 +982,8 @@ fn function_namespace_copies_preserve_default_and_runtime_member_identity() {
                 let function = checker.get_declared_type_of_symbol(bound.globals()["Function"]);
                 // Native returns ordinary any through its empty Function. The
                 // existing relation cannot yet compare noncallable anonymous
-                // module copies; retain a gap, not Raw's return signature.
+                // module copies; the call consumer certifies the target's
+                // emptiness without recovering Raw's return signature.
                 assert_eq!(
                     checker.relate_ternary(
                         head,
@@ -994,7 +995,7 @@ fn function_namespace_copies_preserve_default_and_runtime_member_identity() {
             }
             assert_eq!(
                 checker.check_expression(tsr_ast::Expression::CallExpression(call)),
-                checker.intrinsics().error
+                if empty_function { checker.intrinsics().any } else { checker.intrinsics().error }
             );
             let mut raw_uses = Vec::new();
             identifiers(&map, roots[2], "Raw", &mut raw_uses);
@@ -1038,6 +1039,170 @@ fn function_namespace_copies_preserve_default_and_runtime_member_identity() {
                 checker.check_expression(tsr_ast::Expression::NewExpression(new)),
                 checker.intrinsics().any
             );
+        }
+    }
+}
+
+/// Native 5b1047d: copies have no signatures, but a complete empty Function
+/// target admits an untyped call. Every unsupported target stays a gap.
+#[test]
+fn module_copy_calls_require_a_certified_empty_global_function() {
+    for strict_null_checks in [false, true] {
+        for (global, empty) in [
+            ("interface Function {}", true),
+            ("interface Parent {} interface Function extends Parent {}", true),
+            ("interface Function {} interface Function {}", true),
+            ("declare class Function {}", true),
+            ("", false),
+            ("type Function = {};", false),
+            ("interface Function<T> {}", false),
+            ("interface Function { bind: (value: unknown) => Function; }", false),
+            ("interface Function { marker?: number; }", false),
+            ("interface Function { (): number; }", false),
+            ("interface Function { new (): number; }", false),
+            ("interface Function { [key: string]: any; }", false),
+            (
+                "interface Parent { [key: string]: any; } interface Function extends Parent {}",
+                false,
+            ),
+            ("interface Parent<T> {} interface Function extends Parent<number> {}", false),
+            ("interface Function extends MissingBase {}", false),
+            ("interface Parent extends Function {} interface Function extends Parent {}", false),
+            (r#"interface Function { ({ "value": value }: { value: number }): number; }"#, false),
+            (
+                r#"interface Function { new ({ "value": value }: { value: number }): number; }"#,
+                false,
+            ),
+            (
+                r#"interface Parent { ({ "value": value }: { value: number }): number; } interface Function extends Parent {}"#,
+                false,
+            ),
+            (
+                r#"interface Parent { new ({ "value": value }: { value: number }): number; } interface Function extends Parent {}"#,
+                false,
+            ),
+            (
+                r#"interface Function {} interface Function { ({ "value": value }: { value: number }): number; }"#,
+                false,
+            ),
+            (
+                r#"interface Function {} interface Function { new ({ "value": value }: { value: number }): number; }"#,
+                false,
+            ),
+        ] {
+            for (library, class, namespace_meaning, clone) in [
+                (
+                    "function Foo(n: number): string { return 'body'; } export = Foo;",
+                    false,
+                    false,
+                    true,
+                ),
+                (
+                    "function Foo(n: number): string { return 'body'; } namespace Foo { export const own = 7; } export = Foo;",
+                    false,
+                    true,
+                    true,
+                ),
+                (
+                    "class Foo { static own = 7; instance = 'instance'; } export = Foo;",
+                    true,
+                    false,
+                    true,
+                ),
+                (
+                    "class Foo { static own = 7; instance = 'instance'; } namespace Foo { export const right = 'right'; } export = Foo;",
+                    true,
+                    true,
+                    true,
+                ),
+                ("namespace Foo { export const own = 7; } export = Foo;", false, true, false),
+            ] {
+                let arena = Arena::new();
+                let source = "import * as Head from './lib'; import * as Twin from './lib'; import Raw = require('./lib'); import Tail = Linked; import Linked = Head; Head(1); Twin(2); Tail(3); Linked(4); Raw(5); Head.default(6); new Head(7); new Raw(8); new Head.default(9);";
+                let mut nodes = NodeTable::new();
+                let mut map = NodeMap::new();
+                let mut bound = tsr_binder::BindResult::empty();
+                let mut roots = Vec::new();
+                for (name, text) in
+                    [("/global.d.ts", global), ("/lib.ts", library), ("/use.ts", source)]
+                {
+                    let parsed = tsr_parser::parse_into(
+                        &arena,
+                        text,
+                        tsr_parser::ParseOptions::default(),
+                        &mut nodes,
+                        &mut map,
+                    );
+                    assert!(parsed.diagnostics.is_empty());
+                    roots.push(parsed.source_file.node_id.unwrap());
+                    bound = tsr_binder::bind_into(
+                        bound,
+                        &arena,
+                        parsed.source_file,
+                        &nodes,
+                        tsr_binder::FileInfo { name, text },
+                    );
+                }
+                let locals = bound.locals(roots[2]).unwrap();
+                let host = ExportLibrary(roots[1]);
+                let mut checker = Checker::with_module_host(&bound, &nodes, &map, Some(&host));
+                checker.set_strict_null_checks(strict_null_checks);
+                let tail = checker.get_type_of_symbol(locals["Tail"]);
+                let head = checker.get_type_of_symbol(locals["Head"]);
+                let twin = checker.get_type_of_symbol(locals["Twin"]);
+                let raw = checker.get_type_of_symbol(locals["Raw"]);
+                let intrinsics = *checker.intrinsics();
+                if clone {
+                    assert_ne!(head, twin);
+                    assert_ne!(head, raw);
+                    assert_eq!(checker.get_type_of_property_of_type(head, "default"), Some(raw));
+                    assert!(checker.signatures_of_type(head).unwrap().is_empty());
+                    assert_eq!(tail, if namespace_meaning { head } else { intrinsics.error });
+                }
+                let untyped = if empty && clone { intrinsics.any } else { intrinsics.error };
+                let raw_call = if class || !clone { intrinsics.error } else { intrinsics.string };
+                let instance = if class {
+                    checker.get_type_of_property_of_type(raw, "prototype").unwrap()
+                } else if clone {
+                    intrinsics.any
+                } else {
+                    intrinsics.error
+                };
+                let mut pending = vec![roots[2]];
+                let mut expression_count = 0;
+                while let Some(id) = pending.pop() {
+                    let Some(node) = map.get(id) else { continue };
+                    let expression = match node {
+                        Node::CallExpression(call) => {
+                            Some(tsr_ast::Expression::CallExpression(call))
+                        }
+                        Node::NewExpression(new) => Some(tsr_ast::Expression::NewExpression(new)),
+                        _ => None,
+                    };
+                    if let Some(expression) = expression {
+                        let span = nodes.span(id);
+                        let text = &source[span.start as usize..span.end as usize];
+                        let expected = match text {
+                            "Head(1)" | "Twin(2)" => untyped,
+                            "Tail(3)" | "Linked(4)" if namespace_meaning && clone => untyped,
+                            "Tail(3)" | "Linked(4)" | "new Head(7)" => intrinsics.error,
+                            "Raw(5)" | "Head.default(6)" => raw_call,
+                            "new Raw(8)" | "new Head.default(9)" => instance,
+                            _ => panic!("unexpected expression {text}"),
+                        };
+                        assert_eq!(
+                            checker.check_expression(expression),
+                            expected,
+                            "{text}; {global}; {library}; strictNullChecks={strict_null_checks}"
+                        );
+                        expression_count += 1;
+                    }
+                    let mut children = Vec::new();
+                    push_children(node, &mut children);
+                    pending.extend(children.into_iter().filter_map(|child| child.node_id()));
+                }
+                assert_eq!(expression_count, 9);
+            }
         }
     }
 }

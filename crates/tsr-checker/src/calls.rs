@@ -563,16 +563,30 @@ impl Checker<'_, '_> {
         let error = self.intrinsics.error;
         // resolveCallExpression/isUntypedFunctionCall: a module copy has no
         // signatures, but may still be an untyped call through global Function.
-        // Use the existing complete relation answer; unsupported applicability
-        // keeps a gap instead of recovering the original function's signature.
+        // An independently complete empty target demands nothing of the copy.
+        // Other targets use the existing relation answer; unsupported
+        // applicability never recovers the original function's signature.
         if self.module_value_clones.contains_key(&callee_type) {
             let Some(function) = self.global_type_symbol_with_arity("Function", 0) else {
                 return error;
             };
+            if !self
+                .binder
+                .symbols()
+                .get(function)
+                .flags
+                .intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE)
+            {
+                return error;
+            }
             let function = self.get_declared_type_of_symbol(function);
             if function != error
-                && self.relate_ternary(callee_type, function, crate::relater::Relation::Assignable)
-                    == crate::relater::Ternary::Related
+                && (self.is_empty_spread_object_type(function)
+                    || self.relate_ternary(
+                        callee_type,
+                        function,
+                        crate::relater::Relation::Assignable,
+                    ) == crate::relater::Ternary::Related)
             {
                 return self.intrinsics.any;
             }
