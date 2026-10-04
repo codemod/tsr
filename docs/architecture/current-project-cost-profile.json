@@ -1,0 +1,969 @@
+{
+  "source": "c5ddf73edffdd28ef15d827da338703f964bc08c",
+  "oracle_sha": "5b1047d10d32e7d5b446be4de56b126ff42f82bb",
+  "binary_sha256": "016c5af27d4a09dcb0e4944e287fb27f46b3e03ff23c4ba4a1629e99d35bdd1f",
+  "shared_harness_sha256": {
+    "whole_project_perf.py": "1edde2a6f3c2470cbf1424174f0f92fae38998921b988a3e09564a345856a274",
+    "benchmark_inputs.py": "e7f00da2f543c052acae782619c685acb559eba7005f4de52483ca4244596aa2"
+  },
+  "driver_versions": [
+    "5dc44476fab0dd46d01d69d897ac6bf74bbea3d0fc279cbf9416a17a93576270",
+    "82357c2ae45188a517f07821c42527e6d4541fbbd79a45e0f0d4c4fadfe15e56"
+  ],
+  "loaded_count": 14015,
+  "loaded_order_fingerprint": "502ab4b7c645aaf8efd2e1fbcbcc9af9bf2d1390bc23c9157c7e31efca3ce0e6",
+  "input_count": 51020,
+  "input_fingerprint": "47138624c0b044b4ab9de7a77b47346ca701fe9606e1305ff2acd6ed34702b57",
+  "effective_config_fingerprint": "56c84f470beef7cb92d03b9fabc3b911c7dcb2b295a7e3d3b393c4f3f0f75a06",
+  "limits": [
+    "Historical/caller query paths are partial, not complete cross-tool inputs.",
+    "Only main-thread stacks inside the selected interval; other threads are omitted.",
+    "Stack samples include waiting and are not wall/CPU percentages or allocation counts.",
+    "Sampling overhead and unsampled startup/end work are not saved-wall ceilings.",
+    "Other agents may use the host; only this driver serializes its own work."
+  ],
+  "kind": "Source-qualified locating controls; sampling counts do not establish a speed gain.",
+  "native_target_verified": false,
+  "complete_input_equivalence_verified": false,
+  "actual_checked_identity_verified": false,
+  "workload": "private Next.js whole project; noEmit, incremental=false, composite=false, pretty=false",
+  "input_coverage": "historical query paths plus current loaded files; partial",
+  "delivered_driver_sha256": "2dfa2ac29626b4d0dcb795f177cbce7f7d44e8b1653a44b5e9fed61be14d6aa5",
+  "controls_completed": true,
+  "runs": [
+    {
+      "role": "normal1",
+      "wall_seconds": 4.025185584003339,
+      "user_seconds": 3.60858,
+      "system_seconds": 0.40970999999999996,
+      "peak_rss_bytes": 1149468672,
+      "exit_code": 1,
+      "statistics": {},
+      "profile": null,
+      "input_fingerprint_before": "47138624c0b044b4ab9de7a77b47346ca701fe9606e1305ff2acd6ed34702b57",
+      "input_fingerprint_after": "47138624c0b044b4ab9de7a77b47346ca701fe9606e1305ff2acd6ed34702b57",
+      "loaded_order_fingerprint": null,
+      "diagnostics": {
+        "count": 122,
+        "fingerprint": "f9a1895331fa3bff9d931c478757cb788414bf33a32ce3dad582371b10759216"
+      }
+    },
+    {
+      "role": "phase1",
+      "wall_seconds": 4.097528915997827,
+      "user_seconds": 3.672665,
+      "system_seconds": 0.415232,
+      "peak_rss_bytes": 1205878784,
+      "exit_code": 1,
+      "statistics": {
+        "Files": "14015",
+        "Checked files": "1364",
+        "Parsed files": "14617",
+        "Loader time": "1.300s",
+        "File read time": "0.178s",
+        "Metadata time": "0.034s",
+        "Parse time": "0.637s",
+        "File discovery time": "0.423s",
+        "Resolver time": "0.326s",
+        "Resolver requests": "49234",
+        "Reusable modules": "23906",
+        "Reusable type refs": "45",
+        "Indexing time": "0.022s",
+        "Bind time": "0.185s",
+        "Config time": "0.010s",
+        "Program time": "1.546s",
+        "Checker init time": "0.001s",
+        "Check time": "2.246s",
+        "Reporting time": "0.110s",
+        "Compilation time": "3.912s"
+      },
+      "profile": null,
+      "input_fingerprint_before": "47138624c0b044b4ab9de7a77b47346ca701fe9606e1305ff2acd6ed34702b57",
+      "input_fingerprint_after": "47138624c0b044b4ab9de7a77b47346ca701fe9606e1305ff2acd6ed34702b57",
+      "loaded_order_fingerprint": "502ab4b7c645aaf8efd2e1fbcbcc9af9bf2d1390bc23c9157c7e31efca3ce0e6",
+      "diagnostics": {
+        "count": 122,
+        "fingerprint": "f9a1895331fa3bff9d931c478757cb788414bf33a32ce3dad582371b10759216"
+      }
+    },
+    {
+      "role": "sample1",
+      "wall_seconds": 4.267775874992367,
+      "user_seconds": 3.712844,
+      "system_seconds": 0.41922299999999996,
+      "peak_rss_bytes": 1210253312,
+      "exit_code": 1,
+      "statistics": {
+        "Files": "14015",
+        "Checked files": "1364",
+        "Parsed files": "14617",
+        "Loader time": "1.360s",
+        "File read time": "0.186s",
+        "Metadata time": "0.035s",
+        "Parse time": "0.666s",
+        "File discovery time": "0.443s",
+        "Resolver time": "0.342s",
+        "Resolver requests": "49234",
+        "Reusable modules": "23906",
+        "Reusable type refs": "45",
+        "Indexing time": "0.025s",
+        "Bind time": "0.197s",
+        "Config time": "0.010s",
+        "Program time": "1.624s",
+        "Checker init time": "0.001s",
+        "Check time": "2.350s",
+        "Reporting time": "0.101s",
+        "Compilation time": "4.086s"
+      },
+      "profile": {
+        "total_samples": 2319,
+        "phases": {
+          "checker": 1823,
+          "other": 496
+        },
+        "ignored_thread_roots": 0,
+        "top_self": [
+          [
+            "tiny_free_no_lock",
+            142
+          ],
+          [
+            "tiny_malloc_from_free_list",
+            141
+          ],
+          [
+            "_platform_memset",
+            93
+          ],
+          [
+            "tsr_binder::BindResult::resolve_name_excluding",
+            83
+          ],
+          [
+            "free_tiny",
+            77
+          ],
+          [
+            "tiny_free_list_add_ptr",
+            75
+          ],
+          [
+            "_platform_memmove",
+            72
+          ],
+          [
+            "tiny_malloc_should_clear",
+            64
+          ],
+          [
+            "tsr_binder::BindResult::lookup_scoped",
+            59
+          ],
+          [
+            "get_tiny_previous_free_msize",
+            49
+          ],
+          [
+            "tsr_checker::check::check_node",
+            48
+          ],
+          [
+            "tsr_checker::inference::mentions_type_parameter_inner",
+            46
+          ],
+          [
+            "_szone_free",
+            41
+          ],
+          [
+            "_platform_memcmp",
+            36
+          ],
+          [
+            "_malloc_zone_malloc",
+            35
+          ],
+          [
+            "tsr_binder::symbol::SymbolTableField::get",
+            31
+          ],
+          [
+            "tsr_ast::generated::visit::push_children",
+            29
+          ],
+          [
+            "_tiny_check_and_zero_inline_meta_from_freelist",
+            29
+          ],
+          [
+            "tsr_checker::members::collect_structured_property_names",
+            28
+          ],
+          [
+            "__open",
+            27
+          ],
+          [
+            "szone_malloc_should_clear",
+            25
+          ],
+          [
+            "tsr_binder::binder::Binder::bind_inner",
+            25
+          ],
+          [
+            "hashbrown::map::HashMap$LT$K$C$V$C$S$C$A$GT$::insert",
+            24
+          ],
+          [
+            "_free",
+            24
+          ],
+          [
+            "hashbrown::raw::RawTable$LT$T$C$A$GT$::reserve_rehash",
+            20
+          ]
+        ],
+        "nearest_tsr_owner": [
+          [
+            "tsr_checker::members::collect_structured_property_names",
+            125
+          ],
+          [
+            "tsr_checker::inference::mentions_type_parameter_inner",
+            88
+          ],
+          [
+            "tsr_binder::BindResult::resolve_name_excluding",
+            83
+          ],
+          [
+            "tsr_binder::BindResult::lookup_scoped",
+            67
+          ],
+          [
+            "tsr_binder::binder::Binder::bind_inner",
+            50
+          ],
+          [
+            "tsr_checker::check::check_node",
+            49
+          ],
+          [
+            "tsr_checker::signatures::signature_candidates_of_interface_symbol",
+            47
+          ],
+          [
+            "tsr_checker::members::get_property_names_of_type",
+            42
+          ],
+          [
+            "tsr_checker::declared::get_instantiated_type_reference",
+            41
+          ],
+          [
+            "tsr_compiler::loader::FileLoader::load_task",
+            41
+          ],
+          [
+            "tsr_binder::symbol::SymbolTableField::get",
+            37
+          ],
+          [
+            "tsr_compiler::loader::FileLoader::load",
+            37
+          ],
+          [
+            "tsr_checker::signatures::written_type_text_flags",
+            36
+          ],
+          [
+            "tsr_ast::generated::visit::push_children",
+            32
+          ],
+          [
+            "tsr_checker::flow::intersection_has_never_discriminant",
+            30
+          ],
+          [
+            "tsr_checker::members::get_property_of_type_ex",
+            29
+          ],
+          [
+            "tsr_checker::inference::instantiate_signature_with_fresh_parameters",
+            29
+          ],
+          [
+            "tsr_checker::declared::instantiated_heritage_base",
+            28
+          ],
+          [
+            "tsr_checker::members::instantiate_for_reference_with_this",
+            28
+          ],
+          [
+            "tsr_checker::declared::create_type_reference_with_display",
+            27
+          ],
+          [
+            "tsr_checker::mapped::is_generic_homomorphic_mapped_type_inner",
+            26
+          ],
+          [
+            "tsr_binder::binder::Binder::declare_into_with_excludes",
+            26
+          ],
+          [
+            "tsr_checker::members::get_type_of_property_with_this_argument",
+            21
+          ],
+          [
+            "tsr_checker::indexed::is_string_index_signature_only_type",
+            21
+          ],
+          [
+            "tsr_checker::symbols::get_export_from_star_worker",
+            20
+          ],
+          [
+            "tsr_checker::flow::signatures_of_type_kind",
+            20
+          ],
+          [
+            "tsr_checker::declared::local_type_parameter_types_of",
+            20
+          ],
+          [
+            "tsr_compiler::Program::resolved_module",
+            19
+          ],
+          [
+            "tsr_checker::nonexistent_property::collect_property_names",
+            19
+          ],
+          [
+            "tsr_checker::index_signatures::get_index_infos_of_type",
+            19
+          ],
+          [
+            "tsr_checker::signatures::signature_candidates_of_named_type",
+            18
+          ],
+          [
+            "tsr_checker::inference::instantiate_type",
+            18
+          ],
+          [
+            "tsr_checker::expressions::check_expression",
+            17
+          ],
+          [
+            "tsr_checker::members::base_symbols_of_ex",
+            17
+          ],
+          [
+            "tsr_ast::generated::alias::Node::node_id",
+            17
+          ],
+          [
+            "tsr_checker::check::module_specifier_unfindable",
+            16
+          ],
+          [
+            "tsr_checker::relater::Relater::properties_related_to_with_optionals",
+            15
+          ],
+          [
+            "tsr_core::line_map::ecma_line_starts",
+            15
+          ],
+          [
+            "tsr_checker::members::get_property_of_declared_symbol",
+            14
+          ],
+          [
+            "tsr_path::combine_paths",
+            14
+          ]
+        ],
+        "allocator_nearest_owner": [
+          [
+            "tsr_checker::members::collect_structured_property_names",
+            63
+          ],
+          [
+            "tsr_checker::declared::get_instantiated_type_reference",
+            33
+          ],
+          [
+            "tsr_checker::signatures::signature_candidates_of_interface_symbol",
+            31
+          ],
+          [
+            "tsr_checker::members::get_property_names_of_type",
+            26
+          ],
+          [
+            "tsr_compiler::loader::FileLoader::load",
+            26
+          ],
+          [
+            "tsr_checker::declared::instantiated_heritage_base",
+            21
+          ],
+          [
+            "tsr_checker::declared::create_type_reference_with_display",
+            21
+          ],
+          [
+            "tsr_checker::inference::instantiate_signature_with_fresh_parameters",
+            19
+          ],
+          [
+            "tsr_checker::signatures::written_type_text_flags",
+            18
+          ],
+          [
+            "tsr_checker::inference::mentions_type_parameter_inner",
+            18
+          ],
+          [
+            "tsr_checker::members::get_property_of_type_ex",
+            17
+          ],
+          [
+            "tsr_checker::flow::intersection_has_never_discriminant",
+            17
+          ],
+          [
+            "tsr_checker::indexed::is_string_index_signature_only_type",
+            17
+          ],
+          [
+            "tsr_checker::nonexistent_property::collect_property_names",
+            16
+          ],
+          [
+            "tsr_checker::members::instantiate_for_reference_with_this",
+            16
+          ],
+          [
+            "tsr_checker::declared::local_type_parameter_types_of",
+            16
+          ],
+          [
+            "tsr_checker::signatures::signature_candidates_of_named_type",
+            13
+          ],
+          [
+            "tsr_checker::mapped::is_generic_homomorphic_mapped_type_inner",
+            12
+          ],
+          [
+            "tsr_checker::inference::instantiate_type",
+            11
+          ],
+          [
+            "tsr_checker::flow::signatures_of_type_kind",
+            11
+          ],
+          [
+            "tsr_checker::relater::Relater::properties_related_to_with_optionals",
+            11
+          ],
+          [
+            "tsr_checker::relater::Relater::is_pure_signature_type",
+            11
+          ],
+          [
+            "tsr_checker::inference::signature_for_inference",
+            10
+          ],
+          [
+            "tsr_checker::index_signatures::get_index_infos_of_type",
+            10
+          ],
+          [
+            "tsr_checker::inference::instantiate_signature",
+            9
+          ]
+        ]
+      },
+      "input_fingerprint_before": "47138624c0b044b4ab9de7a77b47346ca701fe9606e1305ff2acd6ed34702b57",
+      "input_fingerprint_after": "47138624c0b044b4ab9de7a77b47346ca701fe9606e1305ff2acd6ed34702b57",
+      "loaded_order_fingerprint": "502ab4b7c645aaf8efd2e1fbcbcc9af9bf2d1390bc23c9157c7e31efca3ce0e6",
+      "diagnostics": {
+        "count": 122,
+        "fingerprint": "f9a1895331fa3bff9d931c478757cb788414bf33a32ce3dad582371b10759216"
+      },
+      "sample_sha256": "0eda68a195da33b08bb0df9fa234b254f836f79bb9380a4f65805141bfb246c1"
+    },
+    {
+      "role": "normal2",
+      "wall_seconds": 4.036769541999092,
+      "user_seconds": 3.619905,
+      "system_seconds": 0.40527799999999997,
+      "peak_rss_bytes": 1120485376,
+      "exit_code": 1,
+      "statistics": {},
+      "profile": null,
+      "input_fingerprint_before": "47138624c0b044b4ab9de7a77b47346ca701fe9606e1305ff2acd6ed34702b57",
+      "input_fingerprint_after": "47138624c0b044b4ab9de7a77b47346ca701fe9606e1305ff2acd6ed34702b57",
+      "loaded_order_fingerprint": null,
+      "diagnostics": {
+        "count": 122,
+        "fingerprint": "f9a1895331fa3bff9d931c478757cb788414bf33a32ce3dad582371b10759216"
+      }
+    },
+    {
+      "role": "phase2",
+      "wall_seconds": 4.158076042018365,
+      "user_seconds": 3.69215,
+      "system_seconds": 0.40415599999999996,
+      "peak_rss_bytes": 1199472640,
+      "exit_code": 1,
+      "statistics": {
+        "Files": "14015",
+        "Checked files": "1364",
+        "Parsed files": "14617",
+        "Loader time": "1.386s",
+        "File read time": "0.179s",
+        "Metadata time": "0.041s",
+        "Parse time": "0.655s",
+        "File discovery time": "0.483s",
+        "Resolver time": "0.383s",
+        "Resolver requests": "49234",
+        "Reusable modules": "23906",
+        "Reusable type refs": "45",
+        "Indexing time": "0.023s",
+        "Bind time": "0.192s",
+        "Config time": "0.010s",
+        "Program time": "1.642s",
+        "Checker init time": "0.001s",
+        "Check time": "2.233s",
+        "Reporting time": "0.104s",
+        "Compilation time": "3.990s"
+      },
+      "profile": null,
+      "input_fingerprint_before": "47138624c0b044b4ab9de7a77b47346ca701fe9606e1305ff2acd6ed34702b57",
+      "input_fingerprint_after": "47138624c0b044b4ab9de7a77b47346ca701fe9606e1305ff2acd6ed34702b57",
+      "loaded_order_fingerprint": "502ab4b7c645aaf8efd2e1fbcbcc9af9bf2d1390bc23c9157c7e31efca3ce0e6",
+      "diagnostics": {
+        "count": 122,
+        "fingerprint": "f9a1895331fa3bff9d931c478757cb788414bf33a32ce3dad582371b10759216"
+      }
+    },
+    {
+      "role": "sample2",
+      "wall_seconds": 4.420856709009968,
+      "user_seconds": 3.687118,
+      "system_seconds": 0.436646,
+      "peak_rss_bytes": 1241661440,
+      "exit_code": 1,
+      "statistics": {
+        "Files": "14015",
+        "Checked files": "1364",
+        "Parsed files": "14617",
+        "Loader time": "1.492s",
+        "File read time": "0.183s",
+        "Metadata time": "0.049s",
+        "Parse time": "0.657s",
+        "File discovery time": "0.573s",
+        "Resolver time": "0.471s",
+        "Resolver requests": "49234",
+        "Reusable modules": "23906",
+        "Reusable type refs": "45",
+        "Indexing time": "0.023s",
+        "Bind time": "0.196s",
+        "Config time": "0.010s",
+        "Program time": "1.751s",
+        "Checker init time": "0.001s",
+        "Check time": "2.373s",
+        "Reporting time": "0.104s",
+        "Compilation time": "4.239s"
+      },
+      "profile": {
+        "total_samples": 2328,
+        "phases": {
+          "checker": 1479,
+          "other": 849
+        },
+        "ignored_thread_roots": 0,
+        "top_self": [
+          [
+            "stat",
+            157
+          ],
+          [
+            "tiny_malloc_from_free_list",
+            123
+          ],
+          [
+            "tiny_free_no_lock",
+            99
+          ],
+          [
+            "free_tiny",
+            94
+          ],
+          [
+            "tsr_binder::BindResult::resolve_name_excluding",
+            86
+          ],
+          [
+            "tiny_free_list_add_ptr",
+            82
+          ],
+          [
+            "_platform_memset",
+            74
+          ],
+          [
+            "_platform_memmove",
+            66
+          ],
+          [
+            "__open",
+            64
+          ],
+          [
+            "tiny_malloc_should_clear",
+            57
+          ],
+          [
+            "_szone_free",
+            54
+          ],
+          [
+            "tsr_binder::BindResult::lookup_scoped",
+            51
+          ],
+          [
+            "tsr_checker::check::check_node",
+            40
+          ],
+          [
+            "tsr_ast::generated::visit::push_children",
+            35
+          ],
+          [
+            "tsr_binder::binder::Binder::bind_inner",
+            35
+          ],
+          [
+            "tsr_binder::symbol::SymbolTableField::get",
+            29
+          ],
+          [
+            "tsr_scanner::Scanner::scan",
+            29
+          ],
+          [
+            "tiny_free_list_remove_ptr",
+            28
+          ],
+          [
+            "tsr_checker::inference::mentions_type_parameter_inner",
+            28
+          ],
+          [
+            "<deduplicated_symbol>",
+            25
+          ],
+          [
+            "tsr_scanner::Scanner::bump",
+            25
+          ],
+          [
+            "szone_malloc_should_clear",
+            24
+          ],
+          [
+            "tsr_ast::generated::alias::Node::node_id",
+            23
+          ],
+          [
+            "hashbrown::raw::RawTable$LT$T$C$A$GT$::reserve_rehash",
+            22
+          ],
+          [
+            "get_tiny_previous_free_msize",
+            22
+          ]
+        ],
+        "nearest_tsr_owner": [
+          [
+            "tsr_module::resolver::ResolutionState::try_file_lookup",
+            125
+          ],
+          [
+            "tsr_compiler::loader::FileLoader::load_task",
+            88
+          ],
+          [
+            "tsr_binder::BindResult::resolve_name_excluding",
+            86
+          ],
+          [
+            "tsr_checker::inference::mentions_type_parameter_inner",
+            71
+          ],
+          [
+            "tsr_binder::BindResult::lookup_scoped",
+            56
+          ],
+          [
+            "tsr_binder::binder::Binder::bind_inner",
+            56
+          ],
+          [
+            "tsr_checker::members::collect_structured_property_names",
+            55
+          ],
+          [
+            "tsr_checker::signatures::signature_candidates_of_interface_symbol",
+            43
+          ],
+          [
+            "tsr_ast::generated::visit::push_children",
+            43
+          ],
+          [
+            "tsr_checker::check::check_node",
+            43
+          ],
+          [
+            "tsr_checker::members::get_property_of_type_ex",
+            38
+          ],
+          [
+            "tsr_scanner::Scanner::scan",
+            38
+          ],
+          [
+            "tsr_module::resolver::ResolutionState::get_package_json_info",
+            38
+          ],
+          [
+            "tsr_compiler::loader::FileLoader::load",
+            34
+          ],
+          [
+            "tsr_checker::members::get_type_of_property_with_this_argument",
+            33
+          ],
+          [
+            "tsr_binder::symbol::SymbolTableField::get",
+            32
+          ],
+          [
+            "tsr_checker::signatures::written_type_text_flags",
+            30
+          ],
+          [
+            "tsr_checker::members::instantiate_for_reference_with_this",
+            28
+          ],
+          [
+            "tsr_binder::binder::Binder::declare_into_with_excludes",
+            28
+          ],
+          [
+            "tsr_checker::inference::instantiate_type",
+            25
+          ],
+          [
+            "tsr_scanner::Scanner::bump",
+            25
+          ],
+          [
+            "tsr_checker::declared::get_instantiated_type_reference",
+            24
+          ],
+          [
+            "tsr_ast::generated::alias::Node::node_id",
+            23
+          ],
+          [
+            "tsr_checker::nonexistent_property::collect_property_names",
+            22
+          ],
+          [
+            "tsr_checker::declared::instantiated_heritage_base",
+            22
+          ],
+          [
+            "tsr_checker::flow::get_type_at_flow_node::_$u7b$$u7b$closure$u7d$$u7d$",
+            21
+          ],
+          [
+            "tsr_checker::declared::create_type_reference_with_display",
+            21
+          ],
+          [
+            "tsr_path::simple_normalize_path",
+            21
+          ],
+          [
+            "tsr_scanner::Scanner::peek",
+            20
+          ],
+          [
+            "tsr_checker::members::base_symbols_of_ex",
+            19
+          ],
+          [
+            "tsr_checker::symbols::get_export_from_star_worker",
+            17
+          ],
+          [
+            "tsr_checker::flow::intersection_has_never_discriminant",
+            16
+          ],
+          [
+            "tsr_checker::mapped::is_generic_homomorphic_mapped_type_inner",
+            16
+          ],
+          [
+            "tsr_parser::jsdoc::parse_leading_jsdoc",
+            16
+          ],
+          [
+            "tsr_compiler::Program::resolved_module",
+            15
+          ],
+          [
+            "tsr_checker::inference::instantiate_signature_type",
+            14
+          ],
+          [
+            "tsr_ast::generated::alias::Expression::node_id",
+            14
+          ],
+          [
+            "tsr_checker::declared::local_type_parameter_types_of",
+            14
+          ],
+          [
+            "tsr_scanner::jsdoc::scan_jsdoc_comment_text_token",
+            14
+          ],
+          [
+            "tsr_compiler::Program::from_root_files",
+            14
+          ]
+        ],
+        "allocator_nearest_owner": [
+          [
+            "tsr_checker::members::get_property_of_type_ex",
+            29
+          ],
+          [
+            "tsr_compiler::loader::FileLoader::load",
+            26
+          ],
+          [
+            "tsr_checker::members::collect_structured_property_names",
+            24
+          ],
+          [
+            "tsr_checker::inference::mentions_type_parameter_inner",
+            24
+          ],
+          [
+            "tsr_checker::signatures::signature_candidates_of_interface_symbol",
+            22
+          ],
+          [
+            "tsr_checker::declared::get_instantiated_type_reference",
+            19
+          ],
+          [
+            "tsr_checker::members::instantiate_for_reference_with_this",
+            18
+          ],
+          [
+            "tsr_checker::declared::instantiated_heritage_base",
+            17
+          ],
+          [
+            "tsr_checker::nonexistent_property::collect_property_names",
+            16
+          ],
+          [
+            "tsr_checker::signatures::written_type_text_flags",
+            15
+          ],
+          [
+            "tsr_checker::inference::instantiate_type",
+            13
+          ],
+          [
+            "tsr_checker::declared::create_type_reference_with_display",
+            12
+          ],
+          [
+            "tsr_checker::indexed::is_string_index_signature_only_type",
+            11
+          ],
+          [
+            "tsr_compiler::loader::FileLoader::load_task",
+            11
+          ],
+          [
+            "tsr_checker::inference::instantiate_signature_type",
+            10
+          ],
+          [
+            "tsr_checker::declared::local_type_parameter_types_of",
+            10
+          ],
+          [
+            "tsr_path::combine_paths",
+            10
+          ],
+          [
+            "tsr_checker::members::base_symbols_of_ex",
+            9
+          ],
+          [
+            "tsr_checker::relater::Relater::properties_related_to_with_optionals",
+            9
+          ],
+          [
+            "tsr_parser::jsdoc::parse_leading_jsdoc",
+            9
+          ],
+          [
+            "tsr_binder::binder::Binder::declare_into_with_excludes",
+            9
+          ],
+          [
+            "tsr_checker::signatures::signature_candidates_of_named_type",
+            8
+          ],
+          [
+            "tsr_checker::flow::intersection_has_never_discriminant",
+            8
+          ],
+          [
+            "tsr_checker::flow::signatures_of_type_kind",
+            8
+          ],
+          [
+            "tsr_checker::declared::create_tuple_type",
+            7
+          ]
+        ]
+      },
+      "input_fingerprint_before": "47138624c0b044b4ab9de7a77b47346ca701fe9606e1305ff2acd6ed34702b57",
+      "input_fingerprint_after": "47138624c0b044b4ab9de7a77b47346ca701fe9606e1305ff2acd6ed34702b57",
+      "loaded_order_fingerprint": "502ab4b7c645aaf8efd2e1fbcbcc9af9bf2d1390bc23c9157c7e31efca3ce0e6",
+      "diagnostics": {
+        "count": 122,
+        "fingerprint": "f9a1895331fa3bff9d931c478757cb788414bf33a32ce3dad582371b10759216"
+      },
+      "sample_sha256": "af15e6d6ce6d0a75b54f3acbb8d993f67fe823783e739f1a7e24802241bc9a06"
+    }
+  ]
+}
