@@ -22,17 +22,32 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
-### Current checker checkpoint — parameter-default contexts and strict optionality
+### Current checker checkpoint — annotated object binding defaults
 
-Measured production tree **`30499bbf`**, against published `8bc504ef`:
-**459,880/478,855 assertions (96.04%)**, **7,188/9,538 complete cases
-(75.36%)**. The 99% target requires 474,067 matches; **14,187 remain**.
+Measured production tree **`d21abd72`**, against published `8bc504ef`:
+**459,938/478,855 assertions (96.05%)**, **7,188/9,538 complete cases
+(75.36%)**. The 99% target requires 474,067 matches; **14,129 remain**.
 Pinned native `5b1047d1` and both denominators are unchanged. Aligned verdicts:
-**474,251 total; 459,880 RIGHT; 2,116 GAP; 12,255 WRONG**.
+**474,251 total; 459,938 RIGHT; 2,105 GAP; 12,208 WRONG**.
 The static-context/class-copy prefix `ef3b10a5` is production-identical to audited
 `f6b00125`; rebasing preserved concurrent documentation-only `bc27fae2` and
 the exact `crates` tree. Parameter-context publication preserved documentation-only
 `a7901196`, with source `302573c6` identical to measured `2def452d`.
+
+Annotated object binding defaults now project their declared holder recursively,
+without invoking destructure inference, default evaluation or undefined stripping.
+Initializer-only reads retain renamed/literal/numeric keys and reject computed
+nonliteral syntax before recursion. Nested nullable holders intentionally have
+no inner context; ordinary object lookup is not nullable contextual mapping.
+Arrays and unannotated-root inference remain unsupported. Against `30499bbf`,
+this adds **47 WRONG→RIGHT and 11 GAP→RIGHT**, with **zero RIGHT losses,
+GAP→WRONG, changed checker payloads or population changes**; no complete case is
+added. All 10,570 complete diagnostic records are **byte-identical**. Three
+red-to-green tests cover cold/warm reads, optionality modes and scope boundaries;
+nine native Program controls retain all six wrong-default TS2322 sites in each
+mode and query order. This context-only unit does not claim to repair existing
+wrong-default diagnostic gaps. Evidence is retained in
+`target/object-binding-context-wave24-evidence.tar.gz`.
 
 Declaration optionality now adds undefined only under strict null checks. Loose
 mode preserves the supplied identity, including ordinary nullable and distinct
@@ -49,8 +64,9 @@ only declaration widening converts that loose identity to genuine any. Global
 reseeding and omitted-argument substitutions remain held.
 
 Written parameter annotations now supply context to their matching default
-initializers before inference. Unannotated defaults and binding-element contexts
-remain unchanged. Native strict/loose controls accept the intended literals and
+initializers before inference. That stage left unannotated defaults and binding
+contexts unchanged; annotated object bindings are now included above.
+Native strict/loose controls accept the intended literals and
 reject the wrong literal with TS2322. Real Program reads retain literal arrow
 defaults and nongeneric class fields; generic class-default field widening is
 still a separate pre-existing gap. Against `06511f00`, this adds **35 WRONG→RIGHT**,
@@ -75,7 +91,8 @@ GAP→WRONG, changed checker payloads or population changes**; one complete case
 improves. `staticFieldWithInterfaceContext` gains 18 of its 45 mismatches and
 loses six false TS2322 diagnostics, but retains 27 mismatches and three false
 diagnostics at the static-only prefix. Written parameter defaults are now
-included above; unannotated defaults and destructuring contexts remain separate.
+included above; array bindings, unannotated defaults and broader static readers
+remain separate.
 
 Known class-source module copies now filter lookup and enumeration through the
 existing spreadable-property predicate on winning raw symbols after shadowing.
@@ -243,7 +260,8 @@ payload gains the two expected TS2322 occurrences. Function copies remove the
 false TS2339 at `esModuleInteropImportNamespace/index.ts:2:5` without losing a
 matched occurrence.
 
-**2,810 release workspace tests across 241 result blocks**, six existing ignores,
+**2,813 release workspace tests across 241 result blocks**, six existing ignores,
+plus **2,816 all-target release tests across 343 result blocks**, four ignores,
 strict release workspace/all-target Clippy, formatting and diff checks pass.
 Unfiltered scorepair agrees with the multiline-aware audit and accepts the new
 baseline; checker and diagnostics snapshots are refreshed after strict Clippy.
