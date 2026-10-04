@@ -3,6 +3,7 @@
 from pathlib import Path
 import json
 import os
+import signal
 import subprocess
 import sys
 import tempfile
@@ -102,6 +103,30 @@ class BenchmarkEvidenceTests(unittest.TestCase):
         sample = process([sys.executable, "-c", "import time; time.sleep(10)"], Path.cwd(), 0.1)
         self.assertTrue(sample["timed_out"])
         self.assertLess(sample["exit_code"], 0)
+
+    def test_child_exit_and_resource_evidence_without_python39_wait_helper(self):
+        # The self-hosted reporting runner uses Python 3.8. Exercise actual
+        # children with its API surface, rather than mocking their wait status.
+        with patch.dict(os.__dict__):
+            os.__dict__.pop("waitstatus_to_exitcode", None)
+            for code in (0, 2, 5):
+                with self.subTest(exit_code=code):
+                    sample = process([sys.executable, "-c", f"raise SystemExit({code})"],
+                                     Path.cwd(), 10)
+                    self.assertEqual(sample["exit_code"], code)
+                    self.assertFalse(sample["timed_out"])
+                    self.assertGreater(sample["peak_rss_bytes"], 0)
+                    self.assertGreaterEqual(sample["user_seconds"], 0)
+                    self.assertGreaterEqual(sample["system_seconds"], 0)
+            sample = process([sys.executable, "-c",
+                              "import os, signal; os.kill(os.getpid(), signal.SIGTERM)"],
+                             Path.cwd(), 10)
+            self.assertEqual(sample["exit_code"], -signal.SIGTERM)
+            self.assertFalse(sample["timed_out"])
+            sample = process([sys.executable, "-c", "import time; time.sleep(10)"],
+                             Path.cwd(), 0.1)
+            self.assertEqual(sample["exit_code"], -signal.SIGKILL)
+            self.assertTrue(sample["timed_out"])
 
 
 class InputEvidenceTests(unittest.TestCase):

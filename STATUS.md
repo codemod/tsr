@@ -24,8 +24,12 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 Whole-project CI reporting (`tsr-1yb.8.1`) is locally validated at frozen TSR
 `02fafbc0` and pinned native `5b1047d`: five pairs in each worker-request mode
-preserve 66 loaded files and one complete intentional diagnostic. All 44 script
-tests pass. This is smoke reporting evidence; actual checked-work/input coverage
+preserve 66 loaded files and one complete intentional diagnostic. Remote run
+`37231887059` at `95e67679` published only failed observations because its Python
+3.8 runtime lacked the wait-status helper. A portable POSIX conversion and real
+child regression control address that failure; 45 reporting/evidence/cache tests
+pass locally. Successful remote publication remains to be verified. This is
+smoke reporting evidence; actual checked-work/input coverage
 and the comparable native wall ratio <=0.50 remain unverified. No checker corpus
 or production throughput numbers are remeasured by this reporting change.
 [Reporting boundaries](docs/architecture/whole-project-ci-reporting.md).
@@ -2616,9 +2620,10 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-Observational CI `.8.1` now has local success/failure/stale-output controls and
-real paired smoke receipts; remote workflow/artifact publication remains to be
-verified after delivery. Public acquisition `.1.3.1` and work/worker producers
+Observational CI `.8.1` has a verified remote Python 3.8 failure and a locally
+tested portable wait-status fix. Verify the new remote run after delivery;
+the earlier artifact contains zero samples. Public acquisition `.1.3.1` and
+work/worker producers
 `.1.2.3` can start now. Their follow-ups `.1.3.2` and `.1.2.4` validate workload
 suitability and performed-work evidence. Mapper/receiver/private-store contracts
 and representative ratchet `.13` retain their existing gates and active owners.
@@ -6009,6 +6014,12 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+### Complete CI measurements from a published artifact — `95e67679`
+
+Run `37231887059` uploaded both modes with zero samples and `harness_failed`.
+Artifact upload and a continued observation step are not proof of completed
+measurement. Its Python 3.8 wait-helper failure requires a new verified run.
 
 ### Verified speed from CI smoke — frozen `02fafbc0`
 
@@ -12510,6 +12521,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
+| 2026-10-04 | `95e67679` (base plus portable wait-status fix) | not remeasured | not remeasured | CI Python 3.8 failure reproduced and fixed | Run37231887059 publishes zero-sample harness failures; status conversion uses existing POSIX APIs. Real child regression verifies exits0/2/5, SIGTERM and timeout/SIGKILL without the Python3.9 helper;45 reporting/evidence/cache tests pass locally. Complete remote publication remains pending; no checker corpus or speed claim. |
 | 2026-10-04 | `02fafbc0` (frozen compiler; reporting changes separately reviewed) | not remeasured | not remeasured | Whole-project observational CI plumbing | `tsr-1yb.8.1`: 44 script tests, workflow syntax/order guards and five public pairs per mode; 66 loaded files and one complete diagnostic match. Warmup/preflight failures persist child evidence; setup failure cannot reuse stale output. Remote workflow/artifact verification remains pending. No representative throughput, corpus delta or verified native <=0.50 claim. |
 | 2026-10-04 | `9c176c03` (base plus hashed helper) | unchanged | unchanged | CJS component-vector removal; isolated speed gain | `tsr-1yb.2.1.3.1.2`: normal paired5+5 gains1.04%/1.52%, median saves43.423/63.893ms;474251type rows and10570eligible diagnostics byte-identical,460045RIGHT preserved.45852native path pairs,1364checked identities/order,14015loaded,122complete app diagnostics;204release tests/1existingignore, strictClippy/format, native95resolver/96loader snapshots unchanged. Observed51018inputs stable; no RSS or comparable native<=0.50 claim. |
 | 2026-10-04 | `181b5e29` (base plus hashed temporary probe) | not remeasured | not remeasured | Resolver construction attribution; no speed claim | `tsr-1yb.2.1.3.1.1`: five app variants preserve122diagnostics/14015loaded, four marked variants1364checked, 51018observed input paths stable. Final relative helper41.637/42.101ms;90release tests, four mutation tests, strictClippy/format, native95resolver/96loader unchanged. Seven physical projects expose known empty-suffix/CLI-trace failures. CJS component candidate2.1.3.1.2 owns next normal paired experiment; broad attribution/input completeness and comparable native<=0.50 remain open. |

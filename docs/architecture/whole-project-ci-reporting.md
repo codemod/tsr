@@ -38,6 +38,12 @@ are retained per mode. Source/oracle checkout revisions do not independently pro
 which source produced a caller-supplied binary; CI builds from its checkout, while
 local users must preserve their build provenance.
 
+The harness requires POSIX `wait4` and Python 3.8 or newer. It converts ordinary
+and signaled child statuses with `WIFEXITED`/`WEXITSTATUS` and
+`WIFSIGNALED`/`WTERMSIG`; it does not require Python 3.9's
+`waitstatus_to_exitcode`. The timer and `wait4` still own termination and reaping,
+so the resource receipt belongs to that child.
+
 ## Failure handling and gate boundaries
 
 Normal compiler exits 0, 1 and 2 can represent completed checks with diagnostics.
@@ -62,10 +68,13 @@ and job summaries run with `always()`, including after compiler or gate failures
 
 ## Validation and remaining evidence
 
-All 44 script tests pass, including real subprocess controls for accepted/error
+All 45 script tests pass, including real subprocess controls for accepted/error
 checks, options/scope/full-diagnostic mismatches, input mutation, warmup crash and
 timeout, missing binaries, failed setup, and stale successful output. YAML syntax,
 step ordering and the exclusive concurrency group were checked locally.
+The new child-process control removes the Python 3.9 wait helper and verifies
+exit codes 0/2/5, SIGTERM, timeout/SIGKILL and per-child resources. The reporting
+suite has 34 tests; cache-isolation and phase-cost controls add seven and four.
 
 A release TSR binary built from `02fafbc0f8b6ad9274ee68a752c1e480ba587b54` and
 clean native `5b1047d10d32e7d5b446be4de56b126ff42f82bb` completed five pairs in
@@ -76,8 +85,13 @@ cross-tool query-input coverage are unverified. The local receipt is
 `/tmp/tsr-ci-observations-final-02fa/observations.json`; these observations qualify
 reporting behavior at the frozen source, not throughput on a later main revision.
 
-Remote workflow execution and artifact publication require a completed GitHub
-run; local validation alone is not that evidence. Beads `tsr-1yb.8.1` tracks the
+The first remote run, [37231887059](https://github.com/codemod/tsr/actions/runs/37231887059)
+at `95e676791866234ddfa220a85847eb88c30fd76e`, published its artifact but failed
+the controls: its Python 3.8 interpreter lacked `os.waitstatus_to_exitcode`.
+Downloaded `whole-project-results/observations.json` confirms both modes were
+`harness_failed`, with zero samples and `release_target_verified=false`. The
+portable status conversion addresses that confirmed failure; a later successful
+remote run still must verify complete publication. Beads `tsr-1yb.8.1` tracks the
 publication deliverable. Parent `.8` retains broader integration; `.1.2` owns
 performed-work evidence, `.1.3` owns the representative public suite, and `.13`
 owns the later regression ratchet. The verified native wall ratio <=0.50 remains

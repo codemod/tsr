@@ -68,7 +68,14 @@ def process(command: list[str], cwd: Path, timeout: float) -> dict:
         timer.start()
         try:
             _, status, usage = os.wait4(child.pid, 0)
-            child.returncode = os.waitstatus_to_exitcode(status)
+            # Python 3.8 on the reporting runner has wait4 but not the 3.9
+            # waitstatus_to_exitcode helper. Preserve subprocess exit semantics.
+            if os.WIFSIGNALED(status):
+                child.returncode = -os.WTERMSIG(status)
+            elif os.WIFEXITED(status):
+                child.returncode = os.WEXITSTATUS(status)
+            else:
+                raise ValueError(f"Unexpected child wait status: {status}")
         finally:
             timer.cancel()
             timer.join()
