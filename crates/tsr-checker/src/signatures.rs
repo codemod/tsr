@@ -3771,6 +3771,13 @@ impl<'a> Checker<'a, '_> {
                         && node.initializer.and_then(|i| Node::from(i).node_id())
                             == Some(position);
                 }
+                Some(Node::PropertyDeclaration(node)) => {
+                    // getContextualTypeForVariableLikeDeclaration: only an
+                    // annotation or a static class-expression field can
+                    // supply context. Reuse the initializer-position proof.
+                    return node.initializer.and_then(|i| i.node_id()) == Some(position)
+                        && !self.initializer_position_is_contextual(parent, position);
+                }
                 Some(Node::ParenthesizedExpression(node)) => {
                     if node.expression.and_then(|e| e.node_id()) != Some(position) {
                         return false;
@@ -6394,6 +6401,92 @@ mod tests {
             return checker.type_to_string(type_id);
         }
         "<no function expression>".to_string()
+    }
+
+    /// Native 5b1047d does not take context from an unannotated instance
+    /// field, or a static field of a class declaration. Callback defaults
+    /// and returns therefore infer as they do in an unannotated variable.
+    #[test]
+    fn unannotated_class_fields_infer_function_parameters_and_returns() {
+        let field_type = |source: &str| {
+            let arena = tsr_core::Arena::new();
+            let parsed = tsr_parser::parse(&arena, source);
+            assert!(parsed.diagnostics.is_empty());
+            let bound = tsr_binder::bind(
+                &arena,
+                parsed.source_file,
+                &parsed.nodes,
+                tsr_binder::FileInfo { name: "t.ts", text: source },
+            );
+            let mut checker = crate::Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+            let initializer = (0..parsed.nodes.len())
+                .find_map(|index| {
+                    #[allow(clippy::cast_possible_truncation)]
+                    let id = tsr_ast::NodeId::new(index as u32);
+                    match parsed.node_map.get(id) {
+                        Some(tsr_ast::Node::PropertyDeclaration(field)) => field.initializer,
+                        _ => None,
+                    }
+                })
+                .expect("a class field initializer");
+            let ty = checker.check_expression(initializer);
+            checker.type_to_string(ty)
+        };
+        for source in [
+            "class C { f = (cb = function () {}) => 'value'; }",
+            "class C { static f = (cb = function () {}) => 'value'; }",
+            "const C = class { f = (cb = function () {}) => 'value'; };",
+            "class C { f = ((cb = function () {}) => 'value'); }",
+        ] {
+            assert_eq!(field_type(source), "(cb?: () => void) => string", "{source}");
+        }
+        for source in [
+            "class C { f = function (cb = () => 1) { return 0; }; }",
+            "class C { static f = function (cb = () => 1) { return 0; }; }",
+            "const C = class { f = function (cb = () => 1) { return 0; }; };",
+        ] {
+            assert_eq!(field_type(source), "(cb?: () => number) => number", "{source}");
+        }
+        assert_eq!(
+            field_type("class C { f = parameter => parameter; }"),
+            "(parameter: any) => any"
+        );
+        assert_eq!(
+            field_type(
+                "class Base { f: (parameter: 'base') => 'base'; } class C extends Base { f = parameter => 'derived'; }"
+            ),
+            "(parameter: any) => string"
+        );
+    }
+
+    /// An annotation is a context source, as is the enclosing contextual type
+    /// of a static class-expression field. Neither licenses implicit any.
+    #[test]
+    fn contextual_class_fields_do_not_prove_contextual_absence() {
+        for source in [
+            "class C { f: (parameter: 'context') => 'context' = parameter => parameter; }",
+            "class C { static f: (parameter: 'context') => 'context' = parameter => parameter; }",
+            "const C: { new(): {}; f: (parameter: 'context') => 'context' } = class { static f = parameter => parameter; };",
+        ] {
+            let arena = tsr_core::Arena::new();
+            let parsed = tsr_parser::parse(&arena, source);
+            assert!(parsed.diagnostics.is_empty());
+            let bound = tsr_binder::bind(
+                &arena,
+                parsed.source_file,
+                &parsed.nodes,
+                tsr_binder::FileInfo { name: "t.ts", text: source },
+            );
+            let checker = crate::Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+            let arrow = (0..parsed.nodes.len())
+                .find_map(|index| {
+                    #[allow(clippy::cast_possible_truncation)]
+                    let id = tsr_ast::NodeId::new(index as u32);
+                    (parsed.nodes.kind(id) == SyntaxKind::ArrowFunction).then_some(id)
+                })
+                .expect("an arrow initializer");
+            assert!(!checker.has_no_contextual_type(arrow), "{source}");
+        }
     }
 
     /// A unit return widens even where a contextual type could exist, because
