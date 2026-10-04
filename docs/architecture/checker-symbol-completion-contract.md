@@ -149,13 +149,17 @@ the very domain check this layout establishes.
 | Checker `symbol_types`, `declared_types`, `this_types`, signature cache, `resolutions` and instantiation/alias target metadata | Migrate keys/values when their native operations can select private symbols; resolution stack keys must preserve property kind as well as symbol identity. Include `type_reference_targets` and deferred alias/mapper ownership channels in the call-site audit. |
 | Binder declaration lookup, bound assignment scans and bound declaration-check sets | Remain Program-id APIs where the operation really addresses a binder declaration. A private clone explicitly reaches its origin/declarations through the accessor; no unchecked demotion. Do not mechanically widen every SymbolId table. |
 
-The current bound SymbolStore stores member/export maps without a native
-nil/present distinction. Its production clone currently copies the actual Rust
-maps, including empty maps. Private records preserve absent tables, but this
-does not recover missing bound metadata or certify native clone/table
-publication. `tsr-1yb.7.7.1.1` owns the representation and mutation audit. Do not
-infer absence from emptiness or use has_member_table/has_export_table as a
-completed-member predicate.
+Bound members/exports use `SymbolTableField`, preserving native absent versus
+initialized-empty state. Scope tables retain `SymbolTable`. Reads preserve
+absence; explicit initialization and insertion publish a table, and removal or
+clear retain its presence. Bound-to-private clones copy that state with independent
+tables. The [presence evidence](checker-symbol-table-presence.md) records native
+controls, public API compatibility, complete preservation and measured overhead.
+Native prototype/signature contents and disjoint internal keys remain
+`tsr-1yb.7.7.1.1.1` / `.1.1.1.1`; metadata agreement
+does not certify those complete images. Storage and table-fidelity tasks remain
+open until their content/cost gates pass. Do not infer absence from emptiness or
+use has_member_table/has_export_table as a completed-member predicate.
 
 Owner changes to public TypeData variants/factories need a repository-wide
 caller audit and coordinated edits. Bound-only compatibility APIs do not

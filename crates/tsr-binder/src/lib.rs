@@ -77,7 +77,9 @@ use tsr_diagnostics::Diagnostic;
 pub use binder::{is_declaration_file, is_external_module};
 pub use container::{ContainerFlags, container_flags};
 pub use flow::{Antecedents, FlowFlags, FlowId, FlowStore, ReduceLabel, SwitchClause};
-pub use symbol::{Symbol, SymbolFlags, SymbolId, SymbolStore, SymbolStoreIdentity, SymbolTable};
+pub use symbol::{
+    Symbol, SymbolFlags, SymbolId, SymbolStore, SymbolStoreIdentity, SymbolTable, SymbolTableField,
+};
 
 bitflags::bitflags! {
     /// Per-node conclusions the binder reaches on its way through.
@@ -864,8 +866,12 @@ impl<'a> BindResult<'a> {
             }
             if let Some(symbol) = self.symbol_of(node) {
                 let symbol = self.symbols.get(symbol);
-                push(&mut names, &symbol.members);
-                push(&mut names, &symbol.exports);
+                if let Some(table) = symbol.members.as_ref() {
+                    push(&mut names, table);
+                }
+                if let Some(table) = symbol.exports.as_ref() {
+                    push(&mut names, table);
+                }
             }
             current = nodes.parent(node);
         }

@@ -1457,3 +1457,28 @@ fn infer_parameters_belong_to_their_conditional_and_only_its_true_branch() {
     assert_eq!(resolve_type(&bound, second_false, "U"), Some(outer));
     assert_eq!(bound.result.symbols().get(first).declarations.len(), 1);
 }
+
+#[test]
+fn native_member_export_table_presence_is_lazy() {
+    let arena = Arena::new();
+    let bound = bind(
+        &arena,
+        "interface EmptyInterface {} interface FullInterface { field: string } namespace EmptyNamespace {} namespace HiddenNamespace { const hidden = 1; } namespace FullNamespace { export const visible = 1; } class EmptyClass {} class FullClass { field: string; static value: number; }",
+    );
+    for (name, members, exports) in [
+        ("EmptyInterface", false, false),
+        ("FullInterface", true, false),
+        ("EmptyNamespace", false, false),
+        ("HiddenNamespace", false, false),
+        ("FullNamespace", false, true),
+        ("EmptyClass", false, true),
+        ("FullClass", true, true),
+    ] {
+        let id = bound.result.lookup_local(bound.root(), name).unwrap();
+        let symbol = bound.result.symbols().get(id);
+        assert_eq!(symbol.members.is_present(), members, "{name} members");
+        assert_eq!(symbol.exports.is_present(), exports, "{name} exports");
+    }
+    // Presence is characterized here; synthetic prototype/signature edge
+    // contents remain independently tracked by tsr-1yb.7.7.1.1.1.
+}

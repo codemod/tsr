@@ -286,9 +286,9 @@ pub struct Symbol<'a> {
     /// The declaration that gives the symbol its value, if any.
     pub value_declaration: Option<NodeId>,
     /// Members, for a class, interface, enum, or type literal.
-    pub members: SymbolTable<'a>,
+    pub members: SymbolTableField<'a>,
     /// Exports, for a module or namespace.
-    pub exports: SymbolTable<'a>,
+    pub exports: SymbolTableField<'a>,
     /// The symbol whose table this one lives in.
     pub parent: Option<SymbolId>,
     /// For an **export marker**, the export symbol it shadows.
@@ -327,6 +327,139 @@ pub struct Symbol<'a> {
 
 /// Names to symbols, within one scope.
 pub type SymbolTable<'a> = FxHashMap<&'a str, SymbolId>;
+
+/// A symbol's native nil-or-present member/export table.
+/// Reads preserve absence. Initialization and insertion publish a present table;
+/// clearing or removing entries never turns that table back into absence.
+/// Scope tables remain ordinary `SymbolTable`s.
+#[derive(Clone, Debug, Default)]
+pub struct SymbolTableField<'a>(Option<SymbolTable<'a>>);
+
+impl<'a> SymbolTableField<'a> {
+    /// Whether the native table has been initialized, independently of completion.
+    #[must_use]
+    pub fn is_present(&self) -> bool {
+        self.0.is_some()
+    }
+
+    /// Borrow a present table without initializing an absent one.
+    #[must_use]
+    pub fn as_ref(&self) -> Option<&SymbolTable<'a>> {
+        self.0.as_ref()
+    }
+
+    /// Native `GetSymbolTable`: initialize even when the table remains empty.
+    pub fn initialize(&mut self) -> &mut SymbolTable<'a> {
+        self.0.get_or_insert_with(SymbolTable::default)
+    }
+
+    /// One existing edge; this read does not publish a table.
+    #[must_use]
+    pub fn get<Q>(&self, name: &Q) -> Option<&SymbolId>
+    where
+        &'a str: std::borrow::Borrow<Q>,
+        Q: ?Sized + Hash + Eq,
+    {
+        self.0.as_ref()?.get(name)
+    }
+
+    /// One existing mutable edge, without initializing an absent table.
+    pub fn get_mut<Q>(&mut self, name: &Q) -> Option<&mut SymbolId>
+    where
+        &'a str: std::borrow::Borrow<Q>,
+        Q: ?Sized + Hash + Eq,
+    {
+        self.0.as_mut()?.get_mut(name)
+    }
+
+    /// Insert an edge, initializing its table first.
+    pub fn insert(&mut self, name: &'a str, symbol: SymbolId) -> Option<SymbolId> {
+        self.initialize().insert(name, symbol)
+    }
+
+    /// Remove an edge, preserving table presence.
+    pub fn remove<Q>(&mut self, name: &Q) -> Option<SymbolId>
+    where
+        &'a str: std::borrow::Borrow<Q>,
+        Q: ?Sized + Hash + Eq,
+    {
+        self.0.as_mut()?.remove(name)
+    }
+
+    /// Clear an existing table, preserving its presence and capacity.
+    pub fn clear(&mut self) {
+        if let Some(table) = &mut self.0 {
+            table.clear();
+        }
+    }
+
+    /// Whether an edge exists, independently of table completion.
+    #[must_use]
+    pub fn contains_key<Q>(&self, name: &Q) -> bool
+    where
+        &'a str: std::borrow::Borrow<Q>,
+        Q: ?Sized + Hash + Eq,
+    {
+        self.get(name).is_some()
+    }
+
+    /// The number of existing edges. Absence and a present empty table both have zero.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.0.as_ref().map_or(0, SymbolTable::len)
+    }
+
+    /// Whether there are no edges; this does not answer whether a table is present.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Retained edge capacity, without initializing an absent table.
+    #[must_use]
+    pub fn capacity(&self) -> usize {
+        self.0.as_ref().map_or(0, SymbolTable::capacity)
+    }
+
+    /// Existing edges in the unchanged underlying table's iteration order.
+    pub fn iter(&self) -> SymbolTableFieldIter<'_, 'a> {
+        self.0.as_ref().map(SymbolTable::iter).into_iter().flatten()
+    }
+
+    /// Existing names, without publishing a table.
+    pub fn keys(&self) -> impl Iterator<Item = &&'a str> + std::fmt::Debug {
+        self.iter().map(|(name, _)| name)
+    }
+
+    /// Existing bound ids, without publishing a table.
+    pub fn values(&self) -> impl Iterator<Item = &SymbolId> {
+        self.iter().map(|(_, id)| id)
+    }
+}
+
+/// Borrowed iteration over a possibly absent symbol table.
+pub type SymbolTableFieldIter<'s, 'a> = std::iter::Flatten<
+    std::option::IntoIter<std::collections::hash_map::Iter<'s, &'a str, SymbolId>>,
+>;
+
+impl<'s, 'a> IntoIterator for &'s SymbolTableField<'a> {
+    type Item = (&'s &'a str, &'s SymbolId);
+    type IntoIter = SymbolTableFieldIter<'s, 'a>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
+impl<'a, Q> std::ops::Index<&Q> for SymbolTableField<'a>
+where
+    &'a str: std::borrow::Borrow<Q>,
+    Q: ?Sized + Hash + Eq,
+{
+    type Output = SymbolId;
+    fn index(&self, name: &Q) -> &Self::Output {
+        &self.0.as_ref().expect("no entry found for key")[name]
+    }
+}
 
 /// Allocation identity of one bound Program symbol store.
 /// Retained handles keep only this stamp alive, never its symbols or AST.
@@ -384,8 +517,8 @@ impl<'a> SymbolStore<'a> {
             name,
             declarations: SmallVec::new(),
             value_declaration: None,
-            members: SymbolTable::default(),
-            exports: SymbolTable::default(),
+            members: SymbolTableField::default(),
+            exports: SymbolTableField::default(),
             parent: None,
             export_symbol: None,
         });
@@ -427,6 +560,50 @@ impl<'a> SymbolStore<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn absent_table_reads_and_mutable_misses_do_not_initialize() {
+        let mut table = SymbolTableField::default();
+        assert!(!table.is_present());
+        assert!(table.get("missing").is_none());
+        assert!(table.get_mut("missing").is_none());
+        assert!(table.remove("missing").is_none());
+        assert!(table.is_empty());
+        assert_eq!(table.capacity(), 0);
+        assert_eq!(table.iter().count(), 0);
+        table.clear();
+        assert!(!table.is_present());
+        assert!(!table.clone().is_present());
+    }
+
+    #[test]
+    fn initialized_empty_clone_and_clear_keep_native_presence() {
+        let mut symbols = SymbolStore::new();
+        let edge = symbols.create("edge", SymbolFlags::PROPERTY);
+        let mut table = SymbolTableField::default();
+        table.initialize();
+        let mut clone = table.clone();
+        assert!(table.is_present() && clone.is_present());
+        assert!(table.is_empty() && clone.is_empty());
+        clone.insert("edge", edge);
+        assert_eq!(clone["edge"], edge);
+        assert!(table.get("edge").is_none());
+        clone.clear();
+        assert!(clone.is_present() && clone.is_empty());
+        assert!(table.is_present() && table.is_empty());
+    }
+
+    #[test]
+    fn removing_last_edge_keeps_table_present() {
+        let mut symbols = SymbolStore::new();
+        let edge = symbols.create("edge", SymbolFlags::PROPERTY);
+        let mut table = SymbolTableField::default();
+        table.insert("edge", edge);
+        assert!(table.is_present());
+        assert_eq!(table.remove("edge"), Some(edge));
+        assert!(table.is_present() && table.is_empty());
+        assert!(table.as_ref().is_some());
+    }
 
     #[test]
     fn variables_and_functions_have_the_merge_rules_typescript_has() {

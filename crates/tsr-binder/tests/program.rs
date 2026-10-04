@@ -922,3 +922,37 @@ fn a_namespace_in_a_declaration_file_exports_what_it_declares() {
     let exports: Vec<&str> = result.symbols().get(dom).exports.keys().copied().collect();
     assert!(exports.contains(&"JSX"), "a .d.ts namespace exports implicitly; got {exports:?}");
 }
+
+#[test]
+fn cross_file_merge_preserves_a_present_export_table_in_either_order() {
+    // Native mergeSymbol preserves source/target table presence separately from
+    // its entries. Class prototype contents have their own porting task; this
+    // control checks the publication state of the merged declaration.
+    for declarations in [
+        [("namespace.ts", "namespace M {}"), ("class.ts", "class M {}")],
+        [("class.ts", "class M {}"), ("namespace.ts", "namespace M {}")],
+    ] {
+        let arena = Arena::new();
+        let mut nodes = NodeTable::new();
+        let mut node_map = NodeMap::new();
+        let (result, _) = bind_program(&arena, &declarations, &mut nodes, &mut node_map);
+        let merged = result.symbols().get(result.global("M").expect("merged declaration"));
+        assert_eq!(merged.declarations.len(), 2);
+        assert!(merged.flags.contains(SymbolFlags::CLASS));
+        assert!(merged.exports.is_present(), "class exports survive either merge order");
+        assert!(!merged.members.is_present(), "an empty class has no member table");
+    }
+
+    let arena = Arena::new();
+    let mut nodes = NodeTable::new();
+    let mut node_map = NodeMap::new();
+    let (result, _) = bind_program(
+        &arena,
+        &[("a.ts", "namespace N {}"), ("b.ts", "namespace N {}")],
+        &mut nodes,
+        &mut node_map,
+    );
+    let merged = result.symbols().get(result.global("N").expect("merged namespace"));
+    assert_eq!(merged.declarations.len(), 2);
+    assert!(!merged.exports.is_present(), "merging absent tables does not publish one");
+}

@@ -1,0 +1,1651 @@
+{
+  "baseline_source": "ebb65c8a8461e6e1f070a4ec16763b86f071ca8a",
+  "candidate_owned_source": {
+    "crates/tsr-binder/src/binder.rs": "d6442e31b742b3fbc6948453e278bfe13b27cf1a8dcc2f1c68169a2f596f7548",
+    "crates/tsr-binder/src/lib.rs": "6c600192b98da54bc99cb6afe13b5ab2604b9980693529f2d79c625c2f6eb7a0",
+    "crates/tsr-binder/src/symbol.rs": "537b372824ab9285fc1d77296ca6b524ca470a43ebd02cf0cab6673fe3ad5558",
+    "crates/tsr-binder/tests/bind.rs": "19baeeaed5663ccc70e783cf13e401ee24226683870d4aa085527772dd3d30c0",
+    "crates/tsr-checker/src/symbol_access.rs": "62b2026192529ae814fc4226b5a5cf802228320a733c1a8faa8d646adc7d6835",
+    "crates/tsr-checker/tests/symbol_domain_contract.rs": "91483fabbb2804d7659d40c7d2798de938aaf2d33585d535996d027c2b478f80",
+    "crates/tsr-binder/tests/program.rs": "360ad7825a66b8fa86e14d5f55f98f6027dc360a0db7c407cc4770b226f70d23"
+  },
+  "normal_binaries": {
+    "baseline": {
+      "tsr": "6a05787f10dcb31e1356c7c909d60783c9f672f41175067af7fc85fc4b12de50",
+      "types": "83a2debce7192744ea0dcd0bad0c5773c591673e6c63b0a616ef86a7fb2d731a",
+      "diagnostics": "7449e9c916996fd8d60ca07653e0b4801a6054dbcba9c5ffdca31786448d82f6"
+    },
+    "candidate": {
+      "tsr": "4336311fa8a19d9747ad7fd6057c08317f376ff0ee08c80632137c60056922bf",
+      "types": "4b6c21570148f2a6f2fa9705c6faa19ee812ffb760fe62190a6a56b33d296d7a",
+      "diagnostics": "f3688ba69ab88507eaa1ddaf8f41f7e316ca825ac36cc50452843e3efeabbc62"
+    }
+  },
+  "corpus": {
+    "baseline": {
+      "types": {
+        "exit": 0,
+        "elapsed_seconds": 224.8012470829999,
+        "sha256": "d07533e4efc0df03298218637d6b96a481988b7797459f83aa12468d1c1a70d7",
+        "bytes": 59376695,
+        "rows": 474257,
+        "summary": "TOTAL 474251  right 459598  gap 2183  wrong 12470\n"
+      },
+      "diagnostics": {
+        "exit": 0,
+        "elapsed_seconds": 266.89382091601146,
+        "sha256": "5a717255d0a9ca7d7ce5dbd0997765ec83eb34eab48cadc6d8ea84c1dc2bcdcc",
+        "bytes": 6091508,
+        "rows": 10570,
+        "summary": ""
+      }
+    },
+    "candidate": {
+      "types": {
+        "exit": 0,
+        "elapsed_seconds": 212.38840691701625,
+        "sha256": "d07533e4efc0df03298218637d6b96a481988b7797459f83aa12468d1c1a70d7",
+        "bytes": 59376695,
+        "rows": 474257,
+        "summary": "TOTAL 474251  right 459598  gap 2183  wrong 12470\n",
+        "byte_equal": true
+      },
+      "diagnostics": {
+        "exit": 0,
+        "elapsed_seconds": 262.35793441699934,
+        "sha256": "5a717255d0a9ca7d7ce5dbd0997765ec83eb34eab48cadc6d8ea84c1dc2bcdcc",
+        "bytes": 6091508,
+        "rows": 10570,
+        "summary": "",
+        "byte_equal": true
+      }
+    }
+  },
+  "quality": {
+    "binder": {
+      "passed": 114,
+      "ignored": 0
+    },
+    "checker": {
+      "passed": 168,
+      "ignored": 2
+    },
+    "workspace_all_targets_check": true,
+    "strict_affected_clippy": true
+  },
+  "native": {
+    "pin": "5b1047d10d32e7d5b446be4de56b126ff42f82bb",
+    "assertions": 171,
+    "control_cases": 15,
+    "original_native_implementation_hashes": {
+      "internal/ast/symbol.go": "7c2e4e59c0b72fa384559d77db10be01b7aa5529047ef12a81e544d17c051aa6",
+      "internal/ast/symbolflags.go": "d2bc63d0f12e6b8e898d331158e07e70772a869347dc97229a9a33d161350c75",
+      "internal/ast/utilities.go": "519d56e27c9376d979e3b34bcf8bd01f4771659805812a2a488f10a075b8d41b",
+      "internal/binder/binder.go": "57e2979723955db260296eefb9fe95cf5ebe322fddfb068be891fcb8a4a92bdc",
+      "checker.cloneSymbol": "eaab08aa9c2bc67abedad0706f9f97847ff268abe45df11993d954d7710d32ad",
+      "checker.mergeSymbol": "c17e6e633432cb36a7eb8a2891dd1888cdba114ef21b088cd7ea85134062e5a6",
+      "checker.mergeSymbolTable": "799cde67d8c882344f52479135df0c57797afdda0450be249fae98b97e1954c3"
+    },
+    "portable_probe_patch_sha256": "3ed42711071c934c34e9ecce46982a79471eb28ffecd370ed4f9fca7e89af41b",
+    "applies_to_clean_pin": true,
+    "run": {
+      "exit_code": 0,
+      "stdout": "SYMBOL_TABLE_PRESENCE\t{\"assertions\":171,\"controls\":{\"ConstructorType\":{\"bound_edges_unchanged\":true,\"bound_presence_unchanged\":true,\"clear_retains_present_empty_tables\":true,\"clone_is_private\":true,\"clone_preserves_export_edges\":true,\"clone_preserves_export_presence\":true,\"clone_preserves_member_edges\":true,\"clone_preserves_member_presence\":true,\"getters_initialize_empty_tables\":true},\"EmptyClass\":{\"bound_edges_unchanged\":true,\"bound_presence_unchanged\":true,\"clear_retains_present_empty_tables\":true,\"clone_is_private\":true,\"clone_preserves_export_edges\":true,\"clone_preserves_export_presence\":true,\"clone_preserves_member_edges\":true,\"clone_preserves_member_presence\":true,\"getters_initialize_empty_tables\":true},\"EmptyInterface\":{\"bound_edges_unchanged\":true,\"bound_presence_unchanged\":true,\"clear_retains_present_empty_tables\":true,\"clone_is_private\":true,\"clone_preserves_export_edges\":true,\"clone_preserves_export_presence\":true,\"clone_preserves_member_edges\":true,\"clone_preserves_member_presence\":true,\"getters_initialize_empty_tables\":true},\"EmptyLiteral\":{\"bound_edges_unchanged\":true,\"bound_presence_unchanged\":true,\"clear_retains_present_empty_tables\":true,\"clone_is_private\":true,\"clone_preserves_export_edges\":true,\"clone_preserves_export_presence\":true,\"clone_preserves_member_edges\":true,\"clone_preserves_member_presence\":true,\"getters_initialize_empty_tables\":true},\"EmptyNamespace\":{\"bound_edges_unchanged\":true,\"bound_presence_unchanged\":true,\"clear_retains_present_empty_tables\":true,\"clone_is_private\":true,\"clone_preserves_export_edges\":true,\"clone_preserves_export_presence\":true,\"clone_preserves_member_edges\":true,\"clone_preserves_member_presence\":true,\"getters_initialize_empty_tables\":true},\"ExplicitEmpty\":{\"bound_edges_unchanged\":true,\"bound_presence_unchanged\":true,\"clear_retains_present_empty_tables\":true,\"clone_is_private\":true,\"clone_preserves_export_edges\":true,\"clone_preserves_export_presence\":true,\"clone_preserves_member_edges\":true,\"clone_preserves_member_presence\":true,\"getters_initialize_empty_tables\":true},\"FullClass\":{\"bound_edges_unchanged\":true,\"bound_presence_unchanged\":true,\"clear_retains_present_empty_tables\":true,\"clone_is_private\":true,\"clone_preserves_export_edges\":true,\"clone_preserves_export_presence\":true,\"clone_preserves_member_edges\":true,\"clone_preserves_member_presence\":true,\"getters_initialize_empty_tables\":true},\"FullInterface\":{\"bound_edges_unchanged\":true,\"bound_presence_unchanged\":true,\"clear_retains_present_empty_tables\":true,\"clone_is_private\":true,\"clone_preserves_export_edges\":true,\"clone_preserves_export_presence\":true,\"clone_preserves_member_edges\":true,\"clone_preserves_member_presence\":true,\"getters_initialize_empty_tables\":true},\"FullLiteral\":{\"bound_edges_unchanged\":true,\"bound_presence_unchanged\":true,\"clear_retains_present_empty_tables\":true,\"clone_is_private\":true,\"clone_preserves_export_edges\":true,\"clone_preserves_export_presence\":true,\"clone_preserves_member_edges\":true,\"clone_preserves_member_presence\":true,\"getters_initialize_empty_tables\":true},\"FullNamespace\":{\"bound_edges_unchanged\":true,\"bound_presence_unchanged\":true,\"clear_retains_present_empty_tables\":true,\"clone_is_private\":true,\"clone_preserves_export_edges\":true,\"clone_preserves_export_presence\":true,\"clone_preserves_member_edges\":true,\"clone_preserves_member_presence\":true,\"getters_initialize_empty_tables\":true},\"FunctionType\":{\"bound_edges_unchanged\":true,\"bound_presence_unchanged\":true,\"clear_retains_present_empty_tables\":true,\"clone_is_private\":true,\"clone_preserves_export_edges\":true,\"clone_preserves_export_presence\":true,\"clone_preserves_member_edges\":true,\"clone_preserves_member_presence\":true,\"getters_initialize_empty_tables\":true},\"HiddenNamespace\":{\"bound_edges_unchanged\":true,\"bound_presence_unchanged\":true,\"clear_retains_present_empty_tables\":true,\"clone_is_private\":true,\"clone_preserves_export_edges\":true,\"clone_preserves_export_presence\":true,\"clone_preserves_member_edges\":true,\"clone_preserves_member_presence\":true,\"getters_initialize_empty_tables\":true},\"merge_empty_with_nil\":{\"bound_source_presence_unchanged\":true,\"bound_target_presence_unchanged\":true,\"merge_export_presence_is_union\":true,\"merge_member_presence_is_union\":true,\"merge_result_is_private\":true},\"merge_nil_with_empty\":{\"bound_source_presence_unchanged\":true,\"bound_target_presence_unchanged\":true,\"merge_export_presence_is_union\":true,\"merge_member_presence_is_union\":true,\"merge_result_is_private\":true},\"merge_nil_with_nil\":{\"bound_source_presence_unchanged\":true,\"bound_target_presence_unchanged\":true,\"merge_export_presence_is_union\":true,\"merge_member_presence_is_union\":true,\"merge_result_is_private\":true}},\"observations\":{\"ConstructorType\":{\"MembersPresent\":true,\"ExportsPresent\":false,\"MemberNames\":[\"\\ufffdnew\"],\"ExportNames\":null,\"MemberKeysHex\":[\"fe6e6577\"],\"ExportKeysHex\":[]},\"EmptyClass\":{\"MembersPresent\":false,\"ExportsPresent\":true,\"MemberNames\":null,\"ExportNames\":[\"prototype\"],\"MemberKeysHex\":[],\"ExportKeysHex\":[\"70726f746f74797065\"]},\"EmptyInterface\":{\"MembersPresent\":false,\"ExportsPresent\":false,\"MemberNames\":null,\"ExportNames\":null,\"MemberKeysHex\":[],\"ExportKeysHex\":[]},\"EmptyLiteral\":{\"MembersPresent\":false,\"ExportsPresent\":false,\"MemberNames\":null,\"ExportNames\":null,\"MemberKeysHex\":[],\"ExportKeysHex\":[]},\"EmptyNamespace\":{\"MembersPresent\":false,\"ExportsPresent\":false,\"MemberNames\":null,\"ExportNames\":null,\"MemberKeysHex\":[],\"ExportKeysHex\":[]},\"ExplicitEmpty\":{\"MembersPresent\":true,\"ExportsPresent\":true,\"MemberNames\":null,\"ExportNames\":null,\"MemberKeysHex\":[],\"ExportKeysHex\":[]},\"FullClass\":{\"MembersPresent\":true,\"ExportsPresent\":true,\"MemberNames\":[\"field\"],\"ExportNames\":[\"prototype\",\"value\"],\"MemberKeysHex\":[\"6669656c64\"],\"ExportKeysHex\":[\"70726f746f74797065\",\"76616c7565\"]},\"FullInterface\":{\"MembersPresent\":true,\"ExportsPresent\":false,\"MemberNames\":[\"field\"],\"ExportNames\":null,\"MemberKeysHex\":[\"6669656c64\"],\"ExportKeysHex\":[]},\"FullLiteral\":{\"MembersPresent\":true,\"ExportsPresent\":false,\"MemberNames\":[\"field\"],\"ExportNames\":null,\"MemberKeysHex\":[\"6669656c64\"],\"ExportKeysHex\":[]},\"FullNamespace\":{\"MembersPresent\":false,\"ExportsPresent\":true,\"MemberNames\":null,\"ExportNames\":[\"visible\"],\"MemberKeysHex\":[],\"ExportKeysHex\":[\"76697369626c65\"]},\"FunctionType\":{\"MembersPresent\":true,\"ExportsPresent\":false,\"MemberNames\":[\"\\ufffdcall\"],\"ExportNames\":null,\"MemberKeysHex\":[\"fe63616c6c\"],\"ExportKeysHex\":[]},\"HiddenNamespace\":{\"MembersPresent\":false,\"ExportsPresent\":false,\"MemberNames\":null,\"ExportNames\":null,\"MemberKeysHex\":[],\"ExportKeysHex\":[]}}}\n",
+      "stderr": "",
+      "binary_sha256": "52580970deb6861c001a6f29da091a8790be082ba880d11a415d47e1a3ad1d00"
+    },
+    "payload": {
+      "assertions": 171,
+      "controls": {
+        "ConstructorType": {
+          "bound_edges_unchanged": true,
+          "bound_presence_unchanged": true,
+          "clear_retains_present_empty_tables": true,
+          "clone_is_private": true,
+          "clone_preserves_export_edges": true,
+          "clone_preserves_export_presence": true,
+          "clone_preserves_member_edges": true,
+          "clone_preserves_member_presence": true,
+          "getters_initialize_empty_tables": true
+        },
+        "EmptyClass": {
+          "bound_edges_unchanged": true,
+          "bound_presence_unchanged": true,
+          "clear_retains_present_empty_tables": true,
+          "clone_is_private": true,
+          "clone_preserves_export_edges": true,
+          "clone_preserves_export_presence": true,
+          "clone_preserves_member_edges": true,
+          "clone_preserves_member_presence": true,
+          "getters_initialize_empty_tables": true
+        },
+        "EmptyInterface": {
+          "bound_edges_unchanged": true,
+          "bound_presence_unchanged": true,
+          "clear_retains_present_empty_tables": true,
+          "clone_is_private": true,
+          "clone_preserves_export_edges": true,
+          "clone_preserves_export_presence": true,
+          "clone_preserves_member_edges": true,
+          "clone_preserves_member_presence": true,
+          "getters_initialize_empty_tables": true
+        },
+        "EmptyLiteral": {
+          "bound_edges_unchanged": true,
+          "bound_presence_unchanged": true,
+          "clear_retains_present_empty_tables": true,
+          "clone_is_private": true,
+          "clone_preserves_export_edges": true,
+          "clone_preserves_export_presence": true,
+          "clone_preserves_member_edges": true,
+          "clone_preserves_member_presence": true,
+          "getters_initialize_empty_tables": true
+        },
+        "EmptyNamespace": {
+          "bound_edges_unchanged": true,
+          "bound_presence_unchanged": true,
+          "clear_retains_present_empty_tables": true,
+          "clone_is_private": true,
+          "clone_preserves_export_edges": true,
+          "clone_preserves_export_presence": true,
+          "clone_preserves_member_edges": true,
+          "clone_preserves_member_presence": true,
+          "getters_initialize_empty_tables": true
+        },
+        "ExplicitEmpty": {
+          "bound_edges_unchanged": true,
+          "bound_presence_unchanged": true,
+          "clear_retains_present_empty_tables": true,
+          "clone_is_private": true,
+          "clone_preserves_export_edges": true,
+          "clone_preserves_export_presence": true,
+          "clone_preserves_member_edges": true,
+          "clone_preserves_member_presence": true,
+          "getters_initialize_empty_tables": true
+        },
+        "FullClass": {
+          "bound_edges_unchanged": true,
+          "bound_presence_unchanged": true,
+          "clear_retains_present_empty_tables": true,
+          "clone_is_private": true,
+          "clone_preserves_export_edges": true,
+          "clone_preserves_export_presence": true,
+          "clone_preserves_member_edges": true,
+          "clone_preserves_member_presence": true,
+          "getters_initialize_empty_tables": true
+        },
+        "FullInterface": {
+          "bound_edges_unchanged": true,
+          "bound_presence_unchanged": true,
+          "clear_retains_present_empty_tables": true,
+          "clone_is_private": true,
+          "clone_preserves_export_edges": true,
+          "clone_preserves_export_presence": true,
+          "clone_preserves_member_edges": true,
+          "clone_preserves_member_presence": true,
+          "getters_initialize_empty_tables": true
+        },
+        "FullLiteral": {
+          "bound_edges_unchanged": true,
+          "bound_presence_unchanged": true,
+          "clear_retains_present_empty_tables": true,
+          "clone_is_private": true,
+          "clone_preserves_export_edges": true,
+          "clone_preserves_export_presence": true,
+          "clone_preserves_member_edges": true,
+          "clone_preserves_member_presence": true,
+          "getters_initialize_empty_tables": true
+        },
+        "FullNamespace": {
+          "bound_edges_unchanged": true,
+          "bound_presence_unchanged": true,
+          "clear_retains_present_empty_tables": true,
+          "clone_is_private": true,
+          "clone_preserves_export_edges": true,
+          "clone_preserves_export_presence": true,
+          "clone_preserves_member_edges": true,
+          "clone_preserves_member_presence": true,
+          "getters_initialize_empty_tables": true
+        },
+        "FunctionType": {
+          "bound_edges_unchanged": true,
+          "bound_presence_unchanged": true,
+          "clear_retains_present_empty_tables": true,
+          "clone_is_private": true,
+          "clone_preserves_export_edges": true,
+          "clone_preserves_export_presence": true,
+          "clone_preserves_member_edges": true,
+          "clone_preserves_member_presence": true,
+          "getters_initialize_empty_tables": true
+        },
+        "HiddenNamespace": {
+          "bound_edges_unchanged": true,
+          "bound_presence_unchanged": true,
+          "clear_retains_present_empty_tables": true,
+          "clone_is_private": true,
+          "clone_preserves_export_edges": true,
+          "clone_preserves_export_presence": true,
+          "clone_preserves_member_edges": true,
+          "clone_preserves_member_presence": true,
+          "getters_initialize_empty_tables": true
+        },
+        "merge_empty_with_nil": {
+          "bound_source_presence_unchanged": true,
+          "bound_target_presence_unchanged": true,
+          "merge_export_presence_is_union": true,
+          "merge_member_presence_is_union": true,
+          "merge_result_is_private": true
+        },
+        "merge_nil_with_empty": {
+          "bound_source_presence_unchanged": true,
+          "bound_target_presence_unchanged": true,
+          "merge_export_presence_is_union": true,
+          "merge_member_presence_is_union": true,
+          "merge_result_is_private": true
+        },
+        "merge_nil_with_nil": {
+          "bound_source_presence_unchanged": true,
+          "bound_target_presence_unchanged": true,
+          "merge_export_presence_is_union": true,
+          "merge_member_presence_is_union": true,
+          "merge_result_is_private": true
+        }
+      },
+      "observations": {
+        "ConstructorType": {
+          "MembersPresent": true,
+          "ExportsPresent": false,
+          "MemberNames": [
+            "\ufffdnew"
+          ],
+          "ExportNames": null,
+          "MemberKeysHex": [
+            "fe6e6577"
+          ],
+          "ExportKeysHex": []
+        },
+        "EmptyClass": {
+          "MembersPresent": false,
+          "ExportsPresent": true,
+          "MemberNames": null,
+          "ExportNames": [
+            "prototype"
+          ],
+          "MemberKeysHex": [],
+          "ExportKeysHex": [
+            "70726f746f74797065"
+          ]
+        },
+        "EmptyInterface": {
+          "MembersPresent": false,
+          "ExportsPresent": false,
+          "MemberNames": null,
+          "ExportNames": null,
+          "MemberKeysHex": [],
+          "ExportKeysHex": []
+        },
+        "EmptyLiteral": {
+          "MembersPresent": false,
+          "ExportsPresent": false,
+          "MemberNames": null,
+          "ExportNames": null,
+          "MemberKeysHex": [],
+          "ExportKeysHex": []
+        },
+        "EmptyNamespace": {
+          "MembersPresent": false,
+          "ExportsPresent": false,
+          "MemberNames": null,
+          "ExportNames": null,
+          "MemberKeysHex": [],
+          "ExportKeysHex": []
+        },
+        "ExplicitEmpty": {
+          "MembersPresent": true,
+          "ExportsPresent": true,
+          "MemberNames": null,
+          "ExportNames": null,
+          "MemberKeysHex": [],
+          "ExportKeysHex": []
+        },
+        "FullClass": {
+          "MembersPresent": true,
+          "ExportsPresent": true,
+          "MemberNames": [
+            "field"
+          ],
+          "ExportNames": [
+            "prototype",
+            "value"
+          ],
+          "MemberKeysHex": [
+            "6669656c64"
+          ],
+          "ExportKeysHex": [
+            "70726f746f74797065",
+            "76616c7565"
+          ]
+        },
+        "FullInterface": {
+          "MembersPresent": true,
+          "ExportsPresent": false,
+          "MemberNames": [
+            "field"
+          ],
+          "ExportNames": null,
+          "MemberKeysHex": [
+            "6669656c64"
+          ],
+          "ExportKeysHex": []
+        },
+        "FullLiteral": {
+          "MembersPresent": true,
+          "ExportsPresent": false,
+          "MemberNames": [
+            "field"
+          ],
+          "ExportNames": null,
+          "MemberKeysHex": [
+            "6669656c64"
+          ],
+          "ExportKeysHex": []
+        },
+        "FullNamespace": {
+          "MembersPresent": false,
+          "ExportsPresent": true,
+          "MemberNames": null,
+          "ExportNames": [
+            "visible"
+          ],
+          "MemberKeysHex": [],
+          "ExportKeysHex": [
+            "76697369626c65"
+          ]
+        },
+        "FunctionType": {
+          "MembersPresent": true,
+          "ExportsPresent": false,
+          "MemberNames": [
+            "\ufffdcall"
+          ],
+          "ExportNames": null,
+          "MemberKeysHex": [
+            "fe63616c6c"
+          ],
+          "ExportKeysHex": []
+        },
+        "HiddenNamespace": {
+          "MembersPresent": false,
+          "ExportsPresent": false,
+          "MemberNames": null,
+          "ExportNames": null,
+          "MemberKeysHex": [],
+          "ExportKeysHex": []
+        }
+      }
+    }
+  },
+  "rust_bound_presence": {
+    "baseline": {
+      "stdout": "EmptyInterface\ttrue\ttrue\t[]\t[]\nFullInterface\ttrue\ttrue\t[\"field\"]\t[]\nEmptyNamespace\ttrue\ttrue\t[]\t[]\nHiddenNamespace\ttrue\ttrue\t[]\t[]\nFullNamespace\ttrue\ttrue\t[]\t[\"visible\"]\nEmptyClass\ttrue\ttrue\t[]\t[]\nFullClass\ttrue\ttrue\t[\"field\"]\t[\"value\"]\nEmptyLiteral\ttrue\ttrue\t[]\t[]\nFullLiteral\ttrue\ttrue\t[\"field\"]\t[]\nFunctionType\ttrue\ttrue\t[]\t[]\nConstructorType\ttrue\ttrue\t[]\t[]\nLAYOUT\t128\t32\n",
+      "stderr": "",
+      "exit_code": 0,
+      "binary_sha256": "cefc6a0ac025e7b39114ce0a29f582db0381ec6462ed07d8f2c6460b5f5448e8",
+      "observations": {
+        "EmptyInterface": {
+          "members_present": true,
+          "exports_present": true,
+          "member_keys_hex": [],
+          "export_keys_hex": []
+        },
+        "FullInterface": {
+          "members_present": true,
+          "exports_present": true,
+          "member_keys_hex": [
+            "6669656c64"
+          ],
+          "export_keys_hex": []
+        },
+        "EmptyNamespace": {
+          "members_present": true,
+          "exports_present": true,
+          "member_keys_hex": [],
+          "export_keys_hex": []
+        },
+        "HiddenNamespace": {
+          "members_present": true,
+          "exports_present": true,
+          "member_keys_hex": [],
+          "export_keys_hex": []
+        },
+        "FullNamespace": {
+          "members_present": true,
+          "exports_present": true,
+          "member_keys_hex": [],
+          "export_keys_hex": [
+            "76697369626c65"
+          ]
+        },
+        "EmptyClass": {
+          "members_present": true,
+          "exports_present": true,
+          "member_keys_hex": [],
+          "export_keys_hex": []
+        },
+        "FullClass": {
+          "members_present": true,
+          "exports_present": true,
+          "member_keys_hex": [
+            "6669656c64"
+          ],
+          "export_keys_hex": [
+            "76616c7565"
+          ]
+        },
+        "EmptyLiteral": {
+          "members_present": true,
+          "exports_present": true,
+          "member_keys_hex": [],
+          "export_keys_hex": []
+        },
+        "FullLiteral": {
+          "members_present": true,
+          "exports_present": true,
+          "member_keys_hex": [
+            "6669656c64"
+          ],
+          "export_keys_hex": []
+        },
+        "FunctionType": {
+          "members_present": true,
+          "exports_present": true,
+          "member_keys_hex": [],
+          "export_keys_hex": []
+        },
+        "ConstructorType": {
+          "members_present": true,
+          "exports_present": true,
+          "member_keys_hex": [],
+          "export_keys_hex": []
+        }
+      }
+    },
+    "candidate": {
+      "stdout": "EmptyInterface\tfalse\tfalse\t[]\t[]\nFullInterface\ttrue\tfalse\t[\"field\"]\t[]\nEmptyNamespace\tfalse\tfalse\t[]\t[]\nHiddenNamespace\tfalse\tfalse\t[]\t[]\nFullNamespace\tfalse\ttrue\t[]\t[\"visible\"]\nEmptyClass\tfalse\ttrue\t[]\t[]\nFullClass\ttrue\ttrue\t[\"field\"]\t[\"value\"]\nEmptyLiteral\tfalse\tfalse\t[]\t[]\nFullLiteral\ttrue\tfalse\t[\"field\"]\t[]\nFunctionType\ttrue\tfalse\t[]\t[]\nConstructorType\ttrue\tfalse\t[]\t[]\nLAYOUT\t128\t32\n",
+      "stderr": "",
+      "exit_code": 0,
+      "binary_sha256": "abd7c5eadbdf8fd4da9f34a49c7db16dceecbcfd5e6b893c8b5cf747af2368b9",
+      "observations": {
+        "EmptyInterface": {
+          "members_present": false,
+          "exports_present": false,
+          "member_keys_hex": [],
+          "export_keys_hex": []
+        },
+        "FullInterface": {
+          "members_present": true,
+          "exports_present": false,
+          "member_keys_hex": [
+            "6669656c64"
+          ],
+          "export_keys_hex": []
+        },
+        "EmptyNamespace": {
+          "members_present": false,
+          "exports_present": false,
+          "member_keys_hex": [],
+          "export_keys_hex": []
+        },
+        "HiddenNamespace": {
+          "members_present": false,
+          "exports_present": false,
+          "member_keys_hex": [],
+          "export_keys_hex": []
+        },
+        "FullNamespace": {
+          "members_present": false,
+          "exports_present": true,
+          "member_keys_hex": [],
+          "export_keys_hex": [
+            "76697369626c65"
+          ]
+        },
+        "EmptyClass": {
+          "members_present": false,
+          "exports_present": true,
+          "member_keys_hex": [],
+          "export_keys_hex": []
+        },
+        "FullClass": {
+          "members_present": true,
+          "exports_present": true,
+          "member_keys_hex": [
+            "6669656c64"
+          ],
+          "export_keys_hex": [
+            "76616c7565"
+          ]
+        },
+        "EmptyLiteral": {
+          "members_present": false,
+          "exports_present": false,
+          "member_keys_hex": [],
+          "export_keys_hex": []
+        },
+        "FullLiteral": {
+          "members_present": true,
+          "exports_present": false,
+          "member_keys_hex": [
+            "6669656c64"
+          ],
+          "export_keys_hex": []
+        },
+        "FunctionType": {
+          "members_present": true,
+          "exports_present": false,
+          "member_keys_hex": [],
+          "export_keys_hex": []
+        },
+        "ConstructorType": {
+          "members_present": true,
+          "exports_present": false,
+          "member_keys_hex": [],
+          "export_keys_hex": []
+        }
+      }
+    }
+  },
+  "matching_presence_cases": 11,
+  "existing_content_gaps": {
+    "EmptyClass": {
+      "export_keys_hex": [
+        "70726f746f74797065"
+      ]
+    },
+    "FullClass": {
+      "export_keys_hex": [
+        "70726f746f74797065"
+      ]
+    },
+    "FunctionType": {
+      "member_keys_hex": [
+        "fe63616c6c"
+      ]
+    },
+    "ConstructorType": {
+      "member_keys_hex": [
+        "fe6e6577"
+      ]
+    }
+  },
+  "layout_bytes": {
+    "bound_symbol": 128,
+    "raw_table": 32,
+    "presence_field": 32,
+    "symbol_ref": 16
+  },
+  "component_ns_per_operation": {
+    "samples": {
+      "raw_hit": [
+        5,
+        3,
+        3,
+        3,
+        3
+      ],
+      "field_hit": [
+        4,
+        3,
+        3,
+        3,
+        3
+      ],
+      "raw_miss": [
+        2,
+        1,
+        1,
+        1,
+        1
+      ],
+      "field_miss": [
+        2,
+        1,
+        1,
+        1,
+        1
+      ],
+      "raw_empty_miss": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "field_nil_miss": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "field_empty_miss": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "handle_clone_drop": [
+        4,
+        3,
+        3,
+        3,
+        3
+      ],
+      "checker_store_construct_drop": [
+        47,
+        43,
+        42,
+        42,
+        43
+      ]
+    },
+    "medians": {
+      "raw_hit": 3,
+      "field_hit": 3,
+      "raw_miss": 1,
+      "field_miss": 1,
+      "raw_empty_miss": 0,
+      "field_nil_miss": 0,
+      "field_empty_miss": 0,
+      "handle_clone_drop": 3,
+      "checker_store_construct_drop": 43
+    },
+    "integer_ns_floor": true,
+    "not_whole_project_cost": true
+  },
+  "actual_work_controls": {
+    "baseline": {
+      "binary_sha256": "9b46f39cc4c733afbd877f7a9185a4f01d84b472a7b2d648c60d3e5537cb4d5e",
+      "actual_checked_count": 1341,
+      "checked_order_fingerprint": "04d5f55be4e9253b8d9291375c46f171c6a829377ae41e28a2590b6480ede474",
+      "checked_input_fingerprint": "c88bfc76a5b5fba807593a481ba3c4fbad93e58a3d45413681d8d7aa9106a0ad",
+      "diagnostic_count": 120,
+      "diagnostic_fingerprint": "8e3fc93ad4fccfe7b8b27225e0e62fd0987683316ecf6928f70ecca3a9524d9d",
+      "counts": {
+        "bound_stamp_clones": 0,
+        "bound_stamp_drops": 13097,
+        "bound_record_reads": 36191230,
+        "table_gets": 0,
+        "absent_gets": 0,
+        "present_get_hits": 0,
+        "present_get_misses": 0,
+        "table_initializations": 0,
+        "insertions": 0,
+        "table_capacity_growths": 0,
+        "private_stamp_clones": 34572,
+        "private_stamp_drops": 33950,
+        "symbol_ref_clones": 34206,
+        "validated_views": 33939,
+        "bound_handle_constructions": 0,
+        "private_record_creations": 365,
+        "unresolved_requests": 16695,
+        "unresolved_completed_hits": 16330,
+        "symbol_clone_requests": 0,
+        "bound_records": 1082855,
+        "bound_record_capacity": 2097152,
+        "bound_inline_record_bytes": 268435456,
+        "members_present": 1082855,
+        "exports_present": 1082855,
+        "bound_member_capacity": 700506,
+        "bound_export_capacity": 186254
+      },
+      "retained_private_storage": "SymbolStorageUsage { records: 366, record_capacity: 512, inline_record_bytes: 94208, owned_name_bytes: 4253, declaration_bytes: 0, unresolved_entries: 365, unresolved_capacity: 448, path_key_bytes: 7716, merged_entries: 0, merged_capacity: 0, edge_capacity: 0, stamp_references: 623 }",
+      "enabled_runs_equal": true,
+      "enabled_disabled_diagnostics_equal": true
+    },
+    "candidate": {
+      "binary_sha256": "47b4a98182964c6e520af1de6f2d9120319d3a31edbd5c98f9e847cd8ae94649",
+      "actual_checked_count": 1341,
+      "checked_order_fingerprint": "04d5f55be4e9253b8d9291375c46f171c6a829377ae41e28a2590b6480ede474",
+      "checked_input_fingerprint": "c88bfc76a5b5fba807593a481ba3c4fbad93e58a3d45413681d8d7aa9106a0ad",
+      "diagnostic_count": 120,
+      "diagnostic_fingerprint": "8e3fc93ad4fccfe7b8b27225e0e62fd0987683316ecf6928f70ecca3a9524d9d",
+      "counts": {
+        "bound_stamp_clones": 0,
+        "bound_stamp_drops": 13097,
+        "bound_record_reads": 36193992,
+        "table_gets": 5984244,
+        "absent_gets": 398279,
+        "present_get_hits": 1758974,
+        "present_get_misses": 3826991,
+        "table_initializations": 172122,
+        "insertions": 566958,
+        "table_capacity_growths": 201822,
+        "private_stamp_clones": 34572,
+        "private_stamp_drops": 33950,
+        "symbol_ref_clones": 34206,
+        "validated_views": 33939,
+        "bound_handle_constructions": 0,
+        "private_record_creations": 365,
+        "unresolved_requests": 16695,
+        "unresolved_completed_hits": 16330,
+        "symbol_clone_requests": 0,
+        "bound_records": 1082855,
+        "bound_record_capacity": 2097152,
+        "bound_inline_record_bytes": 268435456,
+        "members_present": 145798,
+        "exports_present": 26324,
+        "bound_member_capacity": 700506,
+        "bound_export_capacity": 186254
+      },
+      "retained_private_storage": "SymbolStorageUsage { records: 366, record_capacity: 512, inline_record_bytes: 94208, owned_name_bytes: 4253, declaration_bytes: 0, unresolved_entries: 365, unresolved_capacity: 448, path_key_bytes: 7716, merged_entries: 0, merged_capacity: 0, edge_capacity: 0, stamp_references: 623 }",
+      "enabled_runs_equal": true,
+      "enabled_disabled_diagnostics_equal": true
+    }
+  },
+  "overhead_comparisons": {
+    "initial": {
+      "role": "normal current-source TSR baseline versus table-port candidate; not native",
+      "baseline": {
+        "wall_seconds": {
+          "median": 3.7277541250223294,
+          "p95": 3.799729666003259,
+          "min": 3.7126381249981932,
+          "max": 3.799729666003259
+        },
+        "user_seconds": {
+          "median": 3.351451,
+          "p95": 3.384629,
+          "min": 3.332637,
+          "max": 3.384629
+        },
+        "system_seconds": {
+          "median": 0.37284,
+          "p95": 0.40487999999999996,
+          "min": 0.36478499999999997,
+          "max": 0.40487999999999996
+        },
+        "peak_rss_bytes": {
+          "median": 1089912832,
+          "p95": 1119174656,
+          "min": 1021526016,
+          "max": 1119174656
+        }
+      },
+      "candidate": {
+        "wall_seconds": {
+          "median": 3.739437792013632,
+          "p95": 3.9034764589741826,
+          "min": 3.720434707996901,
+          "max": 3.9034764589741826
+        },
+        "user_seconds": {
+          "median": 3.359267,
+          "p95": 3.461195,
+          "min": 3.348502,
+          "max": 3.461195
+        },
+        "system_seconds": {
+          "median": 0.372035,
+          "p95": 0.425992,
+          "min": 0.363521,
+          "max": 0.425992
+        },
+        "peak_rss_bytes": {
+          "median": 1085980672,
+          "p95": 1145978880,
+          "min": 1051820032,
+          "max": 1145978880
+        }
+      },
+      "binary_sha256": {
+        "tsr": "4336311fa8a19d9747ad7fd6057c08317f376ff0ee08c80632137c60056922bf",
+        "tsgo": "6a05787f10dcb31e1356c7c909d60783c9f672f41175067af7fc85fc4b12de50"
+      },
+      "source_pairing": {
+        "baseline": "ebb65c8a8461e6e1f070a4ec16763b86f071ca8a",
+        "candidate_owned_files": {
+          "crates/tsr-binder/src/binder.rs": "d6442e31b742b3fbc6948453e278bfe13b27cf1a8dcc2f1c68169a2f596f7548",
+          "crates/tsr-binder/src/lib.rs": "6c600192b98da54bc99cb6afe13b5ab2604b9980693529f2d79c625c2f6eb7a0",
+          "crates/tsr-binder/src/symbol.rs": "537b372824ab9285fc1d77296ca6b524ca470a43ebd02cf0cab6673fe3ad5558",
+          "crates/tsr-binder/tests/bind.rs": "19baeeaed5663ccc70e783cf13e401ee24226683870d4aa085527772dd3d30c0",
+          "crates/tsr-checker/src/symbol_access.rs": "62b2026192529ae814fc4226b5a5cf802228320a733c1a8faa8d646adc7d6835",
+          "crates/tsr-checker/tests/symbol_domain_contract.rs": "91483fabbb2804d7659d40c7d2798de938aaf2d33585d535996d027c2b478f80",
+          "crates/tsr-binder/tests/program.rs": "360ad7825a66b8fa86e14d5f55f98f6027dc360a0db7c407cc4770b226f70d23"
+        }
+      },
+      "options_match": true,
+      "loaded_scope_match": true,
+      "diagnostics_match": true,
+      "actual_checked_scope_match": true,
+      "inputs_unchanged": true,
+      "candidate_minus_baseline_ms": 11.683666991302744,
+      "native_target_verified": false
+    },
+    "confirmation": {
+      "role": "normal current-source TSR baseline versus table-port candidate; not native",
+      "baseline": {
+        "wall_seconds": {
+          "median": 3.744269290997181,
+          "p95": 3.8380169169977307,
+          "min": 3.708161291986471,
+          "max": 3.8380169169977307
+        },
+        "user_seconds": {
+          "median": 3.357419,
+          "p95": 3.410027,
+          "min": 3.337374,
+          "max": 3.410027
+        },
+        "system_seconds": {
+          "median": 0.384194,
+          "p95": 0.415772,
+          "min": 0.364056,
+          "max": 0.415772
+        },
+        "peak_rss_bytes": {
+          "median": 1094467584,
+          "p95": 1120829440,
+          "min": 1048854528,
+          "max": 1120829440
+        }
+      },
+      "candidate": {
+        "wall_seconds": {
+          "median": 3.7690129159891512,
+          "p95": 3.777830749982968,
+          "min": 3.7340415839862544,
+          "max": 3.777830749982968
+        },
+        "user_seconds": {
+          "median": 3.375953,
+          "p95": 3.386426,
+          "min": 3.3604249999999998,
+          "max": 3.386426
+        },
+        "system_seconds": {
+          "median": 0.380262,
+          "p95": 0.38937,
+          "min": 0.364044,
+          "max": 0.38937
+        },
+        "peak_rss_bytes": {
+          "median": 1113751552,
+          "p95": 1133969408,
+          "min": 1026736128,
+          "max": 1133969408
+        }
+      },
+      "binary_sha256": {
+        "tsr": "4336311fa8a19d9747ad7fd6057c08317f376ff0ee08c80632137c60056922bf",
+        "tsgo": "6a05787f10dcb31e1356c7c909d60783c9f672f41175067af7fc85fc4b12de50"
+      },
+      "source_pairing": {
+        "baseline": "ebb65c8a8461e6e1f070a4ec16763b86f071ca8a",
+        "candidate_owned_files": {
+          "crates/tsr-binder/src/binder.rs": "d6442e31b742b3fbc6948453e278bfe13b27cf1a8dcc2f1c68169a2f596f7548",
+          "crates/tsr-binder/src/lib.rs": "6c600192b98da54bc99cb6afe13b5ab2604b9980693529f2d79c625c2f6eb7a0",
+          "crates/tsr-binder/src/symbol.rs": "537b372824ab9285fc1d77296ca6b524ca470a43ebd02cf0cab6673fe3ad5558",
+          "crates/tsr-binder/tests/bind.rs": "19baeeaed5663ccc70e783cf13e401ee24226683870d4aa085527772dd3d30c0",
+          "crates/tsr-checker/src/symbol_access.rs": "62b2026192529ae814fc4226b5a5cf802228320a733c1a8faa8d646adc7d6835",
+          "crates/tsr-checker/tests/symbol_domain_contract.rs": "91483fabbb2804d7659d40c7d2798de938aaf2d33585d535996d027c2b478f80",
+          "crates/tsr-binder/tests/program.rs": "360ad7825a66b8fa86e14d5f55f98f6027dc360a0db7c407cc4770b226f70d23"
+        }
+      },
+      "options_match": true,
+      "loaded_scope_match": true,
+      "diagnostics_match": true,
+      "actual_checked_scope_match": true,
+      "inputs_unchanged": true,
+      "candidate_minus_baseline_ms": 24.743624991970137,
+      "native_target_verified": false
+    }
+  },
+  "followups": [
+    "tsr-1yb.7.7.1.1.1",
+    "tsr-1yb.7.7.1.1.3"
+  ],
+  "native_speed_target_verified": false,
+  "private_consumer_or_node_cache_enabled": false,
+  "rebased_validation": {
+    "baseline_source": "3255e43e3dadf5dac878a1fed7d68cd4baa9eeb4",
+    "candidate_code_commit": "bbb11d42522ae7d7ac3be722f7e4d6b7db78e805",
+    "candidate_owned_source": {
+      "crates/tsr-binder/src/binder.rs": "d6442e31b742b3fbc6948453e278bfe13b27cf1a8dcc2f1c68169a2f596f7548",
+      "crates/tsr-binder/src/lib.rs": "6c600192b98da54bc99cb6afe13b5ab2604b9980693529f2d79c625c2f6eb7a0",
+      "crates/tsr-binder/src/symbol.rs": "537b372824ab9285fc1d77296ca6b524ca470a43ebd02cf0cab6673fe3ad5558",
+      "crates/tsr-binder/tests/bind.rs": "19baeeaed5663ccc70e783cf13e401ee24226683870d4aa085527772dd3d30c0",
+      "crates/tsr-checker/src/symbol_access.rs": "62b2026192529ae814fc4226b5a5cf802228320a733c1a8faa8d646adc7d6835",
+      "crates/tsr-checker/tests/symbol_domain_contract.rs": "91483fabbb2804d7659d40c7d2798de938aaf2d33585d535996d027c2b478f80",
+      "crates/tsr-binder/tests/program.rs": "360ad7825a66b8fa86e14d5f55f98f6027dc360a0db7c407cc4770b226f70d23"
+    },
+    "roles": {
+      "baseline": {
+        "source": "3255e43e3dadf5dac878a1fed7d68cd4baa9eeb4",
+        "outputs": {
+          "types": {
+            "exit": 0,
+            "elapsed_seconds": 216.14017133400193,
+            "sha256": "9b6bb7989e22376dc31594e3ad110fc42871eaa3ca579a3f48f95feccd23913e",
+            "bytes": 59378937,
+            "summary": "TOTAL 474251  right 459614  gap 2183  wrong 12454\n"
+          },
+          "diagnostics": {
+            "exit": 0,
+            "elapsed_seconds": 265.2207326249918,
+            "sha256": "fc32decc5f469582701a4716f55b1d9a5117d1b93cdd9b69b2943d90b2e93089",
+            "bytes": 6095902,
+            "summary": ""
+          }
+        },
+        "quality": {
+          "build": {
+            "exit": 0,
+            "elapsed_seconds": 19.530399666982703
+          }
+        },
+        "binary_sha256": {
+          "tsr": "c58b24967b51afa269ef5732ae3a1a457f8276851cc538af40d2d53f61390812",
+          "types": "5741cd9a77f12bcee0b526c9601f3ed2837fef6f373608057cd3c0faeaff10e0",
+          "diagnostics": "070dc91f47404a5d200af2f2a225f08a37bcfcc8fc7db052420e280f8f5d4ca6"
+        }
+      },
+      "candidate": {
+        "source": "bbb11d42522ae7d7ac3be722f7e4d6b7db78e805",
+        "outputs": {
+          "types": {
+            "exit": 0,
+            "elapsed_seconds": 234.33422287498252,
+            "sha256": "9b6bb7989e22376dc31594e3ad110fc42871eaa3ca579a3f48f95feccd23913e",
+            "bytes": 59378937,
+            "summary": "TOTAL 474251  right 459614  gap 2183  wrong 12454\n",
+            "byte_equal": true
+          },
+          "diagnostics": {
+            "exit": 0,
+            "elapsed_seconds": 284.1117566250032,
+            "sha256": "fc32decc5f469582701a4716f55b1d9a5117d1b93cdd9b69b2943d90b2e93089",
+            "bytes": 6095902,
+            "summary": "",
+            "byte_equal": true
+          }
+        },
+        "quality": {
+          "all-target-check": {
+            "exit": 0,
+            "elapsed_seconds": 3.8297254999924917
+          },
+          "binder-tests": {
+            "exit": 0,
+            "elapsed_seconds": 2.7689111250219867
+          },
+          "checker-tests": {
+            "exit": 101,
+            "elapsed_seconds": 0.04272133400081657
+          },
+          "checker-tests-corrected": {
+            "exit": 0,
+            "elapsed_seconds": 24.110970792011358
+          },
+          "concurrent-semantic-tests": {
+            "exit": 0,
+            "elapsed_seconds": 22.41306329201325
+          },
+          "strict-clippy": {
+            "exit": 0,
+            "elapsed_seconds": 3.7104440410039388
+          },
+          "build": {
+            "exit": 0,
+            "elapsed_seconds": 1.0378285420010798
+          }
+        },
+        "binary_sha256": {
+          "tsr": "415e25930986e69067d362d17ccf788332e5774029239c4bd9029a0d286fdc86",
+          "types": "c82f6a98b32199adf6060d40dd25c362babccc4e5dc899667bd06f0d488c9926",
+          "diagnostics": "c857dc917a9b9ed72870166a043441e607e8308617dc29059adc04e5b895e3e8"
+        },
+        "source_owned_hashes": {
+          "crates/tsr-binder/src/binder.rs": "d6442e31b742b3fbc6948453e278bfe13b27cf1a8dcc2f1c68169a2f596f7548",
+          "crates/tsr-binder/src/lib.rs": "6c600192b98da54bc99cb6afe13b5ab2604b9980693529f2d79c625c2f6eb7a0",
+          "crates/tsr-binder/src/symbol.rs": "537b372824ab9285fc1d77296ca6b524ca470a43ebd02cf0cab6673fe3ad5558",
+          "crates/tsr-binder/tests/bind.rs": "19baeeaed5663ccc70e783cf13e401ee24226683870d4aa085527772dd3d30c0",
+          "crates/tsr-checker/src/symbol_access.rs": "62b2026192529ae814fc4226b5a5cf802228320a733c1a8faa8d646adc7d6835",
+          "crates/tsr-checker/tests/symbol_domain_contract.rs": "91483fabbb2804d7659d40c7d2798de938aaf2d33585d535996d027c2b478f80",
+          "crates/tsr-binder/tests/program.rs": "360ad7825a66b8fa86e14d5f55f98f6027dc360a0db7c407cc4770b226f70d23"
+        }
+      }
+    },
+    "quality": {
+      "candidate-binder-tests.log": {
+        "passed": 114,
+        "ignored": 0,
+        "sha256": "86cf053a63101bbacbd2f7bd4e44c36637264374d57f7c018360d022441a46cc"
+      },
+      "candidate-checker-tests-corrected.log": {
+        "passed": 171,
+        "ignored": 2,
+        "sha256": "807df9426fedf32d938f78464201f37e61384ff5cdc305a14ced7caee80656ad"
+      },
+      "candidate-concurrent-semantic-tests.log": {
+        "passed": 21,
+        "ignored": 0,
+        "sha256": "599511d6e9380da8830aa8aff2c9689f53426b29100d9b1894a196f074342aa5"
+      },
+      "passed": 306,
+      "ignored": 2,
+      "workspace_all_targets_check": true,
+      "strict_affected_clippy": true,
+      "test_invocation_recovery": "Initial checker command named a conformance-package target and executed no tests; corrected checker and separate conformance commands both passed."
+    },
+    "actual_work": {
+      "baseline": {
+        "binary_sha256": "39f813b6a9272403f59b0b3e43963cabd5ee1cedcdc59a2ea7e683067246d130",
+        "checked_count": 1341,
+        "checked_order_fingerprint": "04d5f55be4e9253b8d9291375c46f171c6a829377ae41e28a2590b6480ede474",
+        "checked_input_fingerprint": "c88bfc76a5b5fba807593a481ba3c4fbad93e58a3d45413681d8d7aa9106a0ad",
+        "diagnostic_count": 119,
+        "diagnostic_fingerprint": "0f471143d3253ffbc1d9bbf83464c438229ceb06c86c0df137bedee7822ee347",
+        "counts": {
+          "bound_stamp_clones": 0,
+          "bound_stamp_drops": 13097,
+          "bound_record_reads": 36160418,
+          "table_gets": 0,
+          "absent_gets": 0,
+          "present_get_hits": 0,
+          "present_get_misses": 0,
+          "table_initializations": 0,
+          "insertions": 0,
+          "table_capacity_growths": 0,
+          "private_stamp_clones": 34564,
+          "private_stamp_drops": 33942,
+          "symbol_ref_clones": 34198,
+          "validated_views": 33935,
+          "bound_handle_constructions": 0,
+          "private_record_creations": 365,
+          "unresolved_requests": 16691,
+          "unresolved_completed_hits": 16326,
+          "symbol_clone_requests": 0,
+          "bound_records": 1082855,
+          "bound_record_capacity": 2097152,
+          "bound_inline_record_bytes": 268435456,
+          "members_present": 1082855,
+          "exports_present": 1082855,
+          "bound_member_capacity": 700506,
+          "bound_export_capacity": 186254
+        },
+        "retained_private_storage": "SymbolStorageUsage { records: 366, record_capacity: 512, inline_record_bytes: 94208, owned_name_bytes: 4253, declaration_bytes: 0, unresolved_entries: 365, unresolved_capacity: 448, path_key_bytes: 7716, merged_entries: 0, merged_capacity: 0, edge_capacity: 0, stamp_references: 623 }",
+        "enabled_repeats_equal": true,
+        "enabled_disabled_output_equal": true
+      },
+      "candidate": {
+        "binary_sha256": "219c7a1b0f0a6574c304fc670aefe2b9f154fc5ddeba5a29faf206587d2d9a9c",
+        "checked_count": 1341,
+        "checked_order_fingerprint": "04d5f55be4e9253b8d9291375c46f171c6a829377ae41e28a2590b6480ede474",
+        "checked_input_fingerprint": "c88bfc76a5b5fba807593a481ba3c4fbad93e58a3d45413681d8d7aa9106a0ad",
+        "diagnostic_count": 119,
+        "diagnostic_fingerprint": "0f471143d3253ffbc1d9bbf83464c438229ceb06c86c0df137bedee7822ee347",
+        "counts": {
+          "bound_stamp_clones": 0,
+          "bound_stamp_drops": 13097,
+          "bound_record_reads": 36163180,
+          "table_gets": 5977154,
+          "absent_gets": 397034,
+          "present_get_hits": 1758587,
+          "present_get_misses": 3821533,
+          "table_initializations": 172122,
+          "insertions": 566958,
+          "table_capacity_growths": 201822,
+          "private_stamp_clones": 34564,
+          "private_stamp_drops": 33942,
+          "symbol_ref_clones": 34198,
+          "validated_views": 33935,
+          "bound_handle_constructions": 0,
+          "private_record_creations": 365,
+          "unresolved_requests": 16691,
+          "unresolved_completed_hits": 16326,
+          "symbol_clone_requests": 0,
+          "bound_records": 1082855,
+          "bound_record_capacity": 2097152,
+          "bound_inline_record_bytes": 268435456,
+          "members_present": 145798,
+          "exports_present": 26324,
+          "bound_member_capacity": 700506,
+          "bound_export_capacity": 186254
+        },
+        "retained_private_storage": "SymbolStorageUsage { records: 366, record_capacity: 512, inline_record_bytes: 94208, owned_name_bytes: 4253, declaration_bytes: 0, unresolved_entries: 365, unresolved_capacity: 448, path_key_bytes: 7716, merged_entries: 0, merged_capacity: 0, edge_capacity: 0, stamp_references: 623 }",
+        "enabled_repeats_equal": true,
+        "enabled_disabled_output_equal": true
+      }
+    },
+    "overhead_comparisons": {
+      "initial": {
+        "role": "normal current-source TSR baseline versus table-port candidate; not native",
+        "baseline": {
+          "wall_seconds": {
+            "median": 3.7092689579876605,
+            "p95": 3.743996375007555,
+            "min": 3.654949041985674,
+            "max": 3.743996375007555
+          },
+          "user_seconds": {
+            "median": 3.330938,
+            "p95": 3.350785,
+            "min": 3.290513,
+            "max": 3.350785
+          },
+          "system_seconds": {
+            "median": 0.368896,
+            "p95": 0.39060999999999996,
+            "min": 0.354112,
+            "max": 0.39060999999999996
+          },
+          "peak_rss_bytes": {
+            "median": 1102053376,
+            "p95": 1127088128,
+            "min": 1027915776,
+            "max": 1127088128
+          }
+        },
+        "candidate": {
+          "wall_seconds": {
+            "median": 3.717492791998666,
+            "p95": 3.757278542005224,
+            "min": 3.704976874985732,
+            "max": 3.757278542005224
+          },
+          "user_seconds": {
+            "median": 3.34112,
+            "p95": 3.348492,
+            "min": 3.335699,
+            "max": 3.348492
+          },
+          "system_seconds": {
+            "median": 0.364666,
+            "p95": 0.405281,
+            "min": 0.354639,
+            "max": 0.405281
+          },
+          "peak_rss_bytes": {
+            "median": 1082834944,
+            "p95": 1165066240,
+            "min": 1028538368,
+            "max": 1165066240
+          }
+        },
+        "binary_sha256": {
+          "tsr": "415e25930986e69067d362d17ccf788332e5774029239c4bd9029a0d286fdc86",
+          "tsgo": "c58b24967b51afa269ef5732ae3a1a457f8276851cc538af40d2d53f61390812"
+        },
+        "source_pairing": {
+          "baseline": "3255e43e3dadf5dac878a1fed7d68cd4baa9eeb4",
+          "candidate_owned_files": {
+            "crates/tsr-binder/src/binder.rs": "d6442e31b742b3fbc6948453e278bfe13b27cf1a8dcc2f1c68169a2f596f7548",
+            "crates/tsr-binder/src/lib.rs": "6c600192b98da54bc99cb6afe13b5ab2604b9980693529f2d79c625c2f6eb7a0",
+            "crates/tsr-binder/src/symbol.rs": "537b372824ab9285fc1d77296ca6b524ca470a43ebd02cf0cab6673fe3ad5558",
+            "crates/tsr-binder/tests/bind.rs": "19baeeaed5663ccc70e783cf13e401ee24226683870d4aa085527772dd3d30c0",
+            "crates/tsr-checker/src/symbol_access.rs": "62b2026192529ae814fc4226b5a5cf802228320a733c1a8faa8d646adc7d6835",
+            "crates/tsr-checker/tests/symbol_domain_contract.rs": "91483fabbb2804d7659d40c7d2798de938aaf2d33585d535996d027c2b478f80",
+            "crates/tsr-binder/tests/program.rs": "360ad7825a66b8fa86e14d5f55f98f6027dc360a0db7c407cc4770b226f70d23"
+          }
+        },
+        "options_match": true,
+        "loaded_scope_match": true,
+        "diagnostics_match": true,
+        "actual_checked_scope_match": true,
+        "inputs_unchanged": true,
+        "candidate_minus_baseline_ms": 8.223834011005238,
+        "native_target_verified": false
+      },
+      "confirmation": {
+        "role": "normal current-source TSR baseline versus table-port candidate; not native",
+        "baseline": {
+          "wall_seconds": {
+            "median": 3.681661999988137,
+            "p95": 3.7057366670051124,
+            "min": 3.6222554160049185,
+            "max": 3.7057366670051124
+          },
+          "user_seconds": {
+            "median": 3.312739,
+            "p95": 3.32434,
+            "min": 3.2623,
+            "max": 3.32434
+          },
+          "system_seconds": {
+            "median": 0.363798,
+            "p95": 0.371042,
+            "min": 0.352004,
+            "max": 0.371042
+          },
+          "peak_rss_bytes": {
+            "median": 1094500352,
+            "p95": 1152253952,
+            "min": 1025425408,
+            "max": 1152253952
+          }
+        },
+        "candidate": {
+          "wall_seconds": {
+            "median": 3.6931895000161603,
+            "p95": 3.7404747910040896,
+            "min": 3.658832874993095,
+            "max": 3.7404747910040896
+          },
+          "user_seconds": {
+            "median": 3.317311,
+            "p95": 3.37129,
+            "min": 3.289734,
+            "max": 3.37129
+          },
+          "system_seconds": {
+            "median": 0.359881,
+            "p95": 0.366401,
+            "min": 0.3593,
+            "max": 0.366401
+          },
+          "peak_rss_bytes": {
+            "median": 1142718464,
+            "p95": 1146601472,
+            "min": 1029718016,
+            "max": 1146601472
+          }
+        },
+        "binary_sha256": {
+          "tsr": "415e25930986e69067d362d17ccf788332e5774029239c4bd9029a0d286fdc86",
+          "tsgo": "c58b24967b51afa269ef5732ae3a1a457f8276851cc538af40d2d53f61390812"
+        },
+        "source_pairing": {
+          "baseline": "3255e43e3dadf5dac878a1fed7d68cd4baa9eeb4",
+          "candidate_owned_files": {
+            "crates/tsr-binder/src/binder.rs": "d6442e31b742b3fbc6948453e278bfe13b27cf1a8dcc2f1c68169a2f596f7548",
+            "crates/tsr-binder/src/lib.rs": "6c600192b98da54bc99cb6afe13b5ab2604b9980693529f2d79c625c2f6eb7a0",
+            "crates/tsr-binder/src/symbol.rs": "537b372824ab9285fc1d77296ca6b524ca470a43ebd02cf0cab6673fe3ad5558",
+            "crates/tsr-binder/tests/bind.rs": "19baeeaed5663ccc70e783cf13e401ee24226683870d4aa085527772dd3d30c0",
+            "crates/tsr-checker/src/symbol_access.rs": "62b2026192529ae814fc4226b5a5cf802228320a733c1a8faa8d646adc7d6835",
+            "crates/tsr-checker/tests/symbol_domain_contract.rs": "91483fabbb2804d7659d40c7d2798de938aaf2d33585d535996d027c2b478f80",
+            "crates/tsr-binder/tests/program.rs": "360ad7825a66b8fa86e14d5f55f98f6027dc360a0db7c407cc4770b226f70d23"
+          }
+        },
+        "options_match": true,
+        "loaded_scope_match": true,
+        "diagnostics_match": true,
+        "actual_checked_scope_match": true,
+        "inputs_unchanged": true,
+        "candidate_minus_baseline_ms": 11.527500028023496,
+        "native_target_verified": false
+      }
+    },
+    "native_speed_target_verified": false
+  },
+  "internal_key_contract_task": "tsr-1yb.7.7.1.1.1.1",
+  "latest_delivery_validation": {
+    "baseline_source": "31b004610e3ba7ee4ba5acfda8a7af6b16fcbaea",
+    "candidate_code_commit": "5521e8c4a7a4a6af79b97ff9cd05fb67fc724240",
+    "candidate_owned_source": {
+      "crates/tsr-binder/src/binder.rs": "d6442e31b742b3fbc6948453e278bfe13b27cf1a8dcc2f1c68169a2f596f7548",
+      "crates/tsr-binder/src/lib.rs": "6c600192b98da54bc99cb6afe13b5ab2604b9980693529f2d79c625c2f6eb7a0",
+      "crates/tsr-binder/src/symbol.rs": "537b372824ab9285fc1d77296ca6b524ca470a43ebd02cf0cab6673fe3ad5558",
+      "crates/tsr-binder/tests/bind.rs": "19baeeaed5663ccc70e783cf13e401ee24226683870d4aa085527772dd3d30c0",
+      "crates/tsr-checker/src/symbol_access.rs": "62b2026192529ae814fc4226b5a5cf802228320a733c1a8faa8d646adc7d6835",
+      "crates/tsr-checker/tests/symbol_domain_contract.rs": "91483fabbb2804d7659d40c7d2798de938aaf2d33585d535996d027c2b478f80",
+      "crates/tsr-binder/tests/program.rs": "360ad7825a66b8fa86e14d5f55f98f6027dc360a0db7c407cc4770b226f70d23"
+    },
+    "roles": {
+      "baseline": {
+        "source": "31b004610e3ba7ee4ba5acfda8a7af6b16fcbaea",
+        "outputs": {
+          "types": {
+            "exit": 0,
+            "elapsed_seconds": 219.336366042,
+            "sha256": "7bf5f6766ffe178f8c50933d2c0d7491f2908b1e931ed7e7bc23e3f935a23ae0",
+            "bytes": 59379304,
+            "summary": "TOTAL 474251  right 459627  gap 2182  wrong 12442\n"
+          },
+          "diagnostics": {
+            "exit": 0,
+            "elapsed_seconds": 274.0375039589999,
+            "sha256": "9aee2865308cffe1260d7e7d097c57d37b467c7fbdc381e6c5cc208e6593463d",
+            "bytes": 6096015,
+            "summary": ""
+          }
+        },
+        "quality": {
+          "build": {
+            "exit": 0,
+            "elapsed_seconds": 20.849556250002934
+          }
+        },
+        "binary_sha256": {
+          "tsr": "d2644299bd5589d96ae64d9b936b08ae49384d02a5cb9759e35f64b2a3e543db",
+          "types": "03d58cccf831597008b110382e4d1af002f76e6683301c0183c435402bde9eb6",
+          "diagnostics": "b7e3e041c2d7cf921c9772f8dadf521726851c36a973ff76da673bd63b4481fd"
+        }
+      },
+      "candidate": {
+        "source": "5521e8c4a7a4a6af79b97ff9cd05fb67fc724240",
+        "outputs": {
+          "types": {
+            "exit": 0,
+            "elapsed_seconds": 219.0915971249924,
+            "sha256": "7bf5f6766ffe178f8c50933d2c0d7491f2908b1e931ed7e7bc23e3f935a23ae0",
+            "bytes": 59379304,
+            "summary": "TOTAL 474251  right 459627  gap 2182  wrong 12442\n",
+            "byte_equal": true
+          },
+          "diagnostics": {
+            "exit": 0,
+            "elapsed_seconds": 275.11939008298214,
+            "sha256": "9aee2865308cffe1260d7e7d097c57d37b467c7fbdc381e6c5cc208e6593463d",
+            "bytes": 6096015,
+            "summary": "",
+            "byte_equal": true
+          }
+        },
+        "quality": {
+          "all-target-check": {
+            "exit": 0,
+            "elapsed_seconds": 4.826190125022549
+          },
+          "binder-tests": {
+            "exit": 0,
+            "elapsed_seconds": 2.7651801250176504
+          },
+          "checker-tests": {
+            "exit": 0,
+            "elapsed_seconds": 24.28928441699827
+          },
+          "concurrent-semantic-tests": {
+            "exit": 0,
+            "elapsed_seconds": 21.693478958011838
+          },
+          "strict-clippy": {
+            "exit": 0,
+            "elapsed_seconds": 5.061339915991994
+          },
+          "build": {
+            "exit": 0,
+            "elapsed_seconds": 0.9864261669863481
+          }
+        },
+        "binary_sha256": {
+          "tsr": "50de838334a775a7ee147df552417a5b80f8ba3ccbf909560fc4d44bc0eb4de4",
+          "types": "a0e3f1ee0bafc42c054bfc73c8d8e44f39f55b61babcc34aefa108dafe7b0639",
+          "diagnostics": "3e6cdfb535502bc0c2ee2c927030554f5100eb89583fa888215ccb2a8da95bba"
+        },
+        "source_owned_hashes": {
+          "crates/tsr-binder/src/binder.rs": "d6442e31b742b3fbc6948453e278bfe13b27cf1a8dcc2f1c68169a2f596f7548",
+          "crates/tsr-binder/src/lib.rs": "6c600192b98da54bc99cb6afe13b5ab2604b9980693529f2d79c625c2f6eb7a0",
+          "crates/tsr-binder/src/symbol.rs": "537b372824ab9285fc1d77296ca6b524ca470a43ebd02cf0cab6673fe3ad5558",
+          "crates/tsr-binder/tests/bind.rs": "19baeeaed5663ccc70e783cf13e401ee24226683870d4aa085527772dd3d30c0",
+          "crates/tsr-checker/src/symbol_access.rs": "62b2026192529ae814fc4226b5a5cf802228320a733c1a8faa8d646adc7d6835",
+          "crates/tsr-checker/tests/symbol_domain_contract.rs": "91483fabbb2804d7659d40c7d2798de938aaf2d33585d535996d027c2b478f80",
+          "crates/tsr-binder/tests/program.rs": "360ad7825a66b8fa86e14d5f55f98f6027dc360a0db7c407cc4770b226f70d23"
+        }
+      }
+    },
+    "quality": {
+      "candidate-binder-tests.log": {
+        "passed": 114,
+        "ignored": 0,
+        "sha256": "4ddfce503c7494a562d47d5e3fc71729aff5ce85ec8c6330e69e36be054c6eca"
+      },
+      "candidate-checker-tests.log": {
+        "passed": 253,
+        "ignored": 2,
+        "sha256": "97c672c8bf73a51fd02a564f1696abc752beb0aa4fd7d49805bf70ab59f67fcd"
+      },
+      "candidate-concurrent-semantic-tests.log": {
+        "passed": 21,
+        "ignored": 0,
+        "sha256": "b635fe1a6bee82a7d63cf096fb34d5f7e92a28261be77f0c1e71aa0a726bc885"
+      },
+      "passed": 388,
+      "ignored": 2,
+      "workspace_all_targets_check": true,
+      "strict_affected_clippy": true,
+      "workspace_rustfmt_check": true,
+      "relater_tests_included": true
+    },
+    "actual_work": {
+      "baseline": {
+        "binary_sha256": "7ecad9ce3bf907a23b9644a745e8b023590ab3c37cd76b30f101a1b8b1789516",
+        "checked_count": 1341,
+        "checked_order_fingerprint": "04d5f55be4e9253b8d9291375c46f171c6a829377ae41e28a2590b6480ede474",
+        "checked_input_fingerprint": "c88bfc76a5b5fba807593a481ba3c4fbad93e58a3d45413681d8d7aa9106a0ad",
+        "diagnostic_count": 119,
+        "diagnostic_fingerprint": "0f471143d3253ffbc1d9bbf83464c438229ceb06c86c0df137bedee7822ee347",
+        "counts": {
+          "bound_stamp_clones": 0,
+          "bound_stamp_drops": 13097,
+          "bound_record_reads": 36160418,
+          "table_gets": 0,
+          "absent_gets": 0,
+          "present_get_hits": 0,
+          "present_get_misses": 0,
+          "table_initializations": 0,
+          "insertions": 0,
+          "table_capacity_growths": 0,
+          "private_stamp_clones": 34564,
+          "private_stamp_drops": 33942,
+          "symbol_ref_clones": 34198,
+          "validated_views": 33935,
+          "bound_handle_constructions": 0,
+          "private_record_creations": 365,
+          "unresolved_requests": 16691,
+          "unresolved_completed_hits": 16326,
+          "symbol_clone_requests": 0,
+          "bound_records": 1082855,
+          "bound_record_capacity": 2097152,
+          "bound_inline_record_bytes": 268435456,
+          "members_present": 1082855,
+          "exports_present": 1082855,
+          "bound_member_capacity": 700506,
+          "bound_export_capacity": 186254
+        },
+        "retained_private_storage": "SymbolStorageUsage { records: 366, record_capacity: 512, inline_record_bytes: 94208, owned_name_bytes: 4253, declaration_bytes: 0, unresolved_entries: 365, unresolved_capacity: 448, path_key_bytes: 7716, merged_entries: 0, merged_capacity: 0, edge_capacity: 0, stamp_references: 623 }",
+        "enabled_repeats_equal": true,
+        "enabled_disabled_output_equal": true
+      },
+      "candidate": {
+        "binary_sha256": "8c098dfafbf5bf816095ac05d828f3eaedfa117c2d0d3c2e18f231015ee41264",
+        "checked_count": 1341,
+        "checked_order_fingerprint": "04d5f55be4e9253b8d9291375c46f171c6a829377ae41e28a2590b6480ede474",
+        "checked_input_fingerprint": "c88bfc76a5b5fba807593a481ba3c4fbad93e58a3d45413681d8d7aa9106a0ad",
+        "diagnostic_count": 119,
+        "diagnostic_fingerprint": "0f471143d3253ffbc1d9bbf83464c438229ceb06c86c0df137bedee7822ee347",
+        "counts": {
+          "bound_stamp_clones": 0,
+          "bound_stamp_drops": 13097,
+          "bound_record_reads": 36163180,
+          "table_gets": 5977154,
+          "absent_gets": 397034,
+          "present_get_hits": 1758587,
+          "present_get_misses": 3821533,
+          "table_initializations": 172122,
+          "insertions": 566958,
+          "table_capacity_growths": 201822,
+          "private_stamp_clones": 34564,
+          "private_stamp_drops": 33942,
+          "symbol_ref_clones": 34198,
+          "validated_views": 33935,
+          "bound_handle_constructions": 0,
+          "private_record_creations": 365,
+          "unresolved_requests": 16691,
+          "unresolved_completed_hits": 16326,
+          "symbol_clone_requests": 0,
+          "bound_records": 1082855,
+          "bound_record_capacity": 2097152,
+          "bound_inline_record_bytes": 268435456,
+          "members_present": 145798,
+          "exports_present": 26324,
+          "bound_member_capacity": 700506,
+          "bound_export_capacity": 186254
+        },
+        "retained_private_storage": "SymbolStorageUsage { records: 366, record_capacity: 512, inline_record_bytes: 94208, owned_name_bytes: 4253, declaration_bytes: 0, unresolved_entries: 365, unresolved_capacity: 448, path_key_bytes: 7716, merged_entries: 0, merged_capacity: 0, edge_capacity: 0, stamp_references: 623 }",
+        "enabled_repeats_equal": true,
+        "enabled_disabled_output_equal": true
+      }
+    },
+    "overhead_comparisons": {
+      "initial": {
+        "role": "normal current-source TSR baseline versus table-port candidate; not native",
+        "baseline": {
+          "wall_seconds": {
+            "median": 4.465814875002252,
+            "p95": 4.5932967079861555,
+            "min": 3.8232645420066547,
+            "max": 4.5932967079861555
+          },
+          "user_seconds": {
+            "median": 3.446764,
+            "p95": 3.534122,
+            "min": 3.403847,
+            "max": 3.534122
+          },
+          "system_seconds": {
+            "median": 0.44408,
+            "p95": 0.47109199999999996,
+            "min": 0.39005399999999996,
+            "max": 0.47109199999999996
+          },
+          "peak_rss_bytes": {
+            "median": 1116160000,
+            "p95": 1135689728,
+            "min": 1037959168,
+            "max": 1135689728
+          }
+        },
+        "candidate": {
+          "wall_seconds": {
+            "median": 4.447686291008722,
+            "p95": 4.650368707982125,
+            "min": 3.838699208019534,
+            "max": 4.650368707982125
+          },
+          "user_seconds": {
+            "median": 3.460515,
+            "p95": 3.559667,
+            "min": 3.442854,
+            "max": 3.559667
+          },
+          "system_seconds": {
+            "median": 0.432394,
+            "p95": 0.463985,
+            "min": 0.384468,
+            "max": 0.463985
+          },
+          "peak_rss_bytes": {
+            "median": 1087881216,
+            "p95": 1151401984,
+            "min": 1052491776,
+            "max": 1151401984
+          }
+        },
+        "binary_sha256": {
+          "tsr": "50de838334a775a7ee147df552417a5b80f8ba3ccbf909560fc4d44bc0eb4de4",
+          "tsgo": "d2644299bd5589d96ae64d9b936b08ae49384d02a5cb9759e35f64b2a3e543db"
+        },
+        "source_pairing": {
+          "baseline": "31b004610e3ba7ee4ba5acfda8a7af6b16fcbaea",
+          "candidate_owned_files": {
+            "crates/tsr-binder/src/binder.rs": "d6442e31b742b3fbc6948453e278bfe13b27cf1a8dcc2f1c68169a2f596f7548",
+            "crates/tsr-binder/src/lib.rs": "6c600192b98da54bc99cb6afe13b5ab2604b9980693529f2d79c625c2f6eb7a0",
+            "crates/tsr-binder/src/symbol.rs": "537b372824ab9285fc1d77296ca6b524ca470a43ebd02cf0cab6673fe3ad5558",
+            "crates/tsr-binder/tests/bind.rs": "19baeeaed5663ccc70e783cf13e401ee24226683870d4aa085527772dd3d30c0",
+            "crates/tsr-checker/src/symbol_access.rs": "62b2026192529ae814fc4226b5a5cf802228320a733c1a8faa8d646adc7d6835",
+            "crates/tsr-checker/tests/symbol_domain_contract.rs": "91483fabbb2804d7659d40c7d2798de938aaf2d33585d535996d027c2b478f80",
+            "crates/tsr-binder/tests/program.rs": "360ad7825a66b8fa86e14d5f55f98f6027dc360a0db7c407cc4770b226f70d23"
+          }
+        },
+        "options_match": true,
+        "loaded_scope_match": true,
+        "diagnostics_match": true,
+        "actual_checked_scope_match": true,
+        "inputs_unchanged": true,
+        "candidate_minus_baseline_ms": -18.1285839935299,
+        "native_target_verified": false
+      },
+      "confirmation": {
+        "role": "normal current-source TSR baseline versus table-port candidate; not native",
+        "baseline": {
+          "wall_seconds": {
+            "median": 3.8895958329958376,
+            "p95": 4.513827666989528,
+            "min": 3.810118458000943,
+            "max": 4.513827666989528
+          },
+          "user_seconds": {
+            "median": 3.405665,
+            "p95": 3.471259,
+            "min": 3.383906,
+            "max": 3.471259
+          },
+          "system_seconds": {
+            "median": 0.394476,
+            "p95": 0.467035,
+            "min": 0.392785,
+            "max": 0.467035
+          },
+          "peak_rss_bytes": {
+            "median": 1087766528,
+            "p95": 1150615552,
+            "min": 1054998528,
+            "max": 1150615552
+          }
+        },
+        "candidate": {
+          "wall_seconds": {
+            "median": 3.8162209170113783,
+            "p95": 4.576331916003255,
+            "min": 3.8047743340139277,
+            "max": 4.576331916003255
+          },
+          "user_seconds": {
+            "median": 3.417087,
+            "p95": 3.548089,
+            "min": 3.405136,
+            "max": 3.548089
+          },
+          "system_seconds": {
+            "median": 0.393743,
+            "p95": 0.442322,
+            "min": 0.385152,
+            "max": 0.442322
+          },
+          "peak_rss_bytes": {
+            "median": 1158070272,
+            "p95": 1197604864,
+            "min": 1121140736,
+            "max": 1197604864
+          }
+        },
+        "binary_sha256": {
+          "tsr": "50de838334a775a7ee147df552417a5b80f8ba3ccbf909560fc4d44bc0eb4de4",
+          "tsgo": "d2644299bd5589d96ae64d9b936b08ae49384d02a5cb9759e35f64b2a3e543db"
+        },
+        "source_pairing": {
+          "baseline": "31b004610e3ba7ee4ba5acfda8a7af6b16fcbaea",
+          "candidate_owned_files": {
+            "crates/tsr-binder/src/binder.rs": "d6442e31b742b3fbc6948453e278bfe13b27cf1a8dcc2f1c68169a2f596f7548",
+            "crates/tsr-binder/src/lib.rs": "6c600192b98da54bc99cb6afe13b5ab2604b9980693529f2d79c625c2f6eb7a0",
+            "crates/tsr-binder/src/symbol.rs": "537b372824ab9285fc1d77296ca6b524ca470a43ebd02cf0cab6673fe3ad5558",
+            "crates/tsr-binder/tests/bind.rs": "19baeeaed5663ccc70e783cf13e401ee24226683870d4aa085527772dd3d30c0",
+            "crates/tsr-checker/src/symbol_access.rs": "62b2026192529ae814fc4226b5a5cf802228320a733c1a8faa8d646adc7d6835",
+            "crates/tsr-checker/tests/symbol_domain_contract.rs": "91483fabbb2804d7659d40c7d2798de938aaf2d33585d535996d027c2b478f80",
+            "crates/tsr-binder/tests/program.rs": "360ad7825a66b8fa86e14d5f55f98f6027dc360a0db7c407cc4770b226f70d23"
+          }
+        },
+        "options_match": true,
+        "loaded_scope_match": true,
+        "diagnostics_match": true,
+        "actual_checked_scope_match": true,
+        "inputs_unchanged": true,
+        "candidate_minus_baseline_ms": -73.37491598445922,
+        "native_target_verified": false
+      }
+    },
+    "native_speed_target_verified": false
+  }
+}

@@ -847,6 +847,8 @@ impl<'a, 'n> Binder<'a, 'n> {
         // are entries in one store, so the borrows cannot overlap.
         let declarations = self.symbols.get(source).declarations.clone();
         let value_declaration = self.symbols.get(source).value_declaration;
+        let members_present = self.symbols.get(source).members.is_present();
+        let exports_present = self.symbols.get(source).exports.is_present();
         let members: Vec<(&'a str, SymbolId)> =
             self.symbols.get(source).members.iter().map(|(n, s)| (*n, *s)).collect();
         let exports: Vec<(&'a str, SymbolId)> =
@@ -855,6 +857,12 @@ impl<'a, 'n> Binder<'a, 'n> {
         {
             let entry = self.symbols.get_mut(target);
             entry.flags |= source_flags;
+            if members_present {
+                entry.members.initialize();
+            }
+            if exports_present {
+                entry.exports.initialize();
+            }
             entry.declarations.extend(declarations);
             // `SetValueDeclaration` keeps the first one; upstream only replaces
             // when the target has none.
@@ -998,6 +1006,17 @@ impl<'a, 'n> Binder<'a, 'n> {
         flags: ContainerFlags,
         declared: Option<SymbolId>,
     ) {
+        if let Some(symbol) = declared {
+            match node {
+                Node::ClassDeclaration(_) | Node::ClassExpression(_) => {
+                    self.symbols.get_mut(symbol).exports.initialize();
+                }
+                Node::FunctionTypeNode(_) | Node::ConstructorTypeNode(_) => {
+                    self.symbols.get_mut(symbol).members.initialize();
+                }
+                _ => {}
+            }
+        }
         let saved_container = self.container;
         let saved_expando_container = self.expando_container;
         let saved_block = self.block;
@@ -4239,7 +4258,7 @@ fn this_property_table<'s, 'a>(
     symbol: &'s mut crate::Symbol<'a>,
     exports: bool,
 ) -> &'s mut SymbolTable<'a> {
-    if exports { &mut symbol.exports } else { &mut symbol.members }
+    if exports { symbol.exports.initialize() } else { symbol.members.initialize() }
 }
 
 /// Whether `child` is the condition of `parent` (`isStatementCondition`).

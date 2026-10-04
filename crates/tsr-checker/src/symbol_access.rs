@@ -221,7 +221,7 @@ impl SymbolView<'_, '_> {
     #[must_use]
     pub fn has_member_table(&self) -> bool {
         match &self.0 {
-            View::Bound(_, _) => true,
+            View::Bound(s, _) => s.members.is_present(),
             View::Private(s) => s.members.is_some(),
         }
     }
@@ -229,7 +229,7 @@ impl SymbolView<'_, '_> {
     #[must_use]
     pub fn has_export_table(&self) -> bool {
         match &self.0 {
-            View::Bound(_, _) => true,
+            View::Bound(s, _) => s.exports.is_present(),
             View::Private(s) => s.exports.is_some(),
         }
     }
@@ -513,8 +513,8 @@ impl<'a> CheckerSymbols<'a> {
                     value_declaration: source.value_declaration,
                     parent: source.parent.map(|id| self.bound(id)).transpose()?,
                     export_symbol: None,
-                    members: Some(table(&source.members)?),
-                    exports: Some(table(&source.exports)?),
+                    members: source.members.as_ref().map(table).transpose()?,
+                    exports: source.exports.as_ref().map(table).transpose()?,
                     origin: Some(symbol.clone()),
                     declared_type: None,
                 }

@@ -320,3 +320,32 @@ fn leaf_text_and_ast_parent_are_preserved_even_when_full_path_keys_collide() {
     assert_eq!(checker.storage_usage(), initial);
     assert_eq!(checker.symbol_path(&root).unwrap(), "Root");
 }
+
+#[test]
+fn bound_clones_distinguish_absent_from_initialized_empty_tables() {
+    let mut program = SymbolStore::new();
+    let absent = program.create("Absent", SymbolFlags::INTERFACE);
+    let initialized = program.create("Initialized", SymbolFlags::INTERFACE);
+    program.get_mut(initialized).members.initialize();
+    program.get_mut(initialized).exports.initialize();
+    let (_types, unresolved) = intrinsic();
+    let mut symbols = CheckerSymbols::new(&program, unresolved);
+    let absent = symbols.bound(absent).unwrap();
+    let initialized = symbols.bound(initialized).unwrap();
+    let absent_clone = symbols.clone_symbol(&absent).unwrap();
+    let initialized_clone = symbols.clone_symbol(&initialized).unwrap();
+    for id in [&absent, &absent_clone] {
+        let view = symbols.view(id).unwrap();
+        assert!(!view.has_member_table() && !view.has_export_table());
+        assert!(view.member("missing").is_none() && view.export("missing").is_none());
+    }
+    for id in [&initialized, &initialized_clone] {
+        let view = symbols.view(id).unwrap();
+        assert!(view.has_member_table() && view.has_export_table());
+        assert!(view.member("missing").is_none() && view.export("missing").is_none());
+    }
+    symbols.set_member(&absent_clone, Cow::Borrowed("private"), &initialized).unwrap();
+    assert!(symbols.view(&absent_clone).unwrap().has_member_table());
+    assert!(!symbols.view(&absent).unwrap().has_member_table());
+    assert!(symbols.view(&initialized).unwrap().member("private").is_none());
+}

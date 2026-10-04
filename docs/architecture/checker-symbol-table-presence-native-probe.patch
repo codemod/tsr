@@ -1,0 +1,186 @@
+--- /dev/null
++++ b/internal/checker/symbol_table_presence_probe.go
+@@ -0,0 +1,73 @@
++package checker
++
++import (
++	"encoding/hex"
++	"github.com/microsoft/typescript-go/internal/ast"
++	"maps"
++	"slices"
++)
++
++type TablePresence struct {
++	MembersPresent bool
++	ExportsPresent bool
++	MemberNames    []string
++	ExportNames    []string
++	MemberKeysHex  []string
++	ExportKeysHex  []string
++}
++
++func ObserveBoundTablePresence(symbol *ast.Symbol) TablePresence {
++	members, exports := slices.Sorted(maps.Keys(symbol.Members)), slices.Sorted(maps.Keys(symbol.Exports))
++	rawKeys := func(names []string) []string {
++		result := make([]string, len(names))
++		for i, name := range names {
++			result[i] = hex.EncodeToString([]byte(name))
++		}
++		return result
++	}
++	return TablePresence{
++		MembersPresent: symbol.Members != nil, ExportsPresent: symbol.Exports != nil,
++		MemberNames: members, ExportNames: exports,
++		MemberKeysHex: rawKeys(members), ExportKeysHex: rawKeys(exports),
++	}
++}
++
++func (c *Checker) ObserveTablePresenceClone(symbol *ast.Symbol) map[string]bool {
++	before := ObserveBoundTablePresence(symbol)
++	members, exports := maps.Clone(symbol.Members), maps.Clone(symbol.Exports)
++	clone := c.cloneSymbol(symbol)
++	copied := ObserveBoundTablePresence(clone)
++	checks := map[string]bool{
++		"clone_preserves_member_presence": before.MembersPresent == copied.MembersPresent,
++		"clone_preserves_export_presence": before.ExportsPresent == copied.ExportsPresent,
++		"clone_preserves_member_edges":    maps.Equal(members, clone.Members),
++		"clone_preserves_export_edges":    maps.Equal(exports, clone.Exports),
++		"clone_is_private":                clone != symbol && clone.Flags&ast.SymbolFlagsTransient != 0,
++	}
++	ast.GetMembers(clone)
++	ast.GetExports(clone)
++	checks["getters_initialize_empty_tables"] = clone.Members != nil && clone.Exports != nil
++	clone.Members["__private_member"] = c.newSymbol(ast.SymbolFlagsProperty, "__private_member")
++	clone.Exports["__private_export"] = c.newSymbol(ast.SymbolFlagsProperty, "__private_export")
++	clear(clone.Members)
++	clear(clone.Exports)
++	checks["clear_retains_present_empty_tables"] = clone.Members != nil && clone.Exports != nil && len(clone.Members) == 0 && len(clone.Exports) == 0
++	after := ObserveBoundTablePresence(symbol)
++	checks["bound_presence_unchanged"] = before.MembersPresent == after.MembersPresent && before.ExportsPresent == after.ExportsPresent
++	checks["bound_edges_unchanged"] = maps.Equal(members, symbol.Members) && maps.Equal(exports, symbol.Exports)
++	return checks
++}
++
++func (c *Checker) ObserveTablePresenceMerge(target, source *ast.Symbol) map[string]bool {
++	beforeTarget, beforeSource := ObserveBoundTablePresence(target), ObserveBoundTablePresence(source)
++	result := c.mergeSymbol(target, source, false)
++	actual := ObserveBoundTablePresence(result)
++	checks := map[string]bool{
++		"merge_member_presence_is_union":  actual.MembersPresent == (beforeTarget.MembersPresent || beforeSource.MembersPresent),
++		"merge_export_presence_is_union":  actual.ExportsPresent == (beforeTarget.ExportsPresent || beforeSource.ExportsPresent),
++		"merge_result_is_private":         result != target && result != source && result.Flags&ast.SymbolFlagsTransient != 0,
++		"bound_target_presence_unchanged": target.Members != nil == beforeTarget.MembersPresent && (target.Exports != nil) == beforeTarget.ExportsPresent,
++		"bound_source_presence_unchanged": source.Members != nil == beforeSource.MembersPresent && (source.Exports != nil) == beforeSource.ExportsPresent,
++	}
++	return checks
++}
+--- /dev/null
++++ b/cmd/symbol-table-presence/main.go
+@@ -0,0 +1,107 @@
++package main
++
++import (
++	"encoding/json"
++	"fmt"
++	"github.com/microsoft/typescript-go/internal/ast"
++	"github.com/microsoft/typescript-go/internal/bundled"
++	"github.com/microsoft/typescript-go/internal/checker"
++	"github.com/microsoft/typescript-go/internal/compiler"
++	"github.com/microsoft/typescript-go/internal/core"
++	"github.com/microsoft/typescript-go/internal/tsoptions"
++	"github.com/microsoft/typescript-go/internal/vfs/vfstest"
++	"slices"
++)
++
++func main() {
++	fs := vfstest.FromMap(map[string]string{
++		"/tables.ts": `interface EmptyInterface {}
++interface FullInterface { field: string }
++namespace EmptyNamespace {}
++namespace HiddenNamespace { const hidden = 1; }
++namespace FullNamespace { export const visible = 1; }
++class EmptyClass {}
++class FullClass { field: string; static value: number; }
++type EmptyLiteral = {};
++type FullLiteral = { field: string };
++type FunctionType = () => string;
++type ConstructorType = new () => string;`,
++		"/tsconfig.json": `{"compilerOptions":{"strict":true,"singleThreaded":true,"noLib":true,"noEmit":true},"files":["tables.ts"]}`,
++	}, true)
++	host := compiler.NewCompilerHost("/", bundled.WrapFS(fs), bundled.LibPath(), nil, nil)
++	parsed, errors := tsoptions.GetParsedCommandLineOfConfigFile("/tsconfig.json", &core.CompilerOptions{}, nil, host, nil)
++	if len(errors) != 0 {
++		panic(fmt.Sprint(errors))
++	}
++	program := compiler.NewProgram(compiler.ProgramOptions{Config: parsed, Host: host})
++	program.BindSourceFiles()
++	locals := program.GetSourceFile("/tables.ts").AsNode().Locals()
++	samples := map[string]*ast.Symbol{}
++	for _, name := range []string{"EmptyInterface", "FullInterface", "EmptyNamespace", "HiddenNamespace", "FullNamespace", "EmptyClass", "FullClass"} {
++		samples[name] = locals[name]
++	}
++	for _, name := range []string{"EmptyLiteral", "FullLiteral", "FunctionType", "ConstructorType"} {
++		samples[name] = locals[name].Declarations[0].Type().Symbol()
++	}
++	samples["ExplicitEmpty"] = &ast.Symbol{Flags: ast.SymbolFlagsInterface, Name: "ExplicitEmpty", Members: make(ast.SymbolTable), Exports: make(ast.SymbolTable)}
++	expected := map[string]checker.TablePresence{
++		"EmptyInterface": {}, "EmptyNamespace": {}, "HiddenNamespace": {}, "EmptyLiteral": {},
++		"FullInterface":   {MembersPresent: true, MemberNames: []string{"field"}},
++		"FullNamespace":   {ExportsPresent: true, ExportNames: []string{"visible"}},
++		"EmptyClass":      {ExportsPresent: true, ExportNames: []string{"prototype"}},
++		"FullClass":       {MembersPresent: true, ExportsPresent: true, MemberNames: []string{"field"}, ExportNames: []string{"prototype", "value"}},
++		"FullLiteral":     {MembersPresent: true, MemberNames: []string{"field"}},
++		"FunctionType":    {MembersPresent: true, MemberNames: []string{ast.InternalSymbolNameCall}},
++		"ConstructorType": {MembersPresent: true, MemberNames: []string{ast.InternalSymbolNameNew}},
++		"ExplicitEmpty":   {MembersPresent: true, ExportsPresent: true},
++	}
++	observations := map[string]checker.TablePresence{}
++	assertions := 0
++	for name, symbol := range samples {
++		if symbol == nil {
++			panic(name + ":missing symbol")
++		}
++		observed := checker.ObserveBoundTablePresence(symbol)
++		want := expected[name]
++		if observed.MembersPresent != want.MembersPresent || observed.ExportsPresent != want.ExportsPresent || !slices.Equal(observed.MemberNames, want.MemberNames) || !slices.Equal(observed.ExportNames, want.ExportNames) {
++			panic(fmt.Sprintf("%s:got%+v want%+v", name, observed, want))
++		}
++		observations[name] = observed
++		assertions += 4
++	}
++	c, _ := checker.NewChecker(program, nil)
++	controls := map[string]map[string]bool{}
++	for name, symbol := range samples {
++		checks := c.ObserveTablePresenceClone(symbol)
++		for key, value := range checks {
++			if !value {
++				panic(name + ":" + key)
++			}
++			assertions++
++		}
++		controls[name] = checks
++	}
++	newNil := func() *ast.Symbol { return &ast.Symbol{Flags: ast.SymbolFlagsInterface, Name: "Nil"} }
++	newEmpty := func() *ast.Symbol {
++		return &ast.Symbol{Flags: ast.SymbolFlagsInterface, Name: "Empty", Members: make(ast.SymbolTable), Exports: make(ast.SymbolTable)}
++	}
++	for name, pair := range map[string][2]*ast.Symbol{
++		"merge_nil_with_empty": {newNil(), newEmpty()},
++		"merge_empty_with_nil": {newEmpty(), newNil()},
++		"merge_nil_with_nil":   {newNil(), newNil()},
++	} {
++		checks := c.ObserveTablePresenceMerge(pair[0], pair[1])
++		for key, value := range checks {
++			if !value {
++				panic(name + ":" + key)
++			}
++			assertions++
++		}
++		controls[name] = checks
++	}
++	data, err := json.Marshal(map[string]any{"observations": observations, "controls": controls, "assertions": assertions})
++	if err != nil {
++		panic(err)
++	}
++	fmt.Printf("SYMBOL_TABLE_PRESENCE\t%s\n", data)
++}
