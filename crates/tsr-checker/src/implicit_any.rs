@@ -42,6 +42,7 @@
 //! `ReturnStatement` one, corrected in the same build.
 
 use tsr_ast::{Node, NodeId, SyntaxKind};
+use tsr_binder::SymbolFlags;
 use tsr_diagnostics::{Diagnostic, messages};
 
 use crate::{check::has_modifier, checker::Checker};
@@ -177,7 +178,7 @@ impl Checker<'_, '_> {
             return;
         }
         let parameters: Vec<NodeId> = self.implicit_any_candidates(node);
-        for parameter in parameters {
+        for (index, parameter) in parameters.into_iter().enumerate() {
             let Some(Node::ParameterDeclaration(declaration)) = self.node_map.get(parameter) else {
                 continue;
             };
@@ -219,16 +220,31 @@ impl Checker<'_, '_> {
                 continue;
             }
             let rest = declaration.dot_dot_dot_token.is_some();
-            let message = if rest {
-                &messages::REST_PARAMETER_0_IMPLICITLY_HAS_AN_ANY_TYPE
-            } else {
-                &messages::PARAMETER_0_IMPLICITLY_HAS_AN_1_TYPE
-            };
             let Some(file) = self.source_file_of_for_diagnostics(parameter) else { continue };
             // The position is the **parameter declaration**, modifiers included:
             // `ParameterList4.ts(1,12)` for `function F(public A)` is the
             // `public`, not the `A`.
             let span = self.error_span(parameter);
+            if self.parameter_name_is_probably_a_type(node, parameter, name.text) {
+                // TS7051 — `reportImplicitAny`'s parameter arm
+                // (`checker.go:18290`): the name is spelled like a type, so the
+                // author most likely wrote `(string) => void` meaning a type.
+                let type_name = format!("{}{}", name.text, if rest { "[]" } else { "" });
+                self.report(
+                    file,
+                    Diagnostic::with_args(
+                        &messages::PARAMETER_HAS_A_NAME_BUT_NO_TYPE_DID_YOU_MEAN_0_COLON_1,
+                        span,
+                        [format!("arg{index}"), type_name],
+                    ),
+                );
+                continue;
+            }
+            let message = if rest {
+                &messages::REST_PARAMETER_0_IMPLICITLY_HAS_AN_ANY_TYPE
+            } else {
+                &messages::PARAMETER_0_IMPLICITLY_HAS_AN_1_TYPE
+            };
             let text = name.text.to_string();
             let diagnostic = if rest {
                 Diagnostic::with_args(message, span, [text])
@@ -237,6 +253,54 @@ impl Checker<'_, '_> {
             };
             self.report(file, diagnostic);
         }
+    }
+
+    /// The TS7051 condition of `reportImplicitAny`'s parameter arm
+    /// (`checker.go:18290`): the parameter belongs to a call signature, a
+    /// method signature or a function type, and its name is either a
+    /// type keyword (`ast.IsTypeNodeKind(scanner.IdentifierToKeywordKind(name))`)
+    /// or resolves with the `Type` meaning from the parameter
+    /// (`resolveName(declaration, name, SymbolFlagsType, …, excludeGlobals=false)`).
+    ///
+    /// A construct signature and a constructor type are deliberately absent:
+    /// upstream's kind test names exactly the three kinds above.
+    fn parameter_name_is_probably_a_type(
+        &self,
+        owner: NodeId,
+        parameter: NodeId,
+        name: &str,
+    ) -> bool {
+        if !matches!(
+            self.nodes.kind(owner),
+            SyntaxKind::CallSignature | SyntaxKind::MethodSignature | SyntaxKind::FunctionType
+        ) {
+            return false;
+        }
+        // `IsTypeNodeKind` also admits the type-node range and the JSDoc type
+        // kinds; `IdentifierToKeywordKind` can only answer a keyword, so the
+        // keyword list is the whole of what can match here.
+        let keyword_is_a_type = tsr_scanner::keyword_kind(name).is_some_and(|kind| {
+            matches!(
+                kind,
+                SyntaxKind::AnyKeyword
+                    | SyntaxKind::UnknownKeyword
+                    | SyntaxKind::NumberKeyword
+                    | SyntaxKind::BigIntKeyword
+                    | SyntaxKind::ObjectKeyword
+                    | SyntaxKind::BooleanKeyword
+                    | SyntaxKind::StringKeyword
+                    | SyntaxKind::SymbolKeyword
+                    | SyntaxKind::VoidKeyword
+                    | SyntaxKind::UndefinedKeyword
+                    | SyntaxKind::NeverKeyword
+                    | SyntaxKind::IntrinsicKeyword
+            )
+        });
+        keyword_is_a_type
+            || self
+                .binder
+                .resolve_name(self.nodes, self.node_map, parameter, name, SymbolFlags::TYPE)
+                .is_some()
     }
 
     /// Can this declaration's parameters get their types from a contextual
