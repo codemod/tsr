@@ -78,6 +78,9 @@ impl<'a> Checker<'a, '_> {
     /// answer, which is why the distinction has to be carried here rather than
     /// discovered later.
     pub(crate) fn get_index_infos_of_type(&mut self, id: TypeId) -> Option<Vec<IndexInfo>> {
+        if let Some(body) = self.completed_original_array_alias_body(id) {
+            return self.get_index_infos_of_type(body);
+        }
         let id = self.apparent_mapped_type(id);
         self.resolve_mapped_type_members(id);
         match self.store.get(id).data.clone() {
@@ -196,6 +199,102 @@ impl<'a> Checker<'a, '_> {
                 })
                 .collect(),
         )
+    }
+
+    /// Pinned 5b1047d checker.go:23837/24115/25121 publishes the canonical array
+    /// reference before recursive arguments; 19095/19106 resolves its indexes.
+    /// This port's completed body is owned by (alias `SymbolId`, ordered `TypeIds`),
+    /// not the alias's empty member table. Read only the existing successful
+    /// publication, preserving source identity and the array receiver mapper.
+    /// No evaluator, completion cache or mapped/captured image is introduced.
+    fn completed_original_array_alias_body(&self, id: TypeId) -> Option<TypeId> {
+        if !self.alias_evaluation_bindings.is_empty()
+            || self.mapped_template_depth != 0
+            || self.instantiation_depth != 0
+            || self.identity_unmapped_type_parameters
+            || !self.render_type_parameter_scope.is_empty()
+        {
+            return None;
+        }
+        let key @ (owner, arguments) = self.type_reference_targets.get(&id)?;
+        if self.instantiations.get(key) != Some(&id)
+            || !matches!(self.store.get(id).data, TypeData::Named { members: Some(member), .. } if member == *owner)
+            || self.resolutions.on_stack(*owner, crate::resolution::PropertyName::DeclaredType)
+            || !self
+                .binder
+                .symbols()
+                .get(*owner)
+                .flags
+                .contains(tsr_binder::SymbolFlags::TYPE_ALIAS)
+        {
+            return None;
+        }
+        let [declaration] = self.binder.symbols().get(*owner).declarations.as_slice() else {
+            return None;
+        };
+        let Node::TypeAliasDeclaration(alias) = self.node_map.get(*declaration)? else {
+            return None;
+        };
+        let root = self.nodes.parent(*declaration)?;
+        if self.nodes.kind(root) != tsr_ast::SyntaxKind::SourceFile
+            || self.nodes.flags(root).contains(tsr_ast::NodeFlags::JAVASCRIPT_FILE)
+            || alias.type_parameters.len() != arguments.len()
+            || arguments.iter().any(|&argument| self.is_error(argument))
+        {
+            return None;
+        }
+        let body = *self.alias_body_evaluations.get(key)?;
+        if body == id || self.is_error(body) {
+            return None;
+        }
+        let body_key @ (target, elements) = self.type_reference_targets.get(&body)?;
+        let [element] = elements.as_slice() else { return None };
+        if self.is_error(*element)
+            || self.instantiations.get(body_key) != Some(&body)
+            || !self
+                .binder
+                .symbols()
+                .get(*target)
+                .flags
+                .contains(tsr_binder::SymbolFlags::INTERFACE)
+            || !matches!(self.store.get(body).data, TypeData::Named { members: Some(member), .. } if member == *target)
+        {
+            return None;
+        }
+        let array = self.global_type_symbol_with_arity("Array", 1);
+        let readonly = self.global_type_symbol_with_arity("ReadonlyArray", 1);
+        let source_target = match alias.r#type? {
+            tsr_ast::TypeNode::ArrayTypeNode(_) => array?,
+            tsr_ast::TypeNode::TypeOperatorNode(operator)
+                if operator.operator.kind == tsr_ast::SyntaxKind::ReadonlyKeyword
+                    && matches!(operator.r#type, Some(tsr_ast::TypeNode::ArrayTypeNode(_))) =>
+            {
+                readonly?
+            }
+            tsr_ast::TypeNode::TypeReferenceNode(reference) => {
+                let tsr_ast::EntityName::Identifier(name) = reference.type_name? else {
+                    return None;
+                };
+                if reference.type_arguments.len() != 1 {
+                    return None;
+                }
+                self.binder.resolve_name(
+                    self.nodes,
+                    self.node_map,
+                    name.node_id?,
+                    name.text,
+                    tsr_binder::SymbolFlags::TYPE,
+                )?
+            }
+            _ => return None,
+        };
+        let target = self.binder.merged_symbol(*target);
+        (self.binder.merged_symbol(source_target) == target
+            && [array, readonly]
+                .into_iter()
+                .flatten()
+                .any(|array| self.binder.merged_symbol(array) == target))
+        .then_some(body)
     }
 
     /// `getUnionIndexInfos` (internal/checker/checker.go): only keys present
@@ -887,4 +986,255 @@ impl<'a> Checker<'a, '_> {
 pub(crate) fn is_numeric_literal_name(name: &str) -> bool {
     let Ok(value) = name.parse::<f64>() else { return false };
     crate::printing::normalise_number(name) == name && value.is_finite()
+}
+
+#[cfg(test)]
+mod completed_array_alias_tests {
+    use super::*;
+
+    const LIB: &str = "interface Array<T> { [index: number]: T; length: number; }
+interface ReadonlyArray<T> { readonly [index: number]: T; length: number; }";
+
+    fn with_checker(source: &str, test: impl FnOnce(&mut Checker<'_, '_>, tsr_ast::NodeId)) {
+        let arena = tsr_core::Arena::new();
+        let parsed = tsr_parser::parse(&arena, source);
+        assert!(parsed.diagnostics.is_empty());
+        let root = Node::SourceFile(parsed.source_file).node_id().unwrap();
+        let bound = tsr_binder::bind(
+            &arena,
+            parsed.source_file,
+            &parsed.nodes,
+            tsr_binder::FileInfo { name: "array-alias.ts", text: source },
+        );
+        let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+        checker.set_strict_null_checks(true);
+        test(&mut checker, root);
+    }
+
+    fn receiver(checker: &mut Checker<'_, '_>, root: tsr_ast::NodeId, name: &str) -> TypeId {
+        let symbol = checker.binder.lookup_local(root, name).unwrap();
+        checker.get_type_of_symbol(symbol)
+    }
+
+    fn publication(checker: &Checker<'_, '_>) -> String {
+        format!(
+            "{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}",
+            checker.store,
+            checker.alias_body_evaluations,
+            checker.instantiations,
+            checker.type_reference_targets,
+            checker.declared_types,
+            checker.symbol_types,
+            checker
+                .pending_signature_returns
+                .iter()
+                .map(|(key, state)| { (key, *state == crate::signatures::LazyReturnState::Active) })
+                .collect::<Vec<_>>(),
+            checker.signature_returns,
+        )
+    }
+
+    #[test]
+    fn completed_array_alias_indexes_keep_native_element_and_declaration_identities() {
+        let source = format!(
+            "{LIB} type Rec<T> = Array<T | Rec<T>>;
+type ReadRec<T> = ReadonlyArray<T | ReadRec<T>>;
+declare const numbers: Rec<number>; declare const strings: ReadRec<string>;"
+        );
+        for reverse in [false, true] {
+            with_checker(&source, |checker, root| {
+                let mut controls = [("numbers", false), ("strings", true)];
+                if reverse {
+                    controls.reverse();
+                }
+                for (name, readonly) in controls {
+                    let original = receiver(checker, root, name);
+                    let key = checker.type_reference_targets[&original].clone();
+                    // Actual property entry prepares the existing alias owner;
+                    // the index reader itself must never prepare it.
+                    assert_eq!(
+                        checker.get_type_of_property_of_type(original, "length"),
+                        Some(checker.intrinsics.number),
+                    );
+                    let body = checker.alias_body_evaluations[&key];
+                    let expected = checker.get_index_infos_of_type(body).unwrap();
+                    assert_eq!(expected.len(), 1);
+                    assert_eq!(expected[0].key, checker.intrinsics.number);
+                    assert_eq!(expected[0].readonly, readonly);
+                    assert!(expected[0].declaration.is_some());
+                    assert_eq!(expected[0].value, checker.type_reference_targets[&body].1[0]);
+                    let TypeData::Union { types, .. } = &checker.store.get(expected[0].value).data
+                    else {
+                        panic!("native recursive array element is a union")
+                    };
+                    assert!(types.contains(&original));
+                    assert!(types.contains(&if readonly {
+                        checker.intrinsics.string
+                    } else {
+                        checker.intrinsics.number
+                    }));
+                    let before = publication(checker);
+                    for _ in 0..3 {
+                        assert_eq!(
+                            checker.get_index_infos_of_type(original),
+                            Some(expected.clone())
+                        );
+                        assert_eq!(receiver(checker, root, name), original);
+                        assert_eq!(publication(checker), before);
+                    }
+                }
+            });
+        }
+    }
+
+    #[test]
+    fn cold_reverse_and_warm_index_entries_never_evaluate_an_alias() {
+        let source = format!(
+            "{LIB} type Pair<A, B> = Array<[A, B]>;
+declare const left: Pair<string, number>; declare const right: Pair<number, string>;
+const leftRead = left[0]; const rightRead = right[0];"
+        );
+        for first in ["left", "right"] {
+            with_checker(&source, |checker, root| {
+                let original = receiver(checker, root, first);
+                let key = checker.type_reference_targets[&original].clone();
+                assert!(!checker.alias_body_evaluations.contains_key(&key));
+                let before = checker.alias_body_evaluations.clone();
+                assert!(checker.get_index_infos_of_type(original).unwrap().is_empty());
+                assert_eq!(checker.alias_body_evaluations, before);
+                assert_eq!(
+                    checker.get_type_of_property_of_type(original, "length"),
+                    Some(checker.intrinsics.number),
+                );
+                for name in [first, if first == "left" { "right" } else { "left" }, first] {
+                    let value = receiver(checker, root, name);
+                    checker.get_type_of_property_of_type(value, "length").unwrap();
+                    let infos = checker.get_index_infos_of_type(value).unwrap();
+                    assert_eq!(infos.len(), 1);
+                    let expected = if name == "left" {
+                        [checker.intrinsics.string, checker.intrinsics.number]
+                    } else {
+                        [checker.intrinsics.number, checker.intrinsics.string]
+                    };
+                    assert_eq!(checker.tuple_element_lists[&infos[0].value].0, expected);
+                    let read = receiver(
+                        checker,
+                        root,
+                        if name == "left" { "leftRead" } else { "rightRead" },
+                    );
+                    assert_eq!(read, infos[0].value);
+                    assert_eq!(receiver(checker, root, name), value);
+                }
+            });
+        }
+    }
+
+    #[test]
+    fn active_foreign_and_captured_array_alias_views_do_not_reuse_completion() {
+        let source = format!(
+            "{LIB} type Rec<T> = Array<T | Rec<T>>; declare const value: Rec<number>;
+function enclosing<X>() {{ type Captured<T> = Array<T | X>; let local!: Captured<number>; return local; }}"
+        );
+        with_checker(&source, |checker, root| {
+            let original = receiver(checker, root, "value");
+            checker.get_type_of_property_of_type(original, "length").unwrap();
+            let key = checker.type_reference_targets[&original].clone();
+            let body = checker.alias_body_evaluations[&key];
+            checker.get_index_infos_of_type(body).unwrap();
+            for context in 0..5 {
+                match context {
+                    0 => assert!(
+                        checker
+                            .resolutions
+                            .push(key.0, crate::resolution::PropertyName::DeclaredType)
+                    ),
+                    1 => checker.alias_evaluation_bindings.push(rustc_hash::FxHashMap::default()),
+                    2 => checker.mapped_template_depth = 1,
+                    3 => checker.instantiation_depth = 1,
+                    _ => checker.identity_unmapped_type_parameters = true,
+                }
+                let before = publication(checker);
+                assert!(checker.get_index_infos_of_type(original).unwrap().is_empty());
+                assert_eq!(publication(checker), before);
+                match context {
+                    0 => assert!(checker.resolutions.pop()),
+                    1 => {
+                        checker.alias_evaluation_bindings.pop();
+                    }
+                    2 => checker.mapped_template_depth = 0,
+                    3 => checker.instantiation_depth = 0,
+                    _ => checker.identity_unmapped_type_parameters = false,
+                }
+            }
+            let foreign = checker.store.new_named(TypeFlags::OBJECT, "foreign".into(), Some(key.0));
+            checker.type_reference_targets.insert(foreign, key);
+            let before = publication(checker);
+            assert!(checker.get_index_infos_of_type(foreign).unwrap().is_empty());
+            assert_eq!(publication(checker), before);
+            let mut walk = vec![Node::SourceFile(match checker.node_map.get(root).unwrap() {
+                Node::SourceFile(file) => file,
+                _ => unreachable!(),
+            })];
+            let local = loop {
+                let node = walk.pop().unwrap();
+                if let Node::VariableDeclaration(declaration) = node
+                    && matches!(declaration.name, Some(tsr_ast::BindingName::Identifier(name)) if name.text == "local")
+                {
+                    break checker.binder.symbol_of(declaration.node_id.unwrap()).unwrap();
+                }
+                tsr_ast::push_children(node, &mut walk);
+            };
+            let captured = checker.get_type_of_symbol(local);
+            checker.get_type_of_property_of_type(captured, "length").unwrap();
+            let before = publication(checker);
+            assert!(checker.get_index_infos_of_type(captured).unwrap().is_empty());
+            assert_eq!(publication(checker), before);
+        });
+    }
+
+    #[test]
+    fn missing_failed_indirect_and_noncanonical_bodies_are_not_completed_by_the_view() {
+        let source = format!(
+            "{LIB} type Direct<T> = Array<T>; type Indirect<T> = Direct<T>;
+declare const direct: Direct<string>; declare const indirect: Indirect<string>;"
+        );
+        with_checker(&source, |checker, root| {
+            let direct = receiver(checker, root, "direct");
+            checker.get_type_of_property_of_type(direct, "length").unwrap();
+            let key = checker.type_reference_targets[&direct].clone();
+            let body = checker.alias_body_evaluations[&key];
+            checker.get_index_infos_of_type(body).unwrap();
+            assert_eq!(checker.completed_original_array_alias_body(direct), Some(body));
+            for completed in [None, Some(checker.intrinsics.error)] {
+                if let Some(completed) = completed {
+                    checker.alias_body_evaluations.insert(key.clone(), completed);
+                } else {
+                    checker.alias_body_evaluations.remove(&key);
+                }
+                let before = publication(checker);
+                assert!(checker.completed_original_array_alias_body(direct).is_none());
+                assert!(checker.get_index_infos_of_type(direct).unwrap().is_empty());
+                assert_eq!(publication(checker), before);
+            }
+            let image = checker.store.new_named(
+                TypeFlags::OBJECT,
+                "not an original array".into(),
+                Some(checker.type_reference_targets[&body].0),
+            );
+            checker
+                .type_reference_targets
+                .insert(image, checker.type_reference_targets[&body].clone());
+            checker.alias_body_evaluations.insert(key.clone(), image);
+            let before = publication(checker);
+            assert!(checker.completed_original_array_alias_body(direct).is_none());
+            assert_eq!(publication(checker), before);
+            checker.alias_body_evaluations.insert(key, body);
+            let indirect = receiver(checker, root, "indirect");
+            checker.get_type_of_property_of_type(indirect, "length").unwrap();
+            let before = publication(checker);
+            assert!(checker.completed_original_array_alias_body(indirect).is_none());
+            assert!(checker.get_index_infos_of_type(indirect).unwrap().is_empty());
+            assert_eq!(publication(checker), before);
+        });
+    }
 }
