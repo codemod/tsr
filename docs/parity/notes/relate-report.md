@@ -106,3 +106,36 @@ deciding it differently):
 
 Would be wrong if: a pair decided `Related` by the arm is reported by upstream.
 Zero-loss check at this commit is empty on both suites.
+
+## 5. Ported: widened object-literal types have a property table for the relation reporters
+
+`var a = { x: 1, y: 2 }; a = { x: 1 }` is TS2741 upstream (`reportUnmatchedProperty`)
+and `a = { x: 1, z: 3 }` is TS2353 (`hasExcessProperties`). The port reported
+TS2322 for both, because `member_completeness` certified no table for a type
+whose declaration is an `ObjectLiteralExpression` (the widened, regular
+literal type — the fresh one already reads its captured list), so
+`missing_required_property` and `check_excess_properties` declined.
+
+`Checker::relation_property_table` / `relation_members_are_complete` add the
+literal's own written member list (no spreads, no computed names, not JS) and
+are read by **this lane's reporters only**. Measured alternatives:
+
+| where the object-literal table is admitted | diagnostics | losses |
+|---|---|---|
+| `declared_property_table` **and** `declared_members_are_complete` | +8 | 1 (`nonPrimitiveAndEmptyObject`) |
+| `declared_property_table` only | +1 | 0 |
+| lane reporters only (chosen) | +1 | 0 |
+
+The loss in the first row is TS2339 (`crate::nonexistent_property`, not this
+lane's file) on `fooProps.barProp` where `fooProps: (BarProps & object) | {}`:
+upstream's `createUnionOrIntersectionProperty` gives an object-literal
+constituent that lacks the property an `undefined` member instead of failing
+the lookup. Once that union rule is ported, admitting object literals in
+`declared_members_are_complete` is worth the other seven cases
+(`checkingObjectWithThisInNamePositionNoCrash`, `importWithTrailingSlash`,
+`lambdaParamTypes`, `requireOfJsonFileInJsFile`,
+`requireOfJsonFileWithEmptyObjectWithErrors`, `thisInObjectLiterals`,
+`typeSatisfaction_optionalMemberConformance`). The middle row equals the chosen
+one, so the narrower change was kept.
+
+Converted: `compiler/typeMatch2`.

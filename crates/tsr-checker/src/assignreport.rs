@@ -1117,10 +1117,10 @@ impl<'a> Checker<'a, '_> {
         // makes every name known, so this is the predicate that must decline it
         // — the same one `crate::nonexistent_property` uses, and *not* the
         // property enumeration TS2741 uses.
-        if !self.declared_members_are_complete(target) {
+        if !self.relation_members_are_complete(target) {
             return;
         }
-        let Some(known) = self.declared_property_table(target) else { return };
+        let Some(known) = self.relation_property_table(target) else { return };
         // An **empty** target is not an excess-property site. `class C {}` with
         // `c = { foo: '' }` reads TS2322 upstream, not TS2353
         // (`conformance/classWithEmptyBody`), because nothing about the literal
@@ -1284,8 +1284,8 @@ impl<'a> Checker<'a, '_> {
     /// `tryElaborateArrayLikeErrors` permits the multi-property head here. No
     /// array/tuple elaboration is inferred from incomplete tables.
     fn missing_required_property(&mut self, source: TypeId, target: TypeId) -> Option<Vec<String>> {
-        let target_properties = self.declared_property_table(target)?;
-        let source_properties = self.declared_property_table(source)?;
+        let target_properties = self.relation_property_table(target)?;
+        let source_properties = self.relation_property_table(source)?;
         if self.fresh_object_literal_types.contains(&source) {
             // hasExcessProperties precedes reportUnmatchedProperty. Captured
             // names alone cannot license a missing head when a written key
