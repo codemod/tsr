@@ -1,0 +1,420 @@
+diff --git a/crates/tsr-checker/src/declared.rs b/crates/tsr-checker/src/declared.rs
+index ef8e89fc..d546c5a0 100644
+--- a/crates/tsr-checker/src/declared.rs
++++ b/crates/tsr-checker/src/declared.rs
+@@ -1751,23 +1751,55 @@ impl<'a> Checker<'a, '_> {
+         parameters: &[TypeId],
+         names: &[&str],
+     ) -> Option<TypeId> {
++        let mut diagnostic_copies =
++            crate::mapper_key_probe::literal_copy_probe::LiteralCopies::new();
+         let origin = *self.type_literal_origins.get(&id)?;
+-        let mut properties = self.anonymous_properties.get(&id).map(|(p, _)| p.clone());
+-        let original_signatures = self.signature_types.get(&id).cloned();
++        diagnostic_copies.origin_found();
++        let mut properties =
++            crate::mapper_key_probe::literal_properties(self, id, &mut diagnostic_copies);
++        let original_signatures =
++            crate::mapper_key_probe::literal_signatures(self, id, &mut diagnostic_copies);
+         if properties.is_none() && original_signatures.is_none() {
+             return None;
+         }
+-        let cache_key = (id, map.to_vec());
++        let cache_key = crate::mapper_key_probe::key(3, id, map);
++        let lookup_start = crate::mapper_key_probe::lookup_start();
++        let diagnostic_owner = std::ptr::from_ref(self) as usize;
+         if let Some(&cached) = self.instantiated_objects.get(&cache_key) {
++            crate::mapper_key_probe::lookup(
++                3,
++                diagnostic_owner,
++                &cache_key,
++                Some(cached),
++                self.intrinsics.error,
++                lookup_start,
++            );
++            diagnostic_copies.lookup(
++                diagnostic_owner,
++                &cache_key,
++                Some(cached),
++                self.intrinsics.error,
++            );
+             return Some(cached);
+         }
++        diagnostic_copies.lookup(diagnostic_owner, &cache_key, None, self.intrinsics.error);
++        crate::mapper_key_probe::lookup(
++            3,
++            diagnostic_owner,
++            &cache_key,
++            None,
++            self.intrinsics.error,
++            lookup_start,
++        );
++        let mut diagnostic_worker =
++            crate::mapper_key_probe::Worker::enter(3, diagnostic_owner, &cache_key);
+         let Some(Node::TypeLiteralNode(node)) = self.node_map.get(origin) else {
+             return Some(self.intrinsics.error);
+         };
+         let owner = self.binder.symbol_of(origin)?;
+         let placeholder = self.type_to_string(id);
+         let reserved = self.store.new_named(TypeFlags::OBJECT, placeholder, Some(owner));
+-        self.instantiated_objects.insert(cache_key.clone(), reserved);
++        self.instantiated_objects.insert(crate::mapper_key_probe::clone_key(&cache_key), reserved);
+         let mut failed = false;
+         for property in properties.iter_mut().flatten() {
+             property.r#type = self.instantiate_type(property.r#type, map, parameters, names);
+@@ -1900,6 +1932,7 @@ impl<'a> Checker<'a, '_> {
+         if !indexes.is_empty() {
+             self.object_literal_index_infos.insert(reserved, indexes);
+         }
++        diagnostic_worker.complete(true);
+         Some(reserved)
+     }
+
+@@ -5188,9 +5221,27 @@ impl<'a> Checker<'a, '_> {
+         {
+             let _ = self.get_declared_type_of_symbol(symbol);
+         }
+-        if let Some(&cached) = self.instantiations.get(&(symbol, arguments.clone())) {
++        let diagnostic_key = crate::mapper_key_probe::reference_key(symbol, &arguments);
++        let diagnostic_lookup_start = crate::mapper_key_probe::lookup_start();
++        let diagnostic_owner = std::ptr::from_ref(self) as usize;
++        if let Some(&cached) = self.instantiations.get(&diagnostic_key) {
++            crate::mapper_key_probe::reference_lookup(
++                diagnostic_owner,
++                &diagnostic_key,
++                Some(cached),
++                diagnostic_lookup_start,
++            );
+             return cached;
+         }
++        crate::mapper_key_probe::reference_lookup(
++            diagnostic_owner,
++            &diagnostic_key,
++            None,
++            diagnostic_lookup_start,
++        );
++        let _diagnostic_worker =
++            crate::mapper_key_probe::ReferenceWorker::enter(diagnostic_owner, &diagnostic_key);
++        drop(diagnostic_key);
+         // A type alias instantiation has the flags and identity of its body.
+         // Keyword bodies do not depend on the mapper or carry an alias name.
+         if self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_ALIAS)
+@@ -5223,7 +5274,10 @@ impl<'a> Checker<'a, '_> {
+                 let named = self.store.new_named(TypeFlags::INDEXED_ACCESS, text, None);
+                 self.deferred_indexed_access_types.insert(named, operands);
+                 self.deferred_index_mints.insert(named);
+-                self.type_reference_targets.insert(named, (symbol, arguments.clone()));
++                self.type_reference_targets.insert(
++                    named,
++                    (symbol, crate::mapper_key_probe::reference_copy(&arguments, 12)),
++                );
+                 named
+             } else if let crate::types::TypeData::Union { types, .. } =
+                 self.store.get(evaluated).data.clone()
+@@ -5234,7 +5288,10 @@ impl<'a> Checker<'a, '_> {
+                     types,
+                     Some((symbol, text)),
+                 );
+-                self.type_reference_targets.insert(named, (symbol, arguments.clone()));
++                self.type_reference_targets.insert(
++                    named,
++                    (symbol, crate::mapper_key_probe::reference_copy(&arguments, 12)),
++                );
+                 named
+             } else if let crate::types::TypeData::Anonymous {
+                 symbol: owner, signature: true, ..
+@@ -5245,7 +5302,10 @@ impl<'a> Checker<'a, '_> {
+                     self.signature_types.insert(named, signatures);
+                 }
+                 self.alias_named_signature_types.insert(named);
+-                self.type_reference_targets.insert(named, (symbol, arguments.clone()));
++                self.type_reference_targets.insert(
++                    named,
++                    (symbol, crate::mapper_key_probe::reference_copy(&arguments, 12)),
++                );
+                 named
+             } else {
+                 evaluated
+@@ -5309,7 +5369,8 @@ impl<'a> Checker<'a, '_> {
+         // instantiation could be one commit.
+         let flags = if conditional { TypeFlags::CONDITIONAL } else { TypeFlags::OBJECT };
+         let id = self.store.new_named(flags, printed, Some(member_symbol));
+-        self.instantiations.insert((symbol, arguments.clone()), id);
++        self.instantiations
++            .insert((symbol, crate::mapper_key_probe::reference_copy(&arguments, 11)), id);
+         if shown < arguments.len() {
+             self.reference_display_arity.insert(id, shown);
+         }
+@@ -5317,7 +5378,8 @@ impl<'a> Checker<'a, '_> {
+         // `TypeId` and needs the pair, which only exists here as a key — see
+         // [`crate::checker::Checker::type_reference_targets`]. Written on the
+         // miss path only, so it is one insert per distinct reference.
+-        self.type_reference_targets.insert(id, (symbol, arguments.clone()));
++        self.type_reference_targets
++            .insert(id, (symbol, crate::mapper_key_probe::reference_copy(&arguments, 12)));
+         self.capture_mapped_alias(id, symbol, &arguments);
+         if let Some(mapped) = self.instantiate_mapped_alias_sequence(id, symbol, &arguments) {
+             self.instantiations.insert((symbol, arguments), mapped);
+diff --git a/crates/tsr-checker/src/inference.rs b/crates/tsr-checker/src/inference.rs
+index 249feb5e..282763b3 100644
+--- a/crates/tsr-checker/src/inference.rs
++++ b/crates/tsr-checker/src/inference.rs
+@@ -3912,10 +3912,12 @@ impl Checker<'_, '_> {
+             return false;
+         }
+         let top_level = visiting.is_empty();
+-        let key = (id, parameters.to_vec());
++        let key = crate::mapper_key_probe::predicate_key(id, parameters, top_level);
+         if top_level && let Some(&cached) = self.could_contain_parameter_cache.get(&key) {
++            crate::mapper_key_probe::predicate_hit();
+             return cached;
+         }
++        crate::mapper_key_probe::predicate_worker(top_level);
+         visiting.push(id);
+         let answer = self.could_contain_parameter_inner(id, parameters, visiting);
+         visiting.pop();
+@@ -5367,10 +5369,30 @@ impl Checker<'_, '_> {
+         parameters: &[TypeId],
+         names: &[&str],
+     ) -> TypeId {
+-        let key = (id, map.to_vec());
++        let key = crate::mapper_key_probe::key(0, id, map);
++        let lookup_start = crate::mapper_key_probe::lookup_start();
++        let diagnostic_owner = std::ptr::from_ref(self) as usize;
+         if let Some(&cached) = self.instantiated_objects.get(&key) {
++            crate::mapper_key_probe::lookup(
++                0,
++                diagnostic_owner,
++                &key,
++                Some(cached),
++                self.intrinsics.error,
++                lookup_start,
++            );
+             return cached;
+         }
++        crate::mapper_key_probe::lookup(
++            0,
++            diagnostic_owner,
++            &key,
++            None,
++            self.intrinsics.error,
++            lookup_start,
++        );
++        let mut diagnostic_worker =
++            crate::mapper_key_probe::Worker::enter(0, diagnostic_owner, &key);
+         let TypeData::Named { members: owner, .. } = self.store.get(id).data else {
+             return self.intrinsics.error;
+         };
+@@ -5413,6 +5435,7 @@ impl Checker<'_, '_> {
+         self.anonymous_properties.insert(minted, (properties, true));
+         self.object_literal_index_infos.insert(minted, indexes);
+         self.instantiated_objects.insert(key, minted);
++        diagnostic_worker.complete(true);
+         minted
+     }
+
+@@ -5444,10 +5467,30 @@ impl Checker<'_, '_> {
+         names: &[&str],
+     ) -> TypeId {
+         let error = self.intrinsics.error;
+-        let key = (id, map.to_vec());
++        let key = crate::mapper_key_probe::key(1, id, map);
++        let lookup_start = crate::mapper_key_probe::lookup_start();
++        let diagnostic_owner = std::ptr::from_ref(self) as usize;
+         if let Some(&cached) = self.instantiated_signatures.get(&key) {
++            crate::mapper_key_probe::lookup(
++                1,
++                diagnostic_owner,
++                &key,
++                Some(cached),
++                self.intrinsics.error,
++                lookup_start,
++            );
+             return cached;
+         }
++        crate::mapper_key_probe::lookup(
++            1,
++            diagnostic_owner,
++            &key,
++            None,
++            self.intrinsics.error,
++            lookup_start,
++        );
++        let mut diagnostic_worker =
++            crate::mapper_key_probe::Worker::enter(1, diagnostic_owner, &key);
+         let signatures = self.signature_types.get(&id).cloned().unwrap_or_default();
+         let mut instantiated = Vec::with_capacity(signatures.len());
+         for signature in signatures {
+@@ -5543,6 +5586,7 @@ impl Checker<'_, '_> {
+         self.instantiated_signature_mappers.insert(minted, mapper);
+         self.instantiated_signatures.insert(key, minted);
+         self.minted_signature_types.insert(minted);
++        diagnostic_worker.complete(true);
+         minted
+     }
+
+diff --git a/crates/tsr-checker/src/lib.rs b/crates/tsr-checker/src/lib.rs
+index f241ffee..178f7fa2 100644
+--- a/crates/tsr-checker/src/lib.rs
++++ b/crates/tsr-checker/src/lib.rs
+@@ -186,3 +186,5 @@ pub use flags::TypeFlags;
+ pub use intrinsics::Intrinsics;
+ pub use resolution::{PropertyName, Resolutions};
+ pub use types::{Type, TypeData, TypeId, TypeStore};
++
++pub mod mapper_key_probe;
+diff --git a/crates/tsr-checker/src/mapped.rs b/crates/tsr-checker/src/mapped.rs
+index c4751a62..788974e6 100644
+--- a/crates/tsr-checker/src/mapped.rs
++++ b/crates/tsr-checker/src/mapped.rs
+@@ -770,13 +770,35 @@ impl<'a> Checker<'a, '_> {
+         parameters: &[TypeId],
+         names: &[&str],
+     ) -> TypeId {
+-        let key = (id, map.to_vec());
++        let key = crate::mapper_key_probe::key(2, id, map);
++        let lookup_start = crate::mapper_key_probe::lookup_start();
++        let diagnostic_owner = std::ptr::from_ref(self) as usize;
+         if let Some(&cached) = self.instantiated_objects.get(&key) {
++            crate::mapper_key_probe::lookup(
++                2,
++                diagnostic_owner,
++                &key,
++                Some(cached),
++                self.intrinsics.error,
++                lookup_start,
++            );
+             return cached;
+         }
+-        self.instantiated_objects.insert(key.clone(), self.intrinsics.error);
++        crate::mapper_key_probe::lookup(
++            2,
++            diagnostic_owner,
++            &key,
++            None,
++            self.intrinsics.error,
++            lookup_start,
++        );
++        let mut diagnostic_worker =
++            crate::mapper_key_probe::Worker::enter(2, diagnostic_owner, &key);
++        self.instantiated_objects
++            .insert(crate::mapper_key_probe::clone_key(&key), self.intrinsics.error);
+         let result = self.instantiate_mapped_type_worker(id, map, parameters, names);
+         self.instantiated_objects.insert(key, result);
++        diagnostic_worker.complete(result != self.intrinsics.error);
+         result
+     }
+
+diff --git a/crates/tsr-execute/src/checker_pool.rs b/crates/tsr-execute/src/checker_pool.rs
+index be937c38..585cb4da 100644
+--- a/crates/tsr-execute/src/checker_pool.rs
++++ b/crates/tsr-execute/src/checker_pool.rs
+@@ -105,6 +105,7 @@ pub fn check_program_files<'a>(
+         .collect();
+
+     let run = |owner: usize| -> (Located, Located, usize, Duration) {
++        let mut mapper_probe = tsr_checker::mapper_key_probe::PoolWorker::enter(owner, count);
+         let mut checker = tsr_checker::Checker::with_module_host(
+             program.binder(),
+             program.nodes(),
+@@ -118,6 +119,11 @@ pub fn check_program_files<'a>(
+         configure(&mut checker);
+         checker.set_checked_files(eligible.iter().copied());
+         let constructed = started.elapsed();
++        mapper_probe.setup_complete();
++        assert!(
++            std::env::var("TSR_MAPPER_FAIL_OWNER").ok().as_deref() != Some(&owner.to_string()),
++            "deliberate archive-only mapper worker failure"
++        );
+         let mut checked_count = 0;
+         let mut js_syntax = Vec::new();
+         for (index, file) in files.iter().enumerate() {
+@@ -139,6 +145,7 @@ pub fn check_program_files<'a>(
+                 // declaration file; this port's does not, so the bit is
+                 // supplied here, the same way the conformance harness does.
+                 let ambient = tsr_path::is_declaration_file_name(file.file_name());
++                let mapper_check_start = mapper_probe.check_start();
+                 checker.check_source_file(
+                     id,
+                     tsr_checker::check::FileContext {
+@@ -146,6 +153,7 @@ pub fn check_program_files<'a>(
+                         has_parse_errors: !file.diagnostics().is_empty(),
+                     },
+                 );
++                mapper_probe.checked(index, file.file_name(), mapper_check_start);
+                 checked_count += 1;
+             }
+         }
+@@ -157,6 +165,7 @@ pub fn check_program_files<'a>(
+                 (index % count == owner).then(|| (index, diagnostic.clone()))
+             })
+             .collect();
++        mapper_probe.complete(&checker);
+         (diagnostics, js_syntax, checked_count, constructed)
+     };
+
+@@ -183,6 +192,7 @@ pub fn check_program_files<'a>(
+         })
+     };
+
++    tsr_checker::mapper_key_probe::finish_pool(count);
+     let mut outcome = PoolOutcome {
+         diagnostics: Vec::new(),
+         js_syntax: Vec::new(),
+--- a/crates/tsr-checker/src/mapper_key_probe.rs
++++ b/crates/tsr-checker/src/mapper_key_probe.rs
+@@ -189,16 +189,16 @@
+ pub(crate) fn literal_properties(
+     checker: &Checker<'_, '_>,
+     id: TypeId,
++    copies: &mut literal_copy_probe::LiteralCopies,
+ ) -> Option<Vec<crate::objects::AnonymousProperty>> {
+-    let _scope = allocation::enter(8);
+-    checker.anonymous_properties.get(&id).map(|(p, _)| p.clone())
++    literal_copy_probe::properties(checker, id, copies)
+ }
+ pub(crate) fn literal_signatures(
+     checker: &Checker<'_, '_>,
+     id: TypeId,
++    copies: &mut literal_copy_probe::LiteralCopies,
+ ) -> Option<Vec<crate::signatures::Signature>> {
+-    let _scope = allocation::enter(9);
+-    checker.signature_types.get(&id).cloned()
++    literal_copy_probe::signatures(checker, id, copies)
+ }
+ pub fn global_counts() -> Vec<(&'static str, u64)> {
+     let names = [
+@@ -615,6 +615,14 @@
+                 writeln!(out, "owner_count\t{name}\t{value}").unwrap();
+             }
+         }
++        if enabled() {
++            for ((name, _), value) in literal_copy_probe::global_counts()
++                .into_iter()
++                .zip(literal_copy_probe::local_counts())
++            {
++                writeln!(out, "owner_count\t{name}\t{value}").unwrap();
++            }
++        }
+         for (name, value) in &self.retained {
+             writeln!(out, "capacity\t{name}\t{value}").unwrap();
+         }
+@@ -635,6 +643,11 @@
+     .unwrap();
+     if enabled() {
+         for (name, value) in global_counts() {
++            writeln!(out, "count\t{name}\t{value}").unwrap();
++        }
++    }
++    if enabled() {
++        for (name, value) in literal_copy_probe::global_counts() {
+             writeln!(out, "count\t{name}\t{value}").unwrap();
+         }
+     }
+@@ -680,3 +693,6 @@
+         });
+     }
+ }
++
++#[path = "literal_copy_probe.rs"]
++pub mod literal_copy_probe;
