@@ -133,8 +133,7 @@ impl<'a> Checker<'a, '_> {
     ) {
         if ambient
             || self.in_js_file(node)
-            || (self.file_has_parse_errors
-                && !self.has_complete_source_variable_initializer(node, declaration))
+            || (self.file_has_parse_errors && !self.has_complete_source_variable_initializer(node))
         {
             return;
         }
@@ -156,29 +155,226 @@ impl<'a> Checker<'a, '_> {
 
     /// Native `checkVariableLikeDeclaration` (5b1047d1, checker.go:5790–5945)
     /// has no whole-file syntax gate. This port may reuse its existing suppliers
-    /// only for positively written, complete, `SourceFile`-owned simple shapes.
+    /// only for positively written leaves and complete ordinary owners.
     /// Error flags and absent optional children do not certify syntax. Source
-    /// belongs to the exact host/table/file; at most eleven tokens are scanned.
-    fn has_complete_source_variable_initializer(
+    /// belongs to the exact host/table/file. The leaf scan remains bounded;
+    /// function headers and registered direct children certify enclosing scope.
+    fn has_complete_source_variable_initializer(&self, node: NodeId) -> bool {
+        let certify = || -> Option<()> {
+            let list = self.nodes.parent(node)?;
+            let statement = self.nodes.parent(list)?;
+            let owner = self.nodes.parent(statement)?;
+            if self.nodes.kind(list) != SyntaxKind::VariableDeclarationList
+                || self.nodes.kind(statement) != SyntaxKind::VariableStatement
+            {
+                return None;
+            }
+            let source = match self.nodes.kind(owner) {
+                SyntaxKind::SourceFile => self.module_host?.source_text(owner, self.nodes)?,
+                SyntaxKind::Block => {
+                    let parent = self.nodes.parent(owner)?;
+                    let (function, body) = if self.nodes.kind(parent) == SyntaxKind::Block {
+                        (self.nodes.parent(parent)?, parent)
+                    } else {
+                        (parent, owner)
+                    };
+                    let (source, registered_body) = self.source_of_complete_function(function)?;
+                    if body != registered_body {
+                        return None;
+                    }
+                    if owner != body {
+                        let Node::Block(block) = self.node_map.get(owner)? else { return None };
+                        if !self.has_complete_written_block(block, body, source) {
+                            return None;
+                        }
+                    }
+                    source
+                }
+                _ => return None,
+            };
+            let mut statement_scanner =
+                tsr_scanner::Scanner::new(source.get(self.nodes.span(statement).start as usize..)?);
+            if !matches!(
+                statement_scanner.scan().kind,
+                SyntaxKind::VarKeyword | SyntaxKind::LetKeyword | SyntaxKind::ConstKeyword
+            ) {
+                return None;
+            }
+            self.has_complete_written_initializer(node, source).then_some(())
+        };
+        certify().is_some()
+    }
+
+    /// `SourceFile`-owned, ordinary named functions only. Witness the written
+    /// header and every admitted parameter's interior, not just its span. The
+    /// body must have its own closing token outside every direct child.
+    fn source_of_complete_function(&self, node: NodeId) -> Option<(&str, NodeId)> {
+        use tsr_ast::FunctionBody;
+        use tsr_scanner::{Scanner, TokenFlags};
+
+        let Node::FunctionDeclaration(function) = self.node_map.get(node)? else { return None };
+        let file = self.nodes.parent(node)?;
+        if self.nodes.kind(file) != SyntaxKind::SourceFile
+            || !function.modifiers.is_empty()
+            || !function.type_parameters.is_empty()
+            || function.asterisk_token.is_some()
+        {
+            return None;
+        }
+        let source = self.module_host?.source_text(file, self.nodes)?;
+        let name = function.name?.node_id?;
+        if self.nodes.parent(name) != Some(node) {
+            return None;
+        }
+        let FunctionBody::Block(body) = function.body?;
+        let body_id = body.node_id?;
+        let body_span = self.nodes.span(body_id);
+        let function_span = self.nodes.span(node);
+        if body_span.end != function_span.end
+            || !self.has_complete_written_block(body, node, source)
+        {
+            return None;
+        }
+        let mut scanner =
+            Scanner::new(source.get(function_span.start as usize..body_span.start as usize)?);
+        let keyword = scanner.scan();
+        if keyword.kind != SyntaxKind::FunctionKeyword
+            || keyword.span != tsr_core::Span::new(0, 8)
+            || keyword.flags.contains(TokenFlags::UNICODE_ESCAPE)
+        {
+            return None;
+        }
+        let name_token = scanner.scan();
+        let name_span = self.nodes.span(name);
+        if name_token.kind != SyntaxKind::Identifier
+            || name_token.flags.contains(TokenFlags::UNICODE_ESCAPE)
+            || name_token.span.start + function_span.start != name_span.start
+            || name_token.span.end + function_span.start != name_span.end
+            || scanner.scan().kind != SyntaxKind::OpenParenToken
+        {
+            return None;
+        }
+        for (index, parameter) in function.parameters.iter().enumerate() {
+            let id = parameter.node_id?;
+            if self.nodes.parent(id) != Some(node)
+                || !self.has_complete_written_initializer(id, source)
+                || (index != 0 && scanner.scan().kind != SyntaxKind::CommaToken)
+            {
+                return None;
+            }
+            let span = self.nodes.span(id);
+            let mut token = scanner.scan();
+            if token.span.start + function_span.start != span.start {
+                return None;
+            }
+            // The independent leaf certificate bounds this complete interior
+            // to nine written tokens; do not skip recovered parameter text.
+            while token.span.end + function_span.start < span.end {
+                if token.kind == SyntaxKind::EndOfFile {
+                    return None;
+                }
+                token = scanner.scan();
+            }
+            if token.span.end + function_span.start != span.end {
+                return None;
+            }
+        }
+        if scanner.scan().kind != SyntaxKind::CloseParenToken
+            || scanner.scan().kind != SyntaxKind::EndOfFile
+            || !scanner.diagnostics().is_empty()
+        {
+            return None;
+        }
+        Some((source, body_id))
+    }
+
+    fn has_complete_written_block(
         &self,
-        node: NodeId,
-        declaration: &tsr_ast::VariableDeclaration<'a>,
+        block: &tsr_ast::Block<'_>,
+        parent: NodeId,
+        source: &str,
     ) -> bool {
+        let certify = || -> Option<()> {
+            let id = block.node_id?;
+            let span = self.nodes.span(id);
+            if self.nodes.parent(id) != Some(parent) {
+                return None;
+            }
+            let text = source.get(span.start as usize..span.end as usize)?;
+            let mut opening = tsr_scanner::Scanner::new(text);
+            let token = opening.scan();
+            if token.kind != SyntaxKind::OpenBraceToken || token.span != tsr_core::Span::new(0, 1) {
+                return None;
+            }
+            let mut end = span.start + 1;
+            for statement in block.statements {
+                let child = Node::from(*statement).node_id()?;
+                let child_span = self.nodes.span(child);
+                if self.nodes.parent(child) != Some(id)
+                    || child_span.start < end
+                    || child_span.start >= child_span.end
+                    || child_span.end > span.end
+                {
+                    return None;
+                }
+                end = child_span.end;
+            }
+            // Start after the last child, not at the final character: an
+            // initializer's '}' or a comment's '}' cannot close this owner.
+            let mut closing =
+                tsr_scanner::Scanner::new(source.get(end as usize..span.end as usize)?);
+            let token = closing.scan();
+            if token.kind != SyntaxKind::CloseBraceToken
+                || token.span.end + end != span.end
+                || closing.scan().kind != SyntaxKind::EndOfFile
+                || !closing.diagnostics().is_empty()
+            {
+                return None;
+            }
+            Some(())
+        };
+        certify().is_some()
+    }
+
+    fn has_complete_source_parameter_initializer(&self, node: NodeId) -> bool {
+        let certify = || -> Option<()> {
+            let Node::ParameterDeclaration(_) = self.node_map.get(node)? else { return None };
+            let function_id = self.nodes.parent(node)?;
+            self.source_of_complete_function(function_id)?;
+            let Node::FunctionDeclaration(function) = self.node_map.get(function_id)? else {
+                return None;
+            };
+            function
+                .parameters
+                .iter()
+                .any(|parameter| parameter.node_id == Some(node))
+                .then_some(())
+        };
+        certify().is_some()
+    }
+
+    /// The written leaf is independent of whether its certified owner is a
+    /// source statement, a function body, or an implemented function's parameter.
+    /// It does not certify that enclosing owner by itself.
+    fn has_complete_written_initializer(&self, node: NodeId, source: &str) -> bool {
         use tsr_ast::{BindingName, EntityName, Expression, FunctionBody, TypeNode};
         use tsr_core::Span;
         use tsr_scanner::{Scanner, TokenFlags};
 
         let certify = || -> Option<()> {
-            let list = self.nodes.parent(node)?;
-            let statement = self.nodes.parent(list)?;
-            let file = self.nodes.parent(statement)?;
-            if self.nodes.kind(list) != SyntaxKind::VariableDeclarationList
-                || self.nodes.kind(statement) != SyntaxKind::VariableStatement
-                || self.nodes.kind(file) != SyntaxKind::SourceFile
-            {
-                return None;
-            }
-            let source = self.module_host?.source_text(file, self.nodes)?;
+            let (name, annotation, initializer, parameter) = match self.node_map.get(node)? {
+                Node::VariableDeclaration(declaration) => {
+                    (declaration.name, declaration.r#type, declaration.initializer, false)
+                }
+                Node::ParameterDeclaration(parameter)
+                    if parameter.modifiers.is_empty()
+                        && parameter.question_token.is_none()
+                        && parameter.dot_dot_dot_token.is_none() =>
+                {
+                    (parameter.name, parameter.r#type, parameter.initializer, true)
+                }
+                _ => return None,
+            };
             let owned_span = |id: Option<NodeId>, parent: NodeId| {
                 let id = id?;
                 let span = self.nodes.span(id);
@@ -187,17 +383,9 @@ impl<'a> Checker<'a, '_> {
                     && span.end as usize <= source.len())
                 .then_some(span)
             };
-            let mut statement_scanner =
-                Scanner::new(source.get(self.nodes.span(statement).start as usize..)?);
-            if !matches!(
-                statement_scanner.scan().kind,
-                SyntaxKind::VarKeyword | SyntaxKind::LetKeyword | SyntaxKind::ConstKeyword
-            ) {
-                return None;
-            }
-            let BindingName::Identifier(name) = declaration.name? else { return None };
+            let BindingName::Identifier(name) = name? else { return None };
             let name_span = owned_span(name.node_id, node)?;
-            let annotation = declaration.r#type?;
+            let annotation = annotation?;
             let annotation_span = owned_span(annotation.node_id(), node)?;
             let annotation_kind = match annotation {
                 TypeNode::TypeReferenceNode(reference) if reference.type_arguments.is_empty() => {
@@ -210,7 +398,7 @@ impl<'a> Checker<'a, '_> {
                 TypeNode::KeywordTypeNode(keyword) => keyword.kind,
                 _ => return None,
             };
-            let initializer = declaration.initializer?;
+            let initializer = initializer?;
             let initializer_span = owned_span(initializer.node_id(), node)?;
             let declaration_span = self.nodes.span(node);
             if declaration_span.start != name_span.start
@@ -261,14 +449,18 @@ impl<'a> Checker<'a, '_> {
                 if token.kind == SyntaxKind::EndOfFile
                     || token.span.start + declaration_span.start >= declaration_span.end
                 {
-                    if !matches!(
-                        token.kind,
-                        SyntaxKind::EndOfFile
-                            | SyntaxKind::SemicolonToken
-                            | SyntaxKind::CommaToken
-                            | SyntaxKind::CloseBraceToken
-                    ) && !token.has_preceding_line_break()
-                    {
+                    let boundary = if parameter {
+                        matches!(token.kind, SyntaxKind::CommaToken | SyntaxKind::CloseParenToken)
+                    } else {
+                        matches!(
+                            token.kind,
+                            SyntaxKind::EndOfFile
+                                | SyntaxKind::SemicolonToken
+                                | SyntaxKind::CommaToken
+                                | SyntaxKind::CloseBraceToken
+                        ) || token.has_preceding_line_break()
+                    };
+                    if !boundary {
                         return None;
                     }
                     break;
@@ -330,7 +522,10 @@ impl<'a> Checker<'a, '_> {
     /// parameter's default is compared against the type *without* `undefined`
     /// (`checker.go:9993`), which this port does not strip.
     pub(crate) fn check_annotated_initializer(&mut self, node: NodeId, ambient: bool) {
-        if ambient || self.file_has_parse_errors || self.in_js_file(node) {
+        if ambient
+            || self.in_js_file(node)
+            || (self.file_has_parse_errors && !self.has_complete_source_parameter_initializer(node))
+        {
             return;
         }
         let (annotation, initializer) = match self.node_map.get(node) {
