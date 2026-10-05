@@ -3,6 +3,7 @@
 use tsr_ast::*;
 use tsr_diagnostics::messages;
 
+use crate::list::ParsingContext;
 use crate::parser::Parser;
 
 impl<'a> Parser<'a> {
@@ -101,52 +102,124 @@ impl<'a> Parser<'a> {
         }
 
         self.next_token();
-        let mut elements = Vec::new();
-        while !self.at(SyntaxKind::CloseBraceToken) && !self.at(SyntaxKind::EndOfFile) {
-            // §407: the import half of the unclosed-clause recovery — the
-            // list ends at `from "…"`.
-            if self.at(SyntaxKind::FromKeyword)
-                && self.peek_kind(|kind| kind == SyntaxKind::StringLiteral)
-            {
-                break;
-            }
-            let before = self.pos();
-            let element_start = self.pos();
-            let type_only = self.at(SyntaxKind::TypeKeyword) && self.type_is_modifier_here();
-            if type_only {
-                self.next_token();
-            }
-            let first = self.parse_module_export_name();
-            // `{ a as b }` renames; `{ a }` does not.
-            let (property_name, name) = if self.eat(SyntaxKind::AsKeyword) {
-                (Some(first), self.parse_identifier())
-            } else {
-                let name = match first {
-                    ModuleExportName::Identifier(id) => id,
-                    // A string export name must be renamed to be importable.
-                    ModuleExportName::StringLiteral(_) => {
-                        self.error_at_current(&messages::IDENTIFIER_EXPECTED);
-                        self.missing_identifier()
-                    }
-                };
-                (None, name)
-            };
-            elements.push(self.finish_node(
-                ImportSpecifier::new(type_only, property_name, Some(name)),
-                SyntaxKind::ImportSpecifier,
-                element_start,
-            ));
-            if !self.eat(SyntaxKind::CommaToken) {
-                break;
-            }
-            if self.pos() == before {
-                break;
-            }
-        }
+        // `parseNamedImportsOrExports`: `parseBracketedList(
+        // PCImportOrExportSpecifiers, parseImportSpecifier, {, })`.
+        let (elements, _) = self.parse_delimited_list(
+            ParsingContext::ImportOrExportSpecifiers,
+            Self::parse_import_specifier,
+        );
         self.expect(SyntaxKind::CloseBraceToken);
         let elements = self.arena.alloc_slice(&elements);
         let node = self.finish_node(NamedImports::new(elements), SyntaxKind::NamedImports, start);
         Some(NamedImportBindings::NamedImports(node))
+    }
+
+    /// typescript-go's `Parser.parseImportSpecifier` (`parser.go`).
+    fn parse_import_specifier(&mut self) -> &'a ImportSpecifier<'a> {
+        let start = self.pos();
+        let (type_only, property_name, name) = self.parse_import_or_export_specifier(true);
+        let name = match name {
+            ModuleExportName::Identifier(id) => id,
+            // A string export name must be renamed to be importable.
+            ModuleExportName::StringLiteral(literal) => {
+                let span = literal.node_id.map_or(self.token.span, |id| self.nodes.span(id));
+                self.error_at(&messages::IDENTIFIER_EXPECTED, span);
+                self.missing_identifier()
+            }
+        };
+        self.finish_node(
+            ImportSpecifier::new(type_only, property_name, Some(name)),
+            SyntaxKind::ImportSpecifier,
+            start,
+        )
+    }
+
+    /// typescript-go's `Parser.parseExportSpecifier` (`parser.go`).
+    fn parse_export_specifier(&mut self) -> &'a ExportSpecifier<'a> {
+        let start = self.pos();
+        let (type_only, property_name, name) = self.parse_import_or_export_specifier(false);
+        self.finish_node(
+            ExportSpecifier::new(type_only, property_name, Some(name)),
+            SyntaxKind::ExportSpecifier,
+            start,
+        )
+    }
+
+    /// typescript-go's `Parser.parseImportOrExportSpecifier` (`parser.go`):
+    /// `(isTypeOnly, propertyName, name)`. A keyword that is no identifier is
+    /// consumed as a name in an import specifier and reported (TS1003), and
+    /// a leading `type` is disambiguated by the `as` tokens that follow.
+    fn parse_import_or_export_specifier(
+        &mut self,
+        is_import: bool,
+    ) -> (bool, Option<ModuleExportName<'a>>, ModuleExportName<'a>) {
+        let mut can_parse_as_keyword = true;
+        let mut type_only = false;
+        let mut property_name = None;
+        let (mut name, mut name_ok) = self.parse_module_export_name_checked(is_import);
+        if matches!(name, ModuleExportName::Identifier(id) if id.text == "type") {
+            if self.at(SyntaxKind::AsKeyword) {
+                // { type as ...? }
+                let first_as = self.parse_identifier_name();
+                if self.at(SyntaxKind::AsKeyword) {
+                    // { type as as ...? }
+                    let second_as = self.parse_identifier_name();
+                    if self.can_parse_module_export_name() {
+                        // { type as as something }
+                        type_only = true;
+                        property_name = Some(ModuleExportName::Identifier(first_as));
+                        (name, name_ok) = self.parse_module_export_name_checked(is_import);
+                    } else {
+                        // { type as as }
+                        property_name = Some(name);
+                        name = ModuleExportName::Identifier(second_as);
+                    }
+                    can_parse_as_keyword = false;
+                } else if self.can_parse_module_export_name() {
+                    // { type as something }
+                    property_name = Some(name);
+                    can_parse_as_keyword = false;
+                    (name, name_ok) = self.parse_module_export_name_checked(is_import);
+                } else {
+                    // { type as }
+                    type_only = true;
+                    name = ModuleExportName::Identifier(first_as);
+                }
+            } else if self.can_parse_module_export_name() {
+                // { type something ...? }
+                type_only = true;
+                (name, name_ok) = self.parse_module_export_name_checked(is_import);
+            }
+        }
+        if can_parse_as_keyword && self.at(SyntaxKind::AsKeyword) {
+            property_name = Some(name);
+            self.expect(SyntaxKind::AsKeyword);
+            (name, name_ok) = self.parse_module_export_name_checked(is_import);
+        }
+        if !name_ok {
+            let span = name.node_id().map_or(self.token.span, |id| self.nodes.span(id));
+            self.error_at(&messages::IDENTIFIER_EXPECTED, span);
+        }
+        (type_only, property_name, name)
+    }
+
+    /// typescript-go's `Parser.canParseModuleExportName` (`parser.go`).
+    fn can_parse_module_export_name(&self) -> bool {
+        crate::list::token_is_identifier_or_keyword(self.token.kind)
+            || self.at(SyntaxKind::StringLiteral)
+    }
+
+    /// typescript-go's `Parser.parseModuleExportName(disallowKeywords)`
+    /// (`parser.go`): the name, and whether it is acceptable.
+    fn parse_module_export_name_checked(
+        &mut self,
+        disallow_keywords: bool,
+    ) -> (ModuleExportName<'a>, bool) {
+        let name_ok = !disallow_keywords
+            || self.at(SyntaxKind::StringLiteral)
+            || !self.token.kind.is_keyword()
+            || self.is_identifier();
+        (self.parse_module_export_name(), name_ok)
     }
 
     /// `require("m")` or a dotted entity name.
@@ -280,42 +353,10 @@ impl<'a> Parser<'a> {
         if self.at(SyntaxKind::OpenBraceToken) {
             let clause_start = self.pos();
             self.next_token();
-            let mut elements = Vec::new();
-            while !self.at(SyntaxKind::CloseBraceToken) && !self.at(SyntaxKind::EndOfFile) {
-                // §407: an UNCLOSED clause ends at `from "…"` — upstream's
-                // recovery hands the pair to the from-clause rather than
-                // minting a specifier named `from`
-                // (`unclosedExportClause01/02`'s baselines record no line
-                // for it and the module resolves).
-                if self.at(SyntaxKind::FromKeyword)
-                    && self.peek_kind(|kind| kind == SyntaxKind::StringLiteral)
-                {
-                    break;
-                }
-                let before = self.pos();
-                let element_start = self.pos();
-                let type_only = self.at(SyntaxKind::TypeKeyword) && self.type_is_modifier_here();
-                if type_only {
-                    self.next_token();
-                }
-                let first = self.parse_module_export_name();
-                let (property_name, name) = if self.eat(SyntaxKind::AsKeyword) {
-                    (Some(first), self.parse_module_export_name())
-                } else {
-                    (None, first)
-                };
-                elements.push(self.finish_node(
-                    ExportSpecifier::new(type_only, property_name, Some(name)),
-                    SyntaxKind::ExportSpecifier,
-                    element_start,
-                ));
-                if !self.eat(SyntaxKind::CommaToken) {
-                    break;
-                }
-                if self.pos() == before {
-                    break;
-                }
-            }
+            let (elements, _) = self.parse_delimited_list(
+                ParsingContext::ImportOrExportSpecifiers,
+                Self::parse_export_specifier,
+            );
             self.expect(SyntaxKind::CloseBraceToken);
             let elements = self.arena.alloc_slice(&elements);
             let named = self.finish_node(
@@ -505,36 +546,9 @@ impl<'a> Parser<'a> {
     ) -> &'a ImportAttributes<'a> {
         self.expect(SyntaxKind::OpenBraceToken);
 
-        let mut elements = Vec::new();
-        while !self.at(SyntaxKind::CloseBraceToken) && !self.at(SyntaxKind::EndOfFile) {
-            let before = self.pos();
-            let element_start = self.pos();
-            // An attribute key is an identifier or a string, not the full
-            // property-name grammar — no computed keys here.
-            let name = if self.at(SyntaxKind::StringLiteral) {
-                let literal_start = self.pos();
-                let text = self.token_value();
-                let flags = self.token.ast_flags();
-                self.next_token();
-                ImportAttributeName::StringLiteral(self.finish_node(
-                    StringLiteral::new(text, flags),
-                    SyntaxKind::StringLiteral,
-                    literal_start,
-                ))
-            } else {
-                ImportAttributeName::Identifier(self.parse_identifier_name())
-            };
-            self.expect(SyntaxKind::ColonToken);
-            let value = self.parse_assignment_expression();
-            elements.push(self.finish_node(
-                ImportAttribute::new(Some(name), Some(value)),
-                SyntaxKind::ImportAttribute,
-                element_start,
-            ));
-            if !self.eat(SyntaxKind::CommaToken) || self.pos() == before {
-                break;
-            }
-        }
+        // `parseDelimitedList(PCImportAttributes, parseImportAttribute)`.
+        let (elements, _) = self
+            .parse_delimited_list(ParsingContext::ImportAttributes, Self::parse_import_attribute);
         self.expect(SyntaxKind::CloseBraceToken);
 
         let elements = self.arena.alloc_slice(&elements);
@@ -542,6 +556,33 @@ impl<'a> Parser<'a> {
             ImportAttributes::new(token, elements, false),
             SyntaxKind::ImportAttributes,
             start,
+        )
+    }
+
+    /// `type: "json"` — typescript-go's `Parser.parseImportAttribute`
+    /// (`parser.go`). A key is an identifier or a string, not the full
+    /// property-name grammar.
+    fn parse_import_attribute(&mut self) -> &'a ImportAttribute<'a> {
+        let element_start = self.pos();
+        let name = if self.at(SyntaxKind::StringLiteral) {
+            let literal_start = self.pos();
+            let text = self.token_value();
+            let flags = self.token.ast_flags();
+            self.next_token();
+            ImportAttributeName::StringLiteral(self.finish_node(
+                StringLiteral::new(text, flags),
+                SyntaxKind::StringLiteral,
+                literal_start,
+            ))
+        } else {
+            ImportAttributeName::Identifier(self.parse_identifier_name())
+        };
+        self.expect(SyntaxKind::ColonToken);
+        let value = self.parse_assignment_expression();
+        self.finish_node(
+            ImportAttribute::new(Some(name), Some(value)),
+            SyntaxKind::ImportAttribute,
+            element_start,
         )
     }
 

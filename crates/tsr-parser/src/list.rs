@@ -54,12 +54,16 @@ pub(crate) enum ParsingContext {
     ArrayLiteralMembers = 15,
     /// `PCParameters`: parameters of a signature or index signature.
     Parameters = 16,
+    /// `PCImportOrExportSpecifiers`: a named import or export clause.
+    ImportOrExportSpecifiers = 23,
+    /// `PCImportAttributes`: the entries of a `with { … }` clause.
+    ImportAttributes = 24,
 }
 
 impl ParsingContext {
     /// Every context, in upstream's order — `isInSomeParsingContext` walks
     /// them lowest bit first.
-    const ALL: [Self; 13] = [
+    const ALL: [Self; 15] = [
         Self::SourceElements,
         Self::BlockStatements,
         Self::SwitchClauses,
@@ -73,6 +77,8 @@ impl ParsingContext {
         Self::ArgumentExpressions,
         Self::ArrayLiteralMembers,
         Self::Parameters,
+        Self::ImportOrExportSpecifiers,
+        Self::ImportAttributes,
     ];
 
     const fn bit(self) -> u32 {
@@ -146,6 +152,14 @@ impl Parser<'_> {
                 } else {
                     self.expect(SyntaxKind::CommaToken);
                 }
+                // A `;` the caller allows as a separator is skipped, so a
+                // semicolon-delimited list gets back on track.
+                if kind == ParsingContext::ImportAttributes
+                    && self.at(SyntaxKind::SemicolonToken)
+                    && !self.token.has_preceding_line_break()
+                {
+                    self.next_token();
+                }
                 if start == self.node_end() {
                     // Not remotely recognizable as an element and nothing was
                     // consumed: advance to avoid an infinite loop.
@@ -218,6 +232,23 @@ impl Parser<'_> {
                 ) || self.is_start_of_expression()
             }
             ParsingContext::Parameters => self.is_start_of_parameter(),
+            ParsingContext::ImportOrExportSpecifiers => {
+                // Bail out at `from "…"`: `import { from "mod"` ends here for
+                // a better error message (§407).
+                if self.at(SyntaxKind::FromKeyword)
+                    && self.peek_kind(|kind| kind == SyntaxKind::StringLiteral)
+                {
+                    return false;
+                }
+                // A string for "arbitrary module namespace identifiers".
+                self.at(SyntaxKind::StringLiteral)
+                    || token_is_identifier_or_keyword(self.token.kind)
+            }
+            // `isImportAttributeName`.
+            ParsingContext::ImportAttributes => {
+                token_is_identifier_or_keyword(self.token.kind)
+                    || self.at(SyntaxKind::StringLiteral)
+            }
         }
     }
 
@@ -343,7 +374,9 @@ impl Parser<'_> {
             | ParsingContext::TypeMembers
             | ParsingContext::ClassMembers
             | ParsingContext::EnumMembers
-            | ParsingContext::ObjectBindingElements => self.at(SyntaxKind::CloseBraceToken),
+            | ParsingContext::ObjectBindingElements
+            | ParsingContext::ImportOrExportSpecifiers
+            | ParsingContext::ImportAttributes => self.at(SyntaxKind::CloseBraceToken),
             // If we can consume a semicolon (either explicitly, or with ASI),
             // then consider us done. A for-in/of declaration ends at its
             // keyword, and for error recovery a `=>` stops the list at once.
@@ -463,6 +496,15 @@ impl Parser<'_> {
             }
             ParsingContext::Parameters => {
                 self.error_at_current(&messages::PARAMETER_DECLARATION_EXPECTED);
+            }
+            ParsingContext::ImportOrExportSpecifiers if self.at(SyntaxKind::FromKeyword) => {
+                self.error_at_current_with(&messages::_0_EXPECTED, &["}"]);
+            }
+            ParsingContext::ImportOrExportSpecifiers => {
+                self.error_at_current(&messages::IDENTIFIER_EXPECTED);
+            }
+            ParsingContext::ImportAttributes => {
+                self.error_at_current(&messages::IDENTIFIER_OR_STRING_LITERAL_EXPECTED);
             }
         }
     }
