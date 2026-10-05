@@ -406,6 +406,10 @@ enum CallArity {
     /// Some candidate has a correct arity; the arguments decide. Carries
     /// the candidate when it is the single non-generic one.
     Applicable(Option<Box<Signature>>),
+    /// The single candidate is generic, written without type arguments:
+    /// `chooseOverload` infers its type arguments and checks the
+    /// instantiation (`checker.go:9055`).
+    ApplicableGeneric(Box<Signature>),
 }
 
 /// One entry of `getEffectiveCallArguments`: the written argument (or the
@@ -566,6 +570,11 @@ impl Checker<'_, '_> {
                     CallArity::Applicable(Some(signature)) => {
                         self.check_single_candidate_arguments(node, &signature);
                     }
+                    CallArity::ApplicableGeneric(candidate) => {
+                        if !self.check_single_generic_candidate_arguments(node, &candidate) {
+                            self.check_call_arity(node, false);
+                        }
+                    }
                     CallArity::Applicable(None) => self.check_call_arity(node, false),
                     CallArity::Undecided => {
                         self.check_call_arity(node, true);
@@ -706,6 +715,18 @@ impl Checker<'_, '_> {
             {
                 return CallArity::Applicable(Some(Box::new(candidate.clone())));
             }
+            // The single generic candidate of a call: `chooseOverload`'s
+            // loop body (`checker.go:9046`) infers and instantiates it before
+            // the applicability check.
+            if let [candidate] = candidates.as_slice()
+                && !candidate.type_parameters.is_empty()
+                && type_arguments.is_empty()
+                && is_call
+                && !effective.iter().any(|argument| argument.spread)
+                && effective.len() == arguments.len()
+            {
+                return CallArity::ApplicableGeneric(Box::new(candidate.clone()));
+            }
             return CallArity::Applicable(None);
         }
         let error_node = match callee.and_then(|callee| callee.node_id()) {
@@ -748,6 +769,108 @@ impl Checker<'_, '_> {
                 // A mapped type with an `as` clause: this port's member
                 // resolution of it over an array source is not upstream's
                 // (`mappedTypeWithNameClauseAppliedToArrayType`).
+                return;
+            }
+            if self.report_argument_failure(argument_id, source, target) {
+                return;
+            }
+        }
+    }
+
+    /// `chooseOverload` (`checker.go:9025`) for a call whose single candidate
+    /// is generic and written without type arguments: `inferTypeArguments`
+    /// with the candidate, `getSignatureInstantiation`, then
+    /// `isSignatureApplicable` — and on failure `reportCallResolutionErrors`
+    /// (`checker.go:9649`) re-runs it with `reportErrors` against that same
+    /// instantiation (`candidatesForArgumentError`'s only entry).
+    ///
+    /// A call with a context-sensitive argument reuses the instantiation the
+    /// type road published in `resolved_call_signatures`
+    /// (`signatureLinks.resolvedSignature`): re-running inference there would
+    /// re-assign the callback's contextual parameter types after its body was
+    /// checked, which upstream never does (`assignContextualParameterTypes`
+    /// is once). Otherwise the instantiation comes from the shared inference
+    /// worker ([`Checker::check_generic_call_with`]'s out-slot); no cache is
+    /// added. Answers `false` when no instantiation is decided, so the caller
+    /// keeps its declaration-only rule.
+    fn check_single_generic_candidate_arguments(
+        &mut self,
+        node: tsr_ast::NodeId,
+        candidate: &Signature,
+    ) -> bool {
+        let Some(tsr_ast::Node::CallExpression(call)) = self.node_map.get(node) else {
+            return false;
+        };
+        let instantiated =
+            if call.arguments.iter().any(|argument| self.is_context_sensitive_argument(argument)) {
+                match self.resolved_call_signatures.get(&node) {
+                    Some(resolved) if resolved.type_parameters.is_empty() => resolved.clone(),
+                    _ => return false,
+                }
+            } else {
+                let mut instantiated = None;
+                let answer = self.check_generic_call_with(
+                    candidate,
+                    Some(node),
+                    call.arguments,
+                    Some(&mut instantiated),
+                );
+                match instantiated {
+                    Some(instantiated) if answer != self.intrinsics.error => instantiated,
+                    _ => return false,
+                }
+            };
+        if self.signature_non_array_rest_type(&instantiated).is_some() {
+            return false;
+        }
+        self.check_instantiated_candidate_arguments(call.arguments, &instantiated);
+        true
+    }
+
+    /// `isSignatureApplicable` (`checker.go:9256`) with `reportErrors` for an
+    /// instantiated generic candidate. Each argument is
+    /// `checkExpressionWithContextualType(arg, paramType)` (`checker.go:7484`):
+    /// its type under the INSTANTIATED parameter as contextual type, which is
+    /// not necessarily the type this port cached while the call's signature
+    /// was still being inferred.
+    ///
+    /// An argument whose cached type relates needs nothing more, and one
+    /// whose type cannot depend on its contextual type reports from the cached
+    /// type. The rest decline: an object or array literal (literal
+    /// preservation and tuple-ness follow the instantiated context), a
+    /// context-sensitive function (`assignContextualParameterTypes`, generic
+    /// contextual signatures) and a class expression (its class identity is
+    /// re-created by a re-check).
+    fn check_instantiated_candidate_arguments(
+        &mut self,
+        arguments: &[Expression<'_>],
+        signature: &Signature,
+    ) {
+        for (position, argument) in arguments.iter().enumerate() {
+            let Some(argument_id) = argument.node_id() else { return };
+            let Some(target) = self.signature_type_at_position(signature, position) else {
+                return;
+            };
+            if self.is_error(target) || self.argument_type_is_not_upstreams(*argument) {
+                return;
+            }
+            let source = self.check_expression(*argument);
+            if self.relate_ternary(source, target, Relation::Assignable) == Ternary::Related {
+                continue;
+            }
+            let mut inner = *argument;
+            while let Expression::ParenthesizedExpression(parenthesized) = inner {
+                let Some(expression) = parenthesized.expression else { return };
+                inner = expression;
+            }
+            if matches!(
+                inner,
+                Expression::ObjectLiteralExpression(_)
+                    | Expression::ArrayLiteralExpression(_)
+                    | Expression::ClassExpression(_)
+            ) || self.is_context_sensitive_argument(argument)
+                || self.mapped_types.get(&source).is_some_and(|info| info.name_type.is_some())
+            {
                 return;
             }
             if self.report_argument_failure(argument_id, source, target) {
@@ -1156,7 +1279,9 @@ impl Checker<'_, '_> {
                     CallArity::Applicable(Some(signature)) => {
                         self.check_single_candidate_arguments(node, &signature);
                     }
-                    CallArity::Applicable(None) => self.check_new_arity(node, false),
+                    CallArity::Applicable(None) | CallArity::ApplicableGeneric(_) => {
+                        self.check_new_arity(node, false);
+                    }
                     CallArity::Undecided => {
                         self.check_new_arity(node, true);
                         self.check_call_type_argument_arity(node);
