@@ -645,6 +645,7 @@ impl Checker<'_, '_> {
             }
             Node::TypeReferenceNode(_) | Node::ExpressionWithTypeArguments(_) => {
                 self.check_type_argument_arity(node);
+                self.check_type_argument_constraints(node);
                 ambient
             }
             Node::TypeParameterDeclaration(_) => {

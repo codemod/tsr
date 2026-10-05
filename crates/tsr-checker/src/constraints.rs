@@ -4,7 +4,8 @@ use crate::{
     flags::TypeFlags,
     types::{TypeData, TypeId},
 };
-use tsr_binder::SymbolId;
+use tsr_ast::{NodeId, SyntaxKind};
+use tsr_binder::{SymbolFlags, SymbolId};
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct BaseConstraintKey {
@@ -466,5 +467,202 @@ impl Checker<'_, '_> {
                 | TypeFlags::TEMPLATE_LITERAL
                 | TypeFlags::STRING_MAPPING,
         ) || self.deferred_keyof_operands.contains_key(&ty)
+    }
+}
+
+impl Checker<'_, '_> {
+    /// `checkTypeReferenceOrImport`'s constraint arm (`checker.go:2998`) into
+    /// `checkTypeArgumentConstraints` (`checker.go:3016`) for a written type
+    /// reference: each type argument must be assignable to its parameter's
+    /// constraint instantiated with the effective arguments, else TS2344 at
+    /// the argument.
+    ///
+    /// The type parameters are `getTypeParametersForTypeAndSymbol`'s
+    /// (`checker.go:17198`): the alias's for a type alias, the target's local
+    /// ones for a class or interface reference. The relation is three-valued
+    /// and only a definite `NotRelated` on a reportable pair is reported,
+    /// which is `assignreport.rs`'s rule for the same `checkTypeAssignableTo`.
+    /// No cache or side table: the type node, constraint and relation queries
+    /// are the checker's existing memoised ones.
+    pub(crate) fn check_type_argument_constraints(&mut self, node: NodeId) {
+        let Some(tsr_ast::Node::TypeReferenceNode(reference)) = self.node_map.get(node) else {
+            return;
+        };
+        if reference.type_arguments.is_empty() {
+            return;
+        }
+        let Some(type_name) = reference.type_name else { return };
+        let Ok(type_node) =
+            tsr_ast::TypeNode::try_from(tsr_ast::Node::TypeReferenceNode(reference))
+        else {
+            return;
+        };
+        let resolved = self.get_type_from_type_node(type_node);
+        if self.is_error(resolved) {
+            return;
+        }
+        let Some(mut symbol) = self.resolve_entity_name(type_name, SymbolFlags::TYPE) else {
+            return;
+        };
+        for _ in 0..8u8 {
+            symbol = self.binder.merged_symbol(symbol);
+            if !self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::ALIAS) {
+                break;
+            }
+            let Some(target) = self.resolve_alias(symbol) else { return };
+            symbol = target;
+        }
+        if !self
+            .binder
+            .symbols()
+            .get(symbol)
+            .flags
+            .intersects(SymbolFlags::TYPE_ALIAS | SymbolFlags::CLASS | SymbolFlags::INTERFACE)
+        {
+            return;
+        }
+        let declarations = self.local_type_parameters_of(symbol);
+        if declarations.is_empty() || reference.type_arguments.len() > declarations.len() {
+            return;
+        }
+        let Some(parameters) = self.local_type_parameter_types_of(symbol) else { return };
+        let parameter_types: Vec<TypeId> = parameters.iter().map(|&(ty, _)| ty).collect();
+        let names: Vec<String> = parameters.iter().map(|(_, name)| name.clone()).collect();
+        let constraints: Vec<Option<TypeId>> = parameter_types
+            .iter()
+            .map(|&parameter| self.type_parameter_constraint(parameter))
+            .collect();
+        if constraints.iter().all(Option::is_none) {
+            return;
+        }
+        // getEffectiveTypeArguments: the written arguments, then
+        // fillMissingTypeArguments' defaults instantiated over the prefix.
+        let mut arguments: Vec<TypeId> = Vec::with_capacity(parameter_types.len());
+        for &argument in reference.type_arguments {
+            arguments.push(self.get_type_from_type_node(argument));
+        }
+        for (index, declaration) in declarations.iter().enumerate().skip(arguments.len()) {
+            let Some(default) = declaration.default_type else { return };
+            let default = self.get_type_from_type_node(default);
+            let map: Vec<(TypeId, TypeId)> =
+                parameter_types[..index].iter().copied().zip(arguments.iter().copied()).collect();
+            let name_refs: Vec<&str> = names.iter().map(String::as_str).collect();
+            let filled = self.instantiate_type(default, &map, &parameter_types, &name_refs);
+            arguments.push(filled);
+        }
+        if arguments.iter().any(|&argument| self.is_error(argument)) {
+            return;
+        }
+        let map: Vec<(TypeId, TypeId)> =
+            parameter_types.iter().copied().zip(arguments.iter().copied()).collect();
+        let name_refs: Vec<&str> = names.iter().map(String::as_str).collect();
+        for (index, constraint) in constraints.into_iter().enumerate() {
+            let Some(constraint) = constraint else { continue };
+            let Some(&argument_node) = reference.type_arguments.get(index) else { continue };
+            let Some(at) = argument_node.node_id() else { continue };
+            let target = self.instantiate_type(constraint, &map, &parameter_types, &name_refs);
+            let source = arguments[index];
+            if self.is_error(target)
+                || self.type_argument_node_is_generic(at)
+                || self.relation_undecidable_for_constraint(source)
+                || self.relation_undecidable_for_constraint(target)
+                || self.relate_ternary(source, target, crate::relater::Relation::Assignable)
+                    != crate::relater::Ternary::NotRelated
+                || !self.pair_is_reportable(source, target)
+            {
+                continue;
+            }
+            let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
+            let span = self.error_span(at);
+            let source_text = self.type_to_string(source);
+            let target_text = self.type_to_string(target);
+            self.report(
+                file,
+                tsr_diagnostics::Diagnostic::with_args(
+                    &tsr_diagnostics::messages::TYPE_0_DOES_NOT_SATISFY_THE_CONSTRAINT_1,
+                    span,
+                    [source_text, target_text],
+                ),
+            );
+            // `result = result && checkTypeAssignableTo(...)` short-circuits:
+            // the first failing argument ends the check.
+            return;
+        }
+    }
+}
+
+impl Checker<'_, '_> {
+    /// A side of a constraint check whose relation this port cannot decide:
+    /// an instantiable type (type parameter, indexed access, conditional,
+    /// substitution, `keyof`, template or string mapping) or one mentioning a
+    /// type parameter through its reference arguments or signatures. The
+    /// three-valued relater answers these from incomplete constraint and
+    /// mapped/conditional machinery, so a `NotRelated` there is not
+    /// upstream's answer; the check declines rather than report it.
+    fn relation_undecidable_for_constraint(&mut self, ty: TypeId) -> bool {
+        self.relation_undecidable_within(ty, 3)
+    }
+
+    /// The written-argument half of the same decline: a type argument whose
+    /// syntax is generic: it names a type parameter, or writes a
+    /// conditional, indexed-access, mapped, `infer`, type-operator, template,
+    /// `typeof` or `this` type. This port may have resolved such a node
+    /// eagerly to a concrete type upstream keeps deferred, so its type is not
+    /// evidence about upstream's relation.
+    fn type_argument_node_is_generic(&self, node: NodeId) -> bool {
+        let mut stack = vec![node];
+        while let Some(current) = stack.pop() {
+            match self.nodes.kind(current) {
+                SyntaxKind::ConditionalType
+                | SyntaxKind::IndexedAccessType
+                | SyntaxKind::MappedType
+                | SyntaxKind::InferType
+                | SyntaxKind::TypeOperator
+                | SyntaxKind::TemplateLiteralType
+                | SyntaxKind::TypeQuery
+                | SyntaxKind::ThisType => return true,
+                SyntaxKind::TypeReference => {
+                    if let Some(tsr_ast::Node::TypeReferenceNode(reference)) =
+                        self.node_map.get(current)
+                        && let Some(name) = reference.type_name
+                        && self.resolve_entity_name(name, SymbolFlags::TYPE).is_some_and(|symbol| {
+                            self.binder
+                                .symbols()
+                                .get(symbol)
+                                .flags
+                                .intersects(SymbolFlags::TYPE_PARAMETER)
+                        })
+                    {
+                        return true;
+                    }
+                }
+                _ => {}
+            }
+            if let Some(typed) = self.node_map.get(current) {
+                tsr_ast::for_each_child_id(typed, |child| stack.push(child));
+            }
+        }
+        false
+    }
+
+    fn relation_undecidable_within(&mut self, ty: TypeId, depth: u8) -> bool {
+        if self.store.get(ty).flags.intersects(TypeFlags::INSTANTIABLE)
+            || self.mapped_types.contains_key(&ty)
+            || self.mentions_any_type_parameter(ty, depth)
+        {
+            return true;
+        }
+        if depth == 0 {
+            return false;
+        }
+        let members = match &self.store.get(ty).data {
+            TypeData::Union { types, .. } | TypeData::Intersection { types, .. } => types.clone(),
+            _ => self
+                .type_reference_targets
+                .get(&ty)
+                .map(|(_, arguments)| arguments.clone())
+                .unwrap_or_default(),
+        };
+        members.into_iter().any(|member| self.relation_undecidable_within(member, depth - 1))
     }
 }
