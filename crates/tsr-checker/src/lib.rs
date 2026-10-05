@@ -160,6 +160,7 @@ mod spread_overrides;
 mod spreads;
 pub mod strict_mode;
 mod string_mapping;
+mod super_expression;
 pub mod symbol_access;
 pub mod symbols;
 mod template_match;

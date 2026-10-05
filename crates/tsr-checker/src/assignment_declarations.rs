@@ -174,7 +174,7 @@ impl<'a> Checker<'a, '_> {
         None
     }
 
-    fn is_class_element(&self, node: NodeId) -> bool {
+    pub(crate) fn is_class_element(&self, node: NodeId) -> bool {
         matches!(
             self.nodes.kind(node),
             SyntaxKind::Constructor

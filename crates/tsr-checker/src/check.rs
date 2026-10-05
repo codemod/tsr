@@ -830,7 +830,6 @@ impl Checker<'_, '_> {
         self.check_grammar_heritage_clauses(typed);
         self.check_override_kind(node, typed);
         self.check_this_before_super(node);
-        self.check_super_in_derived_class(node);
         if matches!(typed, Node::GetAccessorDeclaration(_) | Node::SetAccessorDeclaration(_)) {
             self.check_grammar_accessor(node, typed);
         }
@@ -934,8 +933,7 @@ impl Checker<'_, '_> {
             self.check_index_signature_parameter_type(node);
         }
         if self.nodes.kind(node) == SyntaxKind::SuperKeyword {
-            self.check_super_in_computed_name(node);
-            self.check_super_call_outside_constructor(node);
+            self.check_super_expression_diagnostics(node);
         }
         if self.nodes.kind(node) == SyntaxKind::ThisKeyword {
             // §103's order: the computed-property arm runs first and excludes
@@ -2141,93 +2139,6 @@ impl Checker<'_, '_> {
             file,
             Diagnostic::new(
                 &messages::THE_LEFT_HAND_SIDE_OF_AN_INSTANCEOF_EXPRESSION_MUST_BE_OF_TYPE_ANY_AN_OBJECT_TYPE_OR_A_TYPE_PARAMETER,
-                span,
-            ),
-        );
-    }
-
-    /// TS2466 — `'super' cannot be referenced in a computed property name.`
-    ///
-    /// `checkSuperExpression`'s **first** arm (`checker.go:7903`), which tests
-    /// the *position* and not the container: a `super` keyword with a
-    /// `ComputedPropertyName` ancestor. The switch's other two arms need the
-    /// container walk and are not attempted — §103's rule that the branch order
-    /// is the specification, and this is the branch that runs first. §468.
-    fn check_super_in_computed_name(&mut self, node: NodeId) {
-        if self.file_has_parse_errors {
-            return;
-        }
-        if !self
-            .nodes
-            .ancestors(node)
-            .any(|ancestor| self.nodes.kind(ancestor) == SyntaxKind::ComputedPropertyName)
-        {
-            return;
-        }
-        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
-        let span = self.nodes.span(node);
-        self.report(
-            file,
-            Diagnostic::new(
-                &messages::SUPER_CANNOT_BE_REFERENCED_IN_A_COMPUTED_PROPERTY_NAME,
-                span,
-            ),
-        );
-    }
-
-    /// TS2337 — `Super calls are not permitted outside constructors or in
-    /// nested functions inside constructors.`
-    ///
-    /// `checkSuperExpression`'s **second** arm (`checker.go:7904`), reached only
-    /// when the usage is already illegal and the first arm — the computed
-    /// property name, §468 — has declined. `isCallExpression` is *`super` is the
-    /// callee of a call*, and this port decides the illegality syntactically:
-    /// the nearest function-like container is not a constructor. Arm three needs
-    /// `isLegalUsageOfSuperExpression`'s full walk and is not attempted. §482.
-    fn check_super_call_outside_constructor(&mut self, node: NodeId) {
-        // Pinned `checkSuperExpression` uses semantic `error`, not the
-        // file-parse-gated `grammarErrorOnNode` (5b1047d10d32e7d5b446be4de56b126ff42f82bb).
-        // Keep the existing computed-name, callee and container declines.
-        // Arm one first — §103's order.
-        if self
-            .nodes
-            .ancestors(node)
-            .any(|ancestor| self.nodes.kind(ancestor) == SyntaxKind::ComputedPropertyName)
-        {
-            return;
-        }
-        let is_call_callee = self.nodes.parent(node).is_some_and(|parent| {
-            matches!(self.node_map.get(parent), Some(Node::CallExpression(call))
-                if call.expression.and_then(|e| e.node_id()) == Some(node))
-        });
-        if !is_call_callee {
-            return;
-        }
-        for ancestor in self.nodes.ancestors(node) {
-            if matches!(self.node_map.get(ancestor), Some(Node::ConstructorDeclaration(_))) {
-                return;
-            }
-            // **A property initializer is a container upstream rejects and
-            // `IsFunctionLike` does not name.** `isLegalUsageOfSuperExpression`
-            // (`checker.go:7938`) asks whether the container is *the
-            // constructor*; every other container is illegal whether or not it
-            // is a function, and a field initializer is the one such container
-            // this list omitted. §714.
-            if self.is_function_like_or_static_block(ancestor)
-                || matches!(self.nodes.kind(ancestor), SyntaxKind::PropertyDeclaration)
-            {
-                break;
-            }
-            if matches!(self.nodes.kind(ancestor), SyntaxKind::SourceFile) {
-                return;
-            }
-        }
-        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
-        let span = self.nodes.span(node);
-        self.report(
-            file,
-            Diagnostic::new(
-                &messages::SUPER_CALLS_ARE_NOT_PERMITTED_OUTSIDE_CONSTRUCTORS_OR_IN_NESTED_FUNCTIONS_INSIDE_CONSTRUCTORS,
                 span,
             ),
         );
@@ -8998,91 +8909,14 @@ impl Checker<'_, '_> {
         );
     }
 
-    /// TS2335 — `'super' can only be referenced in a derived class.`
-    ///
-    /// `checkSuperExpression`'s extends test (`checker.go:7922`). §226 refused
-    /// this because four arms report *other* `super` messages before it; every
-    /// one of those is a node-kind list or an ancestor walk, so their conditions
-    /// are evaluated here and their messages declined — §228's shape. §313.
-    fn check_super_in_derived_class(&mut self, node: NodeId) {
-        // `checkSuperExpression`'s extends error is semantic, not a grammar
-        // diagnostic suppressed by an unrelated syntax error in the file.
-        if self.nodes.kind(node) != SyntaxKind::SuperKeyword {
-            return;
-        }
-        let Some(container) =
-            self.nodes.ancestors(node).find(|&it| self.is_function_like_or_static_block(it))
-        else {
-            // `container == nil` — an earlier arm's message.
-            return;
-        };
-        // **A super _call_ is legal only in a constructor.**
-        // `isLegalUsageOfSuperExpression` has two lists and picks by
-        // `isCallExpression` (`checker.go:7880`, `:7882`); a `super()` in a
-        // method is `Super_calls_are_not_permitted_outside_constructors`
-        // (TS2337), not this code. `errorSuperCalls` was seven wrong lines
-        // without the split. §314.
-        let is_call =
-            self.nodes.parent(node).and_then(|parent| self.node_map.get(parent)).is_some_and(
-                |typed| {
-                    matches!(typed, Node::CallExpression(call)
-                    if call.expression.and_then(|e| e.node_id()) == Some(node))
-                },
-            );
-        if is_call {
-            if self.nodes.kind(container) != SyntaxKind::Constructor {
-                return;
-            }
-        } else if !matches!(
-            self.nodes.kind(container),
-            SyntaxKind::MethodDeclaration
-                | SyntaxKind::MethodSignature
-                | SyntaxKind::GetAccessor
-                | SyntaxKind::SetAccessor
-                | SyntaxKind::PropertyDeclaration
-                | SyntaxKind::PropertySignature
-                | SyntaxKind::Constructor
-                | SyntaxKind::ClassStaticBlockDeclaration
-        ) {
-            return;
-        }
-        // `super` inside a computed property name is TS2466, and the walk stops
-        // at the container exactly as upstream's `FindAncestorOrQuit` does.
-        if self
-            .nodes
-            .ancestors(node)
-            .take_while(|&it| it != container)
-            .any(|it| self.nodes.kind(it) == SyntaxKind::ComputedPropertyName)
-        {
-            return;
-        }
-        let Some(parent) = self.nodes.parent(container) else { return };
-        // An object-literal method's `super` is `any` upstream, with no error.
-        let clauses = match self.node_map.get(parent) {
-            Some(Node::ClassDeclaration(class)) => class.heritage_clauses,
-            Some(Node::ClassExpression(class)) => class.heritage_clauses,
-            _ => return,
-        };
-        if clauses.iter().any(|clause| clause.token.kind == SyntaxKind::ExtendsKeyword) {
-            return;
-        }
-        self.report_grammar_at(
-            Some(node),
-            &messages::SUPER_CAN_ONLY_BE_REFERENCED_IN_A_DERIVED_CLASS,
-        );
-    }
-
     /// TS17009 — `'super' must be called before accessing 'this' in the
     /// constructor of a derived class.`
     ///
-    /// `checkThisBeforeSuper` (`checker.go:12263`), whose real test is
-    /// `!isPostSuperFlowNode(...)` — flow analysis, not ported. Two shapes are
-    /// decidable without it and both are sound in the reporting direction: a
-    /// constructor with **no `super()` at all**, and a `this` at the body's
-    /// **statement level** in a statement strictly before the one containing
-    /// `super()`. A `this` inside a nested function-like declines, because an
-    /// arrow captures the constructor's `this` and upstream decides it by where
-    /// the arrow *runs*. §307.
+    /// `checkThisExpression`'s constructor arm (`checker.go:12077`) into
+    /// `checkThisBeforeSuper`, whose decidable shapes are
+    /// `super_expression.rs`'s. A `this` inside a nested function-like
+    /// declines, because an arrow captures the constructor's `this` and
+    /// upstream decides it by where the arrow *runs*. §307.
     fn check_this_before_super(&mut self, node: NodeId) {
         if self.file_has_parse_errors {
             return;
@@ -9100,60 +8934,16 @@ impl Checker<'_, '_> {
         if self.nodes.kind(container) != SyntaxKind::Constructor {
             return;
         }
-        let Some(class) = self.nodes.parent(container) else { return };
-        let extends = match self.node_map.get(class) {
-            Some(Node::ClassDeclaration(n)) => n.heritage_clauses,
-            Some(Node::ClassExpression(n)) => n.heritage_clauses,
-            _ => return,
-        }
-        .iter()
-        .find(|clause| clause.token.kind == SyntaxKind::ExtendsKeyword);
-        let Some(extends) = extends else { return };
-        // `classDeclarationExtendsNull` — `extends null` has no `super` to
-        // call, and upstream reports TS17005 there instead.
-        //
-        // **This parser makes the `null` an `Identifier`, not a
-        // `NullKeyword`** — probed directly, because testing the keyword kind
-        // matched nothing and `superCallBeforeThisAccessing4` was two of three
-        // wrong lines. `null` is a reserved word, so an identifier carrying that
-        // text can only be the literal. §308.
-        if extends.types.iter().any(|it| {
-            matches!(it.expression, Some(tsr_ast::Expression::Identifier(name)) if name.text == "null")
-        }) {
-            return;
-        }
-        let Some(Node::ConstructorDeclaration(constructor)) = self.node_map.get(container) else {
-            return;
-        };
-        let Some(body) = constructor.body.and_then(|body| body.node_id()) else { return };
-        let Some(Node::Block(block)) = self.node_map.get(body) else { return };
-        // Which top-level statement holds `super()`, and which holds this
-        // `this`? Both are indices into the same list, so no branch can reorder
-        // them.
-        let mut super_at = None;
-        let mut this_at = None;
-        for (index, statement) in block.statements.iter().enumerate() {
-            let Some(id) = statement.node_id() else { continue };
-            if super_at.is_none() && self.subtree_calls_super(id) {
-                super_at = Some(index);
-            }
-            if this_at.is_none() && self.nodes.ancestors(node).any(|it| it == id) {
-                this_at = Some(index);
-            }
-        }
-        let Some(this_at) = this_at else { return };
-        if super_at.is_some_and(|at| at < this_at) {
-            return;
-        }
-        self.report_grammar_at(
-            Some(node),
+        self.check_this_before_super_in(
+            node,
+            container,
             &messages::SUPER_MUST_BE_CALLED_BEFORE_ACCESSING_THIS_IN_THE_CONSTRUCTOR_OF_A_DERIVED_CLASS,
         );
     }
 
     /// Does this subtree contain a `super(...)` call, not descending into a
     /// nested function-like?
-    fn subtree_calls_super(&self, node: NodeId) -> bool {
+    pub(crate) fn subtree_calls_super(&self, node: NodeId) -> bool {
         if let Some(Node::CallExpression(call)) = self.node_map.get(node)
             && call
                 .expression
