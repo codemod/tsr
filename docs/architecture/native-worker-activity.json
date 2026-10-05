@@ -1,0 +1,1774 @@
+{
+  "native_source_sha": "5b1047d10d32e7d5b446be4de56b126ff42f82bb",
+  "tsr_prework_sha": "1dfcdb934e878be5fc353a8ee3c6bc6cd7787227",
+  "go_version": "go1.26.0 darwin/arm64",
+  "patch_sha256": "0e614ad0b9c2beed464298538f1d9ed9f371ca50e93f2dec8e238f1fefe851b9",
+  "helper_sha256": "f434f87ea29350aa1ec0966996ffea8e7fece164869e2ed7d0878a04f3ed4c89",
+  "baseline_binary_sha256": "b3cd1909b5dbc6582681e0a9d2641c7eefd9b7b6c3401cfad82b5e8b935b8033",
+  "probe_binary_sha256": "4199141cf395e81208deb975256f163aefbd0a7e9ed97ea362a65fceb5915ba5",
+  "raw_receipt_sha256": "dc3ddb62894ad95f6ed8babc90af73bf7765c92f946932143ddbd0b506fbca10",
+  "child_count": 35,
+  "valid_trace_count": 16,
+  "fixture_file_sha256": {
+    "tsconfig.json": "fd73dc75ff54ef765f21751a0e673d7860804987c71b21156b2f316eb01852cb",
+    "main.ts": "9add74daa9534bd8c2312b8130c4b478fdbc222202c21ad9bf79852740417b49",
+    "a.ts": "466dfac9a4b5ac678a0574bb54d02a937e1093c3da3ad9ee61a5e2404149fe19",
+    "b.ts": "fa342bc542c670e0adf35bffc320b27fac6a25e425a6627155c8b084517ed4a5",
+    "types.d.ts": "fd7712ece07e84f2ad1b9828433de3f21bbd244bee208ecd89695347d25306e4",
+    "data.json": "6e0d9d0268c35e8b9c620e4f529378b20d9e71af3a03cd57ad43c1f74a9ebc40"
+  },
+  "modes": {
+    "default": {
+      "output_preserved": true,
+      "loaded_file_count": 5,
+      "instances": 4,
+      "full_file_count": 3,
+      "runs": [
+        {
+          "pid": 5821,
+          "status": 1,
+          "wall_seconds": 0.03032833297038451,
+          "cpu_seconds": 0.05452,
+          "peak_rss_bytes": 48644096,
+          "timed_out": false,
+          "variant": "baseline",
+          "stdout_sha256": "3afc3b05c270e853a487f8f76157bf62ed104771de75888a9ebdfb22ee4658eb",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "pid": 5822,
+          "status": 1,
+          "wall_seconds": 0.03071862499928102,
+          "cpu_seconds": 0.053654,
+          "peak_rss_bytes": 49086464,
+          "timed_out": false,
+          "variant": "probe-off",
+          "stdout_sha256": "3afc3b05c270e853a487f8f76157bf62ed104771de75888a9ebdfb22ee4658eb",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "pid": 5823,
+          "status": 1,
+          "wall_seconds": 0.026183041976764798,
+          "cpu_seconds": 0.051451,
+          "peak_rss_bytes": 49070080,
+          "timed_out": false,
+          "variant": "probe-on",
+          "stdout_sha256": "3afc3b05c270e853a487f8f76157bf62ed104771de75888a9ebdfb22ee4658eb",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "activity": {
+            "pools": {
+              "0": 4
+            },
+            "instances": 4,
+            "peaks": {
+              "constructing": 4,
+              "semantic": 3,
+              "full": 3,
+              "leased": 3,
+              "observed": 4
+            },
+            "full_files": [
+              [
+                0,
+                82,
+                2
+              ],
+              [
+                0,
+                83,
+                3
+              ],
+              [
+                0,
+                85,
+                1
+              ]
+            ],
+            "events": 264,
+            "nonce": "80c7b3e6527b37bbd628325b74641db7"
+          },
+          "trace_sha256": "f515e6266a689825eab18d527de084ba3726b6a1a1e3307a5139ab84b3f8414b"
+        },
+        {
+          "pid": 5824,
+          "status": 1,
+          "wall_seconds": 0.02869179198751226,
+          "cpu_seconds": 0.05347,
+          "peak_rss_bytes": 49364992,
+          "timed_out": false,
+          "variant": "repeat",
+          "stdout_sha256": "3afc3b05c270e853a487f8f76157bf62ed104771de75888a9ebdfb22ee4658eb",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "activity": {
+            "pools": {
+              "0": 4
+            },
+            "instances": 4,
+            "peaks": {
+              "constructing": 4,
+              "semantic": 3,
+              "full": 3,
+              "leased": 3,
+              "observed": 4
+            },
+            "full_files": [
+              [
+                0,
+                82,
+                2
+              ],
+              [
+                0,
+                83,
+                3
+              ],
+              [
+                0,
+                85,
+                1
+              ]
+            ],
+            "events": 264,
+            "nonce": "db0dd76aa42eff54769de3a6736b86a0"
+          },
+          "trace_sha256": "dd57bcc579fa3b9c0d6963c8c39145a5bd710ee81c3e746a7d79b12122f5aefc"
+        }
+      ]
+    },
+    "single": {
+      "output_preserved": true,
+      "loaded_file_count": 5,
+      "instances": 1,
+      "full_file_count": 3,
+      "runs": [
+        {
+          "pid": 5825,
+          "status": 1,
+          "wall_seconds": 0.02753375004976988,
+          "cpu_seconds": 0.030753,
+          "peak_rss_bytes": 44007424,
+          "timed_out": false,
+          "variant": "baseline",
+          "stdout_sha256": "3afc3b05c270e853a487f8f76157bf62ed104771de75888a9ebdfb22ee4658eb",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "pid": 5826,
+          "status": 1,
+          "wall_seconds": 0.030138625006657094,
+          "cpu_seconds": 0.030972999999999997,
+          "peak_rss_bytes": 44630016,
+          "timed_out": false,
+          "variant": "probe-off",
+          "stdout_sha256": "3afc3b05c270e853a487f8f76157bf62ed104771de75888a9ebdfb22ee4658eb",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "pid": 5827,
+          "status": 1,
+          "wall_seconds": 0.031434500007890165,
+          "cpu_seconds": 0.030823,
+          "peak_rss_bytes": 44826624,
+          "timed_out": false,
+          "variant": "probe-on",
+          "stdout_sha256": "3afc3b05c270e853a487f8f76157bf62ed104771de75888a9ebdfb22ee4658eb",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "activity": {
+            "pools": {
+              "0": 1
+            },
+            "instances": 1,
+            "peaks": {
+              "constructing": 1,
+              "semantic": 1,
+              "full": 1,
+              "leased": 1,
+              "observed": 1
+            },
+            "full_files": [
+              [
+                0,
+                82,
+                0
+              ],
+              [
+                0,
+                83,
+                0
+              ],
+              [
+                0,
+                85,
+                0
+              ]
+            ],
+            "events": 237,
+            "nonce": "1fbdbb00d6fd92b15c64831d16cdd72a"
+          },
+          "trace_sha256": "02e5e024fed3e8b7f6b3301250d0d2234368eec8d31c808dfe07bb776b8e7f49"
+        },
+        {
+          "pid": 5828,
+          "status": 1,
+          "wall_seconds": 0.03196470905095339,
+          "cpu_seconds": 0.031559,
+          "peak_rss_bytes": 44957696,
+          "timed_out": false,
+          "variant": "repeat",
+          "stdout_sha256": "3afc3b05c270e853a487f8f76157bf62ed104771de75888a9ebdfb22ee4658eb",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "activity": {
+            "pools": {
+              "0": 1
+            },
+            "instances": 1,
+            "peaks": {
+              "constructing": 1,
+              "semantic": 1,
+              "full": 1,
+              "leased": 1,
+              "observed": 1
+            },
+            "full_files": [
+              [
+                0,
+                82,
+                0
+              ],
+              [
+                0,
+                83,
+                0
+              ],
+              [
+                0,
+                85,
+                0
+              ]
+            ],
+            "events": 237,
+            "nonce": "69e8ac2cd062c8149967fc707fce6ab9"
+          },
+          "trace_sha256": "a4fff0393773f10a89e645ed0085635e766504359ccfb29aa640a6dfc5f17368"
+        }
+      ]
+    },
+    "two": {
+      "output_preserved": true,
+      "loaded_file_count": 5,
+      "instances": 2,
+      "full_file_count": 3,
+      "runs": [
+        {
+          "pid": 5829,
+          "status": 1,
+          "wall_seconds": 0.02973825001390651,
+          "cpu_seconds": 0.048671,
+          "peak_rss_bytes": 47890432,
+          "timed_out": false,
+          "variant": "baseline",
+          "stdout_sha256": "3afc3b05c270e853a487f8f76157bf62ed104771de75888a9ebdfb22ee4658eb",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "pid": 5830,
+          "status": 1,
+          "wall_seconds": 0.027417999983299524,
+          "cpu_seconds": 0.045851,
+          "peak_rss_bytes": 46809088,
+          "timed_out": false,
+          "variant": "probe-off",
+          "stdout_sha256": "3afc3b05c270e853a487f8f76157bf62ed104771de75888a9ebdfb22ee4658eb",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "pid": 5831,
+          "status": 1,
+          "wall_seconds": 0.02605320798465982,
+          "cpu_seconds": 0.047956,
+          "peak_rss_bytes": 48054272,
+          "timed_out": false,
+          "variant": "probe-on",
+          "stdout_sha256": "3afc3b05c270e853a487f8f76157bf62ed104771de75888a9ebdfb22ee4658eb",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "activity": {
+            "pools": {
+              "0": 2
+            },
+            "instances": 2,
+            "peaks": {
+              "constructing": 2,
+              "semantic": 2,
+              "full": 2,
+              "leased": 2,
+              "observed": 2
+            },
+            "full_files": [
+              [
+                0,
+                82,
+                0
+              ],
+              [
+                0,
+                83,
+                1
+              ],
+              [
+                0,
+                85,
+                1
+              ]
+            ],
+            "events": 246,
+            "nonce": "d1bfb22dbb6d26f50893f5b0fdbe6465"
+          },
+          "trace_sha256": "420a55051cfd0d3edb63ceae903850ecd3ffc1ecfbb0c435de44435ce643fa69"
+        },
+        {
+          "pid": 5832,
+          "status": 1,
+          "wall_seconds": 0.02758237498346716,
+          "cpu_seconds": 0.04974,
+          "peak_rss_bytes": 47448064,
+          "timed_out": false,
+          "variant": "repeat",
+          "stdout_sha256": "3afc3b05c270e853a487f8f76157bf62ed104771de75888a9ebdfb22ee4658eb",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "activity": {
+            "pools": {
+              "0": 2
+            },
+            "instances": 2,
+            "peaks": {
+              "constructing": 2,
+              "semantic": 2,
+              "full": 2,
+              "leased": 2,
+              "observed": 2
+            },
+            "full_files": [
+              [
+                0,
+                82,
+                0
+              ],
+              [
+                0,
+                83,
+                1
+              ],
+              [
+                0,
+                85,
+                1
+              ]
+            ],
+            "events": 246,
+            "nonce": "b323ca854d0ea67d1fe3704e845b8107"
+          },
+          "trace_sha256": "f69e31206dfda2f0e5181b32fcbc1f815c35ac03be76ce4d7935c94c8c7d74c0"
+        }
+      ]
+    },
+    "eight": {
+      "output_preserved": true,
+      "loaded_file_count": 5,
+      "instances": 8,
+      "full_file_count": 3,
+      "runs": [
+        {
+          "pid": 5833,
+          "status": 1,
+          "wall_seconds": 0.027541249990463257,
+          "cpu_seconds": 0.0498,
+          "peak_rss_bytes": 49266688,
+          "timed_out": false,
+          "variant": "baseline",
+          "stdout_sha256": "3afc3b05c270e853a487f8f76157bf62ed104771de75888a9ebdfb22ee4658eb",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "pid": 5834,
+          "status": 1,
+          "wall_seconds": 0.027328124968335032,
+          "cpu_seconds": 0.046706,
+          "peak_rss_bytes": 49348608,
+          "timed_out": false,
+          "variant": "probe-off",
+          "stdout_sha256": "3afc3b05c270e853a487f8f76157bf62ed104771de75888a9ebdfb22ee4658eb",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "pid": 5835,
+          "status": 1,
+          "wall_seconds": 0.027867958007846028,
+          "cpu_seconds": 0.055649,
+          "peak_rss_bytes": 50331648,
+          "timed_out": false,
+          "variant": "probe-on",
+          "stdout_sha256": "3afc3b05c270e853a487f8f76157bf62ed104771de75888a9ebdfb22ee4658eb",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "activity": {
+            "pools": {
+              "0": 8
+            },
+            "instances": 8,
+            "peaks": {
+              "constructing": 8,
+              "semantic": 3,
+              "full": 3,
+              "leased": 3,
+              "observed": 8
+            },
+            "full_files": [
+              [
+                0,
+                82,
+                2
+              ],
+              [
+                0,
+                83,
+                3
+              ],
+              [
+                0,
+                85,
+                5
+              ]
+            ],
+            "events": 300,
+            "nonce": "6483ff8b4cc949c0e9a3bcebbe71048c"
+          },
+          "trace_sha256": "5b52db12fd62e0582f0425b2a2e550e9122148746e35310c4a788f6b3ac392fc"
+        },
+        {
+          "pid": 5836,
+          "status": 1,
+          "wall_seconds": 0.02648724999744445,
+          "cpu_seconds": 0.053159,
+          "peak_rss_bytes": 50708480,
+          "timed_out": false,
+          "variant": "repeat",
+          "stdout_sha256": "3afc3b05c270e853a487f8f76157bf62ed104771de75888a9ebdfb22ee4658eb",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "activity": {
+            "pools": {
+              "0": 8
+            },
+            "instances": 8,
+            "peaks": {
+              "constructing": 8,
+              "semantic": 3,
+              "full": 3,
+              "leased": 5,
+              "observed": 8
+            },
+            "full_files": [
+              [
+                0,
+                82,
+                2
+              ],
+              [
+                0,
+                83,
+                3
+              ],
+              [
+                0,
+                85,
+                5
+              ]
+            ],
+            "events": 300,
+            "nonce": "162353becda833ed04f9e55cf8511306"
+          },
+          "trace_sha256": "307f28417712ddc24510ee61b1e90c4a6203a3ee54fb0cda62b5e60b5dd50fd0"
+        }
+      ]
+    },
+    "no-check": {
+      "output_preserved": true,
+      "loaded_file_count": 5,
+      "instances": 4,
+      "full_file_count": 0,
+      "runs": [
+        {
+          "pid": 5837,
+          "status": 0,
+          "wall_seconds": 0.0270010830136016,
+          "cpu_seconds": 0.04843,
+          "peak_rss_bytes": 46694400,
+          "timed_out": false,
+          "variant": "baseline",
+          "stdout_sha256": "70040e083725a4bd385e9db35d43b303e07ed565ef9d3b54cb0f22a144a13a5c",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "pid": 5838,
+          "status": 0,
+          "wall_seconds": 0.02966362499864772,
+          "cpu_seconds": 0.048126999999999996,
+          "peak_rss_bytes": 46579712,
+          "timed_out": false,
+          "variant": "probe-off",
+          "stdout_sha256": "70040e083725a4bd385e9db35d43b303e07ed565ef9d3b54cb0f22a144a13a5c",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "pid": 5839,
+          "status": 0,
+          "wall_seconds": 0.028723124996758997,
+          "cpu_seconds": 0.052438,
+          "peak_rss_bytes": 47366144,
+          "timed_out": false,
+          "variant": "probe-on",
+          "stdout_sha256": "70040e083725a4bd385e9db35d43b303e07ed565ef9d3b54cb0f22a144a13a5c",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "activity": {
+            "pools": {
+              "0": 4
+            },
+            "instances": 4,
+            "peaks": {
+              "constructing": 4,
+              "semantic": 0,
+              "full": 0,
+              "leased": 1,
+              "observed": 4
+            },
+            "full_files": [],
+            "events": 216,
+            "nonce": "e3f6bcc3bfc616aa40c9d7a3ecfb9184"
+          },
+          "trace_sha256": "43716be9e2e54811450592841f2aa55947fccbbf7ae21ac6a7c10aa3521d91f3"
+        },
+        {
+          "pid": 5840,
+          "status": 0,
+          "wall_seconds": 0.02594079199479893,
+          "cpu_seconds": 0.049796999999999994,
+          "peak_rss_bytes": 47448064,
+          "timed_out": false,
+          "variant": "repeat",
+          "stdout_sha256": "70040e083725a4bd385e9db35d43b303e07ed565ef9d3b54cb0f22a144a13a5c",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "activity": {
+            "pools": {
+              "0": 4
+            },
+            "instances": 4,
+            "peaks": {
+              "constructing": 4,
+              "semantic": 0,
+              "full": 0,
+              "leased": 2,
+              "observed": 4
+            },
+            "full_files": [],
+            "events": 216,
+            "nonce": "7c8bab6b2b26b34af2c174d3f88d06d3"
+          },
+          "trace_sha256": "556aa8f9a969599c5aa5250199dbac4bec9a7b2dcebdf71645153d3313f8c2af"
+        }
+      ]
+    },
+    "libs": {
+      "output_preserved": true,
+      "loaded_file_count": 5,
+      "instances": 4,
+      "full_file_count": 86,
+      "runs": [
+        {
+          "pid": 5841,
+          "status": 1,
+          "wall_seconds": 0.11927737499354407,
+          "cpu_seconds": 0.176013,
+          "peak_rss_bytes": 100728832,
+          "timed_out": false,
+          "variant": "baseline",
+          "stdout_sha256": "3afc3b05c270e853a487f8f76157bf62ed104771de75888a9ebdfb22ee4658eb",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "pid": 5842,
+          "status": 1,
+          "wall_seconds": 0.11832125001819804,
+          "cpu_seconds": 0.179922,
+          "peak_rss_bytes": 99844096,
+          "timed_out": false,
+          "variant": "probe-off",
+          "stdout_sha256": "3afc3b05c270e853a487f8f76157bf62ed104771de75888a9ebdfb22ee4658eb",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "pid": 5843,
+          "status": 1,
+          "wall_seconds": 0.9408832499757409,
+          "cpu_seconds": 1.2521579999999999,
+          "peak_rss_bytes": 138543104,
+          "timed_out": false,
+          "variant": "probe-on",
+          "stdout_sha256": "3afc3b05c270e853a487f8f76157bf62ed104771de75888a9ebdfb22ee4658eb",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "activity": {
+            "pools": {
+              "0": 4
+            },
+            "instances": 4,
+            "peaks": {
+              "constructing": 4,
+              "semantic": 4,
+              "full": 4,
+              "leased": 4,
+              "observed": 4
+            },
+            "full_files": [
+              [
+                0,
+                0,
+                0
+              ],
+              [
+                0,
+                1,
+                1
+              ],
+              [
+                0,
+                2,
+                2
+              ],
+              [
+                0,
+                3,
+                3
+              ],
+              [
+                0,
+                4,
+                0
+              ],
+              [
+                0,
+                5,
+                1
+              ],
+              [
+                0,
+                6,
+                2
+              ],
+              [
+                0,
+                7,
+                3
+              ],
+              [
+                0,
+                8,
+                0
+              ],
+              [
+                0,
+                9,
+                1
+              ],
+              [
+                0,
+                10,
+                2
+              ],
+              [
+                0,
+                11,
+                3
+              ],
+              [
+                0,
+                12,
+                0
+              ],
+              [
+                0,
+                13,
+                1
+              ],
+              [
+                0,
+                14,
+                2
+              ],
+              [
+                0,
+                15,
+                3
+              ],
+              [
+                0,
+                16,
+                0
+              ],
+              [
+                0,
+                17,
+                1
+              ],
+              [
+                0,
+                18,
+                2
+              ],
+              [
+                0,
+                19,
+                3
+              ],
+              [
+                0,
+                20,
+                0
+              ],
+              [
+                0,
+                21,
+                1
+              ],
+              [
+                0,
+                22,
+                2
+              ],
+              [
+                0,
+                23,
+                3
+              ],
+              [
+                0,
+                24,
+                0
+              ],
+              [
+                0,
+                25,
+                1
+              ],
+              [
+                0,
+                26,
+                2
+              ],
+              [
+                0,
+                27,
+                3
+              ],
+              [
+                0,
+                28,
+                0
+              ],
+              [
+                0,
+                29,
+                1
+              ],
+              [
+                0,
+                30,
+                2
+              ],
+              [
+                0,
+                31,
+                3
+              ],
+              [
+                0,
+                32,
+                0
+              ],
+              [
+                0,
+                33,
+                1
+              ],
+              [
+                0,
+                34,
+                2
+              ],
+              [
+                0,
+                35,
+                3
+              ],
+              [
+                0,
+                36,
+                0
+              ],
+              [
+                0,
+                37,
+                1
+              ],
+              [
+                0,
+                38,
+                2
+              ],
+              [
+                0,
+                39,
+                3
+              ],
+              [
+                0,
+                40,
+                0
+              ],
+              [
+                0,
+                41,
+                1
+              ],
+              [
+                0,
+                42,
+                2
+              ],
+              [
+                0,
+                43,
+                3
+              ],
+              [
+                0,
+                44,
+                0
+              ],
+              [
+                0,
+                45,
+                1
+              ],
+              [
+                0,
+                46,
+                2
+              ],
+              [
+                0,
+                47,
+                3
+              ],
+              [
+                0,
+                48,
+                0
+              ],
+              [
+                0,
+                49,
+                1
+              ],
+              [
+                0,
+                50,
+                2
+              ],
+              [
+                0,
+                51,
+                3
+              ],
+              [
+                0,
+                52,
+                0
+              ],
+              [
+                0,
+                53,
+                1
+              ],
+              [
+                0,
+                54,
+                2
+              ],
+              [
+                0,
+                55,
+                3
+              ],
+              [
+                0,
+                56,
+                0
+              ],
+              [
+                0,
+                57,
+                1
+              ],
+              [
+                0,
+                58,
+                2
+              ],
+              [
+                0,
+                59,
+                3
+              ],
+              [
+                0,
+                60,
+                0
+              ],
+              [
+                0,
+                61,
+                1
+              ],
+              [
+                0,
+                62,
+                2
+              ],
+              [
+                0,
+                63,
+                3
+              ],
+              [
+                0,
+                64,
+                0
+              ],
+              [
+                0,
+                65,
+                1
+              ],
+              [
+                0,
+                66,
+                2
+              ],
+              [
+                0,
+                67,
+                3
+              ],
+              [
+                0,
+                68,
+                0
+              ],
+              [
+                0,
+                69,
+                1
+              ],
+              [
+                0,
+                70,
+                2
+              ],
+              [
+                0,
+                71,
+                3
+              ],
+              [
+                0,
+                72,
+                0
+              ],
+              [
+                0,
+                73,
+                1
+              ],
+              [
+                0,
+                74,
+                2
+              ],
+              [
+                0,
+                75,
+                3
+              ],
+              [
+                0,
+                76,
+                0
+              ],
+              [
+                0,
+                77,
+                1
+              ],
+              [
+                0,
+                78,
+                2
+              ],
+              [
+                0,
+                79,
+                3
+              ],
+              [
+                0,
+                80,
+                0
+              ],
+              [
+                0,
+                81,
+                1
+              ],
+              [
+                0,
+                82,
+                2
+              ],
+              [
+                0,
+                83,
+                3
+              ],
+              [
+                0,
+                85,
+                1
+              ],
+              [
+                0,
+                86,
+                2
+              ]
+            ],
+            "events": 288132,
+            "nonce": "7e43ba46b37e0c442e9a160026b65b64"
+          },
+          "trace_sha256": "bb3104d9e3b96796761e14af299baa55f4f97bb690f2a7577a34e440bad3d0b9"
+        },
+        {
+          "pid": 5989,
+          "status": 1,
+          "wall_seconds": 0.9973086660029367,
+          "cpu_seconds": 1.332112,
+          "peak_rss_bytes": 143851520,
+          "timed_out": false,
+          "variant": "repeat",
+          "stdout_sha256": "3afc3b05c270e853a487f8f76157bf62ed104771de75888a9ebdfb22ee4658eb",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "activity": {
+            "pools": {
+              "0": 4
+            },
+            "instances": 4,
+            "peaks": {
+              "constructing": 4,
+              "semantic": 4,
+              "full": 4,
+              "leased": 4,
+              "observed": 4
+            },
+            "full_files": [
+              [
+                0,
+                0,
+                0
+              ],
+              [
+                0,
+                1,
+                1
+              ],
+              [
+                0,
+                2,
+                2
+              ],
+              [
+                0,
+                3,
+                3
+              ],
+              [
+                0,
+                4,
+                0
+              ],
+              [
+                0,
+                5,
+                1
+              ],
+              [
+                0,
+                6,
+                2
+              ],
+              [
+                0,
+                7,
+                3
+              ],
+              [
+                0,
+                8,
+                0
+              ],
+              [
+                0,
+                9,
+                1
+              ],
+              [
+                0,
+                10,
+                2
+              ],
+              [
+                0,
+                11,
+                3
+              ],
+              [
+                0,
+                12,
+                0
+              ],
+              [
+                0,
+                13,
+                1
+              ],
+              [
+                0,
+                14,
+                2
+              ],
+              [
+                0,
+                15,
+                3
+              ],
+              [
+                0,
+                16,
+                0
+              ],
+              [
+                0,
+                17,
+                1
+              ],
+              [
+                0,
+                18,
+                2
+              ],
+              [
+                0,
+                19,
+                3
+              ],
+              [
+                0,
+                20,
+                0
+              ],
+              [
+                0,
+                21,
+                1
+              ],
+              [
+                0,
+                22,
+                2
+              ],
+              [
+                0,
+                23,
+                3
+              ],
+              [
+                0,
+                24,
+                0
+              ],
+              [
+                0,
+                25,
+                1
+              ],
+              [
+                0,
+                26,
+                2
+              ],
+              [
+                0,
+                27,
+                3
+              ],
+              [
+                0,
+                28,
+                0
+              ],
+              [
+                0,
+                29,
+                1
+              ],
+              [
+                0,
+                30,
+                2
+              ],
+              [
+                0,
+                31,
+                3
+              ],
+              [
+                0,
+                32,
+                0
+              ],
+              [
+                0,
+                33,
+                1
+              ],
+              [
+                0,
+                34,
+                2
+              ],
+              [
+                0,
+                35,
+                3
+              ],
+              [
+                0,
+                36,
+                0
+              ],
+              [
+                0,
+                37,
+                1
+              ],
+              [
+                0,
+                38,
+                2
+              ],
+              [
+                0,
+                39,
+                3
+              ],
+              [
+                0,
+                40,
+                0
+              ],
+              [
+                0,
+                41,
+                1
+              ],
+              [
+                0,
+                42,
+                2
+              ],
+              [
+                0,
+                43,
+                3
+              ],
+              [
+                0,
+                44,
+                0
+              ],
+              [
+                0,
+                45,
+                1
+              ],
+              [
+                0,
+                46,
+                2
+              ],
+              [
+                0,
+                47,
+                3
+              ],
+              [
+                0,
+                48,
+                0
+              ],
+              [
+                0,
+                49,
+                1
+              ],
+              [
+                0,
+                50,
+                2
+              ],
+              [
+                0,
+                51,
+                3
+              ],
+              [
+                0,
+                52,
+                0
+              ],
+              [
+                0,
+                53,
+                1
+              ],
+              [
+                0,
+                54,
+                2
+              ],
+              [
+                0,
+                55,
+                3
+              ],
+              [
+                0,
+                56,
+                0
+              ],
+              [
+                0,
+                57,
+                1
+              ],
+              [
+                0,
+                58,
+                2
+              ],
+              [
+                0,
+                59,
+                3
+              ],
+              [
+                0,
+                60,
+                0
+              ],
+              [
+                0,
+                61,
+                1
+              ],
+              [
+                0,
+                62,
+                2
+              ],
+              [
+                0,
+                63,
+                3
+              ],
+              [
+                0,
+                64,
+                0
+              ],
+              [
+                0,
+                65,
+                1
+              ],
+              [
+                0,
+                66,
+                2
+              ],
+              [
+                0,
+                67,
+                3
+              ],
+              [
+                0,
+                68,
+                0
+              ],
+              [
+                0,
+                69,
+                1
+              ],
+              [
+                0,
+                70,
+                2
+              ],
+              [
+                0,
+                71,
+                3
+              ],
+              [
+                0,
+                72,
+                0
+              ],
+              [
+                0,
+                73,
+                1
+              ],
+              [
+                0,
+                74,
+                2
+              ],
+              [
+                0,
+                75,
+                3
+              ],
+              [
+                0,
+                76,
+                0
+              ],
+              [
+                0,
+                77,
+                1
+              ],
+              [
+                0,
+                78,
+                2
+              ],
+              [
+                0,
+                79,
+                3
+              ],
+              [
+                0,
+                80,
+                0
+              ],
+              [
+                0,
+                81,
+                1
+              ],
+              [
+                0,
+                82,
+                2
+              ],
+              [
+                0,
+                83,
+                3
+              ],
+              [
+                0,
+                85,
+                1
+              ],
+              [
+                0,
+                86,
+                2
+              ]
+            ],
+            "events": 288132,
+            "nonce": "96c8b3c4d3001fb613975097f9230d82"
+          },
+          "trace_sha256": "82b90c84ef24b65c20d2df947cf7101554789fb401ba18555fc05175ba179f3c"
+        }
+      ]
+    },
+    "skip-default": {
+      "output_preserved": true,
+      "loaded_file_count": 5,
+      "instances": 4,
+      "full_file_count": 4,
+      "runs": [
+        {
+          "pid": 6243,
+          "status": 1,
+          "wall_seconds": 0.05041837500175461,
+          "cpu_seconds": 0.056476,
+          "peak_rss_bytes": 47104000,
+          "timed_out": false,
+          "variant": "baseline",
+          "stdout_sha256": "3afc3b05c270e853a487f8f76157bf62ed104771de75888a9ebdfb22ee4658eb",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "pid": 6250,
+          "status": 1,
+          "wall_seconds": 0.0503872919944115,
+          "cpu_seconds": 0.057270999999999996,
+          "peak_rss_bytes": 46563328,
+          "timed_out": false,
+          "variant": "probe-off",
+          "stdout_sha256": "3afc3b05c270e853a487f8f76157bf62ed104771de75888a9ebdfb22ee4658eb",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "pid": 6259,
+          "status": 1,
+          "wall_seconds": 0.054535375034902245,
+          "cpu_seconds": 0.06451599999999999,
+          "peak_rss_bytes": 48594944,
+          "timed_out": false,
+          "variant": "probe-on",
+          "stdout_sha256": "3afc3b05c270e853a487f8f76157bf62ed104771de75888a9ebdfb22ee4658eb",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "activity": {
+            "pools": {
+              "0": 4
+            },
+            "instances": 4,
+            "peaks": {
+              "constructing": 4,
+              "semantic": 3,
+              "full": 3,
+              "leased": 4,
+              "observed": 4
+            },
+            "full_files": [
+              [
+                0,
+                82,
+                2
+              ],
+              [
+                0,
+                83,
+                3
+              ],
+              [
+                0,
+                85,
+                1
+              ],
+              [
+                0,
+                86,
+                2
+              ]
+            ],
+            "events": 270,
+            "nonce": "a828cef948ffd24f2d7869673e659d21"
+          },
+          "trace_sha256": "79d09369f50834df6e03ebd8bb10d416530dd07c281069f314120519aed926a3"
+        },
+        {
+          "pid": 6266,
+          "status": 1,
+          "wall_seconds": 0.04326887498609722,
+          "cpu_seconds": 0.07014,
+          "peak_rss_bytes": 48365568,
+          "timed_out": false,
+          "variant": "repeat",
+          "stdout_sha256": "3afc3b05c270e853a487f8f76157bf62ed104771de75888a9ebdfb22ee4658eb",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "activity": {
+            "pools": {
+              "0": 4
+            },
+            "instances": 4,
+            "peaks": {
+              "constructing": 4,
+              "semantic": 3,
+              "full": 3,
+              "leased": 4,
+              "observed": 4
+            },
+            "full_files": [
+              [
+                0,
+                82,
+                2
+              ],
+              [
+                0,
+                83,
+                3
+              ],
+              [
+                0,
+                85,
+                1
+              ],
+              [
+                0,
+                86,
+                2
+              ]
+            ],
+            "events": 270,
+            "nonce": "6a24a50fa99a3e46ca56d1d905691d6a"
+          },
+          "trace_sha256": "e6b08e003ab9a24a026b49740dbf01471067c43038928ced84a946799a2cdfaf"
+        }
+      ]
+    },
+    "list-only": {
+      "output_preserved": true,
+      "loaded_file_count": 5,
+      "instances": 0,
+      "full_file_count": 0,
+      "runs": [
+        {
+          "pid": 6273,
+          "status": 0,
+          "wall_seconds": 0.0363094590138644,
+          "cpu_seconds": 0.055755,
+          "peak_rss_bytes": 44892160,
+          "timed_out": false,
+          "variant": "baseline",
+          "stdout_sha256": "70040e083725a4bd385e9db35d43b303e07ed565ef9d3b54cb0f22a144a13a5c",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "pid": 6277,
+          "status": 0,
+          "wall_seconds": 0.03127020801184699,
+          "cpu_seconds": 0.055617999999999994,
+          "peak_rss_bytes": 46284800,
+          "timed_out": false,
+          "variant": "probe-off",
+          "stdout_sha256": "70040e083725a4bd385e9db35d43b303e07ed565ef9d3b54cb0f22a144a13a5c",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "pid": 6281,
+          "status": 0,
+          "wall_seconds": 0.029340708977542818,
+          "cpu_seconds": 0.056021,
+          "peak_rss_bytes": 46301184,
+          "timed_out": false,
+          "variant": "probe-on",
+          "stdout_sha256": "70040e083725a4bd385e9db35d43b303e07ed565ef9d3b54cb0f22a144a13a5c",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "activity": {
+            "pools": {
+              "0": 4
+            },
+            "instances": 0,
+            "peaks": {
+              "constructing": 0,
+              "semantic": 0,
+              "full": 0,
+              "leased": 0,
+              "observed": 0
+            },
+            "full_files": [],
+            "events": 90,
+            "nonce": "512a0de817ed006b8fc12eaa52ccefab"
+          },
+          "trace_sha256": "26b98d3fd941b88afaea057fee6a4f1b163893407d791ea67dd116bb9bf91b0d"
+        },
+        {
+          "pid": 6288,
+          "status": 0,
+          "wall_seconds": 0.032913916977122426,
+          "cpu_seconds": 0.053337999999999997,
+          "peak_rss_bytes": 45875200,
+          "timed_out": false,
+          "variant": "repeat",
+          "stdout_sha256": "70040e083725a4bd385e9db35d43b303e07ed565ef9d3b54cb0f22a144a13a5c",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "activity": {
+            "pools": {
+              "0": 4
+            },
+            "instances": 0,
+            "peaks": {
+              "constructing": 0,
+              "semantic": 0,
+              "full": 0,
+              "leased": 0,
+              "observed": 0
+            },
+            "full_files": [],
+            "events": 90,
+            "nonce": "af4386ae7e0b8453781b7138f7ffebea"
+          },
+          "trace_sha256": "716346e24ac538fddee3435a46d29e1b3911148b1603b3efb588ca4993b2c919"
+        }
+      ]
+    }
+  },
+  "limitations": [
+    "Not a throughput acceptance run",
+    "No all-forcing or initialization-forcing certification",
+    "No memory admission or CPU budget inference",
+    "Native query spans do not distinguish cache hits from expensive workers",
+    "Native/TSR cross-tool qualification remains tsr-1yb.1.2.3.2.3",
+    "No production Rust or canonical vendor changes"
+  ],
+  "failures": {
+    "stale": {
+      "pid": 6294,
+      "status": 1,
+      "timed_out": false
+    },
+    "missing-parent": {
+      "pid": 6295,
+      "status": 1,
+      "timed_out": false
+    },
+    "killed": {
+      "pid": 6297,
+      "status": -9,
+      "timed_out": false
+    }
+  },
+  "go_checks": {
+    "focused_tests": 0,
+    "package_tests": 0,
+    "focused_race_tests": 0,
+    "vet": 0
+  },
+  "patch_replay_matches_tested_files": 6
+}

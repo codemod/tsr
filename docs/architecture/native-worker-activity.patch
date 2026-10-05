@@ -1,0 +1,683 @@
+diff --git a/cmd/tsgo/main.go b/cmd/tsgo/main.go
+--- a/cmd/tsgo/main.go
++++ b/cmd/tsgo/main.go
+@@ -2,6 +2,7 @@
+ 
+ import (
+ 	"context"
++	"github.com/microsoft/typescript-go/internal/workactivity"
+ 	"os"
+ 	"os/signal"
+ 	"syscall"
+@@ -25,8 +26,13 @@
+ 			return runAPI(args[1:])
+ 		}
+ 	}
++	activity := workactivity.OpenFromEnv()
++	defer activity.Close()
+ 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+ 	defer stop()
+ 	result := execute.CommandLine(ctx, newSystem(), args, nil)
++	if ctx.Err() == nil {
++		activity.Finish(int(result.Status))
++	}
+ 	return int(result.Status)
+ }
+diff --git a/internal/checker/checker.go b/internal/checker/checker.go
+--- a/internal/checker/checker.go
++++ b/internal/checker/checker.go
+@@ -3,6 +3,7 @@
+ import (
+ 	"context"
+ 	"fmt"
++	"github.com/microsoft/typescript-go/internal/workactivity"
+ 	"iter"
+ 	"maps"
+ 	"math"
+@@ -577,6 +578,7 @@
+ var nextCheckerID atomic.Uint32
+ 
+ type Checker struct {
++	workerActivity                              *workactivity.Slot
+ 	id                                          uint32
+ 	program                                     Program
+ 	compilerOptions                             *core.CompilerOptions
+@@ -2197,6 +2199,7 @@
+ 	c.ctx = ctx
+ 	links := c.sourceFileLinks.Get(sourceFile)
+ 	if !links.typeChecked {
++		defer c.workerActivity.Begin("source_file_check", c.fileIndexMap[sourceFile]).End()
+ 		if tr := c.tracer; tr != nil {
+ 			defer tr.Push(tracing.PhaseCheck, "checkSourceFile", map[string]any{"path": sourceFile.FileName()}, true)()
+ 		}
+@@ -16491,6 +16494,7 @@
+ }
+ 
+ func (c *Checker) getTypeOfSymbol(symbol *ast.Symbol) *Type {
++	defer c.workerActivity.Begin("symbol_type_query", -1).End()
+ 	if symbol.CheckFlags&ast.CheckFlagsDeferredType != 0 {
+ 		return c.getTypeOfSymbolWithDeferredType(symbol)
+ 	}
+@@ -23668,6 +23672,7 @@
+ }
+ 
+ func (c *Checker) getDeclaredTypeOfSymbol(symbol *ast.Symbol) *Type {
++	defer c.workerActivity.Begin("declared_type_query", -1).End()
+ 	result := c.tryGetDeclaredTypeOfSymbol(symbol)
+ 	if result == nil {
+ 		result = c.errorType
+@@ -32167,3 +32172,12 @@
+ func (c *Checker) GetAliasedSymbol(symbol *ast.Symbol) *ast.Symbol {
+ 	return c.resolveAlias(symbol)
+ }
++
++// SetWorkerActivity attaches only after the constructor returns. Initialization
++// forcing inside NewChecker remains explicitly unobserved.
++func (c *Checker) SetWorkerActivity(pool *workactivity.Pool, slot int) {
++	if pool != nil {
++		c.workerActivity = &workactivity.Slot{Pool: pool, Index: slot}
++		pool.Created(slot, c.id)
++	}
++}
+diff --git a/internal/compiler/checkerpool.go b/internal/compiler/checkerpool.go
+--- a/internal/compiler/checkerpool.go
++++ b/internal/compiler/checkerpool.go
+@@ -2,6 +2,7 @@
+ 
+ import (
+ 	"context"
++	"github.com/microsoft/typescript-go/internal/workactivity"
+ 	"slices"
+ 	"sync"
+ 
+@@ -22,8 +23,9 @@
+ }
+ 
+ type checkerPool struct {
+-	program *Program
+-	tracing *tracing.Tracing
++	activity *workactivity.Pool
++	program  *Program
++	tracing  *tracing.Tracing
+ 
+ 	createCheckersOnce sync.Once
+ 	checkers           []*checker.Checker
+@@ -54,6 +56,15 @@
+ 		tracing:  tr,
+ 	}
+ 
++	if workactivity.Current != nil {
++		paths := make([]string, len(program.files))
++		for i, file := range program.files {
++			if file != nil {
++				paths[i] = file.FileName()
++			}
++		}
++		pool.activity = workactivity.NewPool(checkerCount, paths, program.SingleThreaded(), program.Options().Checkers)
++	}
+ 	return pool
+ }
+ 
+@@ -66,7 +77,9 @@
+ 	p.createCheckers()
+ 	c := p.checkers[0]
+ 	p.locks[0].Lock()
++	lease := p.activity.Begin(0, "lease", -1)
+ 	return c, sync.OnceFunc(func() {
++		lease.End()
+ 		p.locks[0].Unlock()
+ 	})
+ }
+@@ -76,7 +89,9 @@
+ // e.g. for read-only operations like obtaining an emit resolver.
+ func (p *checkerPool) getCheckerForFileNonExclusive(file *ast.SourceFile) (*checker.Checker, func()) {
+ 	p.createCheckers()
+-	return p.fileAssociations[file], noop
++	c := p.fileAssociations[file]
++	p.activity.NonExclusive(slices.Index(p.checkers, c))
++	return c, noop
+ }
+ 
+ func (p *checkerPool) getCheckerForFileExclusive(ctx context.Context, file *ast.SourceFile) (*checker.Checker, func()) {
+@@ -84,7 +99,9 @@
+ 	c := p.fileAssociations[file]
+ 	idx := slices.Index(p.checkers, c)
+ 	p.locks[idx].Lock()
++	lease := p.activity.Begin(idx, "lease", -1)
+ 	return c, sync.OnceFunc(func() {
++		lease.End()
+ 		p.locks[idx].Unlock()
+ 	})
+ }
+@@ -92,6 +109,7 @@
+ // getCheckerNonExclusive returns the first checker without locking.
+ func (p *checkerPool) getCheckerNonExclusive() (*checker.Checker, func()) {
+ 	p.createCheckers()
++	p.activity.NonExclusive(0)
+ 	return p.checkers[0], noop
+ }
+ 
+@@ -105,7 +123,12 @@
+ 				if p.tracing != nil {
+ 					tracer = checker.NewTracer(p.tracing, i)
+ 				}
++
++				span := p.activity.Begin(i, "constructor", -1)
++				defer span.End()
+ 				p.checkers[i], p.locks[i] = checker.NewChecker(p.program, tracer)
++				span.End()
++				p.checkers[i].SetWorkerActivity(p.activity, i)
+ 			})
+ 		}
+ 
+@@ -114,6 +137,7 @@
+ 		p.fileAssociations = make(map[*ast.SourceFile]*checker.Checker, len(p.program.files))
+ 		for i, file := range p.program.files {
+ 			p.fileAssociations[file] = p.checkers[i%checkerCount]
++			p.activity.Associate(i, i%checkerCount)
+ 		}
+ 	})
+ }
+@@ -127,6 +151,8 @@
+ 		wg.Queue(func() {
+ 			p.locks[idx].Lock()
+ 			defer p.locks[idx].Unlock()
++			lease := p.activity.Begin(idx, "lease", -1)
++			defer lease.End()
+ 			cb(idx, checker)
+ 		})
+ 	}
+@@ -154,6 +180,8 @@
+ 		wg.Queue(func() {
+ 			p.locks[checkerIdx].Lock()
+ 			defer p.locks[checkerIdx].Unlock()
++			lease := p.activity.Begin(checkerIdx, "lease", -1)
++			defer lease.End()
+ 			for i, file := range files {
+ 				if checker := p.checkers[checkerIdx]; checker == p.fileAssociations[file] {
+ 					cb(checker, i, file)
+diff --git a/internal/compiler/worker_activity_test.go b/internal/compiler/worker_activity_test.go
+new file mode 100644
+--- /dev/null
++++ b/internal/compiler/worker_activity_test.go
+@@ -0,0 +1,142 @@
++package compiler
++
++import (
++	"bytes"
++	"context"
++	"encoding/json"
++	"fmt"
++	"github.com/microsoft/typescript-go/internal/ast"
++	"github.com/microsoft/typescript-go/internal/checker"
++	"github.com/microsoft/typescript-go/internal/core"
++	"github.com/microsoft/typescript-go/internal/tsoptions"
++	"github.com/microsoft/typescript-go/internal/vfs/vfstest"
++	"github.com/microsoft/typescript-go/internal/workactivity"
++	"testing"
++)
++
++func activityOptions(n int, single bool) *core.CompilerOptions {
++	o := &core.CompilerOptions{Checkers: &n, NoLib: core.TSTrue}
++	if single {
++		o.SingleThreaded = core.TSTrue
++	}
++	return o
++}
++func activityProgram(files int, o *core.CompilerOptions) *Program {
++	fs := vfstest.FromMap[any](nil, true)
++	names := []string{}
++	for i := range files {
++		name := fmt.Sprintf("/p/file%d.ts", i)
++		fs.WriteFile(name, "export const value = 1;")
++		names = append(names, name)
++	}
++	return NewProgram(ProgramOptions{Config: &tsoptions.ParsedCommandLine{ParsedConfig: &core.ParsedOptions{FileNames: names, CompilerOptions: o}}, Host: NewCompilerHost("/p", fs, "/lib", nil, nil)})
++}
++func activityRows(t *testing.T, b *bytes.Buffer) []map[string]any {
++	t.Helper()
++	d := json.NewDecoder(b)
++	rows := []map[string]any{}
++	for d.More() {
++		var row map[string]any
++		if err := d.Decode(&row); err != nil {
++			t.Fatal(err)
++		}
++		rows = append(rows, row)
++	}
++	return rows
++}
++func TestWorkerActivitySelection(t *testing.T) {
++	for _, tc := range []struct {
++		files, count int
++		single       bool
++		want         int
++	}{
++		{0, 4, false, 1}, {1, 8, false, 1}, {3, 8, false, 3}, {8, 0, false, 1},
++		{8, -3, false, 1}, {8, 2, false, 2}, {1000, 257, false, 256}, {8, 8, true, 1},
++	} {
++		program := &Program{opts: ProgramOptions{Config: &tsoptions.ParsedCommandLine{ParsedConfig: &core.ParsedOptions{CompilerOptions: activityOptions(tc.count, tc.single)}}}, processedFiles: processedFiles{files: make([]*ast.SourceFile, tc.files)}}
++		pool := newCheckerPool(program)
++		if len(pool.checkers) != tc.want {
++			t.Fatal(tc, len(pool.checkers))
++		}
++	}
++}
++func TestWorkerActivityRealPoolAffinityLeasesAndQueries(t *testing.T) {
++	var b bytes.Buffer
++	recorder := workactivity.New(&b)
++	workactivity.Current = recorder
++	defer func() { workactivity.Current = nil }()
++	program := activityProgram(5, activityOptions(2, false))
++	pool := newCheckerPool(program)
++	pool.createCheckers()
++	ctx := context.Background()
++	// Full-Program affinity is stable, and repeated release must not unlock twice.
++	for i, file := range program.files {
++		c, release := pool.GetChecker(ctx, file)
++		if c != pool.checkers[i%2] {
++			t.Fatal("wrong checker slot", i)
++		}
++		c.GetTypeAtLocation(file.Statements.Nodes[0])
++		release()
++		release()
++	}
++	// A second acquisition on one slot waits for the actual mutex lease.
++	first, release := pool.GetChecker(ctx, program.files[0])
++	acquired := make(chan struct{})
++	done := make(chan struct{})
++	go func() {
++		c, r := pool.GetChecker(ctx, program.files[0])
++		if c != first {
++			panic("affinity changed")
++		}
++		close(acquired)
++		r()
++		close(done)
++	}()
++	if pool.locks[0].TryLock() {
++		pool.locks[0].Unlock()
++		t.Fatal("exclusive lock missing")
++	}
++	release()
++	<-acquired
++	<-done
++	pool.forEachCheckerParallel(func(_ int, _ *checker.Checker) {})
++	pool.getCheckerForFileNonExclusive(program.files[0])
++	pool.getCheckerNonExclusive()
++	recorder.Finish(0)
++	rows := activityRows(t, &b)
++	created, affinity, nonexclusive := 0, 0, 0
++	for _, row := range rows {
++		switch row["event"] {
++		case "checker_created":
++			created++
++		case "file_affinity":
++			affinity++
++		case "nonexclusive_access":
++			nonexclusive++
++		}
++	}
++	if created != 2 || affinity != 5 || nonexclusive != 2 {
++		t.Fatal(created, affinity, nonexclusive)
++	}
++	if rows[len(rows)-1]["complete"] != true {
++		t.Fatal(rows[len(rows)-1])
++	}
++}
++func TestWorkerActivityEmptyAndIdlePool(t *testing.T) {
++	for _, count := range []int{0, 1, 3} {
++		var b bytes.Buffer
++		r := workactivity.New(&b)
++		workactivity.Current = r
++		program := activityProgram(count, activityOptions(8, true))
++		pool := newCheckerPool(program)
++		pool.createCheckers()
++		r.Finish(0)
++		workactivity.Current = nil
++		rows := activityRows(t, &b)
++		end := rows[len(rows)-1]
++		peaks := end["peaks"].(map[string]any)
++		if peaks["semantic"] != float64(0) || peaks["leased"] != float64(0) || end["complete"] != true {
++			t.Fatal(end)
++		}
++	}
++}
+diff --git a/internal/workactivity/activity.go b/internal/workactivity/activity.go
+new file mode 100644
+--- /dev/null
++++ b/internal/workactivity/activity.go
+@@ -0,0 +1,219 @@
++// Package workactivity is an opt-in, invocation-local producer for the archived
++// TSR native worker probe. It does not own semantic state or schedule workers.
++package workactivity
++
++import (
++	"crypto/rand"
++	"encoding/hex"
++	"encoding/json"
++	"fmt"
++	"io"
++	"os"
++	"sync"
++	"time"
++)
++
++// Current is installed by the CLI before workers start and cleared after they
++// finish. This probe only supports one CLI invocation per process.
++var Current *Recorder
++
++type Recorder struct {
++	mu        sync.Mutex
++	start     time.Time
++	encoder   *json.Encoder
++	file      *os.File
++	failed    bool
++	aborted   bool
++	finished  bool
++	nextPool  int
++	nextToken int
++	active    map[int]entry
++	peaks     map[string]int
++}
++type entry struct {
++	pool, slot, file int
++	operation        string
++}
++type Pool struct {
++	recorder *Recorder
++	id       int
++}
++type Slot struct {
++	Pool  *Pool
++	Index int
++}
++type Span struct {
++	recorder *Recorder
++	token    int
++	once     sync.Once
++}
++
++func New(writer io.Writer) *Recorder {
++	r := &Recorder{start: time.Now(), encoder: json.NewEncoder(writer), active: map[int]entry{},
++		peaks: map[string]int{"constructing": 0, "semantic": 0, "full": 0, "leased": 0, "observed": 0}}
++	return r
++}
++
++func OpenFromEnv() *Recorder {
++	path := os.Getenv("TSR_NATIVE_WORK_ACTIVITY")
++	if path == "" {
++		return nil
++	}
++	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
++	if err != nil {
++		fmt.Fprintln(os.Stderr, "native worker activity warning:", err)
++		return nil
++	}
++	nonce := make([]byte, 16)
++	if _, err = rand.Read(nonce); err != nil {
++		file.Close()
++		fmt.Fprintln(os.Stderr, "native worker activity warning:", err)
++		return nil
++	}
++	r := New(file)
++	r.file = file
++	r.event(map[string]any{"event": "invocation_start", "schema_version": 1, "pid": os.Getpid(),
++		"nonce": hex.EncodeToString(nonce), "args": os.Args[1:], "clock": "monotonic_elapsed_ns",
++		"all_forcing_observed": false, "initialization_forcing_observed": false,
++		"memory_admission_budget": nil, "complete_provenance_verified": false,
++		"actual_work_equivalence_verified": false,
++		"observed_operations":              []string{"constructor", "lease", "source_file_check", "symbol_type_query", "declared_type_query"}})
++	Current = r
++	return r
++}
++func (r *Recorder) write(record map[string]any) {
++	if r.failed {
++		return
++	}
++	record["recorded_at_ns"] = time.Since(r.start).Nanoseconds()
++	if err := r.encoder.Encode(record); err != nil {
++		r.failed = true
++		fmt.Fprintln(os.Stderr, "native worker activity warning:", err)
++	}
++}
++func (r *Recorder) event(record map[string]any) {
++	if r == nil {
++		return
++	}
++	r.mu.Lock()
++	defer r.mu.Unlock()
++	r.write(record)
++}
++func (r *Recorder) Finish(status int) {
++	if r == nil {
++		return
++	}
++	r.mu.Lock()
++	defer r.mu.Unlock()
++	r.finished = true
++	r.write(map[string]any{"event": "invocation_end", "status": status,
++		"complete":         status >= 0 && len(r.active) == 0 && !r.aborted && !r.failed,
++		"unfinished_spans": len(r.active), "peaks": r.peaks, "all_forcing_observed": false})
++}
++func (r *Recorder) Close() {
++	if r == nil {
++		return
++	}
++	if !r.finished {
++		r.Finish(-1)
++	}
++	if r.file != nil {
++		if err := r.file.Close(); err != nil {
++			fmt.Fprintln(os.Stderr, "native worker activity warning:", err)
++		}
++	}
++	Current = nil
++}
++func NewPool(count int, paths []string, single bool, requested *int) *Pool {
++	r := Current
++	if r == nil {
++		return nil
++	}
++	r.mu.Lock()
++	defer r.mu.Unlock()
++	id := r.nextPool
++	r.nextPool++
++	r.write(map[string]any{"event": "pool_selected", "pool_id": id, "selected_count": count,
++		"program_file_count": len(paths), "single_threaded": single, "requested_checkers": requested,
++		"memory_admission_budget": nil})
++	for i, path := range paths {
++		r.write(map[string]any{"event": "program_file", "pool_id": id, "file_id": i, "path": path})
++	}
++	return &Pool{r, id}
++}
++func (p *Pool) Associate(file, slot int) {
++	if p != nil {
++		p.recorder.event(map[string]any{"event": "file_affinity", "pool_id": p.id, "file_id": file, "slot": slot})
++	}
++}
++func (p *Pool) Created(slot int, nativeID uint32) {
++	if p != nil {
++		p.recorder.event(map[string]any{"event": "checker_created", "pool_id": p.id, "slot": slot, "native_checker_id": nativeID})
++	}
++}
++func (p *Pool) NonExclusive(slot int) {
++	if p != nil {
++		p.recorder.event(map[string]any{"event": "nonexclusive_access", "pool_id": p.id, "slot": slot, "exclusive_ownership_observed": false})
++	}
++}
++func (p *Pool) Begin(slot int, operation string, file int) *Span {
++	if p == nil {
++		return nil
++	}
++	r := p.recorder
++	r.mu.Lock()
++	defer r.mu.Unlock()
++	token := r.nextToken
++	r.nextToken++
++	r.active[token] = entry{p.id, slot, file, operation}
++	r.write(map[string]any{"event": "span_begin", "token": token, "pool_id": p.id, "slot": slot, "operation": operation, "file_id": file})
++	categories := map[string]map[[2]int]bool{}
++	for name := range r.peaks {
++		categories[name] = map[[2]int]bool{}
++	}
++	for _, e := range r.active {
++		key := [2]int{e.pool, e.slot}
++		switch e.operation {
++		case "constructor":
++			categories["constructing"][key] = true
++			categories["observed"][key] = true
++		case "lease":
++			categories["leased"][key] = true
++		default:
++			categories["semantic"][key] = true
++			categories["observed"][key] = true
++			if e.operation == "source_file_check" {
++				categories["full"][key] = true
++			}
++		}
++	}
++	for name, keys := range categories {
++		r.peaks[name] = max(r.peaks[name], len(keys))
++	}
++	return &Span{recorder: r, token: token}
++}
++
++// End is directly deferred at observed boundaries. Recover and rethrow preserves
++// the compiler panic while marking the observed span as aborted.
++func (s *Span) End() {
++	failure := recover()
++	if s != nil {
++		s.once.Do(func() {
++			r := s.recorder
++			r.mu.Lock()
++			defer r.mu.Unlock()
++			delete(r.active, s.token)
++			r.aborted = r.aborted || failure != nil
++			r.write(map[string]any{"event": "span_end", "token": s.token, "aborted": failure != nil})
++		})
++	}
++	if failure != nil {
++		panic(failure)
++	}
++}
++func (s *Slot) Begin(operation string, file int) *Span {
++	if s == nil {
++		return nil
++	}
++	return s.Pool.Begin(s.Index, operation, file)
++}
+diff --git a/internal/workactivity/activity_test.go b/internal/workactivity/activity_test.go
+new file mode 100644
+--- /dev/null
++++ b/internal/workactivity/activity_test.go
+@@ -0,0 +1,109 @@
++package workactivity
++
++import (
++	"bytes"
++	"encoding/json"
++	"errors"
++	"testing"
++)
++
++func decoded(t *testing.T, b *bytes.Buffer) []map[string]any {
++	t.Helper()
++	d := json.NewDecoder(b)
++	var rows []map[string]any
++	for d.More() {
++		var row map[string]any
++		if err := d.Decode(&row); err != nil {
++			t.Fatal(err)
++		}
++		rows = append(rows, row)
++	}
++	return rows
++}
++func TestActivityNestedDistinctCheckers(t *testing.T) {
++	var b bytes.Buffer
++	r := New(&b)
++	Current = r
++	defer func() { Current = nil }()
++	p := NewPool(2, []string{"a.ts", "b.ts"}, false, nil)
++	ctor := p.Begin(0, "constructor", -1)
++	other := p.Begin(1, "constructor", -1)
++	other.End()
++	ctor.End()
++	p.Created(0, 10)
++	p.Created(1, 20)
++	lease := p.Begin(0, "lease", -1)
++	full := p.Begin(0, "source_file_check", 0)
++	query := p.Begin(0, "symbol_type_query", -1)
++	nested := p.Begin(0, "declared_type_query", -1)
++	nested.End()
++	query.End()
++	full.End()
++	lease.End()
++	lease.End()
++	r.Finish(1)
++	rows := decoded(t, &b)
++	end := rows[len(rows)-1]
++	if end["complete"] != true {
++		t.Fatal(end)
++	}
++	peaks := end["peaks"].(map[string]any)
++	for name, want := range map[string]float64{"constructing": 2, "semantic": 1, "full": 1, "leased": 1, "observed": 2} {
++		if peaks[name] != want {
++			t.Fatalf("%s: %v", name, peaks)
++		}
++	}
++	var prior float64
++	for _, row := range rows {
++		now := row["recorded_at_ns"].(float64)
++		if now < prior {
++			t.Fatal("clock reversed")
++		}
++		prior = now
++	}
++}
++func TestActivityPanicAndIncomplete(t *testing.T) {
++	for _, mode := range []string{"panic", "pending", "missing-normal-return"} {
++		t.Run(mode, func(t *testing.T) {
++			var b bytes.Buffer
++			r := New(&b)
++			Current = r
++			defer func() { Current = nil }()
++			p := NewPool(1, nil, true, nil)
++			if mode == "panic" {
++				func() {
++					defer func() {
++						if recover() != "expected" {
++							t.Fatal("panic was changed")
++						}
++					}()
++					defer p.Begin(0, "constructor", -1).End()
++					panic("expected")
++				}()
++			} else if mode == "pending" {
++				p.Begin(0, "constructor", -1)
++			}
++			if mode == "missing-normal-return" {
++				r.Close()
++			} else {
++				r.Finish(0)
++			}
++			rows := decoded(t, &b)
++			if rows[len(rows)-1]["complete"] != false {
++				t.Fatal(rows)
++			}
++		})
++	}
++}
++
++type brokenWriter struct{}
++
++func (brokenWriter) Write([]byte) (int, error) { return 0, errors.New("controlled write failure") }
++func TestActivityWriteFailure(t *testing.T) {
++	r := New(brokenWriter{})
++	r.event(map[string]any{"event": "test"})
++	r.Finish(0)
++	if !r.failed {
++		t.Fatal("writer failure was lost")
++	}
++}
