@@ -73,3 +73,15 @@ once the binder seeded a global `undefined` (`declare_synthesised_globals`), so
 every `undefined && x`, `undefined ? a : b` and `void 0 || void 0` was silent.
 Now compares against `binder.undefined_symbol()`; a shadowing local still
 resolves elsewhere and stays `Sometimes`. Seven cases converted, no losses.
+
+## 4. TS2454 asks `getAssignmentTargetKind`, not "left of `=`"
+
+`check.rs::is_definite_assignment_target` only recognised `x = …`. Upstream's
+`checkIdentifier` returns before the flow section for any
+`AssignmentKindDefinite` target (`checker.go:11109`), and `GetAssignmentTarget`
+climbs array literals, spreads, parentheses and object-literal positions — so
+`[...[a, b]] = …` and `for ([a] of …)` writes were reported as unassigned reads.
+`expressions.rs` already ports the walk (`assignment_target_kind`); the rule now
+asks it. TS2454 extras in the lane 23 → 1; twelve cases converted, no losses.
+`is_write_only_access` (the `crate::unused` access-kind reuse) stays: it was the
+earlier partial cover for the same gap and removing it is a separate question.

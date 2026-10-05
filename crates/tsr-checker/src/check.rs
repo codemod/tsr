@@ -10229,20 +10229,14 @@ impl Checker<'_, '_> {
         None
     }
 
-    /// Is this identifier the left side of a plain `=`?
-    ///
-    /// `AssignmentKindDefinite`. A compound assignment (`x += 1`) reads before
-    /// it writes and is *not* excluded, which is upstream's split at
-    /// `checker.go:11110` (`isInCompoundLikeAssignment`).
+    /// `getAssignmentTargetKind(node) == AssignmentKindDefinite`
+    /// (`checker/utilities.go:90`), through the shared
+    /// [`Checker::assignment_target_kind`] walk — so `[...[a]] = …` and
+    /// `({ a } = …)` are definite like `a = …`. A compound assignment
+    /// (`x += 1`) reads before it writes and is *not* excluded, which is
+    /// upstream's split at `checker.go:11110`.
     fn is_definite_assignment_target(&self, node: NodeId) -> bool {
-        self.nodes.parent(node).is_some_and(|parent| {
-            matches!(
-                self.node_map.get(parent),
-                Some(Node::BinaryExpression(binary))
-                    if binary.operator_token.is_some_and(|token| token.kind == SyntaxKind::EqualsToken)
-                        && binary.left.and_then(|left| left.node_id()) == Some(node)
-            )
-        })
+        self.assignment_target_kind(node) == crate::expressions::AssignmentTargetKind::Definite
     }
 
     /// `IsInTypeQuery` and `isInAmbientOrTypeNode` (`utilities.go:1057`),
