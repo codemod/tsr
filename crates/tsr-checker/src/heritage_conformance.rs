@@ -209,6 +209,171 @@ impl Checker<'_, '_> {
         self.report(file, Diagnostic::with_args(broad, span, [source_text, target_text]));
     }
 
+    /// `checkMembersForOverrideModifier` / `checkMemberForOverrideModifier`
+    /// (`checker.go`), the arms an `override` modifier decides: TS4112 when
+    /// the class has no base, TS4127 for a non-bindable dynamic name, and
+    /// TS4113/TS4117 when the base type has no property of the member's name.
+    ///
+    /// The `noImplicitOverride` arms (TS4114/TS4115/TS4116) need the option on
+    /// the checker and are not ported. A class whose `extends` entry this port
+    /// cannot resolve to a base type declines, as does a base whose property
+    /// table cannot be enumerated for the spelling suggestion.
+    pub(crate) fn check_members_for_override_modifier(&mut self, node: NodeId) {
+        if self.file_has_parse_errors || self.in_js_file(node) {
+            return;
+        }
+        let (members, clauses) = match self.node_map.get(node) {
+            Some(Node::ClassDeclaration(class)) => (class.members, class.heritage_clauses),
+            Some(Node::ClassExpression(class)) => (class.members, class.heritage_clauses),
+            _ => return,
+        };
+        let base_node = clauses
+            .iter()
+            .filter(|clause| clause.token.kind == SyntaxKind::ExtendsKeyword)
+            .flat_map(|clause| clause.types.iter())
+            .next();
+        let mut checked: Vec<NodeId> = Vec::new();
+        for member in members {
+            let Some(id) = Node::from(*member).node_id() else { continue };
+            if let tsr_ast::ClassElement::ConstructorDeclaration(constructor) = member {
+                for parameter in constructor.parameters {
+                    let Some(parameter_id) = parameter.node_id else { continue };
+                    if parameter.modifiers.iter().any(|modifier| {
+                        matches!(
+                            modifier,
+                            tsr_ast::ModifierLike::Token(token)
+                                if matches!(
+                                    token.kind,
+                                    SyntaxKind::PublicKeyword
+                                        | SyntaxKind::PrivateKeyword
+                                        | SyntaxKind::ProtectedKeyword
+                                        | SyntaxKind::ReadonlyKeyword
+                                        | SyntaxKind::OverrideKeyword
+                                )
+                        )
+                    }) {
+                        checked.push(parameter_id);
+                    }
+                }
+            } else {
+                checked.push(id);
+            }
+        }
+        // Only members carrying `override` can be reported without
+        // `noImplicitOverride`.
+        let has_override = |checker: &Self, member: NodeId| {
+            checker
+                .node_map
+                .get(member)
+                .and_then(modifiers_of)
+                .is_some_and(|modifiers| has_modifier(modifiers, SyntaxKind::OverrideKeyword))
+        };
+        let checked: Vec<NodeId> = checked
+            .into_iter()
+            .filter(|&member| {
+                let ambient =
+                    self.node_map.get(member).and_then(modifiers_of).is_some_and(|modifiers| {
+                        has_modifier(modifiers, SyntaxKind::DeclareKeyword)
+                    });
+                !ambient && has_override(self, member)
+            })
+            .collect();
+        if checked.is_empty() {
+            return;
+        }
+        let Some(symbol) = self.binder.symbol_of(node) else { return };
+        let symbol = self.binder.merged_symbol(symbol);
+        let class_type = self.get_declared_type_of_class_or_interface(symbol);
+        let base = match base_node {
+            Some(_) => match self.first_base_type_of_class_symbol(symbol) {
+                Some(base) => Some(base),
+                None => return,
+            },
+            None => None,
+        };
+        let static_type = self.get_type_of_symbol(symbol);
+        let base_static = base_node
+            .and_then(|entry| entry.expression)
+            .map(|expression| self.check_expression(expression));
+        for member in checked {
+            let Some(base) = base else {
+                let class_text = self.type_to_string(class_type);
+                self.report_override_error(
+                    member,
+                    &messages::THIS_MEMBER_CANNOT_HAVE_AN_OVERRIDE_MODIFIER_BECAUSE_ITS_CONTAINING_CLASS_0_DOES_NOT_EXTEND_ANOTHER_CLASS,
+                    vec![class_text],
+                );
+                continue;
+            };
+            if self.nodes.kind(member) != SyntaxKind::Parameter
+                && self.non_bindable_computed_name(member).is_some()
+            {
+                self.report_override_error(
+                    member,
+                    &messages::THIS_MEMBER_CANNOT_HAVE_AN_OVERRIDE_MODIFIER_BECAUSE_ITS_NAME_IS_DYNAMIC,
+                    Vec::new(),
+                );
+                continue;
+            }
+            let Some(member_symbol) = self.binder.symbol_of(member) else { continue };
+            let name = self.binder.symbols().get(member_symbol).name.to_string();
+            let is_static = self
+                .node_map
+                .get(member)
+                .and_then(modifiers_of)
+                .is_some_and(|modifiers| has_modifier(modifiers, SyntaxKind::StaticKeyword));
+            let this_type = if is_static { static_type } else { class_type };
+            if self.get_property_of_type(this_type, &name).is_none() {
+                continue;
+            }
+            let base_type = if is_static {
+                let Some(base_static) = base_static else { continue };
+                base_static
+            } else {
+                base
+            };
+            if self.is_error(base_type) || self.get_property_of_type(base_type, &name).is_some() {
+                continue;
+            }
+            // `getSuggestedSymbolForNonexistentClassMember`: a spelling
+            // suggestion among the base type's class members.
+            let Some(candidates) = self.get_property_names_of_type(base_type) else { continue };
+            let candidates: Vec<&str> = candidates
+                .iter()
+                .map(String::as_str)
+                .filter(|candidate| *candidate != "prototype")
+                .collect();
+            let base_text = self.type_to_string(base);
+            match crate::check::spelling_suggestion(&name, &candidates) {
+                Some(suggestion) => {
+                    let suggestion = suggestion.to_string();
+                    self.report_override_error(
+                        member,
+                        &messages::THIS_MEMBER_CANNOT_HAVE_AN_OVERRIDE_MODIFIER_BECAUSE_IT_IS_NOT_DECLARED_IN_THE_BASE_CLASS_0_DID_YOU_MEAN_1,
+                        vec![base_text, suggestion],
+                    );
+                }
+                None => self.report_override_error(
+                    member,
+                    &messages::THIS_MEMBER_CANNOT_HAVE_AN_OVERRIDE_MODIFIER_BECAUSE_IT_IS_NOT_DECLARED_IN_THE_BASE_CLASS_0,
+                    vec![base_text],
+                ),
+            }
+        }
+    }
+
+    /// `c.error(member, …)` for the override diagnostics.
+    fn report_override_error(
+        &mut self,
+        member: NodeId,
+        message: &'static Message,
+        args: Vec<String>,
+    ) {
+        let Some(file) = self.source_file_of_for_diagnostics(member) else { return };
+        let span = self.error_span(member);
+        self.report(file, Diagnostic::with_args(message, span, args));
+    }
+
     /// `checkInterfaceDeclaration`'s once-per-symbol block (`checker.go:4991`):
     /// `checkInheritedPropertiesAreIdentical`, and only when that succeeds,
     /// `checkTypeAssignableTo(typeWithThis, baseWithThis, node.Name(),

@@ -246,7 +246,10 @@ impl<'a> Checker<'a, '_> {
     /// (`ast.HasDynamicName`, anything but a string or numeric literal) that is
     /// not late-bindable either (`isLateBindableName`, `checker.go:19961`: an
     /// entity name whose type is usable as a property name).
-    fn non_bindable_computed_name(&mut self, member: NodeId) -> Option<tsr_ast::Expression<'a>> {
+    pub(crate) fn non_bindable_computed_name(
+        &mut self,
+        member: NodeId,
+    ) -> Option<tsr_ast::Expression<'a>> {
         let name = self.declaration_name_of(member)?;
         let Some(Node::ComputedPropertyName(computed)) = self.node_map.get(name) else {
             return None;

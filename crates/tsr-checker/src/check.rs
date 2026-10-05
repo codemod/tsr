@@ -265,6 +265,7 @@ impl Checker<'_, '_> {
                     ambient || has_modifier(declaration.modifiers, SyntaxKind::DeclareKeyword);
                 self.check_property_initialization(declaration.members, ambient);
                 self.check_heritage_conformance(node);
+                self.check_members_for_override_modifier(node);
                 self.check_index_constraints(node);
                 self.check_duplicate_index_signatures(node);
                 ambient
@@ -279,6 +280,7 @@ impl Checker<'_, '_> {
                 // `checkClassLikeDeclaration` (`checker.go:4293`) runs for
                 // class expressions as well as declarations.
                 self.check_heritage_conformance(node);
+                self.check_members_for_override_modifier(node);
                 self.check_index_constraints(node);
                 ambient
             }
