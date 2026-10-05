@@ -179,7 +179,8 @@ impl Checker<'_, '_> {
                 {
                     return;
                 }
-                let Some(apparent) = self.property_is_known_absent(receiver_type, name_text) else {
+                let Some(apparent) = self.property_is_known_absent(node, receiver_type, name_text)
+                else {
                     return;
                 };
                 apparent
@@ -205,9 +206,6 @@ impl Checker<'_, '_> {
                     declaration = module.body.map(Node::from);
                 }
             }
-        }
-        if self.is_a_universal_object_member(name_text) {
-            return;
         }
         // getPropertyTypeForIndexType (5b1047d1 checker.go:27129-27182).
         // Original source-module SymbolId/TypeId publication, not a class,
@@ -383,7 +381,12 @@ impl Checker<'_, '_> {
     ///
     /// No cache: the walk and lookups are the existing members subsystem's, run
     /// once per checked access after the type answer, as before.
-    fn property_is_known_absent(&mut self, receiver: TypeId, name: &str) -> Option<TypeId> {
+    fn property_is_known_absent(
+        &mut self,
+        access: NodeId,
+        receiver: TypeId,
+        name: &str,
+    ) -> Option<TypeId> {
         use crate::flags::TypeFlags;
         let flags = self.store.get(receiver).flags;
         if let crate::types::TypeData::Union { types, .. } = &self.store.get(receiver).data {
@@ -410,9 +413,44 @@ impl Checker<'_, '_> {
         }
         let apparent = if flags.intersects(TypeFlags::PRIMITIVE) {
             self.primitive_apparent_type(receiver)
+        } else if let Some(&symbol) = self.type_parameter_symbols.get(&receiver) {
+            // A declared type parameter (the polymorphic `this` keeps the
+            // class-table road below). Certify the receiver: declared by a
+            // node enclosing this access. One that escaped its declaration is
+            // an uninstantiated inference result here, not upstream's type.
+            let declared_here =
+                self.binder.symbols().get(symbol).declarations.iter().any(|&declaration| {
+                    self.nodes
+                        .parent(declaration)
+                        .is_some_and(|owner| self.nodes.ancestors(access).any(|node| node == owner))
+                });
+            if !declared_here {
+                return None;
+            }
+            // getApparentType's head: a type parameter reads through its base
+            // constraint, `unknown` when it has none.
+            let mut apparent = self.apparent_type(receiver);
+            if self.store.get(apparent).flags.intersects(TypeFlags::TYPE_PARAMETER) {
+                // No (or a circular) base constraint: `unknownType`, which is
+                // `{}` outside strictNullChecks (checker.go:21754-21759).
+                apparent = if self.strict_null_checks {
+                    self.intrinsics.unknown
+                } else {
+                    self.intrinsics.empty_object
+                };
+            }
+            if apparent == self.intrinsics.unknown {
+                return Some(apparent);
+            }
+            self.primitive_apparent_type(apparent)
         } else {
             receiver
         };
+        if apparent == self.intrinsics.empty_object {
+            // The canonical empty object: no own members, the global
+            // `Object` augment only (getPropertyOfTypeEx).
+            return self.get_property_of_type(apparent, name).is_none().then_some(apparent);
+        }
         self.apparent_type_lacks(apparent, name)?.then_some(apparent)
     }
 
@@ -433,10 +471,12 @@ impl Checker<'_, '_> {
     /// (`checker.go:11330`) does: a `string` key admits every name, a `number`
     /// key only a numeric one, a `symbol` key none; any other key declines.
     fn apparent_type_lacks(&mut self, apparent: TypeId, name: &str) -> Option<bool> {
+        // A found property needs no certificate; the completeness walks are
+        // the expensive half and only a miss pays for them.
+        if self.get_property_of_type(apparent, name).is_some() {
+            return Some(false);
+        }
         if self.declared_members_are_complete(apparent) {
-            if self.get_property_of_type(apparent, name).is_some() {
-                return Some(false);
-            }
             // A class's static side is certified without reading its
             // `static [k: string]` signatures; ask them per name too.
             return self.no_index_signature_admits(apparent, name);
@@ -451,8 +491,9 @@ impl Checker<'_, '_> {
         for declaration in declarations {
             match self.node_map.get(declaration) {
                 Some(Node::InterfaceDeclaration(interface)) => {
-                    if !interface.type_parameters.is_empty()
-                        || !interface.heritage_clauses.is_empty()
+                    // Instantiation never changes member names (§41's
+                    // audit in `crate::member_completeness`).
+                    if !interface.heritage_clauses.is_empty()
                         || !interface.members.iter().all(|member| member_name_is_bound(*member))
                     {
                         return None;
@@ -465,9 +506,6 @@ impl Checker<'_, '_> {
         }
         if interfaces == 0 {
             return None;
-        }
-        if self.get_property_of_type(apparent, name).is_some() {
-            return Some(false);
         }
         self.no_index_signature_admits(apparent, name)
     }
@@ -711,38 +749,6 @@ impl Checker<'_, '_> {
                     )
                 })
             })
-    }
-
-    /// Is `name` a member every object type has anyway?
-    ///
-    /// **Not a decline — a correction.** `getApparentType` (`checker.go:19161`)
-    /// hands an object type through unchanged, but `resolveObjectTypeMembers`'s
-    /// `addInheritedMembers` layers the **global `Object`** interface's members
-    /// underneath every one of them, and the global `Function`'s underneath any
-    /// type carrying a call or construct signature. So `i.toString()` on an
-    /// interface with no `toString` is legal, and `f.apply(…)` on an object type
-    /// with a call signature is too.
-    ///
-    /// This port's member walk reads the declared table and its `extends`
-    /// chain, and neither reaches those. Seven of this rule's first measurement
-    /// **losses** were exactly this — `objectMembersOnTypes`,
-    /// `classAppearsToHaveMembersOfObject`, `objectTypePropertyAccess`,
-    /// `fluentClasses`, and the three `objectTypeWith*Signature*` cases — and
-    /// they are losses rather than merely wrong lines because those cases pass
-    /// today.
-    ///
-    /// Consulting the two globals by *name* is narrower than layering their
-    /// members into the walk, and narrower in the safe direction: a name that is
-    /// on `Object` or `Function` is never reported, whether or not the receiver
-    /// would really have inherited it.
-    fn is_a_universal_object_member(&mut self, name: &str) -> bool {
-        for global in ["Object", "Function"] {
-            let Some(symbol) = self.binder.globals().get(global).copied() else { continue };
-            if self.binder.symbols().get(symbol).members.contains_key(name) {
-                return true;
-            }
-        }
-        false
     }
 
     /// Is `name` declared on the class's *other* side?
