@@ -24,6 +24,18 @@ committed. `benches/projects/generic-imports` is a small public smoke fixture,
 including an intentional assignment error. It verifies the measurement plumbing;
 it is too small to establish throughput on large projects.
 
+`benches/projects/domain-model` is the public representative project: about
+7,000 lines in 42 modules, generated deterministically by
+`python3 scripts/generate_perf_project.py` (rerun it and diff to verify the
+committed bytes). It uses cross-module imports, generic interfaces and classes,
+abstract members, discriminated unions narrowed by `switch`, mapped and
+conditional types, overloads, optional chaining and async functions, and ends
+with one intentional TS2322 control. Both CLIs report exactly that diagnostic;
+keep it that way when changing the generator, because a benchmark whose
+diagnostics differ is not equivalent work. The first generator draft exposed a
+TSR false positive (an object literal against an interface that extends an
+instantiated generic base with an optional member) and avoids that shape.
+
 The harness runs one warmup per tool and alternates process order across measured
 pairs. Every check is a fresh process with `noEmit`, `incremental false`,
 `composite false`, and plain diagnostics. It does **not** flush the OS file cache:
