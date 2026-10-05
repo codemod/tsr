@@ -644,11 +644,7 @@ impl Checker<'_, '_> {
                 ambient
             }
             Node::CallExpression(_) => {
-                self.check_callee_is_callable(node);
-                self.check_class_called_without_new(node);
-                self.check_call_arity(node);
-                self.check_call_type_argument_arity(node);
-                self.check_untyped_call_type_arguments(node, typed);
+                self.check_call_expression_diagnostics(node);
                 self.check_import_call_specifier(node);
                 ambient
             }
@@ -1751,70 +1747,6 @@ impl Checker<'_, '_> {
                 &messages::DECLARATION_NAME_CONFLICTS_WITH_BUILT_IN_GLOBAL_IDENTIFIER_0,
                 span,
                 [text],
-            ),
-        );
-    }
-
-    /// TS2348 — `Value of type '{0}' is not callable. Did you mean to include
-    /// 'new'?`
-    ///
-    /// A class constructor is not callable without `new`, and deciding that
-    /// needs only the callee's symbol — `SymbolFlags::CLASS` and not
-    /// `FUNCTION`, since a class merged with a function *is* callable. No
-    /// relation, no type. §461.
-    fn check_class_called_without_new(&mut self, node: NodeId) {
-        if self.file_has_parse_errors {
-            return;
-        }
-        let Some(Node::CallExpression(call)) = self.node_map.get(node) else { return };
-        if !call.type_arguments.is_empty() {
-            return;
-        }
-        let Some(callee) = call.expression.and_then(|e| e.node_id()) else { return };
-        let symbol = match self.node_map.get(callee) {
-            Some(Node::Identifier(identifier)) => self.binder.resolve_name(
-                self.nodes,
-                self.node_map,
-                callee,
-                identifier.text,
-                SymbolFlags::VALUE,
-            ),
-            Some(Node::PropertyAccessExpression(access)) => {
-                let Some(receiver) = access.expression.and_then(|e| e.node_id()) else { return };
-                let Some(tsr_ast::MemberName::Identifier(member)) = access.name else {
-                    return;
-                };
-                let Some(text) = self.identifier_text(receiver).map(str::to_string) else {
-                    return;
-                };
-                let Some(namespace) = self.binder.resolve_name(
-                    self.nodes,
-                    self.node_map,
-                    receiver,
-                    &text,
-                    SymbolFlags::MODULE,
-                ) else {
-                    return;
-                };
-                let namespace = self.binder.merged_symbol(namespace);
-                self.binder.symbols().get(namespace).exports.get(member.text).copied()
-            }
-            _ => return,
-        };
-        let Some(symbol) = symbol else { return };
-        let flags = self.binder.symbols().get(self.binder.merged_symbol(symbol)).flags;
-        if !flags.intersects(SymbolFlags::CLASS) || flags.intersects(SymbolFlags::FUNCTION) {
-            return;
-        }
-        let Some(file) = self.source_file_of_for_diagnostics(callee) else { return };
-        let span = self.error_span(callee);
-        let printed = String::new();
-        self.report(
-            file,
-            Diagnostic::with_args(
-                &messages::VALUE_OF_TYPE_0_IS_NOT_CALLABLE_DID_YOU_MEAN_TO_INCLUDE_NEW,
-                span,
-                [printed],
             ),
         );
     }
@@ -8562,64 +8494,6 @@ impl Checker<'_, '_> {
         }
     }
 
-    /// TS2349 — `This expression is not callable.`
-    ///
-    /// The head of `resolveCallExpression`'s diagnostic chain
-    /// (`checker.go:9981`); the sub-messages carry the detail and the suite
-    /// compares the head. The condition is *the callee's type has no call
-    /// signatures*, which in general needs complete signature resolution — an
-    /// incomplete list would read as "not callable" and over-report.
-    ///
-    /// **A primitive answers without it**: no signature resolution can make a
-    /// `string` callable. Object-shaped types decline, which is exactly where an
-    /// incomplete list would lie. §318.
-    fn check_callee_is_callable(&mut self, node: NodeId) {
-        if self.file_has_parse_errors || self.file_is_ambient {
-            return;
-        }
-        let Some(Node::CallExpression(call)) = self.node_map.get(node) else { return };
-        if call.question_dot_token.is_some() {
-            return;
-        }
-        let Some(callee) = call.expression else { return };
-        let Some(callee_id) = callee.node_id() else { return };
-        // `super(...)` and `import(...)` are their own rules.
-        if matches!(
-            self.nodes.kind(callee_id),
-            SyntaxKind::SuperKeyword | SyntaxKind::ImportKeyword
-        ) {
-            return;
-        }
-        // **A zero-argument call on a member is upstream's TS6234**, the head
-        // message it substitutes when the callee resolves to a `get` accessor
-        // (`checker.go:9983`). The accessor test needs the resolved symbol;
-        // declining the whole zero-argument member-call shape is a superset of
-        // it, so this trades a possible missing line for a certain wrong one.
-        // `instancePropertyInClassType` wants TS6234 at (17,16) and this
-        // produced TS2349 at (17,14). §319.
-        if call.arguments.is_empty()
-            && matches!(
-                self.nodes.kind(callee_id),
-                SyntaxKind::PropertyAccessExpression | SyntaxKind::ElementAccessExpression
-            )
-        {
-            return;
-        }
-        let target = self.check_expression(callee);
-        if self.is_error(target) {
-            return;
-        }
-        let flags = self.type_of(target).flags;
-        if !flags.intersects(NEVER_CALLABLE)
-            || flags.intersects(crate::flags::TypeFlags::ANY_OR_UNKNOWN)
-        {
-            return;
-        }
-        let Some(file) = self.source_file_of_for_diagnostics(callee_id) else { return };
-        let span = self.error_span(callee_id);
-        self.report(file, Diagnostic::new(&messages::THIS_EXPRESSION_IS_NOT_CALLABLE, span));
-    }
-
     /// TS2729 — `Property '{0}' is used before its initialization.`
     ///
     /// `checkPropertyNotUsedBeforeDeclaration` (`checker.go:11709`), sliced to
@@ -13509,12 +13383,6 @@ fn class_member_shape(member: tsr_ast::ClassElement<'_>) -> Option<(&str, Member
 }
 
 /// Types no signature resolution can make callable. §318.
-const NEVER_CALLABLE: crate::flags::TypeFlags = crate::flags::TypeFlags::STRING_LIKE
-    .union(crate::flags::TypeFlags::NUMBER_LIKE)
-    .union(crate::flags::TypeFlags::BOOLEAN_LIKE)
-    .union(crate::flags::TypeFlags::ES_SYMBOL_LIKE)
-    .union(crate::flags::TypeFlags::BIG_INT_LIKE);
-
 pub(crate) fn modifiers_of(typed: Node<'_>) -> Option<&[tsr_ast::ModifierLike<'_>]> {
     Some(match typed {
         Node::ClassDeclaration(n) => n.modifiers,
