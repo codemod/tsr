@@ -2072,6 +2072,16 @@ impl Checker<'_, '_> {
                     if skip_named_member {
                         skip_named_member = false;
                     } else if is_static.is_none() {
+                        // `isLegalUsageOfSuperExpression`'s call arm
+                        // (`checker.go:7867`): a super CALL is legal only when
+                        // `getSuperContainer` found a constructor. Any other
+                        // member fails, and upstream answers `errorType` after
+                        // reporting TS2337 — the deliberate error-any, as in
+                        // the arrow arm above (`superCallOutsideConstructor`,
+                        // `errorSuperCalls`, `typeOfThisInStaticMembers6`).
+                        if is_call && self.nodes.kind(id) != SyntaxKind::Constructor {
+                            return self.intrinsics.any;
+                        }
                         is_static = Some(self.has_static_modifier(id));
                     }
                 }
@@ -3496,19 +3506,19 @@ impl Checker<'_, '_> {
         // `checkYieldExpression` (`checker.go:10998`): a `yield*` answers the
         // delegated iterable's RETURN type through getIterationTypeOfIterable,
         // before (and regardless of) the container's annotation or context.
+        let is_async = self.node_map.get(container).is_some_and(|function| {
+            let modifiers = match function {
+                Node::FunctionDeclaration(f) => f.modifiers,
+                Node::MethodDeclaration(f) => f.modifiers,
+                Node::FunctionExpression(f) => f.modifiers,
+                _ => return false,
+            };
+            modifiers.iter().any(|modifier| {
+                matches!(modifier, tsr_ast::ModifierLike::Token(token)
+                    if token.kind == SyntaxKind::AsyncKeyword)
+            })
+        });
         if node.asterisk_token.is_some() {
-            let is_async = self.node_map.get(container).is_some_and(|function| {
-                let modifiers = match function {
-                    Node::FunctionDeclaration(f) => f.modifiers,
-                    Node::MethodDeclaration(f) => f.modifiers,
-                    Node::FunctionExpression(f) => f.modifiers,
-                    _ => return false,
-                };
-                modifiers.iter().any(|modifier| {
-                    matches!(modifier, tsr_ast::ModifierLike::Token(token)
-                        if token.kind == SyntaxKind::AsyncKeyword)
-                })
-            });
             let Some(operand) = node.expression else { return error };
             let operand_type = self.check_expression(operand);
             return self.yield_star_return_type(operand_type, is_async).unwrap_or(error);
@@ -3534,17 +3544,17 @@ impl Checker<'_, '_> {
         // kinds (§863–§866, §869). It is the same question §169 and §561
         // already route through this predicate, asked here too.
         let contextualised = contextualisable && !self.has_no_contextual_type(container);
-        // §225: an ANNOTATED generator's yield type is the annotation's NEXT
-        // type, and for the shape the corpus actually writes that is readable
-        // without `getIterationTypesOfGeneratorFunctionReturnType`. The
-        // refusal's stated reason — "note this is *not* `any`, since
-        // `Generator<number>`'s next type is `unknown`" — is exactly right and
-        // is the reason this reads the slot rather than assuming `any`:
-        // `Generator<T = unknown, TReturn = any, TNext = unknown>` and
-        // `IterableIterator<T, TReturn = any, TNext = any>` disagree, so the
-        // answer has to come from the declaration.
+        // An ANNOTATED generator's yield answers the annotation's NEXT
+        // iteration type (`checker.go:10982-11004`): the union filter by
+        // `checkGeneratorInstantiationAssignabilityToReturnType`, then
+        // `getIterationTypeOfGeneratorFunctionReturnType(Next)` orElse
+        // `anyType`. This replaced §225's syntactic read of the third type
+        // argument, which could not see an inherited `next`
+        // (`interface I1 extends Iterator<0, 1, 2>`), a structural iterator,
+        // or a union annotation.
         if let Some(annotation) = annotation {
-            return self.next_type_of_annotated_generator(annotation).unwrap_or(error);
+            let annotated = self.get_type_from_type_node(annotation);
+            return self.annotated_yield_next_type(annotated, is_async).unwrap_or(error);
         }
         if contextualised {
             if let Some(signature) = self.contextual_signature(container)
