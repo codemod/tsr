@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics Summary:
 What a pass means: every diagnostic in upstream's .errors.txt reproduced exactly — same file, line, column and code, no more and no fewer — for cases that expect at least one; syntactic, bind-and-check and isolatedDeclarations diagnostics collected as upstream's test runner collects them
-Passed         : 3318/5488 (60.46%)
-Failed         : 2170
+Passed         : 3375/5488 (61.50%)
+Failed         : 2113
 Skipped        : 6956 (excluded from the denominator)
 
   793  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -11,7 +11,7 @@ Skipped        : 6956 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   464  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 2170 failures:
+First 100 of 2113 failures:
 compiler/TransportStream
   1 missing (first TS1434 at TransportStream.ts(1,1))
 compiler/abstractClassUnionInstantiation
@@ -34,8 +34,6 @@ compiler/ambientExportDefaultErrors
   4 missing (first TS2714 at foo.d.ts(1,16))
 compiler/ambientExternalModuleWithRelativeExternalImportDeclaration
   1 missing (first TS2439 at ambientExternalModuleWithRelativeExternalImportDeclaration.ts(2,5))
-compiler/ambientPropertyDeclarationInJs
-  1 missing (first TS2339 at /test.js(9,19))
 compiler/anyIdenticalToItself
   1 missing (first TS2394 at anyIdenticalToItself.ts(1,10))
 compiler/anyIndexedAccessArrayNoException
@@ -159,7 +157,7 @@ compiler/bigintIndex
 compiler/bigintPropertyName
   2 unexpected (first TS1005 at g.ts(35,4)), 23 missing
 compiler/bigintWithLib
-  11 missing (first TS2350 at bigintWithLib.ts(4,1))
+  9 missing (first TS2350 at bigintWithLib.ts(4,1))
 compiler/bindingPatternCannotBeOnlyInferenceSource
   5 missing (first TS2571 at bindingPatternCannotBeOnlyInferenceSource.ts(2,7))
 compiler/bitwiseCompoundAssignmentOperators
@@ -212,3 +210,5 @@ compiler/checkJsxNotSetError
   3 missing (first TS6142 at /bar.jsx(1,17))
 compiler/checkMergedGlobalUMDSymbol
   2 missing (first TS2451 at global.d.ts(3,21))
+compiler/checkSuperCallBeforeThisAccess
+  3 unexpected (first TS17009 at checkSuperCallBeforeThisAccess.ts(15,22)), 10 missing
