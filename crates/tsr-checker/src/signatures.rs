@@ -752,13 +752,14 @@ impl<'a> Checker<'a, '_> {
         signatures
     }
 
-    /// Ported from reorderCandidates (checker.go:8957) for construct candidates.
+    /// Ported from reorderCandidates (checker.go:8957), applied once per
+    /// resolution on both the construct road and the call road
+    /// (`choose_overload`). Not idempotent: never apply it to an already
+    /// reordered list. The optional-call clone (`callChainFlags`) is not
+    /// applied here; optional chains keep their existing handling.
     /// Default class signatures carry a class node here, but no declaration
     /// upstream; treat their parent and symbol as absent during ordering.
-    pub(crate) fn reorder_construct_candidates(
-        &self,
-        signatures: Vec<Signature>,
-    ) -> Vec<Signature> {
+    pub(crate) fn reorder_candidates(&self, signatures: Vec<Signature>) -> Vec<Signature> {
         #[derive(Clone, Copy, PartialEq, Eq)]
         enum DeclarationSymbol {
             Bound(SymbolId),
@@ -5896,6 +5897,16 @@ impl<'a> Checker<'a, '_> {
     /// an accessor's type comes from `getTypeOfAccessors`, a constructor's from
     /// the class, and the three signature members are reached through a type
     /// literal rather than through a symbol's type.
+    /// Whether `id` is a function-like declaration (or class) that declares
+    /// its own type parameters — a generic context.
+    pub(crate) fn declares_type_parameters(&self, id: NodeId) -> bool {
+        self.signature_parts_of(id).is_some_and(|parts| !parts.type_parameters.is_empty())
+            || matches!(self.node_map.get(id),
+                Some(Node::ClassDeclaration(class)) if !class.type_parameters.is_empty())
+            || matches!(self.node_map.get(id),
+                Some(Node::ClassExpression(class)) if !class.type_parameters.is_empty())
+    }
+
     fn signature_parts_of(&self, id: NodeId) -> Option<SignatureParts<'a>> {
         match self.node_map.get(id)? {
             Node::FunctionDeclaration(node) => Some(SignatureParts {
