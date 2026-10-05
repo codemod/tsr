@@ -347,3 +347,69 @@ impl Checker<'_, '_> {
         self.report(file, Diagnostic::new(message, span));
     }
 }
+
+impl Checker<'_, '_> {
+    /// TS2526 — `A 'this' type is available only in a non-static member of a
+    /// class or interface.`
+    ///
+    /// `getThisType` (`checker.go:22908`), reached for every checked
+    /// `ThisType` node through `getTypeFromThisTypeNode`: the `this` container
+    /// (`GetThisContainer` without arrows or class computed names) must be a
+    /// non-static member of a class or interface, and inside a constructor
+    /// only its body qualifies.
+    pub(crate) fn check_this_type_node(&mut self, node: NodeId) {
+        // `checkTypePredicate` (`checker.go:3055`) checks a predicate's type
+        // but never resolves a `this` predicate's parameter name.
+        if let Some(Node::TypePredicateNode(predicate)) =
+            self.nodes.parent(node).and_then(|parent| self.node_map.get(parent))
+            && predicate.parameter_name.and_then(|name| name.node_id()) == Some(node)
+        {
+            return;
+        }
+        if let Some(container) = self.this_container(node, false, false)
+            && let Some(parent) = self.nodes.parent(container)
+            && matches!(
+                self.nodes.kind(parent),
+                SyntaxKind::ClassDeclaration
+                    | SyntaxKind::ClassExpression
+                    | SyntaxKind::InterfaceDeclaration
+            )
+            && !self.is_static_class_member(container)
+        {
+            let Some(Node::ConstructorDeclaration(constructor)) = self.node_map.get(container)
+            else {
+                return;
+            };
+            let Some(body) = constructor.body.and_then(|body| body.node_id()) else {
+                self.report_this_error(
+                    node,
+                    &messages::A_THIS_TYPE_IS_AVAILABLE_ONLY_IN_A_NON_STATIC_MEMBER_OF_A_CLASS_OR_INTERFACE,
+                );
+                return;
+            };
+            if self.nodes.ancestors(node).any(|ancestor| ancestor == body) {
+                return;
+            }
+        }
+        self.report_this_error(
+            node,
+            &messages::A_THIS_TYPE_IS_AVAILABLE_ONLY_IN_A_NON_STATIC_MEMBER_OF_A_CLASS_OR_INTERFACE,
+        );
+    }
+
+    /// `ast.IsStatic`: a `static` modifier, or a class static block.
+    fn is_static_class_member(&self, member: NodeId) -> bool {
+        let modifiers = match self.node_map.get(member) {
+            Some(Node::ClassStaticBlockDeclaration(_)) => return true,
+            Some(Node::MethodDeclaration(node)) => node.modifiers,
+            Some(Node::PropertyDeclaration(node)) => node.modifiers,
+            Some(Node::GetAccessorDeclaration(node)) => node.modifiers,
+            Some(Node::SetAccessorDeclaration(node)) => node.modifiers,
+            _ => return false,
+        };
+        modifiers.iter().any(|modifier| {
+            matches!(modifier, tsr_ast::ModifierLike::Token(token)
+                if token.kind == SyntaxKind::StaticKeyword)
+        })
+    }
+}

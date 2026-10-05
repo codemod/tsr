@@ -939,6 +939,9 @@ impl Checker<'_, '_> {
         if self.nodes.kind(node) == SyntaxKind::ThisKeyword {
             self.check_this_expression_diagnostics(node);
         }
+        if self.nodes.kind(node) == SyntaxKind::ThisType {
+            self.check_this_type_node(node);
+        }
         self.check_truthiness_sites(node, ambient);
         self.note_member_name_at(node);
         self.register_for_unused_check(node);
