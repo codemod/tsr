@@ -124,7 +124,17 @@ impl Default for ProgramOptions {
 ///
 /// Stored as name → `(mode, answer)` pairs so a lookup borrows the specifier
 /// text instead of allocating a key; a name is asked in at most a few modes.
-type ModeAwareResolutions = FxHashMap<String, Vec<(ResolutionMode, Option<Path>)>>;
+type ModeAwareResolutions = FxHashMap<String, Vec<ModeResolution>>;
+
+/// One `{Name, Mode}` entry of [`ModeAwareResolutions`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ModeResolution {
+    mode: ResolutionMode,
+    /// The resolved file's canonical path; `None` is `!IsResolved()`.
+    resolved: Option<Path>,
+    /// See [`loader::ResolutionRequest::extensionless_relative_import`].
+    extensionless_relative_import: Option<tsr_checker::resolution::ExtensionlessImport>,
+}
 
 /// A set of files compiled together.
 ///
@@ -560,7 +570,7 @@ impl<'a> Program<'a> {
         specifier: &str,
         mode: ResolutionMode,
     ) -> Option<NodeId> {
-        let target = self.resolution(importing_file, specifier, mode)?.as_ref()?;
+        let target = self.resolution(importing_file, specifier, mode)?.resolved.as_ref()?;
         self.source_file_for_resolved_path(target)
     }
 
@@ -591,10 +601,21 @@ impl<'a> Program<'a> {
         importing_file: NodeId,
         specifier: &str,
         mode: ResolutionMode,
-    ) -> Option<&Option<Path>> {
+    ) -> Option<&ModeResolution> {
         let index = *self.files_by_source_file.get(&importing_file)?;
         let modes = self.resolved_modules.get(self.files[index].path())?.get(specifier)?;
-        modes.iter().find(|(asked, _)| *asked == mode).map(|(_, answer)| answer)
+        modes.iter().find(|entry| entry.mode == mode)
+    }
+
+    /// See [`loader::ResolutionRequest::extensionless_relative_import`].
+    #[must_use]
+    pub fn extensionless_relative_import(
+        &self,
+        importing_file: NodeId,
+        specifier: &str,
+        mode: ResolutionMode,
+    ) -> Option<tsr_checker::resolution::ExtensionlessImport> {
+        self.resolution(importing_file, specifier, mode)?.extensionless_relative_import
     }
 
     /// The file every mode resolved `specifier` to: `None` when the file never
@@ -603,8 +624,8 @@ impl<'a> Program<'a> {
         let index = *self.files_by_source_file.get(&importing_file)?;
         let modes = self.resolved_modules.get(self.files[index].path())?.get(specifier)?;
         let (first, rest) = modes.split_first()?;
-        let target = first.1.as_ref()?;
-        rest.iter().all(|(_, answer)| answer.as_ref() == Some(target)).then_some(target)
+        let target = first.resolved.as_ref()?;
+        rest.iter().all(|entry| entry.resolved.as_ref() == Some(target)).then_some(target)
     }
 
     /// Did the resolver name a file for this specifier in `mode`, whether or
@@ -625,7 +646,8 @@ impl<'a> Program<'a> {
         specifier: &str,
         mode: ResolutionMode,
     ) -> bool {
-        matches!(self.resolution(importing_file, specifier, mode), Some(Some(_)))
+        self.resolution(importing_file, specifier, mode)
+            .is_some_and(|entry| entry.resolved.is_some())
     }
 
     /// [`Program::module_resolution_found_in_mode`] for a caller that cannot
@@ -810,6 +832,15 @@ impl tsr_checker::resolution::ModuleHost for Program<'_> {
     fn default_resolution_mode_for_file(&self, file: NodeId) -> ResolutionMode {
         Program::default_resolution_mode_for_file(self, file)
     }
+
+    fn extensionless_relative_import(
+        &self,
+        importing_file: NodeId,
+        specifier: &str,
+        mode: ResolutionMode,
+    ) -> Option<tsr_checker::resolution::ExtensionlessImport> {
+        Program::extensionless_relative_import(self, importing_file, specifier, mode)
+    }
     fn file_path(&self, file: NodeId) -> Option<String> {
         let &index = self.files_by_source_file.get(&file)?;
         Some(self.files[index].file_name().to_string())
@@ -821,7 +852,7 @@ impl tsr_checker::resolution::ModuleHost for Program<'_> {
         specifier: &str,
         mode: ResolutionMode,
     ) -> Option<String> {
-        self.resolution(importing_file, specifier, mode)?.as_ref().map(ToString::to_string)
+        self.resolution(importing_file, specifier, mode)?.resolved.as_ref().map(ToString::to_string)
     }
     fn jsdoc_template_parameters(&self, declaration: NodeId) -> Vec<NodeId> {
         // §110: linear over files, then over each file's (host, docs) rows —
@@ -918,8 +949,12 @@ fn resolved_modules(
         // upstream (`resolutionsInFile` is keyed by it); the first answer is
         // the one kept.
         let modes = by_file.entry(containing).or_default().entry(request.name.clone()).or_default();
-        if !modes.iter().any(|(asked, _)| *asked == request.mode) {
-            modes.push((request.mode, answer));
+        if !modes.iter().any(|entry| entry.mode == request.mode) {
+            modes.push(ModeResolution {
+                mode: request.mode,
+                resolved: answer,
+                extensionless_relative_import: request.extensionless_relative_import,
+            });
         }
     }
     by_file

@@ -2729,13 +2729,12 @@ impl Checker<'_, '_> {
                 && let Some(file) = self.source_file_of_for_diagnostics(literal)
             {
                 let span = self.error_span(literal);
-                self.report(
+                self.report_module_not_found(
                     file,
-                    Diagnostic::with_args(
-                        &messages::CANNOT_FIND_MODULE_0_OR_ITS_CORRESPONDING_TYPE_DECLARATIONS,
-                        span,
-                        [text.text.to_string()],
-                    ),
+                    literal,
+                    span,
+                    text.text,
+                    &messages::CANNOT_FIND_MODULE_0_OR_ITS_CORRESPONDING_TYPE_DECLARATIONS,
                 );
             }
             return;
@@ -3784,7 +3783,44 @@ impl Checker<'_, '_> {
         } else {
             &messages::CANNOT_FIND_MODULE_0_OR_ITS_CORRESPONDING_TYPE_DECLARATIONS
         };
-        self.report(importing, Diagnostic::with_args(message, span, [text.to_string()]));
+        self.report_module_not_found(importing, specifier, span, text, message);
+    }
+
+    /// The tail of `resolveExternalModule` (`checker.go:15420`-`:15441`) for a
+    /// specifier no file and no ambient module answered: an ESM-mode
+    /// extensionless relative import under `node16`/`nodenext` is TS2835 with
+    /// `getSuggestedImportExtension`'s answer or TS2834 without one; anything
+    /// else is the caller's `moduleNotFoundError`.
+    fn report_module_not_found(
+        &mut self,
+        importing: NodeId,
+        specifier: NodeId,
+        span: tsr_core::Span,
+        text: &str,
+        module_not_found: &'static tsr_diagnostics::Message,
+    ) {
+        if let Some(host) = self.module_host {
+            let mode = self.module_resolution_mode(host, importing, specifier);
+            if mode == tsr_core::ResolutionMode::ESNext
+                && let Some(extensionless) =
+                    host.extensionless_relative_import(importing, text, mode)
+            {
+                let diagnostic = match extensionless {
+                    crate::resolution::ExtensionlessImport::Suggested(extension) => Diagnostic::with_args(
+                        &messages::RELATIVE_IMPORT_PATHS_NEED_EXPLICIT_FILE_EXTENSIONS_IN_ECMASCRIPT_IMPORTS_WHEN_MODULERESOLUTION_IS_NODE16_OR_NODENEXT_DID_YOU_MEAN_0,
+                        span,
+                        [format!("{text}{extension}")],
+                    ),
+                    crate::resolution::ExtensionlessImport::Unsuggested => Diagnostic::new(
+                        &messages::RELATIVE_IMPORT_PATHS_NEED_EXPLICIT_FILE_EXTENSIONS_IN_ECMASCRIPT_IMPORTS_WHEN_MODULERESOLUTION_IS_NODE16_OR_NODENEXT_CONSIDER_ADDING_AN_EXTENSION_TO_THE_IMPORT_PATH,
+                        span,
+                    ),
+                };
+                self.report(importing, diagnostic);
+                return;
+            }
+        }
+        self.report(importing, Diagnostic::with_args(module_not_found, span, [text.to_string()]));
     }
 
     /// TS7016 — `Could not find a declaration file for module '{0}'. '{1}'
@@ -11688,13 +11724,12 @@ impl Checker<'_, '_> {
         }
         let Some(file) = self.source_file_of_for_diagnostics(argument) else { return };
         let span = self.error_span(argument);
-        self.report(
+        self.report_module_not_found(
             file,
-            Diagnostic::with_args(
-                &messages::CANNOT_FIND_MODULE_0_OR_ITS_CORRESPONDING_TYPE_DECLARATIONS,
-                span,
-                [text.text.to_string()],
-            ),
+            argument,
+            span,
+            text.text,
+            &messages::CANNOT_FIND_MODULE_0_OR_ITS_CORRESPONDING_TYPE_DECLARATIONS,
         );
     }
 

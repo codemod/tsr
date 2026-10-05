@@ -213,6 +213,20 @@ pub trait ModuleHost {
         ResolutionMode::None
     }
 
+    /// For an unresolved specifier that `resolveExternalModule`'s TS2834/TS2835
+    /// arm (`checker.go:15420`) can describe — extensionless, relative, under
+    /// `moduleResolution: node16`/`nodenext` — the
+    /// `getSuggestedImportExtension` (`checker.go:15461`) answer. `None` when
+    /// the arm does not apply; the checker adds the ESM-mode condition.
+    fn extensionless_relative_import(
+        &self,
+        _importing_file: NodeId,
+        _specifier: &str,
+        _mode: ResolutionMode,
+    ) -> Option<ExtensionlessImport> {
+        None
+    }
+
     /// §143: the file path of a `SourceFile` node, for the relative-specifier
     /// spelling. `None` (the default) declines the file half.
     fn file_path(&self, _file: NodeId) -> Option<String> {
@@ -250,6 +264,17 @@ pub trait ModuleHost {
     fn is_declaration_file(&self, _file: NodeId) -> bool {
         false
     }
+}
+
+/// `getSuggestedImportExtension`'s answer (`checker.go:15461`) for an
+/// extensionless relative import: the output extension of the first sibling
+/// file that exists, or none.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExtensionlessImport {
+    /// TS2835 — `Did you mean '{specifier}{extension}'?`
+    Suggested(&'static str),
+    /// TS2834 — `Consider adding an extension to the import path.`
+    Unsuggested,
 }
 
 /// Which lazily-computed property of an entity is being resolved.

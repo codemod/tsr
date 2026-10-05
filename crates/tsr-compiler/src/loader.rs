@@ -78,7 +78,7 @@ use tsr_path::{
         SUPPORTED_TS_EXTENSIONS_WITH_JSON_FLAT, file_extension_is, file_extension_is_one_of,
     },
     get_canonical_file_name, get_directory_path, get_normalized_absolute_path, has_extension,
-    is_declaration_file_name, is_rooted_disk_path, normalize_path, to_path,
+    is_declaration_file_name, is_rooted_disk_path, normalize_path, path_is_relative, to_path,
 };
 
 use crate::ProgramFile;
@@ -140,6 +140,15 @@ pub struct ResolutionRequest {
     /// same reason. Whether the target is in the program is the *reader's*
     /// question, answered by looking the path up.
     pub resolved: Option<String>,
+    /// `getSuggestedImportExtension` (`checker.go:15461`) for a module request
+    /// that failed to resolve an extensionless relative specifier under
+    /// `moduleResolution: node16`/`nodenext`.
+    ///
+    /// Upstream's checker probes `Program.FileExists` when it reports TS2834 or
+    /// TS2835; this port's program keeps no file system after loading, so the
+    /// loader, which holds the host, makes the same probes here — only for the
+    /// requests that can reach that report. `None` everywhere else.
+    pub extensionless_relative_import: Option<tsr_checker::resolution::ExtensionlessImport>,
 }
 
 /// What a load is asked for.
@@ -908,6 +917,7 @@ impl<'host, 'a> FileLoader<'host, 'a> {
                 containing_file: containing_file.clone(),
                 mode,
                 resolved: resolved.is_resolved().then(|| resolved.resolved_file_name.clone()),
+                extensionless_relative_import: None,
             });
             self.tasks[index].type_resolutions_trace.extend(traces);
             if resolved.is_resolved() {
@@ -961,6 +971,7 @@ impl<'host, 'a> FileLoader<'host, 'a> {
                 containing_file: file_name.clone(),
                 mode,
                 resolved: resolved.is_resolved().then(|| resolved.resolved_file_name.clone()),
+                extensionless_relative_import: None,
             });
             self.tasks[index].type_resolutions_trace.extend(traces);
             if resolved.is_resolved() {
@@ -1019,12 +1030,18 @@ impl<'host, 'a> FileLoader<'host, 'a> {
                 self.statistics.resolution_time += started.elapsed();
                 self.statistics.resolution_requests += 1;
             }
+            let extensionless_relative_import = if resolved.is_resolved() {
+                None
+            } else {
+                self.extensionless_relative_import(&specifier.text, &file_name)
+            };
             self.tasks[index].resolution_requests.push(ResolutionRequest {
                 kind: RequestKind::Module,
                 name: specifier.text.clone(),
                 containing_file: file_name.clone(),
                 mode,
                 resolved: resolved.is_resolved().then(|| resolved.resolved_file_name.clone()),
+                extensionless_relative_import,
             });
             self.tasks[index].resolutions_trace.extend(traces);
 
@@ -1221,6 +1238,48 @@ impl<'host, 'a> FileLoader<'host, 'a> {
             implied_node_format: implied_node_format_for_file(file_name, &package_json_type),
             package_json_type,
         }
+    }
+
+    /// `getSuggestedImportExtension` (`checker.go:15461`), asked only where
+    /// `resolveExternalModule` (`checker.go:15420`) can ask it: an
+    /// extensionless relative specifier under `node16`/`nodenext`. The
+    /// checker adds the remaining condition, an ESM usage mode.
+    fn extensionless_relative_import(
+        &self,
+        module_reference: &str,
+        containing_file: &str,
+    ) -> Option<tsr_checker::resolution::ExtensionlessImport> {
+        use tsr_checker::resolution::ExtensionlessImport;
+        let kind = self.options.module_resolution_kind();
+        if !matches!(kind, ModuleResolutionKind::Node16 | ModuleResolutionKind::NodeNext)
+            || !path_is_relative(module_reference)
+            || has_extension(module_reference)
+        {
+            return None;
+        }
+        let absolute =
+            get_normalized_absolute_path(module_reference, get_directory_path(containing_file));
+        let tsx_output = if self.options.jsx == JsxEmit::Preserve { ".jsx" } else { ".js" };
+        let probes = [
+            (".mts", ".mjs"),
+            (".ts", ".js"),
+            (".cts", ".cjs"),
+            (".mjs", ".mjs"),
+            (".js", ".js"),
+            (".cjs", ".cjs"),
+            (".tsx", tsx_output),
+            (".jsx", ".jsx"),
+            (".json", ".json"),
+        ];
+        let fs = self.host.fs();
+        Some(
+            probes
+                .into_iter()
+                .find(|(probe, _)| fs.file_exists(&format!("{absolute}{probe}")))
+                .map_or(ExtensionlessImport::Unsuggested, |(_, suggestion)| {
+                    ExtensionlessImport::Suggested(suggestion)
+                }),
+        )
     }
 
     /// `getModeForUsageLocation`, over the loader's collected specifier.
