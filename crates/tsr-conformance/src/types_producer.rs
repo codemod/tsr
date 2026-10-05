@@ -1574,6 +1574,19 @@ pub fn type_id_at_location_tracking<'a>(
         }
     }
 
+    // `getTypeOfNode` evaluates an identifier as a value only when
+    // `ast.IsExpressionNode` holds (`checker.go:31955`). Neither part of a
+    // `JsxNamespacedName` (`<a:b>`) is one — `isInExpressionContext` has no
+    // `JsxNamespacedName` parent arm — so both fall through to `errorType`,
+    // even when a `var a` is in scope (`jsxNamespacePrefixInName`).
+    if nodes.kind(id) == SyntaxKind::Identifier
+        && nodes
+            .parent(id)
+            .is_some_and(|parent| nodes.kind(parent) == SyntaxKind::JsxNamespacedName)
+    {
+        return error;
+    }
+
     if let Ok(expression) = tsr_ast::Expression::try_from(node) {
         let computed = checker.check_expression(expression);
         return computed;
