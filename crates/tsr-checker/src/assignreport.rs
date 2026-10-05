@@ -1117,10 +1117,10 @@ impl<'a> Checker<'a, '_> {
         // makes every name known, so this is the predicate that must decline it
         // — the same one `crate::nonexistent_property` uses, and *not* the
         // property enumeration TS2741 uses.
-        if !self.declared_members_are_complete(target) {
+        if !self.relation_members_are_complete(target) {
             return;
         }
-        let Some(known) = self.declared_property_table(target) else { return };
+        let Some(known) = self.relation_property_table(target) else { return };
         // An **empty** target is not an excess-property site. `class C {}` with
         // `c = { foo: '' }` reads TS2322 upstream, not TS2353
         // (`conformance/classWithEmptyBody`), because nothing about the literal
@@ -1165,23 +1165,33 @@ impl<'a> Checker<'a, '_> {
                 self.check_object_literal_member(literal, target, name);
                 continue;
             }
-            // A near miss is TS2561, a different code at the same position.
-            let candidates: Vec<&str> = known.iter().map(|(seen, _)| seen.as_str()).collect();
-            if crate::check::spelling_suggestion(name, &candidates).is_some() {
-                return;
-            }
             let Some(at) = self.excess_property_name_node(literal, name) else { return };
             let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
             let span = self.error_span(at);
             let printed = self.type_to_string(target);
-            self.report(
-                file,
+            // hasExcessProperties (relater.go:2714): an identifier name with a
+            // spelling suggestion among the target's properties
+            // (getSuggestionForNonexistentProperty) is TS2561; a string-literal
+            // name is never given a suggestion.
+            let candidates: Vec<&str> = known.iter().map(|(seen, _)| seen.as_str()).collect();
+            let suggestion = (self.nodes.kind(at) == SyntaxKind::Identifier)
+                .then(|| crate::check::spelling_suggestion(name, &candidates))
+                .flatten()
+                .map(str::to_string);
+            let diagnostic = if let Some(suggestion) = suggestion {
+                Diagnostic::with_args(
+                    &messages::OBJECT_LITERAL_MAY_ONLY_SPECIFY_KNOWN_PROPERTIES_BUT_0_DOES_NOT_EXIST_IN_TYPE_1_DID_YOU_MEAN_TO_WRITE_2,
+                    span,
+                    [name.to_string(), printed, suggestion],
+                )
+            } else {
                 Diagnostic::with_args(
                     &messages::OBJECT_LITERAL_MAY_ONLY_SPECIFY_KNOWN_PROPERTIES_AND_0_DOES_NOT_EXIST_IN_TYPE_1,
                     span,
                     [name.to_string(), printed],
-                ),
-            );
+                )
+            };
+            self.report(file, diagnostic);
             return;
         }
     }
@@ -1284,8 +1294,8 @@ impl<'a> Checker<'a, '_> {
     /// `tryElaborateArrayLikeErrors` permits the multi-property head here. No
     /// array/tuple elaboration is inferred from incomplete tables.
     fn missing_required_property(&mut self, source: TypeId, target: TypeId) -> Option<Vec<String>> {
-        let target_properties = self.declared_property_table(target)?;
-        let source_properties = self.declared_property_table(source)?;
+        let target_properties = self.relation_property_table(target)?;
+        let source_properties = self.relation_property_table(source)?;
         if self.fresh_object_literal_types.contains(&source) {
             // hasExcessProperties precedes reportUnmatchedProperty. Captured
             // names alone cannot license a missing head when a written key
@@ -1437,6 +1447,19 @@ impl<'a> Checker<'a, '_> {
         source: TypeId,
         target: TypeId,
     ) -> bool {
+        self.report_assignability_failure_with(at, Some(source_node), source, target)
+    }
+
+    /// [`Checker::report_assignability_failure`]; with no `source_node` the
+    /// expression is not elaborated — `checkTypeRelatedToEx` reached from an
+    /// elaboration that already chose its error node.
+    fn report_assignability_failure_with(
+        &mut self,
+        at: NodeId,
+        source_node: Option<NodeId>,
+        source: TypeId,
+        target: TypeId,
+    ) -> bool {
         // An object literal against a **union** target is the excess-property
         // and discriminated-union machinery
         // (`getMatchingUnionConstituentForObjectLiteral`,
@@ -1459,7 +1482,8 @@ impl<'a> Checker<'a, '_> {
                 }
             };
         }
-        if self.nodes.kind(source_node) == SyntaxKind::ObjectLiteralExpression
+        if source_node
+            .is_some_and(|node| self.nodes.kind(node) == SyntaxKind::ObjectLiteralExpression)
             && self.type_of(target).flags.contains(TypeFlags::UNION)
         {
             probe!(PROBE_OBJECT_LITERAL_UNION);
@@ -1469,7 +1493,7 @@ impl<'a> Checker<'a, '_> {
         // report and, when it speaks, `checkTypeRelatedToEx` stays silent. The
         // hand-off is exclusive by construction here because both live in this
         // one function: elaborating returns, it does not fall through. §176.
-        if self.elaborate_error(source_node, source, target) {
+        if source_node.is_some_and(|node| self.elaborate_error(node, source, target)) {
             probe!(PROBE_REPORTED);
             return true;
         }
@@ -1750,6 +1774,19 @@ impl<'a> Checker<'a, '_> {
         if self.is_or_has_generic_conditional(target) {
             return false;
         }
+        if self.elaborate_did_you_mean_to_call_or_construct(
+            node,
+            source,
+            target,
+            crate::signatures::SignatureKind::Construct,
+        ) || self.elaborate_did_you_mean_to_call_or_construct(
+            node,
+            source,
+            target,
+            crate::signatures::SignatureKind::Call,
+        ) {
+            return true;
+        }
         let inner = match self.node_map.get(node) {
             Some(Node::ParenthesizedExpression(parenthesized)) => parenthesized.expression,
             Some(Node::AsExpression(assertion))
@@ -1785,6 +1822,38 @@ impl<'a> Checker<'a, '_> {
         inner
             .and_then(|inner| inner.node_id())
             .is_some_and(|inner| self.elaborate_error(inner, source, target))
+    }
+
+    /// `elaborateDidYouMeanToCallOrConstruct` (`relater.go:480`): when some
+    /// `kind` signature of the source returns a type (not `any`/`never`)
+    /// related to the target, the failure is reported at the expression
+    /// itself — upstream adds "Did you mean to call this expression?" as
+    /// related information, which the suite does not compare. A pair the
+    /// relation does not reject falls through to the remaining arms.
+    fn elaborate_did_you_mean_to_call_or_construct(
+        &mut self,
+        node: NodeId,
+        source: TypeId,
+        target: TypeId,
+        kind: crate::signatures::SignatureKind,
+    ) -> bool {
+        let Some(signatures) = self.signatures_of_type_kind(source, kind) else { return false };
+        let mut callable = false;
+        for signature in &signatures {
+            let Some(return_type) = self.get_return_type_of_signature(signature) else {
+                continue;
+            };
+            if self.type_of(return_type).flags.intersects(TypeFlags::ANY | TypeFlags::NEVER) {
+                continue;
+            }
+            if self.relate_ternary(return_type, target, crate::relater::Relation::Assignable)
+                == crate::relater::Ternary::Related
+            {
+                callable = true;
+                break;
+            }
+        }
+        callable && self.report_assignability_failure_with(node, None, source, target)
     }
 
     /// `isOrHasGenericConditional` (`relater.go:474`).

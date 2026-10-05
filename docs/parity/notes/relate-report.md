@@ -79,3 +79,141 @@ corpus at this commit (zero-loss check empty).
   for a qualified name naming an enum is `declared.rs` (type-refs box).
   Unlocks the enum families of `enumAssignmentCompat3` (12 lines) and
   `enumAssignmentCompat6` (6 lines).
+
+## 4. Ported: the generic-mapped-target arm of `structuredTypeRelatedToWorker`
+
+`relater.go:3593`. A source `S` against `{ [P in Q]: T }` / `{ [P in Q as R]: T }`
+(a mapped type whose constraint or name type is still generic) had no arm, so
+`U -> { [P in keyof U]: U[keyof U] }` fell to the source type parameter's
+`unknown` constraint and answered a confident `NotRelated` — a false TS2322
+(`compiler/mappedTypeParameterConstraint`). `Relater::generic_mapped_target_related_to`
+mirrors the arm: the `{ [P in Q]: S[P] }` identity shortcut, then (for a
+non-generic-mapped source) `Q`/`R` related to `keyof S` (`?` targets need a
+non-empty key intersection), then the `Obj[P]` fast path or `S[P] -> T`.
+
+Deviations, each conservative (they leave a pair undecided rather than
+deciding it differently):
+
+- `keyof S` is `resolved_keyof_type`, which includes index-signature keys where
+  upstream asks `IndexFlagsNoIndexSignatures`; a source with index signatures
+  (or an unresolved index table) skips the arm.
+- An `Unknown` key relation or an indexed access the port cannot build answers
+  `Unknown`; upstream's arm would fall through to the remaining arms with a
+  definite answer. `V -> { [P in keyof W]: W[P] }` therefore stays undecided
+  (no report) where upstream reports TS2322.
+- `isGenericMappedType` is the existing over-approximating
+  `is_generic_mapped_target`, used for both sides.
+
+Would be wrong if: a pair decided `Related` by the arm is reported by upstream.
+Zero-loss check at this commit is empty on both suites.
+
+## 5. Ported: widened object-literal types have a property table for the relation reporters
+
+`var a = { x: 1, y: 2 }; a = { x: 1 }` is TS2741 upstream (`reportUnmatchedProperty`)
+and `a = { x: 1, z: 3 }` is TS2353 (`hasExcessProperties`). The port reported
+TS2322 for both, because `member_completeness` certified no table for a type
+whose declaration is an `ObjectLiteralExpression` (the widened, regular
+literal type — the fresh one already reads its captured list), so
+`missing_required_property` and `check_excess_properties` declined.
+
+`Checker::relation_property_table` / `relation_members_are_complete` add the
+literal's own written member list (no spreads, no computed names, not JS) and
+are read by **this lane's reporters only**. Measured alternatives:
+
+| where the object-literal table is admitted | diagnostics | losses |
+|---|---|---|
+| `declared_property_table` **and** `declared_members_are_complete` | +8 | 1 (`nonPrimitiveAndEmptyObject`) |
+| `declared_property_table` only | +1 | 0 |
+| lane reporters only (chosen) | +1 | 0 |
+
+The loss in the first row is TS2339 (`crate::nonexistent_property`, not this
+lane's file) on `fooProps.barProp` where `fooProps: (BarProps & object) | {}`:
+upstream's `createUnionOrIntersectionProperty` gives an object-literal
+constituent that lacks the property an `undefined` member instead of failing
+the lookup. Once that union rule is ported, admitting object literals in
+`declared_members_are_complete` is worth the other seven cases
+(`checkingObjectWithThisInNamePositionNoCrash`, `importWithTrailingSlash`,
+`lambdaParamTypes`, `requireOfJsonFileInJsFile`,
+`requireOfJsonFileWithEmptyObjectWithErrors`, `thisInObjectLiterals`,
+`typeSatisfaction_optionalMemberConformance`). The middle row equals the chosen
+one, so the narrower change was kept.
+
+Converted: `compiler/typeMatch2`.
+
+## 6. Ported: TS2561 in the excess-property check
+
+`hasExcessProperties` (`relater.go:2714`) reports TS2561 ("Did you mean to
+write …?") when the excess name is an identifier with a spelling suggestion
+among the target's properties (`getSuggestionForNonexistentProperty`), else
+TS2353. The port *returned* on a suggestion — leaving the outer TS2322 to be
+reported at the declaration instead. Now it reports TS2561 at the name; a
+string-literal name never gets a suggestion, as upstream. The suggestion is
+`crate::check::spelling_suggestion` over the certified table's names (only the
+code and position are compared by the suite).
+
+Converted: `compiler/spellingSuggestionLeadingUnderscores01`.
+`objectLiteralExcessProperties` gains its TS2561 lines but still needs union
+and intersection excess checks (`findMatchingDiscriminantType`,
+`isKnownProperty` over intersections).
+
+## 7. Ported: `object` against a target requiring a property
+
+`structuredTypeRelatedTo` relates the non-primitive `object` through its
+apparent type, the empty object type; `propertiesRelatedTo` then fails on a
+required target property the empty object (Object's members included) cannot
+supply. The port answered `Unknown` (the empty object has no member table
+here). The arm in `is_related_to_with_excess` takes only that definite
+negative, from `relation_property_table(target)`; every other `object` pair
+keeps its existing path. A lib target such as `Date` has no certified table
+and stays undecided.
+
+Converted: `conformance/nonPrimitiveAssignError`.
+
+## 8. Ported: `mappedTypeRelatedTo`'s modifier gate, and lazily captured mapped types
+
+Two generic mapped types relate only if
+`getCombinedMappedTypeOptionality(source) <= getCombinedMappedTypeOptionality(target)`
+(`relater.go:3972`, reached from the default branch at `relater.go:3805` after
+the generic-mapped-target arm fails), so `Partial<T> -> Readonly<T>` and
+`Readonly<Partial<T>> -> Readonly<T>` are TS2322. `Relater::mapped_modifiers_reject`
+ports that gate as a definite negative; the remainder of `mappedTypeRelatedTo`
+(constraint `T' -> S'` and template comparison under the parameter mapper)
+is **not** ported — pairs passing the gate keep their previous answer.
+Narrowed to mapped types with a type-variable constraint and no `as` clause on
+both sides, since `is_generic_mapped_target` over-approximates genericity.
+`combined_mapped_optionality` follows `modifiers_source` (the homomorphic
+operand) as upstream follows `getModifiersTypeFromMappedType`.
+
+A reference such as `Partial<T>` reaches the relater as a member-less `Named`
+image whose mapped info is captured on first use (`ensure_mapped_type_info`),
+so the structural gate never routed it to `structured_type_related_to_worker`
+and both mapped arms (this one and §4's) were unreachable for it. They now
+also run just before the undecided fallthrough of `is_related_to_with_excess`,
+after ensuring the info.
+
+Converted: `conformance/mappedTypes5`. `mappedTypes6` and
+`mappedTypeRelationships` need the unported remainder (template comparison,
+type-parameter targets, and the default branch's "non-mapped source against a
+generic mapped target is false").
+
+## 9. Ported: `elaborateDidYouMeanToCallOrConstruct`
+
+`elaborateError` (`relater.go:440`) first asks, for construct then call
+signatures of the source, whether some signature's return type (not
+`any`/`never`) is related to the target; if so and the whole pair fails, the
+failure is reported **at the expression** (`x = f` reports at `f`), with
+"Did you mean to call this expression?" as related information. The port's
+`elaborate_error` lacked the arm, so these TS2322s landed at the assignment
+target or declaration name (one MISSING + one EXTRA each).
+
+`report_assignability_failure_with(at, None, …)` is the unelaborated report
+the arm needs (upstream's `checkTypeRelatedToEx` with the expression as error
+node); it keeps every decline of `report_assignability_failure`, so a pair the
+relation does not reject falls through to the remaining elaboration arms as
+upstream's related result would.
+
+Converted: `compiler/avoidListingPropertiesForTypesWithOnlyCallOrConstructSignatures`,
+`compiler/functionSignatureAssignmentCompat1`, `compiler/optionalParamAssignmentCompat`,
+`compiler/staticMemberOfClassAndPublicMemberOfAnotherClassAssignment`,
+`compiler/typeMatch1`, `conformance/invalidAssignmentsToVoid`,
+`conformance/invalidVoidValues`.

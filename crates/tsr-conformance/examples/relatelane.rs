@@ -111,8 +111,7 @@ fn main() {
                 };
                 let anchor = kinds
                     .iter()
-                    .filter(|k| k.0 == key.0 && k.1 == key.1 && k.2 == key.2)
-                    .last()
+                    .rfind(|k| k.0 == key.0 && k.1 == key.1 && k.2 == key.2)
                     .map_or_else(|| "?".to_string(), |k| format!("{:?} in {:?}", k.3, k.4));
                 out.push(format!(
                     "{}\t{}:{}:{}\t{verdict}\t{anchor}",
