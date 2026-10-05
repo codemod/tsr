@@ -2476,7 +2476,11 @@ impl<'a> Checker<'a, '_> {
     /// The guard is not decoration: `getExternalModuleMember` can hand this a
     /// symbol that is not a module, and upstream answers `nil` rather than
     /// searching a table that means something else.
-    fn get_export_of_module(&mut self, symbol: SymbolId, name: &str) -> Option<SymbolId> {
+    pub(crate) fn get_export_of_module(
+        &mut self,
+        symbol: SymbolId,
+        name: &str,
+    ) -> Option<SymbolId> {
         let entry = self.binder.symbols().get(symbol);
         if !entry.flags.intersects(SymbolFlags::MODULE) {
             return None;

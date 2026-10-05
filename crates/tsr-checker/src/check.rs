@@ -10196,7 +10196,10 @@ impl Checker<'_, '_> {
             {
                 return;
             }
-            if self.binder.symbols().get(namespace).exports.contains_key(member.as_str()) {
+            // `getExportsOfSymbol` includes a module's `export *` re-exports.
+            if self.get_export_of_module(namespace, member.as_str()).is_some()
+                || self.binder.symbols().get(namespace).exports.contains_key(member.as_str())
+            {
                 return;
             }
             let printed = self.printed_entity_name(left).unwrap_or_default();
@@ -10280,13 +10283,14 @@ impl Checker<'_, '_> {
         {
             return;
         }
-        let found = self
-            .binder
-            .symbols()
-            .get(namespace)
-            .exports
-            .get(member.as_str())
-            .is_some_and(|&symbol| self.binder.symbols().get(symbol).flags.intersects(meaning));
+        // `getSymbol(getExportsOfSymbol(namespace), …)`: a module's table
+        // includes its `export *` re-exports.
+        let exported = match self.binder.symbols().get(namespace).exports.get(member.as_str()) {
+            Some(&symbol) => Some(symbol),
+            None => self.get_export_of_module(namespace, member.as_str()),
+        };
+        let found = exported
+            .is_some_and(|symbol| self.binder.symbols().get(symbol).flags.intersects(meaning));
         // **`canSuggestTypeof` (`checker.go:15869`), tested before the namespace
         // branch.** A *fundule* — `function B` merged with `namespace B` — is
         // "found" by the test above because it carries `NAMESPACE`, and upstream
@@ -10294,13 +10298,10 @@ impl Checker<'_, '_> {
         // qualified name resolves as a **value**, and the position wanted a
         // type. The error node is the whole name, not the member. §426.
         if found {
-            let value_only =
-                self.binder.symbols().get(namespace).exports.get(member.as_str()).is_some_and(
-                    |&symbol| {
-                        let flags = self.binder.symbols().get(symbol).flags;
-                        flags.intersects(SymbolFlags::VALUE) && !flags.intersects(SymbolFlags::TYPE)
-                    },
-                );
+            let value_only = exported.is_some_and(|symbol| {
+                let flags = self.binder.symbols().get(symbol).flags;
+                flags.intersects(SymbolFlags::VALUE) && !flags.intersects(SymbolFlags::TYPE)
+            });
             let in_type_query = self
                 .nodes
                 .parent(node)
