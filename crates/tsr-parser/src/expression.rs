@@ -1408,17 +1408,10 @@ impl<'a> Parser<'a> {
             return ObjectLiteralElementLike::SpreadAssignment(node);
         }
 
-        // `async`, `*`, `get`, and `set` all introduce a member rather than a
-        // name — unless what follows says otherwise, since each is also a legal
-        // property name on its own.
-        let modifiers =
-            if self.at(SyntaxKind::AsyncKeyword) && self.next_starts_property_name_or_star() {
-                vec![ModifierLike::Token(self.take_token())]
-            } else {
-                Vec::new()
-            };
-        let asterisk =
-            if self.at(SyntaxKind::AsteriskToken) { Some(self.take_token()) } else { None };
+        // `parseModifiersEx(allowDecorators: true)`: modifiers and decorators
+        // are parsed on any member and rejected by the grammar checker
+        // (TS1042, TS1206).
+        let modifiers = self.parse_modifiers_ex(false, false);
 
         if matches!(self.token.kind, SyntaxKind::GetKeyword | SyntaxKind::SetKeyword)
             && self.next_starts_property_name()
@@ -1481,6 +1474,9 @@ impl<'a> Parser<'a> {
             };
         }
 
+        let asterisk =
+            if self.at(SyntaxKind::AsteriskToken) { Some(self.take_token()) } else { None };
+
         // §720: upstream captures `tokenIsIdentifier := p.isIdentifier()`
         // BEFORE `parsePropertyName` (`parser.go:5642`) and keys the shorthand
         // test on it. A RESERVED WORD is a valid property NAME but not a valid
@@ -1507,8 +1503,28 @@ impl<'a> Parser<'a> {
             );
         let name = self.parse_property_name();
 
-        // `{ m() {} }` and `{ m<T>() {} }` are methods.
-        if self.at(SyntaxKind::OpenParenToken) || self.at(SyntaxKind::LessThanToken) {
+        // Optional and definite markers are not supported on property
+        // assignments and are reported by the grammar checker; upstream parses
+        // them here for recovery. §405.
+        let postfix = if self.at(SyntaxKind::QuestionToken) || self.at(SyntaxKind::ExclamationToken)
+        {
+            Some(self.take_token())
+        } else {
+            None
+        };
+
+        // `{ m() {} }`, `{ m<T>() {} }` and `{ *m() {} }` are methods.
+        //
+        // Upstream's `parseMethodDeclaration` ends in
+        // `parseFunctionBlockOrSemicolon`, so `{ foo(); }` has no body, and
+        // `checkGrammarMethod` reports the `'{' expected` at the `;`. That
+        // grammar arm is not ported, and without it a bodiless member reads
+        // as a missing implementation (TS2391); until it is, the body is
+        // parsed as a block, whose missing `{` reports the same error.
+        if asterisk.is_some()
+            || self.at(SyntaxKind::OpenParenToken)
+            || self.at(SyntaxKind::LessThanToken)
+        {
             let type_parameters = self.parse_type_parameters();
             // `{ async m() { await x } }` — an object-literal method's await
             // context is its own, exactly as a class method's is. §193.
@@ -1516,7 +1532,8 @@ impl<'a> Parser<'a> {
             let (parameters, return_type, body) = self.with_await_context(is_async, |parser| {
                 let parameters = parser.parse_parameter_list();
                 let return_type = parser.parse_return_type_annotation();
-                (parameters, return_type, FunctionBody::Block(parser.parse_block()))
+                let body = FunctionBody::Block(parser.parse_block());
+                (parameters, return_type, Some(body))
             });
             let modifiers = self.arena.alloc_slice(&modifiers);
             let type_parameters = self.arena.alloc_slice(&type_parameters);
@@ -1526,37 +1543,23 @@ impl<'a> Parser<'a> {
                     modifiers,
                     asterisk,
                     name,
-                    None,
+                    postfix,
                     type_parameters,
                     parameters,
                     return_type,
                     None,
-                    Some(body),
+                    body,
                 ),
                 SyntaxKind::MethodDeclaration,
                 start,
             ));
         }
 
-        // §405: upstream parses an OPTIONAL `?` after the name for error
-        // recovery (`parseObjectLiteralElement`'s `parseOptionalToken`), so
-        // `{ name?, id? }` keeps its member structure — the grammar check
-        // reports, the tree stands (`parserShorthandPropertyAssignment1`).
-        let postfix = if self.at(SyntaxKind::QuestionToken) {
-            let token_start = self.pos();
-            self.next_token();
-            let token = self.alloc_token(
-                SyntaxKind::QuestionToken,
-                tsr_core::Span::new(token_start, self.pos()),
-            );
-            Some(token)
-        } else {
-            None
-        };
+        let modifiers = self.arena.alloc_slice(&modifiers);
         if self.eat(SyntaxKind::ColonToken) {
             let initializer = self.parse_assignment_expression();
             let node = self.finish_node(
-                PropertyAssignment::new(&[], name, postfix, None, Some(initializer)),
+                PropertyAssignment::new(modifiers, name, postfix, None, Some(initializer)),
                 SyntaxKind::PropertyAssignment,
                 start,
             );
@@ -1573,7 +1576,7 @@ impl<'a> Parser<'a> {
             self.expect(SyntaxKind::ColonToken);
             let initializer = self.parse_assignment_expression();
             let node = self.finish_node(
-                PropertyAssignment::new(&[], name, None, None, Some(initializer)),
+                PropertyAssignment::new(modifiers, name, postfix, None, Some(initializer)),
                 SyntaxKind::PropertyAssignment,
                 start,
             );
@@ -1588,25 +1591,11 @@ impl<'a> Parser<'a> {
             None
         };
         let node = self.finish_node(
-            ShorthandPropertyAssignment::new(&[], name, postfix, None, None, initializer),
+            ShorthandPropertyAssignment::new(modifiers, name, postfix, None, None, initializer),
             SyntaxKind::ShorthandPropertyAssignment,
             start,
         );
         ObjectLiteralElementLike::ShorthandPropertyAssignment(node)
-    }
-
-    fn next_starts_property_name_or_star(&mut self) -> bool {
-        self.peek_kind(|kind| {
-            kind == SyntaxKind::AsteriskToken
-                || matches!(
-                    kind,
-                    SyntaxKind::Identifier
-                        | SyntaxKind::StringLiteral
-                        | SyntaxKind::NumericLiteral
-                        | SyntaxKind::OpenBracketToken
-                )
-                || kind.is_keyword()
-        })
     }
 
     /// Arrow functions, when the lookahead confirms one.

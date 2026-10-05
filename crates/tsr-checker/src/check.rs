@@ -7755,6 +7755,7 @@ impl Checker<'_, '_> {
             _ => {}
         }
         self.check_grammar_default_and_const_modifiers(node, typed);
+        self.check_grammar_object_literal_modifiers(typed);
     }
 
     /// `checkGrammarModifiers`' `KindDefaultKeyword` and `KindConstKeyword`

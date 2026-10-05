@@ -125,6 +125,7 @@ pub mod expressions;
 pub mod flags;
 pub mod flow;
 pub mod function_types;
+mod grammar;
 pub mod heritage_conformance;
 pub mod implicit_any;
 pub mod index_constraint;

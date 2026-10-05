@@ -1147,13 +1147,10 @@ impl<'a> Parser<'a> {
         let (parameters, return_type, body) = self.with_await_context(is_async, |parser| {
             let parameters = parser.parse_parameter_list();
             let return_type = parser.parse_return_type_annotation();
-            // An overload signature has no body, just a semicolon.
-            let body = if parser.at(SyntaxKind::OpenBraceToken) {
-                Some(FunctionBody::Block(parser.parse_block()))
-            } else {
-                parser.parse_semicolon();
-                None
-            };
+            // An overload signature has no body, just a semicolon
+            // (`parseFunctionBlockOrSemicolon`, `'{' or ';' expected`).
+            let body =
+                parser.parse_function_block_or_semicolon(false, Some(&messages::OR_EXPECTED));
             (parameters, return_type, body)
         });
 
