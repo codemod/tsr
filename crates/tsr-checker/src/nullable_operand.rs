@@ -207,6 +207,33 @@ impl Checker<'_, '_> {
         }
     }
 
+    /// `checkNonNullType` (`checker.go:7409`) **with** its reporter
+    /// (`reportObjectPossiblyNullOrUndefinedError`, `checker.go:7455`): the
+    /// checked operand's type with `null`/`undefined` removed, `errorType`
+    /// for an `unknown` operand under `strictNullChecks` (whose TS18046 /
+    /// TS2571 is not yet reported, see below) or for one that is nothing but
+    /// nullable.
+    pub(crate) fn check_non_null_type_reporting(
+        &mut self,
+        ty: TypeId,
+        operand: tsr_ast::Expression<'_>,
+    ) -> TypeId {
+        if self.strict_null_checks && self.type_of(ty).flags.intersects(TypeFlags::UNKNOWN) {
+            // TS18046 / TS2571 are **not reported yet**. A context-sensitive
+            // arrow argument of a generic call (`Map.groupBy([0], x => x < 5)`)
+            // has its parameter read as `unknown` by the diagnostics walk while
+            // the type dump answers `number` — a node type cached during an
+            // inference pass, outside this file. Reporting here measured two
+            // EMPTY_RIGHT losses (`mapGroupBy`, `nonInferrableTypePropagation2`);
+            // `docs/parity/notes/operators.md`.
+            return self.intrinsics.error;
+        }
+        if self.strict_null_checks {
+            self.report_nullable_operand_of_type(operand, ty);
+        }
+        self.check_non_null_type(ty)
+    }
+
     /// `getTypeFacts(t, TypeFactsIsUndefinedOrNull)` reduced to the two bits
     /// the reporter branches on — union-aware, since that is the whole of what
     /// "may be" means here.
@@ -267,7 +294,8 @@ impl Checker<'_, '_> {
 }
 
 /// The operators whose operands must be numeric — `+` excluded, see the module
-/// header.
+/// header. The relational operators report through
+/// [`Checker::check_non_null_type_reporting`] from their own arm.
 fn is_numeric_operator(kind: SyntaxKind) -> bool {
     matches!(
         kind,
@@ -283,10 +311,6 @@ fn is_numeric_operator(kind: SyntaxKind) -> bool {
             | SyntaxKind::BarToken
             | SyntaxKind::CaretToken
             | SyntaxKind::PlusToken
-            | SyntaxKind::LessThanToken
-            | SyntaxKind::GreaterThanToken
-            | SyntaxKind::LessThanEqualsToken
-            | SyntaxKind::GreaterThanEqualsToken
             | SyntaxKind::MinusEqualsToken
             | SyntaxKind::AsteriskEqualsToken
             | SyntaxKind::SlashEqualsToken

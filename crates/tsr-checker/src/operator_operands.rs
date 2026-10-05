@@ -59,20 +59,22 @@ impl Checker<'_, '_> {
         // neither TS2629 nor TS2364, so its left operand keeps a real type and
         // the rule invents a diagnostic. `arithAssignTyping` (7 lines) and
         // `parserStrictMode5` are exactly that — `checker-notes-diag2.md` §49.
-        let addition = operator == SyntaxKind::PlusToken;
-        let relational = matches!(
+        let (Some(left), Some(right)) = (binary.left, binary.right) else { return };
+        if matches!(
             operator,
             SyntaxKind::LessThanToken
                 | SyntaxKind::GreaterThanToken
                 | SyntaxKind::LessThanEqualsToken
                 | SyntaxKind::GreaterThanEqualsToken
-        );
-        if !addition && !relational {
+        ) {
+            self.check_relational_operator(node, operator, left, right);
             return;
         }
-        let (Some(left), Some(right)) = (binary.left, binary.right) else { return };
-        let mut source = self.check_expression(left);
-        let mut target = self.check_expression(right);
+        if operator != SyntaxKind::PlusToken {
+            return;
+        }
+        let source = self.check_expression(left);
+        let target = self.check_expression(right);
         // `checkNonNullType` runs before both arms (`checker.go:12419`,
         // `:12467`) and reports TS2531/TS2533 in place of this code, so a
         // nullish operand is a different diagnostic rather than a missing one.
@@ -122,17 +124,7 @@ impl Checker<'_, '_> {
         {
             return;
         }
-        let reportable = if addition {
-            self.addition_operands_have_no_result(source, target)
-        } else {
-            // `getBaseTypeOfLiteralTypeForComparison` (`checker.go:12468`) —
-            // the relational arm compares `string` and `number`, not `"a"` and
-            // `1`.
-            source = self.get_base_type_of_literal_type(source);
-            target = self.get_base_type_of_literal_type(target);
-            self.relational_operands_are_incomparable(source, target)
-        };
-        if !reportable {
+        if !self.addition_operands_have_no_result(source, target) {
             return;
         }
         let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
@@ -144,7 +136,7 @@ impl Checker<'_, '_> {
             Diagnostic::with_args(
                 &messages::OPERATOR_0_CANNOT_BE_APPLIED_TO_TYPES_1_AND_2,
                 span,
-                [operator_text(operator).to_string(), source_text, target_text],
+                [token_text(operator).to_string(), source_text, target_text],
             ),
         );
     }
@@ -194,48 +186,6 @@ impl Checker<'_, '_> {
             return false;
         }
         true
-    }
-
-    /// The relational arm's predicate, negated (`checker.go:12466`): `any` on
-    /// either side, or both operands numeric, or neither numeric **and** the
-    /// two comparable.
-    fn relational_operands_are_incomparable(&mut self, source: TypeId, target: TypeId) -> bool {
-        for side in [source, target] {
-            if self.type_of(side).flags.intersects(TypeFlags::ANY_OR_UNKNOWN) {
-                return false;
-            }
-        }
-        let number = self.intrinsics.number;
-        let bigint = self.intrinsics.bigint;
-        let numeric = |checker: &mut Self, side: TypeId| {
-            checker.assignable_to_kind(side, TypeFlags::NUMBER_LIKE, number)
-                || checker.assignable_to_kind(side, TypeFlags::BIG_INT_LIKE, bigint)
-        };
-        let (left, right) = (numeric(self, source), numeric(self, target));
-        if left && right {
-            return false;
-        }
-        if left != right {
-            return true;
-        }
-        // Neither is numeric: `areTypesComparable`, for which this port
-        // substitutes assignability behind §45's composite decline.
-        // **`boolean` is `true | false` and is not a composite for this
-        // test.** §884 established that §52's note — a union carries `UNION`
-        // and not its constituents' flags — is true of every union this port
-        // builds and false of the one the language builds for you, and §883
-        // removed the exclusion from `operand_is_definitely_not_numeric`. The
-        // same exclusion sat two hundred lines away in this arm: `boolean < void`
-        // was eight of §934's declining pairs and nothing connected the two
-        // predicates. §935.
-        if self.either_is_composite(source, target)
-            && !self.type_of(source).flags.intersects(TypeFlags::BOOLEAN)
-            && !self.type_of(target).flags.intersects(TypeFlags::BOOLEAN)
-        {
-            return false;
-        }
-        self.relate_ternary(source, target, Relation::Assignable) == Ternary::NotRelated
-            && self.relate_ternary(target, source, Relation::Assignable) == Ternary::NotRelated
     }
 
     /// `isTypeAssignableToKindEx(source, kind, strict)`
@@ -365,7 +315,7 @@ impl Checker<'_, '_> {
                     [
                         binary
                             .operator_token
-                            .map(|token| operator_text(token.kind).to_string())
+                            .map(|token| token_text(token.kind).to_string())
                             .unwrap_or_default(),
                         source_text,
                         target_text,
@@ -644,14 +594,316 @@ fn is_arithmetic_operator(kind: SyntaxKind) -> bool {
     )
 }
 
-/// `scanner.TokenToString` for the six operators this rule reports on.
-fn operator_text(operator: SyntaxKind) -> &'static str {
+/// Which of upstream's `isRelated` callbacks `reportOperatorError` was handed
+/// (`checker.go:12718`). Upstream passes a closure; the port names the
+/// closures it passes so the relation they ask stays upstream's.
+#[derive(Clone, Copy)]
+pub(crate) enum OperatorRelation {
+    /// The relational arm's closure (`checker.go:12469`).
+    Relational,
+}
+
+/// Kleene conjunction over the port's three-valued relation answers.
+fn ternary_and(a: Ternary, b: Ternary) -> Ternary {
+    match (a, b) {
+        (Ternary::NotRelated, _) | (_, Ternary::NotRelated) => Ternary::NotRelated,
+        (Ternary::Related, Ternary::Related) => Ternary::Related,
+        _ => Ternary::Unknown,
+    }
+}
+
+/// Kleene disjunction.
+fn ternary_or(a: Ternary, b: Ternary) -> Ternary {
+    match (a, b) {
+        (Ternary::Related, _) | (_, Ternary::Related) => Ternary::Related,
+        (Ternary::NotRelated, Ternary::NotRelated) => Ternary::NotRelated,
+        _ => Ternary::Unknown,
+    }
+}
+
+/// Kleene negation.
+fn ternary_not(a: Ternary) -> Ternary {
+    match a {
+        Ternary::Related => Ternary::NotRelated,
+        Ternary::NotRelated => Ternary::Related,
+        Ternary::Unknown => Ternary::Unknown,
+    }
+}
+
+impl Checker<'_, '_> {
+    /// The `<`, `>`, `<=`, `>=` arm of `checkBinaryLikeExpressionWorker`
+    /// (`checker.go:12460`), diagnostics only — the arm's type is
+    /// `booleanType` and [`Checker::check_binary_expression`] answers it.
+    ///
+    /// ```go
+    /// if c.checkForDisallowedESSymbolOperand(left, right, leftType, rightType, operator) {
+    ///     leftType = c.getBaseTypeOfLiteralTypeForComparison(c.checkNonNullType(leftType, left))
+    ///     rightType = c.getBaseTypeOfLiteralTypeForComparison(c.checkNonNullType(rightType, right))
+    ///     c.reportOperatorErrorUnless(leftType, operator, rightType, errorNode, …)
+    /// }
+    /// ```
+    ///
+    /// The predicate is evaluated in Kleene logic over [`Ternary`] and the
+    /// diagnostic is reported only on a confident `NotRelated`
+    /// (`docs/parity/notes/operators.md`).
+    fn check_relational_operator(
+        &mut self,
+        node: NodeId,
+        operator: SyntaxKind,
+        left: tsr_ast::Expression<'_>,
+        right: tsr_ast::Expression<'_>,
+    ) {
+        let left_type = self.check_expression(left);
+        let right_type = self.check_expression(right);
+        if !self
+            .check_for_disallowed_es_symbol_operand(left, right, left_type, right_type, operator)
+        {
+            return;
+        }
+        let left_type = self.check_non_null_type_reporting(left_type, left);
+        let left_type = self.get_base_type_of_literal_type_for_comparison(left_type);
+        let right_type = self.check_non_null_type_reporting(right_type, right);
+        let right_type = self.get_base_type_of_literal_type_for_comparison(right_type);
+        if self.operator_types_related(OperatorRelation::Relational, left_type, right_type)
+            != Ternary::NotRelated
+        {
+            return;
+        }
+        self.report_operator_error(
+            left_type,
+            operator,
+            right_type,
+            node,
+            OperatorRelation::Relational,
+        );
+    }
+
+    /// The closures `checkBinaryLikeExpressionWorker` hands to
+    /// `reportOperatorError(Unless)`, as a [`Ternary`].
+    fn operator_types_related(
+        &mut self,
+        relation: OperatorRelation,
+        left: TypeId,
+        right: TypeId,
+    ) -> Ternary {
+        match relation {
+            // ```go
+            // if IsTypeAny(left) || IsTypeAny(right) { return true }
+            // leftAssignableToNumber := c.isTypeAssignableTo(left, c.numberOrBigIntType)
+            // rightAssignableToNumber := c.isTypeAssignableTo(right, c.numberOrBigIntType)
+            // return leftAssignableToNumber && rightAssignableToNumber ||
+            //     !leftAssignableToNumber && !rightAssignableToNumber && c.areTypesComparable(left, right)
+            // ```
+            OperatorRelation::Relational => {
+                if self.is_type_any(left) || self.is_type_any(right) {
+                    return Ternary::Related;
+                }
+                let number_or_bigint = self.number_or_bigint_type();
+                let left_numeric =
+                    self.relate_ternary(left, number_or_bigint, Relation::Assignable);
+                let right_numeric =
+                    self.relate_ternary(right, number_or_bigint, Relation::Assignable);
+                let both = ternary_and(left_numeric, right_numeric);
+                if both == Ternary::Related {
+                    return both;
+                }
+                let neither = ternary_and(ternary_not(left_numeric), ternary_not(right_numeric));
+                if neither == Ternary::NotRelated {
+                    return ternary_or(both, neither);
+                }
+                let comparable = ternary_or(
+                    self.relate_ternary(left, right, Relation::Comparable),
+                    self.relate_ternary(right, left, Relation::Comparable),
+                );
+                ternary_or(both, ternary_and(neither, comparable))
+            }
+        }
+    }
+
+    /// `IsTypeAny` (`checker.go`): `flags & Any`. This port's error type
+    /// carries `ANY` as upstream's does; an unresolved-reference mint answers
+    /// [`Checker::is_error`] without being that intrinsic and is any-like for
+    /// the same reason.
+    pub(crate) fn is_type_any(&self, id: TypeId) -> bool {
+        self.is_error(id) || self.type_of(id).flags.intersects(TypeFlags::ANY)
+    }
+
+    /// `numberOrBigIntType` (`checker.go:1012`).
+    fn number_or_bigint_type(&mut self) -> TypeId {
+        let (number, bigint) = (self.intrinsics.number, self.intrinsics.bigint);
+        self.get_union_type(&[number, bigint])
+    }
+
+    /// `getBaseTypeOfLiteralTypeForComparison` (`checker.go:25454`): like
+    /// `getBaseTypeOfLiteralType`, but an enum or enum literal reads as the
+    /// primitive it holds rather than as its enum base type.
+    pub(crate) fn get_base_type_of_literal_type_for_comparison(&mut self, id: TypeId) -> TypeId {
+        let flags = self.type_of(id).flags;
+        if flags.intersects(
+            TypeFlags::STRING_LITERAL | TypeFlags::TEMPLATE_LITERAL | TypeFlags::STRING_MAPPING,
+        ) {
+            return self.intrinsics.string;
+        }
+        if flags.intersects(TypeFlags::NUMBER_LITERAL | TypeFlags::ENUM) {
+            return self.intrinsics.number;
+        }
+        if flags.intersects(TypeFlags::BIG_INT_LITERAL) {
+            return self.intrinsics.bigint;
+        }
+        if flags.intersects(TypeFlags::BOOLEAN_LITERAL) {
+            return self.intrinsics.boolean;
+        }
+        if flags.intersects(TypeFlags::UNION)
+            && let crate::types::TypeData::Union { types, .. } = &self.store.get(id).data
+        {
+            let constituents = types.clone();
+            let mapped: Vec<TypeId> = constituents
+                .into_iter()
+                .map(|constituent| self.get_base_type_of_literal_type_for_comparison(constituent))
+                .collect();
+            return self.get_union_type(&mapped);
+        }
+        id
+    }
+
+    /// `checkForDisallowedESSymbolOperand` (`checker.go:12812`): TS2469 on the
+    /// first operand that may be a symbol, considering its base constraint.
+    /// Answers `true` when there was no error.
+    pub(crate) fn check_for_disallowed_es_symbol_operand(
+        &mut self,
+        left: tsr_ast::Expression<'_>,
+        right: tsr_ast::Expression<'_>,
+        left_type: TypeId,
+        right_type: TypeId,
+        operator: SyntaxKind,
+    ) -> bool {
+        let offending = if self
+            .maybe_type_of_kind_considering_base_constraint(left_type, TypeFlags::ES_SYMBOL_LIKE)
+        {
+            left
+        } else if self
+            .maybe_type_of_kind_considering_base_constraint(right_type, TypeFlags::ES_SYMBOL_LIKE)
+        {
+            right
+        } else {
+            return true;
+        };
+        if let Some(at) = offending.node_id()
+            && let Some(file) = self.source_file_of_for_diagnostics(at)
+        {
+            let span = self.error_span(at);
+            self.report(
+                file,
+                Diagnostic::with_args(
+                    &messages::THE_0_OPERATOR_CANNOT_BE_APPLIED_TO_TYPE_SYMBOL,
+                    span,
+                    [token_text(operator).to_string()],
+                ),
+            );
+        }
+        false
+    }
+
+    /// `maybeTypeOfKindConsideringBaseConstraint` (`checker.go:27620`).
+    fn maybe_type_of_kind_considering_base_constraint(
+        &mut self,
+        id: TypeId,
+        kind: TypeFlags,
+    ) -> bool {
+        if self.maybe_type_of_kind(id, kind) {
+            return true;
+        }
+        let base = self.base_constraint_or_type(id);
+        self.maybe_type_of_kind(base, kind)
+    }
+
+    /// `reportOperatorError` (`checker.go:12718`), the TS2365 branch. The
+    /// equality operators' TS2367 branch is `crate::comparison_overlap`.
+    ///
+    /// The await suggestion changes only the printed pair here: upstream's
+    /// related "Did you forget to use 'await'?" information is not part of
+    /// the code/position this port reports.
+    pub(crate) fn report_operator_error(
+        &mut self,
+        left: TypeId,
+        operator: SyntaxKind,
+        right: TypeId,
+        error_node: NodeId,
+        relation: OperatorRelation,
+    ) {
+        let mut would_work_with_await = false;
+        let awaited_left = self.awaited_type_no_alias(left);
+        let awaited_right = self.awaited_type_no_alias(right);
+        if let (Some(awaited_left), Some(awaited_right)) = (awaited_left, awaited_right)
+            && !(awaited_left == left && awaited_right == right)
+        {
+            would_work_with_await =
+                self.operator_types_related(relation, awaited_left, awaited_right)
+                    == Ternary::Related;
+        }
+        let (mut effective_left, mut effective_right) = (left, right);
+        if !would_work_with_await {
+            // `getBaseTypesIfUnrelated` (`checker.go:12745`).
+            let left_base = self.get_base_type_of_literal_type(left);
+            let right_base = self.get_base_type_of_literal_type(right);
+            if self.operator_types_related(relation, left_base, right_base) == Ternary::NotRelated {
+                effective_left = left_base;
+                effective_right = right_base;
+            }
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(error_node) else { return };
+        let span = self.error_span(error_node);
+        let left_text = self.type_to_string(effective_left);
+        let right_text = self.type_to_string(effective_right);
+        self.report(
+            file,
+            Diagnostic::with_args(
+                &messages::OPERATOR_0_CANNOT_BE_APPLIED_TO_TYPES_1_AND_2,
+                span,
+                [token_text(operator).to_string(), left_text, right_text],
+            ),
+        );
+    }
+}
+
+/// `scanner.TokenToString` for the binary and unary operator tokens.
+pub(crate) fn token_text(operator: SyntaxKind) -> &'static str {
     match operator {
         SyntaxKind::PlusToken => "+",
         SyntaxKind::PlusEqualsToken => "+=",
+        SyntaxKind::MinusToken => "-",
+        SyntaxKind::MinusEqualsToken => "-=",
+        SyntaxKind::AsteriskToken => "*",
+        SyntaxKind::AsteriskEqualsToken => "*=",
+        SyntaxKind::AsteriskAsteriskToken => "**",
+        SyntaxKind::AsteriskAsteriskEqualsToken => "**=",
+        SyntaxKind::SlashToken => "/",
+        SyntaxKind::SlashEqualsToken => "/=",
+        SyntaxKind::PercentToken => "%",
+        SyntaxKind::PercentEqualsToken => "%=",
+        SyntaxKind::LessThanLessThanToken => "<<",
+        SyntaxKind::LessThanLessThanEqualsToken => "<<=",
+        SyntaxKind::GreaterThanGreaterThanToken => ">>",
+        SyntaxKind::GreaterThanGreaterThanEqualsToken => ">>=",
+        SyntaxKind::GreaterThanGreaterThanGreaterThanToken => ">>>",
+        SyntaxKind::GreaterThanGreaterThanGreaterThanEqualsToken => ">>>=",
+        SyntaxKind::AmpersandToken => "&",
+        SyntaxKind::AmpersandEqualsToken => "&=",
+        SyntaxKind::BarToken => "|",
+        SyntaxKind::BarEqualsToken => "|=",
+        SyntaxKind::CaretToken => "^",
+        SyntaxKind::CaretEqualsToken => "^=",
         SyntaxKind::LessThanToken => "<",
         SyntaxKind::GreaterThanToken => ">",
         SyntaxKind::LessThanEqualsToken => "<=",
-        _ => ">=",
+        SyntaxKind::GreaterThanEqualsToken => ">=",
+        SyntaxKind::PlusPlusToken => "++",
+        SyntaxKind::MinusMinusToken => "--",
+        SyntaxKind::TildeToken => "~",
+        SyntaxKind::ExclamationToken => "!",
+        SyntaxKind::AmpersandAmpersandToken => "&&",
+        SyntaxKind::BarBarToken => "||",
+        SyntaxKind::QuestionQuestionToken => "??",
+        _ => "",
     }
 }
