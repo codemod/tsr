@@ -333,26 +333,36 @@ pub fn run_compilation(
         })
         .collect();
 
-    let files: Vec<DiagnosticFile> = program
-        .source_files()
-        .iter()
-        .map(|file| DiagnosticFile::new(file.file_name(), file.text()))
-        .collect();
+    // Line maps are built only for files that have diagnostics, as native
+    // `SourceFile.ECMALineMap` is computed on first use: indexing every
+    // library file would scan megabytes nobody prints.
+    let mut indexed_files: Vec<Option<DiagnosticFile>> =
+        std::iter::repeat_with(|| None).take(program.source_files().len()).collect();
+    let index_file = |slot: &mut Option<DiagnosticFile>, index: usize| {
+        if slot.is_none() {
+            let file = &program.source_files()[index];
+            *slot = Some(DiagnosticFile::new(file.file_name(), file.text()));
+        }
+    };
+    let line_of = |slot: &Option<DiagnosticFile>, position: u32| {
+        slot.as_ref().expect("indexed before use").line_of_position(position)
+    };
 
     if !options.no_check.is_true() {
         let mut filtered = Vec::with_capacity(diagnostics.len());
-        for (index, (source, indexed)) in program.source_files().iter().zip(&files).enumerate() {
+        for (index, source) in program.source_files().iter().enumerate() {
             // Match SkipTypeChecking: skipped declaration files must not earn
             // unused-directive errors without ever being checked.
             if full_check_exclusion(&program, index).is_some() {
                 continue;
             }
             let directives = tsr_compiler::comment_directives::directives_in(source.text());
-            let entries: Vec<_> = diagnostics
-                .iter()
-                .filter(|(name, _)| name == source.file_name())
-                .map(|entry| (indexed.line_of_position(entry.1.span.start), entry.clone()))
-                .collect();
+            let mut entries = Vec::new();
+            for entry in diagnostics.iter().filter(|(name, _)| name == source.file_name()) {
+                let slot = &mut indexed_files[index];
+                index_file(slot, index);
+                entries.push((line_of(slot, entry.1.span.start), entry.clone()));
+            }
             let (kept, unused) =
                 tsr_compiler::comment_directives::filter(source.text(), &entries, &directives);
             filtered.extend(kept);
@@ -381,6 +391,18 @@ pub fn run_compilation(
             && left.args == right.args
     });
 
+    let mut printed: Vec<usize> = diagnostics
+        .iter()
+        .filter_map(|(name, _)| {
+            program.source_files().iter().position(|file| file.file_name() == name)
+        })
+        .collect();
+    printed.sort_unstable();
+    printed.dedup();
+    for &index in &printed {
+        index_file(&mut indexed_files[index], index);
+    }
+    let files: Vec<DiagnosticFile> = indexed_files.into_iter().flatten().collect();
     report_located(sys, &files, &diagnostics, &options);
     let reporting_finished = sys.since_start();
 
