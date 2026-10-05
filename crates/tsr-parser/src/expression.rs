@@ -354,7 +354,7 @@ impl<'a> Parser<'a> {
             | SyntaxKind::TildeToken
             | SyntaxKind::ExclamationToken => {
                 let operator = self.take_token();
-                let operand = self.parse_unary_expression();
+                let operand = self.parse_simple_unary_operand();
                 let node = self.finish_node(
                     PrefixUnaryExpression::new(operator, Some(operand)),
                     SyntaxKind::PrefixUnaryExpression,
@@ -364,7 +364,7 @@ impl<'a> Parser<'a> {
             }
             SyntaxKind::TypeOfKeyword => {
                 self.next_token();
-                let operand = self.parse_unary_expression();
+                let operand = self.parse_simple_unary_operand();
                 let node = self.finish_node(
                     TypeOfExpression::new(Some(operand)),
                     SyntaxKind::TypeOfExpression,
@@ -374,7 +374,7 @@ impl<'a> Parser<'a> {
             }
             SyntaxKind::VoidKeyword => {
                 self.next_token();
-                let operand = self.parse_unary_expression();
+                let operand = self.parse_simple_unary_operand();
                 let node = self.finish_node(
                     VoidExpression::new(Some(operand)),
                     SyntaxKind::VoidExpression,
@@ -384,7 +384,7 @@ impl<'a> Parser<'a> {
             }
             SyntaxKind::DeleteKeyword => {
                 self.next_token();
-                let operand = self.parse_unary_expression();
+                let operand = self.parse_simple_unary_operand();
                 let node = self.finish_node(
                     DeleteExpression::new(Some(operand)),
                     SyntaxKind::DeleteExpression,
@@ -395,7 +395,7 @@ impl<'a> Parser<'a> {
             // `await` is CONTEXTUAL — see [`Self::is_await_expression`].
             SyntaxKind::AwaitKeyword if self.is_await_expression() => {
                 self.next_token();
-                let operand = self.parse_unary_expression();
+                let operand = self.parse_simple_unary_operand();
                 let node = self.finish_node(
                     AwaitExpression::new(Some(operand)),
                     SyntaxKind::AwaitExpression,
@@ -403,8 +403,36 @@ impl<'a> Parser<'a> {
                 );
                 Expression::AwaitExpression(node)
             }
+            // `parseUpdateExpression` (`parser.go:4716`): JSX is part of the
+            // primary expression only when `<` is followed by a name or `>`;
+            // otherwise the `<` falls through to the left-hand side.
+            SyntaxKind::LessThanToken
+                if self.script_kind.allows_jsx()
+                    && self
+                        .look_ahead(Self::next_token_is_identifier_or_keyword_or_greater_than) =>
+            {
+                self.parse_jsx_element_or_self_closing_element_or_fragment(true, None, false)
+            }
             _ => self.parse_postfix_expression(),
         }
+    }
+
+    /// `nextTokenIsIdentifierOrKeywordOrGreaterThan` (`parser.go`).
+    fn next_token_is_identifier_or_keyword_or_greater_than(&mut self) -> bool {
+        self.next_token();
+        crate::list::token_is_identifier_or_keyword(self.token.kind)
+            || self.at(SyntaxKind::GreaterThanToken)
+    }
+
+    /// The operand of a prefix operator: upstream's `parseSimpleUnaryExpression`
+    /// (`parser.go:5071`) differs from the update-expression entry only in its
+    /// JSX arm — any `<` is JSX, parsed with `mustBeUnary` so the
+    /// sibling-element recovery cannot wrap it in a binary.
+    fn parse_simple_unary_operand(&mut self) -> Expression<'a> {
+        if self.script_kind.allows_jsx() && self.at(SyntaxKind::LessThanToken) {
+            return self.parse_jsx_element_or_self_closing_element_or_fragment(true, None, true);
+        }
+        self.parse_unary_expression()
     }
 
     fn parse_postfix_expression(&mut self) -> Expression<'a> {
@@ -1050,12 +1078,12 @@ impl<'a> Parser<'a> {
             // `<` is a type assertion in `.ts` and a JSX element in `.tsx`. The
             // two readings are mutually exclusive, which is why TypeScript ties
             // them to the file extension rather than to a lookahead.
-            SyntaxKind::LessThanToken => {
-                if self.script_kind.allows_jsx() {
-                    self.parse_jsx_element_in_expression(None)
-                } else {
-                    self.parse_type_assertion()
-                }
+            // In `.tsx` a `<` never reaches here as JSX: upstream parses JSX
+            // in `parseUpdateExpression`/`parseSimpleUnaryExpression` (see
+            // [`Self::parse_unary_expression`]), and `parsePrimaryExpression`
+            // has no `<` arm, so it falls to the missing-expression default.
+            SyntaxKind::LessThanToken if !self.script_kind.allows_jsx() => {
+                self.parse_type_assertion()
             }
             SyntaxKind::FunctionKeyword => self.parse_function_expression(None, None),
             SyntaxKind::AsyncKeyword if self.next_is_function_keyword() => {
@@ -2484,7 +2512,7 @@ impl<'a> Parser<'a> {
     /// Upstream records `IgnoreRulesSpecific. : any` and a separate
     /// `var y = … : Position`; this port took `var` as the member name and
     /// emitted one line too many (`enumConflictsWithGlobalIdentifier`).
-    fn right_side_of_dot_is_missing(&mut self) -> bool {
+    pub(crate) fn right_side_of_dot_is_missing(&mut self) -> bool {
         self.token.flags.contains(tsr_scanner::TokenFlags::PRECEDING_LINE_BREAK)
             && (self.token.kind == SyntaxKind::Identifier || self.token.kind.is_keyword())
             && self.look_ahead(Self::next_token_is_identifier_or_keyword_on_same_line)

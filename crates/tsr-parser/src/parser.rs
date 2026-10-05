@@ -306,6 +306,7 @@ impl<'a> Parser<'a> {
         node_map.reserve(estimate);
         let script_kind = options.script_kind;
         let mut scanner = Scanner::new(source);
+        scanner.set_jsx_language_variant(script_kind.allows_jsx());
         let token = scanner.scan();
         let token_value = capture_value(&scanner);
         Self {
