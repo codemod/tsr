@@ -770,6 +770,13 @@ impl Checker<'_, '_> {
         false
     }
 
+    /// Whether the binding chain's root is an unannotated parameter, whose
+    /// parent type comes from this port's contextual-parameter road.
+    pub(crate) fn binding_root_is_unannotated_parameter(&self, declaration: NodeId) -> bool {
+        self.is_part_of_parameter_declaration(declaration)
+            && !self.binding_root_has_annotation(declaration)
+    }
+
     /// Upstream's `ast.IsPartOfParameterDeclaration` — the walked-up root of
     /// the binding chain is a `Parameter` (`utilities.go`).
     fn is_part_of_parameter_declaration(&self, declaration: NodeId) -> bool {

@@ -1,57 +1,79 @@
 //! TS2783 — `'{0}' is specified more than once, so this usage will be
 //! overwritten.`
 //!
-//! `checkSpreadPropOverrides` (`checker.go:13371`). Only the syntactic slice is
-//! ported: a spread of an **identifier** whose declaration carries a written
-//! **type literal**. Upstream's other two guards — `CheckFlagsPartial` and a
-//! union operand — are satisfied by that restriction rather than by a test.
-//!
-//! `docs/architecture/checker-notes-diag2.md` §962.
+//! `checkSpreadPropOverrides` (`checker.go:13371`), plus the object-literal
+//! and JSX spread validity reports (TS2698) and the object rest report
+//! (TS2700) that share its operands.
 
 use tsr_ast::{Node, NodeId, SyntaxKind};
-use tsr_binder::SymbolFlags;
 use tsr_diagnostics::{Diagnostic, messages};
 
 use crate::checker::Checker;
+use crate::flags::TypeFlags;
+use crate::types::TypeId;
 
 impl Checker<'_, '_> {
-    /// One object literal.
+    /// `checkObjectLiteral`'s `allPropertiesTable` walk (`checker.go:13158`):
+    /// under `strictNullChecks`, every property assignment, shorthand and
+    /// method enters the table by name (the binder-merged symbol, whose value
+    /// declaration is the first member of that name), and each valid spread
+    /// runs `checkSpreadPropOverrides` (`checker.go:13371`) against the table
+    /// as filled so far.
     pub(crate) fn check_spread_property_overrides(&mut self, node: NodeId) {
-        if self.file_has_parse_errors || self.in_js_file(node) {
+        if self.file_has_parse_errors || self.in_js_file(node) || !self.strict_null_checks {
             return;
         }
         let Some(Node::ObjectLiteralExpression(literal)) = self.node_map.get(node) else {
             return;
         };
-        // Names of the property assignments seen so far, with the node upstream
-        // reports on — `left.ValueDeclaration`, the assignment itself.
-        let mut seen: Vec<(String, NodeId)> = Vec::new();
-        let mut reports: Vec<(NodeId, String)> = Vec::new();
+        if self.assignment_target_kind(node) != crate::expressions::AssignmentTargetKind::None {
+            return;
+        }
+        let mut members = Vec::new();
         for property in literal.properties {
             let Some(at) = property.node_id() else { continue };
-            match self.node_map.get(at) {
-                Some(Node::PropertyAssignment(assignment)) => {
-                    if let tsr_ast::PropertyName::Identifier(name) = assignment.name {
-                        seen.push((name.text.to_string(), at));
-                    }
-                }
+            let name = match self.node_map.get(at) {
+                Some(Node::PropertyAssignment(assignment)) => assignment.name,
+                Some(Node::ShorthandPropertyAssignment(shorthand)) => shorthand.name,
+                Some(Node::MethodDeclaration(method)) => method.name,
                 Some(Node::SpreadAssignment(spread)) => {
-                    let Some(operand) = spread.expression.and_then(|e| e.node_id()) else {
-                        continue;
-                    };
-                    for required in self.required_members_of_annotated_identifier(operand) {
-                        // **Every earlier assignment of that name**, which is
-                        // upstream's `props[right.Name]` after the fold has
-                        // already collapsed duplicates — this port keeps the
-                        // list and reports each, matching the corpus.
-                        for (name, assignment) in &seen {
-                            if *name == required {
-                                reports.push((*assignment, required.clone()));
-                            }
-                        }
+                    if let Some(operand) = spread.expression {
+                        members.push((at, None, Some(operand)));
                     }
+                    continue;
                 }
-                _ => {}
+                _ => continue,
+            };
+            let text = match name {
+                tsr_ast::PropertyName::Identifier(name) => name.text.to_string(),
+                tsr_ast::PropertyName::StringLiteral(name) => name.text.to_string(),
+                tsr_ast::PropertyName::NumericLiteral(name) => {
+                    crate::printing::normalise_number(name.text)
+                }
+                _ => continue,
+            };
+            members.push((at, Some(text), None));
+        }
+        let mut table: Vec<(String, NodeId)> = Vec::new();
+        let mut reports: Vec<(NodeId, String)> = Vec::new();
+        for (at, name, operand) in members {
+            if let Some(name) = name {
+                if !table.iter().any(|(seen, _)| *seen == name) {
+                    table.push((name, at));
+                }
+                continue;
+            }
+            let Some(operand) = operand else { continue };
+            let operand_type = self.check_expression(operand);
+            if self.is_error(operand_type) || !self.is_valid_spread_type(operand_type) {
+                continue;
+            }
+            let merged = self.try_merge_union_of_object_type_and_empty_object(operand_type);
+            let Some(required) = self.spread_required_property_names(merged) else { continue };
+            for name in required {
+                if let Some((_, declaration)) = table.iter().find(|(seen, _)| *seen == name) {
+                    reports.push((*declaration, name));
+                }
             }
         }
         for (at, name) in reports {
@@ -68,80 +90,128 @@ impl Checker<'_, '_> {
         }
     }
 
-    /// The **required** member names of `x` where `x` was declared with a
-    /// written type literal — `declare let a: { a: string }`.
-    ///
-    /// A `?` excludes the member; `| undefined` does **not**, which is the
-    /// difference `spreadDuplicate` tests with `c` against `b`.
-    fn required_members_of_annotated_identifier(&mut self, operand: NodeId) -> Vec<String> {
-        if self.nodes.kind(operand) != SyntaxKind::Identifier {
-            return Vec::new();
+    /// `getPropertiesOfType(t)` filtered to properties that are neither
+    /// `SymbolFlagsOptional` nor `CheckFlagsPartial`: a union property is
+    /// partial unless every constituent declares it, and optional when any
+    /// constituent's is. `None` when a constituent's members are unresolved.
+    fn spread_required_property_names(&mut self, ty: TypeId) -> Option<Vec<String>> {
+        if self.store.get(ty).flags.intersects(TypeFlags::ANY) {
+            return None;
         }
-        let Some(text) = self.identifier_text(operand).map(str::to_string) else {
-            return Vec::new();
+        let parts = match &self.store.get(ty).data {
+            crate::types::TypeData::Union { types, .. } => types.clone(),
+            _ => vec![ty],
         };
-        let Some(symbol) =
-            self.binder.resolve_name(self.nodes, self.node_map, operand, &text, SymbolFlags::VALUE)
-        else {
-            return Vec::new();
-        };
-        let declarations =
-            self.binder.symbols().get(self.binder.merged_symbol(symbol)).declarations.clone();
-        let [declaration] = declarations.as_slice() else { return Vec::new() };
-        let Some(Node::VariableDeclaration(variable)) = self.node_map.get(*declaration) else {
-            return Vec::new();
-        };
-        let Some(annotation) = variable.r#type.and_then(|t| t.node_id()) else { return Vec::new() };
-        let Some(Node::TypeLiteralNode(literal)) = self.node_map.get(annotation) else {
-            return Vec::new();
-        };
-        literal
-            .members
-            .iter()
-            .filter_map(|member| {
-                let id = member.node_id()?;
-                let Some(Node::PropertySignatureDeclaration(signature)) = self.node_map.get(id)
-                else {
-                    return None;
-                };
-                // `?` is the `postfix_token` on a property signature.
-                if signature
-                    .postfix_token
-                    .is_some_and(|token| token.kind == SyntaxKind::QuestionToken)
-                {
-                    return None;
+        let mut required: Option<Vec<String>> = None;
+        for part in parts {
+            let (properties, _) = self.spread_properties(part, false)?;
+            let names: Vec<String> = properties
+                .into_iter()
+                .filter(|property| !property.optional)
+                .map(|property| property.name)
+                .collect();
+            required = Some(match required {
+                None => names,
+                Some(previous) => {
+                    previous.into_iter().filter(|name| names.contains(name)).collect()
                 }
-                match signature.name {
-                    tsr_ast::PropertyName::Identifier(name) => Some(name.text.to_string()),
-                    _ => None,
-                }
-            })
-            .collect()
+            });
+        }
+        required
+    }
+
+    /// TS2700 — `Rest types may only be created from object types.`
+    ///
+    /// `getBindingElementTypeFromParentType`'s object rest arm
+    /// (`checker.go:17723`): an `unknown` or non-spreadable parent reports on
+    /// the rest element. An `any` parent returns before it.
+    pub(crate) fn check_object_rest_of_non_object_type(&mut self, node: NodeId) {
+        if self.file_has_parse_errors || self.in_js_file(node) {
+            return;
+        }
+        let Some(Node::BindingElement(element)) = self.node_map.get(node) else { return };
+        if element.dot_dot_dot_token.is_none() {
+            return;
+        }
+        let Some(pattern_id) = self.nodes.parent(node) else { return };
+        if self.nodes.kind(pattern_id) != SyntaxKind::ObjectBindingPattern {
+            return;
+        }
+        // A contextually typed parameter's parent can be this port's
+        // in-progress inference image (an instantiable or unknown stand-in),
+        // which is not evidence about the final parent type.
+        if self.binding_root_is_unannotated_parameter(node) {
+            return;
+        }
+        let Some(holder) = self.nodes.parent(pattern_id) else { return };
+        let parent_type = self.get_type_for_binding_element_parent(holder);
+        if parent_type == self.intrinsics.any || self.is_error(parent_type) {
+            return;
+        }
+        let parent_type = self.destructuring_parent_adjusted(node, holder, parent_type);
+        if !self.store.get(parent_type).flags.intersects(crate::flags::TypeFlags::UNKNOWN)
+            && self.is_valid_spread_type(parent_type)
+        {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        let span = self.error_span(node);
+        self.report(
+            file,
+            Diagnostic::new(&messages::REST_TYPES_MAY_ONLY_BE_CREATED_FROM_OBJECT_TYPES, span),
+        );
+    }
+
+    /// TS2698 for a JSX spread attribute: `createJsxAttributesTypeFromAttributesProperty`
+    /// (`jsx.go:785`) reports on the attribute's expression.
+    pub(crate) fn check_jsx_spread_of_non_object_type(&mut self, node: NodeId) {
+        if self.file_has_parse_errors || self.in_js_file(node) {
+            return;
+        }
+        let Some(Node::JsxSpreadAttribute(attribute)) = self.node_map.get(node) else { return };
+        let Some(operand) = attribute.expression else { return };
+        let Some(operand_id) = operand.node_id() else { return };
+        let operand_type = self.check_expression(operand);
+        if self.is_error(operand_type) || self.is_valid_spread_type(operand_type) {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(operand_id) else { return };
+        let span = self.error_span(operand_id);
+        self.report(
+            file,
+            Diagnostic::new(&messages::SPREAD_TYPES_MAY_ONLY_BE_CREATED_FROM_OBJECT_TYPES, span),
+        );
     }
 
     /// TS2698 — `Spread types may only be created from object types.`
     ///
-    /// `getSpreadType` (`checker.go:13304`) asks the constraint's *type*; the
-    /// written constraint answers it for the shapes the corpus has. A keyword
-    /// type is never spreadable; an array, tuple or type literal always is;
-    /// anything else is declined. §1001.
-    pub(crate) fn check_spread_of_primitive_type_variable(&mut self, node: NodeId) {
+    /// `checkObjectLiteral`'s spread arm (`checker.go:13291`): the operand's
+    /// type must pass `isValidSpreadType` (`checker.go:13304`), reported on
+    /// the spread assignment.
+    pub(crate) fn check_spread_of_non_object_type(&mut self, node: NodeId) {
         if self.file_has_parse_errors || self.in_js_file(node) {
             return;
         }
         let Some(Node::ObjectLiteralExpression(literal)) = self.node_map.get(node) else {
             return;
         };
-        let mut reports = Vec::new();
+        // A destructuring target is checkDestructuringAssignment's, not
+        // checkObjectLiteral's; its spread is a rest element.
+        if self.assignment_target_kind(node) != crate::expressions::AssignmentTargetKind::None {
+            return;
+        }
+        let mut operands = Vec::new();
         for property in literal.properties {
             let Some(at) = property.node_id() else { continue };
             let Some(Node::SpreadAssignment(spread)) = self.node_map.get(at) else { continue };
-            let Some(operand) = spread.expression.and_then(|e| e.node_id()) else { continue };
-            if self.spread_operand_is_primitive_type_variable(operand) {
-                reports.push(at);
-            }
+            let Some(operand) = spread.expression else { continue };
+            operands.push((at, operand));
         }
-        for at in reports {
+        for (at, operand) in operands {
+            let operand_type = self.check_expression(operand);
+            if self.is_error(operand_type) || self.is_valid_spread_type(operand_type) {
+                continue;
+            }
             let Some(file) = self.source_file_of_for_diagnostics(at) else { continue };
             let span = self.nodes.span(at);
             self.report(
@@ -151,70 +221,6 @@ impl Checker<'_, '_> {
                     span,
                 ),
             );
-        }
-    }
-
-    /// Is this operand a value whose written type is a type parameter whose
-    /// constraint has a **primitive** constituent? §1001.
-    fn spread_operand_is_primitive_type_variable(&mut self, operand: NodeId) -> bool {
-        if self.nodes.kind(operand) != SyntaxKind::Identifier {
-            return false;
-        }
-        let Some(text) = self.identifier_text(operand).map(str::to_string) else { return false };
-        let Some(symbol) =
-            self.binder.resolve_name(self.nodes, self.node_map, operand, &text, SymbolFlags::VALUE)
-        else {
-            return false;
-        };
-        let declarations =
-            self.binder.symbols().get(self.binder.merged_symbol(symbol)).declarations.clone();
-        let [declaration] = declarations.as_slice() else { return false };
-        let Some(Node::ParameterDeclaration(parameter)) = self.node_map.get(*declaration) else {
-            return false;
-        };
-        let Some(annotation) = parameter.r#type.and_then(|t| t.node_id()) else { return false };
-        let Some(Node::TypeReferenceNode(reference)) = self.node_map.get(annotation) else {
-            return false;
-        };
-        let Some(name) = reference.type_name.and_then(|n| n.node_id()) else { return false };
-        let Some(type_text) = self.identifier_text(name).map(str::to_string) else { return false };
-        let Some(type_symbol) = self.binder.resolve_name(
-            self.nodes,
-            self.node_map,
-            name,
-            &type_text,
-            SymbolFlags::TYPE,
-        ) else {
-            return false;
-        };
-        let type_declarations =
-            self.binder.symbols().get(self.binder.merged_symbol(type_symbol)).declarations.clone();
-        let [type_declaration] = type_declarations.as_slice() else { return false };
-        let Some(Node::TypeParameterDeclaration(parameter)) = self.node_map.get(*type_declaration)
-        else {
-            return false;
-        };
-        let Some(constraint) = parameter.constraint.and_then(|t| t.node_id()) else { return false };
-        self.written_type_has_a_primitive_constituent(constraint)
-    }
-
-    /// **Any** constituent being a primitive is enough — `number | string[]`
-    /// reports, which is falsifier 2 and the opposite of the natural reading.
-    fn written_type_has_a_primitive_constituent(&self, at: NodeId) -> bool {
-        match self.node_map.get(at) {
-            Some(Node::UnionTypeNode(union)) => union.types.iter().any(|member| {
-                member.node_id().is_some_and(|id| self.written_type_has_a_primitive_constituent(id))
-            }),
-            _ => matches!(
-                self.nodes.kind(at),
-                SyntaxKind::StringKeyword
-                    | SyntaxKind::NumberKeyword
-                    | SyntaxKind::BooleanKeyword
-                    | SyntaxKind::SymbolKeyword
-                    | SyntaxKind::BigIntKeyword
-                    | SyntaxKind::VoidKeyword
-                    | SyntaxKind::NeverKeyword
-            ),
         }
     }
 }

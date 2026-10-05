@@ -599,7 +599,7 @@ impl Checker<'_, '_> {
             }
             Node::ObjectLiteralExpression(_) => {
                 self.check_spread_property_overrides(node);
-                self.check_spread_of_primitive_type_variable(node);
+                self.check_spread_of_non_object_type(node);
                 self.check_duplicate_object_literal_accessors(node);
                 self.check_duplicate_object_literal_names(node);
                 self.check_private_name_in_object_literal(node);
@@ -931,6 +931,7 @@ impl Checker<'_, '_> {
             Node::BindingElement(_) => {
                 self.check_binding_element_tuple_bounds(node);
                 self.check_binding_element_computed_index(node);
+                self.check_object_rest_of_non_object_type(node);
             }
             Node::ObjectLiteralExpression(_) => self.check_object_assignment_computed_index(node),
             Node::ElementAccessExpression(_) => {
@@ -946,6 +947,7 @@ impl Checker<'_, '_> {
                 self.check_array_assignment_tuple_bounds(node);
             }
             Node::SpreadElement(_) => self.check_spread_element_iteration(node),
+            Node::JsxSpreadAttribute(_) => self.check_jsx_spread_of_non_object_type(node),
             _ => {}
         }
         if matches!(typed, Node::ExportDeclaration(_)) {
