@@ -2037,12 +2037,11 @@ impl<'a> Checker<'a, '_> {
     /// `errorNoModuleMemberSymbol` (`checker.go:14883`), reached when
     /// [`Checker::get_external_module_member`] finds no export for the name.
     ///
-    /// Upstream chooses between six messages there. This reports two of them —
-    /// TS2724 when the name is a near miss, TS2305 otherwise — and **evaluates
-    /// the other four arms' conditions in order to decline them**. See §228:
-    /// declining to emit TS2613 costs a missing line, whereas emitting TS2305
-    /// in its place would be a wrong one, and the guard is a table lookup
-    /// either way.
+    /// Upstream chooses between six messages there: TS2724 for a near miss,
+    /// TS2614 when the module has a default export, then
+    /// `reportNonExportedMember`'s TS2459 / TS2460 / TS2305. The `export =`
+    /// arm (`reportInvalidImportEqualsExportMember`) is declined, as is every
+    /// `export =` module above. See §228.
     pub(crate) fn report_missing_module_export(&mut self, specifier: NodeId) -> Option<()> {
         let declaration = self.import_or_export_declaration_of(specifier)?;
         let module_specifier = self.external_module_name(declaration)?;
@@ -2084,8 +2083,6 @@ impl<'a> Checker<'a, '_> {
             return None;
         }
         let entry = self.binder.symbols().get(module_symbol);
-        // `moduleSymbol.Exports[InternalSymbolNameDefault] != nil` — upstream's
-        // TS2613, `Did you mean to use 'import x from …' instead?`. Declined.
         let has_default = entry.exports.contains_key("default");
         let value_declaration = entry.value_declaration;
         let candidates: Vec<&str> = entry.exports.keys().copied().collect();
@@ -2107,7 +2104,16 @@ impl<'a> Checker<'a, '_> {
             );
             return None;
         }
+        // `moduleSymbol.Exports[InternalSymbolNameDefault] != nil`: TS2614.
         if has_default {
+            self.report(
+                file,
+                Diagnostic::with_args(
+                    &messages::MODULE_0_HAS_NO_EXPORTED_MEMBER_1_DID_YOU_MEAN_TO_USE_IMPORT_1_FROM_0_INSTEAD,
+                    span,
+                    [module_name, text.to_string()],
+                ),
+            );
             return None;
         }
         // `reportNonExportedMember` (`checker.go:14908`) splits again on
@@ -2124,14 +2130,24 @@ impl<'a> Checker<'a, '_> {
                 return None;
             }
             // `findInMap(exports, sameReference(localSymbol))`: when an export
-            // *is* this local under another name, upstream says TS2460
-            // `…but it is exported as '{2}'`. That name is the second
-            // argument this port would have to invent, so the branch stays a
-            // decline; identity of the merged symbol is what upstream's
-            // `getSymbolIfSameReference` reduces to for the local case.
-            let merged = self.binder.merged_symbol(local);
-            if entry.exports.values().any(|&exported| self.binder.merged_symbol(exported) == merged)
+            // *is* this local under another name, TS2460 names that export.
+            // `getSymbolIfSameReference` compares the merged, fully resolved
+            // symbols, so `export { a as b }` — an alias — reaches the local.
+            let exports: Vec<(&str, SymbolId)> =
+                entry.exports.iter().map(|(&name, &symbol)| (name, symbol)).collect();
+            let local = self.same_reference_identity(local);
+            if let Some((exported_name, _)) = exports
+                .into_iter()
+                .find(|&(_, exported)| self.same_reference_identity(exported) == local)
             {
+                self.report(
+                    file,
+                    Diagnostic::with_args(
+                        &messages::MODULE_0_DECLARES_1_LOCALLY_BUT_IT_IS_EXPORTED_AS_2,
+                        span,
+                        [module_name, text.to_string(), exported_name.to_string()],
+                    ),
+                );
                 return None;
             }
             self.report(
@@ -2153,6 +2169,14 @@ impl<'a> Checker<'a, '_> {
             ),
         );
         None
+    }
+
+    /// The identity `getSymbolIfSameReference` (`checker.go`) compares:
+    /// `getMergedSymbol(resolveSymbol(getMergedSymbol(s)))`.
+    fn same_reference_identity(&mut self, symbol: SymbolId) -> SymbolId {
+        let merged = self.binder.merged_symbol(symbol);
+        let resolved = self.resolve_alias_fully(merged);
+        self.binder.merged_symbol(resolved)
     }
 
     /// TS2440 — `Import declaration conflicts with local declaration of '{0}'.`
