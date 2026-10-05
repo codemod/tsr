@@ -523,6 +523,26 @@ impl Checker<'_, '_> {
             }
             return missing.then_some(receiver);
         }
+        // getApparentType(never) is never, whose getPropertyOfType misses with
+        // no index info; only silentNeverType is any-like
+        // (checkPropertyAccessExpressionOrQualifiedName, checker.go:11280).
+        // getFlowTypeOfReference (flow.go:111) answers the declared type, not
+        // unreachableNeverType, and for the operand of `x!` whenever narrowing
+        // left only null/undefined. This port's flow walk has neither rule
+        // yet, so a `never` reached through either is not certified.
+        // `docs/parity/notes/property.md` §3.
+        if flags.contains(TypeFlags::NEVER) {
+            let receiver_is_non_null = match self.node_map.get(access) {
+                Some(Node::PropertyAccessExpression(node)) => node.expression,
+                Some(Node::ElementAccessExpression(node)) => node.expression,
+                _ => None,
+            }
+            .and_then(|receiver| receiver.node_id())
+            .is_some_and(|receiver| self.nodes.kind(receiver) == SyntaxKind::NonNullExpression);
+            let silent = self.silent_never_type == Some(receiver)
+                || receiver == self.intrinsics.unreachable_never;
+            return (!silent && !receiver_is_non_null).then_some(receiver);
+        }
         let apparent = if flags.intersects(TypeFlags::PRIMITIVE) {
             self.primitive_apparent_type(receiver)
         } else if let Some(&symbol) = self.type_parameter_symbols.get(&receiver) {

@@ -95,3 +95,29 @@ certified miss.
 producer that captures a partial list (an inserter that stores fewer properties
 than `getPropertiesOfType` would) shows the list is not a certificate for that
 producer; the fix is at the producer, or a decline naming it here.
+
+## 3. TS2339 on a `never` receiver
+
+**Forcing constraint.** `getApparentType(never)` is `never`, `getPropertyOfType`
+misses on it, and no index info applies, so
+`checkPropertyAccessExpressionOrQualifiedName` reports TS2339 on `never`. Only
+`silentNeverType` is any-like there. `property_is_known_absent` had no arm for
+it and declined every `never` receiver.
+
+**Decision.** Certify a `never` receiver directly, except two shapes whose
+`never` upstream would never have produced:
+
+- `unreachableNeverType` — `getFlowTypeOfReference` (`flow.go:111`) answers the
+  declared type instead;
+- the operand of `x!` — the same line answers the declared type when narrowing
+  left only `null`/`undefined`. This port's flow walk lacks that rule
+  (`typeGuardsAsAssertions` reads `x!` as `never` after `x = undefined`, 3 false
+  lines). The decline goes when `crate::flow` ports `flow.go:111`.
+
+**Measured.** 9 baseline lines, 0 false, 0 losses; `instanceofWithStructurallyIdenticalTypes`,
+`narrowByClauseExpressionInSwitchTrue3`, `typeGuardConstructorDerivedClass`,
+`nonPrimitiveNarrow`, `typeGuardsInIfStatement`,
+`typeGuardsInRightOperandOfOrOrOperator` convert.
+
+**Falsifier.** A false TS2339 on `never` reached by flow narrowing means a
+narrowing arm over-narrows; it is fixed in the flow walk, not declined here.
