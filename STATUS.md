@@ -22,6 +22,19 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
+Integrated-pool allocation attribution (`tsr-1yb.16.3.1`), frozen `ecacd9d0` /
+native `5b1047d`, verifies actual default/single private and checking peaks of
+4/1, identical 1,397 directly checked identities and 117 diagnostics across
+twelve ordinary/off/on children. Ordinary medians are 3.224/4.988 seconds.
+Disjoint selected requests total 38.20M/32.41M; tagged live bytes return to zero.
+Reference spelling discards 2.35MB/1.64MB of returned strings, but reference
+origin totals also include semantic resolution. Pooled atomic observation costs
+177.56% extra wall and cannot forecast saved wall. Public namespace/default
+receivers fail native fidelity (`tsr-6.66`); the immutable Rust renderer audit
+hands the written-node contract to `.16.3.2` before bounded `.16.3.3` changes.
+No runtime candidate or comparable native <=0.50 claim is retained.
+[Origins, worker receipts, exclusions and handoff](docs/architecture/reference-preparation.md).
+
 Pre-pool cost refresh (`tsr-1yb.2.2.1`), frozen `d6acb2c4`/native `5b1047d`,
 preserves 117 diagnostics, 14,050 ordered loaded files and 1,397 reported checks.
 Two phase observations locate 3.321–3.353 s checking and 2.241–2.392 s program

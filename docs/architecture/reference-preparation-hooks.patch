@@ -1,0 +1,101 @@
+diff --git a/crates/tsr-checker/Cargo.toml b/crates/tsr-checker/Cargo.toml
+index 192f1e62..50fc8994 100644
+--- a/crates/tsr-checker/Cargo.toml
++++ b/crates/tsr-checker/Cargo.toml
+@@ -11,0 +12 @@ authors.workspace = true
++reference-origins = ["tsr-core/reference-origins"]
+diff --git a/crates/tsr-checker/src/declared.rs b/crates/tsr-checker/src/declared.rs
+index ef8e89fc..c7c3431d 100644
+--- a/crates/tsr-checker/src/declared.rs
++++ b/crates/tsr-checker/src/declared.rs
+@@ -4011,0 +4012,2 @@ impl<'a> Checker<'a, '_> {
++        #[cfg(feature = "reference-origins")]
++        let _origin_site = tsr_core::reference_origins::site(1);
+@@ -4088,0 +4091,2 @@ impl<'a> Checker<'a, '_> {
++            #[cfg(feature = "reference-origins")]
++            let (mut origin_rendered, mut origin_written) = (0, 0);
+@@ -4093,0 +4098,6 @@ impl<'a> Checker<'a, '_> {
++                #[cfg(feature = "reference-origins")]
++                if written.is_some() {
++                    origin_written += 1;
++                } else {
++                    origin_rendered += 1;
++                }
+@@ -4101,0 +4112,7 @@ impl<'a> Checker<'a, '_> {
++            #[cfg(feature = "reference-origins")]
++            tsr_core::reference_origins::spelling(
++                origin_rendered,
++                origin_written,
++                &spelled,
++                any_written || partially_written,
++            );
+diff --git a/crates/tsr-checker/src/inference.rs b/crates/tsr-checker/src/inference.rs
+index 249feb5e..197fab62 100644
+--- a/crates/tsr-checker/src/inference.rs
++++ b/crates/tsr-checker/src/inference.rs
+@@ -5179,0 +5180,2 @@ impl Checker<'_, '_> {
++        #[cfg(feature = "reference-origins")]
++        let _origin_site = tsr_core::reference_origins::site(2);
+diff --git a/crates/tsr-checker/src/members.rs b/crates/tsr-checker/src/members.rs
+index 22292576..110e34db 100644
+--- a/crates/tsr-checker/src/members.rs
++++ b/crates/tsr-checker/src/members.rs
+@@ -3020,0 +3021,2 @@ impl Checker<'_, '_> {
++        #[cfg(feature = "reference-origins")]
++        let _origin_site = tsr_core::reference_origins::site(3);
+diff --git a/crates/tsr-core/Cargo.toml b/crates/tsr-core/Cargo.toml
+index 6e4f96e2..20ab0ae1 100644
+--- a/crates/tsr-core/Cargo.toml
++++ b/crates/tsr-core/Cargo.toml
+@@ -10,0 +11,3 @@ authors.workspace = true
++[features]
++reference-origins = []
++
+diff --git a/crates/tsr-core/src/lib.rs b/crates/tsr-core/src/lib.rs
+index 6b0613e4..9dd63853 100644
+--- a/crates/tsr-core/src/lib.rs
++++ b/crates/tsr-core/src/lib.rs
+@@ -40,0 +41,3 @@ pub use stringutil::strip_quotes;
++
++#[cfg(feature = "reference-origins")]
++pub mod reference_origins;
+diff --git a/crates/tsr-execute/Cargo.toml b/crates/tsr-execute/Cargo.toml
+index 409ba1dd..c4a94a8b 100644
+--- a/crates/tsr-execute/Cargo.toml
++++ b/crates/tsr-execute/Cargo.toml
+@@ -11,0 +12 @@ authors.workspace = true
++reference-origins = ["tsr-core/reference-origins", "tsr-checker/reference-origins"]
+diff --git a/crates/tsr-execute/src/checker_pool.rs b/crates/tsr-execute/src/checker_pool.rs
+index f8e79c4f..2de05359 100644
+--- a/crates/tsr-execute/src/checker_pool.rs
++++ b/crates/tsr-execute/src/checker_pool.rs
+@@ -100,0 +101,2 @@ pub fn check_program_files<'a>(
++        #[cfg(feature = "reference-origins")]
++        let mut origin_worker = tsr_core::reference_origins::worker(owner, files.len() / count + 1);
+@@ -124,0 +127,2 @@ pub fn check_program_files<'a>(
++                #[cfg(feature = "reference-origins")]
++                let origin_check = origin_worker.as_mut().map(|worker| worker.check(index));
+@@ -131,0 +136,2 @@ pub fn check_program_files<'a>(
++                #[cfg(feature = "reference-origins")]
++                drop(origin_check);
+diff --git a/crates/tsr-execute/src/lib.rs b/crates/tsr-execute/src/lib.rs
+index 364b2638..944bed16 100644
+--- a/crates/tsr-execute/src/lib.rs
++++ b/crates/tsr-execute/src/lib.rs
+@@ -252,0 +253,3 @@ fn report_diagnostics(sys: &mut dyn System, diagnostics: &[Diagnostic]) {
++
++#[cfg(feature = "reference-origins")]
++pub use tsr_core::reference_origins;
+diff --git a/crates/tsr/Cargo.toml b/crates/tsr/Cargo.toml
+index 0acfd5e0..81d7a51d 100644
+--- a/crates/tsr/Cargo.toml
++++ b/crates/tsr/Cargo.toml
+@@ -11,0 +12 @@ authors.workspace = true
++reference-origins = ["tsr-execute/reference-origins"]
+diff --git a/crates/tsr/src/main.rs b/crates/tsr/src/main.rs
+index 40700001..b5424d4f 100644
+--- a/crates/tsr/src/main.rs
++++ b/crates/tsr/src/main.rs
+@@ -30,0 +31,2 @@ fn main() -> std::process::ExitCode {
++    #[cfg(feature = "reference-origins")]
++    tsr_execute::reference_origins::finish();
