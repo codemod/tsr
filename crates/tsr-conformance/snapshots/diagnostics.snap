@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics Summary:
 What a pass means: every diagnostic in upstream's .errors.txt reproduced exactly — same file, line, column and code, no more and no fewer — for cases that expect at least one; syntactic, bind-and-check and isolatedDeclarations diagnostics collected as upstream's test runner collects them
-Passed         : 3375/5488 (61.50%)
-Failed         : 2113
+Passed         : 3427/5488 (62.45%)
+Failed         : 2061
 Skipped        : 6956 (excluded from the denominator)
 
   793  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -11,7 +11,7 @@ Skipped        : 6956 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   464  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 2113 failures:
+First 100 of 2061 failures:
 compiler/TransportStream
   1 missing (first TS1434 at TransportStream.ts(1,1))
 compiler/abstractClassUnionInstantiation
@@ -36,8 +36,6 @@ compiler/ambientExternalModuleWithRelativeExternalImportDeclaration
   1 missing (first TS2439 at ambientExternalModuleWithRelativeExternalImportDeclaration.ts(2,5))
 compiler/anyIdenticalToItself
   1 missing (first TS2394 at anyIdenticalToItself.ts(1,10))
-compiler/anyIndexedAccessArrayNoException
-  1 missing (first TS2538 at anyIndexedAccessArrayNoException.ts(1,12))
 compiler/anyMappedTypesError
   1 missing (first TS7039 at anyMappedTypesError.ts(1,12))
 compiler/argumentsObjectCreatesRestForJs
@@ -60,12 +58,8 @@ compiler/arrayCast
   2 unexpected (first TS2352 at arrayCast.ts(3,1)), 1 missing
 compiler/arrayConcatMap
   2 missing (first TS2769 at arrayConcatMap.ts(1,20))
-compiler/arrayDestructuringInSwitch2
-  1 missing (first TS2488 at arrayDestructuringInSwitch2.ts(11,13))
 compiler/arrayFakeFlatNoCrashInferenceDeclarations
   1 missing (first TS5088 at arrayFakeFlatNoCrashInferenceDeclarations.ts(13,10))
-compiler/arrayIndexWithArrayFails
-  1 missing (first TS2538 at arrayIndexWithArrayFails.ts(3,16))
 compiler/arraySigChecking
   2 missing (first TS2322 at arraySigChecking.ts(22,13))
 compiler/arrowExpressionBodyJSDoc
@@ -124,8 +118,6 @@ compiler/augmentedTypesFunction
   4 missing (first TS2814 at augmentedTypesFunction.ts(13,10))
 compiler/autoLift2
   2 missing (first TS2693 at autoLift2.ts(5,19))
-compiler/autoTypeAssignedUsingDestructuringFromNeverNoCrash
-  1 missing (first TS2488 at autoTypeAssignedUsingDestructuringFromNeverNoCrash.ts(9,3))
 compiler/avoidListingPropertiesForTypesWithOnlyCallOrConstructSignatures
   1 unexpected (first TS2322 at avoidListingPropertiesForTypesWithOnlyCallOrConstructSignatures.ts(7,12)), 1 missing
 compiler/awaitCallExpressionInSyncFunction
@@ -153,7 +145,7 @@ compiler/bigIntWithTargetLessThanES2016
 compiler/bigintArbirtraryIdentifier
   1 unexpected (first TS2304 at badImport.ts(1,16)), 3 missing
 compiler/bigintIndex
-  4 missing (first TS2538 at a.ts(8,11))
+  1 missing (first TS2322 at a.ts(15,1))
 compiler/bigintPropertyName
   2 unexpected (first TS1005 at g.ts(35,4)), 23 missing
 compiler/bigintWithLib
@@ -163,7 +155,7 @@ compiler/bindingPatternCannotBeOnlyInferenceSource
 compiler/bitwiseCompoundAssignmentOperators
   8 missing (first TS2447 at bitwiseCompoundAssignmentOperators.ts(3,3))
 compiler/blockScopedBindingUsedBeforeDef
-  6 missing (first TS2448 at blockScopedBindingUsedBeforeDef.ts(2,12))
+  3 missing (first TS2448 at blockScopedBindingUsedBeforeDef.ts(2,12))
 compiler/bluebirdStaticThis
   1 unexpected (first TS2724 at bluebirdStaticThis.ts(22,51)), 2 missing
 compiler/builtinIterator
@@ -212,3 +204,11 @@ compiler/checkMergedGlobalUMDSymbol
   2 missing (first TS2451 at global.d.ts(3,21))
 compiler/checkSuperCallBeforeThisAccess
   3 unexpected (first TS17009 at checkSuperCallBeforeThisAccess.ts(15,22)), 10 missing
+compiler/checkerInitializationCrash
+  2 missing (first TS2300 at /node_modules/@fullcalendar/core/index.d.ts(4,10))
+compiler/checkingObjectDefinePropertyOnFunctionNonexistentPropertyNoCrash1
+  1 missing (first TS2339 at index.js(5,21))
+compiler/checkingObjectWithThisInNamePositionNoCrash
+  1 missing (first TS2339 at checkingObjectWithThisInNamePositionNoCrash.ts(4,19))
+compiler/circularAccessorAnnotations
+  4 missing (first TS2502 at circularAccessorAnnotations.ts(2,9))
