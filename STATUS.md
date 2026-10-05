@@ -22,6 +22,17 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
+Written-reference contract (`tsr-1yb.16.3.2.2`), frozen `abe7eafe` /
+native `5b1047d`, refreshes all 55 oracle children after the module-host port.
+Two archive mutations create seven/five new native display mismatches across
+22 fixture children; exact source and baseline binary restoration is verified.
+All 44 ordinary CLI controls finish in default/single modes. Ten families'
+diagnostics match; qualified defaults retain two TSR TS2322 errors versus native
+acceptance (`tsr-6.66`). The private checker/NodeId inventory permits deciding
+spelling retention only after argument resolution, preserving written text and
+ordered default substitution. No runtime candidate or speed claim is delivered.
+[Ownership, mutation proof and complete public outputs](docs/architecture/reference-spelling-reuse.md).
+
 Site-aware reference oracle (`tsr-1yb.16.3.2.1`), frozen `ecacd9d0` /
 native `5b1047d`, completes two 55-child batches over 11 families and 27
 selected variable/function probes. All fixture unit bytes and repeated
@@ -32,7 +43,8 @@ instantiations in default/dependent/mapped/conditional controls; zero counts
 do not prove all lazy effects absent. Nine families match Rust; conditional
 written annotation (`tsr-6.23.1`) and qualified alias/default (`tsr-6.67`,
 `tsr-6.66`) gaps remain explicit. No production change or speed claim; written
-reuse mutations `.16.3.2.2` still precede the measured spelling candidate.
+reuse mutations `.16.3.2.2` are now qualified above; the measured spelling
+candidate still requires complete conformance and fresh whole-CLI confirmation.
 [Protocols, complete outputs and reproduction](docs/architecture/reference-spelling.md).
 
 Integrated-pool allocation attribution (`tsr-1yb.16.3.1`), frozen `ecacd9d0` /
