@@ -973,6 +973,28 @@ impl Relater<'_, '_, '_> {
                 return self.is_related_to(apparent, target);
             }
         }
+        // structuredTypeRelatedTo compares the non-primitive `object` through
+        // its apparent type, the empty object type (getApparentType,
+        // checker.go), so a target requiring a property rejects it
+        // (`nonPrimitiveAssignError`). Only a decided answer is taken; an
+        // index-signature target keeps the existing undecided path.
+        // structuredTypeRelatedTo compares the non-primitive `object` through
+        // its apparent type, the empty object type (getApparentType,
+        // checker.go); propertiesRelatedTo then rejects a target requiring a
+        // property the empty object cannot supply, Object's members included
+        // (`nonPrimitiveAssignError`). Only that definite negative is taken
+        // here; every other `object` pair keeps its existing path.
+        if s.contains(TypeFlags::NON_PRIMITIVE)
+            && t.contains(TypeFlags::OBJECT)
+            && let Some(table) = self.checker.relation_property_table(target)
+        {
+            let empty = self.checker.intrinsics.empty_object;
+            if table.iter().any(|(name, optional)| {
+                !optional && self.checker.get_type_of_property_of_type(empty, name).is_none()
+            }) {
+                return RelationResult::NotRelated;
+            }
+        }
         // Two object types with members reach the structural arm; upstream's
         // gate is `source.flags&TypeFlags::StructuredOrInstantiable != 0 &&
         // target.flags&...`, and `Named { members: Some(_) }` is the whole of

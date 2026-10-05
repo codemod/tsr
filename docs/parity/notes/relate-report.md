@@ -139,3 +139,32 @@ the lookup. Once that union rule is ported, admitting object literals in
 one, so the narrower change was kept.
 
 Converted: `compiler/typeMatch2`.
+
+## 6. Ported: TS2561 in the excess-property check
+
+`hasExcessProperties` (`relater.go:2714`) reports TS2561 ("Did you mean to
+write …?") when the excess name is an identifier with a spelling suggestion
+among the target's properties (`getSuggestionForNonexistentProperty`), else
+TS2353. The port *returned* on a suggestion — leaving the outer TS2322 to be
+reported at the declaration instead. Now it reports TS2561 at the name; a
+string-literal name never gets a suggestion, as upstream. The suggestion is
+`crate::check::spelling_suggestion` over the certified table's names (only the
+code and position are compared by the suite).
+
+Converted: `compiler/spellingSuggestionLeadingUnderscores01`.
+`objectLiteralExcessProperties` gains its TS2561 lines but still needs union
+and intersection excess checks (`findMatchingDiscriminantType`,
+`isKnownProperty` over intersections).
+
+## 7. Ported: `object` against a target requiring a property
+
+`structuredTypeRelatedTo` relates the non-primitive `object` through its
+apparent type, the empty object type; `propertiesRelatedTo` then fails on a
+required target property the empty object (Object's members included) cannot
+supply. The port answered `Unknown` (the empty object has no member table
+here). The arm in `is_related_to_with_excess` takes only that definite
+negative, from `relation_property_table(target)`; every other `object` pair
+keeps its existing path. A lib target such as `Date` has no certified table
+and stays undecided.
+
+Converted: `conformance/nonPrimitiveAssignError`.
