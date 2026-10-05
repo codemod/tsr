@@ -542,7 +542,11 @@ impl Checker<'_, '_> {
             CallHead::Done => {}
             CallHead::Resolve(apparent) => {
                 self.check_call_arity(node);
-                if !self.check_call_type_argument_arity_of_signatures(node, apparent) {
+                if !self.check_call_type_argument_arity_of_signatures(
+                    node,
+                    apparent,
+                    SignatureKind::Call,
+                ) {
                     self.check_call_type_argument_arity(node);
                 }
             }
@@ -566,18 +570,20 @@ impl Checker<'_, '_> {
         &mut self,
         node: tsr_ast::NodeId,
         apparent: TypeId,
+        kind: SignatureKind,
     ) -> bool {
-        let Some(tsr_ast::Node::CallExpression(call)) = self.node_map.get(node) else {
-            return false;
+        let type_arguments = match self.node_map.get(node) {
+            Some(tsr_ast::Node::CallExpression(call)) => call.type_arguments,
+            Some(tsr_ast::Node::NewExpression(new)) => new.type_arguments,
+            _ => return false,
         };
-        let type_arguments = call.type_arguments;
         let (Some(first), Some(last)) = (type_arguments.first(), type_arguments.last()) else {
             return true;
         };
         if self.in_js_file(node) {
             return false;
         }
-        let Some(signatures) = self.head_signatures(apparent, SignatureKind::Call) else {
+        let Some(signatures) = self.head_signatures(apparent, kind) else {
             return false;
         };
         if signatures.is_empty() {
@@ -641,6 +647,123 @@ impl Checker<'_, '_> {
             .iter()
             .rposition(|parameter| parameter.default.is_none())
             .map_or(0, |i| i + 1)
+    }
+
+    /// Every diagnostic `resolveNewExpression` (`checker.go:8575`) issues for
+    /// one `new` node, except constructor accessibility and abstractness,
+    /// which [`Checker::check_new_on_abstract_class`] owns.
+    ///
+    /// The callee goes through `checkNonNullExpression` (the possibly-null
+    /// reporter is not emitted, for the narrowing reason
+    /// [`Checker::check_non_null_callee`] records); an `any` apparent type is
+    /// an untyped call (TS2347 for written type arguments); construct
+    /// signatures resolve, else call signatures resolve and, without
+    /// `noImplicitAny`, a non-`void` return is TS2350; else
+    /// `invocationError(Construct)` is TS2351 on the callee.
+    pub(crate) fn check_new_expression_diagnostics(&mut self, node: tsr_ast::NodeId) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        match self.check_new_expression_head(node) {
+            CallHead::Done => {}
+            CallHead::Resolve(apparent) => {
+                self.check_new_arity(node);
+                let kind = if self
+                    .head_signature_count(apparent, SignatureKind::Construct)
+                    .is_some_and(|count| count != 0)
+                {
+                    SignatureKind::Construct
+                } else {
+                    SignatureKind::Call
+                };
+                if !self.check_call_type_argument_arity_of_signatures(node, apparent, kind) {
+                    self.check_call_type_argument_arity(node);
+                }
+            }
+            CallHead::Unknown => {
+                self.check_new_arity(node);
+                self.check_call_type_argument_arity(node);
+            }
+        }
+    }
+
+    fn check_new_expression_head(&mut self, node: tsr_ast::NodeId) -> CallHead {
+        let Some(tsr_ast::Node::NewExpression(new)) = self.node_map.get(node) else {
+            return CallHead::Unknown;
+        };
+        let Some(callee) = new.expression else { return CallHead::Unknown };
+        let Some(callee_id) = callee.node_id() else { return CallHead::Unknown };
+        let expression_type = self.check_expression(callee);
+        let expression_type = match self.check_non_null_callee(expression_type, callee_id) {
+            NonNullCallee::Type(t) => t,
+            NonNullCallee::Error => return CallHead::Done,
+            NonNullCallee::Unknown => return CallHead::Unknown,
+        };
+        if Some(expression_type) == self.silent_never_type {
+            return CallHead::Done;
+        }
+        let apparent = self.apparent_type(expression_type);
+        if self.is_error(apparent) {
+            return CallHead::Done;
+        }
+        if self.store.get(apparent).flags.intersects(TypeFlags::ANY) {
+            if !self.untyped_any_is_written(callee) {
+                return CallHead::Unknown;
+            }
+            if !new.type_arguments.is_empty() {
+                self.report_at_node(
+                    node,
+                    Diagnostic::new(
+                        &messages::UNTYPED_FUNCTION_CALLS_MAY_NOT_ACCEPT_TYPE_ARGUMENTS,
+                        self.error_span(node),
+                    ),
+                );
+            }
+            return CallHead::Done;
+        }
+        let Some(construct_count) = self.head_signature_count(apparent, SignatureKind::Construct)
+        else {
+            return CallHead::Unknown;
+        };
+        if construct_count != 0 {
+            return CallHead::Resolve(apparent);
+        }
+        let Some(call_signatures) = self.head_signatures(apparent, SignatureKind::Call) else {
+            return CallHead::Unknown;
+        };
+        if self.head_could_contain_type_variables(expression_type, 3) {
+            return CallHead::Unknown;
+        }
+        match call_signatures.as_slice() {
+            [] => {
+                self.invocation_error(
+                    callee_id,
+                    new.arguments.is_empty(),
+                    SignatureKind::Construct,
+                );
+                CallHead::Done
+            }
+            // `resolveCall` picks the sole non-generic candidate whatever the
+            // arguments; an overload set or a generic one needs the chosen,
+            // instantiated signature, which this head does not compute.
+            [signature] if signature.type_parameters.is_empty() => {
+                if !self.no_implicit_any
+                    && let Some(signature) = self.complete_signature_return(signature.clone())
+                    && signature.r#type != self.intrinsics.void
+                    && !self.is_error(signature.r#type)
+                {
+                    self.report_at_node(
+                        node,
+                        Diagnostic::new(
+                            &messages::ONLY_A_VOID_FUNCTION_CAN_BE_CALLED_WITH_THE_NEW_KEYWORD,
+                            self.error_span(node),
+                        ),
+                    );
+                }
+                CallHead::Resolve(apparent)
+            }
+            _ => CallHead::Resolve(apparent),
+        }
     }
 
     /// `checkNonNullTypeWithReporter` (`checker.go:7413`) with
