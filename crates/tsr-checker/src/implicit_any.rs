@@ -96,7 +96,7 @@ impl Checker<'_, '_> {
             self.node_map.get(node).and_then(crate::check::modifiers_of).is_some_and(|m| {
                 tsr_ast::has_syntactic_modifier(m, tsr_ast::SyntaxKind::PrivateKeyword)
             });
-        if !self.no_implicit_any || self.file_has_parse_errors || (ambient && is_private) {
+        if !self.no_implicit_any || (ambient && is_private) {
             return;
         }
         if self.in_js_file(node) {
@@ -161,7 +161,7 @@ impl Checker<'_, '_> {
             self.node_map.get(node).and_then(crate::check::modifiers_of).is_some_and(|modifiers| {
                 tsr_ast::has_syntactic_modifier(modifiers, tsr_ast::SyntaxKind::PrivateKeyword)
             });
-        if !self.no_implicit_any || self.file_has_parse_errors {
+        if !self.no_implicit_any {
             return;
         }
         if !self.parameters_cannot_be_contextually_typed(node) {
@@ -407,7 +407,7 @@ impl Checker<'_, '_> {
     /// own code, in their own function, and neither is the function-expression
     /// form `check_implicit_any_return`'s closing comment names. §438.
     pub(crate) fn check_implicit_any_signature_return(&mut self, node: NodeId, ambient: bool) {
-        if ambient || !self.no_implicit_any || self.file_has_parse_errors {
+        if ambient || !self.no_implicit_any {
             return;
         }
         if self.in_js_file(node) {
@@ -433,7 +433,7 @@ impl Checker<'_, '_> {
     }
 
     pub(crate) fn check_implicit_any_return(&mut self, node: NodeId, ambient: bool) {
-        if !self.no_implicit_any || self.file_has_parse_errors || self.in_js_file(node) {
+        if !self.no_implicit_any || self.in_js_file(node) {
             return;
         }
         let private_name = |name: tsr_ast::PropertyName<'_>| {
@@ -539,7 +539,7 @@ impl Checker<'_, '_> {
 
     /// TS7031 for a `var`/`let`/`const` whose name is a binding pattern. §730.
     pub(crate) fn check_implicit_any_binding_pattern(&mut self, node: NodeId) {
-        if !self.no_implicit_any || self.file_has_parse_errors {
+        if !self.no_implicit_any {
             return;
         }
         self.report_binding_pattern_elements(node);
@@ -648,7 +648,7 @@ impl Checker<'_, '_> {
     ///
     /// `docs/architecture/checker-notes-diag2.md` §978.
     pub(crate) fn check_implicit_any_variable(&mut self, node: NodeId, ambient: bool) {
-        if !self.no_implicit_any || self.file_has_parse_errors || self.in_js_file(node) {
+        if !self.no_implicit_any || self.in_js_file(node) {
             return;
         }
         let Some(Node::VariableDeclaration(variable)) = self.node_map.get(node) else { return };
