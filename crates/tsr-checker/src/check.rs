@@ -1142,12 +1142,26 @@ impl Checker<'_, '_> {
 
     /// TS2313 — `Type parameter '{0}' has a circular constraint.`
     ///
-    /// The **direct** form only: `T extends T`. Upstream's check is a general
-    /// cycle over `getConstraintOfTypeParameter`, so `T extends U, U extends T`
-    /// is a two-node cycle this declines, and `T extends Array<T>` is legal and
-    /// must not report. The error node is the **constraint**, not the parameter
-    /// name — `typeParameterDirectlyConstrainedToItself.ts(3,19)` on `class C<T
-    /// extends T> { }` is the second `T`. §371.
+    /// `checkTypeParameter` (`checker.go:2603`) resolves the base constraint
+    /// "to reveal circularity errors"; `getResolvedBaseConstraint`
+    /// (`checker.go:27448`) reports at the constraint node of every type
+    /// parameter whose `popTypeResolution` fails, i.e. every member of the
+    /// cycle the resolution stack closes, once (the result is cached). So the
+    /// diagnostic set is: each type parameter that lies **on** a constraint
+    /// cycle, reported at its constraint. A parameter that only leads *into* a
+    /// cycle (`U` in `<U extends T, T extends V, V extends T>`) gets the
+    /// circular constraint silently.
+    ///
+    /// Ported for the domain where `computeBaseConstraint` steps from a type
+    /// parameter straight to another: a constraint written as a bare
+    /// reference to a type parameter (`T extends U`). Any other constraint
+    /// shape ends the walk without a report: `T extends Array<T>` is legal,
+    /// and a union, indexed-access or conditional constraint can recurse
+    /// upstream through arms this walk does not follow (a gap, never a wrong
+    /// line). The error node is the **constraint**, not the parameter name —
+    /// `typeParameterDirectlyConstrainedToItself.ts(3,19)` on `class C<T
+    /// extends T> { }` is the second `T`. §371;
+    /// `docs/parity/notes/misc-checks.md` §2.
     fn check_circular_type_parameter_constraint(&mut self, node: NodeId) {
         if self.file_has_parse_errors {
             return;
@@ -1158,43 +1172,68 @@ impl Checker<'_, '_> {
         let Some(name) = parameter.name.and_then(|name| name.node_id) else { return };
         let Some(text) = self.identifier_text(name).map(str::to_string) else { return };
         let Some(constraint) = parameter.constraint.and_then(|c| c.node_id()) else { return };
-        // A bare reference, not `Array<T>` — the type arguments are what make
-        // the recursive form legal.
+        // getResolvedBaseConstraint's recursion limit is 50 levels; a chain
+        // of naked references longer than that without closing is not a
+        // cycle through `node`.
+        let mut visited = vec![node];
+        let mut current = node;
+        for _ in 0..50 {
+            let Some(next) = self.naked_type_parameter_constraint(current) else { return };
+            if next == node {
+                let Some(file) = self.source_file_of_for_diagnostics(constraint) else { return };
+                let span = self.error_span(constraint);
+                self.report(
+                    file,
+                    Diagnostic::with_args(
+                        &messages::TYPE_PARAMETER_0_HAS_A_CIRCULAR_CONSTRAINT,
+                        span,
+                        [text],
+                    ),
+                );
+                return;
+            }
+            if visited.contains(&next) {
+                // A cycle `node` leads into but is not on.
+                return;
+            }
+            visited.push(next);
+            current = next;
+        }
+    }
+
+    /// The type parameter declaration a type parameter's constraint names
+    /// directly — `T extends U` answers `U`'s declaration — or `None` for any
+    /// other constraint (`Array<U>`, a union, a non-type-parameter name) and
+    /// for a parameter whose symbol has several declarations.
+    fn naked_type_parameter_constraint(&mut self, declaration: NodeId) -> Option<NodeId> {
+        let Some(Node::TypeParameterDeclaration(parameter)) = self.node_map.get(declaration) else {
+            return None;
+        };
+        let constraint = parameter.constraint?.node_id()?;
         let Some(Node::TypeReferenceNode(reference)) = self.node_map.get(constraint) else {
-            return;
+            return None;
         };
         if !reference.type_arguments.is_empty() {
-            return;
+            return None;
         }
-        let Some(referenced) = reference.type_name.and_then(|name| name.node_id()) else { return };
-        if self.identifier_text(referenced) != Some(text.as_str()) {
-            return;
+        let referenced = reference.type_name?.node_id()?;
+        if self.nodes.kind(referenced) != SyntaxKind::Identifier {
+            return None;
         }
-        // Resolution rather than text equality, so a shadowed name cannot
-        // false-positive. A type parameter is in scope in its own constraint,
-        // so the two agree wherever this fires.
-        let Some(symbol) = self.binder.resolve_name(
+        let text = self.identifier_text(referenced)?.to_string();
+        let symbol = self.binder.resolve_name(
             self.nodes,
             self.node_map,
             referenced,
             &text,
             SymbolFlags::TYPE,
-        ) else {
-            return;
-        };
-        if !self.binder.symbols().get(symbol).declarations.contains(&node) {
-            return;
+        )?;
+        let entry = self.binder.symbols().get(symbol);
+        if !entry.flags.intersects(SymbolFlags::TYPE_PARAMETER) {
+            return None;
         }
-        let Some(file) = self.source_file_of_for_diagnostics(constraint) else { return };
-        let span = self.error_span(constraint);
-        self.report(
-            file,
-            Diagnostic::with_args(
-                &messages::TYPE_PARAMETER_0_HAS_A_CIRCULAR_CONSTRAINT,
-                span,
-                [text],
-            ),
-        );
+        let &[target] = entry.declarations.as_slice() else { return None };
+        (self.nodes.kind(target) == SyntaxKind::TypeParameter).then_some(target)
     }
 
     /// TS1042 — `'{0}' modifier cannot be used here.`

@@ -57,3 +57,25 @@ those two `pub(crate)` lets the restatement go.
 **Falsifier.** A corpus line where TSR reports TS2344 at a call's type
 argument and tsgo reports TS2345 (an argument failure) would mean a candidate
 was judged "definitely failed" here that passes upstream.
+
+## §2 TS2313: type parameters on a naked constraint cycle
+
+**Forcing constraint.** `check_circular_type_parameter_constraint` reported
+only `T extends T`. Upstream reports from `getResolvedBaseConstraint`
+(`checker.go:27448`) when `popTypeResolution` fails, which is every type
+parameter whose resolution sits on the cycle the stack closes; the result is
+cached, so each is reported once. `<U extends T, T extends V, V extends T>`
+reports `T` and `V`, not `U` (which only leads into the cycle).
+
+**What was ported.** Each `TypeParameterDeclaration` follows its constraint
+while the constraint is a bare reference to another type parameter with a
+single declaration, and reports itself iff the walk returns to it. That set
+equals upstream's (each cycle member is reported exactly once, whichever is
+checked first).
+
+**Declines.** Any other constraint form ends the walk silently: `Array<T>` is
+legal, but a union, intersection, indexed-access or conditional constraint
+can still close a cycle upstream through `computeBaseConstraint`'s other arms
+(`circularBaseTypes`, `recursiveMappedTypes`), which this walk does not
+follow: a gap, not a wrong line. The "Circularity originates in type at this
+location" related info is not produced (related info is not compared).
