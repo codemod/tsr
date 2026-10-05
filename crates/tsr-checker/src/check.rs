@@ -10867,6 +10867,13 @@ impl Checker<'_, '_> {
                     None,
                 );
             }
+            Node::ExportAssignment(n) if n.is_export_equals => {
+                self.report_js_only(
+                    node,
+                    &messages::EXPORT_CAN_ONLY_BE_USED_IN_TYPESCRIPT_FILES,
+                    None,
+                );
+            }
             Node::NonNullExpression(_) => {
                 self.report_js_only(
                     node,
@@ -10973,11 +10980,61 @@ impl Checker<'_, '_> {
                 None,
             );
         }
-        if let Some(annotation) = annotation {
+        // `ast.IsFunctionLike(node) && node.Body() == nil` takes the place of
+        // the annotation check: a bodiless function-like is a signature, and an
+        // index signature never has a body.
+        let signature = match typed {
+            Node::FunctionDeclaration(n) => n.body.is_none(),
+            Node::MethodDeclaration(n) => n.body.is_none(),
+            Node::ConstructorDeclaration(n) => n.body.is_none(),
+            Node::GetAccessorDeclaration(n) => n.body.is_none(),
+            Node::SetAccessorDeclaration(n) => n.body.is_none(),
+            Node::MethodSignatureDeclaration(_) | Node::IndexSignatureDeclaration(_) => true,
+            _ => false,
+        };
+        if signature {
+            self.report_js_only(
+                node,
+                &messages::SIGNATURE_DECLARATIONS_CAN_ONLY_BE_USED_IN_TYPESCRIPT_FILES,
+                None,
+            );
+        } else if let Some(annotation) = annotation {
             self.report_js_only(
                 annotation,
                 &messages::TYPE_ANNOTATIONS_CAN_ONLY_BE_USED_IN_TYPESCRIPT_FILES,
                 None,
+            );
+        }
+        // `KindParameter`: any modifier but a decorator, reported over the
+        // whole modifier list.
+        if let Node::ParameterDeclaration(n) = typed
+            && n.modifiers.iter().any(|m| matches!(m, tsr_ast::ModifierLike::Token(_)))
+        {
+            let ids = n.modifiers.iter().filter_map(|m| match m {
+                tsr_ast::ModifierLike::Token(token) => token.node_id,
+                tsr_ast::ModifierLike::Decorator(decorator) => decorator.node_id,
+            });
+            self.report_js_only_over(
+                node,
+                ids,
+                &messages::PARAMETER_MODIFIERS_CAN_ONLY_BE_USED_IN_TYPESCRIPT_FILES,
+            );
+        }
+        // The type-argument arm, reported over the whole argument list.
+        let type_arguments: &[tsr_ast::TypeNode<'_>] = match typed {
+            Node::CallExpression(n) => n.type_arguments,
+            Node::NewExpression(n) => n.type_arguments,
+            Node::ExpressionWithTypeArguments(n) => n.type_arguments,
+            Node::JsxSelfClosingElement(n) => n.type_arguments,
+            Node::JsxOpeningElement(n) => n.type_arguments,
+            Node::TaggedTemplateExpression(n) => n.type_arguments,
+            _ => &[],
+        };
+        if !type_arguments.is_empty() {
+            self.report_js_only_over(
+                node,
+                type_arguments.iter().filter_map(tsr_ast::TypeNode::node_id),
+                &messages::TYPE_ARGUMENTS_CAN_ONLY_BE_USED_IN_TYPESCRIPT_FILES,
             );
         }
         let question = match typed {
@@ -11035,6 +11092,22 @@ impl Checker<'_, '_> {
                 );
             }
         }
+    }
+
+    /// `jsErrorAtRange` over a node list's range: from the first listed node's
+    /// start (`SkipTrivia` of the list's `pos`) to the last one's end.
+    fn report_js_only_over(
+        &mut self,
+        owner: NodeId,
+        mut listed: impl Iterator<Item = NodeId>,
+        message: &'static tsr_diagnostics::Message,
+    ) {
+        let Some(first) = listed.next() else { return };
+        let Some(file) = self.source_file_of_for_diagnostics(owner) else { return };
+        let start = self.nodes.span(first).start;
+        let end =
+            listed.last().map_or(self.nodes.span(first).end, |last| self.nodes.span(last).end);
+        self.report(file, Diagnostic::new(message, tsr_core::Span::new(start, end)));
     }
 
     /// `jsErrorAtRange` — the node's own span, with an optional argument. §569.
