@@ -503,6 +503,9 @@ impl Checker<'_, '_> {
                 {
                     self.check_reference_expression(node);
                 }
+                if operands_ok {
+                    self.check_enum_member_overshift(node);
+                }
                 ambient
             }
             Node::BinaryExpression(binary)
@@ -2184,6 +2187,72 @@ impl Checker<'_, '_> {
             return false;
         }
         true
+    }
+
+    /// TS6807 — `This operation can be simplified. This shift is identical to
+    /// `{0} {1} {2}`.`
+    ///
+    /// `checkBinaryLikeExpressionWorker`'s shift arm (`checker.go:12402`):
+    /// when both operands pass `checkArithmeticOperandType` (the caller's
+    /// `operands_ok`, which is `leftOk && rightOk`), a shift count
+    /// that evaluates to a number of magnitude 32 or more is reported with
+    /// `errorOrSuggestion`, an **error** only when the shift (through
+    /// parentheses) is an enum member's initializer. A suggestion is not a
+    /// baseline diagnostic, so only the enum arm is ported.
+    ///
+    /// The count is `c.evaluate(right)`; this uses the symbol-free slice
+    /// ([`crate::expressions::evaluate_constant_expression`]), so a count
+    /// that names a constant or another member declines (a gap).
+    /// `docs/parity/notes/misc-checks.md` §4.
+    fn check_enum_member_overshift(&mut self, node: NodeId) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let Some(Node::BinaryExpression(binary)) = self.node_map.get(node) else { return };
+        let Some(operator) = binary.operator_token.map(|t| t.kind) else { return };
+        let text = match operator {
+            SyntaxKind::LessThanLessThanToken => "<<",
+            SyntaxKind::GreaterThanGreaterThanToken => ">>",
+            SyntaxKind::GreaterThanGreaterThanGreaterThanToken => ">>>",
+            _ => return,
+        };
+        // ast.IsEnumMember(ast.WalkUpParenthesizedExpressions(right.Parent.Parent))
+        let mut owner = self.nodes.parent(node);
+        while let Some(parent) = owner
+            && self.nodes.kind(parent) == SyntaxKind::ParenthesizedExpression
+        {
+            owner = self.nodes.parent(parent);
+        }
+        if owner.is_none_or(|owner| self.nodes.kind(owner) != SyntaxKind::EnumMember) {
+            return;
+        }
+        let (Some(left), Some(right)) = (binary.left, binary.right) else { return };
+        let Some(crate::expressions::EvaluatedValue::Number(count)) =
+            crate::expressions::evaluate_constant_expression(&right)
+        else {
+            return;
+        };
+        if count.abs() < 32.0 {
+            return;
+        }
+        // scanner.GetTextOfNode(left): the source text. The checker holds no
+        // source bytes, so the two token forms whose text the AST keeps are
+        // spelled and anything else declines.
+        let left_text = match left {
+            tsr_ast::Expression::NumericLiteral(literal) => literal.text.to_string(),
+            tsr_ast::Expression::Identifier(identifier) => identifier.text.to_string(),
+            _ => return,
+        };
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        let span = self.error_span(node);
+        self.report(
+            file,
+            Diagnostic::with_args(
+                &messages::THIS_OPERATION_CAN_BE_SIMPLIFIED_THIS_SHIFT_IS_IDENTICAL_TO_0_1_2,
+                span,
+                [left_text, text.to_string(), tsr_core::jsnum::format_number(count % 32.0)],
+            ),
+        );
     }
 
     /// TS2376 — `A 'super' call must be the first statement in the constructor

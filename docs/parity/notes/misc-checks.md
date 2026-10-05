@@ -98,3 +98,15 @@ rejected: it cannot certify lib `Object`, losing `x instanceof o2`.
 `Subtype` relation shares the assignable structural walk
 (`relater.rs` `Relation::Subtype`); the syntactic `apply` test is exact on the
 certified domain and cheaper.
+
+## §4 TS6807: enum-member overshift
+
+`checkBinaryLikeExpressionWorker`'s shift arm (`checker.go:12402`) uses
+`errorOrSuggestion`; only the enum-member arm is an error, and suggestions are
+not baseline diagnostics. The call sits in `check.rs`'s numeric-operator
+dispatch arm behind its `operands_ok` (upstream's `leftOk && rightOk`): a first
+draft placed it in the generic `BinaryExpression` arm, which shifts never
+reach because the earlier guarded arm is exclusive. The shift count uses the
+symbol-free `evaluate_constant_expression`; a count naming a constant declines.
+`GetTextOfNode(left)` is spelled only for numeric-literal and identifier left
+operands (the checker holds no source text); others decline.
