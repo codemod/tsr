@@ -174,18 +174,25 @@ fn a_name_the_namespace_does_not_export_prints_the_written_text() {
 /// Baseline: `compiler/moduleVisibilityTest4.types:17` records `>b1 : number`
 /// for `let b1: M.nums;` where `M` exports `type nums = number`.
 ///
-/// **This port prints `M.nums` and upstream prints `number`, so this fixture
-/// pins a known wrong line.** Reprinting the written text is right for a class
-/// or an interface, whose printed form *is* a name; it is wrong for an alias to
-/// a primitive, which upstream resolves through and prints the aliased type.
-/// Two corpus lines, and the shape is in
-/// `docs/architecture/checker-notes-qualname.md` §9's residual. Asserted so
-/// that a build teaching this arm to consult the resolved symbol's declared
-/// type flips a test rather than moving a number nobody is watching.
+/// This fixture used to pin the known wrong line (`M.nums`), asserted *"so that
+/// a build teaching this arm to consult the resolved symbol's declared type
+/// flips a test"*. QUALIFIED-TYPEREF-GET-TYPE-REFERENCE-TYPE (`tsr-2zk.16.4`)
+/// is that build: an argument-less reference to a non-generic alias whose
+/// declared type does not carry the alias answers the declared type
+/// (`getTypeFromTypeAliasReference`, `checker.go:23580`), so it now pins the
+/// match. See `docs/parity/notes/type-refs.md`.
 #[test]
-fn an_alias_to_a_primitive_prints_the_written_name_and_upstream_does_not() {
+fn an_alias_to_a_primitive_prints_the_aliased_type() {
     let source = "namespace M { export type nums = number; }\nlet b1: M.nums;";
-    assert_eq!(type_of_reference(source, 0), "M.nums");
+    assert_eq!(type_of_reference(source, 0), "number");
+}
+
+/// The pair: an alias whose declared type CARRIES the alias (a union attributed
+/// to it) keeps the qualified written name, which is upstream's print too.
+#[test]
+fn an_alias_carrying_its_declared_type_keeps_the_qualified_name() {
+    let source = "namespace M { export type U = string | number; }\nlet u: M.U;";
+    assert_eq!(type_of_reference(source, 0), "M.U");
 }
 
 /// A gap **inside** a type argument gaps the whole reference, which is

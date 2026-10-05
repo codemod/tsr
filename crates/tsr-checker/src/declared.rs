@@ -8,7 +8,7 @@
 //! Not to be confused with [`crate::symbols`], which answers what type a
 //! *value* symbol has.
 
-use tsr_ast::{Expression, Node, NodeId, SyntaxKind, TypeNode};
+use tsr_ast::{Expression, Node, NodeId, Statement, SyntaxKind, TypeNode};
 use tsr_binder::{SymbolFlags, SymbolId};
 
 use crate::{checker::Checker, flags::TypeFlags, resolution::PropertyName, types::TypeId};
@@ -1617,6 +1617,23 @@ impl<'a> Checker<'a, '_> {
                 self.unresolved_type_reference(node)
             };
         }
+        self.get_type_reference_type(node, symbol)
+    }
+
+    /// The resolved half of `Checker.getTypeReferenceType`
+    /// (`checker.go:23146`) as this port has it: a non-generic symbol answers
+    /// its declared type in regular form (`checkNoTypeArguments` first), a
+    /// generic one goes through [`Checker::get_instantiated_type_reference`]'s
+    /// arity window and default filling. Shared by the identifier arm of
+    /// [`Checker::get_type_from_type_reference`] and the qualified arm
+    /// ([`Checker::qualified_type_reference`]), which upstream does not
+    /// distinguish once `resolveTypeReferenceName` has answered.
+    fn get_type_reference_type(
+        &mut self,
+        node: &tsr_ast::TypeReferenceNode<'a>,
+        symbol: SymbolId,
+    ) -> TypeId {
+        let error = self.intrinsics.error;
         let parameters = self.local_type_parameters_of(symbol).len();
         if parameters == 0 {
             // `checkNoTypeArguments` (`checker.go:23157`): arguments on a type
@@ -4708,19 +4725,49 @@ impl<'a> Checker<'a, '_> {
         // type is already on the resolution stack. Gating on the alias alone
         // was tried first and cost 285 of the 305 lines — most of this arm's
         // wins arrive through imported namespaces.
-        let Some(resolved) = self.resolve_entity_name(name, SymbolFlags::TYPE) else {
-            if self.binder.symbols().get(namespace).flags.intersects(SymbolFlags::ALIAS)
+        let in_alias_cycle =
+            self.binder.symbols().get(namespace).flags.intersects(SymbolFlags::ALIAS)
                 && node.node_id.and_then(|id| self.alias_symbol_for_type_node(id)).is_some_and(
                     |alias| {
                         self.resolutions
                             .on_stack(alias, crate::resolution::PropertyName::DeclaredType)
                     },
-                )
-            {
+                );
+        let Some(resolved) = self.resolve_entity_name_ex(name, SymbolFlags::TYPE, false) else {
+            if in_alias_cycle {
                 return error;
             }
             return self.unresolved_type_reference(node);
         };
+        if in_alias_cycle {
+            return error;
+        }
+        if self.binder.symbols().get(namespace).flags.intersects(SymbolFlags::ALIAS)
+            && self.alias_rooted_reference_declines(node, namespace, resolved)
+        {
+            return self.unresolved_type_reference(node);
+        }
+        // QUALIFIED-TYPEREF-GET-TYPE-REFERENCE-TYPE: an argument-less reference
+        // to a non-generic type alias answers `getTypeReferenceType`'s declared
+        // type (`getTypeFromTypeAliasReference`, `checker.go:23580`) whenever
+        // that type does NOT carry the alias. Upstream's declared type of an
+        // alias is the body as built, and only alias-accepting constructors
+        // attach the alias to it; a pre-existing body (`number`, `undefined`,
+        // an interface) prints as itself, never as `N.T`. A body that does
+        // carry the alias keeps the written-text mint below, because the
+        // printer cannot yet qualify an alias name from its symbol
+        // (NB-SYMBOL-CHAIN): routing those too measured 36 R→W, every one an
+        // unqualified `T7` for `N.T7`. See `docs/parity/notes/type-refs.md`.
+        if node.type_arguments.is_empty()
+            && self.binder.symbols().get(resolved).flags.intersects(SymbolFlags::TYPE_ALIAS)
+            && self.local_type_parameters_of(resolved).is_empty()
+            && !self.resolutions.on_stack(resolved, PropertyName::DeclaredType)
+        {
+            let declared = self.get_declared_type_of_symbol(resolved);
+            if declared != error && !self.declared_type_carries_alias(declared, resolved) {
+                return self.get_regular_type_of_literal_type(declared);
+            }
+        }
         // §41 (`checker-notes-narrow.md`): the resolved, argument-less
         // qualified reference answers a members-CARRYING named type — the
         // qualified print with the real lookup table. Generic references
@@ -4764,6 +4811,34 @@ impl<'a> Checker<'a, '_> {
                 }
                 None => written,
             };
+            // QUALIFIED-TYPEREF-GET-TYPE-REFERENCE-TYPE, enum arm: upstream's
+            // answer is the enum's declared type (`getTypeReferenceType`). It
+            // replaces the mint wherever it prints as the mint would, so no
+            // rendered line can move and the relater sees the real enum (a
+            // mint is an OBJECT: `<foo.E1>0` assigned to `number` reported
+            // TS2322 once alias-rooted names resolved). Where the prints differ
+            // (`A.B.C.E` printed through a local alias `I`, a union's
+            // named-constituent guard) the mint stays — routing those measured
+            // 4 R→W, the NB-SYMBOL-CHAIN wall again.
+            //
+            // Scoped to an ALIAS-rooted name — the population the alias walk
+            // in `resolve_entity_name_ex` newly resolves, which answered the
+            // ANY-flagged unresolved mint before. A namespace-rooted enum keeps
+            // §41's measured mint: routing it measured 3 R→W where a union's
+            // named-constituent guard (`boolean | X.Foo`) turned it into `any`.
+            if self.binder.symbols().get(namespace).flags.intersects(SymbolFlags::ALIAS)
+                && self.binder.symbols().get(resolved).flags.intersects(SymbolFlags::ENUM)
+                && !self.binder.symbols().get(resolved).flags.intersects(SymbolFlags::ENUM_MEMBER)
+            {
+                let declared = self.get_declared_type_of_symbol(resolved);
+                let printed = match node.node_id {
+                    Some(site) => self.type_to_string_at(declared, site),
+                    None => None,
+                };
+                if declared != error && printed.as_deref() == Some(text.as_str()) {
+                    return self.get_regular_type_of_literal_type(declared);
+                }
+            }
             let key = (text.clone(), resolved);
             if let Some(&existing) = self.qualified_reference_types.get(&key) {
                 return existing;
@@ -4776,6 +4851,20 @@ impl<'a> Checker<'a, '_> {
             }
             self.qualified_reference_types.insert(key, minted);
             return minted;
+        }
+        // QUALIFIED-TYPEREF-GET-TYPE-REFERENCE-TYPE, generic arm, scoped to an
+        // ALIAS-rooted name (`React.HTMLAttributes<HTMLElement>` through
+        // `import * as React`), the population the alias walk newly resolves:
+        // the shared `getTypeReferenceType` road instantiates the target with
+        // its arity window and defaults instead of the print-only mint, which
+        // the relater could not see through (`= {}` reported TS2322).
+        // Namespace-rooted generics keep §42 v2's mint: routing them measured
+        // 54 R→W, unqualified `Keyed<K, V>` for `Seq.Keyed<K, V>` inside the
+        // namespace's own members (NB-SYMBOL-CHAIN).
+        if self.binder.symbols().get(namespace).flags.intersects(SymbolFlags::ALIAS)
+            && !self.local_type_parameters_of(resolved).is_empty()
+        {
+            return self.get_type_reference_type(node, resolved);
         }
         // §42 v2 (`checker-notes-narrow.md`): the GENERIC qualified
         // reference builds arity-checked arguments, prints the QUALIFIED
@@ -4835,6 +4924,41 @@ impl<'a> Checker<'a, '_> {
         self.unresolved_type_reference(node)
     }
 
+    /// Whether a type alias's declared type carries the alias — upstream's
+    /// `t.alias.symbol == symbol` — read from this port's print-at-creation
+    /// representation: a declared type carries its alias exactly when it
+    /// prints as the alias's own name (an alias-attributed union, the
+    /// name-bearing mints of `get_declared_type_of_type_alias`). Anything
+    /// else (an intrinsic, a literal, an interface the body merely names)
+    /// was not created for the alias and prints as itself.
+    fn declared_type_carries_alias(&mut self, declared: TypeId, alias: SymbolId) -> bool {
+        if matches!(&self.store.get(declared).data,
+            crate::types::TypeData::Union { symbol: Some(symbol), .. } if *symbol == alias)
+        {
+            return true;
+        }
+        // `isDeferredTypeReferenceNode` (`checker.go:23236`): a body that is
+        // directly the alias's type node (`getAliasSymbolForTypeNode`) and is
+        // an array, a tuple or a reference written with type arguments is
+        // built as a deferred reference carrying the alias, whatever this
+        // port's eager type prints (`type S = Container<string>` is `S`).
+        let mut body = self.type_alias_body(alias);
+        while let Some(TypeNode::ParenthesizedTypeNode(parenthesized)) = body {
+            body = parenthesized.r#type;
+        }
+        match body {
+            Some(TypeNode::ArrayTypeNode(_) | TypeNode::TupleTypeNode(_)) => return true,
+            Some(TypeNode::TypeReferenceNode(reference))
+                if !reference.type_arguments.is_empty() =>
+            {
+                return true;
+            }
+            _ => {}
+        }
+        let name = self.binder.symbols().get(alias).name.to_string();
+        self.type_to_string(declared) == name
+    }
+
     /// `resolveEntityName` (`checker.go:15772`) for the two arms a type
     /// reference can take.
     ///
@@ -4877,6 +5001,208 @@ impl<'a> Checker<'a, '_> {
                 (flags.intersects(meaning) || flags.intersects(SymbolFlags::ALIAS)).then_some(found)
             }
         }
+    }
+
+    /// Ported from `Checker.resolveEntityName` (`checker.go:15772`) with
+    /// `ignoreErrors = true` and a nil `location`, **including the alias
+    /// steps** [`Checker::resolve_entity_name`] leaves out:
+    ///
+    /// - `resolveQualifiedName` (`checker.go:15828`) resolves the left with
+    ///   meaning `Namespace` and `dontResolveAlias = false`, so an
+    ///   import-equals, `import * as` or ES-import left is followed to the
+    ///   namespace or module before its exports are read;
+    /// - the right name is looked up in `getExportsOfSymbol(namespace)` with
+    ///   `getSymbol`'s meaning filter (an alias counts when its chain's flags
+    ///   meet `meaning`), and when that misses on an alias namespace, in the
+    ///   exports of `resolveAlias(namespace)` (`checker.go:15853`);
+    /// - the found symbol is walked along its alias chain until it carries
+    ///   `meaning` (`checker.go:15821`), unless `dont_resolve_alias`.
+    ///
+    /// `&mut` because `resolveAlias` is (its JS arms check expressions); the
+    /// `&self` [`Checker::resolve_entity_name`] stays for callers that cannot
+    /// take a mutable borrow. Not ported: the `CommonJS` `require` redirect
+    /// (`checker.go:15836`) and the `export=` typedef fallback for an
+    /// identifier namespace (`checker.go:15796`); each is a `None`, never a
+    /// different symbol.
+    ///
+    /// No cache: upstream memoises `resolveAlias` per alias symbol
+    /// (`aliasSymbolLinks.aliasTarget`), which this port recomputes (see
+    /// [`Checker::resolve_alias`]); every caller here memoises the *type* it
+    /// builds from the answer.
+    pub(crate) fn resolve_entity_name_ex(
+        &mut self,
+        name: tsr_ast::EntityName<'a>,
+        meaning: SymbolFlags,
+        dont_resolve_alias: bool,
+    ) -> Option<SymbolId> {
+        let mut symbol = match name {
+            tsr_ast::EntityName::Identifier(identifier) => {
+                let found = self.resolve_name_with_export_alias(
+                    identifier.node_id?,
+                    identifier.text,
+                    meaning,
+                )?;
+                self.binder.merged_symbol(found)
+            }
+            tsr_ast::EntityName::QualifiedName(qualified) => {
+                let namespace =
+                    self.resolve_entity_name_ex(qualified.left?, SymbolFlags::NAMESPACE, false)?;
+                let right = qualified.right?;
+                match self.get_symbol_of_exports(namespace, right.text, meaning) {
+                    Some(found) => found,
+                    None if self
+                        .binder
+                        .symbols()
+                        .get(namespace)
+                        .flags
+                        .intersects(SymbolFlags::ALIAS) =>
+                    {
+                        let target = self.resolve_alias(namespace)?;
+                        let target = self.binder.merged_symbol(target);
+                        self.get_symbol_of_exports(target, right.text, meaning)?
+                    }
+                    None => return None,
+                }
+            }
+        };
+        let mut seen = 0;
+        while !dont_resolve_alias
+            && !self.binder.symbols().get(symbol).flags.intersects(meaning)
+            && self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::ALIAS)
+        {
+            // `resolveAlias` closes cycles with its own resolution frame; the
+            // port's is `get_symbol_flags`' visited set, which the meaning
+            // filter above already ran. A bounded walk keeps a cycle the
+            // filter admitted (an unknown target counts as every meaning) a
+            // miss rather than a hang.
+            seen += 1;
+            if seen > 64 {
+                return None;
+            }
+            symbol = self.binder.merged_symbol(self.resolve_alias(symbol)?);
+        }
+        Some(symbol)
+    }
+
+    /// `getMergedSymbol(getSymbol(getExportsOfSymbol(namespace), name,
+    /// meaning))` (`checker.go:15851`, `getSymbol` at `:2176`).
+    ///
+    /// `getExportsOfSymbol` reads a module's table through
+    /// `getExportsOfModule`, which first follows `export =`
+    /// (`resolveExternalModuleSymbol` with `dontResolveAlias = false`) and then
+    /// adds `export *` re-exports; any other symbol answers its own `exports`.
+    fn get_symbol_of_exports(
+        &mut self,
+        namespace: SymbolId,
+        name: &str,
+        meaning: SymbolFlags,
+    ) -> Option<SymbolId> {
+        let namespace = self.binder.merged_symbol(namespace);
+        let found = if self.binder.symbols().get(namespace).flags.intersects(SymbolFlags::MODULE) {
+            let mut module = self.resolve_external_module_symbol(namespace);
+            if module != namespace
+                && self.binder.symbols().get(module).flags.intersects(SymbolFlags::ALIAS)
+            {
+                module = self.resolve_alias(module)?;
+            }
+            let module = self.binder.merged_symbol(module);
+            match self.get_export_of_module(module, name) {
+                Some(found) => Some(found),
+                None => self.binder.symbols().get(module).exports.get(name).copied(),
+            }
+        } else {
+            self.binder.symbols().get(namespace).exports.get(name).copied()
+        }?;
+        let found = self.binder.merged_symbol(found);
+        let flags = self.binder.symbols().get(found).flags;
+        if flags.intersects(meaning) {
+            return Some(found);
+        }
+        if flags.intersects(SymbolFlags::ALIAS) {
+            // `getSymbol`'s alias arm: the chain's meaning decides, and an
+            // unknown target reports every meaning (`getSymbolFlagsEx`,
+            // `checker.go:16378`).
+            return self.get_symbol_flags(found).intersects(meaning).then_some(found);
+        }
+        None
+    }
+
+    /// Whether an alias-rooted qualified reference must stay the unresolved
+    /// gap it was before [`Checker::resolve_entity_name_ex`] learned to walk
+    /// aliases, because the symbol it now reaches would be answered by
+    /// machinery this port does not have, and the answer would be a wrong
+    /// diagnostic rather than a missing one. Both arms are the pre-existing
+    /// behaviour of the same names written without an alias; neither is a
+    /// rule upstream has.
+    ///
+    /// - **Generic heritage.** The relater rejects `{}` for any generic
+    ///   interface or class whose own heritage clause writes type arguments
+    ///   (`interface S<T> extends D<T> { a?: string }`; `const y: S<number> =
+    ///   {}` reports a false TS2322 with or without a namespace). Resolving
+    ///   `React.HTMLAttributes<HTMLElement>` through `import * as React`
+    ///   surfaced it as a new diagnostic in
+    ///   `reactTagNameComponentWithPropsNoOOM2`. Owned by the relater /
+    ///   base-type lanes (CLASS-GET-BASE-TYPES, INTERFACE-BASE-FROM-TYPE-NODE).
+    /// - **Module augmentation.** The binder does not run
+    ///   `mergeModuleAugmentation` (`checker.go:1407`), so a module augmented
+    ///   from the reference's file has an incomplete export table
+    ///   (`moduleAugmentationDoes{Interface,Namespace}MergeOfReexport`: TS2339
+    ///   on members the augmentation adds). Only augmentations in the
+    ///   reference's own file are seen; elsewhere this road matches the
+    ///   ES-import road, which ignores augmentations too.
+    ///
+    /// Delete each arm when its owner lands; the falsifier is the named case
+    /// going `EMPTY_RIGHT` with the arm removed.
+    fn alias_rooted_reference_declines(
+        &mut self,
+        node: &tsr_ast::TypeReferenceNode<'a>,
+        namespace: SymbolId,
+        resolved: SymbolId,
+    ) -> bool {
+        if !node.type_arguments.is_empty() && self.has_generic_heritage(resolved) {
+            return true;
+        }
+        let Some(target) = self.resolve_alias(namespace) else { return false };
+        let target = self.binder.merged_symbol(target);
+        // Only a module can be augmented; skip the statement scan otherwise.
+        if !self.binder.symbols().get(target).flags.intersects(SymbolFlags::VALUE_MODULE) {
+            return false;
+        }
+        let Some(mut file) = node.node_id else { return false };
+        while let Some(parent) = self.nodes.parent(file) {
+            file = parent;
+        }
+        let Some(Node::SourceFile(source)) = self.node_map.get(file) else { return false };
+        if !tsr_binder::is_external_module(source) {
+            return false;
+        }
+        for statement in source.statements {
+            let Statement::ModuleDeclaration(module) = statement else { continue };
+            let Some(tsr_ast::ModuleName::StringLiteral(name)) = module.name else { continue };
+            let (Some(declaration), Some(specifier)) = (module.node_id, name.node_id) else {
+                continue;
+            };
+            if self
+                .resolve_external_module_name(declaration, specifier)
+                .is_some_and(|augmented| self.binder.merged_symbol(augmented) == target)
+            {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// A class or interface declaration of `symbol` whose heritage clause
+    /// writes type arguments (`extends D<T>`).
+    fn has_generic_heritage(&self, symbol: SymbolId) -> bool {
+        self.binder.symbols().get(symbol).declarations.iter().any(|&declaration| {
+            let clauses = match self.node_map.get(declaration) {
+                Some(Node::InterfaceDeclaration(interface)) => interface.heritage_clauses,
+                Some(Node::ClassDeclaration(class)) => class.heritage_clauses,
+                _ => return false,
+            };
+            clauses.iter().any(|clause| clause.types.iter().any(|t| !t.type_arguments.is_empty()))
+        })
     }
 
     /// §269's gate: an alias declared by a JSDoc `@import` tag's clause, with
