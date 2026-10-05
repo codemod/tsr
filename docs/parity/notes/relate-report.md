@@ -282,3 +282,29 @@ with neither is skipped, as upstream skips a `nil` target member. Variadic
 tuple and union targets keep their declines.
 
 Converted: `compiler/contextualTypingOfArrayLiterals1`, `conformance/arrayLiterals`.
+
+## 13. State at the end of the first box session, and what is outside this lane
+
+Lane diagnostics at `919ac31`: 25 RIGHT + 1 EMPTY_RIGHT of 568 (was 8 + 0
+at `0d996e8`); whole-suite `diagnostics` 3444/5488 (was 3427). Missing TS2322
+lines in the lane by gate: NEVER 326, DECLINED 185, NOTREPORTABLE 32,
+OLUNION 16.
+
+Needed outside this lane's files (each verified on a minimized probe):
+
+- `call_arity.rs::check_call_arity` / `check_argument_types` — TS2345 and
+  argument-position elaboration are checked only for one sole, non-generic,
+  fully annotated signature, and *before* the arity test. Parameters typed
+  from initializers or binding patterns (`destructuringParameterDeclaration1ES5`,
+  10 lines), overload sets (`functionOverloads`) and method calls on generic
+  instances (`genericOfACloduleType2`) are never checked; most of the lane's
+  531 missing TS2345 lines sit here. Reordering arity before argument types
+  also unblocks §10.
+- `calls.rs` overload fallback — §10's `destructuringTuple:0:13`.
+- `declared.rs` — qualified enum type references (§3).
+- `nonexistent_property.rs` — union property lookup over object-literal
+  constituents (§5).
+- binder/symbol merging — a script file's `interface Number { … }`
+  augmentation is not merged into lib's `Number` for `declare var a: Number`
+  (`assignFromNumberInterface2`, `assignFromBooleanInterface2`: false TS2322 on
+  `b = a`).
