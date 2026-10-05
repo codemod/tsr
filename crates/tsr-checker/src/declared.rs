@@ -1957,12 +1957,28 @@ impl<'a> Checker<'a, '_> {
             let Some(signature) = self.get_signature_from_declaration(member_id) else {
                 return error;
             };
-            let text = self.signature_to_string(&signature);
+            // `typeToTypeNodeHelper`'s alias arm (`nodebuilderimpl.go`) runs
+            // before the anonymous-object collapse: a literal that is a type
+            // alias's body prints the alias name, exactly as the multi-member
+            // path below does through the same `getAliasForTypeNode` lookup.
+            let alias = node.node_id.and_then(|id| self.alias_symbol_for_type_node(id));
+            let text = match alias {
+                None => self.signature_to_string(&signature),
+                Some(alias) if self.local_type_parameters_of(alias).is_empty() => {
+                    self.binder.symbols().get(alias).name.to_string()
+                }
+                Some(_) => return error,
+            };
             let Some(symbol) = node.node_id.and_then(|id| self.binder.symbol_of(id)) else {
                 return error;
             };
             let built = self.store.new_anonymous(TypeFlags::OBJECT, text, symbol, true);
             self.signature_types.insert(built, vec![signature]);
+            if alias.is_some() {
+                // The alias name is the print; the site re-render that
+                // collapses the signature applies to an unaliased literal.
+                self.alias_named_signature_types.insert(built);
+            }
             return built;
         }
         // §33's second containment (`checker-notes-callres.md`): overloaded
