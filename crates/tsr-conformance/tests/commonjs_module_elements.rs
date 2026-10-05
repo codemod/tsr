@@ -52,6 +52,21 @@ fn commonjs_module_element_diagnostics_match_every_native_occurrence() {
             for (position, (expected, actual)) in expected.iter().zip(&actual).enumerate() {
                 type_mismatches += usize::from(expected != actual);
                 println!("{name}:{}:{position}\t{expected}\t{actual}", wanted.file);
+                // These three missing-access identities in each mode are the
+                // retained diagnostic-only prerequisite's exact error/any gaps.
+                // Do not normalize either ledger or permit unrelated mismatches.
+                let known_gap = matches!(
+                    (wanted.file.as_str(), position, expected.as_str(), actual.as_str()),
+                    ("/usage.ts", 1, "x.missing : any", "x.missing : error")
+                        | ("/usage.ts", 4, "x[\"missing\"] : any", "x[\"missing\"] : error")
+                        | ("/usage.ts", 7, "x[\"availabl\"] : any", "x[\"availabl\"] : error")
+                );
+                if expected != actual && !known_gap {
+                    failures.push(format!(
+                        "{name}:{}:{position}: unexpected type mismatch\nactual: {actual}\nexpected: {expected}",
+                        wanted.file
+                    ));
+                }
             }
         }
         let arena = tsr_core::Arena::new();
@@ -124,5 +139,7 @@ fn commonjs_module_element_diagnostics_match_every_native_occurrence() {
     println!(
         "complete native element controls: {assertions} recorded assertions ({type_mismatches} explicit mismatches), {occurrences} diagnostic occurrences"
     );
+    assert_eq!(assertions, 51, "complete native assertion population");
+    assert_eq!(occurrences, 4, "complete native diagnostic population");
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
