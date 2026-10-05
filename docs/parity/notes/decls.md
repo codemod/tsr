@@ -222,3 +222,25 @@ against the primary — are ported beside it.
 a symbol-typed pair under the global `SymbolConstructor`; the first measurement
 without that decline lost `symbolObserverMismatchingPolyfillsWorkTogether`.
 The proper fix is the special case in the widening.
+
+## §9 TS2699: static members that collide with `Function`'s own properties
+
+Ported both upstream sites, skipped in an ambient context as
+`checkClassLikeDeclaration` does (`checker.go:4308`):
+`checkObjectTypeForDuplicateDeclarations`' `prototype` arm (any static member
+named `prototype`, `checker.go:3184`) and
+`checkClassForStaticPropertyNameConflicts` (`name`/`length`/`caller`/`arguments`
+unless `useDefineForClassFields`, read from `standard_class_fields`).
+
+`check_merged_namespace_prototype` used to report TS2300 for a class's own
+`static prototype`, because this port keeps static members in the class
+symbol's `exports`, where that rule looks for a namespace's exported
+`prototype`. Upstream binds static members after `bindClassLikeDeclaration`'s
+check, so a static member never meets it; the rule now skips a declaration
+whose parent is a class. The binder-side collision that *does* exist upstream —
+a static method or accessor named `prototype` against the minted `prototype`
+property (`MethodExcludes`/accessor excludes include `Property`) — is reported
+beside TS2699, since this port's binder never mints that symbol.
+
+Measured: `propertyNamedPrototype`, `staticPropertyNameConflictsInAmbientContext`
+converted, no loss.

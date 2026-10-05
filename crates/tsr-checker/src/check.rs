@@ -742,6 +742,7 @@ impl Checker<'_, '_> {
             Node::ClassDeclaration(class_declaration) => {
                 self.check_duplicate_class_computed_members(class_declaration.members);
                 self.check_merged_namespace_prototype(node);
+                self.check_class_static_property_names(node, class_declaration.members);
                 self.check_type_parameter_lists_identical(node);
                 self.check_base_chain_is_acyclic(node);
                 self.check_abstract_members_implemented(node);
@@ -6833,6 +6834,18 @@ impl Checker<'_, '_> {
         };
         let declarations = self.binder.symbols().get(exported).declarations.clone();
         let Some(&declaration) = declarations.first() else { return };
+        // This port keeps a class's **static members** in the same `exports`
+        // table. Upstream binds them after `bindClassLikeDeclaration`'s check,
+        // into the class's own table, so a `static prototype` is not this
+        // collision — it is TS2699 (`check_class_static_property_names`).
+        if self.nodes.parent(declaration).is_some_and(|parent| {
+            matches!(
+                self.nodes.kind(parent),
+                SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression
+            )
+        }) {
+            return;
+        }
         let Some(name) = self.name_node_of(declaration) else { return };
         let Some(file) = self.source_file_of_for_diagnostics(name) else { return };
         let span = self.error_span(name);
@@ -6844,6 +6857,88 @@ impl Checker<'_, '_> {
                 ["prototype".to_string()],
             ),
         );
+    }
+
+    /// TS2699 — `Static property '{0}' conflicts with built-in property
+    /// 'Function.{0}' of constructor function '{1}'.`
+    ///
+    /// Two upstream sites, both skipped in an ambient context
+    /// (`checkClassLikeDeclaration`, `checker.go:4308`):
+    /// `checkObjectTypeForDuplicateDeclarations`'s `prototype` arm
+    /// (`checker.go:3184`) for any static member, and
+    /// `checkClassForStaticPropertyNameConflicts` (`checker.go:4393`) for
+    /// `name`, `length`, `caller` and `arguments` when class fields are not
+    /// defined with `[[Define]]` semantics (`useDefineForClassFields`).
+    /// The error node is the member's name. `docs/parity/notes/decls.md` §9.
+    fn check_class_static_property_names(
+        &mut self,
+        node: NodeId,
+        members: &[tsr_ast::ClassElement<'_>],
+    ) {
+        if self.file_has_parse_errors || self.is_in_ambient_context_for_overloads(node) {
+            return;
+        }
+        let Some(symbol) = self.binder.symbol_of(node) else { return };
+        let class_name =
+            self.binder.symbols().get(self.binder.merged_symbol(symbol)).name.to_string();
+        for member in members {
+            let Some(id) = Node::from(*member).node_id() else { continue };
+            let is_static = self
+                .node_map
+                .get(id)
+                .and_then(modifiers_of)
+                .is_some_and(|modifiers| has_modifier(modifiers, SyntaxKind::StaticKeyword));
+            if !is_static {
+                continue;
+            }
+            let Some(name) = self.declaration_name_of(id) else { continue };
+            // `getEffectivePropertyNameForPropertyNameNode`.
+            let text = match self.node_map.get(name) {
+                Some(Node::Identifier(identifier)) => identifier.text.to_string(),
+                Some(Node::StringLiteral(literal)) => literal.text.to_string(),
+                Some(Node::ComputedPropertyName(computed)) => match computed.expression {
+                    Some(tsr_ast::Expression::StringLiteral(literal)) => literal.text.to_string(),
+                    _ => continue,
+                },
+                _ => continue,
+            };
+            let conflicts = text == "prototype"
+                || (!self.standard_class_fields
+                    && matches!(text.as_str(), "name" | "length" | "caller" | "arguments"));
+            if !conflicts {
+                continue;
+            }
+            let Some(file) = self.source_file_of_for_diagnostics(name) else { continue };
+            let span = self.error_span(name);
+            // The binder half: `bindClassLikeDeclaration` mints a `prototype`
+            // property in the class's exports, and a static method or accessor
+            // of that name collides with it (`MethodExcludes` and the accessor
+            // excludes include `Property`; `PropertyExcludes` is empty), so
+            // `declareSymbol` reports TS2300 on it. This port's binder never
+            // mints the symbol — the same gap `check_merged_namespace_prototype`
+            // fills.
+            if text == "prototype"
+                && matches!(
+                    member,
+                    ClassElement::MethodDeclaration(_)
+                        | ClassElement::GetAccessorDeclaration(_)
+                        | ClassElement::SetAccessorDeclaration(_)
+                )
+            {
+                self.report(
+                    file,
+                    Diagnostic::with_args(&messages::DUPLICATE_IDENTIFIER_0, span, [text.clone()]),
+                );
+            }
+            self.report(
+                file,
+                Diagnostic::with_args(
+                    &messages::STATIC_PROPERTY_0_CONFLICTS_WITH_BUILT_IN_PROPERTY_FUNCTION_0_OF_CONSTRUCTOR_FUNCTION_1,
+                    span,
+                    [text, class_name.clone()],
+                ),
+            );
+        }
     }
 
     fn check_duplicate_class_computed_members(&mut self, members: &[tsr_ast::ClassElement<'_>]) {
