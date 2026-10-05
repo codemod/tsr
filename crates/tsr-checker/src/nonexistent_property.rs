@@ -187,6 +187,14 @@ impl Checker<'_, '_> {
                 }
                 apparent
             };
+        // checkPropertyAccessExpressionOrQualifiedName (checker.go:11344):
+        // a JS literal receiver answers `any` once the miss is certified,
+        // before the report. Unchecked-JS suggestions are not diagnostics here.
+        if matches!(self.node_map.get(node), Some(Node::PropertyAccessExpression(_)))
+            && self.is_js_literal_type(receiver_type)
+        {
+            return;
+        }
         if let crate::types::TypeData::Anonymous { symbol, .. } =
             &self.store.get(receiver_type).data
         {
@@ -515,6 +523,26 @@ impl Checker<'_, '_> {
             }
             return missing.then_some(receiver);
         }
+        // getApparentType(never) is never, whose getPropertyOfType misses with
+        // no index info; only silentNeverType is any-like
+        // (checkPropertyAccessExpressionOrQualifiedName, checker.go:11280).
+        // getFlowTypeOfReference (flow.go:111) answers the declared type, not
+        // unreachableNeverType, and for the operand of `x!` whenever narrowing
+        // left only null/undefined. This port's flow walk has neither rule
+        // yet, so a `never` reached through either is not certified.
+        // `docs/parity/notes/property.md` §3.
+        if flags.contains(TypeFlags::NEVER) {
+            let receiver_is_non_null = match self.node_map.get(access) {
+                Some(Node::PropertyAccessExpression(node)) => node.expression,
+                Some(Node::ElementAccessExpression(node)) => node.expression,
+                _ => None,
+            }
+            .and_then(|receiver| receiver.node_id())
+            .is_some_and(|receiver| self.nodes.kind(receiver) == SyntaxKind::NonNullExpression);
+            let silent = self.silent_never_type == Some(receiver)
+                || receiver == self.intrinsics.unreachable_never;
+            return (!silent && !receiver_is_non_null).then_some(receiver);
+        }
         let apparent = if flags.intersects(TypeFlags::PRIMITIVE) {
             self.primitive_apparent_type(receiver)
         } else if let Some(&symbol) = self.type_parameter_symbols.get(&receiver) {
@@ -550,6 +578,9 @@ impl Checker<'_, '_> {
         } else {
             receiver
         };
+        if let Some(apparent) = self.function_declaration_lacks(apparent, name) {
+            return apparent.then_some(receiver);
+        }
         if apparent == self.intrinsics.empty_object {
             // The canonical empty object: no own members, the global
             // `Object` augment only (getPropertyOfTypeEx).
@@ -575,6 +606,10 @@ impl Checker<'_, '_> {
     /// (`checker.go:11330`) does: a `string` key admits every name, a `number`
     /// key only a numeric one, a `symbol` key none; any other key declines.
     fn apparent_type_lacks(&mut self, apparent: TypeId, name: &str) -> Option<bool> {
+        self.apparent_type_lacks_at(apparent, name, 0)
+    }
+
+    fn apparent_type_lacks_at(&mut self, apparent: TypeId, name: &str, depth: u32) -> Option<bool> {
         // A found property needs no certificate; the completeness walks are
         // the expensive half and only a miss pays for them.
         if self.get_property_of_type(apparent, name).is_some() {
@@ -585,6 +620,19 @@ impl Checker<'_, '_> {
             // `static [k: string]` signatures; ask them per name too.
             return self.no_index_signature_admits(apparent, name);
         }
+        // A captured member image is `getPropertiesOfType`'s complete list
+        // (`resolveStructuredTypeMembers` already ran when it was published),
+        // the same list `property_names_of` feeds the spelling suggestion.
+        // Both roads must miss: a name the image holds but the lookup cannot
+        // reach is this port's gap, not upstream's absence. `docs/parity/notes/property.md` §2.
+        if let Some((properties, _)) = self.anonymous_properties.get(&apparent) {
+            if properties.iter().any(|property| property.name == name)
+                || self.object_image_road_is_uncertified(apparent)
+            {
+                return None;
+            }
+            return self.no_index_signature_admits(apparent, name);
+        }
         let crate::types::TypeData::Named { members: Some(owner), .. } =
             self.store.get(apparent).data
         else {
@@ -592,16 +640,16 @@ impl Checker<'_, '_> {
         };
         let declarations = self.binder.symbols().get(owner).declarations.to_vec();
         let mut interfaces = 0usize;
+        let mut extends = false;
         for declaration in declarations {
             match self.node_map.get(declaration) {
                 Some(Node::InterfaceDeclaration(interface)) => {
                     // Instantiation never changes member names (§41's
                     // audit in `crate::member_completeness`).
-                    if !interface.heritage_clauses.is_empty()
-                        || !interface.members.iter().all(|member| member_name_is_bound(*member))
-                    {
+                    if !interface.members.iter().all(|member| member_name_is_bound(*member)) {
                         return None;
                     }
+                    extends |= !interface.heritage_clauses.is_empty();
                     interfaces += 1;
                 }
                 Some(Node::VariableDeclaration(_)) => {}
@@ -611,7 +659,103 @@ impl Checker<'_, '_> {
         if interfaces == 0 {
             return None;
         }
+        // `resolveObjectTypeMembers` layers each base's properties under the
+        // own ones; a base the member walk cannot follow is a gap
+        // (`base_symbols_of`). Each followed base must lack the name by the
+        // same certificate, or the lookup's miss is this port's.
+        // `docs/parity/notes/property.md` §4.
+        if extends {
+            const MAX_BASE_DEPTH: u32 = 32;
+            if depth >= MAX_BASE_DEPTH {
+                return None;
+            }
+            for base in self.base_symbols_of(owner)? {
+                let base = self.get_declared_type_of_symbol(base);
+                if self.apparent_type_lacks_at(base, name, depth + 1) != Some(true) {
+                    return None;
+                }
+            }
+        }
         self.no_index_signature_admits(apparent, name)
+    }
+
+    /// Is this object literal image's *type* one this port reaches by a road
+    /// that is not upstream's? Three are known, each owned by another lane
+    /// (`docs/parity/notes/property.md` §2):
+    ///
+    /// - JS expando assignments (`A.bar = …` on `const A = {}`) are bound as
+    ///   the literal symbol's `exports`; upstream's type carries them;
+    /// - a JS `/** @type {T} */ (literal)` cast whose tag type does not compute
+    ///   falls through to the literal (`check_expression`'s §275 gap);
+    /// - a binding or parameter default is union-reduced with the declared
+    ///   property type (`getTypeOfDestructuredProperty`), and that reduction's
+    ///   strict-subtype rule for a fresh empty literal is not yet upstream's.
+    fn object_image_road_is_uncertified(&self, apparent: TypeId) -> bool {
+        let crate::types::TypeData::Named { members: Some(owner), .. } =
+            self.store.get(apparent).data
+        else {
+            return false;
+        };
+        let entry = self.binder.symbols().get(owner);
+        if !entry.exports.is_empty() {
+            return true;
+        }
+        entry.declarations.iter().any(|&declaration| {
+            if self.nodes.kind(declaration) != SyntaxKind::ObjectLiteralExpression {
+                return false;
+            }
+            let Some(parent) = self.nodes.parent(declaration) else { return false };
+            match self.nodes.kind(parent) {
+                SyntaxKind::ParenthesizedExpression => {
+                    self.in_js_file(parent) && self.jsdoc_cast_annotation(parent).is_some()
+                }
+                SyntaxKind::BindingElement | SyntaxKind::Parameter => true,
+                _ => false,
+            }
+        })
+    }
+
+    /// `getPropertyOfTypeEx` (checker.go:18899) on a function declaration's
+    /// `typeof`: `resolveAnonymousTypeMembers` gives it the symbol's exports,
+    /// then the miss falls to the global `Function` family and `Object`.
+    /// `Some(lacks)` once every table is certified, `None` for any other
+    /// receiver or an uncertified table. A function with exports (a merged
+    /// namespace, an expando assignment) declines: those members are
+    /// assembled from declarations this walk does not read.
+    fn function_declaration_lacks(&mut self, receiver: TypeId, name: &str) -> Option<bool> {
+        let crate::types::TypeData::Anonymous { symbol, .. } = self.store.get(receiver).data else {
+            return None;
+        };
+        let symbol = self.binder.merged_symbol(symbol);
+        let entry = self.binder.symbols().get(symbol);
+        if entry.flags != SymbolFlags::FUNCTION
+            || !entry.exports.is_empty()
+            || entry.declarations.is_empty()
+            || !entry.declarations.iter().all(|&declaration| {
+                self.nodes.kind(declaration) == SyntaxKind::FunctionDeclaration
+                    && !self.in_js_file(declaration)
+            })
+        {
+            return None;
+        }
+        if self.get_property_of_type(receiver, name).is_some() {
+            return Some(false);
+        }
+        let mut fallbacks = Vec::new();
+        if self.strict_bind_call_apply {
+            fallbacks.push("CallableFunction");
+        }
+        fallbacks.extend(["Function", "Object"]);
+        for global in fallbacks {
+            let Some(interface) = self.global_type_symbol_with_arity(global, 0) else {
+                continue;
+            };
+            let declared = self.get_declared_type_of_symbol(interface);
+            if !self.apparent_type_lacks(declared, name)? {
+                return Some(false);
+            }
+        }
+        Some(true)
     }
 
     /// `getApplicableIndexInfoForName(apparent, name) == nil`: a `string` key
@@ -970,6 +1114,35 @@ impl Checker<'_, '_> {
                     )
                 })
             })
+    }
+
+    /// `isJSLiteralType` (`utilities.go:1753`): `ObjectFlagsJSLiteral` on the
+    /// type, every union member, some intersection member, or an instantiable
+    /// type's resolved base constraint. Meaningless under `noImplicitAny`.
+    pub(crate) fn is_js_literal_type(&mut self, id: TypeId) -> bool {
+        if self.no_implicit_any {
+            return false;
+        }
+        if self.js_literal_types.contains(&id) {
+            return true;
+        }
+        let ty = self.store.get(id);
+        if ty.flags.contains(crate::flags::TypeFlags::UNION) {
+            let crate::types::TypeData::Union { types, .. } = &ty.data else { return false };
+            return types.clone().into_iter().all(|member| self.is_js_literal_type(member));
+        }
+        if ty.flags.contains(crate::flags::TypeFlags::INTERSECTION) {
+            let crate::types::TypeData::Intersection { types, .. } = &ty.data else {
+                return false;
+            };
+            return types.clone().into_iter().any(|member| self.is_js_literal_type(member));
+        }
+        if ty.flags.intersects(crate::flags::TypeFlags::INSTANTIABLE) {
+            return self
+                .base_constraint_of_type(id)
+                .is_some_and(|constraint| constraint != id && self.is_js_literal_type(constraint));
+        }
+        false
     }
 
     /// `isConstEnumObjectType` (`checker.go:27664`): a const enum's object type.
