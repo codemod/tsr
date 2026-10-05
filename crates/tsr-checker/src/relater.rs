@@ -922,8 +922,16 @@ impl Relater<'_, '_, '_> {
         }
         // §17 (`checker-notes-assign.md`): both-own-private class pairs are
         // nominal — NotRelated by the private-identity rule, decided from
-        // syntax.
-        if let Some(answer) = self.checker.nominal_class_pair_verdict(source, target) {
+        // syntax. The syntax shortcut only holds for classes without
+        // heritage: a derived class inherits its base's private members, whose
+        // value declarations are the base's (propertyRelatedTo,
+        // relater.go:4270), so `Derived extends Base` relates to `Base` even
+        // when both declare privates. Such pairs take the structural walk,
+        // whose privacy arm compares declarations.
+        if !self.class_declares_heritage(source)
+            && !self.class_declares_heritage(target)
+            && let Some(answer) = self.checker.nominal_class_pair_verdict(source, target)
+        {
             return if answer { RelationResult::Related } else { RelationResult::NotRelated };
         }
         let composite = TypeFlags::UNION.union(TypeFlags::INTERSECTION);
@@ -1127,6 +1135,18 @@ impl Relater<'_, '_, '_> {
         matches!(self.checker.type_of(id).data, TypeData::Named { members: Some(symbol), .. }
             if self.checker.binder.symbols().get(symbol).flags
                 .intersects(tsr_binder::SymbolFlags::TYPE_ALIAS))
+    }
+
+    /// Whether `id` is a class instance whose declaration has an `extends` or
+    /// `implements` clause.
+    fn class_declares_heritage(&self, id: TypeId) -> bool {
+        self.checker
+            .class_instance_symbol(id)
+            .and_then(|symbol| self.checker.binder.symbols().get(symbol).value_declaration)
+            .is_some_and(|declaration| {
+                matches!(self.checker.node_map.get(declaration),
+                    Some(tsr_ast::Node::ClassDeclaration(class)) if !class.heritage_clauses.is_empty())
+            })
     }
 
     fn has_members(&self, id: TypeId) -> bool {
