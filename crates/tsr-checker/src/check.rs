@@ -254,7 +254,6 @@ impl Checker<'_, '_> {
             }
             Node::ClassDeclaration(declaration) => {
                 self.check_exports_on_merged_declarations(node);
-                self.check_class_function_merge(node);
                 self.check_super_call_is_first(node);
                 self.check_derived_constructor_calls_super(node);
                 self.check_static_side_assignability(node);
@@ -321,7 +320,6 @@ impl Checker<'_, '_> {
                 ambient || has_modifier(statement.modifiers, SyntaxKind::DeclareKeyword)
             }
             Node::FunctionDeclaration(declaration) => {
-                self.check_class_function_merge(node);
                 self.check_function_or_constructor_symbol(node, ambient);
                 self.check_overload_ambient_agreement(node);
                 let ambient =

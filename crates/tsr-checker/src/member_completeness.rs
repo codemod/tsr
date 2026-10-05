@@ -177,6 +177,25 @@ impl Checker<'_, '_> {
         let Some(Node::ObjectLiteralExpression(literal)) = self.node_map.get(declaration) else {
             return None;
         };
+        // The initializer of an object binding pattern: the declared type is
+        // `getWidenedTypeForVariableLikeDeclaration` with the pattern included
+        // (`getTypeFromBindingPattern` merged in), so it can carry members the
+        // literal never wrote — `function f5({ x, y = 0 } = { x: 0 })` is
+        // `{ x: number; y?: number }` while its literal symbol names only `x`
+        // (`destructuringWithLiteralInitializers`). The written list is not
+        // the type's property list there.
+        if self.nodes.parent(declaration).is_some_and(|parent| match self.node_map.get(parent) {
+            Some(Node::ParameterDeclaration(parameter)) => {
+                matches!(parameter.name, Some(tsr_ast::BindingName::BindingPattern(_)))
+            }
+            Some(Node::VariableDeclaration(variable)) => {
+                matches!(variable.name, Some(tsr_ast::BindingName::BindingPattern(_)))
+            }
+            Some(Node::BindingElement(_)) => true,
+            _ => false,
+        }) {
+            return None;
+        }
         if self.in_js_file(declaration)
             || !literal.properties.iter().all(|property| match property {
                 tsr_ast::ObjectLiteralElementLike::PropertyAssignment(assignment) => {
