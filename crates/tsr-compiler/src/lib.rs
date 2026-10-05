@@ -55,6 +55,7 @@
 pub mod comment_directives;
 mod file;
 pub mod loader;
+pub mod program_diagnostics;
 
 use std::time::{Duration, Instant};
 

@@ -6,20 +6,31 @@
 //! *errors* it reports, and that is the larger half: a `.errors.txt` baseline is
 //! what a user sees.
 //!
-//! Until now the only diagnostic comparison in this repository was
-//! `isolated_declarations`, which filters to the `9000..9100` range — 20 codes out
-//! of TypeScript's ~1,600. Everything else upstream reports was unmeasured.
+//! # The set is the test runner's, collected the way it collects it
 //!
-//! # What this port can produce today
+//! `compileFilesWithHost` (`internal/testutil/harnessutil/harnessutil.go:612`)
+//! concatenates, per program, `GetConfigFileParsingDiagnostics`,
+//! `GetProgramDiagnostics`, `GetSyntacticDiagnostics`, `GetSemanticDiagnostics`,
+//! `GetGlobalDiagnostics` and — when `GetEmitDeclarations()` —
+//! `GetDeclarationDiagnostics`, then applies `SortAndDeduplicateDiagnostics`.
+//! [`reported_for`] follows that shape over the program
+//! `types_producer::program_for_case` builds (called rather than copied:
+//! `docs/conventions.md`'s *"a probe that re-implements the harness is measuring
+//! a different compiler"* applies to suites first of all):
 //!
-//! The scanner, the parser and the binder. No checker (`bd tsr-4sc`), so every
-//! `TS2xxx` in a baseline is a diagnostic we cannot yet emit — which is the point
-//! of the number, not a defect in it.
+//! - **syntactic** — each file's parse diagnostics, unfiltered;
+//! - **semantic** — `getBindAndCheckDiagnosticsWithChecker`
+//!   (`compiler/program.go:1352`): nothing for a file `SkipTypeChecking` skips,
+//!   binder plus checker diagnostics otherwise, reduced to `plainJSErrors` in a
+//!   plain JavaScript file, and passed through the `@ts-ignore` /
+//!   `@ts-expect-error` filter; then the file's include-processor (loader)
+//!   diagnostics through the same filter (`getSemanticDiagnosticsWithChecker`,
+//!   `program.go:1342`);
+//! - **declaration** — the `isolatedDeclarations` `TS9xxx` family from
+//!   `tsr_dts`, for each emitted file, when declarations are emitted.
 //!
-//! `tsr_dts`'s `TS9xxx` are deliberately **not** included. They are produced under
-//! `isolatedDeclarations`, which is a per-case compiler option this suite does not
-//! model, and emitting them everywhere would be a false positive on every case
-//! that does not set it. `isolated_declarations` gates those separately.
+//! The global and options halves have no position, and the comparison below is
+//! positional: [`errors_baseline::parse`] does not read a line without one.
 //!
 //! # Only cases that expect at least one diagnostic are judged
 //!
@@ -54,29 +65,16 @@
 //!   configuration. There is no single expected output to compare against.
 //! - **Known divergences** (`.errors.txt.diff`): upstream records that its own
 //!   output differs from TypeScript's, so the baseline is not a specification.
-//! # The checker's contribution comes from a *second* traversal
-//!
-//! `Checker::check_source_file` ([`tsr_checker::check`], ADR-0040 decisions (1)
-//! and (2)), run over a program built exactly the way the `checker_types`
-//! gradient builds one — `types_producer::program_for_case`, called rather than
-//! copied, because `docs/conventions.md`'s *"a probe that re-implements the
-//! harness is measuring a different compiler"* applies to suites first of all.
-//!
-//! **The parser and binder half above is deliberately left as it was**, per unit
-//! and with no program, even though the program binds every file too. Two
-//! reasons, and the second is the load-bearing one: `BindResult` holds one flat
-//! diagnostic list for the whole program with no per-file attribution, so
-//! switching would need new machinery; and re-deriving a set that 80 passing
-//! cases already depend on, in the same commit that adds a new source of
-//! diagnostics, would make any movement unattributable. The cost accepted is
-//! that each judged case is bound twice.
-//!
 //! - **Cases upstream recorded no output for at all.** 617 of them. A missing
 //!   `.errors.txt` means "no diagnostics" only when some other baseline proves the
 //!   case ran; without that the absence proves nothing, and reading it as a clean
 //!   expectation hands out free passes.
 
-use tsr_parser::ParsedFile;
+use std::collections::{HashMap, HashSet};
+
+use tsr_ast::NodeId;
+use tsr_compiler::{Program, ProgramFile, program_diagnostics};
+use tsr_diagnostics::Diagnostic;
 
 use crate::{
     CaseEntry,
@@ -97,7 +95,8 @@ impl Suite for Diagnostics {
     fn describes(&self) -> &'static str {
         "every diagnostic in upstream's .errors.txt reproduced exactly — same file, \
          line, column and code, no more and no fewer — for cases that expect at \
-         least one; scanner, parser and binder only, with no checker (bd tsr-4sc)"
+         least one; syntactic, bind-and-check and isolatedDeclarations diagnostics \
+         collected as upstream's test runner collects them"
     }
 
     fn run(&self, case: &CaseEntry) -> Outcome {
@@ -141,8 +140,8 @@ impl Suite for Diagnostics {
     }
 }
 
-/// Every diagnostic this port reports for a case: parser, binder, and the check
-/// traversal.
+/// Every diagnostic this port reports for a case, positioned as the baseline
+/// prints it.
 ///
 /// **Public, and the suite calls it rather than inlining it**, because
 /// `examples/diaggap.rs` ranks the suite's failures by code and a probe that
@@ -151,85 +150,7 @@ impl Suite for Diagnostics {
 /// is a sorted-multiset equality and doing it twice hides which side is which.
 #[must_use]
 pub fn reported_for(test: &crate::TestCase) -> Vec<BaselineDiagnostic> {
-    let mut actual: Vec<BaselineDiagnostic> = Vec::new();
-    // `getAllowJS()` — `allowJs ?? checkJs ?? false` (`core/compileroptions.go`).
-    // Read here rather than from the resolved `CompilerOptions` because this
-    // half of the function deliberately builds no program; ADR-0042's rule
-    // about reading directives by hand applies to options with *defaulting
-    // ladders*, and this one has two explicit keys and no fallback.
-    let allow_js = ["allowjs", "checkjs"]
-        .iter()
-        .any(|key| test.options.get(*key).is_some_and(|value| value != "false"));
-    for unit in &test.files {
-        let kind = tsr_parser::ScriptKind::from_file_name(&unit.name);
-        if kind == tsr_parser::ScriptKind::Json {
-            continue;
-        }
-        // **A JavaScript file is not a program input without `allowJs`.** The
-        // check half already agrees with the program — it skips any unit
-        // `program.source_file` does not return — and this half did not, so it
-        // parsed and diagnosed files upstream never reads.
-        //
-        // `extendsUntypedModule` is the shape: its two
-        // `/node_modules/**/index.js` units contain the literal text
-        // *"This file is not read."*, which is not JavaScript and is not meant
-        // to be, and this port emitted nine parse errors across them. The rule
-        // is already ported in `tsr_tsoptions::file_names` and pinned by
-        // `without_allow_js_a_javascript_file_is_not_a_root`; only this loop
-        // was missing it. `checker-notes-diag2.md` §197.
-        // Asked of the **extension**, because `ScriptKind` does not separate
-        // JavaScript from TypeScript — `.js` and `.ts` are both `TypeScript`,
-        // `.jsx` and `.tsx` both `Tsx`; the enum is a *dialect* flag.
-        let is_javascript =
-            [".js", ".jsx", ".mjs", ".cjs"].iter().any(|extension| unit.name.ends_with(extension));
-        if !allow_js && is_javascript {
-            continue;
-        }
-        let parsed = ParsedFile::parse_with_script_kind(unit.content.clone(), kind);
-        let mut reported = parsed.diagnostics().to_vec();
-        // The binder reports strict-mode and grammar diagnostics that the
-        // parser does not, and they appear in the same baselines.
-        parsed.with_ast_and_arena(|file, arena| {
-            let bound = tsr_binder::bind(
-                arena,
-                file,
-                parsed.nodes(),
-                tsr_binder::FileInfo { name: &unit.name, text: parsed.source() },
-            );
-            reported.extend(bound.diagnostics().iter().cloned());
-        });
-        // `SortAndDeduplicateDiagnostics` again — the harness applies it to the
-        // whole list and the binder's half needs it as much as the checker's:
-        // `class A { m1: string; m1(a: string): void; m1(a: number): void; … }`
-        // makes `declare_into_with_excludes` report on the property **once per
-        // collision it takes part in**, and upstream's three identical
-        // diagnostics collapse to the one its baseline records. §997.
-        let mut seen: std::collections::HashSet<(u32, u32, u32, Vec<String>)> =
-            std::collections::HashSet::new();
-        reported.retain(|diagnostic| {
-            seen.insert((
-                diagnostic.span.start,
-                diagnostic.span.end,
-                diagnostic.message.code(),
-                diagnostic.args.clone(),
-            ))
-        });
-        for diagnostic in reported {
-            let (line, character) = line_and_character(&unit.content, diagnostic.span.start);
-            actual.push(BaselineDiagnostic {
-                file: unit.name.clone(),
-                line: line + 1,
-                column: character + 1,
-                code: diagnostic.message.code(),
-            });
-        }
-    }
-    actual.extend(from_check_traversal(test));
-    // `getBindAndCheckDiagnosticsWithChecker` (`compiler/program.go:1352`)
-    // applies the comment-directive filter to the *assembled* set, after every
-    // producer has contributed. Doing it anywhere earlier would let a
-    // parser diagnostic survive a directive that a checker diagnostic honours.
-    apply_comment_directives(test, actual)
+    collect(test).into_iter().map(|(key, _)| key).collect()
 }
 
 /// Every diagnostic this port reports, as `((file, line, column, code), rendered
@@ -238,78 +159,209 @@ pub fn reported_for(test: &crate::TestCase) -> Vec<BaselineDiagnostic> {
 /// [`reported_for`] drops the message because the suite compares only the four
 /// printed fields; the baselines carry the text as well, and auditing it is what
 /// `diagtext` does. Built by rendering each message template against its
-/// arguments — `Message::format`, the same substitution upstream prints.
+/// arguments — `Message::format`, the same substitution upstream prints — over
+/// the same collection [`reported_for`] reads.
 ///
 /// `docs/architecture/checker-notes-diag2.md` §998.
 #[must_use]
 pub fn rendered_for(test: &crate::TestCase) -> Vec<((String, u32, u32, u32), String)> {
-    let mut out = Vec::new();
-    for unit in &test.files {
-        let kind = tsr_parser::ScriptKind::from_file_name(&unit.name);
-        if kind == tsr_parser::ScriptKind::Json {
-            continue;
-        }
-        let parsed = ParsedFile::parse_with_script_kind(unit.content.clone(), kind);
-        let mut reported = parsed.diagnostics().to_vec();
-        parsed.with_ast_and_arena(|file, arena| {
-            let bound = tsr_binder::bind(
-                arena,
-                file,
-                parsed.nodes(),
-                tsr_binder::FileInfo { name: &unit.name, text: parsed.source() },
-            );
-            reported.extend(bound.diagnostics().iter().cloned());
-        });
-        for diagnostic in reported {
-            let (line, character) = line_and_character(&unit.content, diagnostic.span.start);
+    collect(test)
+        .into_iter()
+        .map(|(key, diagnostic)| {
             let args: Vec<&str> = diagnostic.args.iter().map(String::as_str).collect();
-            out.push((
-                (unit.name.clone(), line + 1, character + 1, diagnostic.message.code()),
-                diagnostic.message.format(&args),
-            ));
-        }
-    }
-    out
+            ((key.file, key.line, key.column, key.code), diagnostic.message.format(&args))
+        })
+        .collect()
 }
 
-/// `@ts-ignore` / `@ts-expect-error`, applied per file over the whole set.
+/// One of the case's units, as the program holds it.
+struct Unit<'p, 'a> {
+    /// Index into `Program::source_files`.
+    index: usize,
+    /// The file's `SourceFile` node.
+    id: NodeId,
+    /// The name the baseline prints: the unit that canonically owns the file.
+    name: String,
+    file: &'p ProgramFile<'a>,
+}
+
+/// The case's units that are program files, once per file.
 ///
-/// See [`crate::comment_directives`] for the rule. The split by unit is not an
-/// optimisation: a directive suppresses diagnostics **in its own file**, and the
-/// line numbers on a `BaselineDiagnostic` are only meaningful against that
-/// file's text.
-fn apply_comment_directives(
-    test: &crate::TestCase,
-    reported: Vec<BaselineDiagnostic>,
-) -> Vec<BaselineDiagnostic> {
-    let mut out = Vec::with_capacity(reported.len());
-    let mut remaining = reported;
+/// `Program.getBindAndCheckDiagnostics` diagnoses canonical source files, not
+/// every input spelling: a package redirect may make an input resolve to
+/// another unit's AST, and attributing its spans to the redirect's name
+/// reports a diagnostic in the wrong file. A unit the program never loaded —
+/// JavaScript without `allowJs`, a `.json` nothing imports, a file no root
+/// reaches — has no diagnostics at all, as upstream's `p.files` does not
+/// contain it.
+fn program_units<'p, 'a>(test: &crate::TestCase, program: &'p Program<'a>) -> Vec<Unit<'p, 'a>> {
+    let current_directory = tsr_path::get_normalized_absolute_path(
+        test.current_directory.as_deref().unwrap_or("/"),
+        "/",
+    );
+    let case_sensitive = test
+        .options
+        .get("usecasesensitivefilenames")
+        .is_none_or(|value| !value.eq_ignore_ascii_case("false"));
+    let names: HashMap<_, _> = test
+        .files
+        .iter()
+        .map(|unit| (tsr_path::to_path(&unit.name, &current_directory, case_sensitive), &unit.name))
+        .collect();
+    let mut seen = HashSet::new();
+    let mut units = Vec::new();
     for unit in &test.files {
-        let directives = crate::comment_directives::directives_in(&unit.content);
-        if directives.is_empty() {
+        let Some(file) = program.source_file(&unit.name) else { continue };
+        let Some(id) = file.source_file().node_id else { continue };
+        if !seen.insert(id) {
             continue;
         }
-        let (mine, others): (Vec<_>, Vec<_>) =
-            remaining.into_iter().partition(|d| d.file == unit.name);
-        remaining = others;
-        // The suite's lines are 1-based; the filter's are 0-based, as
-        // `ComputeLineOfPosition`'s are.
-        let entries: Vec<(u32, BaselineDiagnostic)> =
-            mine.into_iter().map(|d| (d.line.saturating_sub(1), d)).collect();
-        let (kept, unused) =
-            crate::comment_directives::filter(&unit.content, &entries, &directives);
-        out.extend(kept);
-        for diagnostic in unused {
-            let (line, character) = line_and_character(&unit.content, diagnostic.span.start);
-            out.push(BaselineDiagnostic {
+        let Some(index) =
+            program.source_files().iter().position(|candidate| std::ptr::eq(candidate, file))
+        else {
+            continue;
+        };
+        let name = names.get(file.path()).copied().unwrap_or(&unit.name).clone();
+        units.push(Unit { index, id, name, file });
+    }
+    units
+}
+
+/// The collection [`reported_for`] and [`rendered_for`] share; see the module
+/// documentation for the shape.
+fn collect(test: &crate::TestCase) -> Vec<(BaselineDiagnostic, Diagnostic)> {
+    let arena = tsr_core::Arena::new();
+    let program = program_for_case(&arena, test);
+    let options = program.compiler_options();
+    let units = program_units(test, &program);
+
+    // `SkipTypeChecking(file, false)`, once per unit: it gates both the check
+    // walk and the collection.
+    let skipped: Vec<bool> = units
+        .iter()
+        .map(|unit| program_diagnostics::skip_type_checking(&program, unit.index, false).is_some())
+        .collect();
+
+    // Match the type producer's module host, JSDoc tables, and compiler options.
+    // Without the tables, annotated JavaScript can silently check as `any` or
+    // infer only from its initializer instead of its declared type.
+    let mut checker = crate::types_producer::configured_checker(&program);
+    // `set_checked_files` before the first `check_source_file`, because the set
+    // is a property of the program: a rule that asks "is this declaration in a
+    // library" would otherwise get an answer that depends on how far the loop
+    // below had got.
+    let is_json = |unit: &Unit<'_, '_>| {
+        tsr_parser::ScriptKind::from_file_name(unit.file.file_name())
+            == tsr_parser::ScriptKind::Json
+    };
+    checker.set_checked_files(units.iter().filter(|unit| !is_json(unit)).map(|unit| unit.id));
+    for (unit, skip) in units.iter().zip(&skipped) {
+        if *skip {
+            continue;
+        }
+        // Upstream's parser sets `NodeFlagsAmbient` on every node of a
+        // declaration file; this port's does not, so the bit is supplied here.
+        checker.check_source_file(
+            unit.id,
+            tsr_checker::check::FileContext {
+                ambient: tsr_path::is_declaration_file_name(unit.file.file_name()),
+                has_parse_errors: !unit.file.diagnostics().is_empty(),
+            },
+        );
+    }
+    // `sourceFile.JSDiagnostics()`, which this port's checker produces on the
+    // parser's behalf; syntactic, so asked of every unit.
+    let mut from_js_syntax: Vec<(usize, Diagnostic)> = Vec::new();
+    for (position, unit) in units.iter().enumerate() {
+        for (file, diagnostic) in checker.js_syntax_diagnostics(unit.id) {
+            if file == unit.id {
+                from_js_syntax.push((position, diagnostic));
+            }
+        }
+    }
+    // `checker.GetDiagnostics(ctx, sourceFile)`: the checker's collection,
+    // bucketed by the file each diagnostic is in.
+    let mut from_checker: HashMap<NodeId, Vec<&Diagnostic>> = HashMap::new();
+    for (file, diagnostic) in checker.diagnostics() {
+        from_checker.entry(*file).or_default().push(diagnostic);
+    }
+
+    let mut reported: Vec<(usize, Diagnostic)> = from_js_syntax;
+    for (position, (unit, skip)) in units.iter().zip(&skipped).enumerate() {
+        // `GetSyntacticDiagnostics` (`program.go:626`): the parse diagnostics,
+        // which no gate below touches.
+        reported.extend(unit.file.diagnostics().iter().map(|d| (position, d.clone())));
+        if *skip {
+            continue;
+        }
+        // `getSemanticDiagnosticsWithChecker` (`program.go:1342`): bind and
+        // check, then the include processor's.
+        let from_checker = from_checker.get(&unit.id).into_iter().flatten().map(|d| (*d).clone());
+        let semantic = program_diagnostics::bind_and_check_diagnostics(
+            &arena,
+            &program,
+            unit.index,
+            from_checker,
+        );
+        reported.extend(semantic.into_iter().map(|d| (position, d)));
+        let included = program_diagnostics::include_processor_diagnostics(&program, unit.index);
+        reported.extend(included.into_iter().map(|d| (position, d)));
+    }
+
+    // `GetDeclarationDiagnostics` (`program.go:1329`) when
+    // `GetEmitDeclarations()` (`core/compileroptions.go:349`). Only the
+    // `isolatedDeclarations` family has a producer (`tsr_dts`, ADR-0021); the
+    // checker-backed accessibility errors (`TS4xxx`, `TS2883`) do not.
+    let emit_declarations = options.declaration.is_true() || options.composite.is_true();
+    if emit_declarations && options.isolated_declarations.is_true() {
+        let analysis = tsr_dts::AnalysisOptions {
+            strict_null_checks: options.strict_option_value(options.strict_null_checks),
+        };
+        for (position, unit) in units.iter().enumerate() {
+            // `getDeclarationDiagnostics` (`compiler/emitter.go:520`) over
+            // `sourceFileMayBeEmitted` (`emitter.go:452`): neither declaration
+            // files nor JSON. The `IsSourceFileFromExternalLibrary` arm needs a
+            // loader fact this port's program does not record.
+            if tsr_path::is_declaration_file_name(unit.file.file_name()) || is_json(unit) {
+                continue;
+            }
+            let found =
+                tsr_dts::analyze_with_options(unit.file.source_file(), program.nodes(), analysis);
+            reported.extend(found.into_iter().map(|d| (position, d)));
+        }
+    }
+
+    // `SortAndDeduplicateDiagnostics` (`compiler/program.go:1454`), which the
+    // test harness applies to the whole list (`harnessutil.go:645` and `:661`).
+    // **The key is upstream's `EqualDiagnosticsNoRelatedInfo`: file, the whole
+    // span, the code and the arguments.** Deduplicating on the *printed* form —
+    // file, line, column, code — is too coarse: `commaOperator1`'s baseline
+    // records three TS2695 at `(1,11)` which differ only in span **length**.
+    // §995.
+    let mut seen: HashSet<(usize, u32, u32, u32, Vec<String>)> = HashSet::new();
+    let mut out = Vec::with_capacity(reported.len());
+    for (position, diagnostic) in reported {
+        if !seen.insert((
+            position,
+            diagnostic.span.start,
+            diagnostic.span.end,
+            diagnostic.message.code(),
+            diagnostic.args.clone(),
+        )) {
+            continue;
+        }
+        let unit = &units[position];
+        let (line, character) = line_and_character(unit.file.text(), diagnostic.span.start);
+        out.push((
+            BaselineDiagnostic {
                 file: unit.name.clone(),
                 line: line + 1,
                 column: character + 1,
                 code: diagnostic.message.code(),
-            });
-        }
+            },
+            diagnostic,
+        ));
     }
-    out.extend(remaining);
     out
 }
 
@@ -450,142 +502,6 @@ pub fn node_kinds_by_position_for(
     out
 }
 
-/// Every diagnostic `Checker::check_source_file` reports for the case's own
-/// units.
-///
-/// **The lib files are in the program and are not walked.** Upstream reports
-/// nothing in `lib.*.d.ts` under any configuration this corpus uses, and a
-/// diagnostic positioned in a lib file can match no baseline line — so walking
-/// them could only manufacture a false positive.
-fn from_check_traversal(test: &crate::TestCase) -> Vec<BaselineDiagnostic> {
-    let arena = tsr_core::Arena::new();
-    let program = program_for_case(&arena, test);
-    // The **loader's** diagnostics, which are produced before any binder or
-    // checker runs and which this port had nowhere to put until §240. Collected
-    // here because this is the one half of the suite that builds a program.
-    let mut from_loader: Vec<BaselineDiagnostic> = Vec::new();
-    for diagnostic in program.loader_diagnostics() {
-        // The loader names files by their program path; the baselines name them
-        // as the case wrote them.
-        let Some(unit) = test.files.iter().find(|unit| {
-            diagnostic.file_name.trim_start_matches('/') == unit.name.trim_start_matches('/')
-        }) else {
-            continue;
-        };
-        let (line, character) = line_and_character(&unit.content, diagnostic.span.start);
-        from_loader.push(BaselineDiagnostic {
-            file: unit.name.clone(),
-            line: line + 1,
-            column: character + 1,
-            code: diagnostic.message.code(),
-        });
-    }
-    // Match the type producer's module host, JSDoc tables, and compiler options.
-    // Without the tables, annotated JavaScript can silently check as `any` or
-    // infer only from its initializer instead of its declared type.
-    let mut checker = crate::types_producer::configured_checker(&program);
-
-    // `set_checked_files` before the first `check_source_file`, because the set
-    // is a property of the program: a rule that asks "is this declaration in a
-    // library" would otherwise get an answer that depends on how far the loop
-    // below had got.
-    let mut own_files = Vec::new();
-    for unit in &test.files {
-        if tsr_parser::ScriptKind::from_file_name(&unit.name) == tsr_parser::ScriptKind::Json {
-            continue;
-        }
-        if let Some(file) = program.source_file(&unit.name)
-            && let Some(id) = file.source_file().node_id
-        {
-            own_files.push(id);
-        }
-    }
-    checker.set_checked_files(own_files);
-
-    // `Program.getBindAndCheckDiagnostics`: diagnose canonical source files,
-    // not every original input spelling. A package redirect may make an input
-    // resolve to another unit's AST; attributing its spans to the redirect's
-    // name reports a diagnostic in the wrong file.
-    let current_directory = tsr_path::get_normalized_absolute_path(
-        test.current_directory.as_deref().unwrap_or("/"),
-        "/",
-    );
-    let case_sensitive = test
-        .options
-        .get("usecasesensitivefilenames")
-        .is_none_or(|value| !value.eq_ignore_ascii_case("false"));
-    let names: std::collections::HashMap<_, _> = test
-        .files
-        .iter()
-        .map(|unit| (tsr_path::to_path(&unit.name, &current_directory, case_sensitive), &unit.name))
-        .collect();
-    let mut visited = std::collections::HashSet::new();
-    let mut units = Vec::new();
-    for unit in &test.files {
-        if tsr_parser::ScriptKind::from_file_name(&unit.name) == tsr_parser::ScriptKind::Json {
-            continue;
-        }
-        let Some(file) = program.source_file(&unit.name) else { continue };
-        let Some(id) = file.source_file().node_id else { continue };
-        if !visited.insert(id) {
-            continue;
-        }
-        // Upstream's parser sets `NodeFlagsAmbient` on every node of a
-        // declaration file; this port's does not, so the bit is supplied here.
-        // `.d.ts` / `.d.mts` / `.d.cts`, which is `tspath.IsDeclarationFileName`.
-        let declaration_file = unit.name.ends_with(".d.ts")
-            || unit.name.ends_with(".d.mts")
-            || unit.name.ends_with(".d.cts");
-        checker.check_source_file(
-            id,
-            tsr_checker::check::FileContext {
-                ambient: declaration_file,
-                has_parse_errors: !file.diagnostics().is_empty(),
-            },
-        );
-        let canonical_name = names.get(file.path()).copied().unwrap_or(&unit.name);
-        units.push((id, canonical_name.clone(), file.text()));
-    }
-
-    let mut out = Vec::new();
-    // `SortAndDeduplicateDiagnostics` (`compiler/program.go:1454`), which the
-    // **test harness** applies to both halves of every baseline it writes
-    // (`harnessutil.go:645` and `:661`). Every `.errors.txt` in the corpus is a
-    // deduplicated list, and this port compared an undeduplicated one against it
-    // for the whole workstream.
-    //
-    // **The key is upstream's `EqualDiagnosticsNoRelatedInfo`: file, the whole
-    // span, the code and the arguments.** Deduplicating on the *printed* form —
-    // file, line, column, code — is too coarse and cost two cases:
-    // `commaOperator1`'s baseline records three TS2695 at `(1,11)` which differ
-    // only in span **length**, a field the textual form drops. §995.
-    let mut seen: std::collections::HashSet<(tsr_ast::NodeId, u32, u32, u32, Vec<String>)> =
-        std::collections::HashSet::new();
-    for (file, diagnostic) in checker.diagnostics() {
-        if !seen.insert((
-            *file,
-            diagnostic.span.start,
-            diagnostic.span.end,
-            diagnostic.message.code(),
-            diagnostic.args.clone(),
-        )) {
-            continue;
-        }
-        let Some((_, unit_name, source)) = units.iter().find(|(id, _, _)| id == file) else {
-            continue;
-        };
-        let (line, character) = line_and_character(source, diagnostic.span.start);
-        out.push(BaselineDiagnostic {
-            file: unit_name.clone(),
-            line: line + 1,
-            column: character + 1,
-            code: diagnostic.message.code(),
-        });
-    }
-    out.extend(from_loader);
-    out
-}
-
 /// A one-line summary of how the two sets differ.
 ///
 /// **Multiset, not set.** The comparison this explains is `Vec == Vec` over sorted
@@ -681,6 +597,40 @@ mod tests {
     fn a_purely_missing_set_names_the_first_code() {
         let expected = vec![diagnostic(2304, 3), diagnostic(2322, 7)];
         assert_eq!(summarise(&expected, &[]), "2 missing (first TS2304 at a.ts(3,1))".to_string());
+    }
+
+    fn codes_of(test: &crate::TestCase) -> Vec<(u32, u32)> {
+        let mut codes: Vec<_> = reported_for(test).into_iter().map(|d| (d.line, d.code)).collect();
+        codes.sort_unstable();
+        codes
+    }
+
+    #[test]
+    fn a_nocheck_file_keeps_only_its_syntactic_diagnostics() {
+        // `SkipTypeChecking` drops a `// @ts-nocheck` file's bind-and-check set
+        // in TypeScript too, unused `@ts-expect-error` included; the parse
+        // error is syntactic and survives.
+        let test = crate::TestCase::parse(
+            "probe/nocheck",
+            "a.ts",
+            "// @ts-nocheck\n// @ts-expect-error\nlet x: number = 'a';\nlet y = ;\n",
+        );
+        assert_eq!(codes_of(&test), [(4, 1109)]);
+    }
+
+    #[test]
+    fn a_plain_javascript_file_keeps_plain_js_errors_and_its_js_syntax() {
+        // TS2451 is in `plainJSErrors`; TS2322 is not, and an unused
+        // `@ts-expect-error` is never reported in plain JavaScript. TS8010 is
+        // the file's `JSDiagnostics()`, which no gate touches.
+        let mut test = crate::TestCase::parse(
+            "probe/plain-js",
+            "a.js",
+            "let a = 1;\nlet a = 2;\n/** @type {number} */\nvar n = 'no';\n\
+             // @ts-expect-error\nfunction f(p: number) {}\n",
+        );
+        test.options.insert("allowjs".into(), "true".into());
+        assert_eq!(codes_of(&test), [(1, 2451), (2, 2451), (6, 8010)]);
     }
 
     #[test]

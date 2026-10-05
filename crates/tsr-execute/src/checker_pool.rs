@@ -112,6 +112,9 @@ pub fn check_program_files<'a>(
         checker.set_checked_files(eligible.iter().copied());
         let constructed = started.elapsed();
         let mut checked_count = 0;
+        // `SourceFile.JSDiagnostics()`, which this port's checker produces on
+        // the parser's behalf (`Checker::js_syntax_diagnostics`).
+        let mut js_syntax = Vec::new();
         if !options.no_check.is_true() {
             for (index, file) in files.iter().enumerate() {
                 if index % count != owner || full_check_exclusion(program, index).is_some() {
@@ -130,11 +133,13 @@ pub fn check_program_files<'a>(
                     },
                 );
                 checked_count += 1;
+                js_syntax.extend(checker.js_syntax_diagnostics(id));
             }
         }
         let diagnostics = checker
             .diagnostics()
             .iter()
+            .chain(&js_syntax)
             .filter_map(|(file_id, diagnostic)| {
                 let index = *file_index.get(file_id)?;
                 (index % count == owner).then(|| (index, diagnostic.clone()))

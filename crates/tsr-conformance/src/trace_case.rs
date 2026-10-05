@@ -512,6 +512,11 @@ pub fn apply_test_directives(
             base.no_unchecked_side_effect_imports,
         ),
         declaration: tristate("declaration", base.declaration),
+        // `GetEmitDeclarations()` reads `composite` too, and the declaration
+        // diagnostics `diagnostics_suite` collects are gated on both plus
+        // `isolatedDeclarations` (`harnessutil.go:639`).
+        composite: tristate("composite", base.composite),
+        isolated_declarations: tristate("isolateddeclarations", base.isolated_declarations),
         es_module_interop: tristate("esmoduleinterop", base.es_module_interop),
         allow_synthetic_default_imports: tristate(
             "allowsyntheticdefaultimports",

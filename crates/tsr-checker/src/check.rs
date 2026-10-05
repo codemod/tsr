@@ -898,7 +898,6 @@ impl Checker<'_, '_> {
         if matches!(typed, Node::InterfaceDeclaration(_) | Node::ClassDeclaration(_)) {
             self.check_recursive_base_type(node, typed);
         }
-        self.check_js_syntax(node, typed);
         if matches!(typed, Node::LabeledStatement(_)) {
             self.check_duplicate_label(node, ambient);
             self.check_label_is_allowed(node);
@@ -10768,10 +10767,46 @@ impl Checker<'_, '_> {
     /// The `.js`-file grammar checks — TS8002, TS8004, TS8006, TS8009, TS8010
     /// and their siblings.
     ///
+    /// A JavaScript file's `SourceFile.JSDiagnostics()`: what upstream's parser
+    /// reports from `checkJSSyntax` (`parser.go:6712`) for every node it
+    /// finishes.
+    ///
+    /// Upstream's set is **syntactic**: `Program.GetSyntacticDiagnostics`
+    /// (`compiler/program.go:626`) returns it whether or not the file is
+    /// type-checked, and the plain-JavaScript filter of
+    /// `getBindAndCheckDiagnosticsWithChecker` never sees it. So it is not part
+    /// of [`Checker::check_source_file`]'s collection; the caller asks for it
+    /// per file, as a program asks a parsed file. Nothing is cached: the walk
+    /// visits every node of the file once, the rules read only the node and its
+    /// flags, and the result is returned rather than stored. Empty for a file
+    /// that is not JavaScript.
+    pub fn js_syntax_diagnostics(&mut self, file: NodeId) -> Vec<(NodeId, Diagnostic)> {
+        if !self.nodes.flags(file).contains(tsr_ast::NodeFlags::JAVASCRIPT_FILE) {
+            return Vec::new();
+        }
+        // `report_js_only` appends to the check collection; the walk runs
+        // against an empty one and hands back what it gathered.
+        let saved = std::mem::take(&mut self.diagnostics);
+        let mut stack = vec![(file, 0u32)];
+        while let Some((node, depth)) = stack.pop() {
+            // The check walk's bound (`MAX_CHECK_DEPTH`, ADR-0029).
+            if depth > MAX_CHECK_DEPTH {
+                continue;
+            }
+            let Some(typed) = self.node_map.get(node) else { continue };
+            self.check_js_syntax(node, typed);
+            let start = stack.len();
+            tsr_ast::for_each_child_id(typed, |child| stack.push((child, depth + 1)));
+            // Document order, as the parser finishes nodes.
+            stack[start..].reverse();
+        }
+        std::mem::replace(&mut self.diagnostics, saved)
+    }
+
     /// `checkJSSyntax` (`parser.go:6711`). Upstream runs this in the **parser**;
-    /// this port's parser does not emit diagnostics, and the suite compares
-    /// `(file, line, column, code)` rather than the producer — the same
-    /// placement argument §550 made for a binder check.
+    /// this port's parser does not emit diagnostics, so the rules live here and
+    /// [`Checker::js_syntax_diagnostics`] runs them as the separate, syntactic
+    /// set upstream's parser produces.
     ///
     /// The `NodeFlagsReparsed` guards are omitted: they are JSDoc-reparse
     /// machinery and this parser keeps JSDoc out of the tree.
