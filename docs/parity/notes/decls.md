@@ -107,3 +107,72 @@ against the function. The checker now treats a symbol recorded in
 **Needed outside this lane:** the binder should not record the `merged` edge
 for a conflicting pair. That is the root cause; the check-side test is local to
 TS2403 and every other consumer of `merged_symbol` still sees the bad edge.
+
+## §4 TS2394: the overload/implementation relation, with a local parameter loop
+
+`check_function_or_constructor_symbol` ported only the implementation-presence
+arms of `checkFunctionOrConstructorSymbol`; TS2394 came from a separate
+heuristic (`check_overload_implementation_return`) that compared *written
+primitive return keywords* of same-arity function declarations. It is replaced
+by the upstream block (`checker.go:3697-3707`): every body-less declaration's
+signature, in order, against the body's, reporting the first for which
+`isImplementationCompatibleWithOverload` (`checker.go:3716`) fails. Constructors
+and methods now take part (`parserClassDeclaration12`,
+`constructorsWithSpecializedSignatures`, `parserParameterList16/17`).
+
+**The parameter loop is local.** `isSignatureAssignableTo(erasedImpl,
+erasedOverload, ignoreReturnTypes)` is `compareSignaturesRelated`. The relater
+has that loop (`one_signature_related_to`), but only behind a pair of
+signature-bearing *types*, and `is_pure_signature_type` admits only
+function-expression, function-type, method and signature declarations. A type
+minted from a function declaration or constructor signature therefore answers
+`Unknown` (relater reason row 3, "no members table" — measured with
+`relater::reasons` on `functionOverloads18`). So
+`signature_parameters_assignable` ports the arity test, `this` types and the
+parameter loop with upstream's `strictVariance` rule. It declines (a) a
+non-array rest on either side and (b) the callback arm: a callable parameter
+pair is decided only when both directions agree.
+
+**What would change this.** If the relater exposes signature comparison
+(`compareSignaturesRelated` with a check mode) or admits `FunctionDeclaration`
+and `Constructor` in `is_pure_signature_type`, the local loop should go and
+the callback arm comes for free. That is a change in `crate::relater`, which
+this lane does not own.
+
+**Falsifier.** A new extra TS2394 on an overload whose parameters relate only
+through the callback arm or a tuple rest.
+
+## §5 TS2411: index constraints use the assignability gate, not the general one
+
+`check_index_constraint_for_property` / `…_for_index_signature` asked
+`pair_is_reportable`, which adds an *enum veto* on top of
+`assignability_pair_is_reportable`. That veto exists for rules whose own enum
+handling is unported (comparisons, operators); `checkIndexConstraintForProperty`
+is a plain `isTypeAssignableTo(propType, info.valueType)`, and the relater's
+enum arms are ported. Lifting it reports 13 of the 16 TS2411 lines in
+`enumIsNotASubtypeOfAnythingButNumber` (the other 3 are an enum against an
+array, an interface and `typeof f`, where the relater still answers
+`Unknown`). No loss in the full run.
+
+## §6 TS2564 on an error-typed property: declined, blocked on resolution
+
+Upstream skips `checkPropertyInitialization` for a property whose type has
+`TypeFlagsAnyOrUnknown`, and `errorType` carries `Any` — so `x: A` with `A`
+generic and unargumented (TS2314), or `z: W` with `W` unresolved (TS2304), never
+gets TS2564. This port reports there unless the name is computed (§324 of
+`checker-notes-diag2.md`), producing extra TS2564 in lane cases such as
+`genericReturnTypeFromGetter1`, `genericsWithoutTypeParameters1` and
+`typeParameterUsedAsTypeParameterConstraint4`.
+
+Following upstream (skip every error-typed property), measured on the tree of
+this lane's second commit, converted eight cases —
+`decoratorMetadataNoLibIsolatedModulesTypes`, `decoratorMetadataTypeOnlyImport`,
+`genericReturnTypeFromGetter1`, `genericsWithoutTypeParameters1`,
+`metadataImportType`,
+`ClassAndModuleThatMergeWithModuleMemberThatUsesClassTypeParameter`,
+`typeParameterUsedAsTypeParameterConstraint4`, `parserRealSource6` — and lost
+`decoratorMetadataWithTypeOnlyImport2`: there `field: Services.Service` names a
+class through `import type { Services }`, which this port fails to resolve, so
+its "error type" is a resolution gap rather than an upstream error. **Not
+shipped.** Unblocked by resolving namespace members through a type-only
+import (names lane); then the `computed_name` condition goes.
