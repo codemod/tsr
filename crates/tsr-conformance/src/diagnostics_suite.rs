@@ -221,10 +221,31 @@ fn program_units<'p, 'a>(test: &crate::TestCase, program: &'p Program<'a>) -> Ve
         else {
             continue;
         };
-        let name = names.get(file.path()).copied().unwrap_or(&unit.name).clone();
+        let name = printed_name(names.get(file.path()).copied().unwrap_or(&unit.name), test);
         units.push(Unit { index, id, name, file });
     }
     units
+}
+
+/// The file name a baseline header prints for a unit.
+///
+/// The runner names each unit `GetNormalizedAbsolutePath(unit.name,
+/// currentDirectory)` with `currentDirectory` defaulting to `/.src`
+/// (`createHarnessTestFile`, `testrunner/compiler_runner.go:521`), and the
+/// error baseline prints it through `ConvertToRelativePath` with an empty
+/// current directory, which keeps a rooted path whole, then
+/// `removeTestPathPrefixes` (`testutil/tsbaseline/util.go:44`). So `./a.js`
+/// prints as `a.js`, and `/foo.js` as itself.
+fn printed_name(unit_name: &str, test: &crate::TestCase) -> String {
+    const SRC_FOLDER: &str = "/.src";
+    let current_directory = tsr_path::get_normalized_absolute_path(
+        test.current_directory.as_deref().unwrap_or(""),
+        SRC_FOLDER,
+    );
+    let absolute = tsr_path::get_normalized_absolute_path(unit_name, &current_directory);
+    // `testPathPrefixReplacer`'s path arms; the URL arms cannot occur in a
+    // rooted file name.
+    absolute.replace("/.ts/", "").replace("/.lib/", "").replace("/.src/", "")
 }
 
 /// The collection [`reported_for`] and [`rendered_for`] share; see the module
