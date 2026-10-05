@@ -253,6 +253,88 @@ impl Checker<'_, '_> {
         if module_element_miss && !self.no_implicit_any {
             return;
         }
+        // getPropertyTypeForIndexType's miss arm for an element access
+        // (checker.go:27129-27184): a const enum object falls through to the
+        // final TS2339 at the index; any other object reports only under
+        // noImplicitAny, at the whole access unless a suggestion names the
+        // argument.
+        if let Some(Node::ElementAccessExpression(access)) = self.node_map.get(node)
+            && !module_element_miss
+        {
+            if self.is_const_enum_object_type(receiver_type) {
+                // Falls to the final TS2339 below.
+            } else {
+                if !self.no_implicit_any {
+                    return;
+                }
+                let Some(argument) = access.argument_expression else { return };
+                let Some(argument_id) = argument.node_id() else { return };
+                let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+                let printed = self.type_to_string(receiver_type);
+                if self.is_object_literal_type(receiver_type) {
+                    let span = self.error_span(node);
+                    self.report(
+                        file,
+                        Diagnostic::with_args(
+                            &messages::PROPERTY_0_DOES_NOT_EXIST_ON_TYPE_1,
+                            span,
+                            [name_text.to_string(), printed],
+                        ),
+                    );
+                    return;
+                }
+                // typeHasStaticProperty's TS2576 prints the argument's source
+                // text, which this rule cannot recover; decline it.
+                if self.other_side_of_class_has(receiver_type, name_text) {
+                    return;
+                }
+                let Some(indexes) = self.get_index_infos_of_type(receiver_type) else { return };
+                if indexes.iter().any(|info| info.key == self.intrinsics.number) {
+                    let span = self.error_span(argument_id);
+                    self.report(
+                        file,
+                        Diagnostic::new(
+                            &messages::ELEMENT_IMPLICITLY_HAS_AN_ANY_TYPE_BECAUSE_INDEX_EXPRESSION_IS_NOT_OF_TYPE_NUMBER,
+                            span,
+                        ),
+                    );
+                    return;
+                }
+                let candidates = self.property_names_of(receiver_type);
+                // getSuggestionForNonexistentIndexSignature (TS7052) reads
+                // `get`/`set` call signatures; decline rather than guess.
+                if candidates.iter().any(|candidate| candidate == "get" || candidate == "set") {
+                    return;
+                }
+                if let Some(suggestion) = crate::check::spelling_suggestion(
+                    name_text,
+                    &candidates.iter().map(String::as_str).collect::<Vec<_>>(),
+                ) {
+                    let suggestion = suggestion.to_string();
+                    let span = self.error_span(argument_id);
+                    self.report(
+                        file,
+                        Diagnostic::with_args(
+                            &messages::PROPERTY_0_DOES_NOT_EXIST_ON_TYPE_1_DID_YOU_MEAN_2,
+                            span,
+                            [name_text.to_string(), printed, suggestion],
+                        ),
+                    );
+                    return;
+                }
+                let index_type = self.check_expression(argument);
+                let span = self.error_span(node);
+                self.report(
+                    file,
+                    Diagnostic::with_args(
+                        &messages::ELEMENT_IMPLICITLY_HAS_AN_ANY_TYPE_BECAUSE_EXPRESSION_OF_TYPE_0_CAN_T_BE_USED_TO_INDEX_TYPE_1,
+                        span,
+                        [self.type_to_string(index_type), printed],
+                    ),
+                );
+                return;
+            }
+        }
         // **The other side of the class is not silence, it is TS2576.**
         // `other_side_of_class_has`'s own doc names the code; the caller used
         // the answer only to suppress TS2339. `this.Foo()` on a static `Foo` is
@@ -854,6 +936,12 @@ impl Checker<'_, '_> {
                     )
                 })
             })
+    }
+
+    /// `isConstEnumObjectType`: a const enum's object type.
+    fn is_const_enum_object_type(&self, id: TypeId) -> bool {
+        matches!(self.store.get(id).data, crate::types::TypeData::Anonymous { symbol, .. }
+            if self.binder.symbols().get(symbol).flags.contains(SymbolFlags::CONST_ENUM))
     }
 
     /// Is `name` declared on the class's *other* side?
