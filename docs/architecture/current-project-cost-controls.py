@@ -22,7 +22,7 @@ perf = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(perf)
 
 
-def parse_sample(text: str) -> dict:
+def parse_sample(text: str, *, thread_name: str = 'com.apple.main-thread') -> dict:
     graph = text.split('Call graph:\n', 1)[1].split('\nTotal number', 1)[0]
     nodes, stack = [], []
     root_depth = None
@@ -33,7 +33,7 @@ def parse_sample(text: str) -> dict:
             continue
         depth, count, raw = match.start(1), int(match[1]), match[2]
         if root_depth is None:
-            if 'com.apple.main-thread' not in raw:
+            if thread_name not in raw:
                 continue
             root_depth = depth
         elif depth <= root_depth:
@@ -82,6 +82,26 @@ def parse_sample(text: str) -> dict:
             'top_self': [list(item) for item in self_counts.most_common(25)],
             'nearest_tsr_owner': [list(item) for item in owners.most_common(40)],
             'allocator_nearest_owner': [list(item) for item in allocators.most_common(25)]}
+
+
+def parse_thread_samples(text: str) -> dict:
+    """Keep each sampled thread separate; pooled counts are not CPU percentages."""
+    graph = text.split('Call graph:\n', 1)[1].split('\nTotal number', 1)[0]
+    roots = []
+    for line in graph.splitlines():
+        match = re.match(r'^[ +!:|]*(\d+) (Thread_.+)$', line)
+        if match:
+            roots.append((match.start(1), match[2]))
+    if not roots:
+        raise ValueError('sample has no thread roots')
+    depth = min(item[0] for item in roots)
+    names = [name for level, name in roots if level == depth]
+    if len(set(names)) != len(names):
+        raise ValueError('duplicate sampled thread root')
+    threads = [{'thread': name, **parse_sample(text, thread_name=name)} for name in names]
+    return {'threads': threads, 'total_thread_samples': sum(row['total_samples'] for row in threads),
+            'interpretation': 'disjoint nearest-owner stack samples per thread; interval-bound, '
+                              'including waits; not CPU percentages, allocation events or saved wall'}
 
 
 def profiled_process(command: list[str], cwd: Path, output: Path,
