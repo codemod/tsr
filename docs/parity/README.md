@@ -43,3 +43,9 @@ or another lane's file is reported to the integrator, who serializes it.
 | contextual | `tsr-2zk.14` | 5 |
 | misc-checks | `tsr-2zk.15` | 371 |
 | types-any-triage | `tsr-2zk.16` | 692 |
+
+`types-triage.md` splits the 730 types-only failing cases (`types-any-triage`
+plus the `type-operators` and `contextual` types failures) into root-cause
+clusters ranked by cases each finishes. Port sets and every verified cluster
+that finishes at least three cases are filed as `tsr-2zk.16.1`–`tsr-2zk.16.54`,
+labelled with the lane that owns the code to change.
