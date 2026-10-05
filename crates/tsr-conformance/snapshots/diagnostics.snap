@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics Summary:
 What a pass means: every diagnostic in upstream's .errors.txt reproduced exactly — same file, line, column and code, no more and no fewer — for cases that expect at least one; scanner, parser and binder only, with no checker (bd tsr-4sc)
-Passed         : 3093/5488 (56.36%)
-Failed         : 2395
+Passed         : 3196/5488 (58.24%)
+Failed         : 2292
 Skipped        : 6956 (excluded from the denominator)
 
   793  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -11,7 +11,7 @@ Skipped        : 6956 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   464  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 2395 failures:
+First 100 of 2292 failures:
 compiler/ClassDeclaration26
   2 unexpected (first TS1005 at ClassDeclaration26.ts(2,22)), 5 missing
 compiler/TransportStream
@@ -130,8 +130,6 @@ compiler/augmentedTypesClass2a
   2 missing (first TS2813 at augmentedTypesClass2a.ts(2,7))
 compiler/augmentedTypesFunction
   4 missing (first TS2814 at augmentedTypesFunction.ts(13,10))
-compiler/augmentedTypesVar
-  1 missing (first TS2403 at augmentedTypesVar.ts(10,5))
 compiler/autoLift2
   2 missing (first TS2693 at autoLift2.ts(5,19))
 compiler/autoTypeAssignedUsingDestructuringFromNeverNoCrash
@@ -150,14 +148,10 @@ compiler/badArrayIndex
   1 unexpected (first TS1109 at badArrayIndex.ts(1,22)), 2 missing
 compiler/baseCheck
   2 missing (first TS2554 at baseCheck.ts(17,53))
-compiler/baseClassImprovedMismatchErrors
-  2 unexpected (first TS2415 at baseClassImprovedMismatchErrors.ts(7,7)), 2 missing
 compiler/baseConstraintOfDecorator
   1 unexpected (first TS2322 at baseConstraintOfDecorator.ts(12,5)), 2 missing
 compiler/baseExpressionTypeParameters
   1 missing (first TS2562 at baseExpressionTypeParameters.ts(10,27))
-compiler/baseTypePrivateMemberClash
-  1 unexpected (first TS2430 at baseTypePrivateMemberClash.ts(8,11)), 1 missing
 compiler/bases
   3 missing (first TS2693 at bases.ts(7,17))
 compiler/betterErrorForUnionCall
@@ -212,3 +206,9 @@ compiler/checkDestructuringShorthandAssigment2
   1 missing (first TS2353 at checkDestructuringShorthandAssigment2.ts(4,27))
 compiler/checkJsTypeDefNoUnusedLocalMarked
   1 missing (first TS2352 at something.js(5,29))
+compiler/checkJsdocTypeTagOnExportAssignment1
+  1 missing (first TS2353 at a.js(8,18))
+compiler/checkJsdocTypeTagOnExportAssignment2
+  1 missing (first TS2353 at b.js(2,18))
+compiler/checkJsdocTypeTagOnExportAssignment4
+  1 missing (first TS2322 at a.js(6,16))
