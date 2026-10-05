@@ -403,8 +403,9 @@ enum CallArity {
     /// A type-argument or argument arity error was reported; upstream
     /// reports nothing else for the call.
     Reported,
-    /// Some candidate has a correct arity; the arguments decide.
-    Applicable,
+    /// Some candidate has a correct arity; the arguments decide. Carries
+    /// the candidate when it is the single non-generic one.
+    Applicable(Option<Box<Signature>>),
 }
 
 /// One entry of `getEffectiveCallArguments`: the written argument (or the
@@ -562,7 +563,10 @@ impl Checker<'_, '_> {
             CallHead::Resolve(apparent) => {
                 match self.check_resolve_call_arity(node, apparent, SignatureKind::Call) {
                     CallArity::Reported => {}
-                    CallArity::Applicable => self.check_call_arity(node, false),
+                    CallArity::Applicable(Some(signature)) => {
+                        self.check_single_candidate_arguments(node, &signature);
+                    }
+                    CallArity::Applicable(None) => self.check_call_arity(node, false),
                     CallArity::Undecided => {
                         self.check_call_arity(node, true);
                         self.check_call_type_argument_arity(node);
@@ -692,7 +696,17 @@ impl Checker<'_, '_> {
             }
         }
         if applicable {
-            return CallArity::Applicable;
+            // `isSingleNonGenericCandidate`: the sole candidate is checked
+            // against the arguments as is, no inference or type arguments.
+            if let [candidate] = candidates.as_slice()
+                && candidate.type_parameters.is_empty()
+                && type_arguments.is_empty()
+                && !effective.iter().any(|argument| argument.spread)
+                && effective.len() == arguments.len()
+            {
+                return CallArity::Applicable(Some(Box::new(candidate.clone())));
+            }
+            return CallArity::Applicable(None);
         }
         let error_node = match callee.and_then(|callee| callee.node_id()) {
             Some(callee) if is_call => self.call_error_node(callee),
@@ -700,6 +714,93 @@ impl Checker<'_, '_> {
         };
         self.report_argument_arity_error(node, error_node, &candidates, &effective);
         CallArity::Reported
+    }
+
+    /// `getSignatureApplicabilityError` (`checker.go`) for a single
+    /// non-generic candidate whose arity matched: each argument against
+    /// `getTypeAtPosition`, stopping at the first failure (TS2345, or the
+    /// object literal's excess-property elaboration). The `this` argument
+    /// check is not ported. An unsupported parameter type stops the walk.
+    fn check_single_candidate_arguments(&mut self, node: tsr_ast::NodeId, signature: &Signature) {
+        let arguments = match self.node_map.get(node) {
+            Some(tsr_ast::Node::CallExpression(call)) => call.arguments,
+            Some(tsr_ast::Node::NewExpression(new)) => new.arguments,
+            _ => return,
+        };
+        for (position, argument) in arguments.iter().enumerate() {
+            let Some(argument_id) = argument.node_id() else { return };
+            let Some(target) = self.signature_type_at_position(signature, position) else {
+                return;
+            };
+            if self.is_error(target) {
+                return;
+            }
+            if self.argument_type_is_not_upstreams(*argument) {
+                return;
+            }
+            let before = self.diagnostics.len();
+            self.check_excess_properties(target, argument_id);
+            if self.diagnostics.len() != before {
+                return;
+            }
+            let source = self.check_expression(*argument);
+            if self.mapped_types.get(&source).is_some_and(|info| info.name_type.is_some()) {
+                // A mapped type with an `as` clause: this port's member
+                // resolution of it over an array source is not upstream's
+                // (`mappedTypeWithNameClauseAppliedToArrayType`).
+                return;
+            }
+            if self.report_argument_failure(argument_id, source, target) {
+                return;
+            }
+        }
+    }
+
+    /// Argument shapes whose type this port computes without a mechanism
+    /// upstream applies, so a failed relation is not upstream's answer:
+    ///
+    /// - `a ?? b`, `a || b` and `c ? a : b` union their operands with
+    ///   `UnionReductionSubtype`, which this port does not have;
+    /// - an identifier naming an auto-typed `let x = []` array, whose
+    ///   evolved element types upstream regularizes
+    ///   (`getRegularTypeOfObjectLiteral` in `addEvolvingArrayElementType`)
+    ///   and this port leaves fresh.
+    fn argument_type_is_not_upstreams(&self, argument: Expression<'_>) -> bool {
+        let mut argument = argument;
+        while let Expression::ParenthesizedExpression(inner) = argument {
+            let Some(expression) = inner.expression else { return true };
+            argument = expression;
+        }
+        match argument {
+            Expression::ConditionalExpression(_) => true,
+            Expression::BinaryExpression(binary) => binary.operator_token.is_some_and(|token| {
+                matches!(
+                    token.kind,
+                    tsr_ast::SyntaxKind::QuestionQuestionToken | tsr_ast::SyntaxKind::BarBarToken
+                )
+            }),
+            Expression::Identifier(identifier) => {
+                let Some(id) = identifier.node_id else { return false };
+                let Some(symbol) = self.binder.resolve_name(
+                    self.nodes,
+                    self.node_map,
+                    id,
+                    identifier.text,
+                    SymbolFlags::VALUE,
+                ) else {
+                    return false;
+                };
+                let Some(declaration) = self.binder.symbols().get(symbol).value_declaration else {
+                    return false;
+                };
+                matches!(self.node_map.get(declaration),
+                    Some(tsr_ast::Node::VariableDeclaration(variable))
+                        if variable.r#type.is_none()
+                            && matches!(variable.initializer,
+                                Some(Expression::ArrayLiteralExpression(array)) if array.elements.is_empty()))
+            }
+            _ => false,
+        }
     }
 
     /// The type-argument half of [`Checker::check_resolve_call_arity`] alone.
@@ -1052,7 +1153,10 @@ impl Checker<'_, '_> {
                 };
                 match self.check_resolve_call_arity(node, apparent, kind) {
                     CallArity::Reported => {}
-                    CallArity::Applicable => self.check_new_arity(node, false),
+                    CallArity::Applicable(Some(signature)) => {
+                        self.check_single_candidate_arguments(node, &signature);
+                    }
+                    CallArity::Applicable(None) => self.check_new_arity(node, false),
                     CallArity::Undecided => {
                         self.check_new_arity(node, true);
                         self.check_call_type_argument_arity(node);
@@ -2348,11 +2452,19 @@ impl Checker<'_, '_> {
             _ => 0,
         };
         let candidates = self.call_signatures_of_type(tag_type).unwrap_or_default();
+        // `chooseOverload` skips a candidate failing
+        // `hasCorrectTypeArgumentArity` (`checker.go:9214`) before arity, so
+        // `fooFn<number>``…`` cannot pick a non-generic overload.
+        let type_argument_count = node.type_arguments.len();
         let arity_pick = if candidates.len() > 1 {
             let survivors: Vec<&Signature> = candidates
                 .iter()
                 .filter(|candidate| {
                     candidate.this_parameter.is_none()
+                        && (type_argument_count == 0
+                            || type_argument_count
+                                >= Self::min_type_argument_count(&candidate.type_parameters)
+                                && type_argument_count <= candidate.type_parameters.len())
                         && has_correct_arity(candidate, argument_count)
                 })
                 .collect();
