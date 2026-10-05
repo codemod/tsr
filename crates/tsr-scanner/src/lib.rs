@@ -903,57 +903,131 @@ impl<'a> Scanner<'a> {
             }
         }
 
-        // `scanNumber`'s leading-zero arms (`scanner.go:1947-1972`). After a
-        // `0`, upstream splits three ways: nothing follows (plain zero), the
-        // run contains an 8 or a 9 (a decimal with a leading zero, legal and
-        // silent), or every digit is octal — the pre-ES5 literal, which is
-        // `Octal literals are not allowed`.
+        // typescript-go's `Scanner.scanNumber` (`scanner.go`), decimal arm.
+        //
+        // After a `0`, upstream splits three ways: nothing follows (plain
+        // zero), the run contains an 8 or a 9 (a decimal with a leading zero,
+        // `Decimals with leading zeros are not allowed`), or every digit is
+        // octal — the pre-ES5 literal, which is `Octal literals are not
+        // allowed`.
         //
         // `withMinus` prefixes `-` to the suggested spelling and widens the
         // span left by reading the *previous* token; this scanner does not keep
         // one here, so a negated octal is suggested without its sign. A wrong
-        // **argument**, never a wrong code or position — the suite compares
-        // neither, so it is recorded in §224 rather than measured.
-        let leading_zero = self.peek() == Some('0');
-        let digits_start = self.pos;
-        self.scan_digits(10, flags);
-        if leading_zero && self.pos > digits_start + 1 {
-            let digits = &self.source[digits_start as usize + 1..self.pos as usize];
-            if !digits.is_empty() && digits.bytes().all(|b| (b'0'..=b'7').contains(&b)) {
-                let value = u64::from_str_radix(digits, 8).unwrap_or(0);
-                self.error_with(
-                    &messages::OCTAL_LITERALS_ARE_NOT_ALLOWED_USE_THE_SYNTAX_0,
-                    Span::new(digits_start, self.pos),
-                    &[&format!("0o{value:o}")],
+        // **argument**, never a wrong code or position — §224.
+        let start = self.pos;
+        let mut leading_zero = false;
+        if self.peek() == Some('0') {
+            self.bump();
+            if self.peek() == Some('_') {
+                *flags |= TokenFlags::CONTAINS_SEPARATOR;
+                self.error(
+                    &messages::NUMERIC_SEPARATORS_ARE_NOT_ALLOWED_HERE,
+                    Span::new(self.pos, self.pos + 1),
                 );
-                return SyntaxKind::NumericLiteral;
+                self.pos = start;
+                self.scan_digits(10, flags);
+            } else {
+                // `scanDigits`: plain digits, no separators.
+                let digits_start = self.pos;
+                let mut is_octal = true;
+                while let Some(ch) = self.peek().filter(char::is_ascii_digit) {
+                    is_octal &= ch < '8';
+                    self.bump();
+                }
+                if self.pos > digits_start {
+                    if is_octal {
+                        let digits = &self.source[digits_start as usize..self.pos as usize];
+                        let value = u64::from_str_radix(digits, 8).unwrap_or(0);
+                        self.error_with(
+                            &messages::OCTAL_LITERALS_ARE_NOT_ALLOWED_USE_THE_SYNTAX_0,
+                            Span::new(start, self.pos),
+                            &[&format!("0o{value:o}")],
+                        );
+                        return SyntaxKind::NumericLiteral;
+                    }
+                    leading_zero = true;
+                }
             }
+        } else {
+            self.scan_digits(10, flags);
         }
-
-        if self.eat('n') {
-            return SyntaxKind::BigIntLiteral;
-        }
+        let fixed_part_end = self.pos;
 
         // Fractional part. `1.` is legal; `1.5` more so.
         if self.peek() == Some('.') {
             self.bump();
             self.scan_digits(10, flags);
         }
+        let mut end = self.pos;
 
         // Exponent.
+        let mut scientific = false;
         if matches!(self.peek(), Some('e' | 'E')) {
             self.bump();
+            scientific = true;
+            *flags |= TokenFlags::SCIENTIFIC;
             if matches!(self.peek(), Some('+' | '-')) {
                 self.bump();
             }
             if self.scan_digits(10, flags) == 0 {
                 self.error(&messages::DIGIT_EXPECTED, Span::new(self.pos, self.pos));
             } else {
-                *flags |= TokenFlags::SCIENTIFIC;
+                end = self.pos;
             }
         }
 
-        SyntaxKind::NumericLiteral
+        if leading_zero {
+            self.error(
+                &messages::DECIMALS_WITH_LEADING_ZEROS_ARE_NOT_ALLOWED,
+                Span::new(start, self.pos),
+            );
+            return SyntaxKind::NumericLiteral;
+        }
+
+        let result = if fixed_part_end == self.pos && self.eat('n') {
+            SyntaxKind::BigIntLiteral
+        } else {
+            SyntaxKind::NumericLiteral
+        };
+
+        // An identifier glued to the literal: `3a`, `1n` after a fraction.
+        if self.peek().is_some_and(is_identifier_start) {
+            let id_start = self.pos;
+            while self.peek().is_some_and(is_identifier_part) {
+                self.bump();
+            }
+            if result != SyntaxKind::BigIntLiteral
+                && self.pos == id_start + 1
+                && self.source.as_bytes()[id_start as usize] == b'n'
+            {
+                // The `n` stays part of the literal, as upstream's token
+                // value (`text[start:end]`) leaves it out.
+                self.value = Some(self.source[start as usize..end as usize].to_string());
+                if scientific {
+                    self.error(
+                        &messages::A_BIGINT_LITERAL_CANNOT_USE_EXPONENTIAL_NOTATION,
+                        Span::new(start, self.pos),
+                    );
+                    return result;
+                }
+                if fixed_part_end < id_start {
+                    self.error(
+                        &messages::A_BIGINT_LITERAL_MUST_BE_AN_INTEGER,
+                        Span::new(start, self.pos),
+                    );
+                    return result;
+                }
+            }
+            self.error(
+                &messages::AN_IDENTIFIER_OR_KEYWORD_CANNOT_IMMEDIATELY_FOLLOW_A_NUMERIC_LITERAL,
+                Span::new(id_start, self.pos),
+            );
+            self.value = None;
+            self.pos = id_start;
+        }
+
+        result
     }
 
     /// Consume digits of the given radix, allowing `_` separators.
@@ -961,29 +1035,42 @@ impl<'a> Scanner<'a> {
     /// Returns how many digits were consumed, so callers can report an empty
     /// literal like `0x`.
     fn scan_digits(&mut self, radix: u32, flags: &mut TokenFlags) -> usize {
+        // `scanNumberFragment` / `scanHexDigits` / `scanBinaryOrOctalDigits`
+        // (`scanner.go`): a separator is allowed only right after a digit; one
+        // right after another separator is `Multiple consecutive numeric
+        // separators`, any other misplaced one `not allowed here`.
         let mut count = 0;
-        let mut last_was_separator = false;
+        let mut allow_separator = false;
+        let mut is_previous_separator = false;
         while let Some(ch) = self.peek() {
             if ch == '_' {
-                if count == 0 || last_was_separator {
+                *flags |= TokenFlags::CONTAINS_SEPARATOR;
+                if allow_separator {
+                    allow_separator = false;
+                    is_previous_separator = true;
+                } else if is_previous_separator {
+                    self.error(
+                        &messages::MULTIPLE_CONSECUTIVE_NUMERIC_SEPARATORS_ARE_NOT_PERMITTED,
+                        Span::new(self.pos, self.pos + 1),
+                    );
+                } else {
                     self.error(
                         &messages::NUMERIC_SEPARATORS_ARE_NOT_ALLOWED_HERE,
                         Span::new(self.pos, self.pos + 1),
                     );
                 }
-                *flags |= TokenFlags::CONTAINS_SEPARATOR;
-                last_was_separator = true;
                 self.bump();
                 continue;
             }
             if !ch.is_digit(radix) {
                 break;
             }
-            last_was_separator = false;
+            allow_separator = true;
+            is_previous_separator = false;
             count += 1;
             self.bump();
         }
-        if last_was_separator {
+        if is_previous_separator {
             self.error(
                 &messages::NUMERIC_SEPARATORS_ARE_NOT_ALLOWED_HERE,
                 Span::new(self.pos - 1, self.pos),

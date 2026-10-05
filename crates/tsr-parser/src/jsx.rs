@@ -24,7 +24,7 @@ impl<'a> Parser<'a> {
         top_invalid_node_position: Option<u32>,
     ) -> Expression<'a> {
         let start = self.pos();
-        let result = self.parse_jsx_element();
+        let result = self.parse_jsx_element(true);
         if !self.at(SyntaxKind::LessThanToken) {
             return result;
         }
@@ -45,8 +45,10 @@ impl<'a> Parser<'a> {
         ))
     }
 
-    /// Parse a JSX element or fragment, starting at `<`.
-    pub(crate) fn parse_jsx_element(&mut self) -> Expression<'a> {
+    /// Parse a JSX element or fragment, starting at `<`. `in_expression_context`
+    /// is upstream's flag of the same name: false for a child element, whose
+    /// closing `>` is followed by more JSX text.
+    pub(crate) fn parse_jsx_element(&mut self, in_expression_context: bool) -> Expression<'a> {
         let start = self.pos();
         self.expect(SyntaxKind::LessThanToken);
 
@@ -61,8 +63,8 @@ impl<'a> Parser<'a> {
             let children = self.parse_jsx_children();
             let closing_start = self.pos();
             self.expect(SyntaxKind::LessThanSlashToken);
-            self.at_jsx_greater_than();
-            self.expect(SyntaxKind::GreaterThanToken);
+            // `parseJsxClosingFragment`.
+            self.parse_jsx_closing_greater_than(!in_expression_context);
             let closing = self.finish_node(
                 JsxClosingFragment::new(),
                 SyntaxKind::JsxClosingFragment,
@@ -88,8 +90,7 @@ impl<'a> Parser<'a> {
         // `<div />` — self-closing, no children.
         if self.at(SyntaxKind::SlashToken) {
             self.next_token();
-            self.at_jsx_greater_than();
-            self.expect(SyntaxKind::GreaterThanToken);
+            self.parse_jsx_closing_greater_than(!in_expression_context);
             return Expression::JsxSelfClosingElement(self.finish_node(
                 JsxSelfClosingElement::new(Some(tag_name), type_arguments, Some(attributes)),
                 SyntaxKind::JsxSelfClosingElement,
@@ -112,8 +113,10 @@ impl<'a> Parser<'a> {
         let closing_start = self.pos();
         self.expect(SyntaxKind::LessThanSlashToken);
         let closing_name = self.parse_jsx_tag_name();
-        self.at_jsx_greater_than();
-        self.expect(SyntaxKind::GreaterThanToken);
+        // `parseJsxClosingElement`: JSX text follows only when this closes a
+        // child whose tag matches.
+        let same_tag = self.jsx_tag_text(tag_name) == self.jsx_tag_text(closing_name);
+        self.parse_jsx_closing_greater_than(!in_expression_context && same_tag);
         let closing = self.finish_node(
             JsxClosingElement::new(Some(closing_name)),
             SyntaxKind::JsxClosingElement,
@@ -126,6 +129,27 @@ impl<'a> Parser<'a> {
             SyntaxKind::JsxElement,
             start,
         ))
+    }
+
+    /// The `>` that closes a tag, `parseExpectedWithoutAdvancing` then a
+    /// manual advance: under JSX rules when JSX text follows (so a stray `#`
+    /// or `7x` there is not a scanning error), otherwise as an ordinary token.
+    fn parse_jsx_closing_greater_than(&mut self, scan_jsx_text: bool) {
+        if !self.at_jsx_greater_than() {
+            self.error_at_current_with(&messages::_0_EXPECTED, &[">"]);
+            return;
+        }
+        if scan_jsx_text {
+            self.scan_jsx_token();
+        } else {
+            self.next_token();
+        }
+    }
+
+    /// The source text of a tag name, for `ast.TagNamesAreEquivalent`.
+    fn jsx_tag_text(&self, name: JsxTagNameExpression<'a>) -> &'a str {
+        let span = name.node_id().map_or(tsr_core::Span::at(0), |id| self.nodes.span(id));
+        &self.source[span.start as usize..span.end as usize]
     }
 
     /// Whether the cursor is on a single `>`, splitting a compound `>>`/`>=`
@@ -291,7 +315,7 @@ impl<'a> Parser<'a> {
             SyntaxKind::OpenBraceToken => {
                 JsxAttributeValue::JsxExpression(self.parse_jsx_expression())
             }
-            SyntaxKind::LessThanToken => match self.parse_jsx_element() {
+            SyntaxKind::LessThanToken => match self.parse_jsx_element(true) {
                 Expression::JsxElement(element) => JsxAttributeValue::JsxElement(element),
                 Expression::JsxSelfClosingElement(element) => {
                     JsxAttributeValue::JsxSelfClosingElement(element)
@@ -364,7 +388,7 @@ impl<'a> Parser<'a> {
                     self.rescan_jsx_token();
                 }
                 SyntaxKind::LessThanToken => {
-                    match self.parse_jsx_element() {
+                    match self.parse_jsx_element(false) {
                         Expression::JsxElement(element) => {
                             children.push(JsxChild::JsxElement(element));
                         }
