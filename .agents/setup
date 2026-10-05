@@ -24,6 +24,11 @@ install_rust() {
   fi
   # rustup's installer cannot update this running script's environment.
   export PATH="$HOME/.cargo/bin:$PATH"
+  # Box images ship a root-owned system rustup (RUSTUP_HOME=/usr/local/rustup)
+  # without the pinned channel; keep toolchains in a user-owned RUSTUP_HOME.
+  if [ -n "${RUSTUP_HOME:-}" ] && [ -d "$RUSTUP_HOME" ] && [ ! -w "$RUSTUP_HOME" ]; then
+    export RUSTUP_HOME="$HOME/.rustup"
+  fi
   # Installs the channel and components pinned in rust-toolchain.toml; a no-op
   # when they are already present.
   rustup toolchain install
@@ -40,6 +45,16 @@ persist_path() {
 case ":$PATH:" in *":$HOME/.cargo/bin:"*) ;; *) export PATH="$HOME/.cargo/bin:$PATH" ;; esac
 case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) export PATH="$HOME/.local/bin:$PATH" ;; esac
 EOF
+  fi
+  if [ "${RUSTUP_HOME:-}" = "$HOME/.rustup" ]; then
+    local rustup_marker="# tsr orb rustup home"
+    if ! grep -Fqx "$rustup_marker" "$HOME/.bash_profile" 2>/dev/null; then
+      cat >>"$HOME/.bash_profile" <<'EOF'
+
+# tsr orb rustup home
+export RUSTUP_HOME="$HOME/.rustup"
+EOF
+    fi
   fi
 }
 
