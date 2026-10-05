@@ -217,3 +217,33 @@ Converted: `compiler/avoidListingPropertiesForTypesWithOnlyCallOrConstructSignat
 `compiler/staticMemberOfClassAndPublicMemberOfAnotherClassAssignment`,
 `compiler/typeMatch1`, `conformance/invalidAssignmentsToVoid`,
 `conformance/invalidVoidValues`.
+
+## 10. Refused for now: primitive source against an index-signature target
+
+`is_related_to_with_excess` answers `Unknown` for a primitive source (through
+its apparent type) against a target with index signatures under the
+assignable relation, taking the `propertiesRelatedTo` rejection only for the
+subtype relations. Upstream's `structuredTypeRelatedTo` runs
+`propertiesRelatedTo` before the index-signature comparison under **every**
+relation, so `number -> string[]` (no `length`, …) is a definite negative.
+
+Lifting the relation restriction measured **+12 diagnostics cases** in this
+lane (the eight `assignmentCompatability16/18/20/22/29/30/31/32`, plus
+`arraySigChecking`, `typeParameterConstrainedToOuterTypeParameter`,
+`enumAssignability`, `recursiveConditionalEvaluationNonInfinite`) and **+16
+`checker_types` lines**, against **two losses**, both downstream of a
+now-correct `NotRelated` in files this lane does not own:
+
+- `compiler/couldNotSelectGenericOverload` (diagnostics): `makeArray2(1, "")`
+  against `(items: any[])` gains a TS2345 because
+  `call_arity.rs::check_call_arity` runs `check_argument_types` *before* the
+  arity test; upstream's `chooseOverload` only checks argument types for a
+  candidate that passed `hasCorrectArity`.
+- `compiler/destructuringTuple:0:13` (types): `number -> ConcatArray<never>` now
+  fails both `concat` overloads, as upstream (TS2769), and the port's overload
+  fallback in `calls.rs` then types `reduce`'s result differently from
+  upstream's.
+
+Kept out until those two are fixed by their owners; the integrator has the
+one-hunk change (delete `matches!(self.relation, Relation::Subtype |
+Relation::StrictSubtype) &&` in the primitive-apparent arm).
