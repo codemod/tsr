@@ -53,7 +53,7 @@ use tsr_diagnostics::{Diagnostic, messages};
 use crate::checker::Checker;
 use crate::flags::TypeFlags;
 use crate::relater::{Relation, Ternary};
-use crate::types::{TypeData, TypeId};
+use crate::types::TypeId;
 
 /// The written name of a class member, for the kinds an `abstract` member can
 /// take. Wider than [`class_member_shape`], which omits methods because its own
@@ -320,7 +320,6 @@ impl Checker<'_, '_> {
                 ambient || has_modifier(statement.modifiers, SyntaxKind::DeclareKeyword)
             }
             Node::FunctionDeclaration(declaration) => {
-                self.check_overload_implementation_return(node);
                 self.check_function_or_constructor_symbol(node, ambient);
                 self.check_overload_ambient_agreement(node);
                 let ambient =
@@ -3058,135 +3057,6 @@ impl Checker<'_, '_> {
                 [text.to_string()],
             ),
         );
-    }
-
-    /// TS2394 — `This overload signature is not compatible with its
-    /// implementation signature.`
-    ///
-    /// `checkFunctionOrConstructorSymbol` (`checker.go:3693`). The test is
-    /// `isImplementationCompatibleWithOverload`, which is signature
-    /// assignability — the relation. This ports the **decidable-primitive
-    /// subset** §257 established: two distinct intrinsic singletons are
-    /// unrelated with no interning assumption.
-    ///
-    /// `any` is excluded for two independent reasons — §338's (`any` is also
-    /// this port's "no better answer") and upstream's (an `any` or `void`
-    /// implementation return is compatible with every overload). §403.
-    fn check_overload_implementation_return(&mut self, node: NodeId) {
-        if self.file_has_parse_errors {
-            return;
-        }
-        let Some(Node::FunctionDeclaration(implementation)) = self.node_map.get(node) else {
-            return;
-        };
-        // Run once, from the implementation.
-        if implementation.body.is_none() {
-            return;
-        }
-        let body_return = self.written_primitive_return(node);
-        let body_literal = self.written_primitive_literal(node);
-        if body_return.is_none() && body_literal.is_none() {
-            return;
-        }
-        let Some(symbol) = self.binder.symbol_of(node) else { return };
-        let declarations =
-            self.binder.symbols().get(self.binder.merged_symbol(symbol)).declarations.clone();
-        for declaration in declarations {
-            if declaration == node {
-                continue;
-            }
-            let Some(Node::FunctionDeclaration(overload)) = self.node_map.get(declaration) else {
-                continue;
-            };
-            if overload.body.is_some()
-                || overload.parameters.len() != implementation.parameters.len()
-            {
-                continue;
-            }
-            // Bare primitive against bare primitive (§403), or type literal of
-            // primitives against the same (§450). A mixed pair declines: the two
-            // shapes are not comparable without the relation.
-            let differs = match (body_return, self.written_primitive_return(declaration)) {
-                (Some(body), Some(overload)) => body != overload,
-                _ => match (body_literal.clone(), self.written_primitive_literal(declaration)) {
-                    (Some(body), Some(overload)) => body != overload,
-                    _ => continue,
-                },
-            };
-            if !differs {
-                continue;
-            }
-            let Some(file) = self.source_file_of_for_diagnostics(declaration) else { continue };
-            let span = self.error_span(declaration);
-            self.report(
-                file,
-                Diagnostic::new(
-                    &messages::THIS_OVERLOAD_SIGNATURE_IS_NOT_COMPATIBLE_WITH_ITS_IMPLEMENTATION_SIGNATURE,
-                    span,
-                ),
-            );
-            break;
-        }
-    }
-
-    /// The written members of a type-literal return annotation, when **every**
-    /// one is a non-optional property with an intrinsic-primitive annotation.
-    ///
-    /// A partial map cannot prove a difference, so any other member kind
-    /// declines the whole comparison. §450.
-    fn written_primitive_literal(&self, node: NodeId) -> Option<Vec<(String, SyntaxKind)>> {
-        let Some(Node::FunctionDeclaration(function)) = self.node_map.get(node) else {
-            return None;
-        };
-        let id = function.r#type.and_then(|annotation| annotation.node_id())?;
-        let Some(Node::TypeLiteralNode(literal)) = self.node_map.get(id) else { return None };
-        if literal.members.is_empty() {
-            return None;
-        }
-        let mut out = Vec::new();
-        for member in literal.members {
-            let tsr_ast::TypeElement::PropertySignatureDeclaration(property) = member else {
-                return None;
-            };
-            if property.postfix_token.is_some() {
-                return None;
-            }
-            let tsr_ast::PropertyName::Identifier(name) = property.name else { return None };
-            let annotation = property.r#type.and_then(|t| t.node_id())?;
-            let Some(Node::KeywordTypeNode(keyword)) = self.node_map.get(annotation) else {
-                return None;
-            };
-            if !matches!(
-                keyword.kind,
-                SyntaxKind::StringKeyword
-                    | SyntaxKind::NumberKeyword
-                    | SyntaxKind::BooleanKeyword
-                    | SyntaxKind::BigIntKeyword
-            ) {
-                return None;
-            }
-            out.push((name.text.to_string(), keyword.kind));
-        }
-        out.sort();
-        Some(out)
-    }
-
-    /// The written return annotation of a function declaration, when it names
-    /// one of the four intrinsic primitives §257 admits. §403.
-    fn written_primitive_return(&self, node: NodeId) -> Option<SyntaxKind> {
-        let Some(Node::FunctionDeclaration(function)) = self.node_map.get(node) else {
-            return None;
-        };
-        let id = function.r#type.and_then(|annotation| annotation.node_id())?;
-        let Some(Node::KeywordTypeNode(keyword)) = self.node_map.get(id) else { return None };
-        matches!(
-            keyword.kind,
-            SyntaxKind::StringKeyword
-                | SyntaxKind::NumberKeyword
-                | SyntaxKind::BooleanKeyword
-                | SyntaxKind::BigIntKeyword
-        )
-        .then_some(keyword.kind)
     }
 
     /// TS1113 — `A 'default' clause cannot appear more than once in a 'switch'
@@ -8124,7 +7994,18 @@ impl Checker<'_, '_> {
         };
         let Some(Node::Identifier(identifier)) = self.node_map.get(name) else { return };
         let Some(own) = self.binder.symbol_of(node) else { return };
-        let symbol = self.binder.merged_symbol(own);
+        // **A merge the excludes forbid did not happen upstream.**
+        // `mergeSymbol` reports `reportMergeSymbolError` and leaves the source
+        // unmerged (`checker.go:14199`), so `getSymbolOfDeclaration` answers
+        // the file's own symbol — `var eval` in a script stays apart from
+        // `lib.d.ts`'s `function eval`. This port's binder records the conflict
+        // but still maps the source to the target (`Binder::merge_globals`), so
+        // the conflict list is what restores the unmerged symbol.
+        let symbol = if self.binder.merge_conflicts().iter().any(|&(_, source)| source == own) {
+            own
+        } else {
+            self.binder.merged_symbol(own)
+        };
         // `symbol.ValueDeclaration` is the primary; this arm is only for the
         // ones after it.
         let Some(primary) = self.binder.symbols().get(symbol).value_declaration else { return };
@@ -8157,7 +8038,21 @@ impl Checker<'_, '_> {
         {
             return;
         }
-        if self.type_identity_fragment(first, next) != Ternary::NotRelated {
+        // **The structural arm is trusted only between written types.** Full
+        // identity is exact, so a negative it gives between *inferred*
+        // initializer types inherits every near-miss of the subsystems that
+        // inferred them (array-literal widening, overload choice, subtype
+        // reduction); between annotations it compares what the user wrote.
+        // Inferred operands keep the earlier necessary condition, mutual
+        // assignability. `docs/parity/notes/decls.md` §2.
+        let identity = if self.declaration_type_annotation(primary).is_some()
+            && declaration.r#type.is_some()
+        {
+            self.is_type_identical_to(first, next)
+        } else {
+            self.is_type_identical_to_by_assignability(first, next)
+        };
+        if identity != Ternary::NotRelated {
             return;
         }
         let Some(file) = self.source_file_of_for_diagnostics(name) else { return };
@@ -8177,6 +8072,16 @@ impl Checker<'_, '_> {
         );
     }
 
+    /// The written type annotation of a variable-like declaration.
+    fn declaration_type_annotation(&self, declaration: NodeId) -> Option<NodeId> {
+        match self.node_map.get(declaration) {
+            Some(Node::VariableDeclaration(variable)) => variable.r#type?.node_id(),
+            Some(Node::ParameterDeclaration(parameter)) => parameter.r#type?.node_id(),
+            Some(Node::PropertyDeclaration(property)) => property.r#type?.node_id(),
+            _ => None,
+        }
+    }
+
     /// A top-level `any`/`unknown` is an identity operand only when the
     /// declaration's written annotation is that keyword.
     fn identity_side_is_trusted(&self, ty: TypeId, declaration: NodeId) -> bool {
@@ -8185,6 +8090,28 @@ impl Checker<'_, '_> {
             return true;
         }
         let annotation = match self.node_map.get(declaration) {
+            // **No annotation and no initializer is a written `any` too.**
+            // `getTypeForVariableLikeDeclaration` answers `anyType` for a
+            // `var x;` of a variable statement (or `autoType`, which the
+            // secondary-declaration arm turns back into `any` through
+            // `convertAutoToAny`, `checker.go:5932`). Nothing here is a
+            // fallback: the declaration has no other source of a type. A
+            // `for (var x in …)` / `for (var x of …)` declaration also has
+            // neither, but takes its type from the loop, so only a variable
+            // statement's list qualifies. `docs/parity/notes/decls.md` §1.
+            Some(Node::VariableDeclaration(variable))
+                if variable.r#type.is_none()
+                    && variable.initializer.is_none()
+                    && flags.contains(TypeFlags::ANY) =>
+            {
+                return self
+                    .nodes
+                    .parent(declaration)
+                    .and_then(|list| self.nodes.parent(list))
+                    .is_some_and(|statement| {
+                        self.nodes.kind(statement) == SyntaxKind::VariableStatement
+                    });
+            }
             Some(Node::VariableDeclaration(variable)) => variable.r#type,
             Some(Node::ParameterDeclaration(parameter)) => parameter.r#type,
             _ => None,
@@ -8198,126 +8125,15 @@ impl Checker<'_, '_> {
         self.nodes.kind(annotation) == keyword
     }
 
-    /// The decidable fragment of `isTypeIdenticalTo` (`relater.go:119`,
-    /// `isTypeRelatedTo` and `isRelatedTo` under `identityRelation`).
-    ///
-    /// - fresh literals are regularized and the same type is identical;
-    /// - outside unions, intersections, indexed-access, conditional and
-    ///   substitution types, differing flags are non-identical and equal
-    ///   singleton flags identical (`relater.go:183`); after normalization the
-    ///   flags test applies to every pair (`relater.go:2625`);
-    /// - two unions (or intersections) are identical when each constituent
-    ///   of either is identical to some constituent of the other
-    ///   (`eachTypeRelatedToSomeType` both ways);
-    /// - for any other pair identity implies mutual assignability, so either
-    ///   direction deciding `NotRelated` is non-identity. Everything else is
-    ///   `Unknown`.
-    ///
-    /// No cache: each call is a bounded walk over the two types' constituent
-    /// lists plus at most two existing assignability queries.
-    pub(crate) fn type_identity_fragment(&mut self, source: TypeId, target: TypeId) -> Ternary {
-        let source = self.get_regular_type_of_literal_type(source);
-        let target = self.get_regular_type_of_literal_type(target);
-        if source == target {
-            return Ternary::Related;
-        }
-        if self.is_error(source)
-            || self.is_error(target)
-            || source == self.intrinsics.unresolved
-            || target == self.intrinsics.unresolved
-        {
-            return Ternary::Unknown;
-        }
-        let source_flags = self.type_of(source).flags;
-        let target_flags = self.type_of(target).flags;
-        if source_flags != target_flags {
-            // **Enum types are declined.** This port builds one enum under two
-            // representations — `var p: M3.Color; var p = M3.Color.Red` prints
-            // `M3.Color` on both sides with different flags — and a narrowed
-            // enum union can come back as `number`; a flags difference
-            // involving an enum is not yet evidence of non-identity.
-            let enum_like = TypeFlags::ENUM | TypeFlags::ENUM_LITERAL;
-            if (source_flags | target_flags).intersects(enum_like) {
-                return Ternary::Unknown;
-            }
-            return Ternary::NotRelated;
-        }
-        if source_flags.intersects(TypeFlags::UNION | TypeFlags::INTERSECTION) {
-            let (TypeData::Union { types: sources, .. }
-            | TypeData::Intersection { types: sources, .. }) = self.type_of(source).data.clone()
-            else {
-                return Ternary::Unknown;
-            };
-            let (TypeData::Union { types: targets, .. }
-            | TypeData::Intersection { types: targets, .. }) = self.type_of(target).data.clone()
-            else {
-                return Ternary::Unknown;
-            };
-            let forward = self.each_type_identical_to_some_type(&sources, &targets);
-            if forward == Ternary::NotRelated {
-                return forward;
-            }
-            let backward = self.each_type_identical_to_some_type(&targets, &sources);
-            return match (forward, backward) {
-                (_, Ternary::NotRelated) => Ternary::NotRelated,
-                (Ternary::Related, Ternary::Related) => Ternary::Related,
-                _ => Ternary::Unknown,
-            };
-        }
-        // A resolved mapped type (`Partial<…>`, `Required<…>`) is related to
-        // its expansion by machinery this port's relation does not finish yet,
-        // so a negative there is not a proof.
-        if !self.pair_is_reportable(source, target)
-            || self.is_mapped_for_identity(source)
-            || self.is_mapped_for_identity(target)
-        {
-            return Ternary::Unknown;
-        }
-        if self.relate_ternary(source, target, Relation::Assignable) == Ternary::NotRelated
-            || self.relate_ternary(target, source, Relation::Assignable) == Ternary::NotRelated
-        {
-            return Ternary::NotRelated;
-        }
-        Ternary::Unknown
-    }
-
     /// A mapped type, read through its alias body and apparent type the way
     /// `get_property_names_of_type` declines composite mapped metadata.
-    fn is_mapped_for_identity(&mut self, ty: TypeId) -> bool {
+    pub(crate) fn is_mapped_for_identity(&mut self, ty: TypeId) -> bool {
         let body = self.binding_type_alias_body(ty);
         let apparent = self.apparent_type(body);
         [ty, body, apparent].into_iter().any(|id| {
             self.mapped_types.contains_key(&id)
                 || self.mapped_identity_optionality.contains_key(&id)
         })
-    }
-
-    /// `eachTypeRelatedToSomeType` under identity.
-    fn each_type_identical_to_some_type(
-        &mut self,
-        sources: &[TypeId],
-        targets: &[TypeId],
-    ) -> Ternary {
-        let mut result = Ternary::Related;
-        for &source in sources {
-            let mut best = Ternary::NotRelated;
-            for &target in targets {
-                match self.type_identity_fragment(source, target) {
-                    Ternary::Related => {
-                        best = Ternary::Related;
-                        break;
-                    }
-                    Ternary::NotRelated => {}
-                    Ternary::Unknown => best = Ternary::Unknown,
-                }
-            }
-            match best {
-                Ternary::NotRelated => return Ternary::NotRelated,
-                Ternary::Related => {}
-                Ternary::Unknown => result = Ternary::Unknown,
-            }
-        }
-        result
     }
 
     /// An intrinsic primitive: a singleton id, so inequality *is* non-identity.
@@ -12443,6 +12259,222 @@ impl Checker<'_, '_> {
         {
             self.report_implementation_expected(last, is_constructor);
         }
+        // `if hasOverloads { … if bodyDeclaration != nil { … } }`
+        // (`checker.go:3694`): the implementation-versus-overload relation.
+        if let Some(body) = body_declaration {
+            let overloads: Vec<NodeId> = function_declarations
+                .iter()
+                .copied()
+                .filter(|&declaration| !self.declaration_has_body(declaration))
+                .collect();
+            if !overloads.is_empty() {
+                self.check_overloads_compatible_with_implementation(file, body, &overloads);
+            }
+        }
+    }
+
+    /// TS2394 — `This overload signature is not compatible with its
+    /// implementation signature.`
+    ///
+    /// The last block of `checkFunctionOrConstructorSymbol`
+    /// (`checker.go:3697-3707`): each overload signature, in declaration
+    /// order, against `getSignatureFromDeclaration(bodyDeclaration)`; the
+    /// **first** incompatible one is reported on its declaration and the loop
+    /// stops. Upstream iterates `getSignaturesOfSymbol(symbol)`, which also
+    /// holds a non-adjacent implementation; that one is compatible with
+    /// itself, so taking the body-less declarations is the same walk.
+    ///
+    /// A signature this port cannot build, or a relation it cannot decide,
+    /// skips that overload rather than stopping: only a decided `NotRelated`
+    /// is upstream's `!isImplementationCompatibleWithOverload`.
+    /// `docs/parity/notes/decls.md` §4.
+    fn check_overloads_compatible_with_implementation(
+        &mut self,
+        file: NodeId,
+        body: NodeId,
+        overloads: &[NodeId],
+    ) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let Some(implementation) = self.get_signature_from_declaration(body) else { return };
+        let Some(implementation) = self.complete_signature_return(implementation) else { return };
+        for &declaration in overloads {
+            let Some(overload) = self.get_signature_from_declaration(declaration) else {
+                continue;
+            };
+            let Some(overload) = self.complete_signature_return(overload) else { continue };
+            if self.implementation_compatible_with_overload(&implementation, &overload)
+                != Ternary::NotRelated
+            {
+                continue;
+            }
+            let span = self.error_span(declaration);
+            self.report(
+                file,
+                Diagnostic::new(
+                    &messages::THIS_OVERLOAD_SIGNATURE_IS_NOT_COMPATIBLE_WITH_ITS_IMPLEMENTATION_SIGNATURE,
+                    span,
+                ),
+            );
+            break;
+        }
+    }
+
+    /// `isImplementationCompatibleWithOverload` (`checker.go:3716`): erase both
+    /// signatures; the return types must be assignable in either direction (or
+    /// the overload's be `void`), and then the implementation must be
+    /// assignable to the overload ignoring return types
+    /// (`isSignatureAssignableTo(…, ignoreReturnTypes=true)`).
+    ///
+    /// The parameter comparison is [`Self::signature_parameters_assignable`].
+    fn implementation_compatible_with_overload(
+        &mut self,
+        implementation: &crate::signatures::Signature,
+        overload: &crate::signatures::Signature,
+    ) -> Ternary {
+        let Some(source) = self.erased_signature(implementation) else { return Ternary::Unknown };
+        let Some(target) = self.erased_signature(overload) else { return Ternary::Unknown };
+        let (Some(source_return), Some(target_return)) = (
+            self.get_return_type_of_signature(&source),
+            self.get_return_type_of_signature(&target),
+        ) else {
+            return Ternary::Unknown;
+        };
+        if target_return != self.intrinsics.void {
+            let forward = self.relate_ternary(target_return, source_return, Relation::Assignable);
+            if forward != Ternary::Related {
+                let backward =
+                    self.relate_ternary(source_return, target_return, Relation::Assignable);
+                match (forward, backward) {
+                    (_, Ternary::Related) => {}
+                    (Ternary::NotRelated, Ternary::NotRelated) => {
+                        if !self.assignability_pair_is_reportable(source_return, target_return) {
+                            return Ternary::Unknown;
+                        }
+                        return Ternary::NotRelated;
+                    }
+                    _ => return Ternary::Unknown,
+                }
+            }
+        }
+        self.signature_parameters_assignable(&source, &target)
+    }
+
+    /// `compareSignaturesRelated(source, target, SignatureCheckModeIgnoreReturnTypes,
+    /// …, compareTypesAssignable)` (`relater.go:1979`) for two erased,
+    /// non-generic signatures: the arity test, the `this` types and the
+    /// parameter loop.
+    ///
+    /// **Why not the relater's own signature comparison.** It is reachable only
+    /// through a pair of signature-bearing *types*, and the relater admits a
+    /// pure-signature type only for function-expression, function-type, method
+    /// and signature declarations — not the function declarations and
+    /// constructors an overload set is made of. Minting a type therefore
+    /// reaches row 3 ("no members table") and answers `Unknown`. The loop below
+    /// is the part `isImplementationCompatibleWithOverload` needs; it should
+    /// give way to the relater's once that is reachable (notes §4).
+    ///
+    /// `strictVariance` is upstream's: `strictFunctionTypes` and a target
+    /// declaration that is not a method or constructor. A parameter whose type
+    /// is callable would enter upstream's callback arm
+    /// (`compareSignaturesRelated` on the two callbacks), which this does not
+    /// port, so such a pair is decided only when both directions agree.
+    fn signature_parameters_assignable(
+        &mut self,
+        source: &crate::signatures::Signature,
+        target: &crate::signatures::Signature,
+    ) -> Ternary {
+        let target_count = self.signature_parameter_count(target);
+        if !self.signature_has_effective_rest(target)
+            && self.signature_min_argument_count(source) > target_count
+        {
+            return Ternary::NotRelated;
+        }
+        if self.signature_non_array_rest_type(source).is_some()
+            || self.signature_non_array_rest_type(target).is_some()
+        {
+            return Ternary::Unknown;
+        }
+        let strict_variance = self.strict_function_types
+            && !matches!(
+                self.nodes.kind(target.declaration),
+                SyntaxKind::MethodDeclaration
+                    | SyntaxKind::MethodSignature
+                    | SyntaxKind::Constructor
+            );
+        let mut pairs = Vec::new();
+        if let (Some(source_this), Some(target_this)) =
+            (&source.this_parameter, &target.this_parameter)
+            && source_this.r#type != self.intrinsics.void
+        {
+            pairs.push((source_this.r#type, target_this.r#type));
+        }
+        let count = self.signature_parameter_count(source).max(target_count);
+        for position in 0..count {
+            let (Some(s), Some(t)) = (
+                self.signature_type_at_position(source, position),
+                self.signature_type_at_position(target, position),
+            ) else {
+                continue;
+            };
+            if s != t {
+                pairs.push((s, t));
+            }
+        }
+        let mut result = Ternary::Related;
+        for (s, t) in pairs {
+            if self.is_error(s) || self.is_error(t) {
+                return Ternary::Unknown;
+            }
+            let callable = [s, t].into_iter().any(|side| {
+                let side = self.get_non_nullable_type(side);
+                self.single_call_signature(side).is_some()
+            });
+            let backward = self.relate_ternary(t, s, Relation::Assignable);
+            let related = if strict_variance && !callable {
+                backward
+            } else {
+                let forward = self.relate_ternary(s, t, Relation::Assignable);
+                match (forward, backward) {
+                    (Ternary::NotRelated, Ternary::NotRelated) => Ternary::NotRelated,
+                    (Ternary::Related, Ternary::Related) => Ternary::Related,
+                    // Bivariance: one direction suffices — except across the
+                    // unported callback arm, which only a unanimous answer
+                    // decides.
+                    (Ternary::Related, _) | (_, Ternary::Related) if !callable => Ternary::Related,
+                    _ => Ternary::Unknown,
+                }
+            };
+            match related {
+                Ternary::NotRelated => return Ternary::NotRelated,
+                Ternary::Unknown => result = Ternary::Unknown,
+                Ternary::Related => {}
+            }
+        }
+        result
+    }
+
+    /// `getErasedSignature`: the signature's own type parameters replaced by
+    /// `any`.
+    fn erased_signature(
+        &mut self,
+        signature: &crate::signatures::Signature,
+    ) -> Option<crate::signatures::Signature> {
+        if signature.type_parameters.is_empty() {
+            return Some(signature.clone());
+        }
+        let parameters = self.type_parameter_types(signature)?;
+        let any = self.intrinsics.any;
+        let map: Vec<(TypeId, TypeId)> =
+            parameters.iter().map(|&parameter| (parameter, any)).collect();
+        let names: Vec<String> =
+            signature.type_parameters.iter().map(|parameter| parameter.name.clone()).collect();
+        let names: Vec<&str> = names.iter().map(String::as_str).collect();
+        let mut erased =
+            self.instantiate_signature(signature.clone(), &map, &parameters, &names)?;
+        erased.type_parameters.clear();
+        Some(erased)
     }
 
     /// `reportImplementationExpectedError` (`checker.go:3549`), reduced to its

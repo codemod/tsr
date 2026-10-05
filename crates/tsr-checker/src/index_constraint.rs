@@ -408,7 +408,7 @@ impl<'a> Checker<'a, '_> {
                 }),
             };
             let Some(error_node) = error_node else { continue };
-            if !self.pair_is_reportable(property_type, info.value)
+            if !self.assignability_pair_is_reportable(property_type, info.value)
                 || self.relate_ternary(property_type, info.value, Relation::Assignable)
                     != Ternary::NotRelated
             {
@@ -459,7 +459,7 @@ impl<'a> Checker<'a, '_> {
                 }),
             };
             let Some(error_node) = error_node else { continue };
-            if !self.pair_is_reportable(check.value, info.value)
+            if !self.assignability_pair_is_reportable(check.value, info.value)
                 || self.relate_ternary(check.value, info.value, Relation::Assignable)
                     != Ternary::NotRelated
             {

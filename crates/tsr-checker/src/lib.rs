@@ -127,6 +127,7 @@ pub mod flow;
 pub mod function_types;
 mod grammar;
 pub mod heritage_conformance;
+mod identity;
 pub mod implicit_any;
 mod index_access_reports;
 pub mod index_constraint;
