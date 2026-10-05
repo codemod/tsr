@@ -263,3 +263,14 @@ Measured: +6 cases (`inheritance`, `inheritanceMemberFuncOverridingAccessor`,
 no loss. The arguments keep the existing rule's simplification of printing the
 class *names* (`TypeToString` of a generic class would print its type
 parameters).
+
+## §11 TS2320: inherited-property identity uses the identity relation
+
+`checkInheritedPropertiesAreIdentical` compares same-named members of two
+bases with `compareProperties(…, compareTypesIdentical)`. The port's
+`is_property_identical_to` approximated the type comparison by mutual
+assignability, which cannot separate `f(x: any): any` from `f<T>(x: T): T`
+(each assignable to the other). It now asks `is_type_identical_to` (§2): base
+member types are declarations' written types, the kind §2 trusts
+structurally. Measured: `genericAndNonGenericInheritedSignature1` and `2`
+converted, no loss.
