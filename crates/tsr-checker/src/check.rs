@@ -2723,6 +2723,9 @@ impl Checker<'_, '_> {
             // test. The TS7016 branch is not ported here; an untyped JavaScript
             // target of an import type stays silent rather than getting the
             // wrong code. §753.
+            if let Some(literal) = literal {
+                self.check_esm_import_from_commonjs(node, literal);
+            }
             if let Some(literal) = literal
                 && self.module_specifier_unfindable(literal)
                 && let Some(Node::StringLiteral(text)) = self.node_map.get(literal)
@@ -3772,6 +3775,7 @@ impl Checker<'_, '_> {
             // `noImplicitAny` is on. The rule's own table above has named this
             // arm since it was written; only the resolved path was missing. §357.
             self.check_untyped_module_import(declaration, specifier);
+            self.check_esm_import_from_commonjs(declaration, specifier);
             return;
         }
         let Some(Node::StringLiteral(literal)) = self.node_map.get(specifier) else { return };
@@ -3784,6 +3788,98 @@ impl Checker<'_, '_> {
             &messages::CANNOT_FIND_MODULE_0_OR_ITS_CORRESPONDING_TYPE_DECLARATIONS
         };
         self.report_module_not_found(importing, specifier, span, text, message);
+    }
+
+    /// TS1471 / TS1479 / TS1541 / TS1542 — `resolveExternalModule`'s
+    /// `Node16`/`Node18` arm (`checker.go:15325`): a synchronous import in a
+    /// CommonJS-format file whose target is an ES module.
+    ///
+    /// Upstream chains `createModeMismatchDetails` under TS1479 for a
+    /// `.ts`/`.js`/`.tsx`/`.jsx` importer; this port's `Diagnostic` carries no
+    /// message chain, so only the head message is reported.
+    fn check_esm_import_from_commonjs(&mut self, location: NodeId, specifier: NodeId) {
+        if !matches!(self.module_kind, tsr_core::ModuleKind::Node16 | tsr_core::ModuleKind::Node18)
+        {
+            return;
+        }
+        let Some(host) = self.module_host else { return };
+        let text = match self.node_map.get(specifier) {
+            Some(Node::StringLiteral(literal)) => literal.text,
+            Some(Node::NoSubstitutionTemplateLiteral(literal)) => literal.text,
+            _ => return,
+        };
+        // `tryFindAmbientModule` answers before the program is asked.
+        if self.ambient_module_for_diagnostics(text).is_some() {
+            return;
+        }
+        let Some(importing) = self.source_file_of_for_diagnostics(location) else { return };
+        let mode = self.module_resolution_mode(host, importing, location);
+        let Some(target) = host.resolved_module_in_mode(importing, text, mode) else { return };
+        // `sourceFile.Symbol != nil`.
+        if self.binder.symbol_of(target).is_none() {
+            return;
+        }
+        let ancestors = || std::iter::once(location).chain(self.nodes.ancestors(location));
+        let in_import_equals =
+            ancestors().any(|node| self.nodes.kind(node) == SyntaxKind::ImportEqualsDeclaration);
+        let in_import_call = ancestors().any(|node| {
+            matches!(self.node_map.get(node), Some(Node::CallExpression(call))
+                if matches!(call.expression, Some(tsr_ast::Expression::KeywordExpression(keyword))
+                    if keyword.kind == SyntaxKind::ImportKeyword))
+        });
+        let is_sync_import = host.default_resolution_mode_for_file(importing)
+            == tsr_core::ModuleKind::CommonJS
+            && !in_import_call
+            || in_import_equals;
+        if !is_sync_import
+            || host.default_resolution_mode_for_file(target) != tsr_core::ModuleKind::ESNext
+        {
+            return;
+        }
+        // `FindAncestor(location, IsResolutionModeOverrideHost)` and
+        // `HasResolutionModeOverride` on it.
+        let override_host = ancestors().find(|&node| {
+            matches!(
+                self.nodes.kind(node),
+                SyntaxKind::ImportType
+                    | SyntaxKind::ExportDeclaration
+                    | SyntaxKind::ImportDeclaration
+                    | SyntaxKind::JSDocImportTag
+            )
+        });
+        let override_host = override_host.and_then(|node| self.node_map.get(node));
+        let attributes = match override_host {
+            Some(Node::ImportTypeNode(import)) => import.attributes,
+            Some(Node::ImportDeclaration(import)) => import.attributes,
+            Some(Node::ExportDeclaration(export)) => export.attributes,
+            Some(Node::JSDocImportTag(import)) => import.attributes,
+            _ => None,
+        };
+        if has_resolution_mode_override(attributes) {
+            return;
+        }
+        let message = if in_import_equals {
+            &messages::MODULE_0_CANNOT_BE_IMPORTED_USING_THIS_CONSTRUCT_THE_SPECIFIER_ONLY_RESOLVES_TO_AN_ES_MODULE_WHICH_CANNOT_BE_IMPORTED_WITH_REQUIRE_USE_AN_ECMASCRIPT_IMPORT_INSTEAD
+        } else {
+            match override_host {
+                Some(Node::ImportDeclaration(import))
+                    if import.import_clause.is_some_and(|clause| {
+                        clause.phase_modifier.is_some_and(|token| token.kind == SyntaxKind::TypeKeyword)
+                    }) =>
+                {
+                    &messages::TYPE_ONLY_IMPORT_OF_AN_ECMASCRIPT_MODULE_FROM_A_COMMONJS_MODULE_MUST_HAVE_A_RESOLUTION_MODE_ATTRIBUTE
+                }
+                Some(Node::ImportTypeNode(_)) => {
+                    &messages::TYPE_IMPORT_OF_AN_ECMASCRIPT_MODULE_FROM_A_COMMONJS_MODULE_MUST_HAVE_A_RESOLUTION_MODE_ATTRIBUTE
+                }
+                _ => {
+                    &messages::THE_CURRENT_FILE_IS_A_COMMONJS_MODULE_WHOSE_IMPORTS_WILL_PRODUCE_REQUIRE_CALLS_HOWEVER_THE_REFERENCED_FILE_IS_AN_ECMASCRIPT_MODULE_AND_CANNOT_BE_IMPORTED_WITH_REQUIRE_CONSIDER_WRITING_A_DYNAMIC_IMPORT_0_CALL_INSTEAD
+                }
+            }
+        };
+        let Some(file) = self.source_file_of_for_diagnostics(specifier) else { return };
+        let span = self.error_span(specifier);
+        self.report(file, Diagnostic::with_args(message, span, [text.to_string()]));
     }
 
     /// The tail of `resolveExternalModule` (`checker.go:15420`-`:15441`) for a
@@ -14125,4 +14221,20 @@ pub(crate) fn declaration_name_to_string(name: tsr_ast::PropertyName<'_>) -> Opt
         )),
         _ => None,
     }
+}
+
+/// `ast.HasResolutionModeOverride` (`ast/utilities.go:3213`) over the
+/// attributes of a resolution-mode override host:
+/// `ImportAttributes.GetResolutionModeOverride` succeeds — exactly one
+/// attribute, `resolution-mode`, valued `"import"` or `"require"`.
+fn has_resolution_mode_override(attributes: Option<&tsr_ast::ImportAttributes<'_>>) -> bool {
+    let Some([attribute]) = attributes.map(|attributes| attributes.attributes) else {
+        return false;
+    };
+    let Some(tsr_ast::ImportAttributeName::StringLiteral(name)) = attribute.name else {
+        return false;
+    };
+    name.text == "resolution-mode"
+        && matches!(attribute.value.map(Node::from),
+            Some(Node::StringLiteral(literal)) if literal.text == "import" || literal.text == "require")
 }
