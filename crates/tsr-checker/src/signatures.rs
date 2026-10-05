@@ -2590,13 +2590,9 @@ impl<'a> Checker<'a, '_> {
             let mut operand_types: Vec<TypeId> = Vec::new();
             for (delegates, id, operand) in yields {
                 // `yield*` reads the delegated iterable's element type through
-                // the iteration protocol (`getYieldedTypeOfYieldExpression`).
-                // §351 ports the ARRAY slice: the element feeds the yield slot
-                // directly (`generatorTypeCheck22/23/24` record
-                // `Generator<Bar | Baz | undefined, void, unknown>` from
-                // `yield* [new Bar, new Baz]` beside a bare `yield`). Every
-                // other delegated shape still declines the whole signature
-                // rather than mistyping the slot.
+                // the iteration protocol (`getYieldedTypeOfYieldExpression`);
+                // an undecided protocol declines the whole signature rather
+                // than mistyping the slot.
                 if delegates {
                     let operand = operand?;
                     let operand_type = self.check_expression(operand);
@@ -2628,42 +2624,20 @@ impl<'a> Checker<'a, '_> {
                         }
                         continue;
                     }
-                    if let Some((target, arguments)) =
-                        self.type_reference_targets.get(&operand_type).cloned()
-                        && arguments.len() == 1
-                        // The DEGENERATE element (`yield * []`) declines, as
-                        // §349's expression half does — upstream's slot for it
-                        // is `any` (`YieldStarExpression4_es6`).
-                        && !self
-                            .store
-                            .get(arguments[0])
-                            .flags
-                            .intersects(crate::flags::TypeFlags::UNDEFINED | crate::flags::TypeFlags::NEVER)
-                        && self.global_type_symbol("Array").is_some_and(|array| {
-                            self.binder.merged_symbol(target) == self.binder.merged_symbol(array)
-                        })
-                    {
-                        // getYieldedTypeOfYieldExpression awaits the iterated
-                        // element for async yield*, just as for a plain yield.
-                        let element = if is_async {
-                            self.awaited_type_no_alias(arguments[0])?
-                        } else {
-                            arguments[0]
-                        };
-                        if !operand_types.contains(&element) {
-                            operand_types.push(element);
-                        }
-                        // ArrayIterator's next slot is unknown. A yield* site
-                        // contributes that slot to the aggregate even when the
-                        // generator's contextual next slot is any
-                        // (checker.go:20334 and :6384).
-                        let next = self.intrinsics.unknown;
-                        if !next_types.contains(&next) {
-                            next_types.push(next);
-                        }
-                        continue;
+                    // checkAndAggregateYieldOperandTypes (`checker.go:20322`):
+                    // the yielded type is getYieldedTypeOfYieldExpression's
+                    // iterated (and, in an async generator, awaited) type, and
+                    // the delegate's iteration NEXT type joins the next slot.
+                    let (yielded, next) = self.yield_star_operand_types(operand_type, is_async)?;
+                    if !operand_types.contains(&yielded) {
+                        operand_types.push(yielded);
                     }
-                    return None;
+                    if let Some(next) = next
+                        && !next_types.contains(&next)
+                    {
+                        next_types.push(next);
+                    }
+                    continue;
                 }
                 // The first measurement fired the §15 bar's leg 2 at 41 and
                 // the residual named two shapes this arm had modelled wrong,
@@ -3043,7 +3017,11 @@ impl<'a> Checker<'a, '_> {
                 // `getWidenedType` maps `undefinedWideningType` to `any`
                 // (`checker.go:20224`) — the widening applies at the
                 // aggregate, not at the contribution.
-                [single] if *single == self.intrinsics.undefined && !self.strict_null_checks => {
+                [single]
+                    if (*single == self.intrinsics.undefined
+                        || *single == self.intrinsics.undefined_widening)
+                        && !self.strict_null_checks =>
+                {
                     self.intrinsics.any
                 }
                 // One distinct fresh type: `getWidenedType` (`checker.go:20224`)

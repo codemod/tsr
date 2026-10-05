@@ -341,12 +341,57 @@ impl Checker<'_, '_> {
         })
     }
 
+    /// `getIterationTypeOfIterable(use, IterationTypeKindReturn, t)` orElse
+    /// `anyType`, the `yield*` answer of `checkYieldExpression`
+    /// (`checker.go:10998`). `None` when the protocol is undecided here.
+    pub(crate) fn yield_star_return_type(
+        &mut self,
+        operand: TypeId,
+        is_async: bool,
+    ) -> Option<TypeId> {
+        let any = self.intrinsics.any;
+        if operand == any {
+            return Some(any);
+        }
+        let use_ = if is_async { IterationUse::ASYNC_YIELD_STAR } else { IterationUse::YIELD_STAR };
+        let types = self.get_iteration_types_of_iterable(operand, use_).ok()?;
+        Some(types.return_type.unwrap_or(any))
+    }
+
+    /// The `yield*` arm of `checkAndAggregateYieldOperandTypes`
+    /// (`checker.go:20322`): `getYieldedTypeOfYieldExpression`'s yielded type
+    /// (`checkIteratedTypeOrElementType` with a sent type of `any`, `anyType`
+    /// when no yield type exists, awaited in an async generator) and the
+    /// delegate's iteration NEXT type. `None` when the protocol is undecided.
+    pub(crate) fn yield_star_operand_types(
+        &mut self,
+        operand: TypeId,
+        is_async: bool,
+    ) -> Option<(TypeId, Option<TypeId>)> {
+        let any = self.intrinsics.any;
+        if operand == any {
+            return Some((any, Some(any)));
+        }
+        let use_ = if is_async { IterationUse::ASYNC_YIELD_STAR } else { IterationUse::YIELD_STAR };
+        let types = self.get_iteration_types_of_iterable(operand, use_).ok()?;
+        let yielded =
+            if operand == self.intrinsics.never { any } else { types.yield_type.unwrap_or(any) };
+        let yielded = if is_async { self.awaited_type_no_alias(yielded)? } else { yielded };
+        Some((yielded, types.next_type))
+    }
+
     /// Whether `name` is decidably absent from `ty` — the existing
     /// complete-table contract shared with the for-of yield resolver.
+    /// A complete table that lists `name` while the property lookup missed it
+    /// is an unresolved member, not an absence.
     fn iteration_member_decidably_absent(&mut self, ty: TypeId, name: &str) -> bool {
-        self.store.get(ty).flags.intersects(TypeFlags::PRIMITIVE)
-            || self.declared_property_table(ty).is_some()
-            || self.miss_is_established(ty, name)
+        if self.store.get(ty).flags.intersects(TypeFlags::PRIMITIVE) {
+            return true;
+        }
+        match self.declared_property_table(ty) {
+            Some(table) => !table.iter().any(|(member, _)| member == name),
+            None => self.miss_is_established(ty, name),
+        }
     }
 
     /// `getIterationTypesOfIterableSlow` (`checker.go:6460`).
@@ -848,6 +893,39 @@ impl Checker<'_, '_> {
         // getGlobalExtractSymbol, then getTypeAliasInstantiation.
         let Some(extract) = self.global_type_symbol_with_arity("Extract", 2) else { return string };
         self.create_type_reference(extract, vec![index_type, string])
+    }
+
+    /// `getYieldedTypeOfYieldExpression` (`checker.go:11019`)'s iteration
+    /// check for a `yield*` inside a generator, reported on the operand.
+    pub(crate) fn check_yield_star_iteration(&mut self, node: NodeId) {
+        if self.file_has_parse_errors || self.in_js_file(node) {
+            return;
+        }
+        let Some(Node::YieldExpression(yield_expression)) = self.node_map.get(node) else {
+            return;
+        };
+        if yield_expression.asterisk_token.is_none() {
+            return;
+        }
+        let Some(operand) = yield_expression.expression else { return };
+        let Some(operand_id) = operand.node_id() else { return };
+        let Some(container) = self.containing_function(node) else { return };
+        let (asterisk, modifiers) = match self.node_map.get(container) {
+            Some(Node::FunctionDeclaration(f)) => (f.asterisk_token, f.modifiers),
+            Some(Node::MethodDeclaration(f)) => (f.asterisk_token, f.modifiers),
+            Some(Node::FunctionExpression(f)) => (f.asterisk_token, f.modifiers),
+            _ => return,
+        };
+        if asterisk.is_none() {
+            return;
+        }
+        let is_async = modifiers.iter().any(|modifier| {
+            matches!(modifier, tsr_ast::ModifierLike::Token(token)
+                if token.kind == SyntaxKind::AsyncKeyword)
+        });
+        let use_ = if is_async { IterationUse::ASYNC_YIELD_STAR } else { IterationUse::YIELD_STAR };
+        let operand_type = self.check_expression(operand);
+        self.check_iterated_type_or_element_type(use_, operand_type, operand_id);
     }
 
     /// `checkRightHandSideOfForOf` (`checker.go:17678`)'s iteration check.
