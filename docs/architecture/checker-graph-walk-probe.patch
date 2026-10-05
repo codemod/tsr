@@ -1,0 +1,331 @@
+diff --git a/crates/tsr-checker/src/checker.rs b/crates/tsr-checker/src/checker.rs
+index a82dceee..3be2cab0 100644
+--- a/crates/tsr-checker/src/checker.rs
++++ b/crates/tsr-checker/src/checker.rs
+@@ -51,6 +51,7 @@ pub(crate) type OptionalTupleKey = (Vec<(TypeId, bool)>, Vec<Option<String>>, bo
+               independent compiler options."
+ )]
+ pub struct Checker<'a, 'n> {
++    pub(crate) graph_walk_probe: crate::graph_walk_probe::Owner,
+     pub(crate) symbols: crate::symbol_access::CheckerSymbols<'a>,
+     pub(crate) store: TypeStore,
+     pub(crate) intrinsics: Intrinsics,
+@@ -1264,6 +1265,7 @@ impl<'a, 'n> Checker<'a, 'n> {
+             symbol_types.insert(undefined, intrinsics.undefined);
+         }
+         Self {
++            graph_walk_probe: crate::graph_walk_probe::Owner::default(),
+             symbols: crate::symbol_access::CheckerSymbols::new(
+                 binder.symbols(),
+                 intrinsics.unresolved,
+@@ -4165,3 +4167,14 @@ impl<'a, 'n> Checker<'a, 'n> {
+         self.nodes
+     }
+ }
++
++impl Checker<'_, '_> {
++    #[doc(hidden)]
++    pub fn graph_profile_checked(&self, index: usize, name: &str) {
++        self.graph_walk_probe.checked(index, name);
++    }
++    #[doc(hidden)]
++    pub fn graph_profile_complete(&self, owner: usize, count: usize) {
++        self.graph_walk_probe.complete(owner, count);
++    }
++}
+diff --git a/crates/tsr-checker/src/inference.rs b/crates/tsr-checker/src/inference.rs
+index 249feb5e..6b99cbdf 100644
+--- a/crates/tsr-checker/src/inference.rs
++++ b/crates/tsr-checker/src/inference.rs
+@@ -5959,23 +5959,38 @@ impl Checker<'_, '_> {
+         parameters: &[TypeId],
+         names: &[&str],
+     ) -> bool {
+-        self.mentions_type_parameter_inner(
++        let mut observation = crate::graph_walk_probe::Root::new(id, parameters, names, false, 0);
++        let mut visited = Vec::new();
++        let answer = self.mentions_type_parameter_inner(
+             id,
+-            &|candidate| parameters.contains(&candidate),
++            &|candidate, root| root.explicit(parameters, candidate),
+             names,
+-            &mut Vec::new(),
+-        )
++            &mut visited,
++            &mut observation,
++        );
++        self.graph_walk_probe.finish(observation, answer, &visited, visited.capacity());
++        answer
+     }
+-
+-    /// The same graph walk with membership in this checker's current registry.
+-    /// Avoids materializing all registered identities for every conditional.
+     pub(crate) fn mentions_registered_type_parameter(&self, id: TypeId) -> bool {
+-        self.mentions_type_parameter_inner(
++        let mut observation = crate::graph_walk_probe::Root::new(
+             id,
+-            &|candidate| self.type_parameter_symbols.contains_key(&candidate),
+             &[],
+-            &mut Vec::new(),
+-        )
++            &[],
++            true,
++            self.type_parameter_symbols.len(),
++        );
++        let mut visited = Vec::new();
++        let answer = self.mentions_type_parameter_inner(
++            id,
++            &|candidate, root| {
++                root.registered(self.type_parameter_symbols.contains_key(&candidate))
++            },
++            &[],
++            &mut visited,
++            &mut observation,
++        );
++        self.graph_walk_probe.finish(observation, answer, &visited, visited.capacity());
++        answer
+     }
+
+     /// Type-parameter identity through the type graph, including bound generic
+@@ -5984,26 +5999,33 @@ impl Checker<'_, '_> {
+     fn mentions_type_parameter_inner(
+         &self,
+         id: TypeId,
+-        is_parameter: &impl Fn(TypeId) -> bool,
++        is_parameter: &impl Fn(TypeId, &mut crate::graph_walk_probe::Root) -> bool,
+         names: &[&str],
+         visited: &mut Vec<TypeId>,
++        observation: &mut crate::graph_walk_probe::Root,
+     ) -> bool {
+-        if is_parameter(id) {
++        observation.visit(id);
++        if is_parameter(id, observation) {
+             return true;
+         }
+-        if visited.contains(&id) {
++        if observation.contains(visited, id) {
+             return false;
+         }
+         if let Some((_, target)) = self.string_mapping_types.get(&id) {
+-            visited.push(id);
+-            return self.mentions_type_parameter_inner(*target, is_parameter, names, visited);
++            observation.push(visited, id);
++            return self.mentions_type_parameter_inner(
++                *target,
++                is_parameter,
++                names,
++                visited,
++                observation,
++            );
+         }
+         if let Some(parts) = self.template_literal_parts.get(&id) {
+-            visited.push(id);
+-            return parts
+-                .types
+-                .iter()
+-                .any(|&ty| self.mentions_type_parameter_inner(ty, is_parameter, names, visited));
++            observation.push(visited, id);
++            return parts.types.iter().any(|&ty| {
++                self.mentions_type_parameter_inner(ty, is_parameter, names, visited, observation)
++            });
+         }
+         let ty = self.store.get(id);
+         if ty.flags.intersects(
+@@ -6012,27 +6034,44 @@ impl Checker<'_, '_> {
+                 | crate::flags::TypeFlags::ANY_OR_UNKNOWN
+                 | crate::flags::TypeFlags::NEVER,
+         ) {
++            observation.leaf();
+             return false;
+         }
+         // Terminal leaves have no followed edges and need no cycle marker.
+-        visited.push(id);
++        observation.push(visited, id);
+         if let Some(&operand) = self.deferred_keyof_operands.get(&id) {
+-            return self.mentions_type_parameter_inner(operand, is_parameter, names, visited);
++            return self.mentions_type_parameter_inner(
++                operand,
++                is_parameter,
++                names,
++                visited,
++                observation,
++            );
+         }
+         if let Some(&(object, index, _)) = self.deferred_indexed_access_types.get(&id) {
+-            return self.mentions_type_parameter_inner(object, is_parameter, names, visited)
+-                || self.mentions_type_parameter_inner(index, is_parameter, names, visited);
++            return self.mentions_type_parameter_inner(
++                object,
++                is_parameter,
++                names,
++                visited,
++                observation,
++            ) || self.mentions_type_parameter_inner(
++                index,
++                is_parameter,
++                names,
++                visited,
++                observation,
++            );
+         }
+         if let Some((_, arguments)) = self.type_reference_targets.get(&id) {
+-            return arguments
+-                .iter()
+-                .any(|&ty| self.mentions_type_parameter_inner(ty, is_parameter, names, visited));
++            return arguments.iter().any(|&ty| {
++                self.mentions_type_parameter_inner(ty, is_parameter, names, visited, observation)
++            });
+         }
+         if let Some(info) = self.mapped_conditionals.get(&id) {
+-            return info
+-                .operands
+-                .iter()
+-                .any(|&ty| self.mentions_type_parameter_inner(ty, is_parameter, names, visited));
++            return info.operands.iter().any(|&ty| {
++                self.mentions_type_parameter_inner(ty, is_parameter, names, visited, observation)
++            });
+         }
+         if let Some(info) = self.mapped_types.get(&id) {
+             return self.mentions_type_parameter_inner(
+@@ -6040,19 +6079,32 @@ impl Checker<'_, '_> {
+                 is_parameter,
+                 names,
+                 visited,
++                observation,
+             ) || self.mentions_type_parameter_inner(
+                 info.template,
+                 is_parameter,
+                 names,
+                 visited,
++                observation,
+             ) || info.name_type.is_some_and(|ty| {
+-                self.mentions_type_parameter_inner(ty, is_parameter, names, visited)
++                self.mentions_type_parameter_inner(ty, is_parameter, names, visited, observation)
+             });
+         }
+         if self.object_literal_index_infos.get(&id).is_some_and(|infos| {
+             infos.iter().any(|info| {
+-                self.mentions_type_parameter_inner(info.key, is_parameter, names, visited)
+-                    || self.mentions_type_parameter_inner(info.value, is_parameter, names, visited)
++                self.mentions_type_parameter_inner(
++                    info.key,
++                    is_parameter,
++                    names,
++                    visited,
++                    observation,
++                ) || self.mentions_type_parameter_inner(
++                    info.value,
++                    is_parameter,
++                    names,
++                    visited,
++                    observation,
++                )
+             })
+         }) {
+             return true;
+@@ -6072,7 +6124,15 @@ impl Checker<'_, '_> {
+                             .iter()
+                             .flat_map(|p| [p.constraint, p.default].into_iter().flatten()),
+                     )
+-                    .any(|ty| self.mentions_type_parameter_inner(ty, is_parameter, names, visited))
++                    .any(|ty| {
++                        self.mentions_type_parameter_inner(
++                            ty,
++                            is_parameter,
++                            names,
++                            visited,
++                            observation,
++                        )
++                    })
+             }) {
+                 return true;
+             }
+@@ -6083,30 +6143,41 @@ impl Checker<'_, '_> {
+                         is_parameter,
+                         names,
+                         visited,
++                        observation,
+                     )
+                 })
+             });
+         }
+         if let Some((properties, _)) = self.anonymous_properties.get(&id) {
+             return properties.iter().any(|property| {
+-                self.mentions_type_parameter_inner(property.r#type, is_parameter, names, visited)
++                self.mentions_type_parameter_inner(
++                    property.r#type,
++                    is_parameter,
++                    names,
++                    visited,
++                    observation,
++                )
+             });
+         }
+         if let Some((elements, _)) = self.tuple_element_lists.get(&id) {
+-            return elements
+-                .iter()
+-                .any(|&ty| self.mentions_type_parameter_inner(ty, is_parameter, names, visited));
++            return elements.iter().any(|&ty| {
++                self.mentions_type_parameter_inner(ty, is_parameter, names, visited, observation)
++            });
+         }
+         let constituents: &[TypeId] = match &ty.data {
+             TypeData::Union { types, .. } | TypeData::Intersection { types, .. } => types,
+             _ => &[],
+         };
+         if !constituents.is_empty() {
+-            return constituents
+-                .iter()
+-                .any(|&t| self.mentions_type_parameter_inner(t, is_parameter, names, visited));
++            return constituents.iter().any(|&t| {
++                self.mentions_type_parameter_inner(t, is_parameter, names, visited, observation)
++            });
+         }
+-        let text = crate::printing::type_to_string(ty);
++        let text = {
++            let _allocation = crate::graph_walk_probe::Root::printing();
++            crate::printing::type_to_string(ty)
++        };
++        observation.fallback(&text, names);
+         names.iter().any(|name| mentions_identifier(&text, name))
+     }
+ }
+diff --git a/crates/tsr-checker/src/lib.rs b/crates/tsr-checker/src/lib.rs
+index a64fa8d7..efc2d47d 100644
+--- a/crates/tsr-checker/src/lib.rs
++++ b/crates/tsr-checker/src/lib.rs
+@@ -186,3 +186,7 @@ pub use flags::TypeFlags;
+ pub use intrinsics::Intrinsics;
+ pub use resolution::{PropertyName, Resolutions};
+ pub use types::{Type, TypeData, TypeId, TypeStore};
++
++#[doc(hidden)]
++#[allow(unsafe_code)]
++pub mod graph_walk_probe;
+diff --git a/crates/tsr-execute/src/checker_pool.rs b/crates/tsr-execute/src/checker_pool.rs
+index be937c38..6b62a3ac 100644
+--- a/crates/tsr-execute/src/checker_pool.rs
++++ b/crates/tsr-execute/src/checker_pool.rs
+@@ -146,6 +146,7 @@ pub fn check_program_files<'a>(
+                         has_parse_errors: !file.diagnostics().is_empty(),
+                     },
+                 );
++                checker.graph_profile_checked(index, file.file_name());
+                 checked_count += 1;
+             }
+         }
+@@ -157,6 +158,7 @@ pub fn check_program_files<'a>(
+                 (index % count == owner).then(|| (index, diagnostic.clone()))
+             })
+             .collect();
++        checker.graph_profile_complete(owner, count);
+         (diagnostics, js_syntax, checked_count, constructed)
+     };
+
+@@ -195,5 +197,6 @@ pub fn check_program_files<'a>(
+         outcome.checked_files += checked_count;
+         outcome.construction = outcome.construction.max(constructed);
+     }
++    tsr_checker::graph_walk_probe::pool_joined(count);
+     outcome
+ }

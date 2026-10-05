@@ -1,0 +1,2219 @@
+{
+  "source": "1b8821a498114ba60bf841bd17875ac181f6f116",
+  "native_source": "5b1047d10d32e7d5b446be4de56b126ff42f82bb",
+  "kind": "source-qualified graph locating and bounded scratch handoff; no retained runtime change",
+  "binary_bindings": {
+    "normal": {
+      "path": "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-graph-walk-zkqarwd3/normal-tsr",
+      "sha256": "d6ec653ff126d370d5fcd92867fc2d1565864d592667a40aa7e83c2e90cbbdbd",
+      "source": "1b8821a498114ba60bf841bd17875ac181f6f116"
+    },
+    "probe": {
+      "path": "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-graph-walk-zkqarwd3/probe-qualified-tsr",
+      "sha256": "7f352306b07c80518719edbb727c60c9213c0a61eebba80ca65b9485585dca8d",
+      "source": "1b8821a498114ba60bf841bd17875ac181f6f116"
+    }
+  },
+  "source_artifacts": {
+    "crates/tsr-checker/src/inference.rs": "98a72741d727ed47d62737887c7e151dbe0ee2c5ad46e864031ea3e226d328bd",
+    "crates/tsr-checker/src/checker.rs": "cc6c1169250af7ddcd568858784b21bdd191b60792843a2162aa80553b7489a6",
+    "crates/tsr-checker/src/lib.rs": "1b5445e0b969a420e2d20d2d2e254ba6b6885308ecf9b1aad5cab387cc08eb94",
+    "crates/tsr-execute/src/checker_pool.rs": "4ebeaafc4deb3c74daf53cc9fa23969a96c60a49437308239cd22de259dd5120",
+    "crates/tsr-checker/src/graph_walk_probe.rs": "6ce69ddc0e3b45ef7f5aa922bddeeee9fa9ac7e9d084bf743e0d94a88bc450e8"
+  },
+  "original_source": {
+    "crates/tsr-checker/src/inference.rs": "8db9b642672af5f0f91e07239358394e2a42fb59afdbcc2cb8a54fc56b8326e1",
+    "crates/tsr-checker/src/checker.rs": "f499b9e3c9e7266115d42714107e61e07ea0ec3eddc4b8d4c10347d8cb30b9f4",
+    "crates/tsr-checker/src/lib.rs": "9a997c0919a175378d61f7208d844b30ef0b19169b71503bf180516ff3b55edc",
+    "crates/tsr-execute/src/checker_pool.rs": "b2089d463ad37c3746dcd32f22407954686a0afc12dbfff9216144b11980e772"
+  },
+  "raw_root": "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-graph-walk-zkqarwd3",
+  "semantic_children": 79,
+  "show_config_children": 10,
+  "project": [
+    {
+      "mode": "default",
+      "counts": {
+        "roots": 1438396,
+        "explicit_roots": 1384279,
+        "registry_roots": 54117,
+        "true_roots": 367842,
+        "false_roots": 1070554,
+        "visits": 5505464,
+        "edges": 4067068,
+        "unique_visits": 4758810,
+        "duplicate_visits": 746654,
+        "explicit_parameter_tests": 5127837,
+        "registry_parameter_tests": 377627,
+        "explicit_parameter_comparisons": 11179694,
+        "parameter_hits": 364552,
+        "visited_tests": 5140912,
+        "visited_comparisons": 14133837,
+        "visited_hits": 169491,
+        "markers": 2087946,
+        "terminal_leaves": 2883475,
+        "fallbacks": 299768,
+        "fallback_payload_bytes": 3900786,
+        "empty_names_fallbacks": 189275,
+        "scratch_allocations": 1027823,
+        "scratch_requested_bytes": 19958208,
+        "scratch_usable_bytes": 19958208,
+        "printing_allocations": 299768,
+        "printing_requested_bytes": 3900786,
+        "printing_usable_bytes": 6391408,
+        "root_capacity_sum": 4261452,
+        "max_visited": 50,
+        "max_capacity": 64,
+        "roots_visited_0": 555058,
+        "roots_visited_1_4": 771803,
+        "roots_visited_5_16": 109375,
+        "roots_visited_17_64": 2160,
+        "roots_visited_65_256": 0,
+        "roots_visited_over_256": 0
+      },
+      "owners": [
+        {
+          "owner": 0,
+          "counts": {
+            "roots": 473460,
+            "explicit_roots": 457551,
+            "registry_roots": 15909,
+            "true_roots": 117936,
+            "false_roots": 355524,
+            "visits": 1805458,
+            "edges": 1331998,
+            "unique_visits": 1579478,
+            "duplicate_visits": 225980,
+            "explicit_parameter_tests": 1722912,
+            "registry_parameter_tests": 82546,
+            "explicit_parameter_comparisons": 3620866,
+            "parameter_hits": 117003,
+            "visited_tests": 1688455,
+            "visited_comparisons": 4760691,
+            "visited_hits": 46354,
+            "markers": 685110,
+            "terminal_leaves": 956991,
+            "fallbacks": 109102,
+            "fallback_payload_bytes": 1490633,
+            "empty_names_fallbacks": 70584,
+            "scratch_allocations": 356051,
+            "scratch_requested_bytes": 6765920,
+            "scratch_usable_bytes": 6765920,
+            "printing_allocations": 109102,
+            "printing_requested_bytes": 1490633,
+            "printing_usable_bytes": 2388000,
+            "root_capacity_sum": 1470184,
+            "max_visited": 50,
+            "max_capacity": 64,
+            "roots_visited_0": 161238,
+            "roots_visited_1_4": 278426,
+            "roots_visited_5_16": 33125,
+            "roots_visited_17_64": 671,
+            "roots_visited_65_256": 0,
+            "roots_visited_over_256": 0
+          },
+          "query_shapes": {
+            "distinct_request_shapes": 44695,
+            "observer_query_capacity": 57344,
+            "distinct_root_ids": 11958
+          },
+          "checked": 344
+        },
+        {
+          "owner": 1,
+          "counts": {
+            "roots": 253295,
+            "explicit_roots": 246165,
+            "registry_roots": 7130,
+            "true_roots": 59402,
+            "false_roots": 193893,
+            "visits": 1057314,
+            "edges": 804019,
+            "unique_visits": 902641,
+            "duplicate_visits": 154673,
+            "explicit_parameter_tests": 997929,
+            "registry_parameter_tests": 59385,
+            "explicit_parameter_comparisons": 1581873,
+            "parameter_hits": 58808,
+            "visited_tests": 998506,
+            "visited_comparisons": 2849624,
+            "visited_hits": 34717,
+            "markers": 396735,
+            "terminal_leaves": 567054,
+            "fallbacks": 46550,
+            "fallback_payload_bytes": 622994,
+            "empty_names_fallbacks": 30481,
+            "scratch_allocations": 183641,
+            "scratch_requested_bytes": 3710624,
+            "scratch_usable_bytes": 3710624,
+            "printing_allocations": 46550,
+            "printing_requested_bytes": 622994,
+            "printing_usable_bytes": 1008576,
+            "root_capacity_sum": 772128,
+            "max_visited": 31,
+            "max_capacity": 32,
+            "roots_visited_0": 99145,
+            "roots_visited_1_4": 132682,
+            "roots_visited_5_16": 20784,
+            "roots_visited_17_64": 684,
+            "roots_visited_65_256": 0,
+            "roots_visited_over_256": 0
+          },
+          "query_shapes": {
+            "distinct_request_shapes": 33335,
+            "observer_query_capacity": 57344,
+            "distinct_root_ids": 8327
+          },
+          "checked": 350
+        },
+        {
+          "owner": 2,
+          "counts": {
+            "roots": 273567,
+            "explicit_roots": 263510,
+            "registry_roots": 10057,
+            "true_roots": 65145,
+            "false_roots": 208422,
+            "visits": 1067763,
+            "edges": 794196,
+            "unique_visits": 922143,
+            "duplicate_visits": 145620,
+            "explicit_parameter_tests": 992077,
+            "registry_parameter_tests": 75686,
+            "explicit_parameter_comparisons": 1879339,
+            "parameter_hits": 64074,
+            "visited_tests": 1003689,
+            "visited_comparisons": 2574625,
+            "visited_hits": 35776,
+            "markers": 398408,
+            "terminal_leaves": 569505,
+            "fallbacks": 56295,
+            "fallback_payload_bytes": 744332,
+            "empty_names_fallbacks": 35581,
+            "scratch_allocations": 187996,
+            "scratch_requested_bytes": 3670976,
+            "scratch_usable_bytes": 3670976,
+            "printing_allocations": 56295,
+            "printing_requested_bytes": 744332,
+            "printing_usable_bytes": 1199600,
+            "root_capacity_sum": 778460,
+            "max_visited": 35,
+            "max_capacity": 64,
+            "roots_visited_0": 113773,
+            "roots_visited_1_4": 137551,
+            "roots_visited_5_16": 21931,
+            "roots_visited_17_64": 312,
+            "roots_visited_65_256": 0,
+            "roots_visited_over_256": 0
+          },
+          "query_shapes": {
+            "distinct_request_shapes": 36333,
+            "observer_query_capacity": 57344,
+            "distinct_root_ids": 11173
+          },
+          "checked": 347
+        },
+        {
+          "owner": 3,
+          "counts": {
+            "roots": 438074,
+            "explicit_roots": 417053,
+            "registry_roots": 21021,
+            "true_roots": 125359,
+            "false_roots": 312715,
+            "visits": 1574929,
+            "edges": 1136855,
+            "unique_visits": 1354548,
+            "duplicate_visits": 220381,
+            "explicit_parameter_tests": 1414919,
+            "registry_parameter_tests": 160010,
+            "explicit_parameter_comparisons": 4097616,
+            "parameter_hits": 124667,
+            "visited_tests": 1450262,
+            "visited_comparisons": 3948897,
+            "visited_hits": 52644,
+            "markers": 607693,
+            "terminal_leaves": 789925,
+            "fallbacks": 87821,
+            "fallback_payload_bytes": 1042827,
+            "empty_names_fallbacks": 52629,
+            "scratch_allocations": 300135,
+            "scratch_requested_bytes": 5810688,
+            "scratch_usable_bytes": 5810688,
+            "printing_allocations": 87821,
+            "printing_requested_bytes": 1042827,
+            "printing_usable_bytes": 1795232,
+            "root_capacity_sum": 1240680,
+            "max_visited": 36,
+            "max_capacity": 64,
+            "roots_visited_0": 180902,
+            "roots_visited_1_4": 223144,
+            "roots_visited_5_16": 33535,
+            "roots_visited_17_64": 493,
+            "roots_visited_65_256": 0,
+            "roots_visited_over_256": 0
+          },
+          "query_shapes": {
+            "distinct_request_shapes": 42195,
+            "observer_query_capacity": 57344,
+            "distinct_root_ids": 13984
+          },
+          "checked": 356
+        }
+      ],
+      "reported": {
+        "Files": 14050,
+        "Checked files": 1397,
+        "Parsed files": 14746
+      },
+      "diagnostic_count": 46,
+      "diagnostic_fingerprint": "a39b0cfead1232d06fc2ec8d43fe8f864964f75a6e59e462265d0d5cb6b2beec",
+      "ordered_loaded_fingerprint": "03df7ed5cde476d9895c5d3b68f95556799a63e05a8dc52ee8dbdf7837fddaab",
+      "actual_checked_fingerprint": "32a960bac3878d0240cdcffdce8ba22e075afbee4a032558a437df9a1514e928",
+      "effective_config_fingerprint": "33014c4d45ccc885c15f802270b5397a3b8b21dcdfb82086d0df631974dd9b72",
+      "observed_physical_inputs": 13992,
+      "observed_input_fingerprint": "2c05a34606589db6b03b26ab426726abdda71318f7b5e6d9e8fd8ecd8d44a296",
+      "off_on_checked_equal": true,
+      "repeat_owner_counts_equal": true,
+      "observed_inputs_stable": true,
+      "timings": [
+        {
+          "label": "normal",
+          "role": "normal",
+          "wall_seconds": 5.681854583031964,
+          "user_seconds": 5.087792,
+          "system_seconds": 1.089911,
+          "peak_rss_bytes": 1186496512,
+          "exit_code": 1,
+          "timed_out": false
+        },
+        {
+          "label": "disabled",
+          "role": "probe",
+          "wall_seconds": 3.1558528750319965,
+          "user_seconds": 4.994416,
+          "system_seconds": 0.756401,
+          "peak_rss_bytes": 1177796608,
+          "exit_code": 1,
+          "timed_out": false
+        },
+        {
+          "label": "enabled",
+          "role": "probe",
+          "wall_seconds": 3.2442834170069546,
+          "user_seconds": 5.851207,
+          "system_seconds": 0.580256,
+          "peak_rss_bytes": 1206599680,
+          "exit_code": 1,
+          "timed_out": false
+        },
+        {
+          "label": "disabled",
+          "role": "probe",
+          "wall_seconds": 3.218212209001649,
+          "user_seconds": 5.078833,
+          "system_seconds": 0.643115,
+          "peak_rss_bytes": 1189412864,
+          "exit_code": 1,
+          "timed_out": false
+        },
+        {
+          "label": "enabled",
+          "role": "probe",
+          "wall_seconds": 7.049866291985381,
+          "user_seconds": 9.318566,
+          "system_seconds": 1.280954,
+          "peak_rss_bytes": 1240907776,
+          "exit_code": 1,
+          "timed_out": false
+        },
+        {
+          "label": "normal",
+          "role": "normal",
+          "wall_seconds": 6.520326291967649,
+          "user_seconds": 8.261066,
+          "system_seconds": 1.398977,
+          "peak_rss_bytes": 1213513728,
+          "exit_code": 1,
+          "timed_out": false
+        }
+      ]
+    },
+    {
+      "mode": "single",
+      "counts": {
+        "roots": 1676187,
+        "explicit_roots": 1636152,
+        "registry_roots": 40035,
+        "true_roots": 304264,
+        "false_roots": 1371923,
+        "visits": 7377167,
+        "edges": 5700980,
+        "unique_visits": 6164557,
+        "duplicate_visits": 1212610,
+        "explicit_parameter_tests": 7165821,
+        "registry_parameter_tests": 211346,
+        "explicit_parameter_comparisons": 12997378,
+        "parameter_hits": 302294,
+        "visited_tests": 7074873,
+        "visited_comparisons": 22656552,
+        "visited_hits": 292059,
+        "markers": 2804150,
+        "terminal_leaves": 3978664,
+        "fallbacks": 419496,
+        "fallback_payload_bytes": 5423163,
+        "empty_names_fallbacks": 326961,
+        "scratch_allocations": 1286021,
+        "scratch_requested_bytes": 26283360,
+        "scratch_usable_bytes": 26283360,
+        "printing_allocations": 419496,
+        "printing_requested_bytes": 5423163,
+        "printing_usable_bytes": 8834736,
+        "root_capacity_sum": 5382496,
+        "max_visited": 50,
+        "max_capacity": 64,
+        "roots_visited_0": 627649,
+        "roots_visited_1_4": 862848,
+        "roots_visited_5_16": 182061,
+        "roots_visited_17_64": 3629,
+        "roots_visited_65_256": 0,
+        "roots_visited_over_256": 0
+      },
+      "owners": [
+        {
+          "owner": 0,
+          "counts": {
+            "roots": 1676187,
+            "explicit_roots": 1636152,
+            "registry_roots": 40035,
+            "true_roots": 304264,
+            "false_roots": 1371923,
+            "visits": 7377167,
+            "edges": 5700980,
+            "unique_visits": 6164557,
+            "duplicate_visits": 1212610,
+            "explicit_parameter_tests": 7165821,
+            "registry_parameter_tests": 211346,
+            "explicit_parameter_comparisons": 12997378,
+            "parameter_hits": 302294,
+            "visited_tests": 7074873,
+            "visited_comparisons": 22656552,
+            "visited_hits": 292059,
+            "markers": 2804150,
+            "terminal_leaves": 3978664,
+            "fallbacks": 419496,
+            "fallback_payload_bytes": 5423163,
+            "empty_names_fallbacks": 326961,
+            "scratch_allocations": 1286021,
+            "scratch_requested_bytes": 26283360,
+            "scratch_usable_bytes": 26283360,
+            "printing_allocations": 419496,
+            "printing_requested_bytes": 5423163,
+            "printing_usable_bytes": 8834736,
+            "root_capacity_sum": 5382496,
+            "max_visited": 50,
+            "max_capacity": 64,
+            "roots_visited_0": 627649,
+            "roots_visited_1_4": 862848,
+            "roots_visited_5_16": 182061,
+            "roots_visited_17_64": 3629,
+            "roots_visited_65_256": 0,
+            "roots_visited_over_256": 0
+          },
+          "query_shapes": {
+            "distinct_request_shapes": 159759,
+            "observer_query_capacity": 229376,
+            "distinct_root_ids": 27899
+          },
+          "checked": 1397
+        }
+      ],
+      "reported": {
+        "Files": 14050,
+        "Checked files": 1397,
+        "Parsed files": 14746
+      },
+      "diagnostic_count": 46,
+      "diagnostic_fingerprint": "a39b0cfead1232d06fc2ec8d43fe8f864964f75a6e59e462265d0d5cb6b2beec",
+      "ordered_loaded_fingerprint": "03df7ed5cde476d9895c5d3b68f95556799a63e05a8dc52ee8dbdf7837fddaab",
+      "actual_checked_fingerprint": "32a960bac3878d0240cdcffdce8ba22e075afbee4a032558a437df9a1514e928",
+      "effective_config_fingerprint": "33014c4d45ccc885c15f802270b5397a3b8b21dcdfb82086d0df631974dd9b72",
+      "observed_physical_inputs": 13992,
+      "observed_input_fingerprint": "2c05a34606589db6b03b26ab426726abdda71318f7b5e6d9e8fd8ecd8d44a296",
+      "off_on_checked_equal": true,
+      "repeat_owner_counts_equal": true,
+      "observed_inputs_stable": true,
+      "timings": [
+        {
+          "label": "normal",
+          "role": "normal",
+          "wall_seconds": 5.095749667030759,
+          "user_seconds": 4.364721,
+          "system_seconds": 1.056979,
+          "peak_rss_bytes": 1188691968,
+          "exit_code": 1,
+          "timed_out": false
+        },
+        {
+          "label": "disabled",
+          "role": "probe",
+          "wall_seconds": 4.870283374970313,
+          "user_seconds": 4.329178,
+          "system_seconds": 0.55782,
+          "peak_rss_bytes": 1147518976,
+          "exit_code": 1,
+          "timed_out": false
+        },
+        {
+          "label": "enabled",
+          "role": "probe",
+          "wall_seconds": 5.634515499987174,
+          "user_seconds": 5.047331,
+          "system_seconds": 0.556005,
+          "peak_rss_bytes": 1221328896,
+          "exit_code": 1,
+          "timed_out": false
+        },
+        {
+          "label": "disabled",
+          "role": "probe",
+          "wall_seconds": 4.853129207971506,
+          "user_seconds": 4.314572,
+          "system_seconds": 0.6315959999999999,
+          "peak_rss_bytes": 1138032640,
+          "exit_code": 1,
+          "timed_out": false
+        },
+        {
+          "label": "enabled",
+          "role": "probe",
+          "wall_seconds": 5.956850584014319,
+          "user_seconds": 5.331182,
+          "system_seconds": 0.6098009999999999,
+          "peak_rss_bytes": 1205665792,
+          "exit_code": 1,
+          "timed_out": false
+        },
+        {
+          "label": "normal",
+          "role": "normal",
+          "wall_seconds": 5.042984583007637,
+          "user_seconds": 4.411421,
+          "system_seconds": 0.926329,
+          "peak_rss_bytes": 1176600576,
+          "exit_code": 1,
+          "timed_out": false
+        }
+      ]
+    }
+  ],
+  "public": [
+    {
+      "name": "signature-repeat-32",
+      "input_sha256": "c90632cf7ead1fc5f37215176647a0f3fe1a623b3d3d447ee3564ee6ef767e5d",
+      "native_qualified": [
+        {
+          "pid": 62377,
+          "started_at_unix_ns": 1791223353503832000,
+          "command": [
+            "/private/tmp/tsr-native-worker-activity-_vxx_snw/native-off",
+            "--project",
+            "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-graph-walk-zkqarwd3/public/signature-repeat-32/tsconfig.json",
+            "--noEmit",
+            "--incremental",
+            "false",
+            "--composite",
+            "false",
+            "--pretty",
+            "false"
+          ],
+          "wall_seconds": 0.03875479201087728,
+          "user_seconds": 0.046834,
+          "system_seconds": 0.012225,
+          "peak_rss_bytes": 45023232,
+          "exit_code": 0,
+          "timed_out": false,
+          "mode": "default",
+          "diagnostics": {
+            "count": 0,
+            "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "entries": []
+          },
+          "full_diagnostics_match": true
+        },
+        {
+          "pid": 62378,
+          "started_at_unix_ns": 1791223353543967000,
+          "command": [
+            "/private/tmp/tsr-native-worker-activity-_vxx_snw/native-off",
+            "--project",
+            "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-graph-walk-zkqarwd3/public/signature-repeat-32/tsconfig.json",
+            "--noEmit",
+            "--incremental",
+            "false",
+            "--composite",
+            "false",
+            "--pretty",
+            "false",
+            "--singleThreaded"
+          ],
+          "wall_seconds": 0.051731124985963106,
+          "user_seconds": 0.036219,
+          "system_seconds": 0.010921,
+          "peak_rss_bytes": 42008576,
+          "exit_code": 0,
+          "timed_out": false,
+          "mode": "single",
+          "diagnostics": {
+            "count": 0,
+            "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "entries": []
+          },
+          "full_diagnostics_match": true
+        }
+      ],
+      "precanonical_native": [
+        {
+          "mode": "default",
+          "exit_code": 0,
+          "timed_out": false,
+          "diagnostics": {
+            "count": 0,
+            "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "entries": []
+          },
+          "full_diagnostics_match": true,
+          "wall_seconds": 0.08354441600386053,
+          "user_seconds": 0.066386,
+          "system_seconds": 0.02465,
+          "peak_rss_bytes": 45629440
+        },
+        {
+          "mode": "single",
+          "exit_code": 0,
+          "timed_out": false,
+          "diagnostics": {
+            "count": 0,
+            "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "entries": []
+          },
+          "full_diagnostics_match": true,
+          "wall_seconds": 0.07098837499506772,
+          "user_seconds": 0.044413999999999995,
+          "system_seconds": 0.012645,
+          "peak_rss_bytes": 42156032
+        }
+      ],
+      "rust": [
+        {
+          "mode": "default",
+          "diagnostics": {
+            "count": 0,
+            "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "entries": []
+          },
+          "actual_checked_fingerprint": "831e9bfc79a2fa7986f1d26302dec27858f01600bbe8bc535635aa69d880ae80",
+          "counts": {
+            "roots": 65,
+            "explicit_roots": 65,
+            "registry_roots": 0,
+            "true_roots": 65,
+            "false_roots": 0,
+            "visits": 194,
+            "edges": 129,
+            "unique_visits": 194,
+            "duplicate_visits": 0,
+            "explicit_parameter_tests": 194,
+            "registry_parameter_tests": 0,
+            "explicit_parameter_comparisons": 194,
+            "parameter_hits": 65,
+            "visited_tests": 129,
+            "visited_comparisons": 64,
+            "visited_hits": 0,
+            "markers": 129,
+            "terminal_leaves": 0,
+            "fallbacks": 0,
+            "fallback_payload_bytes": 0,
+            "empty_names_fallbacks": 0,
+            "scratch_allocations": 65,
+            "scratch_requested_bytes": 1040,
+            "scratch_usable_bytes": 1040,
+            "printing_allocations": 0,
+            "printing_requested_bytes": 0,
+            "printing_usable_bytes": 0,
+            "root_capacity_sum": 260,
+            "max_visited": 2,
+            "max_capacity": 4,
+            "roots_visited_0": 0,
+            "roots_visited_1_4": 65,
+            "roots_visited_5_16": 0,
+            "roots_visited_17_64": 0,
+            "roots_visited_65_256": 0,
+            "roots_visited_over_256": 0
+          },
+          "off_on_output_scope_equal": true,
+          "repeat_owner_counts_equal": true
+        },
+        {
+          "mode": "single",
+          "diagnostics": {
+            "count": 0,
+            "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "entries": []
+          },
+          "actual_checked_fingerprint": "831e9bfc79a2fa7986f1d26302dec27858f01600bbe8bc535635aa69d880ae80",
+          "counts": {
+            "roots": 65,
+            "explicit_roots": 65,
+            "registry_roots": 0,
+            "true_roots": 65,
+            "false_roots": 0,
+            "visits": 194,
+            "edges": 129,
+            "unique_visits": 194,
+            "duplicate_visits": 0,
+            "explicit_parameter_tests": 194,
+            "registry_parameter_tests": 0,
+            "explicit_parameter_comparisons": 194,
+            "parameter_hits": 65,
+            "visited_tests": 129,
+            "visited_comparisons": 64,
+            "visited_hits": 0,
+            "markers": 129,
+            "terminal_leaves": 0,
+            "fallbacks": 0,
+            "fallback_payload_bytes": 0,
+            "empty_names_fallbacks": 0,
+            "scratch_allocations": 65,
+            "scratch_requested_bytes": 1040,
+            "scratch_usable_bytes": 1040,
+            "printing_allocations": 0,
+            "printing_requested_bytes": 0,
+            "printing_usable_bytes": 0,
+            "root_capacity_sum": 260,
+            "max_visited": 2,
+            "max_capacity": 4,
+            "roots_visited_0": 0,
+            "roots_visited_1_4": 65,
+            "roots_visited_5_16": 0,
+            "roots_visited_17_64": 0,
+            "roots_visited_65_256": 0,
+            "roots_visited_over_256": 0
+          },
+          "off_on_output_scope_equal": true,
+          "repeat_owner_counts_equal": true
+        }
+      ]
+    },
+    {
+      "name": "ordered-arguments-negative",
+      "input_sha256": "c92145e48cbf90259574c18a28239392f3600c184609d1b59fb14cab80bb689e",
+      "native_qualified": [
+        {
+          "pid": 62379,
+          "started_at_unix_ns": 1791223353599468000,
+          "command": [
+            "/private/tmp/tsr-native-worker-activity-_vxx_snw/native-off",
+            "--project",
+            "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-graph-walk-zkqarwd3/public/ordered-arguments-negative/tsconfig.json",
+            "--noEmit",
+            "--incremental",
+            "false",
+            "--composite",
+            "false",
+            "--pretty",
+            "false"
+          ],
+          "wall_seconds": 0.07706129102734849,
+          "user_seconds": 0.052558999999999995,
+          "system_seconds": 0.014761999999999999,
+          "peak_rss_bytes": 45645824,
+          "exit_code": 1,
+          "timed_out": false,
+          "mode": "default",
+          "diagnostics": {
+            "count": 1,
+            "fingerprint": "11274d3ee62427c7662c29a6d964502408904a37d6f5ab75c47567872dbbc367",
+            "entries": [
+              "input.ts(6,7): error TS2322: Type 'string' is not assignable to type 'number'."
+            ]
+          },
+          "full_diagnostics_match": true
+        },
+        {
+          "pid": 62380,
+          "started_at_unix_ns": 1791223353677903000,
+          "command": [
+            "/private/tmp/tsr-native-worker-activity-_vxx_snw/native-off",
+            "--project",
+            "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-graph-walk-zkqarwd3/public/ordered-arguments-negative/tsconfig.json",
+            "--noEmit",
+            "--incremental",
+            "false",
+            "--composite",
+            "false",
+            "--pretty",
+            "false",
+            "--singleThreaded"
+          ],
+          "wall_seconds": 0.06018287502229214,
+          "user_seconds": 0.047449,
+          "system_seconds": 0.013290999999999999,
+          "peak_rss_bytes": 43040768,
+          "exit_code": 1,
+          "timed_out": false,
+          "mode": "single",
+          "diagnostics": {
+            "count": 1,
+            "fingerprint": "11274d3ee62427c7662c29a6d964502408904a37d6f5ab75c47567872dbbc367",
+            "entries": [
+              "input.ts(6,7): error TS2322: Type 'string' is not assignable to type 'number'."
+            ]
+          },
+          "full_diagnostics_match": true
+        }
+      ],
+      "precanonical_native": [
+        {
+          "mode": "default",
+          "exit_code": 1,
+          "timed_out": false,
+          "diagnostics": {
+            "count": 1,
+            "fingerprint": "009f9818030bf326bdfcafb84662909d9488e91132ca66b5d6349d6e9f5cdc1e",
+            "entries": [
+              "../../../../../../../../..<project>/input.ts(6,7): error TS2322: Type 'string' is not assignable to type 'number'."
+            ]
+          },
+          "full_diagnostics_match": false,
+          "wall_seconds": 0.06883674999698997,
+          "user_seconds": 0.054959,
+          "system_seconds": 0.01911,
+          "peak_rss_bytes": 45678592
+        },
+        {
+          "mode": "single",
+          "exit_code": 1,
+          "timed_out": false,
+          "diagnostics": {
+            "count": 1,
+            "fingerprint": "009f9818030bf326bdfcafb84662909d9488e91132ca66b5d6349d6e9f5cdc1e",
+            "entries": [
+              "../../../../../../../../..<project>/input.ts(6,7): error TS2322: Type 'string' is not assignable to type 'number'."
+            ]
+          },
+          "full_diagnostics_match": false,
+          "wall_seconds": 0.0777040000539273,
+          "user_seconds": 0.043796999999999996,
+          "system_seconds": 0.014374,
+          "peak_rss_bytes": 42483712
+        }
+      ],
+      "rust": [
+        {
+          "mode": "default",
+          "diagnostics": {
+            "count": 1,
+            "fingerprint": "11274d3ee62427c7662c29a6d964502408904a37d6f5ab75c47567872dbbc367",
+            "entries": [
+              "input.ts(6,7): error TS2322: Type 'string' is not assignable to type 'number'."
+            ]
+          },
+          "actual_checked_fingerprint": "576fc3c328b84af9b06983392833f61f5ada2dccc0621e7b296ea0b9f187070f",
+          "counts": {
+            "roots": 4,
+            "explicit_roots": 4,
+            "registry_roots": 0,
+            "true_roots": 4,
+            "false_roots": 0,
+            "visits": 8,
+            "edges": 4,
+            "unique_visits": 8,
+            "duplicate_visits": 0,
+            "explicit_parameter_tests": 8,
+            "registry_parameter_tests": 0,
+            "explicit_parameter_comparisons": 12,
+            "parameter_hits": 4,
+            "visited_tests": 4,
+            "visited_comparisons": 0,
+            "visited_hits": 0,
+            "markers": 4,
+            "terminal_leaves": 0,
+            "fallbacks": 0,
+            "fallback_payload_bytes": 0,
+            "empty_names_fallbacks": 0,
+            "scratch_allocations": 4,
+            "scratch_requested_bytes": 64,
+            "scratch_usable_bytes": 64,
+            "printing_allocations": 0,
+            "printing_requested_bytes": 0,
+            "printing_usable_bytes": 0,
+            "root_capacity_sum": 16,
+            "max_visited": 1,
+            "max_capacity": 4,
+            "roots_visited_0": 0,
+            "roots_visited_1_4": 4,
+            "roots_visited_5_16": 0,
+            "roots_visited_17_64": 0,
+            "roots_visited_65_256": 0,
+            "roots_visited_over_256": 0
+          },
+          "off_on_output_scope_equal": true,
+          "repeat_owner_counts_equal": true
+        },
+        {
+          "mode": "single",
+          "diagnostics": {
+            "count": 1,
+            "fingerprint": "11274d3ee62427c7662c29a6d964502408904a37d6f5ab75c47567872dbbc367",
+            "entries": [
+              "input.ts(6,7): error TS2322: Type 'string' is not assignable to type 'number'."
+            ]
+          },
+          "actual_checked_fingerprint": "576fc3c328b84af9b06983392833f61f5ada2dccc0621e7b296ea0b9f187070f",
+          "counts": {
+            "roots": 4,
+            "explicit_roots": 4,
+            "registry_roots": 0,
+            "true_roots": 4,
+            "false_roots": 0,
+            "visits": 8,
+            "edges": 4,
+            "unique_visits": 8,
+            "duplicate_visits": 0,
+            "explicit_parameter_tests": 8,
+            "registry_parameter_tests": 0,
+            "explicit_parameter_comparisons": 12,
+            "parameter_hits": 4,
+            "visited_tests": 4,
+            "visited_comparisons": 0,
+            "visited_hits": 0,
+            "markers": 4,
+            "terminal_leaves": 0,
+            "fallbacks": 0,
+            "fallback_payload_bytes": 0,
+            "empty_names_fallbacks": 0,
+            "scratch_allocations": 4,
+            "scratch_requested_bytes": 64,
+            "scratch_usable_bytes": 64,
+            "printing_allocations": 0,
+            "printing_requested_bytes": 0,
+            "printing_usable_bytes": 0,
+            "root_capacity_sum": 16,
+            "max_visited": 1,
+            "max_capacity": 4,
+            "roots_visited_0": 0,
+            "roots_visited_1_4": 4,
+            "roots_visited_5_16": 0,
+            "roots_visited_17_64": 0,
+            "roots_visited_65_256": 0,
+            "roots_visited_over_256": 0
+          },
+          "off_on_output_scope_equal": true,
+          "repeat_owner_counts_equal": true
+        }
+      ]
+    },
+    {
+      "name": "fresh-shadow-negative",
+      "input_sha256": "b8f5aa81491bcaeab2f019ba87a44babad6264a0a63b602de2601a27ffa002ab",
+      "native_qualified": [
+        {
+          "pid": 62381,
+          "started_at_unix_ns": 1791223353744627000,
+          "command": [
+            "/private/tmp/tsr-native-worker-activity-_vxx_snw/native-off",
+            "--project",
+            "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-graph-walk-zkqarwd3/public/fresh-shadow-negative/tsconfig.json",
+            "--noEmit",
+            "--incremental",
+            "false",
+            "--composite",
+            "false",
+            "--pretty",
+            "false"
+          ],
+          "wall_seconds": 0.04324287496274337,
+          "user_seconds": 0.053780999999999995,
+          "system_seconds": 0.014896999999999999,
+          "peak_rss_bytes": 46645248,
+          "exit_code": 1,
+          "timed_out": false,
+          "mode": "default",
+          "diagnostics": {
+            "count": 1,
+            "fingerprint": "c3ca64c2367962e7c5125058a1f56e6af9c05b6b7c06a20ef9e44f98a4f46072",
+            "entries": [
+              "input.ts(5,7): error TS2322: Type 'string' is not assignable to type 'number'."
+            ]
+          },
+          "full_diagnostics_match": true
+        },
+        {
+          "pid": 62382,
+          "started_at_unix_ns": 1791223353789201000,
+          "command": [
+            "/private/tmp/tsr-native-worker-activity-_vxx_snw/native-off",
+            "--project",
+            "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-graph-walk-zkqarwd3/public/fresh-shadow-negative/tsconfig.json",
+            "--noEmit",
+            "--incremental",
+            "false",
+            "--composite",
+            "false",
+            "--pretty",
+            "false",
+            "--singleThreaded"
+          ],
+          "wall_seconds": 0.04006429202854633,
+          "user_seconds": 0.03306,
+          "system_seconds": 0.010287,
+          "peak_rss_bytes": 42123264,
+          "exit_code": 1,
+          "timed_out": false,
+          "mode": "single",
+          "diagnostics": {
+            "count": 1,
+            "fingerprint": "c3ca64c2367962e7c5125058a1f56e6af9c05b6b7c06a20ef9e44f98a4f46072",
+            "entries": [
+              "input.ts(5,7): error TS2322: Type 'string' is not assignable to type 'number'."
+            ]
+          },
+          "full_diagnostics_match": true
+        }
+      ],
+      "precanonical_native": [
+        {
+          "mode": "default",
+          "exit_code": 1,
+          "timed_out": false,
+          "diagnostics": {
+            "count": 1,
+            "fingerprint": "39526c50051603d985763954bfedeab0741af475ee65c4929fb095b153524266",
+            "entries": [
+              "../../../../../../../../..<project>/input.ts(5,7): error TS2322: Type 'string' is not assignable to type 'number'."
+            ]
+          },
+          "full_diagnostics_match": false,
+          "wall_seconds": 0.08113404200412333,
+          "user_seconds": 0.058181,
+          "system_seconds": 0.016885999999999998,
+          "peak_rss_bytes": 45203456
+        },
+        {
+          "mode": "single",
+          "exit_code": 1,
+          "timed_out": false,
+          "diagnostics": {
+            "count": 1,
+            "fingerprint": "39526c50051603d985763954bfedeab0741af475ee65c4929fb095b153524266",
+            "entries": [
+              "../../../../../../../../..<project>/input.ts(5,7): error TS2322: Type 'string' is not assignable to type 'number'."
+            ]
+          },
+          "full_diagnostics_match": false,
+          "wall_seconds": 0.0680528330267407,
+          "user_seconds": 0.03945,
+          "system_seconds": 0.012995,
+          "peak_rss_bytes": 42549248
+        }
+      ],
+      "rust": [
+        {
+          "mode": "default",
+          "diagnostics": {
+            "count": 1,
+            "fingerprint": "c3ca64c2367962e7c5125058a1f56e6af9c05b6b7c06a20ef9e44f98a4f46072",
+            "entries": [
+              "input.ts(5,7): error TS2322: Type 'string' is not assignable to type 'number'."
+            ]
+          },
+          "actual_checked_fingerprint": "4afa13970ba19ac1468a15d9af9b65cda4a6f80e0446df2331c44f2d3eedf4bd",
+          "counts": {
+            "roots": 4,
+            "explicit_roots": 4,
+            "registry_roots": 0,
+            "true_roots": 3,
+            "false_roots": 1,
+            "visits": 17,
+            "edges": 13,
+            "unique_visits": 14,
+            "duplicate_visits": 3,
+            "explicit_parameter_tests": 17,
+            "registry_parameter_tests": 0,
+            "explicit_parameter_comparisons": 17,
+            "parameter_hits": 3,
+            "visited_tests": 14,
+            "visited_comparisons": 16,
+            "visited_hits": 0,
+            "markers": 8,
+            "terminal_leaves": 6,
+            "fallbacks": 0,
+            "fallback_payload_bytes": 0,
+            "empty_names_fallbacks": 0,
+            "scratch_allocations": 4,
+            "scratch_requested_bytes": 64,
+            "scratch_usable_bytes": 64,
+            "printing_allocations": 0,
+            "printing_requested_bytes": 0,
+            "printing_usable_bytes": 0,
+            "root_capacity_sum": 16,
+            "max_visited": 3,
+            "max_capacity": 4,
+            "roots_visited_0": 0,
+            "roots_visited_1_4": 4,
+            "roots_visited_5_16": 0,
+            "roots_visited_17_64": 0,
+            "roots_visited_65_256": 0,
+            "roots_visited_over_256": 0
+          },
+          "off_on_output_scope_equal": true,
+          "repeat_owner_counts_equal": true
+        },
+        {
+          "mode": "single",
+          "diagnostics": {
+            "count": 1,
+            "fingerprint": "c3ca64c2367962e7c5125058a1f56e6af9c05b6b7c06a20ef9e44f98a4f46072",
+            "entries": [
+              "input.ts(5,7): error TS2322: Type 'string' is not assignable to type 'number'."
+            ]
+          },
+          "actual_checked_fingerprint": "4afa13970ba19ac1468a15d9af9b65cda4a6f80e0446df2331c44f2d3eedf4bd",
+          "counts": {
+            "roots": 4,
+            "explicit_roots": 4,
+            "registry_roots": 0,
+            "true_roots": 3,
+            "false_roots": 1,
+            "visits": 17,
+            "edges": 13,
+            "unique_visits": 14,
+            "duplicate_visits": 3,
+            "explicit_parameter_tests": 17,
+            "registry_parameter_tests": 0,
+            "explicit_parameter_comparisons": 17,
+            "parameter_hits": 3,
+            "visited_tests": 14,
+            "visited_comparisons": 16,
+            "visited_hits": 0,
+            "markers": 8,
+            "terminal_leaves": 6,
+            "fallbacks": 0,
+            "fallback_payload_bytes": 0,
+            "empty_names_fallbacks": 0,
+            "scratch_allocations": 4,
+            "scratch_requested_bytes": 64,
+            "scratch_usable_bytes": 64,
+            "printing_allocations": 0,
+            "printing_requested_bytes": 0,
+            "printing_usable_bytes": 0,
+            "root_capacity_sum": 16,
+            "max_visited": 3,
+            "max_capacity": 4,
+            "roots_visited_0": 0,
+            "roots_visited_1_4": 4,
+            "roots_visited_5_16": 0,
+            "roots_visited_17_64": 0,
+            "roots_visited_65_256": 0,
+            "roots_visited_over_256": 0
+          },
+          "off_on_output_scope_equal": true,
+          "repeat_owner_counts_equal": true
+        }
+      ]
+    },
+    {
+      "name": "mapped-negative",
+      "input_sha256": "9a8d90c5a6cb6b5ec8c5f24c997c30ea81e2a4ff0ab4252ab9c7ef8426940a57",
+      "native_qualified": [
+        {
+          "pid": 62383,
+          "started_at_unix_ns": 1791223353833089000,
+          "command": [
+            "/private/tmp/tsr-native-worker-activity-_vxx_snw/native-off",
+            "--project",
+            "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-graph-walk-zkqarwd3/public/mapped-negative/tsconfig.json",
+            "--noEmit",
+            "--incremental",
+            "false",
+            "--composite",
+            "false",
+            "--pretty",
+            "false"
+          ],
+          "wall_seconds": 0.06923520902637392,
+          "user_seconds": 0.057526999999999995,
+          "system_seconds": 0.017792,
+          "peak_rss_bytes": 45776896,
+          "exit_code": 1,
+          "timed_out": false,
+          "mode": "default",
+          "diagnostics": {
+            "count": 1,
+            "fingerprint": "c3ca64c2367962e7c5125058a1f56e6af9c05b6b7c06a20ef9e44f98a4f46072",
+            "entries": [
+              "input.ts(5,7): error TS2322: Type 'string' is not assignable to type 'number'."
+            ]
+          },
+          "full_diagnostics_match": true
+        },
+        {
+          "pid": 62384,
+          "started_at_unix_ns": 1791223353904025000,
+          "command": [
+            "/private/tmp/tsr-native-worker-activity-_vxx_snw/native-off",
+            "--project",
+            "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-graph-walk-zkqarwd3/public/mapped-negative/tsconfig.json",
+            "--noEmit",
+            "--incremental",
+            "false",
+            "--composite",
+            "false",
+            "--pretty",
+            "false",
+            "--singleThreaded"
+          ],
+          "wall_seconds": 0.054642791976220906,
+          "user_seconds": 0.044053999999999996,
+          "system_seconds": 0.012962999999999999,
+          "peak_rss_bytes": 42237952,
+          "exit_code": 1,
+          "timed_out": false,
+          "mode": "single",
+          "diagnostics": {
+            "count": 1,
+            "fingerprint": "c3ca64c2367962e7c5125058a1f56e6af9c05b6b7c06a20ef9e44f98a4f46072",
+            "entries": [
+              "input.ts(5,7): error TS2322: Type 'string' is not assignable to type 'number'."
+            ]
+          },
+          "full_diagnostics_match": true
+        }
+      ],
+      "precanonical_native": [
+        {
+          "mode": "default",
+          "exit_code": 1,
+          "timed_out": false,
+          "diagnostics": {
+            "count": 1,
+            "fingerprint": "39526c50051603d985763954bfedeab0741af475ee65c4929fb095b153524266",
+            "entries": [
+              "../../../../../../../../..<project>/input.ts(5,7): error TS2322: Type 'string' is not assignable to type 'number'."
+            ]
+          },
+          "full_diagnostics_match": false,
+          "wall_seconds": 0.0689238749910146,
+          "user_seconds": 0.058055999999999996,
+          "system_seconds": 0.018871,
+          "peak_rss_bytes": 46006272
+        },
+        {
+          "mode": "single",
+          "exit_code": 1,
+          "timed_out": false,
+          "diagnostics": {
+            "count": 1,
+            "fingerprint": "39526c50051603d985763954bfedeab0741af475ee65c4929fb095b153524266",
+            "entries": [
+              "../../../../../../../../..<project>/input.ts(5,7): error TS2322: Type 'string' is not assignable to type 'number'."
+            ]
+          },
+          "full_diagnostics_match": false,
+          "wall_seconds": 0.06969208299415186,
+          "user_seconds": 0.056115,
+          "system_seconds": 0.013441999999999999,
+          "peak_rss_bytes": 42434560
+        }
+      ],
+      "rust": [
+        {
+          "mode": "default",
+          "diagnostics": {
+            "count": 1,
+            "fingerprint": "c3ca64c2367962e7c5125058a1f56e6af9c05b6b7c06a20ef9e44f98a4f46072",
+            "entries": [
+              "input.ts(5,7): error TS2322: Type 'string' is not assignable to type 'number'."
+            ]
+          },
+          "actual_checked_fingerprint": "34d58288cb6838af862a44bc9b3a1054dd239a23793deaf3116ac0823a219174",
+          "counts": {
+            "roots": 13,
+            "explicit_roots": 13,
+            "registry_roots": 0,
+            "true_roots": 10,
+            "false_roots": 3,
+            "visits": 45,
+            "edges": 32,
+            "unique_visits": 45,
+            "duplicate_visits": 0,
+            "explicit_parameter_tests": 45,
+            "registry_parameter_tests": 0,
+            "explicit_parameter_comparisons": 45,
+            "parameter_hits": 10,
+            "visited_tests": 35,
+            "visited_comparisons": 36,
+            "visited_hits": 0,
+            "markers": 22,
+            "terminal_leaves": 13,
+            "fallbacks": 0,
+            "fallback_payload_bytes": 0,
+            "empty_names_fallbacks": 0,
+            "scratch_allocations": 12,
+            "scratch_requested_bytes": 192,
+            "scratch_usable_bytes": 192,
+            "printing_allocations": 0,
+            "printing_requested_bytes": 0,
+            "printing_usable_bytes": 0,
+            "root_capacity_sum": 48,
+            "max_visited": 3,
+            "max_capacity": 4,
+            "roots_visited_0": 1,
+            "roots_visited_1_4": 12,
+            "roots_visited_5_16": 0,
+            "roots_visited_17_64": 0,
+            "roots_visited_65_256": 0,
+            "roots_visited_over_256": 0
+          },
+          "off_on_output_scope_equal": true,
+          "repeat_owner_counts_equal": true
+        },
+        {
+          "mode": "single",
+          "diagnostics": {
+            "count": 1,
+            "fingerprint": "c3ca64c2367962e7c5125058a1f56e6af9c05b6b7c06a20ef9e44f98a4f46072",
+            "entries": [
+              "input.ts(5,7): error TS2322: Type 'string' is not assignable to type 'number'."
+            ]
+          },
+          "actual_checked_fingerprint": "34d58288cb6838af862a44bc9b3a1054dd239a23793deaf3116ac0823a219174",
+          "counts": {
+            "roots": 13,
+            "explicit_roots": 13,
+            "registry_roots": 0,
+            "true_roots": 10,
+            "false_roots": 3,
+            "visits": 45,
+            "edges": 32,
+            "unique_visits": 45,
+            "duplicate_visits": 0,
+            "explicit_parameter_tests": 45,
+            "registry_parameter_tests": 0,
+            "explicit_parameter_comparisons": 45,
+            "parameter_hits": 10,
+            "visited_tests": 35,
+            "visited_comparisons": 36,
+            "visited_hits": 0,
+            "markers": 22,
+            "terminal_leaves": 13,
+            "fallbacks": 0,
+            "fallback_payload_bytes": 0,
+            "empty_names_fallbacks": 0,
+            "scratch_allocations": 12,
+            "scratch_requested_bytes": 192,
+            "scratch_usable_bytes": 192,
+            "printing_allocations": 0,
+            "printing_requested_bytes": 0,
+            "printing_usable_bytes": 0,
+            "root_capacity_sum": 48,
+            "max_visited": 3,
+            "max_capacity": 4,
+            "roots_visited_0": 1,
+            "roots_visited_1_4": 12,
+            "roots_visited_5_16": 0,
+            "roots_visited_17_64": 0,
+            "roots_visited_65_256": 0,
+            "roots_visited_over_256": 0
+          },
+          "off_on_output_scope_equal": true,
+          "repeat_owner_counts_equal": true
+        }
+      ]
+    }
+  ],
+  "ordinary_single_worker_profile": [
+    {
+      "role": "normal",
+      "wall_seconds": 7.381964790984057,
+      "user_seconds": 4.321763,
+      "system_seconds": 0.856244,
+      "peak_rss_bytes": 1178107904
+    },
+    {
+      "role": "sample-early",
+      "wall_seconds": 4.987307375005912,
+      "user_seconds": 4.328196,
+      "system_seconds": 0.49473599999999995,
+      "peak_rss_bytes": 1131020288,
+      "profile": {
+        "total_samples": 1676,
+        "phases": {
+          "checker": 1490,
+          "other": 186
+        },
+        "ignored_thread_roots": 0,
+        "top_self": [
+          [
+            "tiny_malloc_from_free_list",
+            132
+          ],
+          [
+            "tiny_free_no_lock",
+            76
+          ],
+          [
+            "free_tiny",
+            71
+          ],
+          [
+            "tiny_free_list_add_ptr",
+            62
+          ],
+          [
+            "tsr_binder::BindResult::resolve_name",
+            58
+          ],
+          [
+            "_platform_memset",
+            51
+          ],
+          [
+            "tsr_binder::BindResult::lookup_scoped",
+            46
+          ],
+          [
+            "tiny_malloc_should_clear",
+            37
+          ],
+          [
+            "_szone_free",
+            36
+          ],
+          [
+            "_platform_memmove",
+            34
+          ],
+          [
+            "tsr_binder::binder::Binder::bind_inner",
+            34
+          ],
+          [
+            "tsr_checker::inference::mentions_type_parameter_inner",
+            29
+          ],
+          [
+            "tsr_checker::check::check_node",
+            28
+          ],
+          [
+            "_malloc_zone_malloc",
+            27
+          ],
+          [
+            "tsr_checker::printing::object_literal_text_at",
+            27
+          ],
+          [
+            "tsr_checker::symbols::get_export_from_star_worker",
+            27
+          ],
+          [
+            "tsr_binder::symbol::SymbolTableField::get",
+            26
+          ],
+          [
+            "hashbrown::raw::RawTable$LT$T$C$A$GT$::reserve_rehash",
+            24
+          ],
+          [
+            "_platform_memcmp",
+            23
+          ],
+          [
+            "tsr_ast::generated::visit::push_children",
+            23
+          ],
+          [
+            "get_tiny_previous_free_msize",
+            22
+          ],
+          [
+            "hashbrown::map::HashMap$LT$K$C$V$C$S$C$A$GT$::insert",
+            22
+          ],
+          [
+            "tiny_free_list_remove_ptr",
+            19
+          ],
+          [
+            "hashbrown::map::HashMap$LT$K$C$V$C$S$C$A$GT$::get",
+            19
+          ],
+          [
+            "_tiny_check_and_zero_inline_meta_from_freelist",
+            19
+          ]
+        ],
+        "nearest_tsr_owner": [
+          [
+            "tsr_checker::inference::mentions_type_parameter_inner",
+            73
+          ],
+          [
+            "tsr_binder::BindResult::resolve_name",
+            58
+          ],
+          [
+            "tsr_checker::members::collect_structured_property_names",
+            55
+          ],
+          [
+            "tsr_binder::binder::Binder::bind_inner",
+            54
+          ],
+          [
+            "tsr_checker::signatures::signature_candidates_of_interface_symbol",
+            53
+          ],
+          [
+            "tsr_binder::BindResult::lookup_scoped",
+            51
+          ],
+          [
+            "tsr_checker::inference::instantiate_type",
+            49
+          ],
+          [
+            "tsr_checker::members::get_property_of_type_ex",
+            42
+          ],
+          [
+            "tsr_binder::binder::Binder::declare_into_with_excludes",
+            36
+          ],
+          [
+            "tsr_ast::generated::visit::push_children",
+            33
+          ],
+          [
+            "tsr_binder::symbol::SymbolTableField::get",
+            31
+          ],
+          [
+            "tsr_checker::symbols::get_export_from_star_worker",
+            31
+          ],
+          [
+            "tsr_checker::members::get_type_of_property_with_this_argument",
+            31
+          ],
+          [
+            "tsr_checker::flow::intersection_has_never_discriminant",
+            30
+          ],
+          [
+            "tsr_checker::printing::object_literal_text_at",
+            28
+          ],
+          [
+            "tsr_checker::check::check_node",
+            28
+          ],
+          [
+            "tsr_checker::members::instantiate_for_reference_with_this",
+            25
+          ],
+          [
+            "tsr_checker::flow::signatures_of_type_kind",
+            23
+          ],
+          [
+            "tsr_checker::declared::create_type_reference_with_display",
+            23
+          ],
+          [
+            "tsr_checker::declared::instantiated_heritage_base",
+            21
+          ],
+          [
+            "tsr_checker::mapped::is_generic_homomorphic_mapped_type_inner",
+            19
+          ],
+          [
+            "tsr_checker::signatures::written_type_text_flags",
+            18
+          ],
+          [
+            "tsr_checker::members::base_symbols_of_ex",
+            18
+          ],
+          [
+            "tsr_binder::BindResult::resolve_name_with_export_alias",
+            17
+          ],
+          [
+            "tsr_binder::BindResult::merged_symbol",
+            17
+          ],
+          [
+            "tsr_checker::declared::local_type_parameter_types_of",
+            16
+          ],
+          [
+            "tsr_checker::types::TypeStore::intern_literal",
+            16
+          ],
+          [
+            "tsr_ast::generated::alias::Node::node_id",
+            16
+          ],
+          [
+            "tsr_checker::members::get_property_names_of_type",
+            15
+          ],
+          [
+            "tsr_checker::members::get_property_of_declared_symbol",
+            13
+          ],
+          [
+            "tsr_checker::index_signatures::get_index_infos_of_type",
+            13
+          ],
+          [
+            "tsr_ast::generated::alias::Expression::node_id",
+            12
+          ],
+          [
+            "tsr_checker::expressions::check_expression",
+            12
+          ],
+          [
+            "tsr_checker::calls::resolve_call_signature_at",
+            12
+          ],
+          [
+            "tsr_checker::relater::Relater::recursive_type_related_to",
+            12
+          ],
+          [
+            "tsr_checker::relater::Relater::properties_related_to_with_optionals",
+            11
+          ],
+          [
+            "tsr_path::get_root_length_and_is_url",
+            11
+          ],
+          [
+            "tsr_checker::unions::create_union_with_text",
+            11
+          ],
+          [
+            "tsr_checker::declared::instantiate_type_literal",
+            10
+          ],
+          [
+            "tsr_checker::members::generic_heritage_member",
+            10
+          ]
+        ],
+        "allocator_nearest_owner": [
+          [
+            "tsr_checker::members::collect_structured_property_names",
+            36
+          ],
+          [
+            "tsr_checker::signatures::signature_candidates_of_interface_symbol",
+            34
+          ],
+          [
+            "tsr_checker::inference::instantiate_type",
+            32
+          ],
+          [
+            "tsr_checker::members::get_property_of_type_ex",
+            30
+          ],
+          [
+            "tsr_checker::inference::mentions_type_parameter_inner",
+            24
+          ],
+          [
+            "tsr_checker::flow::intersection_has_never_discriminant",
+            21
+          ],
+          [
+            "tsr_checker::declared::create_type_reference_with_display",
+            19
+          ],
+          [
+            "tsr_checker::declared::local_type_parameter_types_of",
+            16
+          ],
+          [
+            "tsr_checker::members::instantiate_for_reference_with_this",
+            16
+          ],
+          [
+            "tsr_checker::declared::instantiated_heritage_base",
+            15
+          ],
+          [
+            "tsr_checker::members::get_property_names_of_type",
+            11
+          ],
+          [
+            "tsr_checker::mapped::is_generic_homomorphic_mapped_type_inner",
+            11
+          ],
+          [
+            "tsr_ast::generated::visit::push_children",
+            10
+          ],
+          [
+            "tsr_checker::signatures::written_type_text_flags",
+            10
+          ],
+          [
+            "tsr_checker::relater::Relater::properties_related_to_with_optionals",
+            9
+          ],
+          [
+            "tsr_checker::flow::signatures_of_type_kind",
+            9
+          ],
+          [
+            "tsr_checker::types::TypeStore::intern_literal",
+            9
+          ],
+          [
+            "tsr_checker::members::base_symbols_of_ex",
+            8
+          ],
+          [
+            "tsr_checker::calls::resolve_call_signature_at",
+            8
+          ],
+          [
+            "tsr_binder::binder::Binder::declare_into_with_excludes",
+            8
+          ],
+          [
+            "tsr_checker::unions::create_union_with_text",
+            7
+          ],
+          [
+            "tsr_checker::declared::instantiate_type_literal",
+            7
+          ],
+          [
+            "tsr_checker::signatures::signature_candidates_of_named_type",
+            7
+          ],
+          [
+            "tsr_checker::members::get_property_of_declared_symbol",
+            6
+          ],
+          [
+            "tsr_checker::declared::type_reference_text",
+            6
+          ]
+        ]
+      }
+    },
+    {
+      "role": "sample-late",
+      "wall_seconds": 5.012459792022128,
+      "user_seconds": 4.39752,
+      "system_seconds": 0.539894,
+      "peak_rss_bytes": 1171832832,
+      "profile": {
+        "total_samples": 1687,
+        "phases": {
+          "checker": 1685,
+          "other": 2
+        },
+        "ignored_thread_roots": 0,
+        "top_self": [
+          [
+            "tiny_malloc_from_free_list",
+            116
+          ],
+          [
+            "tiny_free_list_add_ptr",
+            75
+          ],
+          [
+            "tiny_free_no_lock",
+            73
+          ],
+          [
+            "free_tiny",
+            73
+          ],
+          [
+            "tsr_binder::BindResult::resolve_name",
+            61
+          ],
+          [
+            "tsr_checker::check::check_node",
+            54
+          ],
+          [
+            "_platform_memset",
+            53
+          ],
+          [
+            "_szone_free",
+            49
+          ],
+          [
+            "_platform_memmove",
+            47
+          ],
+          [
+            "tiny_malloc_should_clear",
+            43
+          ],
+          [
+            "tsr_binder::BindResult::lookup_scoped",
+            42
+          ],
+          [
+            "tsr_checker::printing::object_literal_text_at",
+            42
+          ],
+          [
+            "tsr_checker::inference::mentions_type_parameter_inner",
+            39
+          ],
+          [
+            "_malloc_zone_malloc",
+            34
+          ],
+          [
+            "tsr_binder::BindResult::resolve_name_with_export_alias",
+            31
+          ],
+          [
+            "hashbrown::map::HashMap$LT$K$C$V$C$S$C$A$GT$::get",
+            30
+          ],
+          [
+            "get_tiny_previous_free_msize",
+            27
+          ],
+          [
+            "_platform_memcmp",
+            25
+          ],
+          [
+            "__findenv_locked",
+            23
+          ],
+          [
+            "tsr_checker::symbols::get_export_from_star_worker",
+            20
+          ],
+          [
+            "_tiny_check_and_zero_inline_meta_from_freelist",
+            20
+          ],
+          [
+            "tsr_binder::symbol::SymbolTableField::get",
+            18
+          ],
+          [
+            "<deduplicated_symbol>",
+            18
+          ],
+          [
+            "tiny_free_list_remove_ptr",
+            17
+          ],
+          [
+            "szone_malloc_should_clear",
+            15
+          ]
+        ],
+        "nearest_tsr_owner": [
+          [
+            "tsr_checker::inference::mentions_type_parameter_inner",
+            87
+          ],
+          [
+            "tsr_checker::members::collect_structured_property_names",
+            63
+          ],
+          [
+            "tsr_binder::BindResult::resolve_name",
+            61
+          ],
+          [
+            "tsr_checker::check::check_node",
+            54
+          ],
+          [
+            "tsr_checker::inference::instantiate_type",
+            54
+          ],
+          [
+            "tsr_checker::members::get_property_of_type_ex",
+            50
+          ],
+          [
+            "tsr_binder::BindResult::lookup_scoped",
+            49
+          ],
+          [
+            "tsr_checker::signatures::signature_candidates_of_interface_symbol",
+            46
+          ],
+          [
+            "tsr_checker::printing::object_literal_text_at",
+            45
+          ],
+          [
+            "tsr_checker::declared::get_instantiated_type_reference",
+            39
+          ],
+          [
+            "tsr_checker::members::get_type_of_property_with_this_argument",
+            37
+          ],
+          [
+            "tsr_binder::BindResult::resolve_name_with_export_alias",
+            31
+          ],
+          [
+            "tsr_checker::members::get_property_of_declared_symbol",
+            29
+          ],
+          [
+            "tsr_checker::flow::intersection_has_never_discriminant",
+            25
+          ],
+          [
+            "tsr_checker::declared::create_type_reference_with_display",
+            25
+          ],
+          [
+            "tsr_checker::symbols::get_export_from_star_worker",
+            24
+          ],
+          [
+            "tsr_checker::mapped::is_generic_homomorphic_mapped_type_inner",
+            23
+          ],
+          [
+            "tsr_checker::signatures::written_type_text_flags",
+            22
+          ],
+          [
+            "tsr_checker::members::instantiate_for_reference_with_this",
+            22
+          ],
+          [
+            "tsr_binder::symbol::SymbolTableField::get",
+            21
+          ],
+          [
+            "tsr_checker::flow::signatures_of_type_kind",
+            21
+          ],
+          [
+            "tsr_checker::declared::instantiated_heritage_base",
+            20
+          ],
+          [
+            "tsr_checker::members::base_symbols_of_ex",
+            19
+          ],
+          [
+            "tsr_checker::nonexistent_property::collect_property_names",
+            18
+          ],
+          [
+            "tsr_checker::inference::instantiate_signature_with_fresh_parameters",
+            18
+          ],
+          [
+            "tsr_checker::relater::Relater::properties_related_to_with_optionals",
+            16
+          ],
+          [
+            "tsr_ast::generated::visit::push_children",
+            16
+          ],
+          [
+            "tsr_checker::types::TypeStore::intern_literal",
+            15
+          ],
+          [
+            "tsr_checker::declared::local_type_parameter_types_of",
+            14
+          ],
+          [
+            "tsr_checker::signatures::signature_candidates_of_named_type",
+            13
+          ],
+          [
+            "tsr_checker::index_signatures::get_index_infos_of_type",
+            13
+          ],
+          [
+            "tsr_checker::relater::Relater::recursive_type_related_to",
+            12
+          ],
+          [
+            "tsr_path::get_root_length_and_is_url",
+            12
+          ],
+          [
+            "tsr_binder::BindResult::merged_symbol",
+            12
+          ],
+          [
+            "tsr_compiler::Program::resolution",
+            11
+          ],
+          [
+            "tsr_checker::calls::resolve_call_signature_at",
+            11
+          ],
+          [
+            "tsr_checker::checker::Checker::best_name",
+            11
+          ],
+          [
+            "tsr_checker::inference::check_generic_call_worker",
+            10
+          ],
+          [
+            "tsr_checker::declared::get_type_from_type_node",
+            10
+          ],
+          [
+            "tsr_checker::relater::Relater::is_pure_signature_type",
+            10
+          ]
+        ],
+        "allocator_nearest_owner": [
+          [
+            "tsr_checker::members::get_property_of_type_ex",
+            37
+          ],
+          [
+            "tsr_checker::members::collect_structured_property_names",
+            33
+          ],
+          [
+            "tsr_checker::declared::get_instantiated_type_reference",
+            31
+          ],
+          [
+            "tsr_checker::signatures::signature_candidates_of_interface_symbol",
+            27
+          ],
+          [
+            "tsr_checker::inference::instantiate_type",
+            26
+          ],
+          [
+            "tsr_checker::declared::instantiated_heritage_base",
+            18
+          ],
+          [
+            "tsr_checker::declared::create_type_reference_with_display",
+            18
+          ],
+          [
+            "tsr_checker::mapped::is_generic_homomorphic_mapped_type_inner",
+            17
+          ],
+          [
+            "tsr_checker::members::instantiate_for_reference_with_this",
+            17
+          ],
+          [
+            "tsr_checker::inference::mentions_type_parameter_inner",
+            16
+          ],
+          [
+            "tsr_checker::flow::intersection_has_never_discriminant",
+            15
+          ],
+          [
+            "tsr_checker::members::get_property_of_declared_symbol",
+            14
+          ],
+          [
+            "tsr_checker::flow::signatures_of_type_kind",
+            13
+          ],
+          [
+            "tsr_checker::inference::instantiate_signature_with_fresh_parameters",
+            13
+          ],
+          [
+            "tsr_checker::signatures::written_type_text_flags",
+            12
+          ],
+          [
+            "tsr_checker::nonexistent_property::collect_property_names",
+            12
+          ],
+          [
+            "tsr_checker::relater::Relater::properties_related_to_with_optionals",
+            11
+          ],
+          [
+            "tsr_checker::members::base_symbols_of_ex",
+            10
+          ],
+          [
+            "tsr_checker::declared::local_type_parameter_types_of",
+            10
+          ],
+          [
+            "tsr_checker::indexed::is_string_index_signature_only_type",
+            10
+          ],
+          [
+            "tsr_checker::types::TypeStore::intern_literal",
+            7
+          ],
+          [
+            "tsr_checker::relater::Relater::is_pure_signature_type",
+            7
+          ],
+          [
+            "tsr_checker::signatures::signature_candidates_of_named_type",
+            7
+          ],
+          [
+            "tsr_checker::calls::resolve_call_signature_at",
+            6
+          ],
+          [
+            "tsr_checker::members::get_property_names_of_type",
+            6
+          ]
+        ]
+      }
+    }
+  ],
+  "quality": {
+    "checker": {
+      "passed": 1498,
+      "failed": 0,
+      "ignored": 3,
+      "result_blocks": 101
+    },
+    "rust_controls": 8,
+    "python_controls": 11,
+    "mutation": {
+      "before_sha256": "d34a8a1b35e91c03d48375fe5e700aa975e1b13d198d375a68573785b06538df",
+      "mutated_sha256": "884062e66727372ba8f4d34646f3bc77b26d399f4f4c80ea34dea644d9d25d08",
+      "restored_sha256": "d34a8a1b35e91c03d48375fe5e700aa975e1b13d198d375a68573785b06538df",
+      "mutation_failures": 3,
+      "mutation_passes": 3,
+      "final_comparison_body_sha256": "b95d1c8224e88c479a12eb948610b8d0ced76d99bd3c408ce291bc6abf0315da",
+      "final_body_identical_to_mutation_baseline": true
+    },
+    "clippy": {
+      "command": [
+        "cargo",
+        "clippy",
+        "--release",
+        "--offline",
+        "-p",
+        "tsr-checker",
+        "-p",
+        "tsr-execute",
+        "--lib",
+        "--tests",
+        "-j",
+        "2",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 12.547342750011012,
+      "source": "1b8821a498114ba60bf841bd17875ac181f6f116"
+    },
+    "formatting": {
+      "command": [
+        "rustfmt",
+        "--check",
+        "--edition",
+        "2024",
+        "--config-path",
+        "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-graph-walk-zkqarwd3/source/rustfmt.toml",
+        "--config",
+        "skip_children=true",
+        "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-graph-walk-zkqarwd3/source/crates/tsr-checker/src/inference.rs",
+        "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-graph-walk-zkqarwd3/source/crates/tsr-checker/src/checker.rs",
+        "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-graph-walk-zkqarwd3/source/crates/tsr-checker/src/lib.rs",
+        "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-graph-walk-zkqarwd3/source/crates/tsr-execute/src/checker_pool.rs",
+        "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-graph-walk-zkqarwd3/source/crates/tsr-checker/src/graph_walk_probe.rs"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    "restoration": {
+      "original_sha256": {
+        "crates/tsr-checker/src/inference.rs": "8db9b642672af5f0f91e07239358394e2a42fb59afdbcc2cb8a54fc56b8326e1",
+        "crates/tsr-checker/src/checker.rs": "f499b9e3c9e7266115d42714107e61e07ea0ec3eddc4b8d4c10347d8cb30b9f4",
+        "crates/tsr-checker/src/lib.rs": "9a997c0919a175378d61f7208d844b30ef0b19169b71503bf180516ff3b55edc",
+        "crates/tsr-execute/src/checker_pool.rs": "b2089d463ad37c3746dcd32f22407954686a0afc12dbfff9216144b11980e772"
+      },
+      "replay_observed_sha256": {
+        "crates/tsr-checker/src/inference.rs": "98a72741d727ed47d62737887c7e151dbe0ee2c5ad46e864031ea3e226d328bd",
+        "crates/tsr-checker/src/checker.rs": "cc6c1169250af7ddcd568858784b21bdd191b60792843a2162aa80553b7489a6",
+        "crates/tsr-checker/src/lib.rs": "1b5445e0b969a420e2d20d2d2e254ba6b6885308ecf9b1aad5cab387cc08eb94",
+        "crates/tsr-execute/src/checker_pool.rs": "4ebeaafc4deb3c74daf53cc9fa23969a96c60a49437308239cd22de259dd5120",
+        "crates/tsr-checker/src/graph_walk_probe.rs": "6ce69ddc0e3b45ef7f5aa922bddeeee9fa9ac7e9d084bf743e0d94a88bc450e8"
+      },
+      "target_cli_sha256": "5b03a44bd330c87227321689fd9ee870bf59a3a35cd908574709be01c5e773d5",
+      "all_originals_restored": true,
+      "delivered_patch_sha256": "0139abe422ea094de6a7a20ed8870d5e26242f1a95fb3430dc8750808733dd56",
+      "blank_context_without_trailing_space_replay_exact": true
+    }
+  },
+  "production_change": false,
+  "native_wall_ratio_verified": false,
+  "limitations": [
+    "Request shapes include checker-local root, mode, ordered explicit parameters/names and registry length; they do not establish equivalent semantic graph or registry contents.",
+    "Unique visits sum per-root TypeId sets, including unmarked terminal nodes. Duplicate visits include terminal and parameter repeats, not only stopped cycle edges.",
+    "Allocator counters observe successful allocation/zeroed-allocation/reallocation requests at original Vec pushes and fallback printing; they exclude observer sets/keys and are cumulative, not retained/live heap or malloc calls.",
+    "macOS usable bytes are size-class observations. A realloc request need not move data; requested bytes are not copied bytes.",
+    "Ordinary samples cover single-worker main-thread intervals only. Sampling mass is neither total CPU/wall share nor saved time; default worker CPU is unsampled.",
+    "Physical input snapshots start after the first ordinary child and exclude embedded library bytes, extends/package queries, directories and transient reads. No full input-query or cross-tool performed-work comparability proof.",
+    "Two samples per role with uncontrolled host variation do not prove causal observer overhead, a normal saved-wall ceiling or a speed win.",
+    "Public native matches prove only four supported fixture families and complete diagnostic outputs; they do not prove full app parity or native equivalent-work speed."
+  ],
+  "selected_candidate": {
+    "issue": "tsr-1yb.7.3.1",
+    "scope": "query-local inline storage for up to four TypeIds with ordered spill",
+    "reason": "Bounded visited sets plus substantial original scratch allocation traffic; preserve scalar identity membership and marker order.",
+    "excluded": [
+      "semantic result memoization",
+      "whole-store bitset",
+      "registry materialization",
+      "another empty-name guard",
+      "new dependency"
+    ],
+    "whole_cli_benefit_proven": false,
+    "preservation_and_retention": "Two independent ordinary-release five-pair rounds in required modes, unchanged full output/performed scope, full type/diagnostic corpus with no previous RIGHT losses, fixed wall/RSS gates; revert if insufficient."
+  },
+  "delivered_artifact_sha256": {
+    "checker-graph-walk-probe.rs": "6ce69ddc0e3b45ef7f5aa922bddeeee9fa9ac7e9d084bf743e0d94a88bc450e8",
+    "checker-graph-walk-probe.patch": "0139abe422ea094de6a7a20ed8870d5e26242f1a95fb3430dc8750808733dd56",
+    "checker-graph-walk-controls.py": "095a7e3062422d6ddee7b62bc16f2ee4a78c2f934fb602d73ab1e81bf92b0aba",
+    "test_checker_graph_walk_controls.py": "9965537593c7fecedc8c7d7ae172007865c8e898675654a5f04b5a53f7da6108"
+  }
+}
