@@ -670,6 +670,7 @@ impl Checker<'_, '_> {
             }
             Node::TypeParameterDeclaration(_) => {
                 self.check_circular_type_parameter_constraint(node);
+                self.check_type_alias_variance_annotation(node);
                 ambient
             }
             Node::TypeLiteralNode(literal) => {
@@ -2336,6 +2337,195 @@ impl Checker<'_, '_> {
                 | SyntaxKind::SourceFile => return Some(current),
                 _ => {}
             }
+        }
+    }
+
+    /// TS2637 — `Variance annotations are only supported in type aliases for
+    /// object, function, constructor, and mapped types.`
+    ///
+    /// `checkTypeParameterDeferred` (`checker.go:2627`): an `in`/`out`
+    /// parameter of a type alias whose declared type has neither
+    /// `ObjectFlagsAnonymous` nor `ObjectFlagsMapped`.
+    ///
+    /// This port keeps a generic alias's declared type as an unresolved
+    /// reference, so the declared type's shape is read from the alias body
+    /// instead ([`Checker::alias_body_kind`]): a type literal, function,
+    /// constructor or mapped type is anonymous/mapped; a primitive, literal,
+    /// tuple, array, union of non-objects, type parameter, or interface/class
+    /// reference is not; a reference to another alias is followed with its
+    /// type arguments substituted. Anything else (conditional, indexed
+    /// access, `typeof`, intersections) declines.
+    /// `docs/parity/notes/misc-checks.md` §6.
+    fn check_type_alias_variance_annotation(&mut self, node: NodeId) {
+        let Some(Node::TypeParameterDeclaration(parameter)) = self.node_map.get(node) else {
+            return;
+        };
+        if !parameter.modifiers.iter().any(|modifier| {
+            matches!(modifier, tsr_ast::ModifierLike::Token(token)
+                if matches!(token.kind, SyntaxKind::InKeyword | SyntaxKind::OutKeyword))
+        }) {
+            return;
+        }
+        let Some(alias) = self.nodes.parent(node) else { return };
+        let Some(Node::TypeAliasDeclaration(declaration)) = self.node_map.get(alias) else {
+            return;
+        };
+        if self.in_js_file(node) {
+            return;
+        }
+        let Some(body) = declaration.r#type.and_then(|t| t.node_id()) else { return };
+        let mut frames = vec![AliasFrame { bindings: Vec::new(), parent: None }];
+        if self.alias_body_kind(body, 0, &mut frames, 0) != Some(AliasBodyKind::NotAnonymous) {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        let span = self.error_span(node);
+        self.report(
+            file,
+            Diagnostic::new(
+                &messages::VARIANCE_ANNOTATIONS_ARE_ONLY_SUPPORTED_IN_TYPE_ALIASES_FOR_OBJECT_FUNCTION_CONSTRUCTOR_AND_MAPPED_TYPES,
+                span,
+            ),
+        );
+    }
+
+    /// Whether the type a type node denotes is anonymous/mapped, read from
+    /// syntax. `frame` holds the type-argument substitutions in force (an
+    /// alias's type parameter declaration to the argument node written at
+    /// the reference, evaluated in the referencing frame). `None` where the
+    /// syntax does not decide it.
+    fn alias_body_kind(
+        &mut self,
+        node: NodeId,
+        frame: usize,
+        frames: &mut Vec<AliasFrame>,
+        depth: u32,
+    ) -> Option<AliasBodyKind> {
+        if depth > 16 {
+            return None;
+        }
+        match self.nodes.kind(node) {
+            SyntaxKind::ParenthesizedType => {
+                let Some(Node::ParenthesizedTypeNode(inner)) = self.node_map.get(node) else {
+                    return None;
+                };
+                let inner = inner.r#type?.node_id()?;
+                self.alias_body_kind(inner, frame, frames, depth + 1)
+            }
+            SyntaxKind::TypeLiteral
+            | SyntaxKind::FunctionType
+            | SyntaxKind::ConstructorType
+            | SyntaxKind::MappedType => Some(AliasBodyKind::Anonymous),
+            SyntaxKind::AnyKeyword
+            | SyntaxKind::UnknownKeyword
+            | SyntaxKind::NumberKeyword
+            | SyntaxKind::StringKeyword
+            | SyntaxKind::BooleanKeyword
+            | SyntaxKind::BigIntKeyword
+            | SyntaxKind::SymbolKeyword
+            | SyntaxKind::ObjectKeyword
+            | SyntaxKind::VoidKeyword
+            | SyntaxKind::UndefinedKeyword
+            | SyntaxKind::NeverKeyword
+            | SyntaxKind::LiteralType
+            | SyntaxKind::TemplateLiteralType
+            | SyntaxKind::TupleType
+            | SyntaxKind::ArrayType => Some(AliasBodyKind::NotAnonymous),
+            SyntaxKind::UnionType => {
+                // A union stays a union unless reduction collapses it; only a
+                // union of constituents that are all non-objects (and not
+                // `never`, which reduction removes) is certain.
+                let Some(Node::UnionTypeNode(union)) = self.node_map.get(node) else {
+                    return None;
+                };
+                let all_primitive = union.types.iter().all(|member| {
+                    member.node_id().is_some_and(|id| {
+                        matches!(
+                            self.nodes.kind(id),
+                            SyntaxKind::NumberKeyword
+                                | SyntaxKind::StringKeyword
+                                | SyntaxKind::BooleanKeyword
+                                | SyntaxKind::BigIntKeyword
+                                | SyntaxKind::SymbolKeyword
+                                | SyntaxKind::UndefinedKeyword
+                                | SyntaxKind::LiteralType
+                        )
+                    })
+                });
+                all_primitive.then_some(AliasBodyKind::NotAnonymous)
+            }
+            SyntaxKind::TypeReference => {
+                let Some(Node::TypeReferenceNode(reference)) = self.node_map.get(node) else {
+                    return None;
+                };
+                let name = reference.type_name?;
+                let name_id = name.node_id()?;
+                if self.nodes.kind(name_id) != SyntaxKind::Identifier {
+                    return None;
+                }
+                let text = self.identifier_text(name_id)?.to_string();
+                let symbol = self.binder.resolve_name(
+                    self.nodes,
+                    self.node_map,
+                    name_id,
+                    &text,
+                    SymbolFlags::TYPE,
+                )?;
+                let symbol = self.binder.merged_symbol(symbol);
+                let entry = self.binder.symbols().get(symbol);
+                let flags = entry.flags;
+                let declarations = entry.declarations.clone();
+                if flags.intersects(SymbolFlags::ALIAS) {
+                    return None;
+                }
+                if flags.intersects(SymbolFlags::TYPE_PARAMETER) {
+                    let &[parameter] = declarations.as_slice() else { return None };
+                    // A substituted parameter takes its argument's kind; an
+                    // unsubstituted one is a type parameter type.
+                    let mut current = Some(frame);
+                    while let Some(index) = current {
+                        if let Some(&(_, argument, argument_frame)) =
+                            frames[index].bindings.iter().find(|(p, _, _)| *p == parameter)
+                        {
+                            return self.alias_body_kind(
+                                argument,
+                                argument_frame,
+                                frames,
+                                depth + 1,
+                            );
+                        }
+                        current = frames[index].parent;
+                    }
+                    return Some(AliasBodyKind::NotAnonymous);
+                }
+                if flags.intersects(SymbolFlags::TYPE_ALIAS) {
+                    let &[target] = declarations.as_slice() else { return None };
+                    let Some(Node::TypeAliasDeclaration(target_alias)) = self.node_map.get(target)
+                    else {
+                        return None;
+                    };
+                    if target_alias.type_parameters.len() != reference.type_arguments.len() {
+                        return None;
+                    }
+                    let mut bindings = Vec::with_capacity(reference.type_arguments.len());
+                    for (parameter, argument) in
+                        target_alias.type_parameters.iter().zip(reference.type_arguments)
+                    {
+                        bindings.push((parameter.node_id?, argument.node_id()?, frame));
+                    }
+                    let body = target_alias.r#type?.node_id()?;
+                    // The alias body sees only its own parameters.
+                    frames.push(AliasFrame { bindings, parent: None });
+                    let inner = frames.len() - 1;
+                    return self.alias_body_kind(body, inner, frames, depth + 1);
+                }
+                if flags.intersects(SymbolFlags::INTERFACE | SymbolFlags::CLASS | SymbolFlags::ENUM)
+                {
+                    return Some(AliasBodyKind::NotAnonymous);
+                }
+                None
+            }
+            _ => None,
         }
     }
 
@@ -14348,4 +14538,20 @@ fn has_resolution_mode_override(attributes: Option<&tsr_ast::ImportAttributes<'_
     name.text == "resolution-mode"
         && matches!(attribute.value.map(Node::from),
             Some(Node::StringLiteral(literal)) if literal.text == "import" || literal.text == "require")
+}
+
+/// [`Checker::alias_body_kind`]'s answer: whether the denoted type carries
+/// `ObjectFlagsAnonymous`/`ObjectFlagsMapped`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum AliasBodyKind {
+    Anonymous,
+    NotAnonymous,
+}
+
+/// One alias instantiation in [`Checker::alias_body_kind`]'s walk: each
+/// substituted type parameter declaration, its argument node, and the frame
+/// the argument is read in.
+struct AliasFrame {
+    bindings: Vec<(NodeId, NodeId, usize)>,
+    parent: Option<usize>,
 }

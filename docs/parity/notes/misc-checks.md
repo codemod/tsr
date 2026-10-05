@@ -117,3 +117,17 @@ operands (the checker holds no source text); others decline.
 over `GetThisContainer(node, false, false)` (`ast/utilities.go:1790`),
 transcribed including the computed-property-name and decorator skips. Purely
 syntactic; no declines.
+
+## §6 TS2637: variance annotation on a non-object type alias
+
+`checkTypeParameterDeferred` (`checker.go:2627`) tests the alias's declared
+type for `ObjectFlagsAnonymous|ObjectFlagsMapped`. This port's
+`get_declared_type_of_symbol` keeps a generic alias as an unresolved `Named`
+reference (`VC<V>`, flags `OBJECT`), so the flags cannot be read. The
+decision is made from the body syntax instead, following references to other
+aliases with their type arguments substituted (`NumericConstraint<Value>`
+resolves to the type parameter `Value`, so it is not anonymous). Conditional,
+indexed-access, `typeof` and intersection bodies decline (an intersection with
+`{}` can reduce to a single anonymous type). Would be replaced by the
+declared-type test once generic alias declared types are resolved
+(type-refs box).
