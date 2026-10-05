@@ -1055,6 +1055,12 @@ pub struct Checker<'a, 'n> {
     /// port rechecks a mutable contextual signature. Diagnostic ownership only;
     /// this set never certifies completion or substitutes a semantic return.
     pub(crate) return_cycle_diagnostics: rustc_hash::FxHashSet<NodeId>,
+    /// reportCircularityError / getTypeOfAccessors (checker.go:18822, :18511)
+    /// diagnostics already reported, keyed by the reporting declaration node.
+    /// Native's diagnostic collection drops the identical report a failed push
+    /// and its failed pop both make; this set is that de-duplication only and
+    /// never certifies a type.
+    pub(crate) circularity_reported: rustc_hash::FxHashSet<NodeId>,
     /// resolveAnonymousTypeMembers / getDefaultConstructSignatures (checker.go).
     /// None marks an active or unsupported class constructor resolution.
     pub(crate) class_construct_signatures:
@@ -1487,6 +1493,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             signature_returns: FxHashMap::default(),
             pending_signature_returns: FxHashMap::default(),
             return_cycle_diagnostics: rustc_hash::FxHashSet::default(),
+            circularity_reported: rustc_hash::FxHashSet::default(),
             class_construct_signatures: FxHashMap::default(),
             instantiated_signatures: FxHashMap::default(),
             instantiated_signature_mappers: FxHashMap::default(),

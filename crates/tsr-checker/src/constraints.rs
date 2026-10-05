@@ -109,9 +109,19 @@ impl Checker<'_, '_> {
             || self.is_keyof_alias_reference(ty)
     }
 
-    /// getBaseConstraintOfType/getResolvedBaseConstraint. This port's node
-    /// evaluator uses outer alias frames, so cache identities include that mapper.
+    /// getBaseConstraintOfType/getResolvedBaseConstraint (checker.go:27447).
+    /// This port's node evaluator uses outer alias frames, so cache identities
+    /// include that mapper.
+    ///
+    /// `base_constraint_cache` (Checker-owned, whole-check lifetime) holds only
+    /// completed answers: `Some` constraint, or `None` for no constraint and
+    /// for a circular one (native `noConstraintType`/`circularConstraintType`,
+    /// both of which `getBaseConstraintOfType` answers as nil). In-progress
+    /// work is the `ResolvedBaseConstraint` frame on the resolution stack: a
+    /// re-entry fails every frame of the cycle, and a failed type parameter
+    /// frame reports TS2313 at its constraint declaration.
     pub(crate) fn base_constraint_of_type(&mut self, ty: TypeId) -> Option<TypeId> {
+        use crate::resolution::{PropertyName, ResolutionTarget};
         if !self.has_base_constraint_shape(ty) || ty == self.intrinsics.error {
             return None;
         }
@@ -130,12 +140,56 @@ impl Checker<'_, '_> {
         if self.base_constraint_depth >= 50 {
             return None;
         }
-        self.base_constraint_cache.insert(key.clone(), None);
+        if !self.resolutions.push(
+            ResolutionTarget::BaseConstraint(key.clone()),
+            PropertyName::ResolvedBaseConstraint,
+        ) {
+            return None;
+        }
         self.base_constraint_depth += 1;
-        let result = self.compute_base_constraint(ty);
+        let mut result = self.compute_base_constraint(ty);
         self.base_constraint_depth -= 1;
+        if !self.resolutions.pop() {
+            self.report_circular_constraint(ty);
+            result = None;
+        }
         self.base_constraint_cache.insert(key, result);
         result
+    }
+
+    /// getResolvedBaseConstraint's failed-pop report (checker.go:27447): a
+    /// type parameter reports TS2313 at getConstraintDeclaration's node.
+    /// Native's related "circularity originates" location is not carried.
+    fn report_circular_constraint(&mut self, ty: TypeId) {
+        use tsr_diagnostics::{Diagnostic, messages};
+        if !self.store.get(ty).flags.contains(TypeFlags::TYPE_PARAMETER) {
+            return;
+        }
+        let Some(&symbol) = self.type_parameter_symbols.get(&ty) else { return };
+        let declarations = self.binder.symbols().get(symbol).declarations.clone();
+        let Some(constraint) =
+            declarations.iter().find_map(|&declaration| match self.node_map.get(declaration) {
+                Some(tsr_ast::Node::TypeParameterDeclaration(parameter)) => {
+                    parameter.constraint.and_then(|constraint| constraint.node_id())
+                }
+                _ => None,
+            })
+        else {
+            return;
+        };
+        let Some(file) = self.source_file_of_for_diagnostics(constraint) else { return };
+        if !self.circularity_reported.insert(constraint) {
+            return;
+        }
+        let name = self.binder.symbols().get(symbol).name.to_string();
+        self.report(
+            file,
+            Diagnostic::with_args(
+                &messages::TYPE_PARAMETER_0_HAS_A_CIRCULAR_CONSTRAINT,
+                self.error_span(constraint),
+                [name],
+            ),
+        );
     }
 
     fn next_base_constraint(&mut self, ty: TypeId) -> Option<TypeId> {

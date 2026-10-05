@@ -40,10 +40,14 @@ use tsr_core::ResolutionMode;
 
 /// Native `TypeSystemEntity`: a symbol and its declaration-owned return slot
 /// are different entities even when the declaration belongs to that symbol.
+/// A base constraint is resolved per *type*; this port keys it by the type and
+/// the alias-evaluation mapper it was computed under, the same identity as
+/// `base_constraint_cache` (`constraints.rs`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum ResolutionTarget {
     Symbol(SymbolId),
     Signature(crate::declared::TypeLiteralKey),
+    BaseConstraint(crate::constraints::BaseConstraintKey),
 }
 
 impl From<SymbolId> for ResolutionTarget {
@@ -296,6 +300,9 @@ pub enum PropertyName {
     DeclaredType,
     /// `TypeSystemPropertyNameResolvedReturnType`, not the callable's type.
     ResolvedReturnType,
+    /// `TypeSystemPropertyNameResolvedBaseConstraint` — the base constraint of
+    /// a type (`getResolvedBaseConstraint`, `checker.go:27447`).
+    ResolvedBaseConstraint,
 }
 
 /// One frame of the resolution stack.
