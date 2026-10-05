@@ -124,22 +124,3 @@ the spread child's type is the memoised `check_expression`, and an `errorType`
 (a gap) reports nothing. `grammarErrorOnNode`'s parse-error gate is
 `file_has_parse_errors`.
 
-## 3. TS2604/TS2339 from `resolveJsxOpeningLikeElement`, without `resolveCall`
-
-The value-tag arm of `resolveJsxOpeningLikeElement` (`jsx.go:544`) reports
-TS2604 when `getUninstantiatedJsxSignaturesOfType` (`jsx.go:898`) is empty and
-`isUntypedFunctionCall` is false; the string-literal arm of the former reports
-TS2339 against `JSX.IntrinsicElements`. Both decisions are made before
-`resolveCall`, so they are ported as `check_jsx_element_signatures` without
-touching the calls box's resolver. What is declined rather than guessed:
-
-- a union whose members all have signatures: upstream combines them with
-  `getUnionSignatures`; only emptiness matters here, and a non-empty union is
-  not an error, so the count stops (`None`) instead of rebuilding the list;
-- an intersection apparent type: `getReducedType` can make it `never`, which
-  changes `isUntypedFunctionCall`; not asked, so no report;
-- `isTypeAssignableTo(funcType, globalFunctionType)` uses the three-valued
-  relater; only `NotRelated` reports.
-
-Fragments (`getJSXFragmentType`) and the TS2786 bound check
-(`checkJsxReturnAssignableToAppropriateBound`) are not ported yet.
