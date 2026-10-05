@@ -112,3 +112,15 @@ resolves it. Upstream never asks: `getTypeOfNode` gates on
 `IsExpressionNode`, which is false for an identifier under a
 `JsxNamespacedName`, so it prints the error type (`any`). The fix is that gate
 in `crates/tsr-conformance/src/types_producer.rs` (not this lane's file).
+
+## 2. `checkJsxExpression`'s diagnostics live in the per-node walk
+
+`checkJsxExpression` (`jsx.go:89`) is a type function that also reports
+TS18007 (`checkGrammarJsxExpression`) and TS2609. This port computes types in
+`check_expression`, which inference and contextual typing call repeatedly, and
+reports from the per-node walk in `check.rs`, which visits each node once. So
+the two reports are `check_jsx_expression`, a `JsxExpression` arm of that walk;
+the spread child's type is the memoised `check_expression`, and an `errorType`
+(a gap) reports nothing. `grammarErrorOnNode`'s parse-error gate is
+`file_has_parse_errors`.
+

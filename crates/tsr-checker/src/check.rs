@@ -947,6 +947,7 @@ impl Checker<'_, '_> {
             }
             Node::SpreadElement(_) => self.check_spread_element_iteration(node),
             Node::JsxSpreadAttribute(_) => self.check_jsx_spread_of_non_object_type(node),
+            Node::JsxExpression(_) => self.check_jsx_expression(node),
             Node::YieldExpression(_) => self.check_yield_star_iteration(node),
             _ => {}
         }

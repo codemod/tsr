@@ -833,6 +833,49 @@ impl Checker<'_, '_> {
     /// inference, and this port emits **no** TS7026 in that file today for a
     /// separate reason. **Do not lift it without re-measuring**; §206 records
     /// what the baseline actually shows and what is unexplained.
+    /// The diagnostics of `checkJsxExpression` (pinned 5b1047d `jsx.go:89`):
+    /// `checkGrammarJsxExpression` (`grammarchecks.go:1192`) — TS18007 on a
+    /// comma sequence, through `grammarErrorOnNode`'s parse-error gate — then
+    /// TS2609 on a spread child whose type is neither `any` nor an array type
+    /// (`isArrayType`, `checker.go:23481`). Reached once per `JsxExpression`
+    /// from the per-node walk; the type is the memoised `check_expression`,
+    /// and a gap (`errorType` here) reports nothing.
+    pub(crate) fn check_jsx_expression(&mut self, node: NodeId) {
+        let Some(Node::JsxExpression(jsx)) = self.node_map.get(node) else { return };
+        let Some(expression) = jsx.expression else { return };
+        let Some(expression_id) = expression.node_id() else { return };
+        if is_comma_sequence(expression) && !self.file_has_parse_errors {
+            if let Some(file) = self.source_file_of_for_diagnostics(node) {
+                let span = self.error_span(expression_id);
+                self.report(
+                    file,
+                    Diagnostic::new(
+                        &messages::JSX_EXPRESSIONS_MAY_NOT_USE_THE_COMMA_OPERATOR_DID_YOU_MEAN_TO_WRITE_AN_ARRAY,
+                        span,
+                    ),
+                );
+            }
+        }
+        if jsx.dot_dot_dot_token.is_none() {
+            return;
+        }
+        let ty = self.check_expression(expression);
+        if ty == self.intrinsics.any || self.is_error(ty) || self.is_jsx_array_type(ty) {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        let span = self.error_span(node);
+        self.report(file, Diagnostic::new(&messages::JSX_SPREAD_CHILD_MUST_BE_AN_ARRAY_TYPE, span));
+    }
+
+    /// `isArrayType` (`checker.go:23481`): a reference to the global `Array`
+    /// or `ReadonlyArray`.
+    fn is_jsx_array_type(&mut self, ty: crate::types::TypeId) -> bool {
+        let Some(&(target, _)) = self.type_reference_target(ty) else { return false };
+        self.global_type_symbol("Array") == Some(target)
+            || self.global_type_symbol("ReadonlyArray") == Some(target)
+    }
+
     pub(crate) fn check_jsx_intrinsic_element(&mut self, node: NodeId, typed: Node<'_>) {
         // `if c.noImplicitAny` (`jsx.go:1252`) — the whole arm is inside it,
         // so the rule is silent under `noImplicitAny: false` rather than
@@ -1140,6 +1183,16 @@ impl Checker<'_, '_> {
             |&member| self.binder.symbols().get(member).flags.intersects(SymbolFlags::TYPE),
         )
     }
+}
+
+/// `ast.IsCommaSequence`: a comma binary expression (the
+/// `PartiallyEmittedExpression` arm is emit-only).
+fn is_comma_sequence(expression: tsr_ast::Expression<'_>) -> bool {
+    matches!(
+        expression,
+        tsr_ast::Expression::BinaryExpression(binary)
+            if binary.operator_token.is_some_and(|token| token.kind == tsr_ast::SyntaxKind::CommaToken)
+    )
 }
 
 fn semantic_jsx_child(child: &tsr_ast::JsxChild<'_>) -> bool {
