@@ -121,3 +121,35 @@ and no promised type — moved ahead of those lookups brought four alternating
 cases converted. Left: `nanEquality`'s TS2845 is `checkNaNEquality` (operators
 lane), and `truthinessCallExpressionCoercion2` line 116 reads
 `window.console.error` through the DOM lib's `Window & typeof globalThis`.
+
+## 6. TS2355 / TS2366 / TS2534 read end-of-body reachability
+
+`check.rs::check_empty_body_returns_value` reported TS2355 for an *empty* body
+only, because `functionHasImplicitReturn` was "reachability, this port's
+standing refusal" (§440). That refusal is stale: `function_has_implicit_return`
+(§743) reads the binder's end flow node through `is_reachable_flow_node`. The
+whole of `checkAllCodePathsInNonVoidFunctionReturnOrThrow` (`checker.go:3728`)
+is now ported as `flow.rs::check_all_code_paths_return_or_throw` and called for
+function/method declarations, get accessors, function expressions and arrows.
+
+**Not ported: TS7030 (`noImplicitReturns`).** The checker carries no
+`no_implicit_returns` field and `apply_compiler_options` lives in the hub
+`checker.rs`; adding one is reported to the integrator rather than made here.
+That arm is 26 missing lines in six lane cases (`noImplicitReturnsExclusions`,
+`noImplicitReturnsInAsync2`, `noImplicitReturnsWithoutReturnExpression`,
+`reachabilityChecks5/6/7`).
+
+**Declines.** JavaScript, generators (iteration return type), unannotated get
+accessors (`getTypeOfAccessors` infers from the body), and error types. An
+unannotated function returns *before* the reachability query: only TS7030 can
+speak there, and the query types `never`-returning calls in the body, which
+re-entered the function's own inferred return type and reported TS7023 on
+`thisTypeInObjectLiterals2` in the first measurement (one EMPTY_RIGHT loss,
+fixed before commit).
+
+**Measured.** TS2355/2366/2534 lines missing 23 → 4, extra 2 → 0; seven cases
+converted, no losses. Perf on this box has a slot bias of several percent that
+flips sign between projects, so each project was run both ways (21 samples):
+`domain-model` 0.955 / 1.052 direct and 1.051 / 0.946 swapped-inverted,
+`generic-imports` 1.068 / 1.070 direct and 0.966 / 0.969 swapped-inverted —
+geometric means ≈ 1.00 and ≈ 1.017.

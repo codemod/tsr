@@ -8294,6 +8294,127 @@ fn is_left_hand_side_expression(expression: tsr_ast::Expression<'_>) -> bool {
     }
 }
 
+impl Checker<'_, '_> {
+    /// TS2355 / TS2366 / TS2534 — `checkAllCodePathsInNonVoidFunctionReturnOrThrow`
+    /// (`checker.go:3728`), for the function-likes whose check calls it:
+    /// function and method declarations (`checker.go:3440`), get accessors
+    /// (`checker.go:2976`), and function expressions, arrows and object-literal
+    /// methods (`checker.go:10209`).
+    ///
+    /// The `noImplicitReturns` arm (TS7030) is **not** ported: the checker
+    /// does not carry that option yet (`docs/parity/notes/flow.md` §6).
+    ///
+    /// Declines, all toward silence: JavaScript (whose return annotation is
+    /// TS8010 and whose JSDoc types are another lane's), generators (their
+    /// return type needs `getIterationTypeOfGeneratorFunctionReturnType`),
+    /// an unannotated get accessor (`getTypeOfAccessors` would infer from the
+    /// body), and an error type anywhere in the return type.
+    pub(crate) fn check_all_code_paths_return_or_throw(&mut self, function: NodeId) {
+        if self.file_has_parse_errors || self.in_js_file(function) {
+            return;
+        }
+        let (annotation, body, modifiers, generator) = match self.node_map.get(function) {
+            Some(Node::FunctionDeclaration(f)) => (
+                f.r#type,
+                f.body.and_then(|b| b.node_id()),
+                f.modifiers,
+                f.asterisk_token.is_some(),
+            ),
+            Some(Node::MethodDeclaration(m)) => (
+                m.r#type,
+                m.body.and_then(|b| b.node_id()),
+                m.modifiers,
+                m.asterisk_token.is_some(),
+            ),
+            Some(Node::FunctionExpression(f)) => (
+                f.r#type,
+                f.body.and_then(|b| b.node_id()),
+                f.modifiers,
+                f.asterisk_token.is_some(),
+            ),
+            Some(Node::ArrowFunction(a)) => {
+                (a.r#type, a.body.and_then(|b| b.node_id()), a.modifiers, false)
+            }
+            Some(Node::GetAccessorDeclaration(g)) => {
+                if g.r#type.is_none() {
+                    return;
+                }
+                (g.r#type, g.body.and_then(|b| b.node_id()), g.modifiers, false)
+            }
+            _ => return,
+        };
+        if generator {
+            return;
+        }
+        let is_async = crate::check::has_modifier(modifiers, SyntaxKind::AsyncKeyword);
+        // `getReturnTypeFromAnnotation` then `unwrapReturnType`.
+        let return_type = match annotation {
+            Some(annotation) => {
+                let declared = self.get_type_from_type_node_unprinted(annotation);
+                let unwrapped = if is_async {
+                    match self.awaited_type_no_alias(declared) {
+                        Some(awaited) => awaited,
+                        None => return,
+                    }
+                } else {
+                    declared
+                };
+                if self.is_error(declared) || self.is_error(unwrapped) {
+                    return;
+                }
+                Some(unwrapped)
+            }
+            None => None,
+        };
+        // An annotated return type including `void`, or exactly `any` or
+        // `undefined`, needs no return statement.
+        if let Some(t) = return_type
+            && (self.maybe_type_of_kind(t, TypeFlags::VOID)
+                || self.type_of(t).flags.intersects(TypeFlags::ANY | TypeFlags::UNDEFINED))
+        {
+            return;
+        }
+        // A signature, or an arrow with an expression body, has nothing to
+        // check; nor does a body whose end the flow graph cannot reach.
+        // Only the unported `noImplicitReturns` arm speaks without an
+        // annotation, so an unannotated function stops here — **before** the
+        // reachability query, which types `never`-returning calls in the body
+        // and can re-enter the function's own inferred return type
+        // (`thisTypeInObjectLiterals2`'s TS7023 was the measured cost).
+        let Some(t) = return_type else { return };
+        let Some(body) = body else { return };
+        if self.nodes.kind(body) != SyntaxKind::Block
+            || !self.function_has_implicit_return(function)
+        {
+            return;
+        }
+        let has_explicit_return =
+            self.binder.facts(function).contains(tsr_binder::NodeFacts::HAS_EXPLICIT_RETURN);
+        let message = if self.type_of(t).flags.intersects(TypeFlags::NEVER) {
+            &messages_flow::A_FUNCTION_RETURNING_NEVER_CANNOT_HAVE_A_REACHABLE_END_POINT
+        } else if !has_explicit_return {
+            &messages_flow::A_FUNCTION_WHOSE_DECLARED_TYPE_IS_NEITHER_UNDEFINED_VOID_NOR_ANY_MUST_RETURN_A_VALUE
+        } else if self.strict_null_checks
+            && self.relate_ternary(
+                self.intrinsics.undefined,
+                t,
+                crate::relater::Relation::Assignable,
+            ) == crate::relater::Ternary::NotRelated
+        {
+            &messages_flow::FUNCTION_LACKS_ENDING_RETURN_STATEMENT_AND_RETURN_TYPE_DOES_NOT_INCLUDE_UNDEFINED
+        } else {
+            return;
+        };
+        // The error node is the return annotation.
+        let Some(at) = annotation.and_then(|annotation| annotation.node_id()) else { return };
+        let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
+        let span = self.nodes.span(at);
+        self.report(file, tsr_diagnostics::Diagnostic::new(message, span));
+    }
+}
+
+use tsr_diagnostics::messages as messages_flow;
+
 #[cfg(test)]
 #[path = "flow_query_this_tests.rs"]
 mod query_this_tests;

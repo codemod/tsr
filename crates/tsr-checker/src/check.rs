@@ -884,8 +884,15 @@ impl Checker<'_, '_> {
         if !self.modifier_chain_reported.contains(&node) {
             self.check_abstract_modifier_position(node, typed);
         }
-        if matches!(typed, Node::FunctionDeclaration(_) | Node::MethodDeclaration(_)) {
-            self.check_empty_body_returns_value(node);
+        if matches!(
+            typed,
+            Node::FunctionDeclaration(_)
+                | Node::MethodDeclaration(_)
+                | Node::FunctionExpression(_)
+                | Node::ArrowFunction(_)
+                | Node::GetAccessorDeclaration(_)
+        ) {
+            self.check_all_code_paths_return_or_throw(node);
         }
         if matches!(
             typed,
@@ -1622,77 +1629,6 @@ impl Checker<'_, '_> {
                 &messages::TYPE_0_IS_NOT_A_CONSTRUCTOR_FUNCTION_TYPE,
                 span,
                 [printed],
-            ),
-        );
-    }
-
-    /// TS2355 — `A function whose declared type is neither 'undefined', 'void',
-    /// nor 'any' must return a value.`
-    ///
-    /// The **empty-body subset** of `checkAllCodePathsInNonVoidFunctionReturnOrThrow`.
-    /// The general check is `functionHasImplicitReturn`, which is reachability
-    /// and this port's standing refusal; an empty body has no statements, so
-    /// "does control reach the end" is not a question — it does, and no flow
-    /// graph is consulted. The error node is the **return annotation**. §440.
-    fn check_empty_body_returns_value(&mut self, node: NodeId) {
-        // **A return-type annotation in JavaScript is TS8010** — *"Type
-        // annotations can only be used in TypeScript files"* — and upstream
-        // stops there, so nothing that reads the annotation may speak. §779
-        // made the same correction to the type cascade and the value cascade
-        // has carried it from the start. §788.
-        if self.file_has_parse_errors || self.in_js_file(node) {
-            return;
-        }
-        let (annotation, body, modifiers, asterisk) = match self.node_map.get(node) {
-            Some(Node::FunctionDeclaration(f)) => (f.r#type, f.body, f.modifiers, f.asterisk_token),
-            Some(Node::MethodDeclaration(m)) => (m.r#type, m.body, m.modifiers, m.asterisk_token),
-            _ => return,
-        };
-        if asterisk.is_some() || has_modifier(modifiers, SyntaxKind::AsyncKeyword) {
-            return;
-        }
-        let Some(annotation) = annotation else { return };
-        let Some(annotation_id) = annotation.node_id() else { return };
-        // Upstream's exclusion list, which the message itself names.
-        if let Some(Node::KeywordTypeNode(keyword)) = self.node_map.get(annotation_id)
-            && matches!(
-                keyword.kind,
-                SyntaxKind::VoidKeyword
-                    | SyntaxKind::AnyKeyword
-                    | SyntaxKind::UndefinedKeyword
-                    | SyntaxKind::NeverKeyword
-            )
-        {
-            return;
-        }
-        let Some(body) = body.and_then(|body| body.node_id()) else { return };
-        let Some(Node::Block(block)) = self.node_map.get(body) else { return };
-        if !block.statements.is_empty() {
-            return;
-        }
-        // **The list above is the exclusion's *spelling*; upstream's is a type
-        // test** — `maybeTypeOfKind(t, Void) || t.flags&(Any|Undefined)`
-        // (`checker.go:3735`). The difference is every route to those types
-        // that is not a keyword, chiefly `errorType`, which carries
-        // `TypeFlagsAny` (§43). `function f(): F<T> {}` with `F` unresolved is
-        // upstream's TS2304 and was four wrong lines of this rule. §853.
-        let annotation_type = self.get_type_from_type_node_unprinted(annotation);
-        if self.is_error(annotation_type)
-            || self.type_of(annotation_type).flags.intersects(
-                crate::flags::TypeFlags::ANY
-                    .union(crate::flags::TypeFlags::VOID)
-                    .union(crate::flags::TypeFlags::UNDEFINED),
-            )
-        {
-            return;
-        }
-        let Some(file) = self.source_file_of_for_diagnostics(annotation_id) else { return };
-        let span = self.nodes.span(annotation_id);
-        self.report(
-            file,
-            Diagnostic::new(
-                &messages::A_FUNCTION_WHOSE_DECLARED_TYPE_IS_NEITHER_UNDEFINED_VOID_NOR_ANY_MUST_RETURN_A_VALUE,
-                span,
             ),
         );
     }
