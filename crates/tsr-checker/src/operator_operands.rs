@@ -28,14 +28,6 @@ use crate::{
     types::TypeId,
 };
 
-/// Flags that settle *not numeric* without the relation. §885.
-const NOT_NUMERIC: TypeFlags = TypeFlags::STRING_LIKE
-    .union(TypeFlags::BOOLEAN_LIKE)
-    .union(TypeFlags::ES_SYMBOL)
-    .union(TypeFlags::UNIQUE_ES_SYMBOL)
-    .union(TypeFlags::VOID)
-    .union(TypeFlags::NON_PRIMITIVE);
-
 impl Checker<'_, '_> {
     /// The operand check for one `+`, `+=`, `<`, `>`, `<=` or `>=`.
     pub(crate) fn check_operator_operands(&mut self, node: NodeId, ambient: bool) {
@@ -409,143 +401,98 @@ impl Checker<'_, '_> {
         }
         answer
     }
-
-    fn operand_is_definitely_not_numeric(&mut self, operand: TypeId) -> bool {
-        if self
-            .type_of(operand)
-            .flags
-            .intersects(TypeFlags::NUMBER_LIKE.union(TypeFlags::BIG_INT_LIKE))
-        {
-            return false;
-        }
-        // **The flags settle an intrinsic operand without the relation**, and
-        // the two gates below decline exactly where the relater would say
-        // nothing: `pair_is_reportable` refuses anything carrying
-        // `UNDECIDABLE_HERE`, `either_is_composite` refuses every union.
-        // §29 makes this argument for structured types — *"nothing structured
-        // is assignable to `number` whatever its shape turns out to be"* — and
-        // this is the same claim for the intrinsics.
-        //
-        // **No union exclusion here.** §52 records that a union carries `UNION`
-        // and not its constituents' flags, so `string | number` cannot be
-        // misread as string-like; but `boolean` **is** the union `true | false`
-        // *and* carries `BOOLEAN_LIKE`, and §882's first attempt excluded unions
-        // and so declined the exact type it was written for — `(!temp--) ** 3`,
-        // 26 lines. §883.
-
-        if self.type_of(operand).flags.intersects(NOT_NUMERIC) {
-            return true;
-        }
-        // **A union is definitely not numeric when every constituent is.**
-        // `typeof x` is eight string literals and its own flags are `UNION`
-        // alone (§52), so the test above cannot see it and
-        // `either_is_composite` declines it before the relation. Quantifying
-        // the same argument needs no relation call and no assumption about the
-        // union's shape. §885.
-        if let crate::types::TypeData::Union { types, .. } = &self.store.get(operand).data {
-            let constituents = types.clone();
-            return !constituents.is_empty()
-                && constituents
-                    .iter()
-                    .all(|&member| self.type_of(member).flags.intersects(NOT_NUMERIC));
-        }
-        if !self.pair_is_reportable(operand, self.intrinsics.number) {
-            return false;
-        }
-        if self.either_is_composite(operand, operand) {
-            return false;
-        }
-        let number = self.intrinsics.number;
-        let bigint = self.intrinsics.bigint;
-        // §29's definite negative first: nothing structured is assignable to
-        // `number` whatever its shape turns out to be.
-        if self.object_against_primitive(operand, number) {
-            return true;
-        }
-        self.relate_ternary(operand, number, Relation::Assignable) == Ternary::NotRelated
-            && self.relate_ternary(operand, bigint, Relation::Assignable) == Ternary::NotRelated
-    }
 }
 
 impl Checker<'_, '_> {
-    /// TS2356 — `An arithmetic operand must be of type 'any', 'number',
-    /// 'bigint' or an enum type.`
+    /// The diagnostics of `checkPrefixUnaryExpression` (`checker.go:10855`)
+    /// and `checkPostfixUnaryExpression` (`checker.go:10914`).
     ///
-    /// `checkArithmeticOperandType` again (`checker.go:10899` and `:10915`),
-    /// this time at the operand of `++` or `--`.
+    /// - `+`, `-`, `~`: `checkNonNullType` with its reporter, TS2469 for an
+    ///   operand that may be a symbol, and for `+` TS2736 for one that may
+    ///   be bigint-like. A numeric or bigint literal operand of `-`/`+`
+    ///   returns before any of it.
+    /// - `++`, `--` (prefix and postfix): `checkArithmeticOperandType` on
+    ///   the non-null operand type (TS2356).
     ///
-    /// **Only those two.** Unary `+`, `-` and `~` take a different arm
-    /// (`checker.go:10875`) which reports TS2469 for a `symbol` operand and
-    /// nothing about numerics — `-"a"` is not this diagnostic.
-    /// `docs/architecture/checker-notes-diag2.md` §66.
-    /// Returns whether the arithmetic check **passed**, which is upstream's `ok`
-    /// (`checker.go:10899`): *"run check only if former checks succeeded to
-    /// avoid reporting cascading errors"*. `checkReferenceExpression` for
-    /// `++`/`--` is gated on it, so `--{ x: 1 }` is TS2356 alone and `--1` —
-    /// whose operand *is* numeric — reaches TS2357. §741.
-    pub(crate) fn check_increment_operand_type(&mut self, node: NodeId, ambient: bool) -> bool {
-        if ambient || self.file_has_parse_errors || self.in_js_file(node) {
+    /// Returns upstream's `ok` — whether `checkReferenceExpression` runs
+    /// (TS2357), *"to avoid reporting cascading errors"*. `true` for the
+    /// operators that never reach it, whose caller does not ask.
+    pub(crate) fn check_unary_operator_operands(&mut self, node: NodeId, ambient: bool) -> bool {
+        if ambient || self.in_js_file(node) {
             return true;
         }
-        let operand = match self.node_map.get(node) {
-            Some(Node::PrefixUnaryExpression(unary))
-                if matches!(
-                    unary.operator.kind,
-                    SyntaxKind::PlusPlusToken | SyntaxKind::MinusMinusToken
-                ) =>
-            {
-                unary.operand
-            }
-            Some(Node::PostfixUnaryExpression(unary)) => unary.operand,
+        let (operator, operand) = match self.node_map.get(node) {
+            Some(Node::PrefixUnaryExpression(unary)) => (unary.operator.kind, unary.operand),
+            Some(Node::PostfixUnaryExpression(unary)) => (unary.operator.kind, unary.operand),
             _ => return true,
         };
         let Some(operand) = operand else { return true };
-        let Some(at) = operand.node_id() else { return true };
-        // An operand naming something that is **not a variable** is
-        // `checkIdentifier`'s assignment-target arm (`checker.go:11080`),
-        // which reports TS2628 for an enum, TS2629 for a class, TS2631 for a
-        // namespace, TS2630 for a function and TS2632 for an import — and
-        // reaches them *before* the operand type is looked at. `++ENUM` was
-        // sixteen wrong TS2356 lines (§66).
-        if let Some(Node::Identifier(identifier)) = self.node_map.get(at)
-            && self
-                .binder
-                .resolve_name(
-                    self.nodes,
-                    self.node_map,
-                    at,
-                    identifier.text,
-                    tsr_binder::SymbolFlags::VALUE,
-                )
-                .is_some_and(|symbol| {
-                    !self
-                        .binder
-                        .symbols()
-                        .get(symbol)
-                        .flags
-                        .intersects(tsr_binder::SymbolFlags::VARIABLE)
-                })
-        {
-            return true;
-        }
+        let prefix = self.nodes.kind(node) == SyntaxKind::PrefixUnaryExpression;
         let operand_type = self.check_expression(operand);
-        // `checkNonNullType` wraps the argument (`checker.go:10899`) and
-        // reports TS18050 / TS18048 in place of this one.
-        if self.operand_is_nullish(operand_type)
-            || !self.operand_is_definitely_not_numeric(operand_type)
-        {
-            return true;
+        if prefix {
+            // The literal arms answer a fresh literal before the operator
+            // switch (`checker.go:10861`).
+            match operand {
+                tsr_ast::Expression::NumericLiteral(_)
+                    if matches!(operator, SyntaxKind::MinusToken | SyntaxKind::PlusToken) =>
+                {
+                    return true;
+                }
+                tsr_ast::Expression::BigIntLiteral(_) if operator == SyntaxKind::MinusToken => {
+                    return true;
+                }
+                _ => {}
+            }
+            if matches!(
+                operator,
+                SyntaxKind::PlusToken | SyntaxKind::MinusToken | SyntaxKind::TildeToken
+            ) {
+                self.check_non_null_type_reporting(operand_type, operand);
+                let Some(at) = operand.node_id() else { return true };
+                let Some(file) = self.source_file_of_for_diagnostics(at) else { return true };
+                let span = self.error_span(at);
+                if self.maybe_type_of_kind_considering_base_constraint(
+                    operand_type,
+                    TypeFlags::ES_SYMBOL_LIKE,
+                ) {
+                    self.report(
+                        file,
+                        Diagnostic::with_args(
+                            &messages::THE_0_OPERATOR_CANNOT_BE_APPLIED_TO_TYPE_SYMBOL,
+                            span,
+                            [token_text(operator).to_string()],
+                        ),
+                    );
+                }
+                if operator == SyntaxKind::PlusToken
+                    && self.maybe_type_of_kind_considering_base_constraint(
+                        operand_type,
+                        TypeFlags::BIG_INT_LIKE,
+                    )
+                {
+                    let base = self.get_base_type_of_literal_type(operand_type);
+                    let text = self.type_to_string(base);
+                    self.report(
+                        file,
+                        Diagnostic::with_args(
+                            &messages::OPERATOR_0_CANNOT_BE_APPLIED_TO_TYPE_1,
+                            span,
+                            [token_text(operator).to_string(), text],
+                        ),
+                    );
+                }
+                return true;
+            }
+            if !matches!(operator, SyntaxKind::PlusPlusToken | SyntaxKind::MinusMinusToken) {
+                return true;
+            }
         }
-        let Some(file) = self.source_file_of_for_diagnostics(at) else { return true };
-        let span = self.error_span(at);
-        self.report(
-            file,
-            Diagnostic::new(
-                &messages::AN_ARITHMETIC_OPERAND_MUST_BE_OF_TYPE_ANY_NUMBER_BIGINT_OR_AN_ENUM_TYPE,
-                span,
-            ),
-        );
-        false
+        let non_null = self.check_non_null_type_reporting(operand_type, operand);
+        self.check_arithmetic_operand_type(
+            operand,
+            non_null,
+            &messages::AN_ARITHMETIC_OPERAND_MUST_BE_OF_TYPE_ANY_NUMBER_BIGINT_OR_AN_ENUM_TYPE,
+        )
     }
 }
 

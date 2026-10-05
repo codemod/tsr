@@ -31,24 +31,6 @@ impl Checker<'_, '_> {
         if ambient || self.file_has_parse_errors || !self.strict_null_checks {
             return;
         }
-        // **A prefix operator's operand is a non-null position too.**
-        // `checkPrefixUnaryExpression` wraps it in `checkNonNullType`
-        // (`checker.go:10899` and the arithmetic arms above it), exactly as
-        // `checkBinaryLikeExpression` wraps both sides. `!`, `typeof` and
-        // `void` are excluded — upstream's wrap is on the arithmetic arms only
-        // and `!undefined` is legal. §759.
-        if let Some(Node::PrefixUnaryExpression(unary)) = self.node_map.get(node) {
-            if !matches!(
-                unary.operator.kind,
-                SyntaxKind::MinusToken | SyntaxKind::PlusToken | SyntaxKind::TildeToken
-            ) {
-                return;
-            }
-            let Some(operand) = unary.operand else { return };
-            let _ = self.check_expression(operand);
-            self.report_nullable_operand(operand);
-            return;
-        }
         let Some(Node::BinaryExpression(binary)) = self.node_map.get(node) else { return };
         let Some(operator) = binary.operator_token else { return };
         if !is_numeric_operator(operator.kind) {

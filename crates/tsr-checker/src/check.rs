@@ -682,11 +682,10 @@ impl Checker<'_, '_> {
                 // `checkPrefixUnaryExpression` wraps its operand in
                 // `checkNonNullType` exactly as the binary arms wrap theirs.
                 // §759.
-                self.check_nullable_operand(node, ambient);
                 // `if ok { checkReferenceExpression(...) }` — upstream gates
                 // the reference check on the arithmetic one so a non-numeric
                 // operand reports TS2356 alone. §741.
-                if self.check_increment_operand_type(node, ambient) {
+                if self.check_unary_operator_operands(node, ambient) {
                     self.check_reference_expression(node);
                 }
                 ambient

@@ -114,3 +114,27 @@ alternating direct runs gave base median 0.1654 s, new 0.1631 s.
 **Measured** (against `590ac64`): diagnostics +8 cases (WRONG→RIGHT), zero
 losses; lane MISSING TS2362 83 → 0, TS2363 48 → 0, TS18050 39 → 19, TS2447
 6 → 0; EXTRA TS2364 18 → 0.
+
+## 4. Prefix and postfix operators are one port (TS2356, TS2357, TS2469, TS2736)
+
+`check_unary_operator_operands` replaces `check_increment_operand_type` and the
+prefix half of `check_nullable_operand`, following `checkPrefixUnaryExpression`
+(`checker.go:10855`) and `checkPostfixUnaryExpression` (`:10914`): a numeric
+literal under `-`/`+` (bigint literal under `-`) returns before any check;
+`+`/`-`/`~` run `checkNonNullType` with its reporter, TS2469 for a maybe-symbol
+operand (base constraint considered) and, for `+`, TS2736 for a
+maybe-bigint operand printed through `getBaseTypeOfLiteralType`; `++`/`--`
+run `checkArithmeticOperandType` (TS2356) on the non-null type and gate
+`checkReferenceExpression` (TS2357) on its `ok`.
+
+Removed with it: the `file_has_parse_errors` bail (upstream has none), the
+"operand names a non-variable" early return (that operand's `checkIdentifier`
+answers `errorType`, which the relation already treats as assignable), and the
+flag-based `operand_is_definitely_not_numeric`. The last caller of
+`either_is_composite` (`assertion_overlap.rs`) went with commit 1's relational
+port; the dead helper is deleted so `-D warnings` stays clean.
+
+**Measured** (against `69e9297`): +1 case (`stringLiteralTypesWithVariousOperators02`),
+zero losses; lane MISSING TS2356 31 → 0, EXTRA TS2357 4 → 0, MISSING TS2469
+21 → 14. Direct alternating timing (21 runs): domain-model 0.991, generic-imports
+0.960 (median new/base).
