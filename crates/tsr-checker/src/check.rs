@@ -4260,8 +4260,17 @@ impl Checker<'_, '_> {
         // `getCannotFindNameDiagnosticForName`'s remaining rows, which are
         // upstream's `nameNotFoundMessage` and therefore the **fallback** —
         // reported only once the lib and suggestion arms above have declined.
-        // §247, reachable since §249.
-        let message = cannot_find_name_message(text).unwrap_or(&messages::CANNOT_FIND_NAME_0);
+        // §247, reachable since §249. The table's `default` arm
+        // (`getCannotFindNameDiagnosticForName`, `checker.go:13944`) names a
+        // shorthand property's identifier TS18004 instead of TS2304.
+        let shorthand = self.nodes.parent(node).is_some_and(|parent| {
+            self.nodes.kind(parent) == SyntaxKind::ShorthandPropertyAssignment
+        });
+        let message = cannot_find_name_message(text).unwrap_or(if shorthand {
+            &messages::NO_VALUE_EXISTS_IN_SCOPE_FOR_THE_SHORTHAND_PROPERTY_0_EITHER_DECLARE_ONE_OR_PROVIDE_AN_INITIALIZER
+        } else {
+            &messages::CANNOT_FIND_NAME_0
+        });
         self.report(file, Diagnostic::with_args(message, span, [text.to_string()]));
     }
 
