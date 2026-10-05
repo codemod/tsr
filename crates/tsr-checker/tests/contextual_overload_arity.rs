@@ -85,6 +85,63 @@ fn a_single_signature_still_works() {
     assert_eq!(first_argument_type(source), "{ u: \"a\"; }");
 }
 
+#[test]
+fn an_instantiated_union_alias_supplies_its_literal_context() {
+    // Pinned temporalArgumentBoundaryWave47: Plural<Unit> has structural
+    // union flags plus its alias owner, rather than an opaque named shell.
+    let aliases = r#"
+        type Unit = "year" | "month";
+        type Plural<T extends Unit> = T | { year: "years"; month: "months" }[T];
+        interface Options<T extends Unit> { unit?: Plural<T> | undefined; }
+    "#;
+    for call in [
+        "declare function f(options: Options<Unit>): void; f({ unit: \"month\" });",
+        "declare function f(options: Plural<Unit>): void;
+         declare function f(options: Options<Unit>): void; f({ unit: \"month\" });",
+        "declare const m: { f(options: Options<Unit>): void; }; m.f({ unit: \"month\" });",
+    ] {
+        assert_eq!(
+            first_argument_type(&format!("{aliases}{call}")),
+            "{ unit: \"month\"; }",
+            "{call}",
+        );
+    }
+}
+
+#[test]
+fn literal_only_objects_recheck_context_when_a_previous_candidate_is_rejected() {
+    // A broad first context must not widen the literal in the selected second
+    // context; conversely, a rejected literal context must not narrow a broad
+    // selected slot. Neither object contains a context-sensitive callback.
+    for (source, expected) in [
+        (
+            "declare function f(o: { mode: string; absent: number }): 'first';
+             declare function f(o: { mode: 'yes' }): 'second'; f({ mode: 'yes' });",
+            "{ mode: \"yes\"; }",
+        ),
+        (
+            "declare function f(o: { mode: 'no' }): 'first';
+             declare function f(o: { mode: string }): 'second'; f({ mode: 'yes' });",
+            "{ mode: string; }",
+        ),
+    ] {
+        assert_eq!(first_argument_type(source), expected, "{source}");
+    }
+}
+
+#[test]
+fn rejected_ordinary_candidates_preserve_unannotated_method_returns() {
+    // Pinned circularContextualMappedType: the number candidate is rejected
+    // before generic mapped inference. A zero-parameter method is not context
+    // sensitive, but its completed number return must survive that rejection.
+    let source = "type Func<T> = () => T;
+                  type Mapped<T> = { [K in keyof T]: Func<T[K]> };
+                  declare function reproduce(options: number): void;
+                  declare function reproduce<T>(options: Mapped<T>): T;
+                  reproduce({ name() { return 123; } });";
+    assert_eq!(first_argument_type(source), "{ name(): number; }");
+}
+
 /// The other control: no contextual literal type means no preservation, which
 /// is what keeps this from being a blanket "never widen".
 #[test]

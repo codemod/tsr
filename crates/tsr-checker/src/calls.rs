@@ -1685,12 +1685,16 @@ impl Checker<'_, '_> {
         if candidates.is_empty() {
             return None;
         }
-        // Non-generic context-sensitive calls use the candidate walk so the
-        // callback is first checked under an applicable candidate, before a
-        // later candidate can ask for its already assigned parameter types.
+        // Non-generic callbacks and object literals use the candidate walk.
+        // Literal-only objects also need isSignatureApplicable's parameter
+        // context; a context-free widened member can falsely reject its slot.
+        // Callback parameter types keep their existing first-check retention.
         if !has_type_arguments
             && candidates.iter().all(|candidate| candidate.type_parameters.is_empty())
-            && arguments.iter().any(|argument| self.is_context_sensitive_argument(argument))
+            && arguments.iter().any(|argument| {
+                self.is_context_sensitive_argument(argument)
+                    || matches!(argument, Expression::ObjectLiteralExpression(_))
+            })
             && let Some(picked) = self.transcribed_generic_set_walk(candidates, arguments, call)
         {
             return Some(picked);
@@ -2508,6 +2512,8 @@ impl Checker<'_, '_> {
             .filter(|argument| {
                 self.is_context_sensitive_argument(argument)
                     || matches!(argument, Expression::ArrayLiteralExpression(_))
+                    || (candidates.iter().all(|candidate| candidate.type_parameters.is_empty())
+                        && matches!(argument, Expression::ObjectLiteralExpression(_)))
             })
             .filter_map(tsr_ast::Expression::node_id)
             .collect();
@@ -2828,12 +2834,17 @@ impl Checker<'_, '_> {
             }
             // isSignatureApplicable checks each argument with the instantiated
             // parameter's context. Even an array with no context-sensitive
-            // elements can acquire a tuple type at this point.
+            // elements can acquire a tuple type at this point. Ordinary objects
+            // enter only a wholly nongeneric set: generic inference owns their
+            // contextual checks, and a preceding nongeneric candidate must not
+            // reopen callable returns before that inference.
             let contextual_arguments: Vec<_> = arguments
                 .iter()
                 .enumerate()
                 .map(|(index, argument)| {
                     self.is_context_sensitive_argument(argument)
+                        || (retain_context
+                            && matches!(argument, Expression::ObjectLiteralExpression(_)))
                         || (matches!(argument, Expression::ArrayLiteralExpression(_))
                             && (self.tuple_element_lists.contains_key(&parameter_types[index])
                                 || self
@@ -2856,7 +2867,8 @@ impl Checker<'_, '_> {
                         };
                         skipped
                     } else if contextual_arguments[index] {
-                        // A tuple-context array is checked under its candidate.
+                        // An object or tuple-context array is checked under
+                        // its candidate, not its context-free widened type.
                         continue;
                     } else {
                         argument
@@ -2877,7 +2889,14 @@ impl Checker<'_, '_> {
                 self.call_inference_signatures.insert(call, concrete.clone());
                 for (index, argument) in arguments.iter().enumerate() {
                     if contextual_arguments[index] {
-                        if retain_context && let Some(checked) = checked_contexts[index] {
+                        // Literal-only objects lack NodeCheckFlagsContextChecked
+                        // (5b1047d checker.go:10155). Their literal context can
+                        // differ between candidates, so only the existing
+                        // context-sensitive/array retention may reuse a result.
+                        let retain_argument_context = retain_context
+                            && (!matches!(argument, Expression::ObjectLiteralExpression(_))
+                                || self.is_context_sensitive_argument(argument));
+                        if retain_argument_context && let Some(checked) = checked_contexts[index] {
                             checked_arguments[index] = checked;
                             continue;
                         }
@@ -2886,7 +2905,7 @@ impl Checker<'_, '_> {
                         }
                         let checked = self.check_expression(*argument);
                         checked_arguments[index] = checked;
-                        if retain_context {
+                        if retain_argument_context {
                             checked_contexts[index] = Some(checked);
                         }
                     }

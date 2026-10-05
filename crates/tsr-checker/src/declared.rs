@@ -5048,6 +5048,98 @@ impl<'a> Checker<'a, '_> {
         }
     }
 
+    /// A closed concrete slice of native getTypeAliasInstantiation (5b1047d).
+    /// Prove dependencies before entering the existing alias worker: its
+    /// Checker-local (symbol, ordered arguments) key omits captured frames and
+    /// has no active-union publication. Own parameters, literal arguments and
+    /// finite literal lookup tables admit neither captures nor recursive edges.
+    /// The worker then completes the body before the source-owned union is
+    /// published; no new cache, reservation or member image is introduced.
+    fn is_closed_literal_union_alias(&self, symbol: SymbolId, arguments: &[TypeId]) -> bool {
+        if arguments.is_empty()
+            || arguments.iter().any(|&argument| {
+                self.literal_key_texts(argument).is_none_or(|keys| keys.is_empty())
+            })
+        {
+            return false;
+        }
+        let [declaration] = self.binder.symbols().get(symbol).declarations.as_slice() else {
+            return false;
+        };
+        let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(*declaration) else {
+            return false;
+        };
+        let Some(body @ TypeNode::UnionTypeNode(_)) = alias.r#type else { return false };
+        let parameters: Option<Vec<_>> = alias
+            .type_parameters
+            .iter()
+            .map(|parameter| parameter.node_id.and_then(|node| self.binder.symbol_of(node)))
+            .collect();
+        let Some(parameters) = parameters else { return false };
+        parameters.len() == arguments.len()
+            && self.is_closed_literal_union_operand(body, &parameters, 16)
+    }
+
+    /// Read-only syntax/binder proof; do not chase aliases or force type nodes.
+    /// The depth bound limits this preflight, not semantic alias resolution.
+    fn is_closed_literal_union_operand(
+        &self,
+        node: TypeNode<'a>,
+        parameters: &[SymbolId],
+        remaining: u8,
+    ) -> bool {
+        let Some(remaining) = remaining.checked_sub(1) else { return false };
+        let recurse = |node| self.is_closed_literal_union_operand(node, parameters, remaining);
+        match node {
+            TypeNode::ParenthesizedTypeNode(node) => node.r#type.is_some_and(recurse),
+            TypeNode::LiteralTypeNode(node) => matches!(node.literal, Some(Node::StringLiteral(_))),
+            TypeNode::UnionTypeNode(node) => node.types.iter().all(|&node| recurse(node)),
+            TypeNode::TypeReferenceNode(reference) if reference.type_arguments.is_empty() => {
+                let Some(tsr_ast::EntityName::Identifier(name)) = reference.type_name else {
+                    return false;
+                };
+                name.node_id
+                    .and_then(|node| {
+                        self.binder.resolve_name(
+                            self.nodes,
+                            self.node_map,
+                            node,
+                            name.text,
+                            SymbolFlags::TYPE,
+                        )
+                    })
+                    .is_some_and(|symbol| parameters.contains(&symbol))
+            }
+            TypeNode::IndexedAccessTypeNode(indexed) => {
+                let Some(TypeNode::TypeLiteralNode(table)) = indexed.object_type else {
+                    return false;
+                };
+                let mut names = Vec::new();
+                table.members.iter().all(|member| {
+                    let tsr_ast::TypeElement::PropertySignatureDeclaration(property) = member
+                    else {
+                        return false;
+                    };
+                    let name = match Node::from(property.name) {
+                        Node::Identifier(name) => name.text,
+                        Node::StringLiteral(name) => name.text,
+                        _ => return false,
+                    };
+                    if names.contains(&name) {
+                        return false;
+                    }
+                    names.push(name);
+                    property.modifiers.is_empty()
+                        && property.postfix_token.is_none()
+                        && property.initializer.is_none()
+                        && matches!(property.r#type, Some(TypeNode::LiteralTypeNode(literal))
+                            if matches!(literal.literal, Some(Node::StringLiteral(_))))
+                }) && indexed.index_type.is_some_and(recurse)
+            }
+            _ => false,
+        }
+    }
+
     /// `createTypeReference(target, typeArguments)` (`checker.go`).
     ///
     /// Interned on the `(target, arguments)` pair, which is what makes
@@ -5113,7 +5205,8 @@ impl<'a> Checker<'a, '_> {
             && let Some(declaration) =
                 self.binder.symbols().get(symbol).declarations.first().copied()
             && let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration)
-            && matches!(alias.r#type, Some(TypeNode::IndexedAccessTypeNode(_)))
+            && (matches!(alias.r#type, Some(TypeNode::IndexedAccessTypeNode(_)))
+                || self.is_closed_literal_union_alias(symbol, &arguments))
             && let Some(evaluated) = self.evaluate_alias_body(symbol, &arguments)
         {
             let text = self.type_reference_text(symbol, &arguments);
@@ -7246,8 +7339,24 @@ impl<'a> Checker<'a, '_> {
                     // to the 100-level guard, ~27 KiB of debug stack per level:
                     // more than a default 2 MiB thread has. Grow on demand
                     // (ADR-0030) rather than depend on the caller's stack.
-                    let evaluated =
-                        tsr_core::stack::ensure_sufficient(|| self.get_type_from_type_node(body));
+                    let evaluated = tsr_core::stack::ensure_sufficient(|| {
+                        if let TypeNode::UnionTypeNode(union) = body
+                            && self.is_closed_literal_union_alias(symbol, arguments)
+                        {
+                            // Compute the closed primitive body, not its origin
+                            // spelling. The reference factory supplies the exact
+                            // source alias and ordered arguments before queries
+                            // can print it; the general origin writer is unchanged.
+                            let parts: Vec<_> = union
+                                .types
+                                .iter()
+                                .map(|&node| self.get_type_from_type_node(node))
+                                .collect();
+                            self.get_union_type_unprinted(&parts)
+                        } else {
+                            self.get_type_from_type_node(body)
+                        }
+                    });
                     self.alias_evaluation_bindings.pop();
                     self.instantiation_depth -= 1;
                     if evaluated != error {
@@ -8256,5 +8365,219 @@ function read<X extends string>(pure: string, scalar: Scalar, projection: Id<X>,
                 checker.get_global_non_nullable_type_instantiation(checker.intrinsics.string);
             assert_eq!(value, checker.intrinsics.string);
         }
+    }
+}
+
+#[cfg(test)]
+mod literal_union_alias_tests {
+    use super::*;
+
+    #[test]
+    fn concrete_literal_union_keeps_its_structural_flags_and_source_owner() {
+        let source = r#"
+            type Unit = "north" | "south";
+            type Plural<T extends Unit> = T | { north: "N"; south: "S" }[T];
+        "#;
+        let arena = tsr_core::Arena::new();
+        let parsed = tsr_parser::parse(&arena, source);
+        assert!(parsed.diagnostics.is_empty());
+        let bound = tsr_binder::bind(
+            &arena,
+            parsed.source_file,
+            &parsed.nodes,
+            tsr_binder::FileInfo { name: "literal-union.ts", text: source },
+        );
+        let root = parsed.source_file.node_id.unwrap();
+        let unit_owner = bound.lookup_local(root, "Unit").unwrap();
+        let owner = bound.lookup_local(root, "Plural").unwrap();
+        let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+        let unit = checker.get_declared_type_of_symbol(unit_owner);
+        assert!(checker.is_closed_literal_union_alias(owner, &[unit]));
+        let result = checker.create_type_reference(owner, vec![unit]);
+        assert!(
+            checker.type_of(result).flags.contains(TypeFlags::UNION),
+            "result={:?}; body={:?}",
+            checker.type_of(result),
+            checker.alias_body_evaluations.get(&(owner, vec![unit]))
+        );
+        let mut keys = checker.literal_key_texts(result).unwrap();
+        keys.sort();
+        assert_eq!(keys, ["N", "S", "north", "south"]);
+        assert_eq!(checker.type_reference_targets[&result], (owner, vec![unit]));
+        assert_eq!(checker.type_to_string(result), "Plural<Unit>");
+        for _ in 0..3 {
+            assert_eq!(checker.create_type_reference(owner, vec![unit]), result);
+        }
+    }
+
+    #[test]
+    fn cold_reverse_and_warm_literal_aliases_keep_ordered_arguments_and_distinct_owners() {
+        let source = r#"
+            type Unit = "north" | "south";
+            type Plural<T extends Unit> = T | { north: "N"; south: "S" }[T];
+            type Other<T extends Unit> = T | { north: "N"; south: "S" }[T];
+            type Pair<A extends Unit, B extends Unit> = A | B | { north: "N"; south: "S" }[B];
+        "#;
+        let arena = tsr_core::Arena::new();
+        let parsed = tsr_parser::parse(&arena, source);
+        assert!(parsed.diagnostics.is_empty());
+        let bound = tsr_binder::bind(
+            &arena,
+            parsed.source_file,
+            &parsed.nodes,
+            tsr_binder::FileInfo { name: "literal-order.ts", text: source },
+        );
+        let root = parsed.source_file.node_id.unwrap();
+        let plural = bound.lookup_local(root, "Plural").unwrap();
+        let other = bound.lookup_local(root, "Other").unwrap();
+        let pair = bound.lookup_local(root, "Pair").unwrap();
+        for reverse in [false, true] {
+            let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+            let unit =
+                checker.get_declared_type_of_symbol(bound.lookup_local(root, "Unit").unwrap());
+            let north = checker.store.intern_literal(
+                TypeFlags::STRING_LITERAL,
+                crate::types::TypeData::StringLiteral("north".into()),
+                false,
+            );
+            let south = checker.store.intern_literal(
+                TypeFlags::STRING_LITERAL,
+                crate::types::TypeData::StringLiteral("south".into()),
+                false,
+            );
+            let cases = [
+                (plural, vec![unit], vec!["N", "S", "north", "south"]),
+                (plural, vec![north], vec!["N", "north"]),
+                (other, vec![unit], vec!["N", "S", "north", "south"]),
+                (pair, vec![north, south], vec!["S", "north", "south"]),
+                (pair, vec![south, north], vec!["N", "north", "south"]),
+            ];
+            let mut order = [0, 1, 2, 3, 4];
+            if reverse {
+                order.reverse();
+            }
+            let mut results = vec![checker.intrinsics.error; cases.len()];
+            for index in order {
+                let (owner, arguments, expected) = &cases[index];
+                let result = checker.create_type_reference(*owner, arguments.clone());
+                let mut actual = checker.literal_key_texts(result).unwrap();
+                actual.sort();
+                assert_eq!(&actual, expected);
+                assert_eq!(checker.type_reference_targets[&result], (*owner, arguments.clone()));
+                results[index] = result;
+            }
+            assert_ne!(results[0], results[2], "equal bodies do not merge alias owners");
+            assert_ne!(results[3], results[4], "the second argument selects the lookup value");
+            let before = format!(
+                "{:?}|{:?}|{:?}|{:?}|{:?}|{:?}",
+                checker.store,
+                checker.instantiations,
+                checker.alias_body_evaluations,
+                checker.type_literal_types,
+                checker.type_reference_targets,
+                checker.alias_evaluation_bindings
+            );
+            for _ in 0..3 {
+                for (index, (owner, arguments, _)) in cases.iter().enumerate() {
+                    assert_eq!(
+                        checker.create_type_reference(*owner, arguments.clone()),
+                        results[index]
+                    );
+                    assert!(
+                        checker
+                            .type_to_string(results[index])
+                            .starts_with(checker.binder.symbols().get(*owner).name)
+                    );
+                }
+            }
+            assert_eq!(
+                format!(
+                    "{:?}|{:?}|{:?}|{:?}|{:?}|{:?}",
+                    checker.store,
+                    checker.instantiations,
+                    checker.alias_body_evaluations,
+                    checker.type_literal_types,
+                    checker.type_reference_targets,
+                    checker.alias_evaluation_bindings
+                ),
+                before
+            );
+        }
+    }
+
+    #[test]
+    fn literal_union_preflight_refuses_captures_recursion_and_unsupported_tables_without_writes() {
+        let source = r#"
+            type External = "outside";
+            type Good<T> = T | { north: "N" }[T];
+            type Indirect<T> = T | External;
+            type Recursive<T> = T | Recursive<T>;
+            type ObjectPart<T> = T | { value: T };
+            type Optional<T> = T | { north?: "N" }[T];
+            type Numeric<T> = T | { north: 1 }[T];
+            type Duplicate<T> = T | { north: "N"; north: "X" }[T];
+            type Computed<T> = T | { ["north"]: "N" }[T];
+            function enclosing<Outer>() { type Captured<T> = T | Outer; }
+        "#;
+        let arena = tsr_core::Arena::new();
+        let parsed = tsr_parser::parse(&arena, source);
+        assert!(parsed.diagnostics.is_empty());
+        let bound = tsr_binder::bind(
+            &arena,
+            parsed.source_file,
+            &parsed.nodes,
+            tsr_binder::FileInfo { name: "literal-refusal.ts", text: source },
+        );
+        let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+        let north = checker.store.intern_literal(
+            TypeFlags::STRING_LITERAL,
+            crate::types::TypeData::StringLiteral("north".into()),
+            false,
+        );
+        let symbol =
+            |name| bound.symbols().iter().find(|(_, symbol)| symbol.name == name).unwrap().0;
+        let good = symbol("Good");
+        let before = format!(
+            "{:?}|{:?}|{:?}|{:?}|{:?}",
+            checker.store,
+            checker.declared_types,
+            checker.instantiations,
+            checker.alias_body_evaluations,
+            checker.alias_evaluation_bindings
+        );
+        assert!(checker.is_closed_literal_union_alias(good, &[north]));
+        for arguments in [
+            vec![],
+            vec![north, north],
+            vec![checker.intrinsics.string],
+            vec![checker.intrinsics.any],
+            vec![checker.intrinsics.unknown],
+            vec![checker.intrinsics.never],
+        ] {
+            assert!(!checker.is_closed_literal_union_alias(good, &arguments));
+        }
+        for name in [
+            "Indirect",
+            "Recursive",
+            "ObjectPart",
+            "Optional",
+            "Numeric",
+            "Duplicate",
+            "Computed",
+            "Captured",
+        ] {
+            assert!(!checker.is_closed_literal_union_alias(symbol(name), &[north]), "{name}");
+        }
+        assert_eq!(
+            format!(
+                "{:?}|{:?}|{:?}|{:?}|{:?}",
+                checker.store,
+                checker.declared_types,
+                checker.instantiations,
+                checker.alias_body_evaluations,
+                checker.alias_evaluation_bindings
+            ),
+            before
+        );
     }
 }
