@@ -655,6 +655,11 @@ impl Checker<'_, '_> {
     /// has (`getPropertiesOfUnionOrIntersectionType`).
     fn apparent_property_names(&mut self, receiver: TypeId, apparent: TypeId) -> Vec<String> {
         let crate::types::TypeData::Union { types, .. } = &self.store.get(receiver).data else {
+            // A `typeof` object's properties are its symbol's exports, which
+            // the declared-member walk does not read.
+            if matches!(self.store.get(apparent).data, crate::types::TypeData::Anonymous { .. }) {
+                return self.get_property_names_of_type(apparent).unwrap_or_default();
+            }
             return self.property_names_of(apparent);
         };
         let types: Vec<TypeId> = types
