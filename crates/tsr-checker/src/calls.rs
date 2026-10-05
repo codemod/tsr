@@ -784,18 +784,60 @@ impl Checker<'_, '_> {
                         parameters.iter().copied().zip(written.iter().copied()).collect();
                     let answer = self.instantiate_type(signature.r#type, &map, &parameters, &names);
                     if answer != error {
-                        if node.arguments.iter().any(|argument| {
+                        let contextual = node.arguments.iter().any(|argument| {
                             self.is_context_sensitive_argument(argument)
                                 || matches!(argument, Expression::ObjectLiteralExpression(_))
-                        }) && let Some(call_id) = node.node_id
-                            && let Some(concrete) = self.instantiate_signature(
-                                signature.clone(),
-                                &map,
-                                &parameters,
-                                &names,
-                            )
+                        });
+                        // getResolvedSignature/getSignatureInstantiation, pinned
+                        // tsgo 5b1047d1 checker.go:8407/19293. Only the original
+                        // single-generic call with written arguments owns this
+                        // extension: its Checker, AST node, ordered argument slice
+                        // and declaration must match, without a foreign fixing
+                        // frame, active/provisional owner or temporary flow.
+                        // The existing whole-signature worker publishes Some;
+                        // return-only success and unsupported work publish nothing.
+                        // Ordinary inferred callable sources remain excluded:
+                        // recovered returns do not certify contextual completion
+                        // (coordinator tsr-6.47.4.2.1 follow-up).
+                        let publish_original = !contextual
+                            && signature.target.is_none()
+                            && self.alias_evaluation_bindings.is_empty()
+                            && self.mapped_template_depth == 0
+                            && self.flow_loop_stack.is_empty()
+                            && !self.contextual_prefers_uninstantiated
+                            && self.uninstantiated_context_node.is_none()
+                            && node.node_id.is_some_and(|call| {
+                                matches!(self.node_map.get(call), Some(tsr_ast::Node::CallExpression(original))
+                                    if std::ptr::eq(original, node) && std::ptr::eq(original.arguments, node.arguments))
+                                    && !self.active_inference_contexts.contains_key(&call)
+                                    && self.live_inference_context(call).is_none()
+                                    && !self.call_inference_signatures.contains_key(&call)
+                                    && !self.resolving_signature_calls.contains(&call)
+                            })
+                            && self.call_signatures_of_type(callee_type).is_some_and(|originals| {
+                                matches!(originals.as_slice(), [original]
+                                    if original.declaration == signature.declaration && original.target.is_none())
+                            });
+                        let mut instance = signature.clone();
+                        if publish_original {
+                            instance.type_parameters.clear();
+                        }
+                        if (contextual || publish_original)
+                            && let Some(call_id) = node.node_id
+                            && let Some(mut concrete) =
+                                self.instantiate_signature(instance, &map, &parameters, &names)
                         {
-                            self.resolved_call_signatures.insert(call_id, concrete);
+                            if publish_original {
+                                // instantiateSignatureEx erases only the result's
+                                // parameters and retains sig as target (20619).
+                                // Keep target-only constraints/defaults out of
+                                // the worker's eager substitution, but restore
+                                // the original generic vector and carried slots.
+                                concrete.target = Some(std::sync::Arc::new(signature.clone()));
+                                self.resolved_call_signatures.entry(call_id).or_insert(concrete);
+                            } else {
+                                self.resolved_call_signatures.insert(call_id, concrete);
+                            }
                         }
                         bump(&COUNTERS.new_instantiated);
                         return answer;
@@ -3018,6 +3060,248 @@ mod tests {
             .expect("the variable must be bound");
         let id = checker.get_type_of_symbol(symbol);
         body(&mut checker, id)
+    }
+
+    #[test]
+    fn explicit_original_calls_publish_distinct_signatures_without_inferred_admission() {
+        let source = "declare function known<T>(value: T): T;
+            known<number>(17); known<string>('east'); known(23 + 1); const probe = 0;";
+        for reverse in [false, true] {
+            with_declared_variable(source, "probe", |checker, _| {
+                let mut calls: Vec<_> = (0..checker.nodes.len())
+                    .filter_map(|index| {
+                        let id = tsr_ast::NodeId::new(u32::try_from(index).unwrap());
+                        match checker.node_map.get(id) {
+                            Some(tsr_ast::Node::CallExpression(call)) => Some((id, call)),
+                            _ => None,
+                        }
+                    })
+                    .collect();
+                assert_eq!(calls.len(), 3);
+                if reverse {
+                    calls.reverse();
+                }
+                let mut completed = Vec::new();
+                for stage in ["worker", "repeat"] {
+                    for (id, call) in &calls {
+                        let expected =
+                            if matches!(call.arguments[0], tsr_ast::Expression::StringLiteral(_)) {
+                                checker.intrinsics.string
+                            } else {
+                                checker.intrinsics.number
+                            };
+                        let callee = checker.check_expression(call.expression.unwrap());
+                        let original = checker.call_signatures_of_type(callee).unwrap().remove(0);
+                        let original_parameters = checker.type_parameter_types(&original).unwrap();
+                        assert_eq!(checker.check_call_expression(call), expected);
+                        let signature = checker.resolved_call_signatures.get(id).cloned();
+                        if call.type_arguments.is_empty() {
+                            assert!(signature.is_none(), "ordinary inferred {stage}");
+                        } else {
+                            let signature = signature.expect("explicit worker completion");
+                            assert!(signature.type_parameters.is_empty());
+                            assert_eq!(signature.parameters[0].r#type, expected);
+                            assert_eq!(signature.r#type, expected);
+                            let target = signature.target.as_ref().unwrap();
+                            assert_eq!(target.declaration, original.declaration);
+                            assert_eq!(target.type_parameters.len(), 1);
+                            assert_eq!(target.type_parameters[0].name, "T");
+                            assert_eq!(
+                                checker.type_parameter_types(target).unwrap(),
+                                original_parameters
+                            );
+                            assert_eq!(target.parameters[0].r#type, original_parameters[0]);
+                            assert_eq!(target.r#type, original_parameters[0]);
+                            assert_eq!(format!("{target:?}"), format!("{original:?}"));
+                            if stage == "worker" {
+                                completed.push((*id, target.clone()));
+                            } else {
+                                let (_, first) =
+                                    completed.iter().find(|(call_id, _)| call_id == id).unwrap();
+                                assert!(std::sync::Arc::ptr_eq(first, target));
+                            }
+                            eprintln!("{stage} original={id:?} signature={signature:?}");
+                        }
+                        assert!(!checker.contextual_signature_mappers.contains_key(id));
+                    }
+                }
+                assert!(checker.active_inference_contexts.is_empty());
+                assert!(checker.call_inference_signatures.is_empty());
+                assert!(checker.resolving_signature_calls.is_empty());
+            });
+        }
+    }
+
+    #[test]
+    fn explicit_targets_keep_ordered_constraint_and_default_metadata_without_substitution() {
+        for (name, source) in [
+            ("ordered", "declare function ordered<T, U>(left: T, right: U): U;
+             ordered<number, string>(17, 'east'); const probe = 0;"),
+            ("constrained", "declare function constrained<T extends Record<string, unknown>, U extends T['absent']>(value: T): T;
+             declare const input: { present: number };
+             constrained<{ present: number }, never>(input); const probe = 0;"),
+            ("defaulted", "declare function defaulted<T extends Record<string, unknown>, U = T['absent']>(value: T): T;
+             declare const input: { present: number };
+             defaulted<{ present: number }, string>(input); const probe = 0;"),
+        ] {
+            with_declared_variable(source, "probe", |checker, _| {
+                let (id, call) = (0..checker.nodes.len())
+                    .find_map(|index| {
+                        let id = tsr_ast::NodeId::new(u32::try_from(index).unwrap());
+                        match checker.node_map.get(id) {
+                            Some(tsr_ast::Node::CallExpression(call)) => Some((id, call)),
+                            _ => None,
+                        }
+                    })
+                    .unwrap();
+                let callee = checker.check_expression(call.expression.unwrap());
+                let original = checker.call_signatures_of_type(callee).unwrap().remove(0);
+                let parameters = checker.type_parameter_types(&original).unwrap();
+                assert_eq!(original.type_parameters.len(), 2, "{name}");
+                assert_eq!(original.type_parameters[0].name, "T");
+                assert_eq!(original.type_parameters[1].name, "U");
+                assert_ne!(parameters[0], parameters[1]);
+                let written_u = checker.get_type_from_type_node(call.type_arguments[1]);
+                for stage in ["worker", "repeat"] {
+                    let answer = checker.check_call_expression(call);
+                    assert_ne!(answer, checker.intrinsics.error, "{name} {stage}");
+                    let concrete = checker.resolved_call_signatures.get(&id).cloned().unwrap();
+                    assert!(concrete.type_parameters.is_empty());
+                    assert_eq!(concrete.r#type, answer);
+                    let target = concrete.target.as_ref().unwrap();
+                    assert_eq!(format!("{target:?}"), format!("{original:?}"), "{name} {stage}");
+                    assert_eq!(checker.type_parameter_types(target).unwrap(), parameters);
+                    if name != "ordered" {
+                        // Native eraseTypeParameters does not instantiate a
+                        // constraint/default which belongs only to the target.
+                        // The present-only object has no 'absent' property;
+                        // moving erasure after the existing worker would turn
+                        // its metadata-only indexed substitution into refusal.
+                        let out = checker.instantiate_signature(
+                            original.clone(),
+                            &[(parameters[0], answer), (parameters[1], written_u)],
+                            &parameters,
+                            &["T", "U"],
+                        );
+                        assert!(out.is_none(), "metadata substitution must decline {name}");
+                    }
+                    eprintln!("{name} {stage} call={id:?} concrete={concrete:?}");
+                }
+            });
+        }
+    }
+
+    #[test]
+    fn explicit_return_only_success_does_not_publish_unsupported_parameter_image() {
+        with_declared_variable(
+            "declare function missing<T>(consume: () => T['absent']): number;
+             missing<unknown>(17); const probe = 0;",
+            "probe",
+            |checker, _| {
+                let (id, call) = (0..checker.nodes.len())
+                    .find_map(|index| {
+                        let id = tsr_ast::NodeId::new(u32::try_from(index).unwrap());
+                        match checker.node_map.get(id) {
+                            Some(tsr_ast::Node::CallExpression(call)) => Some((id, call)),
+                            _ => None,
+                        }
+                    })
+                    .unwrap();
+                for _ in 0..2 {
+                    assert_eq!(checker.check_call_expression(call), checker.intrinsics.number);
+                    assert!(!checker.resolved_call_signatures.contains_key(&id));
+                    assert!(!checker.contextual_signature_mappers.contains_key(&id));
+                }
+            },
+        );
+    }
+
+    #[test]
+    fn explicit_publication_refuses_foreign_active_and_flow_owners() {
+        let source = "declare function known<T>(value: T): T;
+            known<number>(17); const probe = 0;";
+        for mode in [
+            "flow",
+            "alias",
+            "mapped",
+            "freshness",
+            "uninstantiated",
+            "provisional",
+            "active",
+            "resolving",
+            "foreign-node",
+        ] {
+            with_declared_variable(source, "probe", |checker, _| {
+                let (id, call) = (0..checker.nodes.len())
+                    .find_map(|index| {
+                        let id = tsr_ast::NodeId::new(u32::try_from(index).unwrap());
+                        match checker.node_map.get(id) {
+                            Some(tsr_ast::Node::CallExpression(call)) => Some((id, call)),
+                            _ => None,
+                        }
+                    })
+                    .unwrap();
+                let callee = checker.check_expression(call.expression.unwrap());
+                let signature = checker.call_signatures_of_type(callee).unwrap().remove(0);
+                let parameter = checker.type_parameter_types(&signature).unwrap()[0];
+                match mode {
+                    "flow" => checker
+                        .flow_loop_stack
+                        .push(((0, 0, checker.intrinsics.number), Vec::new())),
+                    "alias" => checker.alias_evaluation_bindings.push(
+                        [(checker.type_parameter_symbols[&parameter], checker.intrinsics.string)]
+                            .into_iter()
+                            .collect(),
+                    ),
+                    "mapped" => checker.mapped_template_depth = 1,
+                    "freshness" => checker.contextual_prefers_uninstantiated = true,
+                    "uninstantiated" => checker.uninstantiated_context_node = Some(id),
+                    "provisional" => {
+                        checker.call_inference_signatures.insert(id, signature.clone());
+                    }
+                    "active" => {
+                        checker.active_inference_contexts.insert(
+                            id,
+                            crate::inference::InferenceContextSnapshot {
+                                signature: signature.clone(),
+                                inferences: Vec::new(),
+                                return_inferences: Vec::new(),
+                                flags: crate::inference::InferenceFlags::NONE,
+                                inferential: false,
+                                intra_expression_sites: Vec::new(),
+                                outer_return_map: None,
+                            },
+                        );
+                    }
+                    "resolving" => {
+                        checker.resolving_signature_calls.insert(id);
+                    }
+                    "foreign-node" => {}
+                    _ => unreachable!(),
+                }
+                let foreign = tsr_ast::CallExpression {
+                    node_id: call.node_id,
+                    expression: call.expression,
+                    question_dot_token: call.question_dot_token,
+                    type_arguments: call.type_arguments,
+                    arguments: call.arguments,
+                };
+                checker.check_call_expression(if mode == "foreign-node" { &foreign } else { call });
+                assert!(!checker.resolved_call_signatures.contains_key(&id), "{mode}");
+                assert!(!checker.contextual_signature_mappers.contains_key(&id), "{mode}");
+                eprintln!("refused {mode}: call={id:?} completed=None mapper=None");
+                checker.flow_loop_stack.clear();
+                checker.alias_evaluation_bindings.clear();
+                checker.mapped_template_depth = 0;
+                checker.contextual_prefers_uninstantiated = false;
+                checker.uninstantiated_context_node = None;
+                checker.call_inference_signatures.clear();
+                checker.active_inference_contexts.clear();
+                checker.resolving_signature_calls.clear();
+                assert_eq!(checker.check_call_expression(call), checker.intrinsics.number);
+                assert!(checker.resolved_call_signatures.contains_key(&id), "released {mode}");
+            });
+        }
     }
 
     /// A receiver written with type arguments is reachable *as* one from its
