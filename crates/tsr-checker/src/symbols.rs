@@ -5729,18 +5729,17 @@ impl<'a> Checker<'a, '_> {
     }
 
     fn get_type_for_variable_like_declaration(&mut self, declaration: NodeId) -> Option<TypeId> {
-        // §38.1, MOVED FIRST at §409: a for-IN binding is `string`
-        // UNCONDITIONALLY — upstream's ForIn arm opens
+        // §38.1, MOVED FIRST at §409: upstream's ForIn arm opens
         // `getTypeForVariableLikeDeclaration` (checker.go:16652), before the
         // annotation, so `for (var a: number in X)` still reads `a : string`
         // (`parserForInStatement5`; the annotation is the reported error,
-        // not the type).
+        // not the type). The arm answers `string` or `Extract<keyof T, string>`.
         if self.nodes.kind(declaration) == SyntaxKind::VariableDeclaration
             && let Some(list) = self.nodes.parent(declaration)
             && let Some(statement) = self.nodes.parent(list)
             && self.nodes.kind(statement) == SyntaxKind::ForInStatement
         {
-            return Some(self.intrinsics.string);
+            return Some(self.for_in_variable_type(statement));
         }
         // §441: an UNANNOTATED setter parameter reads the accessor PAIR's
         // type — the getter's return, through the same getTypeOfAccessors

@@ -813,6 +813,43 @@ impl Checker<'_, '_> {
         self.check_iterated_type_or_element_type(IterationUse::SPREAD, spread_type, expression_id);
     }
 
+    /// The `ForInStatement` arm of `getTypeForVariableLikeDeclaration`
+    /// (`checker.go:16658`): the index type of the (non-nullable) iterated
+    /// expression, as `getExtractStringType` (`checker.go:26709`) when it is a
+    /// type parameter or deferred `keyof`, else `string`.
+    pub(crate) fn for_in_variable_type(&mut self, statement: NodeId) -> TypeId {
+        let string = self.intrinsics.string;
+        let Some(Node::ForInOrOfStatement(for_in)) = self.node_map.get(statement) else {
+            return string;
+        };
+        let Some(expression) = for_in.expression else { return string };
+        let checked = self.check_expression(expression);
+        if self.is_error(checked) {
+            return string;
+        }
+        // getNonNullableTypeIfNeeded.
+        let checked = if self
+            .get_type_facts(checked)
+            .intersects(crate::flow::TypeFacts::IS_UNDEFINED | crate::flow::TypeFacts::IS_NULL)
+        {
+            self.get_non_nullable_type(checked)
+        } else {
+            checked
+        };
+        let Some(index_type) = self.resolved_keyof_type(checked) else { return string };
+        if !self
+            .store
+            .get(index_type)
+            .flags
+            .intersects(TypeFlags::TYPE_PARAMETER | TypeFlags::INDEX)
+        {
+            return string;
+        }
+        // getGlobalExtractSymbol, then getTypeAliasInstantiation.
+        let Some(extract) = self.global_type_symbol_with_arity("Extract", 2) else { return string };
+        self.create_type_reference(extract, vec![index_type, string])
+    }
+
     /// `checkRightHandSideOfForOf` (`checker.go:17678`)'s iteration check.
     pub(crate) fn check_for_of_iteration(&mut self, node: NodeId) {
         if self.file_has_parse_errors || self.in_js_file(node) {
