@@ -857,6 +857,11 @@ impl Relater<'_, '_, '_> {
             };
         }
         let target = self.checker.get_regular_type_of_literal_type(target);
+        // getNormalizedType's substitution arm (`checker.go:27884`): a
+        // `NoInfer<T>` normalizes to its base type on either side
+        // (`getSubstitutionIntersection`, `checker.go:26828`).
+        let source = self.checker.no_infer_base_type(source).unwrap_or(source);
+        let target = self.checker.no_infer_base_type(target).unwrap_or(target);
         if source == target {
             return RelationResult::Related;
         }

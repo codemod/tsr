@@ -5356,6 +5356,46 @@ impl<'a> Checker<'a, '_> {
         }
     }
 
+    /// Whether `symbol` is the `NoInfer` intrinsic alias — `intrinsicTypeKinds`
+    /// (`checker.go:364`) read by `getTypeAliasInstantiation`: an alias named
+    /// `NoInfer` whose declared body is the `intrinsic` keyword.
+    pub(crate) fn is_no_infer_alias(&self, symbol: SymbolId) -> bool {
+        let data = self.binder.symbols().get(symbol);
+        if data.name != "NoInfer" || !data.flags.contains(SymbolFlags::TYPE_ALIAS) {
+            return false;
+        }
+        data.declarations.first().is_some_and(|&declaration| {
+            matches!(self.node_map.get(declaration),
+                Some(Node::TypeAliasDeclaration(alias))
+                    if matches!(alias.r#type, Some(TypeNode::KeywordTypeNode(keyword))
+                        if keyword.kind == SyntaxKind::IntrinsicKeyword))
+        })
+    }
+
+    /// `isNoInferType` (`checker.go:26822`), answering the base type.
+    ///
+    /// Upstream's `getNoInferType` (`checker.go:27394`) creates a substitution
+    /// type over the base with an `unknown` constraint. This port has no
+    /// substitution type: `NoInfer<T>` is the alias reference
+    /// [`Checker::create_type_reference`] mints for `(NoInfer, [base])` —
+    /// the same identity key upstream's cache uses — recorded in
+    /// `type_reference_targets`, which this reads. It prints `NoInfer<T>`, as
+    /// `nodebuilderimpl.go:3511` does. Not ported: `getNoInferType`'s
+    /// `isNoInferTargetType` collapse (`NoInfer<string>` is `string`) and the
+    /// substitution flags, whose base-constraint and narrowable-reference
+    /// readers would expose an unfixed contextual parameter type
+    /// (`narrowingNoInfer1`). Readers that see through it here: relation
+    /// normalization and inference.
+    pub(crate) fn no_infer_base_type(&self, t: TypeId) -> Option<TypeId> {
+        match self.type_reference_targets.get(&t) {
+            Some((symbol, arguments)) if self.is_no_infer_alias(*symbol) => match **arguments {
+                [base] => Some(base),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
     /// `createTypeReference(target, typeArguments)` (`checker.go`).
     ///
     /// Interned on the `(target, arguments)` pair, which is what makes

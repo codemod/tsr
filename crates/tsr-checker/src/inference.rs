@@ -4157,7 +4157,9 @@ impl Checker<'_, '_> {
             self.inference_observed_priority = -1;
             return;
         }
-        if source == self.intrinsics.error {
+        // inferFromTypes (`inference.go:66`, `:151`): nothing is inferred
+        // into a `NoInfer<T>` target.
+        if source == self.intrinsics.error || self.no_infer_base_type(target).is_some() {
             return;
         }
         if self.infer_from_tuple_types(source, target, original, parameters, out, depth) {
