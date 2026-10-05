@@ -190,7 +190,50 @@ plain-JS diagnostic policy, project references, all forcing/input/worker budgets
 and comparable native median <=0.50 are not certified.
 [Qualified alignment evidence](docs/architecture/tsr-work-trace-producer.md#eligibility-alignment-after-the-producer).
 
-### Current checker checkpoint — complete ordinary initializer owners
+### Current checker checkpoint — cold keyword original-owner completion
+
+Measured source revision **`26d4ded7`** (rebased without production changes from
+`c5a7d688` / `3b94a149`), pinned native **`5b1047d`**:
+**464,069/478,855 RIGHT assertions**, **475,538 aligned positions**, 1,604 GAP
+and 9,865 WRONG. The fixed 99% target remains **474,067 RIGHT**;
+**9,998 additional matches remain**. This is a prerequisite, not completion.
+
+Every complete type payload and all **10,570 duplicate/empty diagnostic bags
+remain byte-identical**: 30,874 expected, 24,533 actual, 20,829 matched,
+10,045 missing and 3,704 extras. There is no corpus-score gain. Current-main
+TDD starts with one pass/four failures and finishes with five default/six
+work-trace controls passing. Native40 retains all 25 previous matches and
+gains one string written-slot match through the unchanged reader; all 14
+remaining misses are retained. Completed boolean still has untagged Union
+representation and declines; parentheses, captured and mapped display are not
+expanded. Two TS2314 and one TS2707 remain exact.
+
+Only absent, certified original bare supported keyword aliases at full
+default-filled arity request the existing DeclaredType getter before the
+instantiation-cache hit, matching native getTypeAliasInstantiation. The private
+Checker's SymbolId publication/resolution states and ordered argument keys
+remain authoritative. Completed success/error, active, foreign, mapped and
+unsupported routes remain unchanged. Missing cold/cached owners request one
+existing DeclaredTypeQuery; completed hits add none, mapped refusal adds none,
+and these publications allocate no primitive wrappers. No new cache, mapper,
+primitive alias tags or performance gain is claimed.
+
+Release all-target/doc tests pass **3,109 default / 3,122 full work-trace**,
+with zero failures and six existing ignores each; both counts repeat after
+preserving upstream parity snapshots. Strict Clippy in both modes, formatting,
+source whitespace, 3,397 anchors, 16,596 section citations and final default
+scan-binary equality pass. Upstream setup/parity/JSDoc documentation is retained;
+the seven new JSDoc reader controls pass. The absent cargo-xtask alias invocation
+is retained as a failure; explicit cargo run with the xtask package passes.
+
+TYPE naming and exported owner-prefix experiments remain separate. Returned
+arrow assignment is blocked: completed Signature fields cannot distinguish an
+unsupported generator recovered to any from a genuine any body, and repeated
+generic-alias contextual acquisitions lack stable assigned identity. No inferred
+publication, receipt/return-field change or recursive Stage2 extension is included.
+The fixed 99% task continues.
+
+### Historical function checkpoint — complete ordinary initializer owners
 
 Measured source revision **`6113312b`** (rebased without Rust changes from
 `6c7353f0`), pinned native **`5b1047d`**:
