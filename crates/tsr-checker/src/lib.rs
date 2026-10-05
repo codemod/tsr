@@ -134,6 +134,7 @@ pub mod indexed;
 pub mod inference;
 pub mod intersections;
 pub mod intrinsics;
+mod iteration;
 mod js_case_data;
 mod jsdoc_annotations;
 mod jsdoc_links;

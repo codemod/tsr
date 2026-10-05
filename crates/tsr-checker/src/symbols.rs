@@ -5337,7 +5337,7 @@ impl<'a> Checker<'a, '_> {
         result
     }
 
-    fn iteration_property_type(&mut self, source: TypeId, name: &str) -> Option<TypeId> {
+    pub(crate) fn iteration_property_type(&mut self, source: TypeId, name: &str) -> Option<TypeId> {
         // Native function objects exist before their lazy return types resolve.
         // Our eager function type cannot be requested again while its own
         // return type is resolving: doing so marks the whole callable as a

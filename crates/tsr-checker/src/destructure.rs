@@ -650,7 +650,7 @@ impl Checker<'_, '_> {
     /// - a holder **initializer that cannot be `undefined`** removes
     ///   `undefined` from the parent — `getTypeWithFacts(parentType,
     ///   TypeFactsNEUndefined)`.
-    fn destructuring_parent_adjusted(
+    pub(crate) fn destructuring_parent_adjusted(
         &mut self,
         declaration: NodeId,
         holder: NodeId,

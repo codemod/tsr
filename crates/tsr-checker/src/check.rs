@@ -909,6 +909,7 @@ impl Checker<'_, '_> {
             self.check_for_in_reference_expression(node);
             self.check_for_in_or_of_declarations(node);
             self.check_for_await_context(node);
+            self.check_for_of_iteration(node);
             self.check_for_of_reference_assignment(node, ambient);
         }
         if matches!(typed, Node::ArrowFunction(_)) {
@@ -924,6 +925,14 @@ impl Checker<'_, '_> {
                 | Node::ObjectLiteralExpression(_)
         ) {
             self.check_rest_element_is_last(node, typed);
+        }
+        match typed {
+            Node::BindingPattern(_) => self.check_array_binding_pattern_iteration(node),
+            Node::ArrayLiteralExpression(_) => {
+                self.check_array_destructuring_assignment_iteration(node);
+            }
+            Node::SpreadElement(_) => self.check_spread_element_iteration(node),
+            _ => {}
         }
         if matches!(typed, Node::ExportDeclaration(_)) {
             self.check_export_declaration_in_namespace(node, typed);
