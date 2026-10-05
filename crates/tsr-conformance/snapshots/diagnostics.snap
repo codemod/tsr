@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics Summary:
 What a pass means: every diagnostic in upstream's .errors.txt reproduced exactly — same file, line, column and code, no more and no fewer — for cases that expect at least one; syntactic, bind-and-check and isolatedDeclarations diagnostics collected as upstream's test runner collects them
-Passed         : 3427/5488 (62.45%)
-Failed         : 2061
+Passed         : 3444/5488 (62.76%)
+Failed         : 2044
 Skipped        : 6956 (excluded from the denominator)
 
   793  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -11,7 +11,7 @@ Skipped        : 6956 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   464  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 2061 failures:
+First 100 of 2044 failures:
 compiler/TransportStream
   1 missing (first TS1434 at TransportStream.ts(1,1))
 compiler/abstractClassUnionInstantiation
@@ -112,10 +112,6 @@ compiler/augmentExportEquals5
   1 missing (first TS2454 at consumer.ts(4,11))
 compiler/augmentExportEquals7
   1 missing (first TS2649 at /node_modules/@types/lib-extender/index.d.ts(2,16))
-compiler/augmentedTypesClass2a
-  2 missing (first TS2813 at augmentedTypesClass2a.ts(2,7))
-compiler/augmentedTypesFunction
-  4 missing (first TS2814 at augmentedTypesFunction.ts(13,10))
 compiler/autoLift2
   2 missing (first TS2693 at autoLift2.ts(5,19))
 compiler/avoidListingPropertiesForTypesWithOnlyCallOrConstructSignatures
@@ -163,15 +159,15 @@ compiler/builtinIterator
 compiler/callOnInstance
   2 missing (first TS2349 at callOnInstance.ts(7,18))
 compiler/callOverloads1
-  3 missing (first TS2813 at callOverloads1.ts(1,7))
+  1 missing (first TS2391 at callOverloads1.ts(9,10))
 compiler/callOverloads2
-  3 missing (first TS2813 at callOverloads2.ts(1,7))
+  1 missing (first TS2389 at callOverloads2.ts(11,10))
 compiler/callOverloads3
-  4 missing (first TS2814 at callOverloads3.ts(1,10))
+  1 missing (first TS2391 at callOverloads3.ts(2,10))
 compiler/callOverloads4
-  4 missing (first TS2814 at callOverloads4.ts(1,10))
+  1 missing (first TS2391 at callOverloads4.ts(2,10))
 compiler/callOverloads5
-  4 missing (first TS2814 at callOverloads5.ts(1,10))
+  1 missing (first TS2391 at callOverloads5.ts(2,10))
 compiler/callSignaturesShouldBeResolvedBeforeSpecialization
   1 missing (first TS2345 at callSignaturesShouldBeResolvedBeforeSpecialization.ts(9,10))
 compiler/cannotIndexGenericWritingError
@@ -212,3 +208,7 @@ compiler/checkingObjectWithThisInNamePositionNoCrash
   1 missing (first TS2339 at checkingObjectWithThisInNamePositionNoCrash.ts(4,19))
 compiler/circularAccessorAnnotations
   4 missing (first TS2502 at circularAccessorAnnotations.ts(2,9))
+compiler/circularBaseTypes
+  4 missing (first TS2310 at circularBaseTypes.ts(4,11))
+compiler/circularConstraintYieldsAppropriateError
+  1 missing (first TS2310 at circularConstraintYieldsAppropriateError.ts(10,7))
