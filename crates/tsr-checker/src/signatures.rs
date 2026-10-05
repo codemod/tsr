@@ -6565,26 +6565,308 @@ impl<'a> Checker<'a, '_> {
         if !matches!(index_type, TypeNode::LiteralTypeNode(_)) {
             return None;
         }
-        let same_binding = |identifier: &tsr_ast::Identifier<'_>, meaning| {
-            let resolve = |site| {
-                self.binder
-                    .resolve_name(self.nodes, self.node_map, site, identifier.text, meaning)
-                    .map(|symbol| self.binder.merged_symbol(symbol))
-            };
-            identifier
-                .node_id
-                .and_then(resolve)
-                .zip(resolve(reference))
-                .is_some_and(|(source, viewer)| source == viewer)
+        Self::type_query_written_text(TypeNode::TypeQueryNode(query))?;
+        let alias_text =
+            self.parameter_source_entity_name_at(alias_name, reference, SymbolFlags::TYPE)?;
+        let query_text =
+            self.parameter_source_entity_name_at(query_name, reference, SymbolFlags::VALUE)?;
+        let index_text = Self::written_type_text(index_type, &mut false, &mut false)?;
+        Some(format!("{alias_text}<typeof {query_text}>[{index_text}]"))
+    }
+
+    /// Pinned tsgo 5b1047d `trackExistingEntityName` / `serializeTypeName`
+    /// (`internal/checker/nodecopy.go`, `internal/checker/nodebuilderimpl.go`).
+    /// Only the completed-original parameter certificate above consumes this
+    /// plan. Its source `SymbolId`, slot `TypeId` and declaration remain original;
+    /// TYPE and VALUE qualification are independent viewer-local reads.
+    /// Bound scopes/exports and Program's completed `ModuleHost` map own all
+    /// identities. No annotation, alias, type or accessibility getter runs.
+    /// Unknown competing aliases, transformed exports and module modes decline;
+    /// there is no result cache or publication. Work is a scope/table walk plus
+    /// direct import/export lookups, never semantic completion or module search.
+    fn parameter_source_entity_name_at(
+        &self,
+        identifier: &tsr_ast::Identifier<'_>,
+        reference: NodeId,
+        meaning: SymbolFlags,
+    ) -> Option<String> {
+        let resolve = |site| {
+            self.binder
+                .resolve_name(self.nodes, self.node_map, site, identifier.text, meaning)
+                .map(|symbol| self.binder.merged_symbol(symbol))
         };
-        if !same_binding(alias_name, SymbolFlags::TYPE)
-            || !same_binding(query_name, SymbolFlags::VALUE)
+        let source = resolve(identifier.node_id?)?;
+        // Preserve the predecessor's identical-binding admission verbatim.
+        if resolve(reference) == Some(source) {
+            return Some(identifier.text.to_string());
+        }
+        // Native getSymbolIfSameReference resolves aliases before choosing a
+        // new spelling. Certify only direct loaded import targets here; this
+        // preserves written-name reuse ahead of competing renamed aliases.
+        let target = |symbol| {
+            let record = self.binder.symbols().get(symbol);
+            let symbol = self.binder.merged_symbol(record.export_symbol.unwrap_or(symbol));
+            if self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::ALIAS) {
+                self.parameter_source_import_target(symbol)
+            } else {
+                Some(symbol)
+            }
+        };
+        let source = target(source)?;
+        if resolve(reference).and_then(target) == Some(source) {
+            return Some(identifier.text.to_string());
+        }
+        self.parameter_source_symbol_name_at(source, reference, meaning, 0)
+    }
+
+    fn parameter_source_symbol_name_at(
+        &self,
+        symbol: SymbolId,
+        reference: NodeId,
+        meaning: SymbolFlags,
+        depth: usize,
+    ) -> Option<String> {
+        // Same bounded namespace chain as the existing site renderer.
+        if depth >= 8 {
+            return None;
+        }
+        let symbol = self.binder.merged_symbol(symbol);
+        let record = self.binder.symbols().get(symbol);
+        if record.flags.intersects(SymbolFlags::ALIAS)
+            || !record.flags.intersects(meaning)
+            || record.declarations.len() != 1
         {
             return None;
         }
-        let query_text = Self::type_query_written_text(TypeNode::TypeQueryNode(query))?;
-        let index_text = Self::written_type_text(index_type, &mut false, &mut false)?;
-        Some(format!("{}<{query_text}>[{index_text}]", alias_name.text))
+        let normalize = |id| {
+            let id = self.binder.merged_symbol(id);
+            self.binder.merged_symbol(self.binder.symbols().get(id).export_symbol.unwrap_or(id))
+        };
+        let left_meaning =
+            if meaning == SymbolFlags::VALUE { meaning } else { SymbolFlags::NAMESPACE };
+        let mut tables = Vec::new();
+        let mut current = Some(reference);
+        while let Some(node) = current {
+            // Native class scopes additionally expose filtered type members
+            // and private class-expression self names. Those competing routes
+            // are not certified by this bounded table plan.
+            if matches!(
+                self.nodes.kind(node),
+                SyntaxKind::ClassDeclaration
+                    | SyntaxKind::ClassExpression
+                    | SyntaxKind::InterfaceDeclaration
+            ) {
+                return None;
+            }
+            if let Some(locals) = self.binder.locals(node) {
+                tables.push(locals);
+            }
+            if matches!(
+                self.nodes.kind(node),
+                SyntaxKind::SourceFile | SyntaxKind::ModuleDeclaration
+            ) && let Some(owner) = self.binder.symbol_of(node)
+                && let Some(exports) =
+                    self.binder.symbols().get(self.binder.merged_symbol(owner)).exports.as_ref()
+            {
+                tables.push(exports);
+            }
+            current = self.nodes.parent(node);
+        }
+        tables.push(self.binder.globals());
+        // Alias choice uses native needsQualification's raw scope tables,
+        // not lexical resolution's body-local visibility filter. Keep that
+        // distinction separate from the identical-binding fast path above.
+        let visible = |candidate, mask| -> Option<bool> {
+            let name = self.binder.symbols().get(candidate).name;
+            for table in &tables {
+                let Some(&found) = table.get(name) else { continue };
+                if normalize(found) == normalize(candidate) {
+                    return Some(true);
+                }
+                let record = self.binder.symbols().get(normalize(found));
+                let flags = if record.flags.intersects(SymbolFlags::ALIAS) {
+                    self.binder.symbols().get(self.parameter_source_import_target(found)?).flags
+                } else {
+                    record.flags
+                };
+                if flags.intersects(mask) {
+                    return Some(false);
+                }
+            }
+            Some(true)
+        };
+        for table in &tables {
+            // Native trySymbolTable's direct hit precedes every alias choice.
+            if table.get(record.name).is_some_and(|&found| normalize(found) == symbol)
+                && visible(symbol, meaning)?
+            {
+                return Some(record.name.to_string());
+            }
+            let mut candidates = Vec::new();
+            for (&name, &candidate) in *table {
+                let candidate_record = self.binder.symbols().get(candidate);
+                if !candidate_record.flags.intersects(SymbolFlags::ALIAS)
+                    || matches!(name, "default" | "export=")
+                    || candidate_record.declarations.iter().any(|&declaration| {
+                        matches!(
+                            self.nodes.kind(declaration),
+                            SyntaxKind::ExportSpecifier
+                                | SyntaxKind::NamespaceExport
+                                | SyntaxKind::NamespaceExportDeclaration
+                        )
+                    })
+                {
+                    continue;
+                }
+                // All eligible candidates must be known, even one that may
+                // beat the selected route only after alias resolution.
+                let target = self.parameter_source_import_target(candidate)?;
+                if target == symbol && visible(candidate, meaning)? {
+                    candidates.push((1, candidate, name.to_string()));
+                } else if self
+                    .binder
+                    .symbols()
+                    .get(target)
+                    .exports
+                    .get(record.name)
+                    .is_some_and(|&exported| normalize(exported) == symbol)
+                    && visible(candidate, left_meaning)?
+                {
+                    candidates.push((2, candidate, format!("{name}.{}", record.name)));
+                }
+            }
+            // Native shortest chain, then declaration order, within the first
+            // table that yields a route. Never flatten lexical scopes.
+            candidates.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| self.compare_symbols(a.1, b.1)));
+            if let Some((_, _, text)) = candidates.into_iter().next() {
+                return Some(text);
+            }
+        }
+        if self.binder.globals().get(record.name).is_some_and(|&found| normalize(found) == symbol) {
+            let shadow = self.binder.resolve_name(
+                self.nodes,
+                self.node_map,
+                reference,
+                record.name,
+                meaning,
+            )?;
+            if self.binder.symbols().get(shadow).flags.intersects(SymbolFlags::ALIAS)
+                || self
+                    .binder
+                    .resolve_name(
+                        self.nodes,
+                        self.node_map,
+                        reference,
+                        "globalThis",
+                        SymbolFlags::VALUE | SymbolFlags::NAMESPACE,
+                    )
+                    .is_some()
+            {
+                return None;
+            }
+            return Some(format!("globalThis.{}", record.name));
+        }
+        let parent = self.binder.merged_symbol(record.parent?);
+        let owner = self.binder.symbols().get(parent);
+        if owner.exports.get(record.name).is_none_or(|&exported| normalize(exported) != symbol) {
+            return None;
+        }
+        let [declaration] = owner.declarations.as_slice() else { return None };
+        match self.node_map.get(*declaration)? {
+            Node::ModuleDeclaration(module)
+                if matches!(module.name, Some(tsr_ast::ModuleName::Identifier(_))) =>
+            {
+                let prefix = self.parameter_source_symbol_name_at(
+                    parent,
+                    reference,
+                    left_meaning,
+                    depth + 1,
+                )?;
+                Some(format!("{prefix}.{}", record.name))
+            }
+            Node::SourceFile(_) if self.module_kind == tsr_core::ModuleKind::CommonJS => {
+                let file = self.source_file_of_for_diagnostics(reference)?;
+                let host = self.module_host?;
+                if tsr_path::get_directory_path(&host.file_path(file)?)
+                    != tsr_path::get_directory_path(&host.file_path(*declaration)?)
+                {
+                    return None;
+                }
+                let Node::SourceFile(source) = self.node_map.get(file)? else { return None };
+                let mut specifier = None;
+                for statement in source.statements {
+                    let tsr_ast::Statement::ImportDeclaration(import) = statement else { continue };
+                    let Some(tsr_ast::Expression::StringLiteral(literal)) = import.module_specifier
+                    else {
+                        return None;
+                    };
+                    if host.resolved_module(file, literal.text) != Some(*declaration) {
+                        continue;
+                    }
+                    if !literal.text.starts_with("./") || literal.text[2..].contains('/') {
+                        return None;
+                    }
+                    if specifier.is_some_and(|previous| previous != literal.text) {
+                        return None;
+                    }
+                    specifier = Some(literal.text);
+                }
+                Some(format!("import({}).{}", crate::printing::quote(specifier?), record.name))
+            }
+            _ => None,
+        }
+    }
+
+    /// Direct import target from an already-loaded module and its bound
+    /// exports, not `Checker.resolve_alias`. Unsupported candidate routes are
+    /// unknown rather than silently omitted from native's alias competition.
+    fn parameter_source_import_target(&self, alias: SymbolId) -> Option<SymbolId> {
+        if self.module_kind != tsr_core::ModuleKind::CommonJS {
+            return None;
+        }
+        let [declaration] = self.binder.symbols().get(alias).declarations.as_slice() else {
+            return None;
+        };
+        let imported_name = match self.node_map.get(*declaration)? {
+            Node::ImportSpecifier(specifier) => {
+                let tsr_ast::ModuleExportName::Identifier(name) = specifier
+                    .property_name
+                    .or(specifier.name.map(tsr_ast::ModuleExportName::Identifier))?
+                else {
+                    return None;
+                };
+                Some(name.text)
+            }
+            Node::NamespaceImport(_) => None,
+            _ => return None,
+        };
+        let mut import = *declaration;
+        while self.nodes.kind(import) != SyntaxKind::ImportDeclaration {
+            import = self.nodes.parent(import)?;
+        }
+        let Node::ImportDeclaration(import) = self.node_map.get(import)? else { return None };
+        let Some(tsr_ast::Expression::StringLiteral(literal)) = import.module_specifier else {
+            return None;
+        };
+        let target_file = self
+            .module_host?
+            .resolved_module(self.source_file_of_for_diagnostics(*declaration)?, literal.text)?;
+        let module = self.binder.merged_symbol(self.binder.symbol_of(target_file)?);
+        let owner = self.binder.symbols().get(module);
+        if owner.declarations.as_slice() != [target_file]
+            || self.in_js_file(target_file)
+            || owner.exports.iter().any(|(&name, &symbol)| {
+                matches!(name, "export=" | "default" | "__export")
+                    || self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::ALIAS)
+            })
+        {
+            return None;
+        }
+        let Some(name) = imported_name else { return Some(module) };
+        let target = self.binder.merged_symbol(*owner.exports.get(name)?);
+        let record = self.binder.symbols().get(target);
+        (!record.flags.intersects(SymbolFlags::ALIAS) && record.exports.is_empty())
+            .then_some(target)
     }
 
     pub(crate) fn signature_parameter_alias_text_at(
@@ -7133,7 +7415,7 @@ mod tests {
 
     fn source_view_snapshot(state: &crate::Checker<'_, '_>) -> String {
         format!(
-            "{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}",
+            "{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}",
             state.store,
             state.symbol_types,
             state.signature_types,
@@ -7149,11 +7431,32 @@ mod tests {
             state.alias_evaluation_bindings,
             state.resolutions,
             state.diagnostics(),
+            state.alias_placeholders,
+            state.alias_body_evaluations,
         )
     }
 
     #[test]
-    fn parameter_source_views_reject_shadowed_qualified_and_imported_bindings_without_work() {
+    fn parameter_source_views_qualify_bound_names_and_reject_unloaded_imports_without_work() {
+        struct LoadedModules(Vec<(tsr_ast::NodeId, &'static str)>);
+        impl crate::resolution::ModuleHost for LoadedModules {
+            fn resolved_module(
+                &self,
+                _: tsr_ast::NodeId,
+                specifier: &str,
+            ) -> Option<tsr_ast::NodeId> {
+                (specifier == "./entry")
+                    .then(|| self.0.iter().find(|(_, path)| *path == "/entry.ts").unwrap().0)
+            }
+
+            fn file_path(&self, file: tsr_ast::NodeId) -> Option<String> {
+                self.0.iter().find(|(id, _)| *id == file).map(|(_, path)| (*path).to_string())
+            }
+
+            fn module_resolution_found(&self, _: tsr_ast::NodeId, _: &str) -> bool {
+                panic!("source-view plans must not request module resolution work")
+            }
+        }
         let files = [
             (
                 "/source.ts",
@@ -7167,6 +7470,34 @@ mod tests {
             (
                 "/consumer.ts",
                 "import { moduleFoo } from './entry'; const importedView = moduleFoo;",
+            ),
+            (
+                "/named.ts",
+                "import { moduleFoo, ModuleInputs as NamedInputs, peer as namedPeer } from './entry'; const namedView = moduleFoo; function shadowType() { type NamedInputs = boolean; const namedTypeView = moduleFoo; } function shadowValue() { const namedPeer = false; const namedValueView = moduleFoo; }",
+            ),
+            (
+                "/namespace.ts",
+                "import * as EarlierNS from './entry'; import * as LaterNS from './entry'; import { moduleFoo } from './entry'; const namespaceView = LaterNS.moduleFoo; function shadowNamespace() { const EarlierNS = 17; const LaterNS = false; const namespaceValueView = moduleFoo; }",
+            ),
+            (
+                "/shortest.ts",
+                "import * as EarlierNS from './entry'; import { ModuleInputs as NamedInputs, peer as namedPeer, moduleFoo } from './entry'; const shortestView = EarlierNS.moduleFoo;",
+            ),
+            (
+                "/spelling.ts",
+                "import { ModuleInputs as EarlierInputs, peer as earlierPeer } from './entry'; import { ModuleInputs, peer, moduleFoo } from './entry'; const spellingView = moduleFoo;",
+            ),
+            (
+                "/unknown.ts",
+                "import { Ghost } from './unloaded'; import { moduleFoo } from './entry'; const unknownRouteView = moduleFoo;",
+            ),
+            (
+                "/default.ts",
+                "import Opaque from './entry'; import { moduleFoo } from './entry'; const defaultRouteView = moduleFoo;",
+            ),
+            (
+                "/class.ts",
+                "import { moduleFoo } from './entry'; class Bound { method() { const classRouteView = moduleFoo; } }",
             ),
         ];
         let arena = tsr_core::Arena::new();
@@ -7184,6 +7515,9 @@ mod tests {
             assert!(file.diagnostics.is_empty());
             parsed.push((name, text, file.source_file));
         }
+        let host = LoadedModules(
+            parsed.iter().map(|(name, _, file)| (file.node_id.unwrap(), *name)).collect(),
+        );
         let mut bound = tsr_binder::BindResult::empty();
         for (name, text, file) in parsed {
             bound = tsr_binder::bind_into(
@@ -7201,18 +7535,55 @@ mod tests {
                     .then_some(id)
             }).unwrap()
         };
-        for reverse in [false, true] {
-            let mut checker = crate::Checker::new(&bound, &nodes, &map);
+        for (hosted, reverse) in [(false, false), (false, true), (true, false), (true, true)] {
+            let module_host = hosted.then_some(&host as &dyn crate::resolution::ModuleHost);
+            let mut checker = crate::Checker::with_module_host(&bound, &nodes, &map, module_host);
+            checker.apply_compiler_options(&tsr_core::CompilerOptions {
+                module: tsr_core::ModuleKind::CommonJS,
+                ..Default::default()
+            });
             let mut controls = [
                 ("exposed", "rootView", Some("Inputs<typeof helper>[0]")),
-                ("exposed", "typeView", None),
-                ("exposed", "valueView", None),
+                ("exposed", "typeView", Some("globalThis.Inputs<typeof helper>[0]")),
+                ("exposed", "valueView", Some("Inputs<typeof globalThis.helper>[0]")),
                 ("nested", "insideView", Some("LocalInputs<typeof peer>[0]")),
-                ("nested", "outsideView", None),
+                ("nested", "outsideView", Some("Scoped.LocalInputs<typeof Scoped.peer>[0]")),
                 ("exposed", "siblingView", Some("Inputs<typeof helper>[0]")),
                 ("exposed", "crossView", Some("Inputs<typeof helper>[0]")),
                 ("moduleFoo", "moduleInsideView", Some("ModuleInputs<typeof peer>[0]")),
-                ("moduleFoo", "importedView", None),
+                (
+                    "moduleFoo",
+                    "importedView",
+                    hosted.then_some(
+                        "import(\"./entry\").ModuleInputs<typeof import(\"./entry\").peer>[0]",
+                    ),
+                ),
+                ("moduleFoo", "namedView", hosted.then_some("NamedInputs<typeof namedPeer>[0]")),
+                (
+                    "moduleFoo",
+                    "namedTypeView",
+                    hosted.then_some("import(\"./entry\").ModuleInputs<typeof namedPeer>[0]"),
+                ),
+                (
+                    "moduleFoo",
+                    "namedValueView",
+                    hosted.then_some("NamedInputs<typeof import(\"./entry\").peer>[0]"),
+                ),
+                (
+                    "moduleFoo",
+                    "namespaceView",
+                    hosted.then_some("EarlierNS.ModuleInputs<typeof EarlierNS.peer>[0]"),
+                ),
+                (
+                    "moduleFoo",
+                    "namespaceValueView",
+                    hosted.then_some("EarlierNS.ModuleInputs<typeof import(\"./entry\").peer>[0]"),
+                ),
+                ("moduleFoo", "shortestView", hosted.then_some("NamedInputs<typeof namedPeer>[0]")),
+                ("moduleFoo", "spellingView", hosted.then_some("ModuleInputs<typeof peer>[0]")),
+                ("moduleFoo", "unknownRouteView", None),
+                ("moduleFoo", "defaultRouteView", None),
+                ("moduleFoo", "classRouteView", None),
             ];
             if reverse {
                 controls.reverse();
@@ -7224,6 +7595,9 @@ mod tests {
                 let signature = checker.signature_types[&ty][0].clone();
                 let reference = identifier(site);
                 let before = source_view_snapshot(&checker);
+                let expected_type = if name == "exposed" { "string" } else { "number" };
+                let expected_signature =
+                    format!("(value: {}) => {expected_type}", expected.unwrap_or(expected_type));
                 for _ in 0..3 {
                     assert_eq!(
                         checker
@@ -7233,23 +7607,20 @@ mod tests {
                         "{site}",
                     );
                     assert_eq!(source_view_snapshot(&checker), before, "{site}");
+                    assert_eq!(
+                        checker.type_to_string_at(ty, reference).as_deref(),
+                        Some(expected_signature.as_str()),
+                        "{site}"
+                    );
+                    assert_eq!(source_view_snapshot(&checker), before, "full print {site}");
                 }
-                let expected_type = if name == "exposed" { "string" } else { "number" };
-                let expected_signature =
-                    format!("(value: {}) => {expected_type}", expected.unwrap_or(expected_type));
-                assert_eq!(
-                    checker.type_to_string_at(ty, reference).as_deref(),
-                    Some(expected_signature.as_str()),
-                    "{site}"
-                );
-                assert_eq!(source_view_snapshot(&checker), before, "full print {site}");
             }
         }
     }
 
     #[test]
     fn indexed_parameter_source_completion_is_read_only_and_rejects_unpublished_images() {
-        let source = "type FormalInputs<F extends (...args: any[]) => any> = F extends (...args: infer P) => any ? P : never; function foo(arg: FormalInputs<typeof bar>[0]) { return arg; } function bar(arg: string, count: number) { return foo(arg); }";
+        let source = "type FormalInputs<F extends (...args: any[]) => any> = F extends (...args: infer P) => any ? P : never; function foo(arg: FormalInputs<typeof bar>[0]) { return arg; } function bar(arg: string, count: number) { return foo(arg); } function shadow() { type FormalInputs<F> = boolean; const qualifiedView = foo; }";
         let arena = tsr_core::Arena::new();
         let parsed = tsr_parser::parse(&arena, source);
         assert!(parsed.diagnostics.is_empty());
@@ -7260,6 +7631,10 @@ mod tests {
             tsr_binder::FileInfo { name: "parameters.ts", text: source },
         );
         let root = parsed.source_file.node_id.unwrap();
+        let qualified_reference = (0..u32::try_from(parsed.nodes.len()).unwrap())
+            .map(tsr_ast::NodeId::new)
+            .find(|&id| matches!(parsed.node_map.get(id), Some(tsr_ast::Node::Identifier(name)) if name.text == "qualifiedView"))
+            .unwrap();
         for first_name in ["foo", "bar"] {
             let mut checker = crate::Checker::new(&bound, &parsed.nodes, &parsed.node_map);
             let foo = bound.lookup_local(root, "foo").unwrap();
@@ -7373,6 +7748,18 @@ mod tests {
                     assert_eq!(certified.is_some(), case == 0, "case {case}");
                     if case == 0 {
                         assert_eq!(certified.as_deref(), Some("FormalInputs<typeof bar>[0]"));
+                    }
+                    let qualified = checker.signature_parameter_source_text_at(
+                        &candidate,
+                        slot,
+                        qualified_reference,
+                    );
+                    assert_eq!(qualified.is_some(), case == 0, "qualified case {case}");
+                    if case == 0 {
+                        assert_eq!(
+                            qualified.as_deref(),
+                            Some("globalThis.FormalInputs<typeof bar>[0]")
+                        );
                     }
                     assert_eq!(
                         source_view_snapshot(&checker),

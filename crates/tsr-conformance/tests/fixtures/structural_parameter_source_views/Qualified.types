@@ -1,0 +1,181 @@
+//// [tests/cases/compiler/structuralSourceViewQualifiedPriority.ts] ////
+
+=== entry.ts ===
+export type ModuleInputs<F extends (...args: any[]) => any> = F extends (...args: infer P) => any ? P : never;
+>ModuleInputs : ModuleInputs<F>
+>args : any[]
+>args : P
+
+export function peer(value: number) { return value; }
+>peer : (value: number) => number
+>value : number
+>value : number
+
+export function otherPeer(value: string, count: number) { return value; }
+>otherPeer : (value: string, count: number) => string
+>value : string
+>count : number
+>value : string
+
+export function moduleFoo(value: ModuleInputs<typeof peer>[0]) { return value; }
+>moduleFoo : (value: ModuleInputs<typeof peer>[0]) => number
+>value : number
+>peer : (value: number) => number
+>value : number
+
+export function moduleBar(value: ModuleInputs<typeof otherPeer>[0]) { return value; }
+>moduleBar : (value: ModuleInputs<typeof otherPeer>[0]) => string
+>value : string
+>otherPeer : (value: string, count: number) => string
+>value : string
+
+=== named.ts ===
+import { moduleFoo, moduleBar, ModuleInputs as RenamedInputs, peer as renamedPeer, otherPeer as renamedOtherPeer } from "./entry";
+>moduleFoo : (value: RenamedInputs<typeof renamedPeer>[0]) => number
+>moduleBar : (value: RenamedInputs<typeof renamedOtherPeer>[0]) => string
+>ModuleInputs : any
+>RenamedInputs : any
+>peer : (value: number) => number
+>renamedPeer : (value: number) => number
+>otherPeer : (value: string, count: number) => string
+>renamedOtherPeer : (value: string, count: number) => string
+
+const renamedNumberView = moduleFoo;
+>renamedNumberView : (value: RenamedInputs<typeof renamedPeer>[0]) => number
+>moduleFoo : (value: RenamedInputs<typeof renamedPeer>[0]) => number
+
+const renamedStringView = moduleBar;
+>renamedStringView : (value: RenamedInputs<typeof renamedOtherPeer>[0]) => string
+>moduleBar : (value: RenamedInputs<typeof renamedOtherPeer>[0]) => string
+
+function shadowTypeAlias() {
+>shadowTypeAlias : () => (value: import("./entry").ModuleInputs<typeof renamedPeer>[0]) => number
+
+    type RenamedInputs = boolean;
+>RenamedInputs : boolean
+
+    const shadowedTypeView = moduleFoo;
+>shadowedTypeView : (value: import("./entry").ModuleInputs<typeof renamedPeer>[0]) => number
+>moduleFoo : (value: import("./entry").ModuleInputs<typeof renamedPeer>[0]) => number
+
+    return shadowedTypeView;
+>shadowedTypeView : (value: import("./entry").ModuleInputs<typeof renamedPeer>[0]) => number
+}
+function shadowValueAlias() {
+>shadowValueAlias : () => (value: RenamedInputs<typeof import("./entry").peer>[0]) => number
+
+    const renamedPeer = (value: boolean) => value;
+>renamedPeer : (value: boolean) => boolean
+>(value: boolean) => value : (value: boolean) => boolean
+>value : boolean
+>value : boolean
+
+    const shadowedValueView = moduleFoo;
+>shadowedValueView : (value: RenamedInputs<typeof import("./entry").peer>[0]) => number
+>moduleFoo : (value: RenamedInputs<typeof import("./entry").peer>[0]) => number
+
+    return shadowedValueView;
+>shadowedValueView : (value: RenamedInputs<typeof import("./entry").peer>[0]) => number
+}
+=== namespace.ts ===
+import * as EntryNS from "./entry";
+>EntryNS : typeof EntryNS
+
+import { moduleFoo } from "./entry";
+>moduleFoo : (value: EntryNS.ModuleInputs<typeof EntryNS.peer>[0]) => number
+
+const namespaceNumberView = EntryNS.moduleFoo;
+>namespaceNumberView : (value: EntryNS.ModuleInputs<typeof EntryNS.peer>[0]) => number
+>EntryNS.moduleFoo : (value: EntryNS.ModuleInputs<typeof EntryNS.peer>[0]) => number
+>EntryNS : typeof EntryNS
+>moduleFoo : (value: EntryNS.ModuleInputs<typeof EntryNS.peer>[0]) => number
+
+const namespaceStringView = EntryNS.moduleBar;
+>namespaceStringView : (value: EntryNS.ModuleInputs<typeof EntryNS.otherPeer>[0]) => string
+>EntryNS.moduleBar : (value: EntryNS.ModuleInputs<typeof EntryNS.otherPeer>[0]) => string
+>EntryNS : typeof EntryNS
+>moduleBar : (value: EntryNS.ModuleInputs<typeof EntryNS.otherPeer>[0]) => string
+
+function shadowNamespaceAlias() {
+>shadowNamespaceAlias : () => (value: EntryNS.ModuleInputs<typeof import("./entry").peer>[0]) => number
+
+    const EntryNS = { peer: (value: boolean) => value };
+>EntryNS : { peer: (value: boolean) => boolean; }
+>{ peer: (value: boolean) => value } : { peer: (value: boolean) => boolean; }
+>peer : (value: boolean) => boolean
+>(value: boolean) => value : (value: boolean) => boolean
+>value : boolean
+>value : boolean
+
+    const shadowedNamespaceView = moduleFoo;
+>shadowedNamespaceView : (value: EntryNS.ModuleInputs<typeof import("./entry").peer>[0]) => number
+>moduleFoo : (value: EntryNS.ModuleInputs<typeof import("./entry").peer>[0]) => number
+
+    return shadowedNamespaceView;
+>shadowedNamespaceView : (value: EntryNS.ModuleInputs<typeof import("./entry").peer>[0]) => number
+}
+=== competing.ts ===
+import * as FirstNS from "./entry";
+>FirstNS : typeof FirstNS
+
+import * as LaterNS from "./entry";
+>LaterNS : typeof FirstNS
+
+const competingNumberView = LaterNS.moduleFoo;
+>competingNumberView : (value: FirstNS.ModuleInputs<typeof FirstNS.peer>[0]) => number
+>LaterNS.moduleFoo : (value: FirstNS.ModuleInputs<typeof FirstNS.peer>[0]) => number
+>LaterNS : typeof FirstNS
+>moduleFoo : (value: FirstNS.ModuleInputs<typeof FirstNS.peer>[0]) => number
+
+const competingStringView = FirstNS.moduleBar;
+>competingStringView : (value: FirstNS.ModuleInputs<typeof FirstNS.otherPeer>[0]) => string
+>FirstNS.moduleBar : (value: FirstNS.ModuleInputs<typeof FirstNS.otherPeer>[0]) => string
+>FirstNS : typeof FirstNS
+>moduleBar : (value: FirstNS.ModuleInputs<typeof FirstNS.otherPeer>[0]) => string
+
+=== absent.ts ===
+import { moduleFoo, moduleBar } from "./entry";
+>moduleFoo : (value: import("./entry").ModuleInputs<typeof import("./entry").peer>[0]) => number
+>moduleBar : (value: import("./entry").ModuleInputs<typeof import("./entry").otherPeer>[0]) => string
+
+const importedNumberView = moduleFoo;
+>importedNumberView : (value: import("./entry").ModuleInputs<typeof import("./entry").peer>[0]) => number
+>moduleFoo : (value: import("./entry").ModuleInputs<typeof import("./entry").peer>[0]) => number
+
+const importedStringView = moduleBar;
+>importedStringView : (value: import("./entry").ModuleInputs<typeof import("./entry").otherPeer>[0]) => string
+>moduleBar : (value: import("./entry").ModuleInputs<typeof import("./entry").otherPeer>[0]) => string
+
+=== shortest.ts ===
+import * as EarlierNS from "./entry";
+>EarlierNS : typeof EarlierNS
+
+import { ModuleInputs as LaterInputs, peer as laterPeer, moduleFoo } from "./entry";
+>ModuleInputs : any
+>LaterInputs : any
+>peer : (value: number) => number
+>laterPeer : (value: number) => number
+>moduleFoo : (value: LaterInputs<typeof laterPeer>[0]) => number
+
+const shortestView = EarlierNS.moduleFoo;
+>shortestView : (value: LaterInputs<typeof laterPeer>[0]) => number
+>EarlierNS.moduleFoo : (value: LaterInputs<typeof laterPeer>[0]) => number
+>EarlierNS : typeof EarlierNS
+>moduleFoo : (value: LaterInputs<typeof laterPeer>[0]) => number
+
+=== spelling.ts ===
+import { ModuleInputs as EarlierInputs, peer as earlierPeer } from "./entry";
+>ModuleInputs : any
+>EarlierInputs : any
+>peer : (value: number) => number
+>earlierPeer : (value: number) => number
+
+import { ModuleInputs, peer, moduleFoo } from "./entry";
+>ModuleInputs : any
+>peer : (value: number) => number
+>moduleFoo : (value: ModuleInputs<typeof peer>[0]) => number
+
+const preservedView = moduleFoo;
+>preservedView : (value: ModuleInputs<typeof peer>[0]) => number
+>moduleFoo : (value: ModuleInputs<typeof peer>[0]) => number
+
