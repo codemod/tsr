@@ -180,6 +180,182 @@ impl<'a> Checker<'a, '_> {
     /// unions, intersections, conditionals, mapped types, and the rest — yields
     /// `errorType`, because none of those type *shapes* exists yet.
     pub fn get_type_from_type_node(&mut self, node: TypeNode<'a>) -> TypeId {
+        if self.resolutions.has_property_frame(PropertyName::DeclaredType)
+            && self.native_resolves_lazily(node)
+        {
+            self.resolutions.enter_deferred();
+            let ty = self.get_type_from_type_node_worker(node);
+            self.resolutions.exit_deferred();
+            return ty;
+        }
+        self.get_type_from_type_node_worker(node)
+    }
+
+    /// Whether native builds `node`'s type without resolving its constituents
+    /// now, so a type alias it mentions is not reached while the enclosing
+    /// alias resolves: an anonymous type literal, function, constructor or
+    /// mapped type (`getTypeFromTypeLiteralOrFunctionOrConstructorTypeNode`,
+    /// `getTypeFromMappedTypeNode`, members resolved on demand), or a deferred
+    /// array/tuple/class-or-interface reference (`isDeferredTypeReferenceNode`,
+    /// `checker.go:23236`). Consulted only while a declared type is resolving,
+    /// to mark [`crate::resolution::Resolutions::enter_deferred`] boundaries.
+    fn native_resolves_lazily(&mut self, node: TypeNode<'a>) -> bool {
+        match node {
+            TypeNode::TypeLiteralNode(_)
+            | TypeNode::FunctionTypeNode(_)
+            | TypeNode::ConstructorTypeNode(_)
+            | TypeNode::MappedTypeNode(_) => true,
+            TypeNode::ArrayTypeNode(array) => {
+                self.is_deferred_type_reference_node(array.node_id, false, |checker| {
+                    array
+                        .element_type
+                        .is_some_and(|element| checker.may_resolve_type_alias(element))
+                })
+            }
+            TypeNode::TupleTypeNode(tuple) => {
+                self.is_deferred_type_reference_node(tuple.node_id, false, |checker| {
+                    tuple.elements.iter().any(|&element| checker.may_resolve_type_alias(element))
+                })
+            }
+            TypeNode::TypeReferenceNode(reference) => {
+                // getTypeFromClassOrInterfaceReference's generic arm only;
+                // an alias reference resolves its arguments eagerly.
+                let Some(name) = reference.type_name else { return false };
+                let Some(mut symbol) = self.resolve_entity_name(name, SymbolFlags::TYPE) else {
+                    return false;
+                };
+                if self.binder.symbols().get(symbol).flags.contains(SymbolFlags::ALIAS) {
+                    let Some(target) = self.resolve_alias(symbol) else { return false };
+                    symbol = self.binder.merged_symbol(target);
+                }
+                if !self
+                    .binder
+                    .symbols()
+                    .get(symbol)
+                    .flags
+                    .intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE)
+                {
+                    return false;
+                }
+                let parameters = self.local_type_parameters_of(symbol).len();
+                if parameters == 0 {
+                    return false;
+                }
+                let has_default_type_arguments = reference.type_arguments.len() != parameters;
+                self.is_deferred_type_reference_node(
+                    reference.node_id,
+                    has_default_type_arguments,
+                    |checker| {
+                        reference
+                            .type_arguments
+                            .iter()
+                            .any(|&argument| checker.may_resolve_type_alias(argument))
+                    },
+                )
+            }
+            _ => false,
+        }
+    }
+
+    /// `isDeferredTypeReferenceNode` (`checker.go:23236`); `constituents` is
+    /// its kind-specific `mayResolveTypeAlias` test.
+    fn is_deferred_type_reference_node(
+        &mut self,
+        node: Option<NodeId>,
+        has_default_type_arguments: bool,
+        constituents: impl FnOnce(&mut Self) -> bool,
+    ) -> bool {
+        let Some(node) = node else { return false };
+        if self.type_alias_host_for_type_node(node).is_some() {
+            return true;
+        }
+        self.is_resolved_by_type_alias(node) && (has_default_type_arguments || constituents(self))
+    }
+
+    /// `isResolvedByTypeAlias` (`checker.go:23257`): `node` is transitively
+    /// contained in type constructs that eagerly resolve their constituents,
+    /// up to a type alias declaration.
+    fn is_resolved_by_type_alias(&self, node: NodeId) -> bool {
+        let mut current = node;
+        while let Some(parent) = self.nodes.parent(current) {
+            match self.nodes.kind(parent) {
+                SyntaxKind::ParenthesizedType
+                | SyntaxKind::NamedTupleMember
+                | SyntaxKind::TypeReference
+                | SyntaxKind::UnionType
+                | SyntaxKind::IntersectionType
+                | SyntaxKind::IndexedAccessType
+                | SyntaxKind::ConditionalType
+                | SyntaxKind::TypeOperator
+                | SyntaxKind::ArrayType
+                | SyntaxKind::TupleType => current = parent,
+                SyntaxKind::TypeAliasDeclaration => return true,
+                _ => return false,
+            }
+        }
+        false
+    }
+
+    /// `mayResolveTypeAlias` (`checker.go:23271`): whether resolving `node`
+    /// possibly resolves a type alias.
+    fn may_resolve_type_alias(&mut self, node: TypeNode<'a>) -> bool {
+        match node {
+            TypeNode::TypeReferenceNode(reference) => {
+                let Some(name) = reference.type_name else { return false };
+                let Some(mut symbol) = self.resolve_entity_name(name, SymbolFlags::TYPE) else {
+                    return false;
+                };
+                if self.binder.symbols().get(symbol).flags.contains(SymbolFlags::ALIAS) {
+                    let Some(target) = self.resolve_alias(symbol) else { return false };
+                    symbol = self.binder.merged_symbol(target);
+                }
+                self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_ALIAS)
+            }
+            TypeNode::TypeQueryNode(_) => true,
+            TypeNode::TypeOperatorNode(operator) => {
+                operator.operator.kind != SyntaxKind::UniqueKeyword
+                    && operator.r#type.is_some_and(|inner| self.may_resolve_type_alias(inner))
+            }
+            TypeNode::ParenthesizedTypeNode(inner) => {
+                inner.r#type.is_some_and(|inner| self.may_resolve_type_alias(inner))
+            }
+            TypeNode::OptionalTypeNode(inner) => {
+                inner.r#type.is_some_and(|inner| self.may_resolve_type_alias(inner))
+            }
+            TypeNode::NamedTupleMember(member) => {
+                member.r#type.is_some_and(|inner| self.may_resolve_type_alias(inner))
+            }
+            TypeNode::RestTypeNode(rest) => match rest.r#type {
+                Some(TypeNode::ArrayTypeNode(array)) => {
+                    array.element_type.is_some_and(|element| self.may_resolve_type_alias(element))
+                }
+                Some(_) => true,
+                None => false,
+            },
+            TypeNode::UnionTypeNode(union) => {
+                union.types.iter().any(|&member| self.may_resolve_type_alias(member))
+            }
+            TypeNode::IntersectionTypeNode(intersection) => {
+                intersection.types.iter().any(|&member| self.may_resolve_type_alias(member))
+            }
+            TypeNode::IndexedAccessTypeNode(access) => {
+                access.object_type.is_some_and(|object| self.may_resolve_type_alias(object))
+                    || access.index_type.is_some_and(|index| self.may_resolve_type_alias(index))
+            }
+            TypeNode::ConditionalTypeNode(conditional) => [
+                conditional.check_type,
+                conditional.extends_type,
+                conditional.true_type,
+                conditional.false_type,
+            ]
+            .into_iter()
+            .flatten()
+            .any(|part| self.may_resolve_type_alias(part)),
+            _ => false,
+        }
+    }
+
+    fn get_type_from_type_node_worker(&mut self, node: TypeNode<'a>) -> TypeId {
         match node {
             TypeNode::KeywordTypeNode(keyword) => match keyword.kind {
                 SyntaxKind::AnyKeyword => self.intrinsics.any,
@@ -549,9 +725,16 @@ impl<'a> Checker<'a, '_> {
             TypeNode::JSDocNonNullableType(node) => node
                 .r#type
                 .map_or(self.intrinsics.error, |inner| self.get_type_from_type_node(inner)),
-            TypeNode::JSDocOptionalType(node) => node
-                .r#type
-                .map_or(self.intrinsics.error, |inner| self.get_type_from_type_node(inner)),
+            // `getTypeFromTypeNode`'s `KindJSDocOptionalType` arm
+            // (`checker.go:22826`): `addOptionality` of the inner type.
+            TypeNode::JSDocOptionalType(node) => {
+                let Some(inner) = node.r#type else { return self.intrinsics.error };
+                let inner = self.get_type_from_type_node(inner);
+                if inner == self.intrinsics.error || !self.strict_null_checks {
+                    return inner;
+                }
+                self.get_optional_type(inner, false)
+            }
             TypeNode::JSDocVariadicType(node) => {
                 let Some(inner) = node.r#type else { return self.intrinsics.error };
                 let element = self.get_type_from_type_node(inner);
@@ -1533,12 +1716,13 @@ impl<'a> Checker<'a, '_> {
                 // Acyclic alias targets (`exportNamespace9`'s
                 // `export type A = number` through a type-only star) resolve.
                 if self.binder.symbols().get(merged).flags.intersects(SymbolFlags::TYPE) {
-                    // The cycle test: a target whose OWN declared type is
-                    // already computing above this frame would answer the §29
-                    // name placeholder; `error` here is the pre-§491 answer,
-                    // which prints `any` through the same propagation it
-                    // always did (`circular2`'s four pinned lines).
-                    if self.resolutions.on_stack(merged, PropertyName::DeclaredType) {
+                    // The park: a target whose OWN declared type is already
+                    // computing above a lazily resolved construct would
+                    // answer the §29 name placeholder; `error` here is the
+                    // pre-§491 answer. A direct re-entry (`circular2`'s
+                    // `type A = B` / `type B = A`) is native's cycle and
+                    // reaches `getDeclaredTypeOfTypeAlias`'s failing push.
+                    if self.resolutions.deferred_since(merged, PropertyName::DeclaredType) {
                         return error;
                     }
                     let parameters = self.local_type_parameters_of(merged).len();
@@ -3594,7 +3778,19 @@ impl<'a> Checker<'a, '_> {
         // (`labeledStatementWithLabel{,_es2015,_strict}`,
         // `nonGenericTypeReferenceWithTypeArguments`).
         let mut current = host;
-        while let Some(parent) = self.nodes.parent(current) {
+        loop {
+            let Some(parent) = self.nodes.parent(current) else {
+                // JSDoc arm: the comment keeps no parent edge, and native's
+                // reparsed alias sits beside the comment's host
+                // (`reparseUnhosted`), so the walk continues from that host.
+                match self.jsdoc_hosts.get(&current) {
+                    Some(&jsdoc_host) if self.nodes.kind(current) == SyntaxKind::JSDoc => {
+                        current = jsdoc_host;
+                        continue;
+                    }
+                    _ => break,
+                }
+            };
             match self.nodes.kind(parent) {
                 SyntaxKind::LabeledStatement
                 | SyntaxKind::FunctionDeclaration
@@ -3635,7 +3831,19 @@ impl<'a> Checker<'a, '_> {
             }
             host = self.nodes.parent(host)?;
         }
-        (self.nodes.kind(host) == SyntaxKind::TypeAliasDeclaration).then_some(host)
+        match self.nodes.kind(host) {
+            // `isTypeAlias` admits native's reparsed `JSTypeAliasDeclaration`,
+            // whose `Type` is the typedef's `typeExpression.Type()` (the `{…}`
+            // wrapper dropped) or the callback's reparsed signature.
+            SyntaxKind::TypeAliasDeclaration
+            | SyntaxKind::JSDocTypedefTag
+            | SyntaxKind::JSDocCallbackTag => Some(host),
+            SyntaxKind::JSDocTypeExpression => self
+                .nodes
+                .parent(host)
+                .filter(|&tag| self.nodes.kind(tag) == SyntaxKind::JSDocTypedefTag),
+            _ => None,
+        }
     }
 
     /// A reference to a generic type: `C<number>`, `Tree<T>`.
@@ -5304,9 +5512,6 @@ impl<'a> Checker<'a, '_> {
         if !self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_ALIAS) {
             return None;
         }
-        if self.jsdoc_sibling_property_doc(symbol).is_some() {
-            return Some(symbol);
-        }
         let TypeNode::TypeLiteralNode(literal) = self.type_alias_body(symbol)? else { return None };
         self.binder.symbol_of(literal.node_id?)
     }
@@ -6345,47 +6550,7 @@ impl<'a> Checker<'a, '_> {
             return self.store.new_named(
                 TypeFlags::OBJECT,
                 format!("{name}<{}>", parameters.join(", ")),
-                self.jsdoc_sibling_property_doc(symbol).map(|_| symbol),
-            );
-        }
-        if let Some(doc) = self.jsdoc_sibling_property_doc(symbol) {
-            if self.resolutions.on_stack(symbol, PropertyName::DeclaredType) {
-                let name = self.binder.symbols().get(symbol).name.to_string();
-                return self.store.new_named(TypeFlags::OBJECT, name, Some(symbol));
-            }
-            if !self.resolutions.push(symbol, PropertyName::DeclaredType) {
-                return error;
-            }
-            let mut members = Vec::new();
-            for tag in doc.tags {
-                let tsr_ast::JSDocTag::JSDocParameterOrPropertyTag(property) = tag else {
-                    continue;
-                };
-                let Some(id) = property.node_id else { continue };
-                if self.nodes.kind(id) != SyntaxKind::JSDocPropertyTag {
-                    continue;
-                }
-                let Some(member) = self.binder.symbol_of(id) else { continue };
-                if self.binder.symbols().get(member).parent != Some(symbol) {
-                    continue;
-                }
-                let optional = self.is_optional_declaration(id);
-                let ty = self.get_type_of_symbol(member);
-                let displayed = if optional { self.remove_missing_type(ty) } else { ty };
-                members.push(crate::objects::Member::Property {
-                    name: self.binder.symbols().get(member).name.to_string(),
-                    optional,
-                    readonly: false,
-                    printed: self.type_to_string(displayed),
-                });
-            }
-            if !self.resolutions.pop() {
-                return error;
-            }
-            return self.store.new_named(
-                TypeFlags::OBJECT,
-                crate::objects::render_object_type(&members),
-                Some(symbol),
+                None,
             );
         }
         let Some(type_node) = self.type_alias_body(symbol) else { return error };
@@ -6402,11 +6567,13 @@ impl<'a> Checker<'a, '_> {
                 self.intrinsics.any
             };
         }
-        // §29: a mention of the alias inside its own resolution answers the
-        // memoized NAME placeholder — upstream's laziness, at the one seam
-        // print-at-creation permits. No failure marking, so the outer
-        // resolution completes.
-        if self.resolutions.on_stack(symbol, PropertyName::DeclaredType) {
+        // §29: a mention of the alias inside a construct native resolves
+        // lazily (`Resolutions::deferred_since`) answers the memoized NAME
+        // placeholder — upstream's laziness, at the one seam print-at-creation
+        // permits. No failure marking, so the outer resolution completes. Any
+        // other re-entry is native's cycle: the push below fails every frame
+        // from the alias onward.
+        if self.resolutions.deferred_since(symbol, PropertyName::DeclaredType) {
             if let Some(&placeholder) = self.alias_placeholders.get(&symbol) {
                 return placeholder;
             }
@@ -6426,7 +6593,7 @@ impl<'a> Checker<'a, '_> {
         // alias-name-on-anonymous-body question is its own bar.
         if Self::alias_body_has_const_type_parameter(type_node) {
             if !self.resolutions.pop() {
-                return error;
+                return self.report_type_alias_circularity(symbol);
             }
             let name = self.binder.symbols().get(symbol).name.to_string();
             let members = type_node.node_id().and_then(|id| self.binder.symbol_of(id));
@@ -6435,11 +6602,46 @@ impl<'a> Checker<'a, '_> {
         let resolved = self.get_type_from_type_node(type_node);
         if !self.resolutions.pop() {
             // A cycle closed below this frame, so the answer above was built on a
-            // partial one. Upstream reports "Type alias 0 circularly references
-            // itself" and answers `errorType`; the diagnostic is `bd tsr-5e7.6`.
-            return error;
+            // partial one.
+            return self.report_type_alias_circularity(symbol);
         }
         resolved
+    }
+
+    /// getDeclaredTypeOfTypeAlias's failed-pop arm (`checker.go:23837`):
+    /// "Type alias '{0}' circularly references itself" at the declaration's
+    /// name, answering `errorType`. Each failed frame reports once; the
+    /// memoized `declared_types` entry keeps the alias from failing again.
+    fn report_type_alias_circularity(&mut self, symbol: SymbolId) -> TypeId {
+        use tsr_diagnostics::{Diagnostic, messages};
+        let error = self.intrinsics.error;
+        let Some(declaration) =
+            self.binder.symbols().get(symbol).declarations.iter().copied().find(|&declaration| {
+                matches!(
+                    self.nodes.kind(declaration),
+                    SyntaxKind::TypeAliasDeclaration
+                        | SyntaxKind::JSDocTypedefTag
+                        | SyntaxKind::JSDocCallbackTag
+                )
+            })
+        else {
+            return error;
+        };
+        let at = self.declaration_name_of(declaration).unwrap_or(declaration);
+        let Some(file) = self.source_file_of_for_diagnostics(at) else { return error };
+        if !self.circularity_reported.insert(at) {
+            return error;
+        }
+        let name = self.binder.symbols().get(symbol).name.to_string();
+        self.report(
+            file,
+            Diagnostic::with_args(
+                &messages::TYPE_ALIAS_0_CIRCULARLY_REFERENCES_ITSELF,
+                self.error_span(at),
+                [name],
+            ),
+        );
+        error
     }
 
     /// The original, unmapped keyword body of one uniquely bound TS alias.
@@ -6499,12 +6701,14 @@ impl<'a> Checker<'a, '_> {
 
     /// The body of a written or JSDoc type alias.
     ///
-    /// Native reparses `@typedef {T} Name` as a `JSTypeAliasDeclaration`
-    /// before binding (`parser/reparser.go:62`), so
-    /// `getDeclaredTypeOfTypeAlias` reads its body through the same `Type()`
-    /// field as an ordinary alias. This port keeps the parsed JSDoc tag instead
-    /// of synthesising an AST declaration; this is the equivalent projection
-    /// at the checker boundary.
+    /// Native reparses `@typedef {T} Name` and `@callback Name` as a
+    /// `JSTypeAliasDeclaration` before binding (`reparseUnhosted`,
+    /// `parser/reparser.go:70`), whose `Type` is the typedef's written type,
+    /// its reparsed `@property` literal, or the callback's reparsed function
+    /// type; `getDeclaredTypeOfTypeAlias` reads it through the same `Type()`
+    /// field as an ordinary alias. This port's JSDoc parser already stores
+    /// that reparsed body on the tag, so this is the equivalent projection at
+    /// the checker boundary.
     pub(crate) fn type_alias_body(&self, symbol: SymbolId) -> Option<TypeNode<'a>> {
         let declarations = &self.binder.symbols().get(symbol).declarations;
         // A written alias wins in a merged symbol. Native's reparser creates a
@@ -6519,34 +6723,14 @@ impl<'a> Checker<'a, '_> {
         // merged in file locals by the direct binder. Do not pick one body for
         // all of them; their existing initializer fallback is scope-correct.
         let [declaration] = declarations.as_slice() else { return None };
-        let Some(Node::JSDocTypedefTag(typedef)) = self.node_map.get(*declaration) else {
-            return None;
-        };
-        let body = match typedef.type_expression? {
-            Node::JSDocTypeExpression(expression) => expression.r#type?,
-            node => TypeNode::try_from(node).ok()?,
-        };
-        // Complete inline bodies use ordinary type-literal evaluation. Sibling
-        // Object properties have a bound member owner instead, projected by
-        // jsdoc_sibling_property_doc; other primitive/function bodies keep
-        // declining rather than replacing stronger initializer inference.
-        matches!(body, TypeNode::TypeLiteralNode(_)).then_some(body)
-    }
-
-    /// The sibling object properties that the binder attached to this alias.
-    /// Merged written/local typedefs keep declining rather than mixing bodies.
-    pub(crate) fn jsdoc_sibling_property_doc(
-        &self,
-        symbol: SymbolId,
-    ) -> Option<&'a tsr_ast::JSDoc<'a>> {
-        let entry = self.binder.symbols().get(symbol);
-        let [declaration] = entry.declarations.as_slice() else { return None };
-        if !matches!(self.node_map.get(*declaration), Some(Node::JSDocTypedefTag(_)))
-            || entry.members.is_empty()
-        {
-            return None;
+        match self.node_map.get(*declaration)? {
+            Node::JSDocTypedefTag(typedef) => match typedef.type_expression? {
+                Node::JSDocTypeExpression(expression) => expression.r#type,
+                node => TypeNode::try_from(node).ok(),
+            },
+            Node::JSDocCallbackTag(callback) => callback.type_expression,
+            _ => None,
         }
-        self.jsdoc_alias_doc(symbol)
     }
 
     /// §33: whether an alias body is a function type, constructor type, or
@@ -6611,13 +6795,18 @@ impl<'a> Checker<'a, '_> {
         // enums, type parameters and aliases, whose symbol name IS their
         // declaration name in every case reached today, and each is its own
         // question rather than this one repeated.
+        //
+        // The FIRST NAMED declaration, not the first declaration:
+        // `getNameOfSymbolAsWritten` (`nodebuilderimpl.go:973`) takes
+        // `core.FirstNonNil(symbol.Declarations, ast.GetNameOfDeclaration)`.
+        // `export default function() {}` beside `export default interface A
+        // {}` merges into one `default` whose first declaration is nameless.
         let symbols = self.binder.symbols();
         let declared_name = symbols
             .get(symbol)
             .declarations
-            .first()
-            .and_then(|&declaration| self.node_map.get(declaration))
-            .and_then(|node| node.name_id())
+            .iter()
+            .find_map(|&declaration| self.node_map.get(declaration)?.name_id())
             .and_then(|id| self.node_map.get(id))
             .and_then(|node| match node {
                 tsr_ast::Node::Identifier(identifier) => Some(identifier.text.to_string()),
@@ -8228,7 +8417,9 @@ impl<'a> Checker<'a, '_> {
             Some(Node::ClassExpression(node)) => node.type_parameters,
             Some(Node::InterfaceDeclaration(node)) => node.type_parameters,
             Some(Node::TypeAliasDeclaration(node)) => node.type_parameters,
-            Some(Node::JSDocTypedefTag(_)) => self
+            // `gatherTypeParameters(jsDoc, typedefOrCallback=true)`
+            // (`parser/reparser.go:293`): the comment's `@template` tags.
+            Some(Node::JSDocTypedefTag(_) | Node::JSDocCallbackTag(_)) => self
                 .jsdoc_alias_doc(symbol)
                 .and_then(|doc| {
                     doc.tags.iter().find_map(|tag| match tag {
@@ -8243,26 +8434,23 @@ impl<'a> Checker<'a, '_> {
         }
     }
 
-    /// The original JSDoc block whose typedef tag declares `symbol`.
-    ///
-    /// Native's reparser makes this association structural by parenting the
-    /// gathered template/property nodes under a synthetic alias. The immutable
-    /// source AST keeps tags flat, so recover the same association from the
-    /// sparse host table, requiring the alias declaration's exact node id.
+    /// The JSDoc comment whose `@typedef`/`@callback` tag declares `symbol` —
+    /// the tag's parent, as in native's tree, where the reparsed alias also
+    /// gathers that comment's `@template` tags.
     fn jsdoc_alias_doc(&self, symbol: SymbolId) -> Option<&'a tsr_ast::JSDoc<'a>> {
         let declaration = self.binder.symbols().get(symbol).declarations.first().copied()?;
-        // Only a typedef declaration can match a typedef tag's exact node id.
         // Native narrows this visibility branch by declaration kind before
         // following its structural JSDoc parents (emitresolver.go:128-135).
-        if !matches!(self.node_map.get(declaration), Some(Node::JSDocTypedefTag(_))) {
+        if !matches!(
+            self.node_map.get(declaration),
+            Some(Node::JSDocTypedefTag(_) | Node::JSDocCallbackTag(_))
+        ) {
             return None;
         }
-        self.jsdoc_entries.values().flat_map(|docs| docs.iter().copied()).find(|doc| {
-            doc.tags.iter().any(|tag| match tag {
-                tsr_ast::JSDocTag::JSDocTypedefTag(tag) => tag.node_id == Some(declaration),
-                _ => false,
-            })
-        })
+        match self.node_map.get(self.nodes.parent(declaration)?) {
+            Some(Node::JSDoc(doc)) => Some(doc),
+            _ => None,
+        }
     }
 
     /// `EmitResolver.determineIfDeclarationIsVisible`'s JSDoc typedef arm

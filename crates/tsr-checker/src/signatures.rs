@@ -1493,6 +1493,10 @@ impl<'a> Checker<'a, '_> {
         }
         let mut parameters: Vec<Parameter> = Vec::with_capacity(parameter_nodes.len());
         let mut min_argument_count = 0;
+        // `getImmediatelyInvokedFunctionExpression`: an unannotated parameter
+        // past the invoking call's arguments is optional
+        // (`getSignatureFromDeclaration`, `checker.go:19836`).
+        let iife_arguments = self.immediately_invoked_argument_count(declaration);
         for (index, node) in parameter_nodes.iter().enumerate() {
             let mut parameter = self.parameter_of(node)?;
             // §110 slice 2: an unannotated JS parameter takes its `@param`
@@ -1522,7 +1526,9 @@ impl<'a> Checker<'a, '_> {
             let syntactically_optional = node.question_token.is_some()
                 || node.initializer.is_some()
                 || node.dot_dot_dot_token.is_some()
-                || parameter.optional;
+                || parameter.optional
+                || iife_arguments
+                    .is_some_and(|count| parameters.len() + 1 > count && node.r#type.is_none());
             parameters.push(parameter);
             if !syntactically_optional {
                 min_argument_count = parameters.len();
@@ -1542,6 +1548,10 @@ impl<'a> Checker<'a, '_> {
                 slot.optional = true;
             } else if node.initializer.is_some() {
                 slot.optional = index >= min_argument_count;
+            } else if let Some(count) = iife_arguments {
+                // `isOptionalParameter`'s IIFE arm.
+                slot.optional =
+                    node.r#type.is_none() && node.dot_dot_dot_token.is_none() && index >= count;
             }
         }
 
@@ -4656,6 +4666,40 @@ impl<'a> Checker<'a, '_> {
 
     /// One parameter, or `None` for a form whose printed name this port cannot
     /// reproduce.
+    /// `len(iife.Arguments())` for `ast.GetImmediatelyInvokedFunctionExpression`
+    /// (`ast/utilities.go:1853`): a function expression or arrow, through
+    /// parentheses, that is the callee of a call.
+    fn immediately_invoked_argument_count(&self, declaration: NodeId) -> Option<usize> {
+        if !matches!(
+            self.nodes.kind(declaration),
+            SyntaxKind::FunctionExpression | SyntaxKind::ArrowFunction
+        ) {
+            return None;
+        }
+        let mut previous = declaration;
+        let mut parent = self.nodes.parent(declaration)?;
+        while self.nodes.kind(parent) == SyntaxKind::ParenthesizedExpression {
+            previous = parent;
+            parent = self.nodes.parent(parent)?;
+        }
+        match self.node_map.get(parent)? {
+            // A spread argument makes the two upstream counts differ: the
+            // signature's minimum reads `len(iife.Arguments())`, while
+            // `isOptionalParameter` (`utilities.go:303`), which prints the
+            // `?`, reads the tuple-expanded `getEffectiveCallArguments`. One
+            // `optional` flag cannot carry both, so a spread keeps neither.
+            Node::CallExpression(call)
+                if call.expression.and_then(|callee| callee.node_id()) == Some(previous)
+                    && !call.arguments.iter().any(|argument| {
+                        matches!(argument, tsr_ast::Expression::SpreadElement(_))
+                    }) =>
+            {
+                Some(call.arguments.len())
+            }
+            _ => None,
+        }
+    }
+
     fn parameter_of(&mut self, node: &ParameterDeclaration<'a>) -> Option<Parameter> {
         let name_text: String = match node.name {
             Some(tsr_ast::BindingName::Identifier(name)) => name.text.to_string(),
@@ -5897,16 +5941,6 @@ impl<'a> Checker<'a, '_> {
     /// an accessor's type comes from `getTypeOfAccessors`, a constructor's from
     /// the class, and the three signature members are reached through a type
     /// literal rather than through a symbol's type.
-    /// Whether `id` is a function-like declaration (or class) that declares
-    /// its own type parameters — a generic context.
-    pub(crate) fn declares_type_parameters(&self, id: NodeId) -> bool {
-        self.signature_parts_of(id).is_some_and(|parts| !parts.type_parameters.is_empty())
-            || matches!(self.node_map.get(id),
-                Some(Node::ClassDeclaration(class)) if !class.type_parameters.is_empty())
-            || matches!(self.node_map.get(id),
-                Some(Node::ClassExpression(class)) if !class.type_parameters.is_empty())
-    }
-
     fn signature_parts_of(&self, id: NodeId) -> Option<SignatureParts<'a>> {
         match self.node_map.get(id)? {
             Node::FunctionDeclaration(node) => Some(SignatureParts {

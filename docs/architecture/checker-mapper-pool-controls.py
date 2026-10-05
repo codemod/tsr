@@ -64,10 +64,11 @@ def peak(intervals):
     return maximum
 
 
-def inspect_trace(path, child, counters, cwd):
+def inspect_trace(path, child, counters, cwd, *, schema="mapper-pool-v1",
+                  max_suffixes=("_max_key_items",)):
     require(not child["timed_out"] and child["exit_code"] in (0, 1), "incomplete child")
     rows = lines(path)
-    require(rows[0] == ["schema", "mapper-pool-v1"], "trace version")
+    require(rows[0] == ["schema", schema], "trace version")
     header = rows[1]
     require(len(header) == 5 and header[0] == "process", "trace header")
     pid, count, enabled, epoch = map(int, header[1:])
@@ -128,7 +129,7 @@ def inspect_trace(path, child, counters, cwd):
         require(all(set(x["counters"]) == set(observed) for x in owners), "incomplete owner counters")
         for name, value in observed.items():
             values = [x["counters"][name] for x in owners]
-            expected = max(values) if name.endswith("_max_key_items") else sum(values)
+            expected = max(values) if name.endswith(max_suffixes) else sum(values)
             require(value == expected, "owner/global reconciliation differs")
     require(len({x["index"] for x in checks}) == len(checks), "cross-owner duplicate check")
     checks.sort(key=lambda x: x["index"])

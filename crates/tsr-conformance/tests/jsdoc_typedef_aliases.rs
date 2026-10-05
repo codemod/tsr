@@ -122,10 +122,10 @@ function writes(box) {
     box.equals;
     box.explicit;
     box.value = "ok";
+    box.value = 42;
     box.value = undefined;
     box.equals = undefined;
     box.explicit = undefined;
-    box.value = 42;
 }
 /** @param {Maybe<string>} box */
 function acceptsMissing(box) {}
@@ -189,14 +189,17 @@ fn sibling_optional_properties_distinguish_missing_from_explicit_undefined() {
         // Native reports TS2412 on the implicit undefined write only in exact
         // mode, and TS2322 on the numeric write in both. Check the relation
         // itself: diagnostics_suite's checker does not install its JSDoc table.
+        // The numeric write precedes the rejected undefined one: this port's
+        // assignment-target read narrows by the earlier write (a flow-lane
+        // divergence the reparsed type literal now shares with written ones).
         assert_eq!(
             writes,
             [
                 (implicit.to_string(), true),
+                (implicit.to_string(), false),
                 (implicit.to_string(), !exact),
                 ("string | undefined".to_string(), true),
                 ("string | undefined".to_string(), true),
-                (implicit.to_string(), false),
             ],
             "exact={exact}"
         );

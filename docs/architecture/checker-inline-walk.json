@@ -1,0 +1,946 @@
+{
+  "schema": "checker-inline-walk-v1",
+  "task": "tsr-1yb.7.3.1",
+  "outcome": "rejected; canonical runtime unchanged",
+  "source": "77e099605c7602f9ce785938739e083bbc60c398",
+  "native_source": "5b1047d10d32e7d5b446be4de56b126ff42f82bb",
+  "native_binary_sha256": "b3cd1909b5dbc6582681e0a9d2641c7eefd9b7b6c3401cfad82b5e8b935b8033",
+  "root": "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-inline-walk-z3udhbxa",
+  "forecast": {
+    "workload": "complete local Next.js default/single checks",
+    "baseline": "77e099605c7602f9ce785938739e083bbc60c398",
+    "evidence": "Current inference.rs bytes match qualified1b graph audit:1.03M/1.29M scratch events,19.96MB/26.28MB requested,771803/862848roots with1..4markers; ordinary graph owner73/87sampled observations. Concurrent iteration code may change request traffic, so actual allocation reduction will be remeasured.",
+    "expected_benefit": "Whole-CLI wall benefit unknown; remove the initial16B Vec allocation for marker-owning roots, including short roots, plus initial allocation before larger spill. Two independent ordinary five-pair rounds are the cheapest causal test.",
+    "confidence": "high for bounded allocation removal, low for whole-CLI wall until measured",
+    "cost_and_risk": "one query-local inference.rs representation; preserve parameter-before-cycle checks, exactordered markers, all edges andfallback; no semantic memo/dependency"
+  },
+  "frozen_gates": {
+    "rounds": 2,
+    "pairs_per_round": 5,
+    "modes": [
+      "default",
+      "single"
+    ],
+    "minimum_median_wall_improvement_seconds": 0.02,
+    "maximum_median_rss_growth_fraction": 0.05,
+    "complete_output_scope_equal": true,
+    "no_previous_right_full_corpus_losses": true
+  },
+  "source_original_sha256": {
+    "crates/tsr-checker/src/lib.rs": "c2674eb95e32ba05aee957ee96362f22062a3a432cb2843853940d64e34a2b3d",
+    "crates/tsr-checker/src/checker.rs": "f499b9e3c9e7266115d42714107e61e07ea0ec3eddc4b8d4c10347d8cb30b9f4",
+    "crates/tsr-checker/src/inference.rs": "8db9b642672af5f0f91e07239358394e2a42fb59afdbcc2cb8a54fc56b8326e1",
+    "crates/tsr-execute/src/checker_pool.rs": "b2089d463ad37c3746dcd32f22407954686a0afc12dbfff9216144b11980e772"
+  },
+  "candidate_source_sha256": {
+    "crates/tsr-checker/src/inference.rs": "ec690043bc2b9ed3fa84c7964adae3f320aee399e157d8d8ffa63ff2d9679394"
+  },
+  "observer_source_sha256": {
+    "crates/tsr-checker/src/inference.rs": "26b8002aaf215aab843d6fd292eaaf324e89baea5751af8495ceb6666c91a355",
+    "crates/tsr-checker/src/checker.rs": "cc6c1169250af7ddcd568858784b21bdd191b60792843a2162aa80553b7489a6",
+    "crates/tsr-checker/src/lib.rs": "29c710ef8003c8475adc7040f0df4aca597f4fbb58b92dc248361f3885d31e28",
+    "crates/tsr-execute/src/checker_pool.rs": "4ebeaafc4deb3c74daf53cc9fa23969a96c60a49437308239cd22de259dd5120",
+    "crates/tsr-checker/src/graph_walk_probe.rs": "9716251fd9aa5f3e2834ad63cb12e530aae38746d257c516bfe3fda9f3b2b0da"
+  },
+  "binaries": {
+    "normal": {
+      "command": [
+        "cargo",
+        "build",
+        "--release",
+        "--offline",
+        "-p",
+        "tsr",
+        "-p",
+        "tsr-conformance",
+        "--bin",
+        "tsr",
+        "--example",
+        "verdictdump",
+        "--example",
+        "diagverdictdump",
+        "-j",
+        "2"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 42.0413240409689,
+      "source": "77e099605c7602f9ce785938739e083bbc60c398",
+      "binary": {
+        "path": "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-inline-walk-z3udhbxa/normal-tsr",
+        "sha256": "bab6cd1bac0bb3a2ec50b5b3e455fe88dc50a7079ed6e3b6613ee33f51ac9460"
+      },
+      "examples": {
+        "verdictdump": {
+          "path": "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-inline-walk-z3udhbxa/normal-verdictdump",
+          "sha256": "ad3807b9d416fc830f0ad9f48e6e984255b5e6c21e1f59be98c1f42cb5b65510"
+        },
+        "diagverdictdump": {
+          "path": "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-inline-walk-z3udhbxa/normal-diagverdictdump",
+          "sha256": "b596fd52c763af7fb3231767b332080aa5b4206ce64ca007563dde7e8f3b4257"
+        }
+      }
+    },
+    "candidate-qualified": {
+      "command": [
+        "cargo",
+        "build",
+        "--release",
+        "--offline",
+        "-p",
+        "tsr",
+        "-p",
+        "tsr-conformance",
+        "--bin",
+        "tsr",
+        "--example",
+        "verdictdump",
+        "--example",
+        "diagverdictdump",
+        "-j",
+        "2"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 39.00432829197962,
+      "source": "77e099605c7602f9ce785938739e083bbc60c398",
+      "binary": {
+        "path": "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-inline-walk-z3udhbxa/candidate-qualified-tsr",
+        "sha256": "3e2f1b4fb8f57269f69d281907f57047764d71632fa173a70705bddb14f564dd"
+      },
+      "examples": {
+        "verdictdump": {
+          "path": "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-inline-walk-z3udhbxa/candidate-qualified-verdictdump",
+          "sha256": "01a9ac9b99e01dc85df6c5cf86bb68ee693aa7a585e2445301012c30610ab68b"
+        },
+        "diagverdictdump": {
+          "path": "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-inline-walk-z3udhbxa/candidate-qualified-diagverdictdump",
+          "sha256": "832dc8d1cafd5694b087046fd63bb671ceeb18068c03e5c011f51d1b6890e529"
+        }
+      }
+    },
+    "probe-normal": {
+      "command": [
+        "cargo",
+        "build",
+        "--release",
+        "--offline",
+        "-p",
+        "tsr",
+        "-p",
+        "tsr-conformance",
+        "--bin",
+        "tsr",
+        "--example",
+        "verdictdump",
+        "--example",
+        "diagverdictdump",
+        "-j",
+        "2"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 31.776040041993838,
+      "source": "77e099605c7602f9ce785938739e083bbc60c398",
+      "binary": {
+        "path": "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-inline-walk-z3udhbxa/probe-normal-tsr",
+        "sha256": "a0487c4296f3cc29ee49a0d5bd9de0e28358d9d6cc5d7da12b4857d8f1ba4cc3"
+      },
+      "examples": {
+        "verdictdump": {
+          "path": "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-inline-walk-z3udhbxa/probe-normal-verdictdump",
+          "sha256": "595327bd0ea9816b20f6e9abd859fc70d756b010d7916111a34cc9e9462770f3"
+        },
+        "diagverdictdump": {
+          "path": "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-inline-walk-z3udhbxa/probe-normal-diagverdictdump",
+          "sha256": "7dfe95fba3da7e037c1a6985164daf12f0761feb1e15f8d1b725ab24518db60b"
+        }
+      }
+    },
+    "probe-candidate-qualified": {
+      "command": [
+        "cargo",
+        "build",
+        "--release",
+        "--offline",
+        "-p",
+        "tsr",
+        "-p",
+        "tsr-conformance",
+        "--bin",
+        "tsr",
+        "--example",
+        "verdictdump",
+        "--example",
+        "diagverdictdump",
+        "-j",
+        "2"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 46.43884545803303,
+      "source": "77e099605c7602f9ce785938739e083bbc60c398",
+      "binary": {
+        "path": "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-inline-walk-z3udhbxa/probe-candidate-qualified-tsr",
+        "sha256": "9cc3d6e075990275951677e69d5cb0ba0d1800b636bf437c074b4e2bc0aa5738"
+      },
+      "examples": {
+        "verdictdump": {
+          "path": "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-inline-walk-z3udhbxa/probe-candidate-qualified-verdictdump",
+          "sha256": "2fe55fb97eced4def7db510947b857527fc5ef0849d339c2afc5bcdc97f7c831"
+        },
+        "diagverdictdump": {
+          "path": "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-inline-walk-z3udhbxa/probe-candidate-qualified-diagverdictdump",
+          "sha256": "5d86c871b1b95fd600cf9c70eaf0c91510a59928c5e160a194addc57b9bca3e9"
+        }
+      }
+    }
+  },
+  "allocation_comparison": {
+    "default": {
+      "semantic_global_and_owner_counts_equal": true,
+      "all_direct_checked_identities_equal": true,
+      "all_complete_output_equal": true,
+      "observed_physical_inputs_equal": true,
+      "baseline": {
+        "roots": 1465258,
+        "explicit_roots": 1409700,
+        "registry_roots": 55558,
+        "true_roots": 381385,
+        "false_roots": 1083873,
+        "visits": 5588726,
+        "edges": 4123468,
+        "unique_visits": 4837749,
+        "duplicate_visits": 750977,
+        "explicit_parameter_tests": 5208911,
+        "registry_parameter_tests": 379815,
+        "explicit_parameter_comparisons": 11322693,
+        "parameter_hits": 377969,
+        "visited_tests": 5210757,
+        "visited_comparisons": 14227873,
+        "visited_hits": 169795,
+        "markers": 2126845,
+        "terminal_leaves": 2914117,
+        "fallbacks": 301616,
+        "fallback_payload_bytes": 3932713,
+        "empty_names_fallbacks": 189795,
+        "scratch_allocations": 1046289,
+        "scratch_requested_bytes": 20277776,
+        "scratch_usable_bytes": 20277776,
+        "printing_allocations": 301616,
+        "printing_requested_bytes": 3932713,
+        "printing_usable_bytes": 6440560,
+        "root_capacity_sum": 4336228,
+        "max_visited": 50,
+        "max_capacity": 64,
+        "roots_visited_0": 564505,
+        "roots_visited_1_4": 788355,
+        "roots_visited_5_16": 110218,
+        "roots_visited_17_64": 2180,
+        "roots_visited_65_256": 0,
+        "roots_visited_over_256": 0
+      },
+      "candidate": {
+        "roots": 1465258,
+        "explicit_roots": 1409700,
+        "registry_roots": 55558,
+        "true_roots": 381385,
+        "false_roots": 1083873,
+        "visits": 5588726,
+        "edges": 4123468,
+        "unique_visits": 4837749,
+        "duplicate_visits": 750977,
+        "explicit_parameter_tests": 5208911,
+        "registry_parameter_tests": 379815,
+        "explicit_parameter_comparisons": 11322693,
+        "parameter_hits": 377969,
+        "visited_tests": 5210757,
+        "visited_comparisons": 14227873,
+        "visited_hits": 169795,
+        "markers": 2126845,
+        "terminal_leaves": 2914117,
+        "fallbacks": 301616,
+        "fallback_payload_bytes": 3932713,
+        "empty_names_fallbacks": 189795,
+        "scratch_allocations": 145536,
+        "scratch_requested_bytes": 5865728,
+        "scratch_usable_bytes": 5865728,
+        "printing_allocations": 301616,
+        "printing_requested_bytes": 3932713,
+        "printing_usable_bytes": 6440560,
+        "root_capacity_sum": 1182808,
+        "max_visited": 50,
+        "max_capacity": 64,
+        "roots_visited_0": 564505,
+        "roots_visited_1_4": 788355,
+        "roots_visited_5_16": 110218,
+        "roots_visited_17_64": 2180,
+        "roots_visited_65_256": 0,
+        "roots_visited_over_256": 0
+      },
+      "removed_allocations": 900753,
+      "removed_requested_bytes": 14412048,
+      "capacity_fields": "heap backing; candidate inline stack slots excluded",
+      "copied_bytes_measured": false,
+      "rss_reduction_proved": false,
+      "source": "77e099605c7602f9ce785938739e083bbc60c398"
+    },
+    "single": {
+      "semantic_global_and_owner_counts_equal": true,
+      "all_direct_checked_identities_equal": true,
+      "all_complete_output_equal": true,
+      "observed_physical_inputs_equal": true,
+      "baseline": {
+        "roots": 1705377,
+        "explicit_roots": 1663929,
+        "registry_roots": 41448,
+        "true_roots": 317402,
+        "false_roots": 1387975,
+        "visits": 7467749,
+        "edges": 5762372,
+        "unique_visits": 6250758,
+        "duplicate_visits": 1216991,
+        "explicit_parameter_tests": 7254279,
+        "registry_parameter_tests": 213470,
+        "explicit_parameter_comparisons": 13162306,
+        "parameter_hits": 315360,
+        "visited_tests": 7152389,
+        "visited_comparisons": 22757322,
+        "visited_hits": 292381,
+        "markers": 2845304,
+        "terminal_leaves": 4014704,
+        "fallbacks": 421424,
+        "fallback_payload_bytes": 5455994,
+        "empty_names_fallbacks": 327844,
+        "scratch_allocations": 1305843,
+        "scratch_requested_bytes": 26626544,
+        "scratch_usable_bytes": 26626544,
+        "printing_allocations": 421424,
+        "printing_requested_bytes": 5455994,
+        "printing_usable_bytes": 8885728,
+        "root_capacity_sum": 5462720,
+        "max_visited": 50,
+        "max_capacity": 64,
+        "roots_visited_0": 638176,
+        "roots_visited_1_4": 880546,
+        "roots_visited_5_16": 183006,
+        "roots_visited_17_64": 3649,
+        "roots_visited_65_256": 0,
+        "roots_visited_over_256": 0
+      },
+      "candidate": {
+        "roots": 1705377,
+        "explicit_roots": 1663929,
+        "registry_roots": 41448,
+        "true_roots": 317402,
+        "false_roots": 1387975,
+        "visits": 7467749,
+        "edges": 5762372,
+        "unique_visits": 6250758,
+        "duplicate_visits": 1216991,
+        "explicit_parameter_tests": 7254279,
+        "registry_parameter_tests": 213470,
+        "explicit_parameter_comparisons": 13162306,
+        "parameter_hits": 315360,
+        "visited_tests": 7152389,
+        "visited_comparisons": 22757322,
+        "visited_hits": 292381,
+        "markers": 2845304,
+        "terminal_leaves": 4014704,
+        "fallbacks": 421424,
+        "fallback_payload_bytes": 5455994,
+        "empty_names_fallbacks": 327844,
+        "scratch_allocations": 238642,
+        "scratch_requested_bytes": 9551328,
+        "scratch_usable_bytes": 9551328,
+        "printing_allocations": 421424,
+        "printing_requested_bytes": 5455994,
+        "printing_usable_bytes": 8885728,
+        "root_capacity_sum": 1940536,
+        "max_visited": 50,
+        "max_capacity": 64,
+        "roots_visited_0": 638176,
+        "roots_visited_1_4": 880546,
+        "roots_visited_5_16": 183006,
+        "roots_visited_17_64": 3649,
+        "roots_visited_65_256": 0,
+        "roots_visited_over_256": 0
+      },
+      "removed_allocations": 1067201,
+      "removed_requested_bytes": 17075216,
+      "capacity_fields": "heap backing; candidate inline stack slots excluded",
+      "copied_bytes_measured": false,
+      "rss_reduction_proved": false,
+      "source": "77e099605c7602f9ce785938739e083bbc60c398"
+    }
+  },
+  "allocation_prediction": {
+    "default": {
+      "assumption": "remove first four-TypeId Vec allocation for every root with a marker; TypeId4B, later spill/growth layouts unchanged",
+      "predicted_removed_allocations": 900753,
+      "predicted_removed_requested_bytes": 14412048,
+      "prediction_is_not_observation": true
+    },
+    "single": {
+      "assumption": "remove first four-TypeId Vec allocation for every root with a marker; TypeId4B, later spill/growth layouts unchanged",
+      "predicted_removed_allocations": 1067201,
+      "predicted_removed_requested_bytes": 17075216,
+      "prediction_is_not_observation": true
+    }
+  },
+  "corpus": {
+    "source": "77e099605c7602f9ce785938739e083bbc60c398",
+    "children": [
+      {
+        "mode": "normal",
+        "kind": "types",
+        "pid": 72240,
+        "status": "complete",
+        "binary_sha256": "ad3807b9d416fc830f0ad9f48e6e984255b5e6c21e1f59be98c1f42cb5b65510",
+        "exit_code": 0,
+        "wall_seconds": 32.543567417014856,
+        "stdout_sha256": "d1d199700b5207d39999298102414613d502482ea4d0f58863ae975accdaa740",
+        "stderr_sha256": "fce575ae175dc6dd6a50b3f7d300220e7581d9c0e9bbd8a72fdbb193c6dc0586",
+        "rows": 476787,
+        "counts": {
+          "RIGHT": 465643,
+          "WRONG": 9621,
+          "GAP": 1523
+        },
+        "unfiltered": true
+      },
+      {
+        "mode": "normal",
+        "kind": "diagnostics",
+        "pid": 72292,
+        "status": "complete",
+        "binary_sha256": "b596fd52c763af7fb3231767b332080aa5b4206ce64ca007563dde7e8f3b4257",
+        "exit_code": 0,
+        "wall_seconds": 73.2353150830022,
+        "stdout_sha256": "ae3a9084b3bf70e0f47850fdacec01563817d3180bddf565b0480332db99b412",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "rows": 10570,
+        "counts": {
+          "EMPTY_RIGHT": 4894,
+          "RIGHT": 3427,
+          "WRONG": 2061,
+          "EMPTY_WRONG": 188
+        },
+        "unfiltered": true
+      },
+      {
+        "mode": "candidate",
+        "kind": "types",
+        "pid": 76391,
+        "status": "complete",
+        "binary_sha256": "340466ab330cc2027945e16718bf4dc21038ea99987446bf8a31309d3c62e72f",
+        "exit_code": 0,
+        "wall_seconds": 31.964797166991048,
+        "stdout_sha256": "d1d199700b5207d39999298102414613d502482ea4d0f58863ae975accdaa740",
+        "stderr_sha256": "fce575ae175dc6dd6a50b3f7d300220e7581d9c0e9bbd8a72fdbb193c6dc0586",
+        "rows": 476787,
+        "counts": {
+          "RIGHT": 465643,
+          "WRONG": 9621,
+          "GAP": 1523
+        },
+        "unfiltered": true,
+        "byte_identical": true,
+        "previous_right_losses": 0
+      },
+      {
+        "mode": "candidate",
+        "kind": "diagnostics",
+        "pid": 76629,
+        "status": "complete",
+        "binary_sha256": "e41ea512a16fa185966ecd8eccb1ec3179f3bd253d79a76759bbbadbff5a8511",
+        "exit_code": 0,
+        "wall_seconds": 65.19256400002632,
+        "stdout_sha256": "ae3a9084b3bf70e0f47850fdacec01563817d3180bddf565b0480332db99b412",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "rows": 10570,
+        "counts": {
+          "EMPTY_RIGHT": 4894,
+          "RIGHT": 3427,
+          "WRONG": 2061,
+          "EMPTY_WRONG": 188
+        },
+        "unfiltered": true,
+        "byte_identical": true,
+        "previous_right_losses": 0
+      },
+      {
+        "mode": "candidate-qualified",
+        "kind": "types",
+        "pid": 82158,
+        "status": "complete",
+        "binary_sha256": "01a9ac9b99e01dc85df6c5cf86bb68ee693aa7a585e2445301012c30610ab68b",
+        "exit_code": 0,
+        "wall_seconds": 50.499000041978434,
+        "stdout_sha256": "d1d199700b5207d39999298102414613d502482ea4d0f58863ae975accdaa740",
+        "stderr_sha256": "fce575ae175dc6dd6a50b3f7d300220e7581d9c0e9bbd8a72fdbb193c6dc0586",
+        "rows": 476787,
+        "counts": {
+          "RIGHT": 465643,
+          "WRONG": 9621,
+          "GAP": 1523
+        },
+        "unfiltered": true,
+        "byte_identical": true,
+        "previous_right_losses": 0
+      },
+      {
+        "mode": "candidate-qualified",
+        "kind": "diagnostics",
+        "pid": 82660,
+        "status": "complete",
+        "binary_sha256": "832dc8d1cafd5694b087046fd63bb671ceeb18068c03e5c011f51d1b6890e529",
+        "exit_code": 0,
+        "wall_seconds": 82.46808474999852,
+        "stdout_sha256": "ae3a9084b3bf70e0f47850fdacec01563817d3180bddf565b0480332db99b412",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "rows": 10570,
+        "counts": {
+          "EMPTY_RIGHT": 4894,
+          "RIGHT": 3427,
+          "WRONG": 2061,
+          "EMPTY_WRONG": 188
+        },
+        "unfiltered": true,
+        "byte_identical": true,
+        "previous_right_losses": 0
+      }
+    ]
+  },
+  "quality": {
+    "strict_clippy": {
+      "command": [
+        "cargo",
+        "clippy",
+        "--release",
+        "--offline",
+        "-p",
+        "tsr-checker",
+        "-p",
+        "tsr-execute",
+        "--lib",
+        "--tests",
+        "-j",
+        "2",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 16.48293250001734,
+      "source": "77e099605c7602f9ce785938739e083bbc60c398"
+    },
+    "checker_suite": {
+      "blocks": 101,
+      "passed": 1493,
+      "failed": 0,
+      "ignored": 3,
+      "candidate_source_sha256": "ec690043bc2b9ed3fa84c7964adae3f320aee399e157d8d8ffa63ff2d9679394"
+    }
+  },
+  "format": {
+    "command": [
+      "rustfmt",
+      "--check",
+      "--edition",
+      "2024",
+      "--config-path",
+      "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-inline-walk-z3udhbxa/source/rustfmt.toml",
+      "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-inline-walk-z3udhbxa/candidate-ordinary/crates/tsr-checker/src/inference.rs"
+    ],
+    "source_sha256": "ec690043bc2b9ed3fa84c7964adae3f320aee399e157d8d8ffa63ff2d9679394",
+    "exit_code": 0,
+    "stdout": "",
+    "stderr": ""
+  },
+  "probe_controls": {
+    "command": [
+      "cargo",
+      "test",
+      "--release",
+      "--offline",
+      "-p",
+      "tsr-checker",
+      "--lib",
+      "graph_walk_probe::tests",
+      "-j",
+      "2",
+      "--",
+      "--test-threads=1"
+    ],
+    "exit_code": 0,
+    "wall_seconds": 44.45247670804383,
+    "source": "77e099605c7602f9ce785938739e083bbc60c398"
+  },
+  "initial_mutation": {
+    "mutation": "unused slots treated as cycle markers",
+    "detected": true,
+    "original_sha256": "d3c8bddc014531c3e7114bc353c5c547b3dfd24f401f355cd8dab29ea880bff4",
+    "restored_sha256": "d3c8bddc014531c3e7114bc353c5c547b3dfd24f401f355cd8dab29ea880bff4"
+  },
+  "qualification_change": "contains receives four-byte TypeId by value; initial binaries and receipts preserved separately",
+  "public_controls": {
+    "receipt": "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-inline-walk-z3udhbxa/public-qualified/receipt.json",
+    "complete": true,
+    "cases": [
+      {
+        "name": "signature-repeat-32",
+        "input_sha256": "c90632cf7ead1fc5f37215176647a0f3fe1a623b3d3d447ee3564ee6ef767e5d",
+        "native": [
+          {
+            "mode": "default",
+            "exit_code": 0,
+            "diagnostic_count": 0,
+            "diagnostic_fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "full_diagnostics_match": true
+          },
+          {
+            "mode": "single",
+            "exit_code": 0,
+            "diagnostic_count": 0,
+            "diagnostic_fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "full_diagnostics_match": true
+          }
+        ]
+      },
+      {
+        "name": "ordered-arguments-negative",
+        "input_sha256": "c92145e48cbf90259574c18a28239392f3600c184609d1b59fb14cab80bb689e",
+        "native": [
+          {
+            "mode": "default",
+            "exit_code": 1,
+            "diagnostic_count": 1,
+            "diagnostic_fingerprint": "11274d3ee62427c7662c29a6d964502408904a37d6f5ab75c47567872dbbc367",
+            "full_diagnostics_match": true
+          },
+          {
+            "mode": "single",
+            "exit_code": 1,
+            "diagnostic_count": 1,
+            "diagnostic_fingerprint": "11274d3ee62427c7662c29a6d964502408904a37d6f5ab75c47567872dbbc367",
+            "full_diagnostics_match": true
+          }
+        ]
+      },
+      {
+        "name": "fresh-shadow-negative",
+        "input_sha256": "b8f5aa81491bcaeab2f019ba87a44babad6264a0a63b602de2601a27ffa002ab",
+        "native": [
+          {
+            "mode": "default",
+            "exit_code": 1,
+            "diagnostic_count": 1,
+            "diagnostic_fingerprint": "c3ca64c2367962e7c5125058a1f56e6af9c05b6b7c06a20ef9e44f98a4f46072",
+            "full_diagnostics_match": true
+          },
+          {
+            "mode": "single",
+            "exit_code": 1,
+            "diagnostic_count": 1,
+            "diagnostic_fingerprint": "c3ca64c2367962e7c5125058a1f56e6af9c05b6b7c06a20ef9e44f98a4f46072",
+            "full_diagnostics_match": true
+          }
+        ]
+      },
+      {
+        "name": "mapped-negative",
+        "input_sha256": "9a8d90c5a6cb6b5ec8c5f24c997c30ea81e2a4ff0ab4252ab9c7ef8426940a57",
+        "native": [
+          {
+            "mode": "default",
+            "exit_code": 1,
+            "diagnostic_count": 1,
+            "diagnostic_fingerprint": "c3ca64c2367962e7c5125058a1f56e6af9c05b6b7c06a20ef9e44f98a4f46072",
+            "full_diagnostics_match": true
+          },
+          {
+            "mode": "single",
+            "exit_code": 1,
+            "diagnostic_count": 1,
+            "diagnostic_fingerprint": "c3ca64c2367962e7c5125058a1f56e6af9c05b6b7c06a20ef9e44f98a4f46072",
+            "full_diagnostics_match": true
+          }
+        ]
+      }
+    ]
+  },
+  "comparisons": [
+    {
+      "round": "paired",
+      "mode": "default",
+      "kind": "same-source ordinary TSR candidate versus ordinary TSR baseline; tsgo slot is TSR, not native",
+      "artifact": "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-inline-walk-z3udhbxa/paired-default.json",
+      "artifact_sha256": "6afb1219f0127c16153869dafe39bf0599e7c3dad559b96aa41a119f9fe9e6d6",
+      "compiler_source": "77e099605c7602f9ce785938739e083bbc60c398",
+      "harness_source": "77e099605c7602f9ce785938739e083bbc60c398",
+      "reference_sha256": "bab6cd1bac0bb3a2ec50b5b3e455fe88dc50a7079ed6e3b6613ee33f51ac9460",
+      "candidate_sha256": "3e2f1b4fb8f57269f69d281907f57047764d71632fa173a70705bddb14f564dd",
+      "reference_summary": {
+        "wall_seconds": {
+          "median": 4.924066125007812,
+          "p95": 5.347587166994344,
+          "min": 2.918565750005655,
+          "max": 5.347587166994344
+        },
+        "user_seconds": {
+          "median": 7.258042,
+          "p95": 7.872814,
+          "min": 4.980814,
+          "max": 7.872814
+        },
+        "system_seconds": {
+          "median": 0.869715,
+          "p95": 1.016684,
+          "min": 0.569326,
+          "max": 1.016684
+        },
+        "peak_rss_bytes": {
+          "median": 1212121088,
+          "p95": 1231388672,
+          "min": 1155858432,
+          "max": 1231388672
+        }
+      },
+      "candidate_summary": {
+        "wall_seconds": {
+          "median": 3.0946765409898944,
+          "p95": 4.756801834038924,
+          "min": 2.8685755420010537,
+          "max": 4.756801834038924
+        },
+        "user_seconds": {
+          "median": 5.029018,
+          "p95": 7.600109,
+          "min": 4.890966,
+          "max": 7.600109
+        },
+        "system_seconds": {
+          "median": 0.7416419999999999,
+          "p95": 0.8833989999999999,
+          "min": 0.546299,
+          "max": 0.8833989999999999
+        },
+        "peak_rss_bytes": {
+          "median": 1207762944,
+          "p95": 1214005248,
+          "min": 1176338432,
+          "max": 1214005248
+        }
+      },
+      "wall_samples": {
+        "reference": [
+          5.347587166994344,
+          2.918565750005655,
+          2.9508970829774626,
+          4.924066125007812,
+          4.977615125011653
+        ],
+        "candidate": [
+          3.0946765409898944,
+          2.926249874988571,
+          3.311700040998403,
+          4.756801834038924,
+          2.8685755420010537
+        ]
+      },
+      "median_improvement_seconds": 1.8293895840179175,
+      "median_rss_growth_fraction": -0.003595469168175991,
+      "decision": {
+        "decision": "keep",
+        "eligible": true,
+        "next_measurement": "none",
+        "target_reached": false,
+        "improved_objectives": [
+          "wall_seconds"
+        ],
+        "violated_objectives": [],
+        "comparisons": {
+          "wall_seconds": {
+            "verdict": "improved",
+            "delta": 1.8293895840179175,
+            "relative": 0.3715201091080017,
+            "violated": false
+          }
+        },
+        "primary_delta": 1.8293895840179175,
+        "rank_score": 0.3715201091080017,
+        "reason": "improved wall_seconds without violating other required objectives"
+      },
+      "native_work_comparable": false,
+      "native_ratio_verified": false,
+      "harness_sha256": "e9baf9a8cb32a9bd33b05c072511572ffafa62204d3b8a5a44e9cc663d38ee48"
+    },
+    {
+      "round": "paired",
+      "mode": "single",
+      "kind": "same-source ordinary TSR candidate versus ordinary TSR baseline; tsgo slot is TSR, not native",
+      "artifact": "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-inline-walk-z3udhbxa/paired-single.json",
+      "artifact_sha256": "a1bf1fd13c218a249968a367356e538766bb221a96a6581bdd1d7602e56506a6",
+      "compiler_source": "77e099605c7602f9ce785938739e083bbc60c398",
+      "harness_source": "77e099605c7602f9ce785938739e083bbc60c398",
+      "reference_sha256": "bab6cd1bac0bb3a2ec50b5b3e455fe88dc50a7079ed6e3b6613ee33f51ac9460",
+      "candidate_sha256": "3e2f1b4fb8f57269f69d281907f57047764d71632fa173a70705bddb14f564dd",
+      "reference_summary": {
+        "wall_seconds": {
+          "median": 4.736096249951515,
+          "p95": 5.05137120798463,
+          "min": 4.680535666004289,
+          "max": 5.05137120798463
+        },
+        "user_seconds": {
+          "median": 4.22774,
+          "p95": 4.248729,
+          "min": 4.218107,
+          "max": 4.248729
+        },
+        "system_seconds": {
+          "median": 0.547262,
+          "p95": 0.647729,
+          "min": 0.479722,
+          "max": 0.647729
+        },
+        "peak_rss_bytes": {
+          "median": 1186168832,
+          "p95": 1204862976,
+          "min": 1116389376,
+          "max": 1204862976
+        }
+      },
+      "candidate_summary": {
+        "wall_seconds": {
+          "median": 4.8660844169789925,
+          "p95": 4.944005874975119,
+          "min": 4.6451165830367245,
+          "max": 4.944005874975119
+        },
+        "user_seconds": {
+          "median": 4.24607,
+          "p95": 4.431693,
+          "min": 4.186668,
+          "max": 4.431693
+        },
+        "system_seconds": {
+          "median": 0.572296,
+          "p95": 1.052012,
+          "min": 0.501715,
+          "max": 1.052012
+        },
+        "peak_rss_bytes": {
+          "median": 1154088960,
+          "p95": 1180844032,
+          "min": 1083752448,
+          "max": 1180844032
+        }
+      },
+      "wall_samples": {
+        "reference": [
+          4.712503124959767,
+          4.680535666004289,
+          4.758822791045532,
+          5.05137120798463,
+          4.736096249951515
+        ],
+        "candidate": [
+          4.944005874975119,
+          4.8660844169789925,
+          4.908123082946986,
+          4.751902083051391,
+          4.6451165830367245
+        ]
+      },
+      "median_improvement_seconds": -0.12998816702747717,
+      "median_rss_growth_fraction": -0.027044945992983238,
+      "decision": {
+        "decision": "revert",
+        "eligible": false,
+        "next_measurement": "none",
+        "target_reached": false,
+        "improved_objectives": [],
+        "violated_objectives": [
+          "wall_seconds"
+        ],
+        "comparisons": {
+          "wall_seconds": {
+            "verdict": "regressed",
+            "delta": -0.12998816702747717,
+            "relative": -0.02744626801636641,
+            "violated": true
+          }
+        },
+        "primary_delta": -0.12998816702747717,
+        "rank_score": -0.02744626801636641,
+        "reason": "violated wall_seconds"
+      },
+      "native_work_comparable": false,
+      "native_ratio_verified": false,
+      "harness_sha256": "e9baf9a8cb32a9bd33b05c072511572ffafa62204d3b8a5a44e9cc663d38ee48"
+    }
+  ],
+  "retention_decision": "single required mode regressed129.988ms; default numeric eligibility is noisy and cannot override a failed mode",
+  "independent_confirmation": "not run: required single-worker first round already terminal revert; two independent rounds remain mandatory for any retention",
+  "restoration": {
+    "source_files": {
+      "crates/tsr-checker/src/lib.rs": "c2674eb95e32ba05aee957ee96362f22062a3a432cb2843853940d64e34a2b3d",
+      "crates/tsr-checker/src/checker.rs": "f499b9e3c9e7266115d42714107e61e07ea0ec3eddc4b8d4c10347d8cb30b9f4",
+      "crates/tsr-checker/src/inference.rs": "8db9b642672af5f0f91e07239358394e2a42fb59afdbcc2cb8a54fc56b8326e1",
+      "crates/tsr-execute/src/checker_pool.rs": "b2089d463ad37c3746dcd32f22407954686a0afc12dbfff9216144b11980e772"
+    },
+    "target_binaries": {
+      "release/tsr": "5b03a44bd330c87227321689fd9ee870bf59a3a35cd908574709be01c5e773d5",
+      "release/examples/verdictdump": "98d347f682a7beaa7cac4b8b7779918d4ca9f8a211ba8a9a5825f81ecb2e9b01",
+      "release/examples/diagverdictdump": "39b0249314f59e6d6b00dc17334755139de7b7489e5d45245bc59e7292f7b4dd"
+    }
+  },
+  "native_ratio_verified": false,
+  "limitations": [
+    "Default round is highly variable; numeric eligibility is not a confirmed causal speed gain.",
+    "Both performance slots are TSR; native comparability, complete query-input equivalence and the <=0.50 release ratio remain unverified.",
+    "Direct full-file checks and graph work agree; this is not a proof of complete cross-tool semantic-work equivalence.",
+    "Tagged requested/usable bytes are cumulative successful allocation traffic, not retained heap, copied bytes or RSS.",
+    "Inline state adds a fixed four-TypeId array and length per active root; heap-capacity fields exclude those slots.",
+    "Observed physical inputs exclude embedded libraries, resolver query/absent/directory state and transient inputs.",
+    "Normal timing has no observer; probe off/on elapsed variation is not a causal overhead estimate.",
+    "The failed required single mode terminates this candidate; no additional round is used to average away its failure."
+  ],
+  "artifacts": {
+    "checker-inline-walk-candidate.patch": "6423fa5b2bd8ae0f40bdceb97fa8c3ae301204b8ec09d19cbfd948dcd304aeec",
+    "checker-inline-walk-observer.patch": "a99d9bd423b72f49c3361b36d29caee88df8527055fda8f2044d3948f6bb6fdf",
+    "replay_checker_inline_walk.py": "1890aa36decca558c022ae3e33f8fc84de7ac979e16cd18514479b9a1cc03e96"
+  },
+  "replay_verification": {
+    "replays": [
+      {
+        "variant": "candidate",
+        "files": {
+          "crates/tsr-checker/src/lib.rs": "c2674eb95e32ba05aee957ee96362f22062a3a432cb2843853940d64e34a2b3d",
+          "crates/tsr-checker/src/checker.rs": "f499b9e3c9e7266115d42714107e61e07ea0ec3eddc4b8d4c10347d8cb30b9f4",
+          "crates/tsr-checker/src/inference.rs": "ec690043bc2b9ed3fa84c7964adae3f320aee399e157d8d8ffa63ff2d9679394",
+          "crates/tsr-execute/src/checker_pool.rs": "b2089d463ad37c3746dcd32f22407954686a0afc12dbfff9216144b11980e772"
+        },
+        "exit_code": 0,
+        "changed_source_rejected_without_mutation": true
+      },
+      {
+        "variant": "observer",
+        "files": {
+          "crates/tsr-checker/src/inference.rs": "26b8002aaf215aab843d6fd292eaaf324e89baea5751af8495ceb6666c91a355",
+          "crates/tsr-checker/src/checker.rs": "cc6c1169250af7ddcd568858784b21bdd191b60792843a2162aa80553b7489a6",
+          "crates/tsr-checker/src/lib.rs": "29c710ef8003c8475adc7040f0df4aca597f4fbb58b92dc248361f3885d31e28",
+          "crates/tsr-execute/src/checker_pool.rs": "4ebeaafc4deb3c74daf53cc9fa23969a96c60a49437308239cd22de259dd5120",
+          "crates/tsr-checker/src/graph_walk_probe.rs": "9716251fd9aa5f3e2834ad63cb12e530aae38746d257c516bfe3fda9f3b2b0da"
+        },
+        "exit_code": 0,
+        "changed_source_rejected_without_mutation": true
+      }
+    ],
+    "artifact_repository_rejected": true,
+    "restored_originals": true
+  },
+  "host_activity": {
+    "raw_local_receipt": "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-inline-walk-z3udhbxa/host-activity.json",
+    "before_default": "No compiler, coverage or TSR/native process observed in the pre-round snapshot.",
+    "after_default": "Desktop and metadata-indexing activity observed; snapshots do not prove continuous host exclusivity."
+  }
+}

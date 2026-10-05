@@ -177,20 +177,32 @@ fn ambient_context_keeps_its_existing_decline() {
     );
 }
 
+/// The pinned native test runner (`TestLocal`, `allowJs` + `checkJs`) reports
+/// the same initializer errors in a `.js` file as in `.ts`, beside each TS8010:
+/// a type annotation in JavaScript is still the declared type.
 #[test]
-fn javascript_keeps_its_existing_decline() {
+fn javascript_reports_native_initializer_errors() {
     let mut case = TestCase::parse("probe/source-variable-js", "initializer.js", SOURCE);
     case.options.insert("allowjs".into(), "true".into());
     case.options.insert("checkjs".into(), "true".into());
-    let arena = Arena::new();
-    let program = types_producer::program_for_case(&arena, &case);
-    let file = program.source_file("initializer.js").unwrap().source_file().node_id.unwrap();
-    let mut checker = types_producer::configured_checker(&program);
-    checker.check_source_file(file, FileContext { ambient: false, has_parse_errors: true });
-    assert!(
-        checker
-            .diagnostics()
-            .iter()
-            .all(|(_, d)| d.message.code() != 2322 && d.message.code() != 2739)
+    let mut actual: Vec<_> = reported_for(&case)
+        .into_iter()
+        .filter(|d| d.code == 2322 || d.code == 2739)
+        .map(|d| (d.line, d.column, d.code))
+        .collect();
+    actual.sort_unstable();
+    assert_eq!(
+        actual,
+        [
+            (4, 5, 2739),
+            (5, 5, 2322),
+            (6, 5, 2739),
+            (7, 5, 2739),
+            (9, 5, 2739),
+            (10, 5, 2322),
+            (11, 5, 2739),
+            (12, 5, 2739),
+            (13, 5, 2322),
+        ]
     );
 }

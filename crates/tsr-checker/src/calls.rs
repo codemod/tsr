@@ -45,6 +45,7 @@
 use tsr_ast::{CallExpression, Expression, TaggedTemplateExpression};
 
 use tsr_binder::SymbolFlags;
+use tsr_diagnostics::{Diagnostic, messages};
 
 use crate::calls::counters::{COUNTERS, bump};
 use crate::{
@@ -383,7 +384,1221 @@ pub mod counters {
     }
 }
 
+/// What `resolveCallExpression`'s head decided before `resolveCall` runs.
+pub(crate) enum CallHead {
+    /// The head reported (or another error was already reported); `resolveCall`
+    /// is not reached — `resolveErrorCall`/`resolveUntypedCall` upstream.
+    Done,
+    /// The callee's apparent type has call signatures; `resolveCall` runs
+    /// over them.
+    Resolve(TypeId),
+    /// A list this port cannot certify complete: nothing is reported.
+    Unknown,
+}
+
+/// What the arity half of `resolveCall` decided for one call.
+enum CallArity {
+    /// The signature list is not certified; the declaration rules run.
+    Undecided,
+    /// A type-argument or argument arity error was reported; upstream
+    /// reports nothing else for the call.
+    Reported,
+    /// Some candidate has a correct arity; the arguments decide. Carries
+    /// the candidate when it is the single non-generic one.
+    Applicable(Option<Box<Signature>>),
+}
+
+/// One entry of `getEffectiveCallArguments`: the written argument (or the
+/// spread a synthetic element came from) and whether it is spread-like
+/// (`isSpreadArgument`).
+struct EffectiveArgument {
+    node: tsr_ast::NodeId,
+    spread: bool,
+}
+
+/// `checkNonNullTypeWithReporter`'s result for a callee.
+enum NonNullCallee {
+    Type(TypeId),
+    /// Upstream's `errorType`.
+    Error,
+    /// The callee's type is not one upstream can hold; nothing is reported.
+    Unknown,
+}
+
 impl Checker<'_, '_> {
+    /// The diagnostic half of `resolveCallExpression` (`checker.go:8471`) up
+    /// to `resolveCall`: the non-null check on the callee
+    /// (`checkNonNullTypeWithReporter` with
+    /// `reportCannotInvokePossiblyNullOrUndefinedError`), the untyped-call arm
+    /// (`isUntypedFunctionCall`, TS2347 for written type arguments), and the
+    /// no-call-signature arm (TS2348 when construct signatures exist, else
+    /// `invocationError`'s TS2349 head).
+    ///
+    /// Runs once per call node from the diagnostic walk. It reads the callee's
+    /// cached expression type and the shared kind-specific signature resolver
+    /// (`signatures_of_type_kind`); it adds no cache. A signature list that
+    /// resolver cannot certify (`None`) answers [`CallHead::Unknown`] and the
+    /// call reports nothing, which keeps an incomplete list from reading as
+    /// "not callable".
+    pub(crate) fn check_call_expression_head(&mut self, node: tsr_ast::NodeId) -> CallHead {
+        let Some(tsr_ast::Node::CallExpression(call)) = self.node_map.get(node) else {
+            return CallHead::Unknown;
+        };
+        let Some(callee) = call.expression else { return CallHead::Unknown };
+        let Some(callee_id) = callee.node_id() else { return CallHead::Unknown };
+        if matches!(
+            self.nodes.kind(callee_id),
+            tsr_ast::SyntaxKind::SuperKeyword | tsr_ast::SyntaxKind::ImportKeyword
+        ) {
+            return CallHead::Unknown;
+        }
+        if self.callee_reads_object_literal_this(callee) {
+            return CallHead::Unknown;
+        }
+        let mut func_type = self.check_expression(callee);
+        // `isCallChain(node)`: the call is a link of an optional chain.
+        if call.question_dot_token.is_some() || self.expression_is_optional_chain(callee_id) {
+            func_type = self.get_optional_expression_type(
+                func_type,
+                Some(callee_id),
+                call.question_dot_token.is_some(),
+            );
+        }
+        let func_type = match self.check_non_null_callee(func_type, callee_id) {
+            NonNullCallee::Type(t) => t,
+            NonNullCallee::Error => return CallHead::Done,
+            NonNullCallee::Unknown => return CallHead::Unknown,
+        };
+        if Some(func_type) == self.silent_never_type {
+            return CallHead::Done;
+        }
+        let apparent = self.apparent_type(func_type);
+        if self.is_error(apparent) {
+            return CallHead::Done;
+        }
+        // `isUntypedFunctionCall`'s first two arms need no signature list.
+        let untyped = if self.is_untyped_any_callee(func_type, apparent) {
+            // An `any` this port produced for an unresolved name, a missing
+            // property or an unresolved module is upstream's `errorType`,
+            // which reports nothing; only a written `any` is the same claim.
+            if self.store.get(func_type).flags.intersects(TypeFlags::ANY)
+                && !self.is_error(func_type)
+                && !self.untyped_any_is_written(callee)
+            {
+                return CallHead::Unknown;
+            }
+            true
+        } else if self.is_function_or_method_type(apparent) {
+            // A function or method's own type has the declaration's call
+            // signatures, so neither the untyped arm (no call signatures) nor
+            // the not-callable arm can fire. This port's signature list
+            // resolves return types eagerly, which upstream's
+            // `getSignaturesOfType` does not, and building it from inside the
+            // callee's own body re-enters its return inference.
+            return CallHead::Resolve(apparent);
+        } else {
+            let Some(call_count) = self.head_signature_count(apparent, SignatureKind::Call) else {
+                return CallHead::Unknown;
+            };
+            let Some(construct_count) =
+                self.head_signature_count(apparent, SignatureKind::Construct)
+            else {
+                return CallHead::Unknown;
+            };
+            let Some(untyped) = self.is_untyped_signatureless_call(
+                func_type,
+                apparent,
+                call_count,
+                construct_count,
+            ) else {
+                return CallHead::Unknown;
+            };
+            if !untyped && call_count == 0 {
+                if self.head_could_contain_type_variables(func_type, 3) {
+                    return CallHead::Unknown;
+                }
+                if construct_count != 0 {
+                    let printed = self.type_to_string(func_type);
+                    self.report_at_node(
+                        node,
+                        Diagnostic::with_args(
+                            &messages::VALUE_OF_TYPE_0_IS_NOT_CALLABLE_DID_YOU_MEAN_TO_INCLUDE_NEW,
+                            self.error_span(node),
+                            [printed],
+                        ),
+                    );
+                } else {
+                    self.invocation_error(
+                        callee_id,
+                        call.arguments.is_empty(),
+                        SignatureKind::Call,
+                    );
+                }
+                return CallHead::Done;
+            }
+            untyped
+        };
+        if !untyped {
+            return CallHead::Resolve(apparent);
+        }
+        if !self.is_error(func_type) && !call.type_arguments.is_empty() {
+            self.report_at_node(
+                node,
+                Diagnostic::new(
+                    &messages::UNTYPED_FUNCTION_CALLS_MAY_NOT_ACCEPT_TYPE_ARGUMENTS,
+                    self.error_span(node),
+                ),
+            );
+        }
+        CallHead::Done
+    }
+
+    /// Every diagnostic `resolveCallExpression` issues for one call node.
+    pub(crate) fn check_call_expression_diagnostics(&mut self, node: tsr_ast::NodeId) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        match self.check_call_expression_head(node) {
+            CallHead::Done => {}
+            CallHead::Resolve(apparent) => {
+                match self.check_resolve_call_arity(node, apparent, SignatureKind::Call) {
+                    CallArity::Reported => {}
+                    CallArity::Applicable(Some(signature)) => {
+                        self.check_single_candidate_arguments(node, &signature);
+                    }
+                    CallArity::Applicable(None) => self.check_call_arity(node, false),
+                    CallArity::Undecided => {
+                        self.check_call_arity(node, true);
+                        self.check_call_type_argument_arity(node);
+                    }
+                }
+            }
+            CallHead::Unknown => {
+                self.check_call_arity(node, true);
+                self.check_call_type_argument_arity(node);
+            }
+        }
+    }
+
+    /// The arity half of `resolveCall` (`checker.go:8843`) and its
+    /// `reportCallResolutionErrors` (`checker.go:9649`).
+    ///
+    /// `chooseOverload` skips a candidate failing `hasCorrectTypeArgumentArity`
+    /// (`checker.go:9214`) or `hasCorrectArity` (`checker.go:9107`) before any
+    /// argument or type-argument check. When every candidate is skipped, no
+    /// candidate reaches the argument-error, generic-rest or constraint arms,
+    /// so the report is the last arm alone: `getTypeArgumentArityError`
+    /// (`checker.go:9853`) when no signature has a correct type-argument
+    /// count, else `getArgumentArityError` (`checker.go:9705`) over those that
+    /// do. When some candidate passes both, the arguments decide and
+    /// [`CallArity::Applicable`] hands over to the argument-type rules.
+    ///
+    /// Reads the callee type's signature list (no new cache); an uncertified
+    /// list or a JS file is [`CallArity::Undecided`].
+    fn check_resolve_call_arity(
+        &mut self,
+        node: tsr_ast::NodeId,
+        apparent: TypeId,
+        kind: SignatureKind,
+    ) -> CallArity {
+        let (type_arguments, arguments, callee, is_call) = match self.node_map.get(node) {
+            Some(tsr_ast::Node::CallExpression(call)) => {
+                (call.type_arguments, call.arguments, call.expression, true)
+            }
+            Some(tsr_ast::Node::NewExpression(new)) => {
+                (new.type_arguments, new.arguments, new.expression, false)
+            }
+            _ => return CallArity::Undecided,
+        };
+        if self.in_js_file(node) {
+            return CallArity::Undecided;
+        }
+        let Some(signatures) = self.head_signatures(apparent, kind) else {
+            return CallArity::Undecided;
+        };
+        if signatures.is_empty() {
+            return CallArity::Undecided;
+        }
+        // A union's composite signatures take the parameters of whichever
+        // member list matched first, and their return types subtype-reduce
+        // (`getReturnTypeOfSignature`, `checker.go:20013`); this port has no
+        // subtype reduction, so a receiver typed by such a return can reach a
+        // different member list than upstream's. The argument count decides
+        // nothing there.
+        if self.store.get(apparent).flags.intersects(TypeFlags::UNION) {
+            return if type_arguments.is_empty() {
+                CallArity::Undecided
+            } else {
+                self.check_type_argument_arity_only(node, type_arguments, &signatures)
+            };
+        }
+        // `getTypeFromBindingPattern` gives an array-pattern rest parameter a
+        // tuple type; this port's signature carries `any[]` there, so its
+        // parameter count is not upstream's.
+        if signatures.iter().any(|signature| self.has_binding_pattern_rest(signature)) {
+            return CallArity::Undecided;
+        }
+        // An immediately invoked function's minimum reads the written
+        // argument count while its printed optionality reads the expanded
+        // one; with a spread argument the two differ and this port's
+        // signature carries neither (`immediately_invoked_argument_count`),
+        // so its minimum is not upstream's.
+        if arguments.iter().any(|argument| matches!(argument, Expression::SpreadElement(_)))
+            && callee.is_some_and(|callee| {
+                let mut callee = callee;
+                while let Expression::ParenthesizedExpression(inner) = callee {
+                    match inner.expression {
+                        Some(expression) => callee = expression,
+                        None => return false,
+                    }
+                }
+                matches!(callee, Expression::FunctionExpression(_) | Expression::ArrowFunction(_))
+            })
+        {
+            return CallArity::Undecided;
+        }
+        let count = type_arguments.len();
+        let arities: Vec<(usize, usize)> = signatures
+            .iter()
+            .map(|signature| {
+                (
+                    Self::min_type_argument_count(&signature.type_parameters),
+                    signature.type_parameters.len(),
+                )
+            })
+            .collect();
+        let type_argument_arity_ok =
+            |&(min, max): &(usize, usize)| count == 0 || count >= min && count <= max;
+        if !arities.iter().any(type_argument_arity_ok) {
+            self.report_type_argument_arity_error(node, type_arguments, &arities);
+            return CallArity::Reported;
+        }
+        let candidates: Vec<Signature> = signatures
+            .into_iter()
+            .zip(&arities)
+            .filter(|(_, arity)| type_argument_arity_ok(arity))
+            .map(|(signature, _)| signature)
+            .collect();
+        let Some(effective) = self.effective_call_arguments(arguments) else {
+            return CallArity::Undecided;
+        };
+        let no_argument_list =
+            !is_call && self.new_has_no_argument_list(node, callee, type_arguments);
+        let mut applicable = false;
+        for candidate in &candidates {
+            match self.has_correct_arity(candidate, &effective, no_argument_list) {
+                Some(true) => {
+                    applicable = true;
+                    break;
+                }
+                Some(false) => {}
+                None => return CallArity::Undecided,
+            }
+        }
+        if applicable {
+            // `isSingleNonGenericCandidate`: the sole candidate is checked
+            // against the arguments as is, no inference or type arguments.
+            if let [candidate] = candidates.as_slice()
+                && candidate.type_parameters.is_empty()
+                && type_arguments.is_empty()
+                && !effective.iter().any(|argument| argument.spread)
+                && effective.len() == arguments.len()
+            {
+                return CallArity::Applicable(Some(Box::new(candidate.clone())));
+            }
+            return CallArity::Applicable(None);
+        }
+        let error_node = match callee.and_then(|callee| callee.node_id()) {
+            Some(callee) if is_call => self.call_error_node(callee),
+            _ => node,
+        };
+        self.report_argument_arity_error(node, error_node, &candidates, &effective);
+        CallArity::Reported
+    }
+
+    /// `getSignatureApplicabilityError` (`checker.go`) for a single
+    /// non-generic candidate whose arity matched: each argument against
+    /// `getTypeAtPosition`, stopping at the first failure (TS2345, or the
+    /// object literal's excess-property elaboration). The `this` argument
+    /// check is not ported. An unsupported parameter type stops the walk.
+    fn check_single_candidate_arguments(&mut self, node: tsr_ast::NodeId, signature: &Signature) {
+        let arguments = match self.node_map.get(node) {
+            Some(tsr_ast::Node::CallExpression(call)) => call.arguments,
+            Some(tsr_ast::Node::NewExpression(new)) => new.arguments,
+            _ => return,
+        };
+        for (position, argument) in arguments.iter().enumerate() {
+            let Some(argument_id) = argument.node_id() else { return };
+            let Some(target) = self.signature_type_at_position(signature, position) else {
+                return;
+            };
+            if self.is_error(target) {
+                return;
+            }
+            if self.argument_type_is_not_upstreams(*argument) {
+                return;
+            }
+            let before = self.diagnostics.len();
+            self.check_excess_properties(target, argument_id);
+            if self.diagnostics.len() != before {
+                return;
+            }
+            let source = self.check_expression(*argument);
+            if self.mapped_types.get(&source).is_some_and(|info| info.name_type.is_some()) {
+                // A mapped type with an `as` clause: this port's member
+                // resolution of it over an array source is not upstream's
+                // (`mappedTypeWithNameClauseAppliedToArrayType`).
+                return;
+            }
+            if self.report_argument_failure(argument_id, source, target) {
+                return;
+            }
+        }
+    }
+
+    /// Argument shapes whose type this port computes without a mechanism
+    /// upstream applies, so a failed relation is not upstream's answer:
+    ///
+    /// - `a ?? b`, `a || b` and `c ? a : b` union their operands with
+    ///   `UnionReductionSubtype`, which this port does not have;
+    /// - an identifier naming an auto-typed `let x = []` array, whose
+    ///   evolved element types upstream regularizes
+    ///   (`getRegularTypeOfObjectLiteral` in `addEvolvingArrayElementType`)
+    ///   and this port leaves fresh.
+    fn argument_type_is_not_upstreams(&self, argument: Expression<'_>) -> bool {
+        let mut argument = argument;
+        while let Expression::ParenthesizedExpression(inner) = argument {
+            let Some(expression) = inner.expression else { return true };
+            argument = expression;
+        }
+        match argument {
+            Expression::ConditionalExpression(_) => true,
+            Expression::BinaryExpression(binary) => binary.operator_token.is_some_and(|token| {
+                matches!(
+                    token.kind,
+                    tsr_ast::SyntaxKind::QuestionQuestionToken | tsr_ast::SyntaxKind::BarBarToken
+                )
+            }),
+            Expression::Identifier(identifier) => {
+                let Some(id) = identifier.node_id else { return false };
+                let Some(symbol) = self.binder.resolve_name(
+                    self.nodes,
+                    self.node_map,
+                    id,
+                    identifier.text,
+                    SymbolFlags::VALUE,
+                ) else {
+                    return false;
+                };
+                let Some(declaration) = self.binder.symbols().get(symbol).value_declaration else {
+                    return false;
+                };
+                matches!(self.node_map.get(declaration),
+                    Some(tsr_ast::Node::VariableDeclaration(variable))
+                        if variable.r#type.is_none()
+                            && matches!(variable.initializer,
+                                Some(Expression::ArrayLiteralExpression(array)) if array.elements.is_empty()))
+            }
+            _ => false,
+        }
+    }
+
+    /// The type-argument half of [`Checker::check_resolve_call_arity`] alone.
+    fn check_type_argument_arity_only(
+        &mut self,
+        node: tsr_ast::NodeId,
+        type_arguments: &[tsr_ast::TypeNode<'_>],
+        signatures: &[Signature],
+    ) -> CallArity {
+        let count = type_arguments.len();
+        let arities: Vec<(usize, usize)> = signatures
+            .iter()
+            .map(|signature| {
+                (
+                    Self::min_type_argument_count(&signature.type_parameters),
+                    signature.type_parameters.len(),
+                )
+            })
+            .collect();
+        if arities.iter().any(|&(min, max)| count >= min && count <= max) {
+            return CallArity::Undecided;
+        }
+        self.report_type_argument_arity_error(node, type_arguments, &arities);
+        CallArity::Reported
+    }
+
+    /// Whether the signature's declaration ends in `...[a, b]`.
+    fn has_binding_pattern_rest(&self, signature: &Signature) -> bool {
+        let parameters = match self.node_map.get(signature.declaration) {
+            Some(tsr_ast::Node::FunctionDeclaration(node)) => node.parameters,
+            Some(tsr_ast::Node::FunctionExpression(node)) => node.parameters,
+            Some(tsr_ast::Node::ArrowFunction(node)) => node.parameters,
+            Some(tsr_ast::Node::MethodDeclaration(node)) => node.parameters,
+            Some(tsr_ast::Node::ConstructorDeclaration(node)) => node.parameters,
+            _ => return false,
+        };
+        parameters.last().is_some_and(|parameter| {
+            parameter.dot_dot_dot_token.is_some()
+                && matches!(parameter.name, Some(tsr_ast::BindingName::BindingPattern(_)))
+        })
+    }
+
+    /// `getEffectiveCallArguments` (`checker.go:30042`) for a call or `new`:
+    /// a spread of a tuple type becomes one synthetic argument per element,
+    /// a rest/variadic element a spread one. `None` when a spread's type is
+    /// not settled.
+    fn effective_call_arguments(
+        &mut self,
+        arguments: &[Expression<'_>],
+    ) -> Option<Vec<EffectiveArgument>> {
+        let mut effective = Vec::with_capacity(arguments.len());
+        for argument in arguments {
+            let node = argument.node_id()?;
+            let Expression::SpreadElement(spread) = argument else {
+                effective.push(EffectiveArgument { node, spread: false });
+                continue;
+            };
+            let spread_type = self.check_expression(spread.expression?);
+            if self.is_error(spread_type) {
+                return None;
+            }
+            if let Some((elements, _)) = self.tuple_element_lists.get(&spread_type) {
+                let n = elements.len();
+                effective.extend((0..n).map(|_| EffectiveArgument { node, spread: false }));
+            } else if let Some((elements, _)) = self.variadic_tuple_elements.get(&spread_type) {
+                let flags: Vec<bool> = elements.iter().map(|element| element.spread).collect();
+                effective
+                    .extend(flags.into_iter().map(|spread| EffectiveArgument { node, spread }));
+            } else {
+                effective.push(EffectiveArgument { node, spread: true });
+            }
+        }
+        Some(effective)
+    }
+
+    /// `new C` without an argument list (`node.ArgumentList() == nil`): the
+    /// node ends where its callee, or its type-argument list's `>`, ends.
+    fn new_has_no_argument_list(
+        &self,
+        node: tsr_ast::NodeId,
+        callee: Option<Expression<'_>>,
+        type_arguments: &[tsr_ast::TypeNode<'_>],
+    ) -> bool {
+        let end = self.nodes.span(node).end;
+        if let Some(last) = type_arguments.last().and_then(tsr_ast::TypeNode::node_id) {
+            return end <= self.nodes.span(last).end + 1;
+        }
+        callee
+            .and_then(|callee| callee.node_id())
+            .is_some_and(|callee| end == self.nodes.span(callee).end)
+    }
+
+    /// `hasCorrectArity` (`checker.go:9107`) for a call or `new` with a
+    /// complete argument list. `None` when a parameter type is unsupported.
+    fn has_correct_arity(
+        &mut self,
+        signature: &Signature,
+        arguments: &[EffectiveArgument],
+        no_argument_list: bool,
+    ) -> Option<bool> {
+        let minimum = self.signature_min_argument_count(signature);
+        if no_argument_list {
+            return Some(minimum == 0);
+        }
+        let parameter_count = self.signature_parameter_count(signature);
+        let has_rest = self.signature_has_effective_rest(signature);
+        if let Some(spread_index) = arguments.iter().position(|argument| argument.spread) {
+            return Some(spread_index >= minimum && (has_rest || spread_index < parameter_count));
+        }
+        let count = arguments.len();
+        if !has_rest && count > parameter_count {
+            return Some(false);
+        }
+        if count >= minimum {
+            return Some(true);
+        }
+        for position in count..minimum {
+            // `getTypeAtPosition` answers `any` for a missing position.
+            let Some(t) = self.signature_type_at_position(signature, position) else {
+                return Some(false);
+            };
+            if self.is_error(t) {
+                return None;
+            }
+            // `filterType(t, acceptsVoid)` is `never` unless a constituent is
+            // `void`.
+            let accepts_void = match &self.store.get(t).data {
+                TypeData::Union { types, .. } => {
+                    types.iter().any(|&part| self.store.get(part).flags.contains(TypeFlags::VOID))
+                }
+                _ => self.store.get(t).flags.contains(TypeFlags::VOID),
+            };
+            if !accepts_void {
+                return Some(false);
+            }
+        }
+        Some(true)
+    }
+
+    /// `getArgumentArityError` (`checker.go:9705`), without the related
+    /// information and the decorator messages.
+    fn report_argument_arity_error(
+        &mut self,
+        node: tsr_ast::NodeId,
+        error_node: tsr_ast::NodeId,
+        signatures: &[Signature],
+        arguments: &[EffectiveArgument],
+    ) {
+        if let Some(spread) = arguments.iter().find(|argument| argument.spread) {
+            let span = self.error_span(spread.node);
+            self.report_at_node(
+                node,
+                Diagnostic::new(
+                    &messages::A_SPREAD_ARGUMENT_MUST_EITHER_HAVE_A_TUPLE_TYPE_OR_BE_PASSED_TO_A_REST_PARAMETER,
+                    span,
+                ),
+            );
+            return;
+        }
+        let count = arguments.len();
+        let mut min_count = usize::MAX;
+        let mut max_count = 0usize;
+        let mut max_below: Option<usize> = None;
+        let mut min_above: Option<usize> = None;
+        for signature in signatures {
+            let min_parameter = self.signature_min_argument_count(signature);
+            let max_parameter = self.signature_parameter_count(signature);
+            min_count = min_count.min(min_parameter);
+            max_count = max_count.max(max_parameter);
+            if min_parameter < count && max_below.is_none_or(|below| min_parameter > below) {
+                max_below = Some(min_parameter);
+            }
+            if count < max_parameter && min_above.is_none_or(|above| max_parameter < above) {
+                min_above = Some(max_parameter);
+            }
+        }
+        let has_rest =
+            signatures.iter().any(|signature| self.signature_has_effective_rest(signature));
+        let range = if !has_rest && min_count < max_count {
+            format!("{min_count}-{max_count}")
+        } else {
+            min_count.to_string()
+        };
+        let void_promise =
+            !has_rest && range == "1" && count == 0 && self.is_promise_resolve_arity_error(node);
+        let message = if has_rest {
+            &messages::EXPECTED_AT_LEAST_0_ARGUMENTS_BUT_GOT_1
+        } else if void_promise {
+            &messages::EXPECTED_0_ARGUMENTS_BUT_GOT_1_DID_YOU_FORGET_TO_INCLUDE_VOID_IN_YOUR_TYPE_ARGUMENT_TO_PROMISE
+        } else {
+            &messages::EXPECTED_0_ARGUMENTS_BUT_GOT_1
+        };
+        let diagnostic = if min_count < count && count < max_count {
+            Diagnostic::with_args(
+                &messages::NO_OVERLOAD_EXPECTS_0_ARGUMENTS_BUT_OVERLOADS_DO_EXIST_THAT_EXPECT_EITHER_1_OR_2_ARGUMENTS,
+                self.error_span(error_node),
+                [
+                    count.to_string(),
+                    max_below.map_or_else(String::new, |n| n.to_string()),
+                    min_above.map_or_else(String::new, |n| n.to_string()),
+                ],
+            )
+        } else if count < min_count || max_count >= count {
+            Diagnostic::with_args(message, self.error_span(error_node), [range, count.to_string()])
+        } else {
+            let start = self.nodes.span(arguments[max_count].node).start;
+            let end = self.nodes.span(arguments[count - 1].node).end.max(start);
+            Diagnostic::with_args(
+                message,
+                tsr_core::Span { start, end },
+                [range, count.to_string()],
+            )
+        };
+        self.report_at_node(node, diagnostic);
+    }
+
+    /// `isPromiseResolveArityError` (`checker.go`): the callee is a parameter
+    /// of a function passed to `new Promise(...)`.
+    fn is_promise_resolve_arity_error(&mut self, node: tsr_ast::NodeId) -> bool {
+        let Some(tsr_ast::Node::CallExpression(call)) = self.node_map.get(node) else {
+            return false;
+        };
+        let Some(Expression::Identifier(callee)) = call.expression else { return false };
+        let Some(callee_id) = callee.node_id else { return false };
+        let Some(symbol) = self.binder.resolve_name(
+            self.nodes,
+            self.node_map,
+            callee_id,
+            callee.text,
+            SymbolFlags::VALUE,
+        ) else {
+            return false;
+        };
+        let Some(declaration) = self.binder.symbols().get(symbol).value_declaration else {
+            return false;
+        };
+        if self.nodes.kind(declaration) != tsr_ast::SyntaxKind::Parameter {
+            return false;
+        }
+        let Some(function) = self.nodes.parent(declaration) else { return false };
+        if !matches!(
+            self.nodes.kind(function),
+            tsr_ast::SyntaxKind::FunctionExpression | tsr_ast::SyntaxKind::ArrowFunction
+        ) {
+            return false;
+        }
+        let Some(new) = self.nodes.parent(function) else { return false };
+        let Some(tsr_ast::Node::NewExpression(new)) = self.node_map.get(new) else { return false };
+        let Some(Expression::Identifier(constructor)) = new.expression else { return false };
+        let Some(constructor_id) = constructor.node_id else { return false };
+        let Some(global) = self.binder.globals().get("Promise").copied() else { return false };
+        self.binder
+            .resolve_name(
+                self.nodes,
+                self.node_map,
+                constructor_id,
+                constructor.text,
+                SymbolFlags::VALUE,
+            )
+            .is_some_and(|resolved| {
+                self.binder.merged_symbol(resolved) == self.binder.merged_symbol(global)
+            })
+    }
+
+    /// `getTypeArgumentArityError` (`checker.go:9853`), the span over the
+    /// type-argument list.
+    fn report_type_argument_arity_error(
+        &mut self,
+        node: tsr_ast::NodeId,
+        type_arguments: &[tsr_ast::TypeNode<'_>],
+        arities: &[(usize, usize)],
+    ) {
+        let (Some(first), Some(last)) = (
+            type_arguments.first().and_then(tsr_ast::TypeNode::node_id),
+            type_arguments.last().and_then(tsr_ast::TypeNode::node_id),
+        ) else {
+            return;
+        };
+        let count = type_arguments.len();
+        let span =
+            tsr_core::Span { start: self.nodes.span(first).start, end: self.nodes.span(last).end };
+        let diagnostic = if let [(min, max)] = arities {
+            let expected = if min < max { format!("{min}-{max}") } else { min.to_string() };
+            Diagnostic::with_args(
+                &messages::EXPECTED_0_TYPE_ARGUMENTS_BUT_GOT_1,
+                span,
+                [expected, count.to_string()],
+            )
+        } else {
+            let mut below: Option<usize> = None;
+            let mut above: Option<usize> = None;
+            for &(min, max) in arities {
+                if min > count {
+                    above = Some(above.map_or(min, |above| above.min(min)));
+                } else if max < count {
+                    below = Some(below.map_or(max, |below| below.max(max)));
+                }
+            }
+            match (below, above) {
+                (Some(below), Some(above)) => Diagnostic::with_args(
+                    &messages::NO_OVERLOAD_EXPECTS_0_TYPE_ARGUMENTS_BUT_OVERLOADS_DO_EXIST_THAT_EXPECT_EITHER_1_OR_2_TYPE_ARGUMENTS,
+                    span,
+                    [count.to_string(), below.to_string(), above.to_string()],
+                ),
+                (Some(expected), None) | (None, Some(expected)) => Diagnostic::with_args(
+                    &messages::EXPECTED_0_TYPE_ARGUMENTS_BUT_GOT_1,
+                    span,
+                    [expected.to_string(), count.to_string()],
+                ),
+                (None, None) => return,
+            }
+        };
+        self.report_at_node(node, diagnostic);
+    }
+
+    /// `getMinTypeArgumentCount` (`checker.go`): one past the last type
+    /// parameter without a default.
+    fn min_type_argument_count(type_parameters: &[crate::signatures::TypeParameter]) -> usize {
+        type_parameters
+            .iter()
+            .rposition(|parameter| parameter.default.is_none())
+            .map_or(0, |i| i + 1)
+    }
+
+    /// Every diagnostic `resolveNewExpression` (`checker.go:8575`) issues for
+    /// one `new` node, except constructor accessibility and abstractness,
+    /// which [`Checker::check_new_on_abstract_class`] owns.
+    ///
+    /// The callee goes through `checkNonNullExpression` (the possibly-null
+    /// reporter is not emitted, for the narrowing reason
+    /// [`Checker::check_non_null_callee`] records); an `any` apparent type is
+    /// an untyped call (TS2347 for written type arguments); construct
+    /// signatures resolve, else call signatures resolve and, without
+    /// `noImplicitAny`, a non-`void` return is TS2350; else
+    /// `invocationError(Construct)` is TS2351 on the callee.
+    pub(crate) fn check_new_expression_diagnostics(&mut self, node: tsr_ast::NodeId) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        match self.check_new_expression_head(node) {
+            CallHead::Done => {}
+            CallHead::Resolve(apparent) => {
+                let kind = if self
+                    .head_signature_count(apparent, SignatureKind::Construct)
+                    .is_some_and(|count| count != 0)
+                {
+                    SignatureKind::Construct
+                } else {
+                    SignatureKind::Call
+                };
+                match self.check_resolve_call_arity(node, apparent, kind) {
+                    CallArity::Reported => {}
+                    CallArity::Applicable(Some(signature)) => {
+                        self.check_single_candidate_arguments(node, &signature);
+                    }
+                    CallArity::Applicable(None) => self.check_new_arity(node, false),
+                    CallArity::Undecided => {
+                        self.check_new_arity(node, true);
+                        self.check_call_type_argument_arity(node);
+                    }
+                }
+            }
+            CallHead::Unknown => {
+                self.check_new_arity(node, true);
+                self.check_call_type_argument_arity(node);
+            }
+        }
+    }
+
+    /// The head of `resolveTaggedTemplateExpression` (`checker.go:8719`): an
+    /// untyped tag reports nothing; a tag with no call signatures is
+    /// `invocationError` (TS2349) on the tag, or TS2796 when the tagged
+    /// template is an array element (a likely missing comma).
+    pub(crate) fn check_tagged_template_diagnostics(&mut self, node: tsr_ast::NodeId) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let Some(tsr_ast::Node::TaggedTemplateExpression(tagged)) = self.node_map.get(node) else {
+            return;
+        };
+        let Some(tag) = tagged.tag else { return };
+        let Some(tag_id) = tag.node_id() else { return };
+        let tag_type = self.check_expression(tag);
+        let apparent = self.apparent_type(tag_type);
+        if self.is_error(apparent)
+            || self.is_untyped_any_callee(tag_type, apparent)
+            || self.is_function_or_method_type(apparent)
+        {
+            return;
+        }
+        let (Some(call_count), Some(construct_count)) = (
+            self.head_signature_count(apparent, SignatureKind::Call),
+            self.head_signature_count(apparent, SignatureKind::Construct),
+        ) else {
+            return;
+        };
+        if call_count != 0
+            || self.is_untyped_signatureless_call(tag_type, apparent, call_count, construct_count)
+                != Some(false)
+            || self.head_could_contain_type_variables(tag_type, 3)
+        {
+            return;
+        }
+        if self.nodes.parent(node).is_some_and(|parent| {
+            self.nodes.kind(parent) == tsr_ast::SyntaxKind::ArrayLiteralExpression
+        }) {
+            self.report_at_node(
+                tag_id,
+                Diagnostic::new(
+                    &messages::IT_IS_LIKELY_THAT_YOU_ARE_MISSING_A_COMMA_TO_SEPARATE_THESE_TWO_TEMPLATE_EXPRESSIONS_THEY_FORM_A_TAGGED_TEMPLATE_EXPRESSION_WHICH_CANNOT_BE_INVOKED,
+                    self.error_span(tag_id),
+                ),
+            );
+            return;
+        }
+        self.invocation_error(tag_id, false, SignatureKind::Call);
+    }
+
+    fn check_new_expression_head(&mut self, node: tsr_ast::NodeId) -> CallHead {
+        let Some(tsr_ast::Node::NewExpression(new)) = self.node_map.get(node) else {
+            return CallHead::Unknown;
+        };
+        let Some(callee) = new.expression else { return CallHead::Unknown };
+        let Some(callee_id) = callee.node_id() else { return CallHead::Unknown };
+        let expression_type = self.check_expression(callee);
+        let expression_type = match self.check_non_null_callee(expression_type, callee_id) {
+            NonNullCallee::Type(t) => t,
+            NonNullCallee::Error => return CallHead::Done,
+            NonNullCallee::Unknown => return CallHead::Unknown,
+        };
+        if Some(expression_type) == self.silent_never_type {
+            return CallHead::Done;
+        }
+        let apparent = self.apparent_type(expression_type);
+        if self.is_error(apparent) {
+            return CallHead::Done;
+        }
+        if self.store.get(apparent).flags.intersects(TypeFlags::ANY) {
+            if !self.untyped_any_is_written(callee) {
+                return CallHead::Unknown;
+            }
+            if !new.type_arguments.is_empty() {
+                self.report_at_node(
+                    node,
+                    Diagnostic::new(
+                        &messages::UNTYPED_FUNCTION_CALLS_MAY_NOT_ACCEPT_TYPE_ARGUMENTS,
+                        self.error_span(node),
+                    ),
+                );
+            }
+            return CallHead::Done;
+        }
+        let Some(construct_count) = self.head_signature_count(apparent, SignatureKind::Construct)
+        else {
+            return CallHead::Unknown;
+        };
+        if construct_count != 0 {
+            return CallHead::Resolve(apparent);
+        }
+        let Some(call_signatures) = self.head_signatures(apparent, SignatureKind::Call) else {
+            return CallHead::Unknown;
+        };
+        if self.head_could_contain_type_variables(expression_type, 3) {
+            return CallHead::Unknown;
+        }
+        match call_signatures.as_slice() {
+            [] => {
+                self.invocation_error(
+                    callee_id,
+                    new.arguments.is_empty(),
+                    SignatureKind::Construct,
+                );
+                CallHead::Done
+            }
+            // `resolveCall` picks the sole non-generic candidate whatever the
+            // arguments; an overload set or a generic one needs the chosen,
+            // instantiated signature, which this head does not compute.
+            [signature] if signature.type_parameters.is_empty() => {
+                if !self.no_implicit_any
+                    && let Some(signature) = self.complete_signature_return(signature.clone())
+                    && signature.r#type != self.intrinsics.void
+                    && !self.is_error(signature.r#type)
+                {
+                    self.report_at_node(
+                        node,
+                        Diagnostic::new(
+                            &messages::ONLY_A_VOID_FUNCTION_CAN_BE_CALLED_WITH_THE_NEW_KEYWORD,
+                            self.error_span(node),
+                        ),
+                    );
+                }
+                CallHead::Resolve(apparent)
+            }
+            _ => CallHead::Resolve(apparent),
+        }
+    }
+
+    /// `checkNonNullTypeWithReporter` (`checker.go:7413`) with
+    /// `reportCannotInvokePossiblyNullOrUndefinedError` as the reporter.
+    fn check_non_null_callee(&mut self, t: TypeId, callee: tsr_ast::NodeId) -> NonNullCallee {
+        if self.strict_null_checks && self.store.get(t).flags.intersects(TypeFlags::UNKNOWN) {
+            let text = self.entity_name_expression_text(callee).filter(|text| text.len() < 100);
+            let span = self.error_span(callee);
+            let diagnostic = match text {
+                Some(text) => Diagnostic::with_args(&messages::_0_IS_OF_TYPE_UNKNOWN, span, [text]),
+                None => Diagnostic::new(&messages::OBJECT_IS_OF_TYPE_UNKNOWN, span),
+            };
+            self.report_at_node(callee, diagnostic);
+            return NonNullCallee::Error;
+        }
+        // `IsUndefined`/`IsNull` facts come only from `undefined`, `null` and
+        // `void` themselves, or through a union, intersection or constraint;
+        // an object, function or other primitive answers neither. Skipping
+        // `getTypeFacts` there avoids resolving a function type's signatures
+        // (with their return types) from inside its own body.
+        if !self.store.get(t).flags.intersects(
+            TypeFlags::NULLABLE
+                | TypeFlags::VOID
+                | TypeFlags::UNION
+                | TypeFlags::INTERSECTION
+                | TypeFlags::INSTANTIABLE,
+        ) {
+            return NonNullCallee::Type(t);
+        }
+        let facts = self.get_type_facts(t)
+            & (crate::flow::TypeFacts::IS_UNDEFINED | crate::flow::TypeFacts::IS_NULL);
+        if facts.is_empty() {
+            return NonNullCallee::Type(t);
+        }
+        let non_nullable = self.get_non_nullable_type(t);
+        let remainder_nullable =
+            self.store.get(non_nullable).flags.intersects(TypeFlags::NULLABLE | TypeFlags::NEVER);
+        // Without `strictNullChecks` `addTypeToUnion` never adds a nullable
+        // member beside a non-nullable one, so such a union is not upstream's
+        // type and the head declines rather than report on it.
+        if !self.strict_null_checks && !remainder_nullable {
+            return NonNullCallee::Unknown;
+        }
+        // `reportCannotInvokePossiblyNullOrUndefinedError` (TS2721-TS2723) is
+        // not emitted yet: it trusts the callee's narrowed type, and this
+        // port's narrowing of `super.m && super.m()` and of a discriminated
+        // `opts.a || opts.f()` still answers the declared nullable type.
+        if remainder_nullable { NonNullCallee::Error } else { NonNullCallee::Type(non_nullable) }
+    }
+
+    /// `this.m(...)` inside an object-literal method or function-valued
+    /// property. A refusal: upstream's `getExplicitThisType` (`flow.go:2215`)
+    /// answers nil there, so a call in the body never reaches the method's
+    /// own type through `getEffectsSignature`; this port's dotted-name walk
+    /// reads `this` through `check_this_expression` instead, so typing the
+    /// callee from the diagnostic walk re-enters the method's return
+    /// inference and reports TS7023 (`thisTypeInObjectLiterals2`).
+    fn callee_reads_object_literal_this(&self, callee: Expression<'_>) -> bool {
+        let Expression::PropertyAccessExpression(access) = callee else { return false };
+        let Some(Expression::KeywordExpression(receiver)) = access.expression else {
+            return false;
+        };
+        if receiver.kind != tsr_ast::SyntaxKind::ThisKeyword {
+            return false;
+        }
+        let Some(receiver) = receiver.node_id else { return false };
+        let Some(container) = self.get_this_container(receiver, false) else { return false };
+        let Some(parent) = self.nodes.parent(container) else { return false };
+        match self.nodes.kind(parent) {
+            tsr_ast::SyntaxKind::ObjectLiteralExpression => true,
+            tsr_ast::SyntaxKind::PropertyAssignment => self.nodes.parent(parent).is_some_and(|p| {
+                self.nodes.kind(p) == tsr_ast::SyntaxKind::ObjectLiteralExpression
+            }),
+            _ => false,
+        }
+    }
+
+    /// Whether `t` is a function or method declaration's own type.
+    fn is_function_or_method_type(&self, t: TypeId) -> bool {
+        let TypeData::Anonymous { symbol, .. } = self.store.get(t).data else { return false };
+        let flags = self.binder.symbols().get(self.binder.merged_symbol(symbol)).flags;
+        flags.intersects(SymbolFlags::FUNCTION | SymbolFlags::METHOD)
+            && !flags.intersects(SymbolFlags::CLASS)
+    }
+
+    /// `getSignaturesOfType` (`checker.go`) as `resolveCallExpression` reads
+    /// it: the list only. Upstream resolves no return type here, so a baked
+    /// list is read without `complete_signature_return` — completing it from
+    /// the diagnostic walk re-enters a method's return inference from a call
+    /// in its own body. Every other shape goes through the shared resolver.
+    fn head_signatures(&mut self, t: TypeId, kind: SignatureKind) -> Option<Vec<Signature>> {
+        let t = self.apparent_type(t);
+        let is_call = kind == SignatureKind::Call;
+        if let Some(signatures) = self.signature_types.get(&t) {
+            return Some(
+                signatures
+                    .iter()
+                    .filter(|signature| (signature.kind == SignatureKind::Call) == is_call)
+                    .cloned()
+                    .collect(),
+            );
+        }
+        // A class merged with a function declares call signatures through the
+        // function; the shared resolver's class arm answers an empty call list
+        // for it, which is not upstream's list, so the head declines.
+        if is_call
+            && let TypeData::Anonymous { symbol, .. } = self.store.get(t).data
+            && self
+                .binder
+                .symbols()
+                .get(self.binder.merged_symbol(symbol))
+                .flags
+                .contains(SymbolFlags::CLASS | SymbolFlags::FUNCTION)
+        {
+            return None;
+        }
+        self.signatures_of_type_kind(t, kind)
+    }
+
+    fn head_signature_count(&mut self, t: TypeId, kind: SignatureKind) -> Option<usize> {
+        self.head_signatures(t, kind).map(|signatures| signatures.len())
+    }
+
+    /// The type-variable half of `couldContainTypeVariables` (`checker.go`),
+    /// bounded to `depth` levels of reference arguments and signature
+    /// parameters/returns.
+    ///
+    /// A refusal, not an upstream branch: upstream reports a signature-less
+    /// generic callee like any other, but this port's generic machinery
+    /// (non-nullable filtering of a deferred conditional, homomorphic mapped
+    /// apparent types) answers a type upstream does not hold for several such
+    /// callees, and an empty list read off one of those is not "not callable".
+    fn head_could_contain_type_variables(&mut self, t: TypeId, depth: u8) -> bool {
+        let ty = self.store.get(t);
+        if ty.flags.intersects(TypeFlags::INSTANTIABLE) {
+            return true;
+        }
+        if let TypeData::Union { types, .. } | TypeData::Intersection { types, .. } = &ty.data {
+            let types = types.clone();
+            return types
+                .into_iter()
+                .any(|member| self.head_could_contain_type_variables(member, depth));
+        }
+        if depth == 0 {
+            return false;
+        }
+        if let Some((_, arguments)) = self.type_reference_targets.get(&t).cloned()
+            && arguments
+                .into_iter()
+                .any(|argument| self.head_could_contain_type_variables(argument, depth - 1))
+        {
+            return true;
+        }
+        if let Some(signatures) = self.signature_types.get(&t).cloned() {
+            return signatures.iter().any(|signature| {
+                !signature.type_parameters.is_empty()
+                    || signature.parameters.iter().any(|parameter| {
+                        self.head_could_contain_type_variables(parameter.r#type, depth - 1)
+                    })
+                    || self.head_could_contain_type_variables(signature.r#type, depth - 1)
+            });
+        }
+        false
+    }
+
+    /// `isUntypedFunctionCall` (`checker.go:9933`), the arms that read no
+    /// signature list: an `any` callee, or a type parameter whose apparent
+    /// type is `any`.
+    fn is_untyped_any_callee(&self, func_type: TypeId, apparent: TypeId) -> bool {
+        let any = |t: TypeId| self.store.get(t).flags.intersects(TypeFlags::ANY);
+        any(func_type)
+            || any(apparent)
+                && self.store.get(func_type).flags.intersects(TypeFlags::TYPE_PARAMETER)
+    }
+
+    /// `isUntypedFunctionCall` (`checker.go:9933`), the signature-less arm: no
+    /// call or construct signatures, not a union, not `never`, and assignable
+    /// to the global `Function`. `None` when that relation is undecidable.
+    fn is_untyped_signatureless_call(
+        &mut self,
+        func_type: TypeId,
+        apparent: TypeId,
+        call_count: usize,
+        construct_count: usize,
+    ) -> Option<bool> {
+        if call_count != 0
+            || construct_count != 0
+            || self.store.get(apparent).flags.intersects(TypeFlags::UNION | TypeFlags::NEVER)
+        {
+            return Some(false);
+        }
+        let function = self.global_type_symbol_with_arity("Function", 0)?;
+        let function = self.get_declared_type_of_symbol(function);
+        if self.is_error(function) {
+            return None;
+        }
+        match self.relate_ternary(func_type, function, Relation::Assignable) {
+            Ternary::Related => Some(true),
+            Ternary::NotRelated => Some(false),
+            Ternary::Unknown => None,
+        }
+    }
+
+    /// `invocationError` (`checker.go:9996`) → `invocationErrorDetails`: the
+    /// head message on `target` (a property access's name). Only the head is
+    /// emitted; the detail chain is not modelled by this port's `Diagnostic`.
+    pub(crate) fn invocation_error(
+        &mut self,
+        error_target: tsr_ast::NodeId,
+        zero_arguments: bool,
+        kind: SignatureKind,
+    ) {
+        let is_call = kind == SignatureKind::Call;
+        let parent_is_call = self
+            .nodes
+            .parent(error_target)
+            .is_some_and(|parent| self.nodes.kind(parent) == tsr_ast::SyntaxKind::CallExpression);
+        let target = match self.node_map.get(error_target) {
+            Some(tsr_ast::Node::PropertyAccessExpression(access)) if parent_is_call => {
+                access.name.and_then(|name| name.node_id()).unwrap_or(error_target)
+            }
+            _ => error_target,
+        };
+        let mut head = if is_call {
+            &messages::THIS_EXPRESSION_IS_NOT_CALLABLE
+        } else {
+            &messages::THIS_EXPRESSION_IS_NOT_CONSTRUCTABLE
+        };
+        // Diagnose get accessors incorrectly called as functions.
+        if parent_is_call && zero_arguments {
+            match self.resolved_symbol_is_get_accessor(error_target) {
+                Some(true) => {
+                    head = &messages::THIS_EXPRESSION_IS_NOT_CALLABLE_BECAUSE_IT_IS_A_GET_ACCESSOR_DID_YOU_MEAN_TO_USE_IT_WITHOUT;
+                }
+                Some(false) => {}
+                None => return,
+            }
+        }
+        self.report_at_node(target, Diagnostic::new(head, self.error_span(target)));
+    }
+
+    /// `getResolvedSymbolOrNil(errorTarget).Flags & SymbolFlagsGetAccessor`
+    /// for the callee shapes whose resolved symbol is a member: a property
+    /// access resolves its name on the receiver's apparent type. `None` when
+    /// this port cannot find the member upstream resolved (an accessor
+    /// inherited through a generic base is one), so the head cannot choose
+    /// between TS2349 and TS6234.
+    fn resolved_symbol_is_get_accessor(&mut self, callee: tsr_ast::NodeId) -> Option<bool> {
+        let Some(tsr_ast::Node::PropertyAccessExpression(access)) = self.node_map.get(callee)
+        else {
+            return Some(false);
+        };
+        let (Some(receiver), Some(tsr_ast::MemberName::Identifier(name))) =
+            (access.expression, access.name)
+        else {
+            return Some(false);
+        };
+        let receiver = self.check_expression(receiver);
+        let receiver = self.apparent_type(receiver);
+        let symbol = self.get_property_of_type(receiver, name.text)?;
+        Some(self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::GET_ACCESSOR))
+    }
+
+    /// Whether a callee's `any` was written: an annotation or cast
+    /// ([`Checker::any_is_written_in_an_annotation`]), a property declared
+    /// `: any`, or a member read off such a receiver.
+    fn untyped_any_is_written(&mut self, callee: Expression<'_>) -> bool {
+        if self.any_is_written_in_an_annotation(callee) {
+            return true;
+        }
+        let Expression::PropertyAccessExpression(access) = callee else { return false };
+        let (Some(receiver), Some(tsr_ast::MemberName::Identifier(name))) =
+            (access.expression, access.name)
+        else {
+            return false;
+        };
+        let receiver_type = self.check_expression(receiver);
+        if receiver_type == self.intrinsics.any {
+            return self.untyped_any_is_written(receiver);
+        }
+        let receiver_type = self.apparent_type(receiver_type);
+        let Some(property) = self.get_property_of_type(receiver_type, name.text) else {
+            return false;
+        };
+        let Some(declaration) = self.binder.symbols().get(property).value_declaration else {
+            return false;
+        };
+        let annotation = match self.node_map.get(declaration) {
+            Some(tsr_ast::Node::PropertyDeclaration(node)) => node.r#type,
+            Some(tsr_ast::Node::PropertySignatureDeclaration(node)) => node.r#type,
+            Some(tsr_ast::Node::ParameterDeclaration(node)) => node.r#type,
+            _ => None,
+        };
+        matches!(annotation, Some(tsr_ast::TypeNode::KeywordTypeNode(keyword))
+            if keyword.kind == tsr_ast::SyntaxKind::AnyKeyword)
+    }
+
+    fn report_at_node(&mut self, node: tsr_ast::NodeId, diagnostic: Diagnostic) {
+        if let Some(file) = self.source_file_of_for_diagnostics(node) {
+            self.report(file, diagnostic);
+        }
+    }
+
     /// The type of a call expression.
     ///
     /// Ported from `Checker.checkCallExpression` (`checker.go:8951`) into
@@ -661,7 +1876,7 @@ impl Checker<'_, '_> {
         // `any` answered here is an honest computation, not a failed one wearing
         // `any`'s name — `docs/architecture/checker-notes-calleegap.md` argues it
         // from those two adjacent upstream lines.
-        if self.is_untyped_call_target(callee, callee_type) {
+        if self.is_untyped_call_target(callee_type) {
             bump(&COUNTERS.untyped_call);
             return self.intrinsics.any;
         }
@@ -1177,7 +2392,7 @@ impl Checker<'_, '_> {
         // Placed after the template check, which is the order upstream's
         // `resolveUntypedCall` uses — the template is checked for its own lines
         // whether or not the tag is typed.
-        if self.is_untyped_call_target(tag, tag_type) {
+        if self.is_untyped_call_target(tag_type) {
             return self.intrinsics.any;
         }
         if self.is_untyped_function_typed_callee(tag_type) {
@@ -1211,11 +2426,19 @@ impl Checker<'_, '_> {
             _ => 0,
         };
         let candidates = self.call_signatures_of_type(tag_type).unwrap_or_default();
+        // `chooseOverload` skips a candidate failing
+        // `hasCorrectTypeArgumentArity` (`checker.go:9214`) before arity, so
+        // `fooFn<number>``…`` cannot pick a non-generic overload.
+        let type_argument_count = node.type_arguments.len();
         let arity_pick = if candidates.len() > 1 {
             let survivors: Vec<&Signature> = candidates
                 .iter()
                 .filter(|candidate| {
                     candidate.this_parameter.is_none()
+                        && (type_argument_count == 0
+                            || type_argument_count
+                                >= Self::min_type_argument_count(&candidate.type_parameters)
+                                && type_argument_count <= candidate.type_parameters.len())
                         && has_correct_arity(candidate, argument_count)
                 })
                 .collect();
@@ -2102,126 +3325,20 @@ impl Checker<'_, '_> {
     }
 
     /// Whether a call through this callee is an **untyped call** —
-    /// `isUntypedFunctionCall` (`checker.go:9931`), reduced to its first
-    /// disjunct, `IsTypeAny(funcType)`.
+    /// `isUntypedFunctionCall` (`checker.go:9933`), its first disjunct
+    /// `IsTypeAny(funcType)`; `resolveNewExpression` asks the same of the
+    /// apparent type (`checker.go:8593`), which for `any` is `any`.
     ///
-    /// Upstream's other two disjuncts are **not** ported and each is a gap
-    /// rather than a guess: the `TypeFlagsTypeParameter` arm needs an apparent
-    /// type this port does not compute for every parameter, and the
-    /// `globalFunctionType` assignability arm needs the global `Function`
-    /// interface.
-    ///
-    /// # The positional refusal, and why it is a rule and not a trade
-    ///
-    /// An **unannotated parameter** types as `any` in this port and is
-    /// **contextually typed** upstream, so upstream's answer for a call through
-    /// one is the contextual parameter type — never `any`. Answering `any` there
-    /// would assert something upstream never computes, which is a wrong rule,
-    /// and `docs/conventions.md` says a rule is not priced. It is `STATUS.md`
-    /// §5's 2,082-line contextual-typing refusal reached through a new door, and
-    /// `examples/calleegap.rs` measured it at **64 of 77 misses removed for 36
-    /// conversions**.
-    ///
-    /// **The refusal needs no test of its own.** It was written as one and the
-    /// narrowing below subsumed it: an unannotated parameter has no annotation,
-    /// so [`Checker::any_is_written_in_an_annotation`] already excludes it. The
-    /// explicit predicate was deleted rather than left as dead code, and this
-    /// paragraph is why the family is still refused without one.
-    pub(crate) fn is_untyped_call_target(
-        &mut self,
-        callee: Expression<'_>,
-        callee_type: TypeId,
-    ) -> bool {
-        if !self.store.get(callee_type).flags.intersects(TypeFlags::ANY) {
-            return false;
-        }
-        // `errorType` carries `ANY` too. A gap must stay a gap: answering `any`
-        // for it is precisely ADR-0038's forbidden rendering, and this is the
-        // one place this arm could commit it.
-        if callee_type == self.intrinsics.error {
-            return false;
-        }
-        // NARROWED after the first run measured 248 gap->wrong against a bar of
-        // 20. The counterfactual sized a design whose `any` comes from a
-        // **written** annotation; this arm had been firing wherever the callee
-        // typed as `any` for ANY reason, including the many places this port
-        // produces `any` from an unported mechanism where upstream computes a
-        // real type. `want string | got any` was 137 of the 248.
-        //
-        // So the test is not "is the type `any`" but "did the source **say**
-        // `any`". That is the only form in which this port's `any` and
-        // upstream's are the same claim.
-        if self.any_is_written_in_an_annotation(callee) {
-            // §30's narrowing: a named class expression's name is in scope
-            // inside its own body upstream; this port's resolver reaches the
-            // outer binding instead (`classBlockScoping`, 5 G→W in the §30
-            // first pair). An identifier callee lexically inside a class
-            // bearing its name is that resolver miss — contained here.
-            if let Expression::Identifier(identifier) = callee
-                && let Some(id) = identifier.node_id
-            {
-                let mut ancestor = self.nodes.parent(id);
-                while let Some(node) = ancestor {
-                    let name = match self.node_map.get(node) {
-                        Some(tsr_ast::Node::ClassExpression(class)) => class.name,
-                        Some(tsr_ast::Node::ClassDeclaration(class)) => class.name,
-                        _ => None,
-                    };
-                    if let Some(name) = name
-                        && name.text == identifier.text
-                    {
-                        return false;
-                    }
-                    ancestor = self.nodes.parent(node);
-                }
-            }
-            return true;
-        }
-        // §23 (`checker-notes-callres.md`): a property/element access whose
-        // RECEIVER is `any` or a minted unresolved is `any` in both
-        // compilers, and a call through it is an untyped call.
-        let receiver = match callee {
-            Expression::PropertyAccessExpression(access) => access.expression,
-            Expression::ElementAccessExpression(access) => access.expression,
-            _ => None,
-        };
-        // §24: an IDENTIFIER callee whose `any` is §31's own answer — the
-        // name resolves nowhere and the file carries no import machinery.
-        if let Expression::Identifier(identifier) = callee
-            && let Some(id) = identifier.node_id
-            && self
-                .binder
-                .resolve_name(
-                    self.nodes,
-                    self.node_map,
-                    id,
-                    identifier.text,
-                    SymbolFlags::VALUE
-                        | SymbolFlags::TYPE
-                        | SymbolFlags::NAMESPACE
-                        | SymbolFlags::ALIAS,
-                )
-                .is_none()
-            && !self.file_has_import_machinery(id)
-        {
-            return true;
-        }
-        let Some(receiver) = receiver else { return false };
-        // §30's second narrowing: a parser-minted MISSING receiver (the
-        // empty identifier `new.targ` recovery produces) is not a source
-        // `any` — its `any` is §31 answering an empty name.
-        if matches!(receiver, Expression::Identifier(identifier) if identifier.text.is_empty()) {
-            return false;
-        }
-        let receiver_type = self.check_expression(receiver);
-        if self.unresolved_types.contains(&receiver_type) {
-            return true;
-        }
-        // An `any` receiver admits only outside JS files — the AMD/require
-        // shapes type through machinery upstream has and this port lacks
-        // (`amdLikeInputDeclarationEmit`, the §23 bar's fired leg).
-        receiver_type == self.intrinsics.any
-            && receiver.node_id().is_some_and(|id| !self.in_js_file(id))
+    /// `errorType` carries `ANY` too, but every caller upstream has already
+    /// answered it through `resolveErrorCall` (`checker.go:9923`) before
+    /// asking, so it is excluded here. The type-parameter and
+    /// `globalFunctionType` disjuncts are not ported on this road. The
+    /// diagnostic heads keep [`Checker::any_is_written_in_an_annotation`]'s
+    /// provenance test: there this port's `any` for an unresolved name or a
+    /// missing member stands for upstream's `errorType`, which reports nothing.
+    pub(crate) fn is_untyped_call_target(&self, callee_type: TypeId) -> bool {
+        callee_type != self.intrinsics.error
+            && self.store.get(callee_type).flags.intersects(TypeFlags::ANY)
     }
 
     /// `isUntypedFunctionCall`'s third disjunct (`checker.go:9936`): a callee

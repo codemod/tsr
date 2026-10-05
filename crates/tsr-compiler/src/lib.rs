@@ -779,6 +779,41 @@ impl<'a> Program<'a> {
         )
     }
 
+    /// `Program.GetEmitSyntaxForUsageLocation` (`program.go:1550`) →
+    /// `getEmitSyntaxForUsageLocationWorker` (`fileloader.go:764`): the
+    /// module syntax the specifier `usage` written in `importing_file` is
+    /// emitted as. Unlike [`Program::mode_for_usage_location`] it applies
+    /// neither the `resolution-mode` overrides nor
+    /// `importSyntaxAffectsModuleResolution`.
+    #[must_use]
+    pub fn emit_syntax_for_usage_location(
+        &self,
+        importing_file: NodeId,
+        usage: NodeId,
+    ) -> ResolutionMode {
+        let Some(&index) = self.files_by_source_file.get(&importing_file) else {
+            return ResolutionMode::None;
+        };
+        let Some(metadata) = self.meta_datas.get(index) else { return ResolutionMode::None };
+        let Some(parent) = self.nodes.parent(usage) else { return ResolutionMode::None };
+        loader::emit_syntax_for_usage_location(
+            &self.options,
+            self.files[index].file_name(),
+            metadata,
+            self.usage_syntax(usage, parent),
+        )
+    }
+
+    /// `Program.GetImpliedNodeFormatForEmit` (`program.go:1554`).
+    #[must_use]
+    pub fn implied_node_format_for_emit(&self, file: NodeId) -> ResolutionMode {
+        let Some(&index) = self.files_by_source_file.get(&file) else {
+            return ResolutionMode::None;
+        };
+        let Some(metadata) = self.meta_datas.get(index) else { return ResolutionMode::None };
+        loader::implied_node_format_for_emit(&self.options, self.files[index].file_name(), metadata)
+    }
+
     /// A file name canonicalised the way this program canonicalises
     /// (`Program.toPath`, `internal/compiler/program.go:1830`).
     #[must_use]
@@ -849,6 +884,18 @@ impl tsr_checker::resolution::ModuleHost for Program<'_> {
 
     fn default_resolution_mode_for_file(&self, file: NodeId) -> ResolutionMode {
         Program::default_resolution_mode_for_file(self, file)
+    }
+
+    fn emit_syntax_for_usage_location(
+        &self,
+        importing_file: NodeId,
+        usage: NodeId,
+    ) -> ResolutionMode {
+        Program::emit_syntax_for_usage_location(self, importing_file, usage)
+    }
+
+    fn implied_node_format_for_emit(&self, file: NodeId) -> ResolutionMode {
+        Program::implied_node_format_for_emit(self, file)
     }
 
     fn extensionless_relative_import(

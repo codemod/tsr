@@ -263,7 +263,18 @@ impl Checker<'_, '_> {
         kind: SignatureKind,
     ) -> Option<Vec<Signature>> {
         let mut lists = Vec::with_capacity(constituents.len());
+        // resolveUnionTypeMembers (checker.go:21052) contributes
+        // `unknownSignature` for a `globalFunctionType` constituent's call
+        // list. That declaration-less signature is not modelled, so the union
+        // declines instead of reading `Function`'s empty list as "not callable".
+        let function = (kind == SignatureKind::Call)
+            .then(|| self.global_type_symbol_with_arity("Function", 0))
+            .flatten()
+            .map(|symbol| self.get_declared_type_of_symbol(symbol));
         for &part in constituents {
+            if Some(part) == function {
+                return None;
+            }
             let list = self.signatures_of_type_kind(part, kind)?;
             if list.is_empty() {
                 return Some(Vec::new());

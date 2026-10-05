@@ -25,7 +25,17 @@ judged RIGHT cases only, EMPTY cases are excluded by the suite):
 | perf-2 `ed40c6c8` | 7,374 | 3,196 | 1.13 |
 | harness `829611e9` | 7,374 | 3,219 | 1.14 |
 | parser `ae656118` | 7,464 | 3,318 | 1.18 |
-| property `d599c504` | 7,466 (78.28%) | 3,375 (61.50%) | 1.15 |
+| property `d599c504` | 7,466 | 3,375 | 1.15 |
+| iteration-destructure `06f25e03` | 7,488 | 3,427 | 1.20 |
+| js-2 (local) `a08cbcf2` | 7,493 | 3,427 | 1.14 |
+| misc-2 (local) `8f64006d` | 7,493 | 3,444 | 0.99 |
+| js-3 (local) `ab3bb035` | 7,493 | 3,459 | 1.08 |
+| cycles (local) `8731aa41` | 7,493 | 3,462 | 1.09 |
+| calls + calls-2 (local) `675c4501` | 7,513 (78.77%) | 3,535 (64.41%) | 1.18 |
+
+From 2026-10-05 ~09:45 PDT the Box service stopped answering (`Not connected`;
+new machines did not start), so lanes continued as local workers. Smoke ratios
+after that point were taken with load average ~60 on 16 cores and are noise.
 
 The smoke ratio is `perf-project` on `benches/projects/generic-imports`, 9
 samples, observed (not verified). `benches/projects/domain-model` reads 1.42 on

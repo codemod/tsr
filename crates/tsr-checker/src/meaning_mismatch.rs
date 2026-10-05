@@ -247,7 +247,7 @@ impl Checker<'_, '_> {
 
     /// The dotted text of an entity name expression, or `None` when `node` is
     /// not one.
-    fn entity_name_expression_text(&self, node: NodeId) -> Option<String> {
+    pub(crate) fn entity_name_expression_text(&self, node: NodeId) -> Option<String> {
         match self.node_map.get(node)? {
             Node::Identifier(identifier) => Some(identifier.text.to_string()),
             Node::PropertyAccessExpression(access) => {

@@ -594,6 +594,9 @@ pub struct Checker<'a, 'n> {
     /// the corpus contains such cases. Collapsing them would over-report every
     /// one of them.
     pub(crate) strict_property_initialization: bool,
+    /// `compilerOptions.NoImplicitOverride.IsTrue()`, read by
+    /// `checkMemberForOverrideModifier` (`checker.go:4729`).
+    pub(crate) no_implicit_override: bool,
     /// Did the parser report a diagnostic in the file currently being walked?
     ///
     /// Set by [`Checker::check_source_file`] and read by the rules that cannot
@@ -1052,6 +1055,12 @@ pub struct Checker<'a, 'n> {
     /// port rechecks a mutable contextual signature. Diagnostic ownership only;
     /// this set never certifies completion or substitutes a semantic return.
     pub(crate) return_cycle_diagnostics: rustc_hash::FxHashSet<NodeId>,
+    /// reportCircularityError / getTypeOfAccessors (checker.go:18822, :18511)
+    /// diagnostics already reported, keyed by the reporting declaration node.
+    /// Native's diagnostic collection drops the identical report a failed push
+    /// and its failed pop both make; this set is that de-duplication only and
+    /// never certifies a type.
+    pub(crate) circularity_reported: rustc_hash::FxHashSet<NodeId>,
     /// resolveAnonymousTypeMembers / getDefaultConstructSignatures (checker.go).
     /// None marks an active or unsupported class constructor resolution.
     pub(crate) class_construct_signatures:
@@ -1374,6 +1383,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             no_unchecked_indexed_access: false,
             use_unknown_in_catch_variables: false,
             strict_property_initialization: true,
+            no_implicit_override: false,
             file_has_parse_errors: false,
             merge_conflicts_reported: false,
             assignability_probe: Vec::new(),
@@ -1483,6 +1493,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             signature_returns: FxHashMap::default(),
             pending_signature_returns: FxHashMap::default(),
             return_cycle_diagnostics: rustc_hash::FxHashSet::default(),
+            circularity_reported: rustc_hash::FxHashSet::default(),
             class_construct_signatures: FxHashMap::default(),
             instantiated_signatures: FxHashMap::default(),
             instantiated_signature_mappers: FxHashMap::default(),
@@ -1591,6 +1602,7 @@ impl<'a, 'n> Checker<'a, 'n> {
         };
         self.strict_property_initialization =
             options.strict_option_value(options.strict_property_initialization);
+        self.no_implicit_override = options.no_implicit_override.is_true();
         self.use_unknown_in_catch_variables =
             options.strict_option_value(options.use_unknown_in_catch_variables);
         self.no_implicit_any = options.strict_option_value(options.no_implicit_any);

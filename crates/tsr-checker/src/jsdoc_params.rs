@@ -288,109 +288,49 @@ impl<'a> Checker<'a, '_> {
     }
 }
 
-/// The `@param` tags that upstream's JSDoc parser leaves at the top level of a
+/// The `@param` tags upstream's JSDoc parser leaves at the top level of a
 /// comment.
 ///
-/// This port's JSDoc parser keeps every tag flat, while `parser/jsdoc.go` folds
-/// two runs of tags into a parent: `parseCallbackTagParameters` takes the
-/// `@param`/`@arg`/`@argument`/`@template`/`@this` tags following `@callback` or
-/// `@overload` (then one `@return`), and `parseNestedTypeLiteral` takes, after a
-/// tag typed `Object`/`object` (`isObjectOrObjectArrayTypeReference`), the
-/// `@param` tags whose qualified name's left side is that tag's name
-/// (`parseChildParameterOrPropertyTag`), plus interleaved `@template`/`@this`.
-/// The membership rules are ported here so the top-level list matches.
+/// The parser already folds a callback's parameters
+/// (`parseCallbackTagParameters`) and an `Object` parameter's `x.y` children
+/// (`parseNestedTypeLiteral`) into their parent tag. `@overload` still parses
+/// flat, so its signature's run — `@param`/`@template`/`@this` tags, then one
+/// `@return` (`parseJSDocSignature`) — is skipped here.
 fn top_level_parameter_tags<'a>(
     tags: &'a [JSDocTag<'a>],
 ) -> Vec<&'a tsr_ast::JSDocParameterOrPropertyTag<'a>> {
     let mut top = Vec::new();
     let mut index = 0;
-    while index < tags.len() {
-        match &tags[index] {
-            JSDocTag::JSDocUnknownTag(tag) if tag.tag_name.text == "callback" => {
-                index = skip_signature_children(tags, index + 1);
+    while let Some(tag) = tags.get(index) {
+        index += 1;
+        match tag {
+            JSDocTag::JSDocOverloadTag(_) => {
+                while matches!(
+                    tags.get(index),
+                    Some(
+                        JSDocTag::JSDocTemplateTag(_)
+                            | JSDocTag::JSDocThisTag(_)
+                            | JSDocTag::JSDocParameterOrPropertyTag(_)
+                    )
+                ) && !matches!(tags.get(index),
+                    Some(JSDocTag::JSDocParameterOrPropertyTag(child))
+                        if child.kind.kind != SyntaxKind::JSDocParameterTag)
+                {
+                    index += 1;
+                }
+                if matches!(tags.get(index), Some(JSDocTag::JSDocReturnTag(_))) {
+                    index += 1;
+                }
             }
-            JSDocTag::JSDocOverloadTag(_) => index = skip_signature_children(tags, index + 1),
             JSDocTag::JSDocParameterOrPropertyTag(tag)
                 if tag.kind.kind == SyntaxKind::JSDocParameterTag =>
             {
                 top.push(*tag);
-                index = skip_nested_children(tags, tag, index + 1);
             }
-            _ => index += 1,
+            _ => {}
         }
     }
     top
-}
-
-/// `parseJSDocSignature`: the callback parameters, then an optional `@return`.
-fn skip_signature_children(tags: &[JSDocTag<'_>], mut index: usize) -> usize {
-    while let Some(tag) = tags.get(index) {
-        match tag {
-            JSDocTag::JSDocParameterOrPropertyTag(child)
-                if child.kind.kind == SyntaxKind::JSDocParameterTag =>
-            {
-                index = skip_nested_children(tags, child, index + 1);
-            }
-            JSDocTag::JSDocTemplateTag(_) | JSDocTag::JSDocThisTag(_) => index += 1,
-            _ => break,
-        }
-    }
-    if matches!(tags.get(index), Some(JSDocTag::JSDocReturnTag(_))) {
-        index += 1;
-    }
-    index
-}
-
-/// `parseNestedTypeLiteral` for a parameter tag ending at `index`.
-fn skip_nested_children(
-    tags: &[JSDocTag<'_>],
-    parent: &tsr_ast::JSDocParameterOrPropertyTag<'_>,
-    mut index: usize,
-) -> usize {
-    let (Some(name), true) = (parent.name, is_object_or_object_array_type_tag(parent)) else {
-        return index;
-    };
-    let name = entity_name_text(name);
-    while let Some(tag) = tags.get(index) {
-        match tag {
-            JSDocTag::JSDocParameterOrPropertyTag(child)
-                if child.kind.kind == SyntaxKind::JSDocParameterTag =>
-            {
-                let Some(EntityName::QualifiedName(qualified)) = child.name else { break };
-                if qualified.left.map(entity_name_text).as_deref() != Some(name.as_str()) {
-                    break;
-                }
-                index = skip_nested_children(tags, child, index + 1);
-            }
-            JSDocTag::JSDocTemplateTag(_) | JSDocTag::JSDocThisTag(_) => index += 1,
-            _ => break,
-        }
-    }
-    index
-}
-
-/// `isObjectOrObjectArrayTypeReference` (`parser/jsdoc.go:818`) on a tag's
-/// type expression.
-fn is_object_or_object_array_type_tag(tag: &tsr_ast::JSDocParameterOrPropertyTag<'_>) -> bool {
-    fn is_object(node: tsr_ast::TypeNode<'_>) -> bool {
-        match node {
-            tsr_ast::TypeNode::KeywordTypeNode(keyword) => {
-                keyword.kind == SyntaxKind::ObjectKeyword
-            }
-            tsr_ast::TypeNode::ArrayTypeNode(array) => array.element_type.is_some_and(is_object),
-            tsr_ast::TypeNode::TypeReferenceNode(reference) => {
-                matches!(reference.type_name, Some(EntityName::Identifier(name)) if name.text == "Object")
-                    && reference.type_arguments.is_empty()
-            }
-            _ => false,
-        }
-    }
-    match tag.type_expression {
-        Some(tsr_ast::TypeNode::JSDocTypeExpression(expression)) => {
-            expression.r#type.is_some_and(is_object)
-        }
-        _ => false,
-    }
 }
 
 /// `entityNameToString` for a JSDoc parameter name.

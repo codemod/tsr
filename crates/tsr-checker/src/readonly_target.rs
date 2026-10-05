@@ -576,10 +576,14 @@ impl Checker<'_, '_> {
     /// TS2341/TS2445/TS2446 — `checkPropertyAccessibility` for a dotted
     /// access, instance or static; see [`Checker::inaccessible_property`].
     pub(crate) fn check_private_property_access(&mut self, node: NodeId, ambient: bool) {
-        if ambient || self.file_has_parse_errors || self.in_js_file(node) {
+        if ambient || self.file_has_parse_errors {
             return;
         }
-        self.check_private_identifier_access(node);
+        // The `#name` arm keeps its JS decline (`privateIdentifierExpando`);
+        // the accessibility arm below reads JSDoc `@private`/`@protected`.
+        if !self.in_js_file(node) {
+            self.check_private_identifier_access(node);
+        }
         let Some((message, arguments, at)) = self.inaccessible_property(node) else {
             return;
         };
@@ -1199,19 +1203,19 @@ impl Checker<'_, '_> {
         .then_some(candidate)
     }
 
-    /// Does this class member carry the given accessibility modifier?
+    /// Does this class member carry the given modifier? `ast.HasSyntacticModifier`,
+    /// which sees the modifiers upstream reparses from JSDoc tags in a JS file
+    /// ([`Checker::has_effective_modifier`]).
     fn member_declaration_has(&self, declaration: NodeId, keyword: SyntaxKind) -> bool {
-        let modifiers = match self.node_map.get(declaration) {
-            Some(Node::PropertyDeclaration(property)) => property.modifiers,
-            Some(Node::MethodDeclaration(method)) => method.modifiers,
-            Some(Node::GetAccessorDeclaration(accessor)) => accessor.modifiers,
-            Some(Node::SetAccessorDeclaration(accessor)) => accessor.modifiers,
-            Some(Node::ParameterDeclaration(parameter)) => parameter.modifiers,
-            _ => return false,
-        };
-        modifiers.iter().any(|modifier| {
-            matches!(modifier, tsr_ast::ModifierLike::Token(token) if token.kind == keyword)
-        })
+        match self.nodes.kind(declaration) {
+            SyntaxKind::PropertyDeclaration
+            | SyntaxKind::MethodDeclaration
+            | SyntaxKind::GetAccessor
+            | SyntaxKind::SetAccessor
+            | SyntaxKind::Parameter
+            | SyntaxKind::BinaryExpression => self.has_effective_modifier(declaration, keyword),
+            _ => false,
+        }
     }
 
     /// Every enclosing class declaration or expression, innermost first —

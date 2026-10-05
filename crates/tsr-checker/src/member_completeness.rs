@@ -497,44 +497,6 @@ impl Checker<'_, '_> {
             Some(Node::TypeLiteralNode(literal)) => {
                 literal.members.iter().all(|member| self.type_member_is_plain(*member))
             }
-            Some(Node::JSDocTypedefTag(_)) => {
-                // bind_jsdoc_declarations exposes sibling members only for an
-                // Object/object body. Prove the entire document uses that
-                // table, not a merged alias or a partially gathered body.
-                let Some(owner) = self.binder.symbol_of(declaration) else { return false };
-                let entry = self.binder.symbols().get(owner);
-                if entry.declarations.as_slice() != [declaration] || entry.members.is_empty() {
-                    return false;
-                }
-                let Some(doc) =
-                    self.jsdoc_entries.values().flat_map(|docs| docs.iter().copied()).find(|doc| {
-                        doc.tags.iter().any(|tag| {
-                            matches!(tag, tsr_ast::JSDocTag::JSDocTypedefTag(tag)
-                                if tag.node_id == Some(declaration))
-                        })
-                    })
-                else {
-                    return false;
-                };
-                doc.tags.iter().all(|tag| match tag {
-                    tsr_ast::JSDocTag::JSDocTypedefTag(tag) => tag.node_id == Some(declaration),
-                    tsr_ast::JSDocTag::JSDocTypeTag(_) => false,
-                    tsr_ast::JSDocTag::JSDocParameterOrPropertyTag(property)
-                        if property.kind.kind == SyntaxKind::JSDocPropertyTag =>
-                    {
-                        let Some(tsr_ast::EntityName::Identifier(name)) = property.name else {
-                            return false;
-                        };
-                        property.node_id.and_then(|id| self.binder.symbol_of(id)).is_some_and(
-                            |member| {
-                                self.binder.symbols().get(member).parent == Some(owner)
-                                    && entry.members.contains_key(name.text)
-                            },
-                        )
-                    }
-                    _ => true,
-                })
-            }
             // A class merged with a namespace, an enum, a variable — the symbol's
             // member table is then assembled from somewhere this walk does not
             // read.
@@ -667,15 +629,19 @@ function read(qualified, replaced) { qualified.child.present; replaced.kept; }
         );
         let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
         checker.set_jsdoc(parsed.jsdoc.iter());
+        // The parser now reparses each typedef's `@property` children into a
+        // type literal (`reparseJSDocTypeLiteral`), so completeness is the
+        // literal's own member test; nested and `@type`-replaced bodies are
+        // ordinary literals too.
         for (name, expected) in [
             ("Plain", vec![true]),
             ("Generic", vec![true]),
             ("Lower", vec![true]),
-            ("Qualified", vec![false]),
-            ("Replaced", vec![false]),
-            ("Merged", vec![false, false]),
-            ("Multiple", vec![false]),
-            ("Other", vec![false]),
+            ("Qualified", vec![true]),
+            ("Replaced", vec![true]),
+            ("Merged", vec![true, true]),
+            ("Multiple", vec![true]),
+            ("Other", vec![true]),
         ] {
             let symbol = bound.lookup_local(root, name).expect("typedef bound");
             let actual: Vec<_> = bound
@@ -683,7 +649,21 @@ function read(qualified, replaced) { qualified.child.present; replaced.kept; }
                 .get(symbol)
                 .declarations
                 .iter()
-                .map(|&declaration| checker.declaration_members_are_complete(declaration))
+                .map(|&declaration| {
+                    let Some(tsr_ast::Node::JSDocTypedefTag(tag)) =
+                        parsed.node_map.get(declaration)
+                    else {
+                        return false;
+                    };
+                    let body = match tag.type_expression {
+                        Some(tsr_ast::Node::TypeLiteralNode(literal)) => literal.node_id,
+                        Some(tsr_ast::Node::JSDocTypeExpression(expression)) => {
+                            expression.r#type.and_then(|ty| ty.node_id())
+                        }
+                        _ => None,
+                    };
+                    body.is_some_and(|body| checker.declaration_members_are_complete(body))
+                })
                 .collect();
             assert_eq!(actual, expected, "{name}");
         }

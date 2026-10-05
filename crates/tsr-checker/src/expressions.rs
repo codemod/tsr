@@ -2455,34 +2455,10 @@ impl Checker<'_, '_> {
         if self.module_value_clones.contains_key(&callee_type) {
             return error;
         }
-        // §25 (`checker-notes-callres.md`): construction through a
-        // §31-provenance callee — upstream's TS2304 `errorType` — answers
-        // `any`, the chain's sixth hop, behind the same gates.
-        if callee_type == self.intrinsics.any
-            && let tsr_ast::Expression::Identifier(identifier) = callee
-            && let Some(id) = identifier.node_id
-            && self
-                .binder
-                .resolve_name(
-                    self.nodes,
-                    self.node_map,
-                    id,
-                    identifier.text,
-                    SymbolFlags::VALUE
-                        | SymbolFlags::TYPE
-                        | SymbolFlags::NAMESPACE
-                        | SymbolFlags::ALIAS,
-                )
-                .is_none()
-            && !self.file_has_import_machinery(id)
-        {
-            return self.intrinsics.any;
-        }
-        // §30 (`checker-notes-callres.md`): `new` through an `any` callee is
-        // the SAME untyped call the call arm answers (`checker.go:8490`,
-        // `resolveUntypedCall`) — the gate's calibrated narrowings inherited
-        // whole.
-        if self.is_untyped_call_target(callee, callee_type) {
+        // `resolveNewExpression` (`checker.go:8593`): `new` through an `any`
+        // callee is the same untyped call the call arm answers
+        // (`resolveUntypedCall`, `checker.go:9902`).
+        if self.is_untyped_call_target(callee_type) {
             return self.intrinsics.any;
         }
         // §861: `new` on a target that has CALL signatures and no CONSTRUCT

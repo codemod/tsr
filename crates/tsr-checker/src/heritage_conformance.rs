@@ -28,7 +28,19 @@ use crate::{
 impl Checker<'_, '_> {
     /// The heritage conformance checks for one class or interface declaration.
     pub(crate) fn check_heritage_conformance(&mut self, node: NodeId) {
-        if self.file_has_parse_errors || self.in_js_file(node) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        if self.in_js_file(node) {
+            // The JS arm is the implemented-type loop over the `@implements`
+            // tags `reparseHosted` moves into the class's implements clause;
+            // the extends arm and interfaces still decline in JS.
+            if matches!(
+                self.node_map.get(node),
+                Some(Node::ClassDeclaration(_) | Node::ClassExpression(_))
+            ) {
+                self.check_class_implemented_types(node, true);
+            }
             return;
         }
         match self.node_map.get(node) {
@@ -74,37 +86,78 @@ impl Checker<'_, '_> {
                 &messages::CLASS_0_INCORRECTLY_EXTENDS_BASE_CLASS_1,
             );
         }
-        for clause in clauses {
-            if clause.token.kind != SyntaxKind::ImplementsKeyword {
+        self.check_class_implemented_types(node, false);
+    }
+
+    /// `checkClassLikeDeclaration`'s implemented-type loop (`checker.go:4293`)
+    /// over `ast.GetEffectiveImplementsTypeNodes` (`ast/utilities.go`): the
+    /// written `implements` clause, followed in a JS file by each JSDoc
+    /// `@implements` tag's class name — the order `reparseHosted`'s
+    /// `KindJSDocImplementsTag` arm (`parser/reparser.go:563`) appends them in.
+    /// `jsdoc_only` skips the written clause, which the JS arm of
+    /// [`Checker::check_heritage_conformance`] still declines.
+    fn check_class_implemented_types(&mut self, node: NodeId, jsdoc_only: bool) {
+        let clauses = match self.node_map.get(node) {
+            Some(Node::ClassDeclaration(class)) => class.heritage_clauses,
+            Some(Node::ClassExpression(class)) => class.heritage_clauses,
+            _ => return,
+        };
+        let mut entries: Vec<&tsr_ast::ExpressionWithTypeArguments<'_>> = Vec::new();
+        if !jsdoc_only {
+            for clause in clauses {
+                if clause.token.kind == SyntaxKind::ImplementsKeyword {
+                    entries.extend(clause.types.iter().copied());
+                }
+            }
+        }
+        if self.in_js_file(node)
+            && let Some(docs) = self.jsdoc_entries.get(&node)
+        {
+            for doc in *docs {
+                for tag in doc.tags {
+                    if let tsr_ast::JSDocTag::JSDocImplementsTag(tag) = tag
+                        && let Some(class_name) = tag.class_name
+                    {
+                        entries.push(class_name);
+                    }
+                }
+            }
+        }
+        if entries.is_empty() {
+            return;
+        }
+        let Some(symbol) = self.binder.symbol_of(node) else { return };
+        let symbol = self.binder.merged_symbol(symbol);
+        // A **merged** declaration assembles its member table from several
+        // declarations, and upstream's merge is not this port's.
+        if self.binder.symbols().get(symbol).declarations.len() > 1 {
+            return;
+        }
+        let source = self.get_declared_type_of_class_or_interface(symbol);
+        for entry in entries {
+            let Some(expression) = entry.expression else { continue };
+            let Some(implemented) = self.heritage_entity_symbol(expression, SymbolFlags::TYPE)
+            else {
+                continue;
+            };
+            let flags = self.binder.symbols().get(implemented).flags;
+            if !flags.intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE)
+                || !self.has_single_type_declaration(implemented)
+            {
                 continue;
             }
-            for entry in clause.types {
-                let Some(expression) = entry.expression else { continue };
-                let Some(implemented) = self.heritage_entity_symbol(expression, SymbolFlags::TYPE)
-                else {
-                    continue;
-                };
-                let flags = self.binder.symbols().get(implemented).flags;
-                if !flags.intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE)
-                    || !self.has_single_type_declaration(implemented)
-                {
-                    continue;
-                }
-                let Some(target) = self.instantiated_heritage_base(
-                    implemented,
-                    entry.type_arguments,
-                    entry.node_id,
-                ) else {
-                    continue;
-                };
-                // `t.symbol.Flags&ast.SymbolFlagsClass` picks the message.
-                let message = if flags.contains(SymbolFlags::CLASS) {
-                    &messages::CLASS_0_INCORRECTLY_IMPLEMENTS_CLASS_1_DID_YOU_MEAN_TO_EXTEND_1_AND_INHERIT_ITS_MEMBERS_AS_A_SUBCLASS
-                } else {
-                    &messages::CLASS_0_INCORRECTLY_IMPLEMENTS_INTERFACE_1
-                };
-                self.check_class_heritage_entry(node, source, target, message);
-            }
+            let Some(target) =
+                self.instantiated_heritage_base(implemented, entry.type_arguments, entry.node_id)
+            else {
+                continue;
+            };
+            // `t.symbol.Flags&ast.SymbolFlagsClass` picks the message.
+            let message = if flags.contains(SymbolFlags::CLASS) {
+                &messages::CLASS_0_INCORRECTLY_IMPLEMENTS_CLASS_1_DID_YOU_MEAN_TO_EXTEND_1_AND_INHERIT_ITS_MEMBERS_AS_A_SUBCLASS
+            } else {
+                &messages::CLASS_0_INCORRECTLY_IMPLEMENTS_INTERFACE_1
+            };
+            self.check_class_heritage_entry(node, source, target, message);
         }
     }
 
@@ -210,18 +263,23 @@ impl Checker<'_, '_> {
     }
 
     /// `checkMembersForOverrideModifier` / `checkMemberForOverrideModifier`
-    /// (`checker.go`), the arms an `override` modifier decides: TS4112 when
-    /// the class has no base, TS4127 for a non-bindable dynamic name, and
-    /// TS4113/TS4117 when the base type has no property of the member's name.
+    /// (`checker.go:4704`, `checker.go:4729`): TS4112/TS4121 when the class
+    /// has no base, TS4127/TS4128 for a non-bindable dynamic name, TS4113/
+    /// TS4117 (JS: TS4122/TS4123) when the base type has no property of the
+    /// member's name, and under `noImplicitOverride` TS4114/TS4115 (JS:
+    /// TS4119/TS4120) for an unmarked override and TS4116 for an abstract one.
+    /// In a JS file the `override` modifier is the reparsed `@override` tag
+    /// ([`Checker::has_effective_modifier`]).
     ///
-    /// The `noImplicitOverride` arms (TS4114/TS4115/TS4116) need the option on
-    /// the checker and are not ported. A class whose `extends` entry this port
-    /// cannot resolve to a base type declines, as does a base whose property
-    /// table cannot be enumerated for the spelling suggestion.
-    pub(crate) fn check_members_for_override_modifier(&mut self, node: NodeId) {
-        if self.file_has_parse_errors || self.in_js_file(node) {
+    /// A class whose `extends` entry this port cannot resolve to a base type
+    /// declines, as does a base whose property table cannot be enumerated for
+    /// the spelling suggestion. `ambient` is the class's ambient context
+    /// (`node.Flags&ast.NodeFlagsAmbient`).
+    pub(crate) fn check_members_for_override_modifier(&mut self, node: NodeId, ambient: bool) {
+        if self.file_has_parse_errors {
             return;
         }
+        let is_js = self.in_js_file(node);
         let (members, clauses) = match self.node_map.get(node) {
             Some(Node::ClassDeclaration(class)) => (class.members, class.heritage_clauses),
             Some(Node::ClassExpression(class)) => (class.members, class.heritage_clauses),
@@ -235,6 +293,10 @@ impl Checker<'_, '_> {
         let mut checked: Vec<NodeId> = Vec::new();
         for member in members {
             let Some(id) = Node::from(*member).node_id() else { continue };
+            // `!ast.HasAmbientModifier(member)`.
+            if self.has_effective_modifier(id, SyntaxKind::DeclareKeyword) {
+                continue;
+            }
             if let tsr_ast::ClassElement::ConstructorDeclaration(constructor) = member {
                 for parameter in constructor.parameters {
                     let Some(parameter_id) = parameter.node_id else { continue };
@@ -259,24 +321,15 @@ impl Checker<'_, '_> {
                 checked.push(id);
             }
         }
-        // Only members carrying `override` can be reported without
-        // `noImplicitOverride`.
-        let has_override = |checker: &Self, member: NodeId| {
-            checker
-                .node_map
-                .get(member)
-                .and_then(modifiers_of)
-                .is_some_and(|modifiers| has_modifier(modifiers, SyntaxKind::OverrideKeyword))
-        };
-        let checked: Vec<NodeId> = checked
+        // Without `noImplicitOverride` only members carrying `override` can
+        // report; the rest return before any type is read.
+        let no_implicit_override = self.no_implicit_override;
+        let checked: Vec<(NodeId, bool)> = checked
             .into_iter()
-            .filter(|&member| {
-                let ambient =
-                    self.node_map.get(member).and_then(modifiers_of).is_some_and(|modifiers| {
-                        has_modifier(modifiers, SyntaxKind::DeclareKeyword)
-                    });
-                !ambient && has_override(self, member)
+            .map(|member| {
+                (member, self.has_effective_modifier(member, SyntaxKind::OverrideKeyword))
             })
+            .filter(|&(_, has_override)| has_override || no_implicit_override)
             .collect();
         if checked.is_empty() {
             return;
@@ -295,22 +348,33 @@ impl Checker<'_, '_> {
         let base_static = base_node
             .and_then(|entry| entry.expression)
             .map(|expression| self.check_expression(expression));
-        for member in checked {
+        for (member, has_override) in checked {
             let Some(base) = base else {
-                let class_text = self.type_to_string(class_type);
-                self.report_override_error(
-                    member,
-                    &messages::THIS_MEMBER_CANNOT_HAVE_AN_OVERRIDE_MODIFIER_BECAUSE_ITS_CONTAINING_CLASS_0_DOES_NOT_EXTEND_ANOTHER_CLASS,
-                    vec![class_text],
-                );
+                if has_override {
+                    let class_text = self.type_to_string(class_type);
+                    self.report_override_error(
+                        member,
+                        if is_js {
+                            &messages::THIS_MEMBER_CANNOT_HAVE_A_JSDOC_COMMENT_WITH_AN_OVERRIDE_TAG_BECAUSE_ITS_CONTAINING_CLASS_0_DOES_NOT_EXTEND_ANOTHER_CLASS
+                        } else {
+                            &messages::THIS_MEMBER_CANNOT_HAVE_AN_OVERRIDE_MODIFIER_BECAUSE_ITS_CONTAINING_CLASS_0_DOES_NOT_EXTEND_ANOTHER_CLASS
+                        },
+                        vec![class_text],
+                    );
+                }
                 continue;
             };
-            if self.nodes.kind(member) != SyntaxKind::Parameter
+            if has_override
+                && self.nodes.kind(member) != SyntaxKind::Parameter
                 && self.non_bindable_computed_name(member).is_some()
             {
                 self.report_override_error(
                     member,
-                    &messages::THIS_MEMBER_CANNOT_HAVE_AN_OVERRIDE_MODIFIER_BECAUSE_ITS_NAME_IS_DYNAMIC,
+                    if is_js {
+                        &messages::THIS_MEMBER_CANNOT_HAVE_A_JSDOC_COMMENT_WITH_AN_OVERRIDE_TAG_BECAUSE_ITS_NAME_IS_DYNAMIC
+                    } else {
+                        &messages::THIS_MEMBER_CANNOT_HAVE_AN_OVERRIDE_MODIFIER_BECAUSE_ITS_NAME_IS_DYNAMIC
+                    },
                     Vec::new(),
                 );
                 continue;
@@ -332,7 +396,40 @@ impl Checker<'_, '_> {
             } else {
                 base
             };
-            if self.is_error(base_type) || self.get_property_of_type(base_type, &name).is_some() {
+            if self.is_error(base_type) {
+                continue;
+            }
+            let base_property = self.get_property_of_type(base_type, &name);
+            if let Some(base_property) = base_property {
+                if has_override || !no_implicit_override || ambient {
+                    continue;
+                }
+                let declarations = self.binder.symbols().get(base_property).declarations.clone();
+                if declarations.is_empty() {
+                    continue;
+                }
+                let base_has_abstract = declarations.iter().any(|&declaration| {
+                    self.has_effective_modifier(declaration, SyntaxKind::AbstractKeyword)
+                });
+                let base_text = self.type_to_string(base);
+                if !base_has_abstract {
+                    let message = match (self.nodes.kind(member) == SyntaxKind::Parameter, is_js) {
+                        (true, true) => &messages::THIS_PARAMETER_PROPERTY_MUST_HAVE_A_JSDOC_COMMENT_WITH_AN_OVERRIDE_TAG_BECAUSE_IT_OVERRIDES_A_MEMBER_IN_THE_BASE_CLASS_0,
+                        (true, false) => &messages::THIS_PARAMETER_PROPERTY_MUST_HAVE_AN_OVERRIDE_MODIFIER_BECAUSE_IT_OVERRIDES_A_MEMBER_IN_BASE_CLASS_0,
+                        (false, true) => &messages::THIS_MEMBER_MUST_HAVE_A_JSDOC_COMMENT_WITH_AN_OVERRIDE_TAG_BECAUSE_IT_OVERRIDES_A_MEMBER_IN_THE_BASE_CLASS_0,
+                        (false, false) => &messages::THIS_MEMBER_MUST_HAVE_AN_OVERRIDE_MODIFIER_BECAUSE_IT_OVERRIDES_A_MEMBER_IN_THE_BASE_CLASS_0,
+                    };
+                    self.report_override_error(member, message, vec![base_text]);
+                } else if self.has_effective_modifier(member, SyntaxKind::AbstractKeyword) {
+                    self.report_override_error(
+                        member,
+                        &messages::THIS_MEMBER_MUST_HAVE_AN_OVERRIDE_MODIFIER_BECAUSE_IT_OVERRIDES_AN_ABSTRACT_METHOD_THAT_IS_DECLARED_IN_THE_BASE_CLASS_0,
+                        vec![base_text],
+                    );
+                }
+                continue;
+            }
+            if !has_override {
                 continue;
             }
             // `getSuggestedSymbolForNonexistentClassMember`: a spelling
@@ -349,13 +446,21 @@ impl Checker<'_, '_> {
                     let suggestion = suggestion.to_string();
                     self.report_override_error(
                         member,
-                        &messages::THIS_MEMBER_CANNOT_HAVE_AN_OVERRIDE_MODIFIER_BECAUSE_IT_IS_NOT_DECLARED_IN_THE_BASE_CLASS_0_DID_YOU_MEAN_1,
+                        if is_js {
+                            &messages::THIS_MEMBER_CANNOT_HAVE_A_JSDOC_COMMENT_WITH_AN_OVERRIDE_TAG_BECAUSE_IT_IS_NOT_DECLARED_IN_THE_BASE_CLASS_0_DID_YOU_MEAN_1
+                        } else {
+                            &messages::THIS_MEMBER_CANNOT_HAVE_AN_OVERRIDE_MODIFIER_BECAUSE_IT_IS_NOT_DECLARED_IN_THE_BASE_CLASS_0_DID_YOU_MEAN_1
+                        },
                         vec![base_text, suggestion],
                     );
                 }
                 None => self.report_override_error(
                     member,
-                    &messages::THIS_MEMBER_CANNOT_HAVE_AN_OVERRIDE_MODIFIER_BECAUSE_IT_IS_NOT_DECLARED_IN_THE_BASE_CLASS_0,
+                    if is_js {
+                        &messages::THIS_MEMBER_CANNOT_HAVE_A_JSDOC_COMMENT_WITH_AN_OVERRIDE_TAG_BECAUSE_IT_IS_NOT_DECLARED_IN_THE_BASE_CLASS_0
+                    } else {
+                        &messages::THIS_MEMBER_CANNOT_HAVE_AN_OVERRIDE_MODIFIER_BECAUSE_IT_IS_NOT_DECLARED_IN_THE_BASE_CLASS_0
+                    },
                     vec![base_text],
                 ),
             }

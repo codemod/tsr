@@ -1,0 +1,167 @@
+diff --git a/crates/tsr-checker/src/inference.rs b/crates/tsr-checker/src/inference.rs
+index 249feb5e..2d703404 100644
+--- a/crates/tsr-checker/src/inference.rs
++++ b/crates/tsr-checker/src/inference.rs
+@@ -5966 +5966 @@ impl Checker<'_, '_> {
+-            &mut Vec::new(),
++            &mut ParameterWalkVisited::new(id),
+@@ -5977 +5977 @@ impl Checker<'_, '_> {
+-            &mut Vec::new(),
++            &mut ParameterWalkVisited::new(id),
+@@ -5989 +5989 @@ impl Checker<'_, '_> {
+-        visited: &mut Vec<TypeId>,
++        visited: &mut ParameterWalkVisited,
+@@ -5994 +5994 @@ impl Checker<'_, '_> {
+-        if visited.contains(&id) {
++        if visited.contains(id) {
+@@ -6113,0 +6114,39 @@ impl Checker<'_, '_> {
++/// Cycle markers for one parameter-identity graph walk.
++///
++/// Most walks that mark a node use at most four identities. Larger walks spill
++/// in the same order as the original vector; no state survives a root query.
++struct ParameterWalkVisited {
++    inline: [TypeId; 4],
++    inline_len: usize,
++    spill: Vec<TypeId>,
++}
++
++impl ParameterWalkVisited {
++    fn new(root: TypeId) -> Self {
++        // Initial slots are unused, not markers. Avoid a sentinel TypeId and
++        // inspect only the populated prefix until the first spill.
++        Self { inline: [root; 4], inline_len: 0, spill: Vec::new() }
++    }
++
++    fn as_slice(&self) -> &[TypeId] {
++        if self.spill.is_empty() { &self.inline[..self.inline_len] } else { &self.spill }
++    }
++
++    fn contains(&self, id: TypeId) -> bool {
++        self.as_slice().contains(&id)
++    }
++
++    fn push(&mut self, id: TypeId) {
++        if self.inline_len < self.inline.len() {
++            self.inline[self.inline_len] = id;
++            self.inline_len += 1;
++        } else {
++            if self.spill.is_empty() {
++                self.spill = Vec::with_capacity(8);
++                self.spill.extend_from_slice(&self.inline);
++            }
++            self.spill.push(id);
++        }
++    }
++}
++
+@@ -6170,0 +6210,110 @@ mod tests {
++    #[test]
++    fn inline_parameter_markers_preserve_empty_prefix_spill_order_and_duplicates() {
++        let arena = Arena::new();
++        let source = "";
++        let parsed = tsr_parser::parse(&arena, source);
++        let bound = tsr_binder::bind(
++            &arena,
++            parsed.source_file,
++            &parsed.nodes,
++            tsr_binder::FileInfo { name: "markers.ts", text: source },
++        );
++        let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
++        let ids: Vec<_> = (0..24)
++            .map(|n| {
++                checker.store.new_named(crate::flags::TypeFlags::OBJECT, format!("Marker{n}"), None)
++            })
++            .collect();
++        let mut visited = super::ParameterWalkVisited::new(ids[0]);
++        assert!(visited.as_slice().is_empty());
++        assert!(!visited.contains(ids[0]), "unused slots must not mark the root");
++        let mut expected = Vec::new();
++        for &id in ids.iter().chain(ids[..3].iter()) {
++            visited.push(id);
++            expected.push(id);
++            assert_eq!(visited.as_slice(), expected);
++            for &query in &ids {
++                assert_eq!(visited.contains(query), expected.contains(&query));
++            }
++        }
++    }
++
++    #[test]
++    fn inline_parameter_cycle_markers_survive_spill_and_metadata_changes() {
++        let arena = Arena::new();
++        let source = "declare function owner<T>(value: T): T;";
++        let parsed = tsr_parser::parse(&arena, source);
++        let bound = tsr_binder::bind(
++            &arena,
++            parsed.source_file,
++            &parsed.nodes,
++            tsr_binder::FileInfo { name: "cycle.ts", text: source },
++        );
++        let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
++        let Statement::FunctionDeclaration(declaration) = parsed.source_file.statements[0] else {
++            panic!("owner");
++        };
++        let owner = bound.symbol_of(declaration.node_id.unwrap()).unwrap();
++        let parameter = checker.get_signatures_of_symbol(owner).unwrap()[0].parameters[0].r#type;
++        let shadow =
++            checker.store.new_named(crate::flags::TypeFlags::TYPE_PARAMETER, "T".into(), None);
++        let chain: Vec<_> = (0..32)
++            .map(|n| {
++                checker.store.new_named(crate::flags::TypeFlags::OBJECT, format!("Cycle{n}"), None)
++            })
++            .collect();
++        for pair in chain.windows(2) {
++            checker.type_reference_targets.insert(pair[0], (owner, vec![pair[1]]));
++        }
++        let last = *chain.last().unwrap();
++        checker.type_reference_targets.insert(last, (owner, vec![chain[0], shadow, parameter]));
++        assert!(checker.mentions_type_parameter(chain[0], &[parameter], &["T"]));
++        checker.type_reference_targets.insert(last, (owner, vec![chain[0], shadow]));
++        assert!(!checker.mentions_type_parameter(chain[0], &[parameter], &["T"]));
++        checker.type_reference_targets.insert(last, (owner, vec![chain[0], parameter]));
++        assert!(checker.mentions_registered_type_parameter(chain[0]));
++        checker.type_parameter_symbols.remove(&parameter);
++        assert!(!checker.mentions_registered_type_parameter(chain[0]));
++        checker.type_parameter_symbols.insert(shadow, owner);
++        assert!(!checker.mentions_registered_type_parameter(chain[0]));
++        checker.type_reference_targets.insert(last, (owner, vec![chain[0], shadow]));
++        assert!(checker.mentions_registered_type_parameter(chain[0]));
++    }
++
++    #[test]
++    fn inline_parameter_mapping_cycles_remain_before_terminal_string_flags() {
++        let arena = Arena::new();
++        let source = "declare function owner<T>(value: T): T;";
++        let parsed = tsr_parser::parse(&arena, source);
++        let bound = tsr_binder::bind(
++            &arena,
++            parsed.source_file,
++            &parsed.nodes,
++            tsr_binder::FileInfo { name: "mapping.ts", text: source },
++        );
++        let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
++        let Statement::FunctionDeclaration(declaration) = parsed.source_file.statements[0] else {
++            panic!("owner");
++        };
++        let owner = bound.symbol_of(declaration.node_id.unwrap()).unwrap();
++        let parameter = checker.get_signatures_of_symbol(owner).unwrap()[0].parameters[0].r#type;
++        let mapping =
++            checker.store.new_named(crate::flags::TypeFlags::STRING, "Mapping".into(), None);
++        let template =
++            checker.store.new_named(crate::flags::TypeFlags::STRING, "Template".into(), None);
++        checker.string_mapping_types.insert(mapping, (owner, template));
++        checker.template_literal_parts.insert(
++            template,
++            crate::templates::TemplateLiteralParts {
++                texts: vec![String::new(), String::new(), String::new()],
++                types: vec![mapping, parameter],
++            },
++        );
++        assert!(checker.mentions_type_parameter(mapping, &[parameter], &[]));
++        assert!(!checker.mentions_type_parameter(mapping, &[], &[]));
++        assert!(
++            checker.mentions_type_parameter(parameter, &[parameter], &[]),
++            "identity precedes markers"
++        );
++    }
++

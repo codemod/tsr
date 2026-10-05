@@ -29,7 +29,10 @@ use crate::checker::Checker;
 
 impl<'a> Checker<'a, '_> {
     /// The argument-count check for one call expression.
-    pub(crate) fn check_call_arity(&mut self, node: NodeId) {
+    /// `syntactic_arity` false: only the argument-type half runs, because
+    /// the caller decided arity from the callee type's signatures
+    /// ([`Checker::check_argument_arity_of_signatures`]).
+    pub(crate) fn check_call_arity(&mut self, node: NodeId, syntactic_arity: bool) {
         if self.file_has_parse_errors || self.in_js_file(node) {
             return;
         }
@@ -64,6 +67,9 @@ impl<'a> Checker<'a, '_> {
         // arity and only for a candidate that survived it, so the ordering here
         // is upstream's too.
         self.check_argument_types(call, callee);
+        if !syntactic_arity {
+            return;
+        }
         let Some((minimum, maximum)) = (if explicit_type_arguments {
             self.overload_set_arity_filtered(callee, true)
         } else {
@@ -169,7 +175,8 @@ impl<'a> Checker<'a, '_> {
     /// `getErrorNodeForCallNode` (`checker.go:9843`) unwraps **only** a
     /// `CallExpression`, so a too-few-arguments error on `new C()` reports on the
     /// whole `new` expression rather than on `C`.
-    pub(crate) fn check_new_arity(&mut self, node: NodeId) {
+    /// `syntactic_arity` as for [`Checker::check_call_arity`].
+    pub(crate) fn check_new_arity(&mut self, node: NodeId, syntactic_arity: bool) {
         if self.file_has_parse_errors || self.in_js_file(node) {
             return;
         }
@@ -208,6 +215,9 @@ impl<'a> Checker<'a, '_> {
             if self.report_argument_failure(argument_id, source, target) {
                 break;
             }
+        }
+        if !syntactic_arity {
+            return;
         }
         // `sole_constructor_parameters` stops at the first rest parameter and
         // keeps every position in order, so the count is exact and the unbounded
@@ -467,7 +477,7 @@ impl<'a> Checker<'a, '_> {
     }
 
     /// `getErrorNodeForCallNode` (`checker.go:9843`).
-    fn call_error_node(&self, callee: NodeId) -> NodeId {
+    pub(crate) fn call_error_node(&self, callee: NodeId) -> NodeId {
         match self.node_map.get(callee) {
             Some(Node::PropertyAccessExpression(access)) => {
                 access.name.and_then(|name| name.node_id()).unwrap_or(callee)

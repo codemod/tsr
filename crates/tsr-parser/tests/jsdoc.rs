@@ -345,12 +345,55 @@ fn template_variance_modifiers_precede_the_actual_name() {
 }
 
 #[test]
-fn callback_remains_outside_the_typedef_parser_path() {
+fn callback_takes_its_parameters_and_return_as_a_function_type() {
+    let source = "/**\n * @callback C\n * @param {string} s\n * @param {...number} rest\n * @returns {boolean}\n */\nlet value;";
     let arena = Arena::new();
-    let parsed = parse(&arena, "/** @callback C */\nlet value;");
+    let parsed = parse(&arena, source);
+    let tags = tags(&parsed);
+    // parseCallbackTagParameters consumes the @param/@returns run: the
+    // comment's own tag list is the callback alone.
+    let [JSDocTag::JSDocCallbackTag(tag)] = tags.as_slice() else {
+        panic!("expected a lone @callback")
+    };
+    let Some(tsr_ast::TypeNode::FunctionTypeNode(signature)) = tag.type_expression else {
+        panic!("expected the reparsed function type")
+    };
+    let names: Vec<_> = signature
+        .parameters
+        .iter()
+        .map(|parameter| match parameter.name {
+            Some(tsr_ast::BindingName::Identifier(name)) => {
+                (name.text, parameter.dot_dot_dot_token.is_some())
+            }
+            _ => panic!("identifier parameter"),
+        })
+        .collect();
+    assert_eq!(names, [("s", false), ("rest", true)]);
+    let return_type = signature.r#type.expect("return");
+    assert_eq!(text_of(source, &parsed.nodes, return_type.into()), "boolean");
+}
+
+#[test]
+fn typedef_properties_and_nested_properties_become_type_literals() {
+    let source = "/**\n * @typedef {Object} App\n * @property {string} name\n * @property {Object} icons\n * @property {string} icons.small\n */\nlet a;";
+    let arena = Arena::new();
+    let parsed = parse(&arena, source);
+    let tags = tags(&parsed);
+    let [JSDocTag::JSDocTypedefTag(tag)] = tags.as_slice() else {
+        panic!("expected a lone @typedef")
+    };
+    let Some(Node::TypeLiteralNode(literal)) = tag.type_expression else {
+        panic!("expected the reparsed type literal")
+    };
+    assert_eq!(literal.members.len(), 2);
+    let tsr_ast::TypeElement::PropertySignatureDeclaration(icons) = literal.members[1] else {
+        panic!("property signature")
+    };
+    // reparseJSDocTypeLiteral recurses on the child's `TypeExpression.Type()`:
+    // the nested literal is the property's type itself.
     assert!(matches!(
-        tags(&parsed).as_slice(),
-        [JSDocTag::JSDocUnknownTag(tag)] if tag.tag_name.text == "callback"
+        icons.r#type,
+        Some(tsr_ast::TypeNode::TypeLiteralNode(inner)) if inner.members.len() == 1
     ));
 }
 

@@ -254,6 +254,7 @@ impl Checker<'_, '_> {
             }
             Node::ClassDeclaration(declaration) => {
                 self.check_exports_on_merged_declarations(node);
+                self.check_class_function_merge(node);
                 self.check_super_call_is_first(node);
                 self.check_derived_constructor_calls_super(node);
                 self.check_static_side_assignability(node);
@@ -265,7 +266,7 @@ impl Checker<'_, '_> {
                     ambient || has_modifier(declaration.modifiers, SyntaxKind::DeclareKeyword);
                 self.check_property_initialization(declaration.members, ambient);
                 self.check_heritage_conformance(node);
-                self.check_members_for_override_modifier(node);
+                self.check_members_for_override_modifier(node, ambient);
                 self.check_index_constraints(node);
                 self.check_duplicate_index_signatures(node);
                 ambient
@@ -280,7 +281,7 @@ impl Checker<'_, '_> {
                 // `checkClassLikeDeclaration` (`checker.go:4293`) runs for
                 // class expressions as well as declarations.
                 self.check_heritage_conformance(node);
-                self.check_members_for_override_modifier(node);
+                self.check_members_for_override_modifier(node, ambient);
                 self.check_index_constraints(node);
                 ambient
             }
@@ -320,6 +321,7 @@ impl Checker<'_, '_> {
                 ambient || has_modifier(statement.modifiers, SyntaxKind::DeclareKeyword)
             }
             Node::FunctionDeclaration(declaration) => {
+                self.check_class_function_merge(node);
                 self.check_function_or_constructor_symbol(node, ambient);
                 self.check_overload_ambient_agreement(node);
                 let ambient =
@@ -343,6 +345,7 @@ impl Checker<'_, '_> {
                 for member in declaration.members {
                     if let Some(at) = member.node_id {
                         self.check_enum_member_name(at);
+                        self.check_computed_enum_member_initializer(at, ambient);
                     }
                 }
                 ambient || has_modifier(declaration.modifiers, SyntaxKind::DeclareKeyword)
@@ -452,6 +455,7 @@ impl Checker<'_, '_> {
                 );
                 self.check_subsequent_declaration_type(node);
                 self.check_variable_like_declaration(node, declaration, ambient);
+                self.check_using_declaration_initializer(node);
                 self.check_jsdoc_annotated_initializer(node, ambient);
                 self.check_empty_binding_pattern_source(node, declaration, ambient);
                 self.check_const_is_initialized(node, declaration, ambient);
@@ -603,6 +607,7 @@ impl Checker<'_, '_> {
                 self.check_comparison_overlap(node, ambient);
                 self.check_operator_operands(node, ambient);
                 self.check_in_expression(node, ambient);
+                self.check_nullish_coalesce_operands(node);
                 ambient
             }
             Node::ComputedPropertyName(_) => {
@@ -651,18 +656,16 @@ impl Checker<'_, '_> {
                 ambient
             }
             Node::CallExpression(_) => {
-                self.check_callee_is_callable(node);
-                self.check_class_called_without_new(node);
-                self.check_call_arity(node);
-                self.check_call_type_argument_arity(node);
-                self.check_untyped_call_type_arguments(node, typed);
+                self.check_call_expression_diagnostics(node);
+                self.check_import_call_specifier(node);
                 ambient
             }
             Node::NewExpression(_) => {
-                self.check_new_on_instance(node);
-                self.check_new_arity(node);
-                self.check_call_type_argument_arity(node);
-                self.check_untyped_call_type_arguments(node, typed);
+                self.check_new_expression_diagnostics(node);
+                ambient
+            }
+            Node::TaggedTemplateExpression(_) => {
+                self.check_tagged_template_diagnostics(node);
                 ambient
             }
             Node::TypeReferenceNode(_) | Node::ExpressionWithTypeArguments(_) => {
@@ -723,6 +726,7 @@ impl Checker<'_, '_> {
             // `type A = {}`, and had no arm in this match at all.
             Node::TypeAliasDeclaration(_) => {
                 self.check_exports_on_merged_declarations(node);
+                self.check_type_alias_circularity(node);
                 ambient
             }
             _ => ambient,
@@ -1164,98 +1168,38 @@ impl Checker<'_, '_> {
 
     /// TS2313 — `Type parameter '{0}' has a circular constraint.`
     ///
-    /// `checkTypeParameter` (`checker.go:2603`) resolves the base constraint
-    /// "to reveal circularity errors"; `getResolvedBaseConstraint`
-    /// (`checker.go:27448`) reports at the constraint node of every type
-    /// parameter whose `popTypeResolution` fails, i.e. every member of the
-    /// cycle the resolution stack closes, once (the result is cached). So the
-    /// diagnostic set is: each type parameter that lies **on** a constraint
-    /// cycle, reported at its constraint. A parameter that only leads *into* a
-    /// cycle (`U` in `<U extends T, T extends V, V extends T>`) gets the
-    /// circular constraint silently.
-    ///
-    /// Ported for the domain where `computeBaseConstraint` steps from a type
-    /// parameter straight to another: a constraint written as a bare
-    /// reference to a type parameter (`T extends U`). Any other constraint
-    /// shape ends the walk without a report: `T extends Array<T>` is legal,
-    /// and a union, indexed-access or conditional constraint can recurse
-    /// upstream through arms this walk does not follow (a gap, never a wrong
-    /// line). The error node is the **constraint**, not the parameter name —
-    /// `typeParameterDirectlyConstrainedToItself.ts(3,19)` on `class C<T
-    /// extends T> { }` is the second `T`. §371;
-    /// `docs/parity/notes/misc-checks.md` §2.
+    /// `checkTypeParameter` (`checker.go`) resolves the parameter's base
+    /// constraint "to reveal circularity errors"; the report itself belongs to
+    /// [`Checker::base_constraint_of_type`]'s failed pop, which marks every
+    /// participant of `U extends T, T extends U` and none outside the cycle.
+    /// `T extends Array<T>` is legal because an object type ends the walk.
     fn check_circular_type_parameter_constraint(&mut self, node: NodeId) {
         if self.file_has_parse_errors {
             return;
         }
-        let Some(Node::TypeParameterDeclaration(parameter)) = self.node_map.get(node) else {
+        let Some(symbol) = self.binder.symbol_of(node) else { return };
+        if !self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_PARAMETER) {
             return;
-        };
-        let Some(name) = parameter.name.and_then(|name| name.node_id) else { return };
-        let Some(text) = self.identifier_text(name).map(str::to_string) else { return };
-        let Some(constraint) = parameter.constraint.and_then(|c| c.node_id()) else { return };
-        // getResolvedBaseConstraint's recursion limit is 50 levels; a chain
-        // of naked references longer than that without closing is not a
-        // cycle through `node`.
-        let mut visited = vec![node];
-        let mut current = node;
-        for _ in 0..50 {
-            let Some(next) = self.naked_type_parameter_constraint(current) else { return };
-            if next == node {
-                let Some(file) = self.source_file_of_for_diagnostics(constraint) else { return };
-                let span = self.error_span(constraint);
-                self.report(
-                    file,
-                    Diagnostic::with_args(
-                        &messages::TYPE_PARAMETER_0_HAS_A_CIRCULAR_CONSTRAINT,
-                        span,
-                        [text],
-                    ),
-                );
-                return;
-            }
-            if visited.contains(&next) {
-                // A cycle `node` leads into but is not on.
-                return;
-            }
-            visited.push(next);
-            current = next;
         }
+        let parameter = self.get_declared_type_of_symbol(symbol);
+        self.base_constraint_of_type(parameter);
     }
 
-    /// The type parameter declaration a type parameter's constraint names
-    /// directly — `T extends U` answers `U`'s declaration — or `None` for any
-    /// other constraint (`Array<U>`, a union, a non-type-parameter name) and
-    /// for a parameter whose symbol has several declarations.
-    fn naked_type_parameter_constraint(&mut self, declaration: NodeId) -> Option<NodeId> {
-        let Some(Node::TypeParameterDeclaration(parameter)) = self.node_map.get(declaration) else {
-            return None;
-        };
-        let constraint = parameter.constraint?.node_id()?;
-        let Some(Node::TypeReferenceNode(reference)) = self.node_map.get(constraint) else {
-            return None;
-        };
-        if !reference.type_arguments.is_empty() {
-            return None;
+    /// TS2456 — `Type alias '{0}' circularly references itself.`
+    ///
+    /// `checkTypeAliasDeclaration`'s `checkSourceElement(node.Type())`
+    /// resolves the body's references, which is what reaches
+    /// `getDeclaredTypeOfTypeAlias` for an alias nothing else mentions
+    /// (`type T0 = T0`). The report is that getter's failed pop. Only a
+    /// non-generic alias resolves its body through the push/pop frame here.
+    fn check_type_alias_circularity(&mut self, node: NodeId) {
+        let Some(symbol) = self.binder.symbol_of(node) else { return };
+        if !self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_ALIAS)
+            || !self.local_type_parameters_of(symbol).is_empty()
+        {
+            return;
         }
-        let referenced = reference.type_name?.node_id()?;
-        if self.nodes.kind(referenced) != SyntaxKind::Identifier {
-            return None;
-        }
-        let text = self.identifier_text(referenced)?.to_string();
-        let symbol = self.binder.resolve_name(
-            self.nodes,
-            self.node_map,
-            referenced,
-            &text,
-            SymbolFlags::TYPE,
-        )?;
-        let entry = self.binder.symbols().get(symbol);
-        if !entry.flags.intersects(SymbolFlags::TYPE_PARAMETER) {
-            return None;
-        }
-        let &[target] = entry.declarations.as_slice() else { return None };
-        (self.nodes.kind(target) == SyntaxKind::TypeParameter).then_some(target)
+        self.get_declared_type_of_symbol(symbol);
     }
 
     /// TS1042 — `'{0}' modifier cannot be used here.`
@@ -1561,66 +1505,6 @@ impl Checker<'_, '_> {
         );
     }
 
-    /// TS2351 — `This expression is not constructable.`
-    ///
-    /// The instance-of-a-class subset of `resolveNewExpression`'s
-    /// no-construct-signature arm. An instance never constructs, and deciding
-    /// *that* needs no relation: the callee resolves to a value without the
-    /// `CLASS` flag whose type is the named type of a class. §434.
-    fn check_new_on_instance(&mut self, node: NodeId) {
-        if self.file_has_parse_errors {
-            return;
-        }
-        let Some(Node::NewExpression(call)) = self.node_map.get(node) else { return };
-        let Some(callee) = call.expression.and_then(|e| e.node_id()) else { return };
-        // **A primitive callee never constructs**, whatever its spelling —
-        // `new \`abc\`(…)` is a string and `new (a ** b)` is a number. §436
-        // established the argument for `extends`; nothing about it was
-        // heritage-specific. §458.
-        if let Some(expression) = call.expression {
-            let callee_type = self.check_expression(expression);
-            let widened = self.get_base_type_of_literal_type(callee_type);
-            if self.is_decidable_primitive(widened) {
-                if let Some(file) = self.source_file_of_for_diagnostics(callee) {
-                    let span = self.error_span(callee);
-                    self.report(
-                        file,
-                        Diagnostic::new(&messages::THIS_EXPRESSION_IS_NOT_CONSTRUCTABLE, span),
-                    );
-                }
-                return;
-            }
-        }
-        let Some(text) = self.identifier_text(callee).map(str::to_string) else { return };
-        let Some(symbol) =
-            self.binder.resolve_name(self.nodes, self.node_map, callee, &text, SymbolFlags::VALUE)
-        else {
-            return;
-        };
-        let symbol = self.binder.merged_symbol(symbol);
-        // The class itself constructs; only a *value of* the class does not.
-        if self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::CLASS) {
-            return;
-        }
-        let Some(expression) = call.expression else { return };
-        let callee_type = self.check_expression(expression);
-        let crate::types::TypeData::Named { members: Some(owner), .. } =
-            &self.store.get(callee_type).data
-        else {
-            return;
-        };
-        let declarations = self.binder.symbols().get(*owner).declarations.clone();
-        if !declarations
-            .iter()
-            .any(|&d| matches!(self.node_map.get(d), Some(Node::ClassDeclaration(_))))
-        {
-            return;
-        }
-        let Some(file) = self.source_file_of_for_diagnostics(callee) else { return };
-        let span = self.error_span(callee);
-        self.report(file, Diagnostic::new(&messages::THIS_EXPRESSION_IS_NOT_CONSTRUCTABLE, span));
-    }
-
     /// TS2507 — `Type '{0}' is not a constructor function type.`
     ///
     /// `getBaseConstructorTypeOfClass` (`checker.go:16984`): the class's first
@@ -1761,70 +1645,6 @@ impl Checker<'_, '_> {
                 &messages::DECLARATION_NAME_CONFLICTS_WITH_BUILT_IN_GLOBAL_IDENTIFIER_0,
                 span,
                 [text],
-            ),
-        );
-    }
-
-    /// TS2348 — `Value of type '{0}' is not callable. Did you mean to include
-    /// 'new'?`
-    ///
-    /// A class constructor is not callable without `new`, and deciding that
-    /// needs only the callee's symbol — `SymbolFlags::CLASS` and not
-    /// `FUNCTION`, since a class merged with a function *is* callable. No
-    /// relation, no type. §461.
-    fn check_class_called_without_new(&mut self, node: NodeId) {
-        if self.file_has_parse_errors {
-            return;
-        }
-        let Some(Node::CallExpression(call)) = self.node_map.get(node) else { return };
-        if !call.type_arguments.is_empty() {
-            return;
-        }
-        let Some(callee) = call.expression.and_then(|e| e.node_id()) else { return };
-        let symbol = match self.node_map.get(callee) {
-            Some(Node::Identifier(identifier)) => self.binder.resolve_name(
-                self.nodes,
-                self.node_map,
-                callee,
-                identifier.text,
-                SymbolFlags::VALUE,
-            ),
-            Some(Node::PropertyAccessExpression(access)) => {
-                let Some(receiver) = access.expression.and_then(|e| e.node_id()) else { return };
-                let Some(tsr_ast::MemberName::Identifier(member)) = access.name else {
-                    return;
-                };
-                let Some(text) = self.identifier_text(receiver).map(str::to_string) else {
-                    return;
-                };
-                let Some(namespace) = self.binder.resolve_name(
-                    self.nodes,
-                    self.node_map,
-                    receiver,
-                    &text,
-                    SymbolFlags::MODULE,
-                ) else {
-                    return;
-                };
-                let namespace = self.binder.merged_symbol(namespace);
-                self.binder.symbols().get(namespace).exports.get(member.text).copied()
-            }
-            _ => return,
-        };
-        let Some(symbol) = symbol else { return };
-        let flags = self.binder.symbols().get(self.binder.merged_symbol(symbol)).flags;
-        if !flags.intersects(SymbolFlags::CLASS) || flags.intersects(SymbolFlags::FUNCTION) {
-            return;
-        }
-        let Some(file) = self.source_file_of_for_diagnostics(callee) else { return };
-        let span = self.error_span(callee);
-        let printed = String::new();
-        self.report(
-            file,
-            Diagnostic::with_args(
-                &messages::VALUE_OF_TYPE_0_IS_NOT_CALLABLE_DID_YOU_MEAN_TO_INCLUDE_NEW,
-                span,
-                [printed],
             ),
         );
     }
@@ -8153,6 +7973,23 @@ impl Checker<'_, '_> {
                 );
                 return;
             }
+            // The accessibility chain's last arm (`grammarchecks.go:355`),
+            // reached only without `abstract`.
+            if matches!(
+                kind,
+                SyntaxKind::PublicKeyword
+                    | SyntaxKind::ProtectedKeyword
+                    | SyntaxKind::PrivateKeyword
+            ) && !seen.contains(&SyntaxKind::AbstractKeyword)
+                && self.is_private_identifier_class_element_declaration(node)
+            {
+                self.report_modifier_error(
+                    token,
+                    &messages::AN_ACCESSIBILITY_MODIFIER_CANNOT_BE_USED_WITH_A_PRIVATE_IDENTIFIER,
+                    &[],
+                );
+                return;
+            }
             // `declare` with `accessor`, the last arm of the `declare` chain.
             if kind == SyntaxKind::DeclareKeyword && seen.contains(&SyntaxKind::AccessorKeyword) {
                 self.report_modifier_error(
@@ -8164,6 +8001,7 @@ impl Checker<'_, '_> {
             }
             seen.push(kind);
         }
+        self.check_jsdoc_reparsed_modifier_grammar(node, &mut seen);
     }
 
     /// `grammarErrorOnNode(modifier, …)` — every arm of
@@ -9368,177 +9206,6 @@ impl Checker<'_, '_> {
                 ),
             );
         }
-    }
-
-    /// TS2349 — `This expression is not callable.`
-    ///
-    /// The head of `resolveCallExpression`'s diagnostic chain
-    /// (`checker.go:9981`); the sub-messages carry the detail and the suite
-    /// compares the head. The condition is *the callee's type has no call
-    /// signatures*, which in general needs complete signature resolution — an
-    /// incomplete list would read as "not callable" and over-report.
-    ///
-    /// **A primitive answers without it**: no signature resolution can make a
-    /// `string` callable. §318. Object-shaped callees go through
-    /// [`Checker::check_callee_without_signatures`], which reports only when
-    /// both signature lists are complete and empty
-    /// (`docs/parity/notes/calls-inference.md` §4). The report targets the
-    /// member name of a property-access callee, as upstream does.
-    fn check_callee_is_callable(&mut self, node: NodeId) {
-        if self.file_has_parse_errors || self.file_is_ambient {
-            return;
-        }
-        let Some(Node::CallExpression(call)) = self.node_map.get(node) else { return };
-        if call.question_dot_token.is_some() {
-            return;
-        }
-        let Some(callee) = call.expression else { return };
-        let Some(callee_id) = callee.node_id() else { return };
-        // `super(...)` and `import(...)` are their own rules.
-        if matches!(
-            self.nodes.kind(callee_id),
-            SyntaxKind::SuperKeyword | SyntaxKind::ImportKeyword
-        ) {
-            return;
-        }
-        // **A zero-argument call on a member may be upstream's TS6234**, the
-        // head message `invocationErrorDetails` substitutes when the callee
-        // resolves to a `get` accessor (`checker.go:9983`). A property access
-        // is resolved by `member_callee_is_get_accessor`; one that does not
-        // resolve declines (its head is unknowable), and an element access
-        // still declines as a whole (§319, `instancePropertyInClassType`).
-        let mut head = &messages::THIS_EXPRESSION_IS_NOT_CALLABLE;
-        if call.arguments.is_empty()
-            && self.nodes.kind(callee_id) == SyntaxKind::ElementAccessExpression
-        {
-            return;
-        }
-        if call.arguments.is_empty()
-            && self.nodes.kind(callee_id) == SyntaxKind::PropertyAccessExpression
-        {
-            match self.member_callee_is_get_accessor(callee) {
-                Some(true) => {
-                    head = &messages::THIS_EXPRESSION_IS_NOT_CALLABLE_BECAUSE_IT_IS_A_GET_ACCESSOR_DID_YOU_MEAN_TO_USE_IT_WITHOUT;
-                }
-                Some(false) => {}
-                None => return,
-            }
-        }
-        let target = self.check_expression(callee);
-        if self.is_error(target) {
-            return;
-        }
-        let flags = self.type_of(target).flags;
-        if flags.intersects(crate::flags::TypeFlags::ANY_OR_UNKNOWN) {
-            return;
-        }
-        if !flags.intersects(NEVER_CALLABLE) {
-            self.check_callee_without_signatures(callee_id, target, head);
-            return;
-        }
-        let Some(file) = self.source_file_of_for_diagnostics(callee_id) else { return };
-        let span = self.error_span(self.invocation_error_target(callee_id));
-        self.report(file, Diagnostic::new(head, span));
-    }
-
-    /// `invocationErrorDetails`' target (`checker.go:9946`): the member NAME
-    /// of a property-access callee, else the callee itself.
-    fn invocation_error_target(&self, callee_id: NodeId) -> NodeId {
-        match self.node_map.get(callee_id) {
-            Some(Node::PropertyAccessExpression(access)) => access
-                .name
-                .and_then(|name| tsr_ast::Node::from(name).node_id())
-                .unwrap_or(callee_id),
-            _ => callee_id,
-        }
-    }
-
-    /// `getResolvedSymbolOrNil(errorTarget).Flags & GetAccessor`
-    /// (`checker.go:9983`) for a property-access callee: `None` when the
-    /// member does not resolve (the head message is then unknowable).
-    fn member_callee_is_get_accessor(&mut self, callee: tsr_ast::Expression<'_>) -> Option<bool> {
-        let tsr_ast::Expression::PropertyAccessExpression(access) = callee else { return None };
-        let tsr_ast::MemberName::Identifier(name) = access.name? else { return None };
-        // A `this` receiver in an object-literal member resolves the
-        // literal's own type; demanding it from this rule reorders type
-        // resolution and manufactured a TS7023 circularity upstream never
-        // reports (`thisTypeInObjectLiterals2`). Declined.
-        let receiver = access.expression?;
-        if matches!(receiver, tsr_ast::Expression::KeywordExpression(keyword)
-            if keyword.kind == SyntaxKind::ThisKeyword)
-        {
-            return None;
-        }
-        let receiver = self.check_expression(receiver);
-        if self.is_error(receiver) {
-            return None;
-        }
-        let apparent = self.apparent_type(receiver);
-        let property = self.get_property_of_type(apparent, name.text)?;
-        Some(self.binder.symbols().get(property).flags.intersects(SymbolFlags::GET_ACCESSOR))
-    }
-
-    /// `resolveCallExpression`'s `len(callSignatures) == 0` arm
-    /// (`checker.go:8555-8571`) for an object-shaped callee, reporting through
-    /// `invocationError` (`checker.go:9943`). Reports TS2349 only when BOTH
-    /// signature lists are complete and empty (an unresolved list declines),
-    /// the call is not untyped (`isUntypedFunctionCall`'s `Function` arm), and
-    /// the callee is not constructable — the TS2348 arm is
-    /// `check_class_called_without_new`'s.
-    ///
-    /// Target is the member NAME for a property-access callee
-    /// (`invocationErrorDetails`, `checker.go:9946`).
-    fn check_callee_without_signatures(
-        &mut self,
-        callee_id: NodeId,
-        callee_type: TypeId,
-        head: &'static tsr_diagnostics::Message,
-    ) {
-        use crate::signatures::SignatureKind;
-        // Inside a generic declaration a callee's type can depend on type
-        // parameters through mapped/indexed machinery this port types
-        // incompletely (`promises.map` on a homomorphic mapped type over
-        // `T extends readonly unknown[]` read as `T["map"]`), and a wrong
-        // callee type would assert "not callable" upstream never reports.
-        // Declined before any signature query, which would itself force
-        // recursive return types (TS7024 in
-        // `declarationsWithRecursiveInternalTypesProduceUniqueTypeParams`).
-        // `docs/parity/notes/calls-inference.md` §4.
-        if self.nodes.ancestors(callee_id).any(|ancestor| self.declares_type_parameters(ancestor)) {
-            return;
-        }
-        // JSDoc-typed callees decline as `check_call_arity` does.
-        if self.in_js_file(callee_id) {
-            return;
-        }
-        let apparent = self.apparent_type(callee_type);
-        // A UNION callee declines: whether its constituents share signatures
-        // depends on narrowing this port does not complete — `result()` under
-        // `result instanceof Function` stays the whole un-narrowed union
-        // (`unresolvableSelfReferencingAwaitedUnion`). §4.
-        if self.is_error(apparent)
-            || self.type_of(apparent).flags.intersects(
-                crate::flags::TypeFlags::ANY_OR_UNKNOWN | crate::flags::TypeFlags::UNION,
-            )
-        {
-            return;
-        }
-        if !self
-            .signatures_of_type_kind(apparent, SignatureKind::Call)
-            .is_some_and(|s| s.is_empty())
-            || !self
-                .signatures_of_type_kind(apparent, SignatureKind::Construct)
-                .is_some_and(|s| s.is_empty())
-        {
-            return;
-        }
-        if self.is_untyped_function_typed_callee(callee_type) {
-            return;
-        }
-        let target = self.invocation_error_target(callee_id);
-        let Some(file) = self.source_file_of_for_diagnostics(callee_id) else { return };
-        let span = self.error_span(target);
-        self.report(file, Diagnostic::new(head, span));
     }
 
     /// TS2729 — `Property '{0}' is used before its initialization.`
@@ -12103,69 +11770,6 @@ impl Checker<'_, '_> {
             None => Diagnostic::new(message, span),
         };
         self.report(file, diagnostic);
-    }
-
-    /// TS2347 — `Untyped function calls may not accept type arguments.`
-    ///
-    /// `resolveCallExpression` (`checker.go:8533`) and `resolveNewExpression`
-    /// (`:8595`), whose shared condition is *the callee is `any`*.
-    ///
-    /// **Decided from the annotation, not the type.** §578 tested
-    /// `!is_error(t) && t.flags & ANY` — a transcription of upstream's two
-    /// guards — and measured −1 with five wrong lines, because an unresolved
-    /// callee reaches `any` by a route `is_error` does not cover (§579). A
-    /// written `: any` cannot be produced by a resolution failure.
-    ///
-    /// `isUntypedFunctionCall`'s signature-count arm is not ported (§501).
-    ///
-    /// `docs/architecture/checker-notes-diag2.md` §580.
-    fn check_untyped_call_type_arguments(&mut self, node: NodeId, typed: Node<'_>) {
-        if self.file_has_parse_errors {
-            return;
-        }
-        let (callee, type_arguments) = match typed {
-            Node::CallExpression(call) => (call.expression, call.type_arguments),
-            Node::NewExpression(new) => (new.expression, new.type_arguments),
-            _ => return,
-        };
-        if type_arguments.is_empty() {
-            return;
-        }
-        let Some(callee) = callee.and_then(|callee| callee.node_id()) else { return };
-        if !self.callee_is_annotated_any(callee) {
-            return;
-        }
-        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
-        let span = self.error_span(node);
-        self.report(
-            file,
-            Diagnostic::new(&messages::UNTYPED_FUNCTION_CALLS_MAY_NOT_ACCEPT_TYPE_ARGUMENTS, span),
-        );
-    }
-
-    /// Does this callee name a variable written `: any`? §580.
-    fn callee_is_annotated_any(&mut self, callee: NodeId) -> bool {
-        if self.nodes.kind(callee) != SyntaxKind::Identifier {
-            return false;
-        }
-        let Some(text) = self.identifier_text(callee).map(str::to_string) else { return false };
-        let Some(symbol) =
-            self.binder.resolve_name(self.nodes, self.node_map, callee, &text, SymbolFlags::VALUE)
-        else {
-            return false;
-        };
-        let declarations =
-            self.binder.symbols().get(self.binder.merged_symbol(symbol)).declarations.clone();
-        declarations.iter().any(|&declaration| {
-            matches!(
-                self.node_map.get(declaration),
-                Some(Node::VariableDeclaration(variable))
-                    if variable
-                        .r#type
-                        .and_then(|t| t.node_id())
-                        .is_some_and(|t| self.nodes.kind(t) == SyntaxKind::AnyKeyword)
-            )
-        })
     }
 
     /// TS2790 — `The operand of a 'delete' operator must be optional.`
@@ -14762,12 +14366,6 @@ fn class_member_shape(member: tsr_ast::ClassElement<'_>) -> Option<(&str, Member
 }
 
 /// Types no signature resolution can make callable. §318.
-const NEVER_CALLABLE: crate::flags::TypeFlags = crate::flags::TypeFlags::STRING_LIKE
-    .union(crate::flags::TypeFlags::NUMBER_LIKE)
-    .union(crate::flags::TypeFlags::BOOLEAN_LIKE)
-    .union(crate::flags::TypeFlags::ES_SYMBOL_LIKE)
-    .union(crate::flags::TypeFlags::BIG_INT_LIKE);
-
 pub(crate) fn modifiers_of(typed: Node<'_>) -> Option<&[tsr_ast::ModifierLike<'_>]> {
     Some(match typed {
         Node::ClassDeclaration(n) => n.modifiers,

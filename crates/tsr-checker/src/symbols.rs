@@ -15,6 +15,10 @@ use tsr_ast::{Expression, ModuleReference, Node, NodeFlags, NodeId, SyntaxKind, 
 /// the same reason the `export=` name is: the binder's constant is `pub(crate)`
 /// to that crate.
 const INTERNAL_EXPORT_STAR: &str = "__export";
+/// `ast.InternalSymbolNameModuleExports` (`ast/symbol.go:69`): the export
+/// name `export { Foo as "module.exports" }` publishes, which a `CommonJS`
+/// `require` of an ES module observes as its value.
+const INTERNAL_MODULE_EXPORTS: &str = "module.exports";
 
 use tsr_binder::{SymbolFlags, SymbolId};
 
@@ -225,9 +229,52 @@ impl<'a> Checker<'a, '_> {
             return self.intrinsics.error;
         }
         let computed = self.get_type_of_accessors_worker(symbol);
-        let computed = if self.resolutions.pop() { computed } else { self.intrinsics.error };
+        // Native answers `anyType` here; this port keeps `errorType` because
+        // its eager object-literal members close cycles native never forms
+        // (`noCircularitySelfReferentialGetter3/4`), where `any` prints wrong.
+        let computed = if self.resolutions.pop() {
+            computed
+        } else {
+            self.report_accessor_circularity(symbol);
+            self.intrinsics.error
+        };
         self.symbol_types.insert(symbol, computed);
         computed
+    }
+
+    /// `getTypeOfAccessors`' failed-pop arm (`checker.go:18511`): TS2502 at the
+    /// first annotated accessor (getter, then setter).
+    ///
+    /// Native's last arm, TS7023 at an unannotated getter under
+    /// `noImplicitAny`, is not ported: this port resolves object-literal and
+    /// signature members eagerly, so its unannotated cycles include ones native
+    /// never forms (`noCircularitySelfReferentialGetter4`).
+    fn report_accessor_circularity(&mut self, symbol: SymbolId) {
+        use tsr_diagnostics::{Diagnostic, messages};
+        let declarations = self.binder.symbols().get(symbol).declarations.clone();
+        let of_kind = |kind| {
+            declarations.iter().copied().find(|&declaration| self.nodes.kind(declaration) == kind)
+        };
+        let getter = of_kind(SyntaxKind::GetAccessor);
+        let setter = of_kind(SyntaxKind::SetAccessor);
+        let Some(at) = getter
+            .filter(|&node| self.accessor_annotation(node).is_some())
+            .or_else(|| setter.filter(|&node| self.accessor_annotation(node).is_some()))
+        else {
+            return;
+        };
+        let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
+        if self.circularity_reported.insert(at) {
+            let name = self.binder.symbols().get(symbol).name.to_string();
+            self.report(
+                file,
+                Diagnostic::with_args(
+                    &messages::_0_IS_REFERENCED_DIRECTLY_OR_INDIRECTLY_IN_ITS_OWN_TYPE_ANNOTATION,
+                    self.error_span(at),
+                    [name],
+                ),
+            );
+        }
     }
 
     /// `getWriteTypeOfAccessors` (`checker.go:16447`) — the type a WRITE to a
@@ -616,6 +663,15 @@ impl<'a> Checker<'a, '_> {
         } else {
             return None;
         };
+        // resolveESModuleSymbol's `module.exports` arm answers that export
+        // itself, not a module copy (`namespace_import_module_exports`).
+        if let Some(owner) =
+            self.nodes.parent(declaration).and_then(|clause| self.nodes.parent(clause))
+            && let Some(specifier) = self.external_module_name(owner)
+            && self.namespace_import_module_exports(owner, specifier).is_some()
+        {
+            return None;
+        }
         if self.is_error(value)
             || self
                 .signatures_of_type_kind(value, kind)
@@ -956,7 +1012,8 @@ impl<'a> Checker<'a, '_> {
                 };
                 // Keep the immediate target. The existing alias-chain worker
                 // owns cycle detection, including require/export= loops.
-                return self.commonjs_require_target(call);
+                let resolved = self.commonjs_require_target(call)?;
+                return Some(self.import_equals_module_exports(resolved).unwrap_or(resolved));
             }
             // getTargetOfBinaryExpression (native checker.go:14990): an
             // assignment alias points at the RHS symbol in its lexical scope,
@@ -1010,11 +1067,11 @@ impl<'a> Checker<'a, '_> {
             // shape is a miss, never a wrong target).
             SyntaxKind::ExportAssignment => return self.export_assignment_target(declaration),
             // `getTargetOfImportClause` (`checker.go:14528`) →
-            // `getTargetOfModuleDefault` (`:14536`), the PLAIN half only: the
-            // module's real `default` export. The synthetic default
-            // (`canHaveSyntheticDefault`, interop) and the `module.exports`
-            // arm are not ported — each such miss stays a gap
-            // (`checker-notes-modobj.md` §10.11).
+            // `getTargetOfModuleDefault` (`:14536`): the `module.exports`
+            // arm, then the module's real `default` export. The synthetic
+            // default (`canHaveSyntheticDefault`, interop) is ported only in
+            // part — each such miss stays a gap (`checker-notes-modobj.md`
+            // §10.11).
             SyntaxKind::ImportClause => return self.import_clause_default_target(declaration),
             // §503 re-opens §222's refusal under its own recorded condition:
             // "the qualification losses need the naming half of `bd tsr-e2u`,
@@ -1109,6 +1166,11 @@ impl<'a> Checker<'a, '_> {
                 parent
             };
             let specifier = self.external_module_name(owner)?;
+            if self.nodes.kind(declaration) == SyntaxKind::NamespaceImport
+                && let Some(module_exports) = self.namespace_import_module_exports(owner, specifier)
+            {
+                return Some(module_exports);
+            }
             return self.module_object_of(owner, specifier);
         }
         let Node::ImportEqualsDeclaration(node) = self.node_map.get(declaration)? else {
@@ -1185,6 +1247,9 @@ impl<'a> Checker<'a, '_> {
                 let specifier = reference.expression?.node_id()?;
                 let module = self.resolve_external_module_name(declaration, specifier)?;
                 let resolved = self.resolve_external_module_symbol(module);
+                if let Some(module_exports) = self.import_equals_module_exports(resolved) {
+                    return Some(module_exports);
+                }
                 // resolveExternalModuleSymbol(..., dontResolveAlias=false)
                 // follows alias exports, but a property-valued export= is
                 // already the target (e.g. module.exports = 3 in JS).
@@ -1379,7 +1444,7 @@ impl<'a> Checker<'a, '_> {
         };
         let specifier = specifier?.node_id()?;
         let module = self.resolve_external_module_name(declaration, specifier)?;
-        self.module_default_target(module, declaration)
+        self.module_default_target(module, declaration, specifier)
     }
 
     /// TYPE naming's completed alias target, ported from native `resolveAlias`
@@ -1564,7 +1629,25 @@ impl<'a> Checker<'a, '_> {
     /// The default target shared by clauses and identifier-default specifiers.
     /// New synthetic defaults retain the immediate `export=` link; only a
     /// complete, uncloned plain-TS file-module chain establishes eligibility.
-    fn module_default_target(&mut self, module: SymbolId, declaration: NodeId) -> Option<SymbolId> {
+    ///
+    /// `getTargetOfModuleDefault` (`checker.go:14536`) opens with the
+    /// `module.exports` arm: a `CommonJS`-emitted specifier of an ES-module file
+    /// under `module: node20`..`nodenext` takes the module's
+    /// `"module.exports"` export (`resolveExportByName`, `checker.go:14615`)
+    /// before any default — `__importDefault(require(m)).default` is that
+    /// export's value. `specifier` is `getModuleSpecifierForImportOrExport`.
+    fn module_default_target(
+        &mut self,
+        module: SymbolId,
+        declaration: NodeId,
+        specifier: NodeId,
+    ) -> Option<SymbolId> {
+        if self.esm_file_used_with_commonjs_syntax(module, specifier)
+            && let Some(module_exports) =
+                self.resolve_export_by_name(module, INTERNAL_MODULE_EXPORTS)
+        {
+            return Some(module_exports);
+        }
         let synthetic = (|| {
             if self.module_kind != tsr_core::ModuleKind::CommonJS || self.in_js_file(declaration) {
                 return None;
@@ -1804,7 +1887,7 @@ impl<'a> Checker<'a, '_> {
             {
                 let module_specifier = export.module_specifier?.node_id()?;
                 let module = self.resolve_external_module_name(declaration, module_specifier)?;
-                return self.module_default_target(module, declaration);
+                return self.module_default_target(module, declaration, module_specifier);
             }
             // `case exportDeclaration.ModuleSpecifier() != nil:
             // getExternalModuleMember(exportDeclaration, node, …)`
@@ -1856,7 +1939,7 @@ impl<'a> Checker<'a, '_> {
         {
             let module_specifier = node.module_specifier?.node_id()?;
             let module = self.resolve_external_module_name(declaration, module_specifier)?;
-            return self.module_default_target(module, declaration);
+            return self.module_default_target(module, declaration, module_specifier);
         }
         self.get_external_module_member(import, declaration)
     }
@@ -2492,6 +2575,124 @@ impl<'a> Checker<'a, '_> {
         }
         // Not an own export — try the `export *` re-exports.
         self.get_export_from_star(symbol, name)
+    }
+
+    /// `resolveExportByName` (`checker.go:14615`) with `dontResolveAlias =
+    /// true`: through the module's `export =` value's property when it has
+    /// one, else its own export table (no `export *` walk, unlike
+    /// [`Checker::get_export_of_module`]). Upstream's property read skips the
+    /// global Object/Function augment; no name this is asked for can meet it.
+    fn resolve_export_by_name(&mut self, module: SymbolId, name: &str) -> Option<SymbolId> {
+        let export_equals = self.binder.symbols().get(module).exports.get("export=").copied();
+        match export_equals {
+            Some(export_equals) => {
+                let value = self.get_type_of_symbol(export_equals);
+                self.get_property_of_type(value, name)
+            }
+            None => self.binder.symbols().get(module).exports.get(name).copied(),
+        }
+    }
+
+    /// The `module.exports` arm of `getTargetOfImportEqualsDeclaration`
+    /// (`checker.go:14439`), for both `import x = require("m")` and the JS
+    /// `const x = require("m")` declaration: under `module: node20`..`nodenext`
+    /// the resolved module's `"module.exports"` export (`getExportOfModule`,
+    /// `dontResolveAlias = true`) is the target. `resolved` is
+    /// `resolveExternalModuleSymbol(immediate, dontResolveAlias = true)`.
+    fn import_equals_module_exports(&mut self, resolved: SymbolId) -> Option<SymbolId> {
+        if !self.module_kind_is_node20_through_nodenext() {
+            return None;
+        }
+        self.get_export_of_module(resolved, INTERNAL_MODULE_EXPORTS)
+    }
+
+    /// `core.ModuleKindNode20 <= c.moduleKind && c.moduleKind <=
+    /// core.ModuleKindNodeNext`, the gate every `module.exports` arm shares.
+    fn module_kind_is_node20_through_nodenext(&self) -> bool {
+        (tsr_core::ModuleKind::Node20..=tsr_core::ModuleKind::NodeNext).contains(&self.module_kind)
+    }
+
+    /// The condition `getTargetOfModuleDefault` (`checker.go:14536`) and
+    /// `resolveESModuleSymbol` (`checker.go:15568`) put on their
+    /// `module.exports` arms: the module is a file (`core.Find(Declarations,
+    /// IsSourceFile)`), the module kind is `node20`..`nodenext`, the specifier
+    /// is emitted as `CommonJS` syntax
+    /// (`getEmitSyntaxForModuleSpecifierExpression`, `checker.go:14877`) and
+    /// the file is emitted as an ES module (`GetImpliedNodeFormatForEmit`).
+    /// Two host queries; nothing cached.
+    fn esm_file_used_with_commonjs_syntax(&self, module: SymbolId, specifier: NodeId) -> bool {
+        if !self.module_kind_is_node20_through_nodenext() {
+            return false;
+        }
+        let Some(host) = self.module_host else { return false };
+        let Some(&file) = self
+            .binder
+            .symbols()
+            .get(module)
+            .declarations
+            .iter()
+            .find(|&&declaration| self.nodes.kind(declaration) == SyntaxKind::SourceFile)
+        else {
+            return false;
+        };
+        // getEmitSyntaxForModuleSpecifierExpression: string literals only.
+        if !matches!(
+            self.nodes.kind(specifier),
+            SyntaxKind::StringLiteral | SyntaxKind::NoSubstitutionTemplateLiteral
+        ) {
+            return false;
+        }
+        let Some(importing) = self.source_file_of(specifier) else { return false };
+        host.emit_syntax_for_usage_location(importing, specifier) == tsr_core::ModuleKind::CommonJS
+            && host.implied_node_format_for_emit(file) == tsr_core::ModuleKind::ESNext
+    }
+
+    /// The `module.exports` arm of `resolveESModuleSymbol`
+    /// (`checker.go:15568`) for a namespace import `import * as ns from "m"`
+    /// (`owner` is the `ImportDeclaration`, `specifier` its module
+    /// specifier): the resolved module's `"module.exports"` export
+    /// (`getExportOfModule`, `dontResolveAlias = true`).
+    ///
+    /// The earlier `getTypeWithSyntheticDefaultOnly` return needs an ES-syntax
+    /// specifier (`isOnlyImportableAsDefault`), so it never precedes this
+    /// `CommonJS`-syntax arm. Where the module symbol's type has signatures,
+    /// upstream answers `cloneTypeAsModuleType(moduleExports, typ)` — a copy
+    /// of the *module's* type; that declines here and the module-object road
+    /// ([`Checker::module_object_of`], then `module_clone_type`) copies the
+    /// same type under the module symbol.
+    fn namespace_import_module_exports(
+        &mut self,
+        owner: NodeId,
+        specifier: NodeId,
+    ) -> Option<SymbolId> {
+        if !self.module_kind_is_node20_through_nodenext()
+            || !matches!(self.node_map.get(owner), Some(Node::ImportDeclaration(_)))
+        {
+            return None;
+        }
+        let module = self.resolve_external_module_name(owner, specifier)?;
+        if !self.esm_file_used_with_commonjs_syntax(module, specifier) {
+            return None;
+        }
+        let mut symbol = self.resolve_external_module_symbol(module);
+        if self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::ALIAS) {
+            // resolveIndirectionAlias through a pure-alias `export =`.
+            symbol = self.binder.merged_symbol(self.resolve_alias_fully(symbol));
+        }
+        let module_exports = self.get_export_of_module(symbol, INTERNAL_MODULE_EXPORTS)?;
+        // hasSignatures(getTypeOfSymbol(symbol)).
+        let value = self.get_type_of_symbol(symbol);
+        for kind in
+            [crate::signatures::SignatureKind::Call, crate::signatures::SignatureKind::Construct]
+        {
+            if self
+                .signatures_of_type_kind(value, kind)
+                .is_some_and(|signatures| !signatures.is_empty())
+            {
+                return None;
+            }
+        }
+        Some(module_exports)
     }
 
     /// One name, looked up through a module's `export *` declarations
@@ -4498,7 +4699,7 @@ impl<'a> Checker<'a, '_> {
         // reaches itself through any depth of indirection is caught. Nothing
         // between here and `pop` may return early, or the stack unbalances.
         if !self.resolutions.push(symbol, PropertyName::Type) {
-            return self.report_circularity_error(declaration);
+            return self.report_circularity_error(symbol, declaration);
         }
 
         let kind = self.nodes.kind(declaration);
@@ -4749,13 +4950,26 @@ impl<'a> Checker<'a, '_> {
         if !self.resolutions.pop() {
             // A cycle closed *below* this frame, so the answer computed above was
             // built on a partial one and must not be kept.
-            return self.report_circularity_error(declaration);
+            return self.report_circularity_error(symbol, declaration);
         }
         result
     }
 
-    /// Ported from `Checker.reportCircularityError` (`checker.go:18822`),
-    /// without the diagnostics — the checker has none yet (`bd tsr-5e7.6`).
+    /// Ported from `Checker.reportCircularityError` (`checker.go:18822`).
+    ///
+    /// An annotated declaration reports TS2502 at the declaration and yields
+    /// `errorType`. Native reports from both the failed push and the failed pop
+    /// of `getTypeOfVariableOrParameterOrPropertyWorker`; its diagnostic
+    /// collection drops the identical second report. `circularity_reported`
+    /// (declaration node ids, Checker-private, whole-check lifetime) is that
+    /// de-duplication and nothing else.
+    ///
+    /// The unannotated arm's TS7022 is not ported yet. It reports on every
+    /// unannotated cycle participant, and this port forms cycles native does
+    /// not: it lacks `getResolvedSignature`'s `resolutionStart` reset
+    /// (`checker.go:8417`), resolves function-type signatures eagerly
+    /// (`functionWithDefaultParameterWithNoStatements16`) and asks a later
+    /// `const`'s type from flow (`typeGuardNarrowsIndexedAccessOfKnownProperty10`).
     ///
     /// The **return type differs by cause**, which is easy to get wrong because
     /// the two print identically:
@@ -4800,11 +5014,25 @@ impl<'a> Checker<'a, '_> {
     /// be added usefully until return types are computed lazily. That is the
     /// same blocker §217 recorded from the opposite direction — it is now
     /// carried by two independent findings rather than one.
-    fn report_circularity_error(&mut self, declaration: NodeId) -> TypeId {
-        if self.type_annotation_of(declaration).is_some() {
-            return self.intrinsics.error;
+    fn report_circularity_error(&mut self, symbol: SymbolId, declaration: NodeId) -> TypeId {
+        use tsr_diagnostics::{Diagnostic, messages};
+        if self.type_annotation_of(declaration).is_none() {
+            return self.intrinsics.any;
         }
-        self.intrinsics.any
+        if let Some(file) = self.source_file_of_for_diagnostics(declaration)
+            && self.circularity_reported.insert(declaration)
+        {
+            let name = self.binder.symbols().get(symbol).name.to_string();
+            self.report(
+                file,
+                Diagnostic::with_args(
+                    &messages::_0_IS_REFERENCED_DIRECTLY_OR_INDIRECTLY_IN_ITS_OWN_TYPE_ANNOTATION,
+                    self.error_span(declaration),
+                    [name],
+                ),
+            );
+        }
+        self.intrinsics.error
     }
 
     /// Ported from `Checker.getWidenedTypeForVariableLikeDeclaration`, which is
@@ -5851,6 +6079,13 @@ impl<'a> Checker<'a, '_> {
                 return Some(self.add_optionality_for_declaration(declared, declaration));
             }
         }
+        // `getParameterTypeOfFullSignature` (`checker.go:16732`), before the
+        // contextual type: a JS function's `@type` tag types its parameters.
+        if self.nodes.kind(declaration) == SyntaxKind::Parameter
+            && let Some(full) = self.jsdoc_full_signature_parameter_type(declaration)
+        {
+            return Some(full);
+        }
         // "Use contextual parameter type if one is available" (`checker.go:16735`),
         // which upstream places inside the `isParameter` block **before** the
         // initialiser path below — a contextually typed parameter takes its type
@@ -6286,13 +6521,11 @@ impl<'a> Checker<'a, '_> {
                 return None;
             }
             for doc in *self.jsdoc_entries.get(&current)? {
-                if doc.tags.iter().any(|tag| {
-                    matches!(
-                        tag,
-                        tsr_ast::JSDocTag::JSDocTypedefTag(_)
-                            | tsr_ast::JSDocTag::JSDocCallbackTag(_)
-                    )
-                }) {
+                // Native's `reparseHosted` types the declaration whatever
+                // else the comment declares; only the typedef exclusion is
+                // retained here (a parsed `@callback` used to be an unknown
+                // tag this reader never skipped).
+                if doc.tags.iter().any(|tag| matches!(tag, tsr_ast::JSDocTag::JSDocTypedefTag(_))) {
                     continue;
                 }
                 for tag in doc.tags {
