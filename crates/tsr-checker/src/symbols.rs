@@ -1380,6 +1380,185 @@ impl<'a> Checker<'a, '_> {
         self.module_default_target(module, declaration)
     }
 
+    /// TYPE naming's completed alias target, ported from native `resolveAlias`
+    /// and `getTargetOfModuleDefault` (`checker.go:14536`, pinned 5b1047d).
+    /// `trySymbolTable` (`symbolaccessibility.go:535`) resolves before reading
+    /// exports; this reader does not change ordinary alias/value admission.
+    ///
+    /// Program SymbolIds/declarations and completed declaration-namespace tables
+    /// own identities. The caller retains the original alias and ordered type
+    /// arguments. A query-local path owns active/cyclic traversal; no separate
+    /// alias, type, accessibility or member image is published. Other aliases
+    /// delegate admission/completion to the existing ordinary worker. Missing/unsupported
+    /// tables and active Type/DeclaredType work decline, never complete empty.
+    /// Existing module resolution owns lookup; the scope/alias walk runs per
+    /// naming query with no duplicate cache or performance claim (tsr-6.47.3.1.1).
+    pub(crate) fn semantic_type_naming_alias_target(
+        &mut self,
+        symbol: SymbolId,
+        meaning: SymbolFlags,
+        path: &mut Vec<SymbolId>,
+    ) -> Option<SymbolId> {
+        let symbol = self.binder.merged_symbol(symbol);
+        if path.contains(&symbol)
+            || self.resolutions.on_stack(symbol, PropertyName::Type)
+            || self.resolutions.on_stack(symbol, PropertyName::DeclaredType)
+        {
+            return None;
+        }
+        let namespace_complete = |checker: &Self, symbol| {
+            let entry = checker.binder.symbols().get(symbol);
+            entry.flags.intersects(SymbolFlags::MODULE)
+                && !entry
+                    .flags
+                    .intersects(SymbolFlags::CLASS | SymbolFlags::FUNCTION | SymbolFlags::ALIAS)
+                && entry.exports.is_present()
+                && !entry.exports.contains_key(INTERNAL_EXPORT_STAR)
+                && !entry.declarations.is_empty()
+                && entry.declarations.iter().all(|&declaration| {
+                    checker.source_file_of(declaration).is_some_and(|file| {
+                        checker.module_host.is_some_and(|host| host.is_declaration_file(file))
+                    }) && matches!(
+                        checker.node_map.get(declaration),
+                        Some(
+                            Node::SourceFile(_)
+                                | Node::ModuleDeclaration(tsr_ast::ModuleDeclaration {
+                                    body: Some(_),
+                                    ..
+                                })
+                        )
+                    )
+                })
+        };
+        path.push(symbol);
+        let result = (|| {
+            let entry = self.binder.symbols().get(symbol);
+            if !entry.flags.contains(SymbolFlags::ALIAS) {
+                if !entry.flags.intersects(meaning) || entry.declarations.is_empty() {
+                    return None;
+                }
+                if entry.flags.intersects(SymbolFlags::MODULE) {
+                    if !namespace_complete(self, symbol) {
+                        return None;
+                    }
+                    let target = self.resolve_external_module_symbol(symbol);
+                    if target != symbol {
+                        return self.semantic_type_naming_alias_target(target, meaning, path);
+                    }
+                }
+                return Some(symbol);
+            }
+            let declaration = self.declaration_of_alias_symbol(symbol)?;
+            let target = if let Some(Node::ImportClause(_)) = self.node_map.get(declaration) {
+                if matches!(
+                    self.module_kind,
+                    tsr_core::ModuleKind::Node16
+                        | tsr_core::ModuleKind::Node18
+                        | tsr_core::ModuleKind::Node20
+                        | tsr_core::ModuleKind::NodeNext
+                ) {
+                    return None; // implied-format ownership is outside this slice
+                }
+                let Node::ImportDeclaration(import) =
+                    self.node_map.get(self.nodes.parent(declaration)?)?
+                else {
+                    return None;
+                };
+                if import.attributes.is_some() {
+                    return None;
+                }
+                let module = self.resolve_external_module_name(
+                    declaration,
+                    import.module_specifier?.node_id()?,
+                )?;
+                if !namespace_complete(self, module) {
+                    return None;
+                }
+                let immediate = self.resolve_external_module_symbol(module);
+                let owner = if immediate == module {
+                    module
+                } else {
+                    self.semantic_type_naming_alias_target(immediate, SymbolFlags::NAMESPACE, path)?
+                };
+                // resolveExportByName reads the export= value's properties.
+                // An unrepresented aliased property cannot prove default/marker absence.
+                let property = |name| {
+                    let found = self.binder.symbols().get(owner).exports.get(name).copied();
+                    if immediate == module {
+                        return Some(found);
+                    }
+                    match found {
+                        Some(property)
+                            if self
+                                .binder
+                                .symbols()
+                                .get(property)
+                                .flags
+                                .contains(SymbolFlags::ALIAS) =>
+                        {
+                            None
+                        }
+                        Some(property)
+                            if self
+                                .binder
+                                .symbols()
+                                .get(property)
+                                .flags
+                                .intersects(SymbolFlags::VALUE) =>
+                        {
+                            Some(Some(property))
+                        }
+                        _ => Some(None),
+                    }
+                };
+                let default = property("default")?;
+                let marker = property("__esModule")?;
+                // canHaveSyntheticDefault and isSyntacticDefault
+                // (`checker.go:14818`, `utilities.go:250`): real syntax beats
+                // synthesis; otherwise __esModule suppresses it.
+                let syntactic = default.is_some_and(|default| {
+                    self.binder.symbols().get(default).declarations.iter().any(|&declaration| {
+                        match self.node_map.get(declaration) {
+                            Some(Node::ExportAssignment(node)) => !node.is_export_equals,
+                            Some(Node::ExportSpecifier(_) | Node::NamespaceExport(_)) => true,
+                            Some(Node::ClassDeclaration(node)) => tsr_ast::has_syntactic_modifier(
+                                node.modifiers,
+                                SyntaxKind::DefaultKeyword,
+                            ),
+                            Some(Node::FunctionDeclaration(node)) => {
+                                tsr_ast::has_syntactic_modifier(
+                                    node.modifiers,
+                                    SyntaxKind::DefaultKeyword,
+                                )
+                            }
+                            Some(Node::InterfaceDeclaration(node)) => {
+                                tsr_ast::has_syntactic_modifier(
+                                    node.modifiers,
+                                    SyntaxKind::DefaultKeyword,
+                                )
+                            }
+                            Some(Node::TypeAliasDeclaration(node)) => {
+                                tsr_ast::has_syntactic_modifier(
+                                    node.modifiers,
+                                    SyntaxKind::DefaultKeyword,
+                                )
+                            }
+                            _ => false,
+                        }
+                    })
+                });
+                if !syntactic && marker.is_none() { immediate } else { default? }
+            } else {
+                // Import-equals privacy and every other ordinary admission
+                // stay with their existing owner; no new alias form is opened.
+                self.resolve_alias(symbol)?
+            };
+            self.semantic_type_naming_alias_target(target, meaning, path)
+        })();
+        path.pop();
+        result
+    }
+
     /// The default target shared by clauses and identifier-default specifiers.
     /// New synthetic defaults retain the immediate `export=` link; only a
     /// complete, uncloned plain-TS file-module chain establishes eligibility.
@@ -5907,6 +6086,188 @@ mod tests {
     use super::Checker;
     use crate::types::{TypeData, TypeId};
     use tsr_ast::{Node, NodeId};
+
+    #[test]
+    fn semantic_type_naming_targets_preserve_identity_and_decline_incomplete_routes() {
+        use crate::resolution::{ModuleHost, PropertyName};
+        use tsr_binder::SymbolFlags;
+
+        struct DeclarationHost;
+        impl ModuleHost for DeclarationHost {
+            fn resolved_module(&self, _: NodeId, _: &str) -> Option<NodeId> {
+                None
+            }
+            fn module_resolution_found(&self, _: NodeId, _: &str) -> bool {
+                false
+            }
+            fn is_declaration_file(&self, _: NodeId) -> bool {
+                true
+            }
+        }
+        let source = r#"
+            declare module "pure" {
+                namespace Original {
+                    interface Pair<A, B> { left: A; right: B }
+                    namespace Inner { import Local = Original; }
+                }
+                export = Original;
+            }
+            declare module "mixed" {
+                function Callable(value: number): number;
+                namespace Callable { interface Pair<A, B> { left: B; right: A } }
+                export = Callable;
+            }
+            declare module "star" { export * from "pure"; }
+            namespace Consumer {
+                import React from "pure";
+                import Unsupported from "mixed";
+                import Star from "star";
+                import Cycle = Loop;
+                import Loop = Cycle;
+            }
+        "#;
+        let arena = tsr_core::Arena::new();
+        let parsed = tsr_parser::parse(&arena, source);
+        assert!(parsed.diagnostics.is_empty());
+        let bound = tsr_binder::bind(
+            &arena,
+            parsed.source_file,
+            &parsed.nodes,
+            tsr_binder::FileInfo { name: "control.d.ts", text: source },
+        );
+        let aliases: std::collections::BTreeMap<_, _> = bound
+            .symbols()
+            .iter()
+            .filter(|(_, symbol)| symbol.flags.contains(SymbolFlags::ALIAS))
+            .map(|(id, symbol)| (symbol.name, id))
+            .collect();
+        let mut checker = Checker::with_module_host(
+            &bound,
+            &parsed.nodes,
+            &parsed.node_map,
+            Some(&DeclarationHost),
+        );
+        checker.apply_compiler_options(&tsr_core::CompilerOptions {
+            module: tsr_core::ModuleKind::CommonJS,
+            ..Default::default()
+        });
+        let original = checker
+            .resolve_alias(
+                bound.symbols().get(bound.ambient_module("pure").unwrap()).exports["export="],
+            )
+            .unwrap();
+        let pair = bound.symbols().get(original).exports["Pair"];
+        let declarations = bound.symbols().get(pair).declarations.clone();
+        let flags = bound.symbols().get(pair).flags;
+        let publications = (
+            checker.computations,
+            checker.node_types.len(),
+            checker.symbol_types.len(),
+            checker.declared_types.len(),
+            checker.qualified_reference_types.len(),
+            checker.qualified_generic_reference_types.len(),
+        );
+        assert_eq!(checker.resolve_alias(aliases["React"]), None);
+        for _ in 0..2 {
+            let mut path = vec![pair];
+            assert_eq!(
+                checker.semantic_type_naming_alias_target(
+                    aliases["React"],
+                    SymbolFlags::NAMESPACE,
+                    &mut path
+                ),
+                Some(original)
+            );
+            assert_eq!(path, vec![pair], "caller owns the traversal path");
+            for alias in ["Unsupported", "Star", "Cycle", "Loop"] {
+                let mut path = Vec::new();
+                assert_eq!(
+                    checker.semantic_type_naming_alias_target(
+                        aliases[alias],
+                        SymbolFlags::NAMESPACE,
+                        &mut path
+                    ),
+                    None,
+                    "{alias}"
+                );
+                assert!(path.is_empty());
+            }
+            let mut path = vec![original];
+            assert_eq!(
+                checker.semantic_type_naming_alias_target(
+                    original,
+                    SymbolFlags::NAMESPACE,
+                    &mut path
+                ),
+                None
+            );
+            assert_eq!(path, vec![original]);
+            for property in [PropertyName::Type, PropertyName::DeclaredType] {
+                assert!(checker.resolutions.push(original, property));
+                assert_eq!(
+                    checker.semantic_type_naming_alias_target(
+                        aliases["React"],
+                        SymbolFlags::NAMESPACE,
+                        &mut Vec::new()
+                    ),
+                    None
+                );
+                assert!(checker.resolutions.pop());
+            }
+            assert_eq!(
+                checker.resolve_alias(aliases["React"]),
+                None,
+                "ordinary VALUE admission is unchanged"
+            );
+        }
+        assert_eq!(bound.symbols().get(pair).declarations, declarations);
+        assert_eq!(bound.symbols().get(pair).flags, flags);
+        assert_eq!(
+            (
+                checker.computations,
+                checker.node_types.len(),
+                checker.symbol_types.len(),
+                checker.declared_types.len(),
+                checker.qualified_reference_types.len(),
+                checker.qualified_generic_reference_types.len()
+            ),
+            publications,
+            "reader publishes no type/reference image"
+        );
+        let mut no_host = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+        assert_eq!(
+            no_host.semantic_type_naming_alias_target(
+                aliases["React"],
+                SymbolFlags::NAMESPACE,
+                &mut Vec::new()
+            ),
+            None
+        );
+        // Direct own identity beats aliases in that table; an already-admitted
+        // alias in an inner table beats the outer direct identity, not its spelling.
+        assert_eq!(checker.resolve_alias(aliases["Local"]), Some(original));
+        let reference = checker.create_type_reference_public(
+            pair,
+            vec![checker.intrinsics.string, checker.intrinsics.number],
+        );
+        let direct = bound.symbols().get(pair).declarations[0];
+        let inner = checker.declaration_of_alias_symbol(aliases["Local"]).unwrap();
+        for reverse in [false, true] {
+            let mut queries =
+                [(direct, "Pair<string, number>"), (inner, "Local.Pair<string, number>")];
+            if reverse {
+                queries.reverse();
+            }
+            for _ in 0..2 {
+                for (site, expected) in queries {
+                    assert_eq!(
+                        checker.type_to_string_at(reference, site).as_deref(),
+                        Some(expected)
+                    );
+                }
+            }
+        }
+    }
 
     #[test]
     fn commonjs_unknown_alias_requires_completed_any_receiver() {

@@ -1,6 +1,192 @@
 //! JSX contexts and fixing order compared with pinned tsgo 5b1047d probes.
 use tsr_conformance::{TestCase, types_baseline::FileTypes, types_producer};
 
+// Native TYPE accessibility controls on pinned 5b1047d. Canonical references
+// below deliberately bypass written placeholder spelling, not type production.
+const TYPE_NAMING_SOURCE: &str = r#"// @strict: true
+// @target: es2015
+// @module: commonjs
+// @esModuleInterop: true
+// @filename: naming.d.ts
+declare module "same" {
+    namespace React { interface Pair<A, B> { left: A; right: B } }
+    export = React;
+}
+declare module "real" {
+    namespace Actual { interface Pair<A, B> { left: B; right: A } }
+    export default Actual;
+}
+declare module "outer" {
+    import Nested from "real";
+    export { Nested };
+}
+declare module "specifier" {
+    namespace Actual { interface Pair<A, B> { left: B; right: A } }
+    export { Actual as default };
+    export interface Pair<A, B> { left: A; right: B }
+}
+declare module "marked" {
+    namespace Marked { const __esModule: true; interface Pair<A, B> { left: A; right: B } }
+    export = Marked;
+}
+declare module "callable" {
+    function Callable(value: number): number;
+    namespace Callable { interface Pair<A, B> { left: A; right: B } const token: 31; }
+    export = Callable;
+}
+// @filename: naming.ts
+/// <reference path="naming.d.ts" />
+import React from "same";
+import * as Safe from "same";
+import Outer from "outer";
+import Real from "real";
+import Specifier from "specifier";
+import Blocked from "marked";
+import * as Clone from "callable";
+declare const rootSlot: React.Pair<string, number>;
+declare const realSlot: Real.Pair<boolean, 19>;
+declare const shortestSlot: Real.Pair<31, true>;
+declare const specifierSlot: Specifier.Pair<23, string>;
+declare const markedSlot: import("marked").Pair<string, number>;
+declare const cloneTypeSlot: Clone.Pair<29, string>;
+const cloneValueSlot = Clone;
+const sourceValueSlot = Clone;
+rootSlot; realSlot; shortestSlot; specifierSlot; markedSlot; cloneTypeSlot; cloneValueSlot; sourceValueSlot;
+function valueShadow() {
+    const React = 47;
+    let valueShadowSlot!: import("same").Pair<string, number>;
+    valueShadowSlot;
+}
+namespace Other { export interface Pair<A, B> { left: B; right: A } }
+namespace Inner {
+    import React = Other;
+    let namespaceShadowSlot!: import("same").Pair<string, number>;
+    namespaceShadowSlot;
+}
+namespace Own {
+    export interface Pair<A, B> { left: A; right: B }
+    let directSlot!: Pair<string, number>;
+    directSlot;
+}
+// @filename: default-shadows.ts
+/// <reference path="naming.d.ts" />
+/// <reference path="naming.ts" />
+import DefaultOnly from "same";
+import * as Safe from "same";
+function defaultValueShadow() {
+    const DefaultOnly = 53;
+    let defaultValueShadowSlot!: import("same").Pair<string, number>;
+    defaultValueShadowSlot;
+}
+namespace Other { export interface Pair<A, B> { left: B; right: A } }
+namespace DefaultInner {
+    import DefaultOnly = Other;
+    let defaultNamespaceShadowSlot!: import("same").Pair<string, number>;
+    defaultNamespaceShadowSlot;
+}
+"#;
+
+#[test]
+fn canonical_type_names_preserve_default_scope_shadows_and_clone_identity() {
+    use tsr_ast::{BindingName, Expression, Node, TypeNode};
+    let case = TestCase::parse("probe/type-naming", "type-naming.ts", TYPE_NAMING_SOURCE);
+    let arena = tsr_core::Arena::new();
+    let program = types_producer::program_for_case(&arena, &case);
+    let mut queries = Vec::new();
+    let mut annotations = std::collections::HashMap::new();
+    let mut stack: Vec<_> =
+        program.source_files().iter().map(|file| Node::SourceFile(file.source_file())).collect();
+    while let Some(node) = stack.pop() {
+        if let Node::VariableDeclaration(variable) = node
+            && let Some(BindingName::Identifier(name)) = variable.name
+            && let Some(ty) = variable.r#type
+        {
+            annotations.insert(name.text, ty);
+        }
+        if let Node::Identifier(name) = node
+            && name.text.ends_with("Slot")
+            && program.nodes().parent(name.node_id.unwrap()).is_some_and(|parent| {
+                program.nodes().kind(parent) == tsr_ast::SyntaxKind::ExpressionStatement
+            })
+        {
+            queries.push(name);
+        }
+        tsr_ast::push_children(node, &mut stack);
+    }
+    queries.sort_by_key(|name| program.nodes().span(name.node_id.unwrap()).start);
+    assert_eq!(queries.len(), 13);
+    for reverse in [false, true] {
+        let mut checker = types_producer::configured_checker(&program);
+        let mut order = queries.clone();
+        if reverse {
+            order.reverse();
+        }
+        for _ in 0..2 {
+            for name in &order {
+                let module_name = match name.text {
+                    "realSlot" | "shortestSlot" => "real",
+                    "specifierSlot" => "specifier",
+                    "markedSlot" => "marked",
+                    "cloneTypeSlot" | "cloneValueSlot" | "sourceValueSlot" => "callable",
+                    _ => "same",
+                };
+                let module = program.binder().ambient_module(module_name).unwrap();
+                let exports = &program.binder().symbols().get(module).exports;
+                let export =
+                    exports.get("export=").or_else(|| exports.get("default")).copied().unwrap();
+                let namespace = checker.resolve_alias(export).unwrap();
+                let mut target = program.binder().symbols().get(namespace).exports["Pair"];
+                if name.text == "directSlot" {
+                    target = program
+                        .binder()
+                        .resolve_name(
+                            program.nodes(),
+                            program.node_map(),
+                            name.node_id.unwrap(),
+                            "Pair",
+                            tsr_binder::SymbolFlags::TYPE,
+                        )
+                        .unwrap();
+                }
+                let written_arguments = match annotations.get(name.text) {
+                    Some(TypeNode::TypeReferenceNode(node)) => node.type_arguments,
+                    Some(TypeNode::ImportTypeNode(node)) => node.type_arguments,
+                    _ => &[],
+                };
+                let arguments = written_arguments
+                    .iter()
+                    .map(|argument| checker.get_type_from_type_node(*argument))
+                    .collect();
+                let ordinary = checker.check_expression(Expression::Identifier(name));
+                let ty = match name.text {
+                    "cloneValueSlot" => ordinary,
+                    "sourceValueSlot" => checker.get_type_of_symbol(namespace),
+                    _ => checker.create_type_reference_public(target, arguments),
+                };
+                let actual = checker.type_to_string_at(ty, name.node_id.unwrap());
+                let expected = match name.text {
+                    "rootSlot" | "valueShadowSlot" => Some("React.Pair<string, number>"),
+                    "defaultValueShadowSlot" => Some("DefaultOnly.Pair<string, number>"),
+                    "namespaceShadowSlot" | "defaultNamespaceShadowSlot" => {
+                        Some("Safe.Pair<string, number>")
+                    }
+                    "realSlot" => Some("Real.Pair<boolean, 19>"),
+                    "shortestSlot" => Some("Real.Pair<31, true>"),
+                    "specifierSlot" => Some("Specifier.Pair<23, string>"),
+                    "cloneTypeSlot" => Some("Clone.Pair<29, string>"),
+                    "cloneValueSlot" => Some("typeof Clone"),
+                    // The TYPE reader must not open VALUE or unsupported default naming.
+                    "sourceValueSlot" => None,
+                    "markedSlot" => Some("import(\"marked\").Marked.Pair<string, number>"),
+                    "directSlot" => Some("Pair<string, number>"),
+                    _ => unreachable!(),
+                };
+                assert_eq!(actual.as_deref(), expected, "{} reverse={reverse}", name.text);
+            }
+        }
+    }
+}
+
 fn assert_types(source: &str, wanted: &[&str]) {
     let case = TestCase::parse("probe/jsx-context", "jsx-context.tsx", source);
     let expected: Vec<_> = case

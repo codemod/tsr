@@ -2383,7 +2383,13 @@ impl<'a, 'n> Checker<'a, 'n> {
             }
         }
         let target_name = self.binder.symbols().get(target).name;
-        let named = if let Some(better) = self.best_name(target, reference, false)
+        let named = if let Some(chain) = self.accessible_type_name_chain_at(target, reference) {
+            chain
+                .iter()
+                .map(|&symbol| self.binder.symbols().get(symbol).name)
+                .collect::<Vec<_>>()
+                .join(".")
+        } else if let Some(better) = self.best_name(target, reference, false)
             && better != target_name
         {
             better
@@ -3514,6 +3520,278 @@ impl<'a, 'n> Checker<'a, 'n> {
             return names;
         }
         a.cmp(&b)
+    }
+
+    /// Completed TYPE chain for a declaration-namespace member, ported from
+    /// `getAccessibleSymbolChain` / `trySymbolTable` / `getCandidateListForSymbol`
+    /// (`symbolaccessibility.go:535`, pinned 5b1047d). Only `reference_text_at`
+    /// consumes it; ordinary naming and VALUE alias admission are unchanged.
+    ///
+    /// Program `SymbolIds`, original declaration/export tables and the reference
+    /// `NodeId` own the route. Its root is the original in-scope alias, even when
+    /// spelled like the declaration. TYPE checks the leaf; NAMESPACE checks
+    /// qualifiers. Query-local visited owners prevent cyclic export traversal;
+    /// no chain is published into ordinary caches/images. Unsupported/active
+    /// owners decline to the existing naming path, not a guessed empty table.
+    /// Scope tables are copied lazily, only until the first completed route;
+    /// native's accessibility cache is not duplicated. Traversal/copy cost is
+    /// unmeasured (tsr-6.47.3.1.1); this is no optimization claim.
+    fn accessible_type_name_chain_at(
+        &mut self,
+        target: SymbolId,
+        reference: NodeId,
+    ) -> Option<Vec<SymbolId>> {
+        fn can_qualify(
+            checker: &mut Checker<'_, '_>,
+            symbol: SymbolId,
+            reference: NodeId,
+            meaning: SymbolFlags,
+        ) -> bool {
+            let name = checker.binder.symbols().get(symbol).name;
+            let mut hits = Vec::new();
+            let mut current = Some(reference);
+            while let Some(node) = current {
+                // Native skips script-file locals: the binder merged them into globals.
+                let global_file = checker.nodes.kind(node) == SyntaxKind::SourceFile
+                    && checker.binder.symbol_of(node).is_none();
+                if !global_file
+                    && let Some(&hit) =
+                        checker.binder.locals(node).and_then(|table| table.get(name))
+                {
+                    hits.push(hit);
+                }
+                match checker.nodes.kind(node) {
+                    SyntaxKind::SourceFile | SyntaxKind::ModuleDeclaration => {
+                        if let Some(owner) = checker.binder.symbol_of(node)
+                            && let Some(&hit) =
+                                checker.binder.symbols().get(owner).exports.get(name)
+                        {
+                            hits.push(hit);
+                        }
+                    }
+                    SyntaxKind::ClassDeclaration
+                    | SyntaxKind::ClassExpression
+                    | SyntaxKind::InterfaceDeclaration => {
+                        if let Some(owner) = checker.binder.symbol_of(node)
+                            && let Some(&hit) =
+                                checker.binder.symbols().get(owner).members.get(name)
+                            && checker.binder.symbols().get(hit).flags.intersects(SymbolFlags::TYPE)
+                        {
+                            hits.push(hit);
+                        }
+                        if let Some(Node::ClassExpression(class)) = checker.node_map.get(node)
+                            && class.name.is_some_and(|identifier| identifier.text == name)
+                            && let Some(owner) = checker.binder.symbol_of(node)
+                        {
+                            hits.push(owner);
+                        }
+                    }
+                    _ => {}
+                }
+                current = checker.nodes.parent(node);
+            }
+            if let Some(&hit) = checker.binder.globals().get(name) {
+                hits.push(hit);
+            }
+            for hit in hits {
+                let hit = checker.binder.merged_symbol(hit);
+                if hit == checker.binder.merged_symbol(symbol) {
+                    return true;
+                }
+                let entry = checker.binder.symbols().get(hit);
+                let flags = if entry.flags.intersects(SymbolFlags::ALIAS)
+                    && !entry.declarations.iter().any(|&declaration| {
+                        checker.nodes.kind(declaration) == SyntaxKind::ExportSpecifier
+                    }) {
+                    let Some(resolved) = checker.semantic_type_naming_alias_target(
+                        hit,
+                        SymbolFlags::TYPE | SymbolFlags::NAMESPACE,
+                        &mut Vec::new(),
+                    ) else {
+                        return false;
+                    };
+                    checker.binder.symbols().get(resolved).flags
+                } else {
+                    entry.flags
+                };
+                if flags.intersects(meaning) {
+                    return false;
+                }
+            }
+            true
+        }
+
+        fn try_table(
+            checker: &mut Checker<'_, '_>,
+            target: SymbolId,
+            reference: NodeId,
+            table: &[(&str, SymbolId)],
+            local: bool,
+            ignore_qualification: bool,
+            visited: &mut Vec<SymbolId>,
+        ) -> Option<Vec<SymbolId>> {
+            let own = checker.binder.symbols().get(target).name;
+            if let Some(&(_, hit)) = table.iter().find(|&&(name, _)| name == own)
+                && (checker.binder.merged_symbol(hit) == target
+                    || checker
+                        .binder
+                        .symbols()
+                        .get(hit)
+                        .export_symbol
+                        .is_some_and(|export| checker.binder.merged_symbol(export) == target))
+                && (ignore_qualification
+                    || can_qualify(checker, target, reference, SymbolFlags::TYPE))
+            {
+                return Some(vec![target]);
+            }
+            let mut chains = Vec::new();
+            for &(name, alias) in table {
+                let entry = checker.binder.symbols().get(alias);
+                if !entry.flags.intersects(SymbolFlags::ALIAS)
+                    || name == "default"
+                    || name == "export="
+                {
+                    continue;
+                }
+                if entry.declarations.iter().any(|&declaration| {
+                    (local && matches!(checker.node_map.get(declaration), Some(Node::NamespaceExport(_))))
+                        || (!ignore_qualification && checker.nodes.kind(declaration) == SyntaxKind::ExportSpecifier)
+                        || (checker.nodes.kind(declaration) == SyntaxKind::NamespaceExportDeclaration
+                            && checker.source_file_of_for_diagnostics(reference).and_then(|file| checker.node_map.get(file)).is_some_and(|file| matches!(file, Node::SourceFile(source) if tsr_binder::is_external_module(source))))
+                }) { continue; }
+                let Some(resolved) = checker.semantic_type_naming_alias_target(
+                    alias,
+                    SymbolFlags::TYPE | SymbolFlags::NAMESPACE,
+                    &mut Vec::new(),
+                ) else {
+                    continue;
+                };
+                if resolved == target {
+                    if ignore_qualification
+                        || can_qualify(checker, alias, reference, SymbolFlags::TYPE)
+                    {
+                        chains.push(vec![alias]);
+                    }
+                    continue;
+                }
+                if visited.contains(&resolved)
+                    || checker.semantic_type_naming_alias_target(
+                        resolved,
+                        SymbolFlags::NAMESPACE,
+                        &mut Vec::new(),
+                    ) != Some(resolved)
+                {
+                    continue;
+                }
+                let exports: Vec<_> = checker
+                    .binder
+                    .symbols()
+                    .get(resolved)
+                    .exports
+                    .iter()
+                    .map(|(&name, &symbol)| (name, symbol))
+                    .collect();
+                visited.push(resolved);
+                let chain = try_table(checker, target, reference, &exports, false, true, visited);
+                visited.pop();
+                if let Some(mut chain) = chain
+                    && can_qualify(checker, alias, reference, SymbolFlags::NAMESPACE)
+                {
+                    chain.insert(0, alias);
+                    chains.push(chain);
+                }
+            }
+            chains.sort_by(|a, b| {
+                a.len().cmp(&b.len()).then_with(|| {
+                    a.iter()
+                        .zip(b)
+                        .map(|(&a, &b)| checker.compare_symbols(a, b))
+                        .find(|order| !order.is_eq())
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
+            });
+            chains.into_iter().next()
+        }
+
+        let target = self.binder.merged_symbol(target);
+        self.semantic_type_naming_alias_target(target, SymbolFlags::TYPE, &mut Vec::new())?;
+        let parent = self.binder.symbols().get(target).parent?;
+        self.semantic_type_naming_alias_target(parent, SymbolFlags::NAMESPACE, &mut Vec::new())?;
+        let mut current = Some(reference);
+        while let Some(node) = current {
+            let global_file = self.nodes.kind(node) == SyntaxKind::SourceFile
+                && self.binder.symbol_of(node).is_none();
+            if !global_file && let Some(locals) = self.binder.locals(node) {
+                let table: Vec<_> = locals.iter().map(|(&name, &symbol)| (name, symbol)).collect();
+                if let Some(chain) =
+                    try_table(self, target, reference, &table, true, false, &mut Vec::new())
+                {
+                    return Some(chain);
+                }
+            }
+            if matches!(
+                self.nodes.kind(node),
+                SyntaxKind::ModuleDeclaration | SyntaxKind::SourceFile
+            ) && let Some(owner) = self.binder.symbol_of(node)
+            {
+                let table: Vec<_> = self
+                    .binder
+                    .symbols()
+                    .get(self.binder.merged_symbol(owner))
+                    .exports
+                    .iter()
+                    .map(|(&name, &symbol)| (name, symbol))
+                    .collect();
+                if let Some(chain) =
+                    try_table(self, target, reference, &table, true, false, &mut Vec::new())
+                {
+                    return Some(chain);
+                }
+            }
+            // Native scope tables include immutable TYPE members and class-expression names.
+            if matches!(
+                self.nodes.kind(node),
+                SyntaxKind::ClassDeclaration
+                    | SyntaxKind::ClassExpression
+                    | SyntaxKind::InterfaceDeclaration
+            ) && let Some(owner) = self.binder.symbol_of(node)
+            {
+                let table: Vec<_> = self
+                    .binder
+                    .symbols()
+                    .get(owner)
+                    .members
+                    .iter()
+                    .filter(|&(_, &member)| {
+                        self.binder.symbols().get(member).flags.intersects(SymbolFlags::TYPE)
+                    })
+                    .map(|(&name, &symbol)| (name, symbol))
+                    .collect();
+                if let Some(chain) =
+                    try_table(self, target, reference, &table, false, false, &mut Vec::new())
+                {
+                    return Some(chain);
+                }
+                if let Some(Node::ClassExpression(class)) = self.node_map.get(node)
+                    && let Some(name) = class.name
+                    && let Some(chain) = try_table(
+                        self,
+                        target,
+                        reference,
+                        &[(name.text, owner)],
+                        true,
+                        false,
+                        &mut Vec::new(),
+                    )
+                {
+                    return Some(chain);
+                }
+            }
+            current = self.nodes.parent(node);
+        }
+        let globals: Vec<_> =
+            self.binder.globals().iter().map(|(&name, &symbol)| (name, symbol)).collect();
+        try_table(self, target, reference, &globals, true, false, &mut Vec::new())
     }
 
     /// The name upstream's `getAccessibleSymbolChain` scope walk prints for
