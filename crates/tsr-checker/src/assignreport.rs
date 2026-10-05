@@ -131,7 +131,11 @@ impl<'a> Checker<'a, '_> {
         declaration: &tsr_ast::VariableDeclaration<'a>,
         ambient: bool,
     ) {
-        if ambient || self.file_has_parse_errors || self.in_js_file(node) {
+        if ambient
+            || self.in_js_file(node)
+            || (self.file_has_parse_errors
+                && !self.has_complete_source_variable_initializer(node, declaration))
+        {
             return;
         }
         let (Some(annotation), Some(initializer)) = (declaration.r#type, declaration.initializer)
@@ -148,6 +152,161 @@ impl<'a> Checker<'a, '_> {
             return;
         }
         self.report_assignability_failure(node, initializer_id, source, target);
+    }
+
+    /// Native `checkVariableLikeDeclaration` (5b1047d1, checker.go:5790–5945)
+    /// has no whole-file syntax gate. This port may reuse its existing suppliers
+    /// only for positively written, complete, `SourceFile`-owned simple shapes.
+    /// Error flags and absent optional children do not certify syntax. Source
+    /// belongs to the exact host/table/file; at most eleven tokens are scanned.
+    fn has_complete_source_variable_initializer(
+        &self,
+        node: NodeId,
+        declaration: &tsr_ast::VariableDeclaration<'a>,
+    ) -> bool {
+        use tsr_ast::{BindingName, EntityName, Expression, FunctionBody, TypeNode};
+        use tsr_core::Span;
+        use tsr_scanner::{Scanner, TokenFlags};
+
+        let certify = || -> Option<()> {
+            let list = self.nodes.parent(node)?;
+            let statement = self.nodes.parent(list)?;
+            let file = self.nodes.parent(statement)?;
+            if self.nodes.kind(list) != SyntaxKind::VariableDeclarationList
+                || self.nodes.kind(statement) != SyntaxKind::VariableStatement
+                || self.nodes.kind(file) != SyntaxKind::SourceFile
+            {
+                return None;
+            }
+            let source = self.module_host?.source_text(file, self.nodes)?;
+            let owned_span = |id: Option<NodeId>, parent: NodeId| {
+                let id = id?;
+                let span = self.nodes.span(id);
+                (self.nodes.parent(id) == Some(parent)
+                    && span.start < span.end
+                    && span.end as usize <= source.len())
+                .then_some(span)
+            };
+            let mut statement_scanner =
+                Scanner::new(source.get(self.nodes.span(statement).start as usize..)?);
+            if !matches!(
+                statement_scanner.scan().kind,
+                SyntaxKind::VarKeyword | SyntaxKind::LetKeyword | SyntaxKind::ConstKeyword
+            ) {
+                return None;
+            }
+            let BindingName::Identifier(name) = declaration.name? else { return None };
+            let name_span = owned_span(name.node_id, node)?;
+            let annotation = declaration.r#type?;
+            let annotation_span = owned_span(annotation.node_id(), node)?;
+            let annotation_kind = match annotation {
+                TypeNode::TypeReferenceNode(reference) if reference.type_arguments.is_empty() => {
+                    let EntityName::Identifier(name) = reference.type_name? else { return None };
+                    if owned_span(name.node_id, reference.node_id?)? != annotation_span {
+                        return None;
+                    }
+                    SyntaxKind::Identifier
+                }
+                TypeNode::KeywordTypeNode(keyword) => keyword.kind,
+                _ => return None,
+            };
+            let initializer = declaration.initializer?;
+            let initializer_span = owned_span(initializer.node_id(), node)?;
+            let declaration_span = self.nodes.span(node);
+            if declaration_span.start != name_span.start
+                || declaration_span.end != initializer_span.end
+            {
+                return None;
+            }
+            let mut expected = vec![
+                SyntaxKind::Identifier,
+                SyntaxKind::ColonToken,
+                annotation_kind,
+                SyntaxKind::EqualsToken,
+            ];
+            let (child_extent, simple_new) = match initializer {
+                Expression::ObjectLiteralExpression(object) if object.properties.is_empty() => {
+                    expected.extend([SyntaxKind::OpenBraceToken, SyntaxKind::CloseBraceToken]);
+                    (None, false)
+                }
+                Expression::FunctionExpression(function) if function.parameters.is_empty() => {
+                    let FunctionBody::Block(body) = function.body?;
+                    if !body.statements.is_empty() {
+                        return None;
+                    }
+                    let span = owned_span(body.node_id, function.node_id?)?;
+                    expected.extend([
+                        SyntaxKind::FunctionKeyword,
+                        SyntaxKind::OpenParenToken,
+                        SyntaxKind::CloseParenToken,
+                        SyntaxKind::OpenBraceToken,
+                        SyntaxKind::CloseBraceToken,
+                    ]);
+                    (Some((7, 8, span)), false)
+                }
+                Expression::NewExpression(new)
+                    if new.arguments.is_empty() && new.type_arguments.is_empty() =>
+                {
+                    let Expression::Identifier(callee) = new.expression? else { return None };
+                    let span = owned_span(callee.node_id, new.node_id?)?;
+                    expected.extend([SyntaxKind::NewKeyword, SyntaxKind::Identifier]);
+                    (Some((5, 5, span)), true)
+                }
+                _ => return None,
+            };
+            let mut scanner = Scanner::new(source.get(declaration_span.start as usize..)?);
+            let mut tokens = Vec::new();
+            for _ in 0..11 {
+                let token = scanner.scan();
+                if token.kind == SyntaxKind::EndOfFile
+                    || token.span.start + declaration_span.start >= declaration_span.end
+                {
+                    if !matches!(
+                        token.kind,
+                        SyntaxKind::EndOfFile
+                            | SyntaxKind::SemicolonToken
+                            | SyntaxKind::CommaToken
+                            | SyntaxKind::CloseBraceToken
+                    ) && !token.has_preceding_line_break()
+                    {
+                        return None;
+                    }
+                    break;
+                }
+                if token.flags.contains(TokenFlags::UNICODE_ESCAPE) {
+                    return None;
+                }
+                tokens.push(token);
+            }
+            if !scanner.diagnostics().is_empty() {
+                return None;
+            }
+            // Empty AST argument slices do not prove written, closed ().
+            if simple_new && tokens.len() == expected.len() + 2 {
+                expected.extend([SyntaxKind::OpenParenToken, SyntaxKind::CloseParenToken]);
+            }
+            if !tokens.iter().map(|token| token.kind).eq(expected) {
+                return None;
+            }
+            let absolute = |index: usize| {
+                let span = tokens[index].span;
+                Span::new(span.start + declaration_span.start, span.end + declaration_span.start)
+            };
+            if absolute(0) != name_span
+                || absolute(2) != annotation_span
+                || absolute(4).start != initializer_span.start
+                || absolute(tokens.len() - 1).end != initializer_span.end
+            {
+                return None;
+            }
+            if let Some((first, last, span)) = child_extent
+                && Span::new(absolute(first).start, absolute(last).end) != span
+            {
+                return None;
+            }
+            Some(())
+        };
+        certify().is_some()
     }
 
     /// `checkVariableLikeDeclaration`'s other two callers: a **property
