@@ -6077,12 +6077,13 @@ impl Checker<'_, '_> {
         })
     }
 
-    /// Is this declaration in an ambient **context** — its own `declare`, or
-    /// any containing one?
+    /// Is this declaration in an ambient **context** — its own `declare`, any
+    /// containing one, or a declaration file?
     ///
     /// [`Checker::declaration_is_ambient`] answers only the first half, which
     /// is all its callers need. `NodeFlagsAmbient` is upstream's *transitive*
-    /// answer and this parser never sets it (see [`tsr_ast::NodeFlags::AMBIENT`],
+    /// answer (the parser sets it under `declare` and throughout a `.d.ts`)
+    /// and this parser never sets it (see [`tsr_ast::NodeFlags::AMBIENT`],
     /// declared and written by nothing), so a rule reading the flag of a
     /// declaration rather than of a use has to walk.
     fn declaration_is_in_an_ambient_context(&self, declaration: NodeId) -> bool {
@@ -6095,6 +6096,9 @@ impl Checker<'_, '_> {
             // §99). `NodeFlags::AMBIENT` would answer this in one read and is
             // one of the three flags this parser never sets.
             match self.node_map.get(at) {
+                Some(Node::SourceFile(_)) => {
+                    self.module_host.is_some_and(|host| host.is_declaration_file(at))
+                }
                 Some(Node::ClassDeclaration(n)) => {
                     has_modifier(n.modifiers, SyntaxKind::DeclareKeyword)
                 }
@@ -6190,20 +6194,11 @@ impl Checker<'_, '_> {
         let guarded_by_unported_narrowing = self.reference_is_guarded_by_a_condition_on(node, text);
         // `assignmentKind == AssignmentKindDefinite` returns before the flow
         // section (`checker.go:11109`), so `x = 1` never reports even though the
-        // flow type at `x` carries `undefined`.
-        if self.is_definite_assignment_target(node) {
-            return false;
-        }
-        // A **destructuring** target is a definite assignment too, and
-        // `is_definite_assignment_target` only knows the `x = 1` spelling.
-        // `accessKind` (`ast.go:1426`) already answers for every spelling —
-        // `({ x } = obj)`, `[x] = arr`, `({ a: x } = obj)` — and
-        // `crate::unused` ported it whole for its own reasons. Reusing it here
-        // is the same question asked once: `shorthandPropertyAssignmentsInDestructuring_ES6`,
-        // `destructuringAssignmentWithDefault2`, `destructuringAssignment_private`
-        // and `noUnusedLocals_destructuringAssignment` were 12 of this rule's
-        // remaining wrong lines and all four are that shape.
-        if self.is_write_only_access(node) {
+        // flow type at `x` carries `undefined`. `getAssignmentTargetKind`
+        // climbs every destructuring spelling — `[x] = arr`, `({ x } = obj)`,
+        // `[...[x]] = arr`, `({ ...x } = obj)`, a for-of head — so each of
+        // those targets is a definite assignment too.
+        if self.assignment_target_kind(node) == crate::expressions::AssignmentTargetKind::Definite {
             return false;
         }
         if self.is_inside_with_statement(node) || self.is_in_type_query_or_type_node(node) {
@@ -6254,14 +6249,10 @@ impl Checker<'_, '_> {
         if self.nodes.flags(list).intersects(tsr_ast::NodeFlags::CONST) {
             return false;
         }
-        if self.nodes.parent(list).and_then(|statement| self.node_map.get(statement)).is_some_and(
-            |statement| match statement {
-                Node::VariableStatement(variable) => {
-                    has_modifier(variable.modifiers, SyntaxKind::DeclareKeyword)
-                }
-                _ => false,
-            },
-        ) {
+        // `declaration.Flags&NodeFlagsAmbient != 0` (`checker.go:11158`): a
+        // `declare` on the statement or any container — `var a` inside
+        // `declare module "a"` — or a declaration file.
+        if self.declaration_is_in_an_ambient_context(declaration) {
             return false;
         }
         // `for (x of …)` and `for (x in …)` assign on entry.
@@ -10156,22 +10147,6 @@ impl Checker<'_, '_> {
             current = self.nodes.parent(id);
         }
         None
-    }
-
-    /// Is this identifier the left side of a plain `=`?
-    ///
-    /// `AssignmentKindDefinite`. A compound assignment (`x += 1`) reads before
-    /// it writes and is *not* excluded, which is upstream's split at
-    /// `checker.go:11110` (`isInCompoundLikeAssignment`).
-    fn is_definite_assignment_target(&self, node: NodeId) -> bool {
-        self.nodes.parent(node).is_some_and(|parent| {
-            matches!(
-                self.node_map.get(parent),
-                Some(Node::BinaryExpression(binary))
-                    if binary.operator_token.is_some_and(|token| token.kind == SyntaxKind::EqualsToken)
-                        && binary.left.and_then(|left| left.node_id()) == Some(node)
-            )
-        })
     }
 
     /// `IsInTypeQuery` and `isInAmbientOrTypeNode` (`utilities.go:1057`),
