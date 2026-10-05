@@ -589,6 +589,10 @@ impl Checker<'_, '_> {
                 self.check_assertion_overlap(node, ambient);
                 ambient
             }
+            Node::MetaProperty(_) => {
+                self.check_new_target_meta_property(node);
+                ambient
+            }
             Node::BinaryExpression(_) => {
                 self.check_instanceof_left_operand(node);
                 self.check_instanceof_right_operand(node);
@@ -2253,6 +2257,86 @@ impl Checker<'_, '_> {
                 [left_text, text.to_string(), tsr_core::jsnum::format_number(count % 32.0)],
             ),
         );
+    }
+
+    /// TS17013 — `Meta-property '{0}' is only allowed in the body of a
+    /// function declaration, function expression, or constructor.`
+    ///
+    /// `checkNewTargetMetaProperty` (`checker.go:10768`): `new.target` whose
+    /// `GetNewTargetContainer` (`ast/utilities.go:2160`) is not a
+    /// constructor, function declaration or function expression. The
+    /// container walk is `GetThisContainer(node, false, false)`
+    /// (`ast/utilities.go:1790`), transcribed in
+    /// [`Checker::new_target_this_container`]. Entirely syntactic.
+    fn check_new_target_meta_property(&mut self, node: NodeId) {
+        let Some(Node::MetaProperty(meta)) = self.node_map.get(node) else { return };
+        if meta.keyword_token.kind != SyntaxKind::NewKeyword {
+            return;
+        }
+        let container = self.new_target_this_container(node);
+        if container.is_some_and(|container| {
+            matches!(
+                self.nodes.kind(container),
+                SyntaxKind::Constructor
+                    | SyntaxKind::FunctionDeclaration
+                    | SyntaxKind::FunctionExpression
+            )
+        }) {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        let span = self.error_span(node);
+        self.report(
+            file,
+            Diagnostic::with_args(
+                &messages::META_PROPERTY_0_IS_ONLY_ALLOWED_IN_THE_BODY_OF_A_FUNCTION_DECLARATION_FUNCTION_EXPRESSION_OR_CONSTRUCTOR,
+                span,
+                ["new.target".to_string()],
+            ),
+        );
+    }
+
+    /// `GetThisContainer(node, includeArrowFunctions=false,
+    /// includeClassComputedPropertyName=false)` (`ast/utilities.go:1790`).
+    /// `None` only where upstream would panic (a detached node).
+    fn new_target_this_container(&self, node: NodeId) -> Option<NodeId> {
+        let mut current = node;
+        loop {
+            current = self.nodes.parent(current)?;
+            match self.nodes.kind(current) {
+                SyntaxKind::ComputedPropertyName => {
+                    current = self.nodes.parent(current)?;
+                    current = self.nodes.parent(current)?;
+                }
+                SyntaxKind::Decorator => {
+                    let parent = self.nodes.parent(current)?;
+                    if self.nodes.kind(parent) == SyntaxKind::Parameter
+                        && self.nodes.parent(parent).is_some_and(|p| self.is_class_element(p))
+                    {
+                        current = self.nodes.parent(parent)?;
+                    } else if self.is_class_element(parent) {
+                        current = parent;
+                    }
+                }
+                SyntaxKind::FunctionDeclaration
+                | SyntaxKind::FunctionExpression
+                | SyntaxKind::ModuleDeclaration
+                | SyntaxKind::ClassStaticBlockDeclaration
+                | SyntaxKind::PropertyDeclaration
+                | SyntaxKind::PropertySignature
+                | SyntaxKind::MethodDeclaration
+                | SyntaxKind::MethodSignature
+                | SyntaxKind::Constructor
+                | SyntaxKind::GetAccessor
+                | SyntaxKind::SetAccessor
+                | SyntaxKind::CallSignature
+                | SyntaxKind::ConstructSignature
+                | SyntaxKind::IndexSignature
+                | SyntaxKind::EnumDeclaration
+                | SyntaxKind::SourceFile => return Some(current),
+                _ => {}
+            }
+        }
     }
 
     /// TS2376 — `A 'super' call must be the first statement in the constructor

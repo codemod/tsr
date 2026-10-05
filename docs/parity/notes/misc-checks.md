@@ -110,3 +110,10 @@ reach because the earlier guarded arm is exclusive. The shift count uses the
 symbol-free `evaluate_constant_expression`; a count naming a constant declines.
 `GetTextOfNode(left)` is spelled only for numeric-literal and identifier left
 operands (the checker holds no source text); others decline.
+
+## §5 TS17013: `new.target` outside a function
+
+`checkNewTargetMetaProperty` (`checker.go:10768`) with `GetNewTargetContainer`
+over `GetThisContainer(node, false, false)` (`ast/utilities.go:1790`),
+transcribed including the computed-property-name and decorator skips. Purely
+syntactic; no declines.
