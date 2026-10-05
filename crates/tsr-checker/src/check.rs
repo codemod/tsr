@@ -936,9 +936,6 @@ impl Checker<'_, '_> {
         if matches!(typed, Node::ExportAssignment(_)) {
             self.check_export_assignment_alone(node);
         }
-        if self.nodes.kind(node) == SyntaxKind::PropertyAccessExpression {
-            self.check_private_static_access(node);
-        }
         if self.nodes.kind(node) == SyntaxKind::NewExpression {
             self.check_new_on_abstract_class(node);
         }

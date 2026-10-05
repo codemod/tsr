@@ -398,25 +398,19 @@ impl Checker<'_, '_> {
             || self.nodes.parent(declaration) == Some(constructor)
     }
 
-    /// TS2341 — `Property '{0}' is private and only accessible within class
-    /// '{1}'.`
-    ///
-    /// `checkPropertyAccessibility`'s `private` half. Entirely syntactic once
-    /// the property symbol is in hand: the declaration carries a `private`
-    /// modifier and the reference is not inside the class that declares it.
-    /// `protected` (TS2445) needs the `extends` chain and is not built here —
-    /// `docs/architecture/checker-notes-diag2.md` §67.
+    /// TS2341/TS2445/TS2446 — `checkPropertyAccessibility` for a dotted
+    /// access, instance or static; see [`Checker::inaccessible_property`].
     pub(crate) fn check_private_property_access(&mut self, node: NodeId, ambient: bool) {
         if ambient || self.file_has_parse_errors || self.in_js_file(node) {
             return;
         }
         self.check_private_identifier_access(node);
-        let Some((message, name, class_name, at)) = self.inaccessible_property(node) else {
+        let Some((message, arguments, at)) = self.inaccessible_property(node) else {
             return;
         };
         let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
         let span = self.error_span(at);
-        self.report(file, Diagnostic::with_args(message, span, [name, class_name]));
+        self.report(file, Diagnostic::with_args(message, span, arguments));
     }
 
     /// TS18013 — `Property '{0}' is not accessible outside class '{1}' because
@@ -713,16 +707,26 @@ impl Checker<'_, '_> {
 
     /// Is this property access inaccessible, and with which message?
     ///
-    /// Split out because an inaccessible property's access answers `errorType`
-    /// upstream (`checkPropertyAccessExpression` returns after reporting), so
-    /// **no assignment check follows it**: `c.y = 1` on a private accessor is
-    /// TS2341 alone and this port was adding a TS2322 beside it
-    /// (`classPropertyAsPrivate`, `classPropertyAsProtected` —
-    /// `checker-notes-diag2.md` §70).
+    /// `checkPropertyAccessibilityAtLocation` (`checker.go`) for a dotted
+    /// access, reached from `checkPropertyAccessExpressionOrQualifiedName`
+    /// once `getPropertyOfType(apparentType)` found the property. Answers the
+    /// message, its arguments and the error node (the name).
+    ///
+    /// The private and protected arms are upstream's, over this port's class
+    /// declarations: `isNodeWithinClass` for `private` (TS2341), the first
+    /// enclosing class derived from the declaring one for `protected` (TS2445),
+    /// a typed `this` parameter standing in for an enclosing class
+    /// (`getEnclosingClassFromThisParameter`), and `hasBaseType` from the
+    /// receiver's apparent class to that enclosing class for an instance member
+    /// (TS2446). A link this port cannot follow — a base it cannot resolve,
+    /// a receiver whose class it cannot name — declines.
+    ///
+    /// Split out because `assignreport` skips the assignment relation for an
+    /// access reported here (`checker-notes-diag2.md` §70).
     pub(crate) fn inaccessible_property(
         &mut self,
         node: NodeId,
-    ) -> Option<(&'static tsr_diagnostics::Message, String, String, NodeId)> {
+    ) -> Option<(&'static tsr_diagnostics::Message, Vec<String>, NodeId)> {
         let Some(Node::PropertyAccessExpression(access)) = self.node_map.get(node) else {
             return None;
         };
@@ -730,69 +734,160 @@ impl Checker<'_, '_> {
         // `#x` is TS18013, a different code with its own row.
         let tsr_ast::MemberName::Identifier(name) = member else { return None };
         let name_id = name.node_id?;
+        let is_super = receiver
+            .node_id()
+            .is_some_and(|receiver| self.nodes.kind(receiver) == SyntaxKind::SuperKeyword);
         let receiver_type = self.check_expression(receiver);
         if self.is_error(receiver_type)
             || self.type_of(receiver_type).flags.intersects(TypeFlags::ANY_OR_UNKNOWN)
-            || !self.declared_members_are_complete(receiver_type)
         {
             return None;
         }
-        let property = self.get_property_of_type(receiver_type, name.text)?;
-        // **Every** declaration must carry the modifier, not just the value one.
-        // A `get`/`set` pair may diverge — `get PublicPrivate()` beside
-        // `private set PublicPrivate(v)` — and upstream decides accessibility
-        // from the accessor the *access kind* selects, a read from the getter
-        // and a write from the setter. This port has no access-kind-selected
-        // declaration, so a divergent pair is declined whole:
-        // `divergentAccessorsVisibility1` was 12 wrong lines and
-        // `accessorDeclarationOrder` was this rule's only loss (§67).
-        let declarations = self.binder.symbols().get(property).declarations.clone();
-        if declarations.is_empty() {
+        let containing = self.apparent_type(receiver_type);
+        let property = self.get_property_of_type(containing, name.text)?;
+        let writing =
+            self.assignment_target_kind(node) != crate::expressions::AssignmentTargetKind::None;
+        let declaration = self.modifier_declaration_of(property, writing)?;
+        let is_private = self.member_declaration_has(declaration, SyntaxKind::PrivateKeyword);
+        if !is_private && !self.member_declaration_has(declaration, SyntaxKind::ProtectedKeyword) {
             return None;
         }
-        let all_carry = |checker: &Self, keyword: SyntaxKind| {
-            declarations
+        // getClassLikeDeclarationOfSymbol(getParentOfSymbol(prop)): a parameter
+        // property's parent symbol is its constructor's class.
+        let declaring = self.containing_class_of(declaration)?;
+        let declaring_name = self.class_declared_type_text(declaring)?;
+        let enclosing = self.enclosing_classes_of(node);
+        if is_private {
+            if enclosing.contains(&declaring) {
+                return None;
+            }
+            return Some((
+                &messages::PROPERTY_0_IS_PRIVATE_AND_ONLY_ACCESSIBLE_WITHIN_CLASS_1,
+                vec![name.text.to_string(), declaring_name],
+                name_id,
+            ));
+        }
+        if is_super {
+            return None;
+        }
+        let is_static = self.member_declaration_has(declaration, SyntaxKind::StaticKeyword);
+        let mut enclosing_class =
+            enclosing.iter().copied().find(|&class| self.class_derives_from(class, declaring));
+        if enclosing_class.is_none() {
+            match self.enclosing_class_from_this_parameter(node) {
+                ThisParameterClass::None => {}
+                ThisParameterClass::Class(class) => {
+                    if self.class_derives_from(class, declaring) {
+                        enclosing_class = Some(class);
+                    }
+                }
+                ThisParameterClass::Unsupported => return None,
+            }
+            if is_static || enclosing_class.is_none() {
+                return Some((
+                    &messages::PROPERTY_0_IS_PROTECTED_AND_ONLY_ACCESSIBLE_WITHIN_CLASS_1_AND_ITS_SUBCLASSES,
+                    vec![name.text.to_string(), declaring_name],
+                    name_id,
+                ));
+            }
+        }
+        if is_static {
+            return None;
+        }
+        let enclosing_class = enclosing_class?;
+        // hasBaseType(containingType, enclosingClass), the type parameter
+        // receiver read through its constraint (apparent type above).
+        let crate::types::TypeData::Named { members: Some(owner), .. } =
+            self.type_of(containing).data
+        else {
+            return None;
+        };
+        let receiver_class = self.class_declaration_of_symbol(owner)?;
+        if self.class_derives_from(receiver_class, enclosing_class) {
+            return None;
+        }
+        let enclosing_name = self.class_declared_type_text(enclosing_class)?;
+        let containing_text = self.type_to_string(containing);
+        Some((
+            &messages::PROPERTY_0_IS_PROTECTED_AND_ONLY_ACCESSIBLE_THROUGH_AN_INSTANCE_OF_CLASS_1_THIS_IS_AN_INSTANCE_OF_CLASS_2,
+            vec![name.text.to_string(), enclosing_name, containing_text],
+            name_id,
+        ))
+    }
+
+    /// `getDeclarationModifierFlagsFromSymbolEx`'s declaration choice: a write
+    /// reads the setter, any other access the getter, else the value
+    /// declaration. A symbol without one is public.
+    fn modifier_declaration_of(&self, property: SymbolId, writing: bool) -> Option<NodeId> {
+        let entry = self.binder.symbols().get(property);
+        entry.value_declaration?;
+        let accessor = |kind: SyntaxKind| {
+            entry
+                .declarations
                 .iter()
-                .all(|&declaration| checker.member_declaration_has(declaration, keyword))
+                .copied()
+                .find(|&declaration| self.nodes.kind(declaration) == kind)
         };
-        let is_private = all_carry(self, SyntaxKind::PrivateKeyword);
-        let message = if is_private {
-            &messages::PROPERTY_0_IS_PRIVATE_AND_ONLY_ACCESSIBLE_WITHIN_CLASS_1
-        } else if all_carry(self, SyntaxKind::ProtectedKeyword) {
-            &messages::PROPERTY_0_IS_PROTECTED_AND_ONLY_ACCESSIBLE_WITHIN_CLASS_1_AND_ITS_SUBCLASSES
-        } else {
-            return None;
-        };
-        let declaring = self.nodes.parent(declarations[0])?;
-        // **Every** enclosing class, not the nearest one. `isNodeWithinClass`
-        // and `forEachEnclosingClass` walk the whole chain, so a reference in a
-        // class nested inside a subclass is still inside it —
-        // `protectedClassPropertyAccessibleWithinNestedSubclass1` was 21 wrong
-        // lines before this (§68).
-        // A function with a **`this` parameter** carries the class through its
-        // type rather than lexically, and upstream's accessibility check reads
-        // the `this` type (`getThisTypeOfDeclaration`). This port has no such
-        // reading, so the whole shape is declined —
-        // `protectedMembersThisParameter`, `thisTypeAccessibility` and
-        // `protectedAccessThroughContextualThis` (§68).
-        if self.reference_is_inside_a_this_parameter_function(node) {
+        if writing && let Some(setter) = accessor(SyntaxKind::SetAccessor) {
+            return Some(setter);
+        }
+        accessor(SyntaxKind::GetAccessor).or(entry.value_declaration)
+    }
+
+    /// The class or class expression declaring `symbol`, when it has exactly
+    /// one class-like declaration (interfaces merged with it add none).
+    fn class_declaration_of_symbol(&self, symbol: SymbolId) -> Option<NodeId> {
+        let mut classes =
+            self.binder.symbols().get(symbol).declarations.iter().copied().filter(|&declaration| {
+                matches!(
+                    self.nodes.kind(declaration),
+                    SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression
+                )
+            });
+        let class = classes.next()?;
+        classes.next().is_none().then_some(class)
+    }
+
+    /// `TypeToString(getDeclaredTypeOfSymbol(class))` — `D<T>` for a generic.
+    fn class_declared_type_text(&mut self, class: NodeId) -> Option<String> {
+        let symbol = self.binder.symbol_of(class)?;
+        let declared = self.get_declared_type_of_symbol(self.binder.merged_symbol(symbol));
+        if self.is_error(declared) {
             return None;
         }
-        let enclosing: Vec<NodeId> = self.enclosing_classes_of(node);
-        let permitted = if is_private {
-            enclosing.contains(&declaring)
-        } else {
-            // `protected`: an enclosing class must **derive from** the
-            // declaring one (§68). The walk declines the moment it cannot
-            // follow a link, which is `base_symbols_of`'s contract at a
-            // different question.
-            enclosing.iter().any(|&class| self.class_derives_from(class, declaring))
+        Some(self.type_to_string(declared))
+    }
+
+    /// `getEnclosingClassFromThisParameter` (`checker.go`): the class a typed
+    /// `this` parameter of the nearest non-arrow function names, read through
+    /// a type parameter's constraint.
+    fn enclosing_class_from_this_parameter(&mut self, node: NodeId) -> ThisParameterClass {
+        let Some(container) = self.get_this_container(node, false) else {
+            return ThisParameterClass::None;
         };
-        if permitted {
-            return None;
+        let parameters: &[&tsr_ast::ParameterDeclaration<'_>] = match self.node_map.get(container) {
+            Some(Node::FunctionDeclaration(n)) => n.parameters,
+            Some(Node::FunctionExpression(n)) => n.parameters,
+            Some(Node::MethodDeclaration(n)) => n.parameters,
+            _ => return ThisParameterClass::None,
+        };
+        let Some(this_parameter) = parameters.first().filter(|parameter| {
+            matches!(parameter.name, Some(tsr_ast::BindingName::Identifier(name)) if name.text == "this")
+        }) else {
+            return ThisParameterClass::None;
+        };
+        let Some(annotation) = this_parameter.r#type else { return ThisParameterClass::None };
+        let this_type = self.get_type_from_type_node(annotation);
+        let this_type = self.apparent_type(this_type);
+        let crate::types::TypeData::Named { members: Some(owner), .. } =
+            self.type_of(this_type).data
+        else {
+            return ThisParameterClass::Unsupported;
+        };
+        match self.class_declaration_of_symbol(owner) {
+            Some(class) => ThisParameterClass::Class(class),
+            None => ThisParameterClass::None,
         }
-        let class_name = self.declaration_name_of_class(declaring)?;
-        Some((message, name.text.to_string(), class_name, name_id))
     }
 
     /// Does `class` reach `base` through its `extends` chain, or **is** it
@@ -859,25 +954,6 @@ impl Checker<'_, '_> {
         })
     }
 
-    /// Is the reference inside a function-like declaration that names a `this`
-    /// parameter? See §68.
-    fn reference_is_inside_a_this_parameter_function(&self, node: NodeId) -> bool {
-        self.nodes.ancestors(node).any(|ancestor| {
-            let parameters: &[&tsr_ast::ParameterDeclaration<'_>] =
-                match self.node_map.get(ancestor) {
-                    Some(Node::FunctionDeclaration(n)) => n.parameters,
-                    Some(Node::FunctionExpression(n)) => n.parameters,
-                    Some(Node::ArrowFunction(n)) => n.parameters,
-                    Some(Node::MethodDeclaration(n)) => n.parameters,
-                    _ => return false,
-                };
-            parameters.iter().any(|parameter| {
-                matches!(parameter.name, Some(tsr_ast::BindingName::Identifier(name))
-                    if name.text == "this")
-            })
-        })
-    }
-
     /// Every enclosing class declaration or expression, innermost first —
     /// `isNodeWithinClass` / `forEachEnclosingClass`.
     fn enclosing_classes_of(&self, node: NodeId) -> Vec<NodeId> {
@@ -891,14 +967,14 @@ impl Checker<'_, '_> {
             })
             .collect()
     }
+}
 
-    /// A class's written name, for the message's second argument.
-    fn declaration_name_of_class(&self, class: NodeId) -> Option<String> {
-        let name = match self.node_map.get(class)? {
-            Node::ClassDeclaration(declaration) => declaration.name?,
-            Node::ClassExpression(declaration) => declaration.name?,
-            _ => return None,
-        };
-        Some(name.text.to_string())
-    }
+/// `getEnclosingClassFromThisParameter`'s answer.
+enum ThisParameterClass {
+    /// No typed `this` parameter, or it names no class.
+    None,
+    /// The class the `this` parameter names.
+    Class(NodeId),
+    /// A `this` type this port cannot read as a class or interface.
+    Unsupported,
 }
