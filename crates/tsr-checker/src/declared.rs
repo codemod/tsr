@@ -5176,6 +5176,18 @@ impl<'a> Checker<'a, '_> {
             self.instantiations.insert((symbol, arguments), mapped);
             return mapped;
         }
+        // Native 5b1047d getTypeAliasInstantiation completes its DeclaredType
+        // owner before an instantiation-cache hit. Reuse that existing
+        // SymbolId-owned publication only for the certified original bare
+        // keyword route and full default-filled arity; completed/failed entries
+        // and mapped/active contexts keep their existing routes and keys.
+        if !self.declared_types.contains_key(&symbol)
+            && self.original_generic_keyword_alias_body(symbol).is_some()
+            && matches!(self.type_alias_body(symbol), Some(TypeNode::KeywordTypeNode(_)))
+            && self.local_type_parameters_of(symbol).len() == arguments.len()
+        {
+            let _ = self.get_declared_type_of_symbol(symbol);
+        }
         if let Some(&cached) = self.instantiations.get(&(symbol, arguments.clone())) {
             return cached;
         }
@@ -8831,3 +8843,7 @@ mod generic_keyword_alias_tests {
         assert_ne!(captured, checker.intrinsics.boolean);
     }
 }
+
+#[cfg(test)]
+#[path = "keyword_owner_tests.rs"]
+mod keyword_owner_tests;
