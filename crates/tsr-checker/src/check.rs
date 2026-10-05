@@ -3048,13 +3048,6 @@ impl Checker<'_, '_> {
         .then_some(keyword.kind)
     }
 
-    /// TS2678 — `Type '{0}' is not comparable to type '{1}'.`
-    ///
-    /// `checkSwitchStatement`'s comparability arm, bounded to the shape that
-    /// needs no relation: a switch on an **intrinsic primitive** with a `case`
-    /// naming a **class**. A constructor object always carries `prototype`, so
-    /// the empty-interface escape that made §409 decline TS2411 does not apply
-    /// here. §414.
     /// TS1113 — `A 'default' clause cannot appear more than once in a 'switch'
     /// statement.`
     ///
@@ -3089,6 +3082,18 @@ impl Checker<'_, '_> {
         }
     }
 
+    /// TS2678 — `Type '{0}' is not comparable to type '{1}'.`
+    ///
+    /// `checkSwitchStatement` (`checker.go:4171`): for every `case`, when
+    /// `isTypeEqualityComparableTo(expressionType, caseType)` fails, the
+    /// reversed `checkTypeComparableTo(caseType, expressionType, ...)` reports
+    /// on the clause expression. Both operands are `checkExpression` results,
+    /// so each is the flow-narrowed type at its own position.
+    ///
+    /// [`Relation::Comparable`] is three-valued here: only a confident
+    /// `NotRelated` in both directions reports, since `Unknown` means this
+    /// relater cannot decide the pair, and acting on it would invent a
+    /// diagnostic.
     fn check_switch_case_comparable(&mut self, node: NodeId) {
         if self.file_has_parse_errors {
             return;
@@ -3096,34 +3101,31 @@ impl Checker<'_, '_> {
         let Some(Node::SwitchStatement(statement)) = self.node_map.get(node) else { return };
         self.check_duplicate_default_clause(statement);
         let Some(expression) = statement.expression else { return };
-        let switch_type = self.check_expression(expression);
-        let widened = self.get_base_type_of_literal_type(switch_type);
-        if !self.is_decidable_primitive(widened) {
-            return;
-        }
+        let expression_type = self.check_expression(expression);
         let Some(block) = statement.case_block.and_then(|block| block.node_id) else { return };
         let Some(Node::CaseBlock(cases)) = self.node_map.get(block) else { return };
         for clause in cases.clauses {
-            let Some(id) = clause.expression.and_then(|e| e.node_id()) else { continue };
-            if self.nodes.kind(id) != SyntaxKind::Identifier {
+            let Some(case_expression) = clause.expression else { continue };
+            let Some(id) = case_expression.node_id() else { continue };
+            let case_type = self.check_expression(case_expression);
+            if !self.switch_case_is_not_comparable(expression_type, case_type) {
                 continue;
             }
-            let Some(text) = self.identifier_text(id).map(str::to_string) else { continue };
-            let Some(symbol) =
-                self.binder.resolve_name(self.nodes, self.node_map, id, &text, SymbolFlags::VALUE)
-            else {
-                continue;
-            };
-            let symbol = self.binder.merged_symbol(symbol);
-            if !self.binder.symbols().get(symbol).declarations.iter().any(|&declaration| {
-                matches!(self.node_map.get(declaration), Some(Node::ClassDeclaration(_)))
-            }) {
+            // A fresh object literal case fails the reversed relation in
+            // `hasExcessProperties` (`relater.go:2667`) first, and with
+            // `reportErrors` that reports TS2353 on the excess property rather
+            // than TS2678 on the clause — an elaboration this arm does not
+            // port, so it reports nothing rather than the wrong code.
+            if self.fresh_object_literal_types.contains(&case_type)
+                && self.fresh_literal_has_excess_property(case_type, expression_type)
+            {
                 continue;
             }
             let Some(file) = self.source_file_of_for_diagnostics(id) else { continue };
             let span = self.error_span(id);
-            let source = String::new();
-            let target = self.type_to_string(switch_type);
+            let source = self.comparable_source_for_error_display(case_type, expression_type);
+            let source = self.type_to_string(source);
+            let target = self.type_to_string(expression_type);
             self.report(
                 file,
                 Diagnostic::with_args(
@@ -3133,6 +3135,72 @@ impl Checker<'_, '_> {
                 ),
             );
         }
+    }
+
+    /// `!isTypeEqualityComparableTo(expressionType, caseType)` followed by the
+    /// failing reversed `checkTypeComparableTo(caseType, expressionType)`
+    /// (`checker.go:4171`), with `isTypeEqualityComparableTo`
+    /// (`checker.go:12861`) inlined: a nullable case type is comparable
+    /// before any relation runs. Answers `true` only for a confident negative
+    /// in both directions.
+    fn switch_case_is_not_comparable(
+        &mut self,
+        expression_type: TypeId,
+        case_type: TypeId,
+    ) -> bool {
+        if self.type_of(case_type).flags.intersects(TypeFlags::NULLABLE)
+            || self.is_error(expression_type)
+            || self.is_error(case_type)
+        {
+            return false;
+        }
+        self.relate_ternary(expression_type, case_type, Relation::Comparable) == Ternary::NotRelated
+            && self.relate_ternary(case_type, expression_type, Relation::Comparable)
+                == Ternary::NotRelated
+    }
+
+    /// `reportRelationError`'s source generalization (`relater.go`): a
+    /// literal source prints as its base primitive unless the target is
+    /// `never` or could hold a top-level singleton type
+    /// (`typeCouldHaveTopLevelSingletonTypes`). Display only.
+    fn comparable_source_for_error_display(&mut self, source: TypeId, target: TypeId) -> TypeId {
+        let source_type = self.type_of(source);
+        let is_literal = source_type.flags.intersects(TypeFlags::BOOLEAN | TypeFlags::UNIT)
+            || matches!(&source_type.data, crate::types::TypeData::Union { types, .. }
+                if types.iter().all(|&ty| self.type_of(ty).flags.intersects(TypeFlags::UNIT)));
+        if !is_literal || self.type_of(target).flags.contains(TypeFlags::NEVER) {
+            return source;
+        }
+        let mut targets = vec![target];
+        let mut seen = Vec::new();
+        while let Some(ty) = targets.pop() {
+            if seen.contains(&ty) {
+                continue;
+            }
+            seen.push(ty);
+            let flags = self.type_of(ty).flags;
+            if flags.contains(TypeFlags::BOOLEAN) {
+                continue;
+            }
+            if flags.intersects(
+                TypeFlags::UNIT | TypeFlags::TEMPLATE_LITERAL | TypeFlags::STRING_MAPPING,
+            ) {
+                return source;
+            }
+            match &self.type_of(ty).data {
+                crate::types::TypeData::Union { types, .. }
+                | crate::types::TypeData::Intersection { types, .. } => {
+                    targets.extend(types.iter().copied());
+                }
+                _ if flags.intersects(TypeFlags::INSTANTIABLE) => {
+                    if let Some(constraint) = self.base_constraint_of_type(ty) {
+                        targets.push(constraint);
+                    }
+                }
+                _ => {}
+            }
+        }
+        self.get_base_type_of_literal_type(source)
     }
 
     /// TS2307 — `Cannot find module '{0}' or its corresponding type declarations.`
