@@ -6,6 +6,8 @@ use crate::{
     flags::TypeFlags,
     types::{TypeData, TypeId},
 };
+use tsr_ast::{Node, NodeId, SyntaxKind};
+use tsr_diagnostics::{Diagnostic, messages};
 
 /// A resolved tuple argument with its written element information. Spread
 /// arguments contain the tuple/array operand until normalization expands it.
@@ -496,5 +498,229 @@ impl Checker<'_, '_> {
             }
         }
         Some(self.get_union_type(&types))
+    }
+}
+
+/// The out-of-bounds arm of `getPropertyTypeForIndexType`
+/// (`checker.go:27060`–`:27078`): a numeric literal name that no tuple
+/// constituent declares, on a type whose every constituent is a tuple with no
+/// variable element, reports on the access node's index
+/// (`getIndexNodeForAccessExpression`) unless `AccessFlagsAllowMissing` is set.
+impl Checker<'_, '_> {
+    /// The element count of a tuple with no rest or variadic element, or
+    /// `None` when `ty` is not such a tuple (or its shape is unresolved here).
+    fn fixed_tuple_arity(&self, ty: TypeId) -> Option<usize> {
+        if self.variadic_tuple_elements.contains_key(&ty)
+            || self.variadic_tuple_nodes.contains_key(&ty)
+            || self.tuple_rest_tails.contains_key(&ty)
+        {
+            return None;
+        }
+        self.tuple_element_lists.get(&ty).map(|(elements, _)| elements.len())
+    }
+
+    /// Reports TS2493/TS2514 (one tuple) or TS2339 (a union of tuples) when
+    /// `prop_name` names no element of `object_type`. `object_type` is the
+    /// apparent object type of the access.
+    pub(crate) fn report_tuple_index_out_of_bounds(
+        &mut self,
+        object_type: TypeId,
+        prop_name: &str,
+        index_node: NodeId,
+    ) {
+        if !crate::index_signatures::is_numeric_literal_name(prop_name) {
+            return;
+        }
+        let object_type = self.binding_type_alias_body(object_type);
+        let parts = match &self.store.get(object_type).data {
+            TypeData::Union { types, .. } => types.clone(),
+            _ => vec![object_type],
+        };
+        let mut arities = Vec::with_capacity(parts.len());
+        for &part in &parts {
+            let part = self.binding_type_alias_body(part);
+            let Some(arity) = self.fixed_tuple_arity(part) else { return };
+            arities.push(arity);
+        }
+        // getPropertyOfType: an element property exists for every position
+        // below the arity. A union property is found when any constituent
+        // declares it: every tuple has a number index signature, so a
+        // constituent lacking the element never makes it ReadPartial.
+        let declared = prop_name
+            .parse::<usize>()
+            .ok()
+            .filter(|index| index.to_string() == prop_name)
+            .is_some_and(|index| arities.iter().any(|&arity| index < arity));
+        if declared {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(index_node) else { return };
+        let span = self.error_span(index_node);
+        let diagnostic = if parts.len() == 1 {
+            if prop_name.starts_with('-') {
+                Diagnostic::new(
+                    &messages::A_TUPLE_TYPE_CANNOT_BE_INDEXED_WITH_A_NEGATIVE_VALUE,
+                    span,
+                )
+            } else {
+                Diagnostic::with_args(
+                    &messages::TUPLE_TYPE_0_OF_LENGTH_1_HAS_NO_ELEMENT_AT_INDEX_2,
+                    span,
+                    [
+                        self.type_to_string(object_type),
+                        arities[0].to_string(),
+                        prop_name.to_string(),
+                    ],
+                )
+            }
+        } else {
+            Diagnostic::with_args(
+                &messages::PROPERTY_0_DOES_NOT_EXIST_ON_TYPE_1,
+                span,
+                [prop_name.to_string(), self.type_to_string(object_type)],
+            )
+        };
+        self.report(file, diagnostic);
+    }
+
+    /// `checkElementAccessExpression` (`checker.go:10679`) into
+    /// `getIndexedAccessTypeOrUndefined` with the access expression as the
+    /// access node and no `AccessFlagsAllowMissing`.
+    pub(crate) fn check_element_access_tuple_bounds(&mut self, node: NodeId) {
+        if self.file_has_parse_errors || self.in_js_file(node) {
+            return;
+        }
+        let Some(Node::ElementAccessExpression(access)) = self.node_map.get(node) else { return };
+        let (Some(expression), Some(argument)) = (access.expression, access.argument_expression)
+        else {
+            return;
+        };
+        let Some(argument_id) = argument.node_id() else { return };
+        let index_type = self.check_expression(argument);
+        if !self
+            .store
+            .get(index_type)
+            .flags
+            .intersects(TypeFlags::NUMBER_LITERAL | TypeFlags::STRING_LITERAL)
+        {
+            return;
+        }
+        let Some(prop_name) = self.property_name_from_index(index_type) else { return };
+        let object_type = self.check_expression(expression);
+        let object_type = self.check_non_null_type(object_type);
+        if self.is_error(object_type) {
+            return;
+        }
+        // getReducedApparentType: a type variable is read through its constraint.
+        let object_type = if self.store.get(object_type).flags.intersects(TypeFlags::INSTANTIABLE) {
+            self.apparent_type(object_type)
+        } else {
+            object_type
+        };
+        self.report_tuple_index_out_of_bounds(object_type, &prop_name, argument_id);
+    }
+
+    /// `getTypeFromIndexedAccessTypeNode` (`checker.go:24164`) into
+    /// `getIndexedAccessType` with the type node as the access node: a
+    /// non-generic tuple object reports on the index type node.
+    pub(crate) fn check_indexed_access_type_tuple_bounds(&mut self, node: NodeId) {
+        if self.file_has_parse_errors || self.in_js_file(node) {
+            return;
+        }
+        let Some(Node::IndexedAccessTypeNode(access)) = self.node_map.get(node) else { return };
+        let (Some(object_node), Some(index_node)) = (access.object_type, access.index_type) else {
+            return;
+        };
+        let Some(index_id) = index_node.node_id() else { return };
+        let index_type = self.get_type_from_type_node(index_node);
+        if !self
+            .store
+            .get(index_type)
+            .flags
+            .intersects(TypeFlags::NUMBER_LITERAL | TypeFlags::STRING_LITERAL)
+        {
+            return;
+        }
+        let Some(prop_name) = self.property_name_from_index(index_type) else { return };
+        let object_type = self.get_type_from_type_node(object_node);
+        if self.is_error(object_type) {
+            return;
+        }
+        self.report_tuple_index_out_of_bounds(object_type, &prop_name, index_id);
+    }
+
+    /// `getBindingElementTypeFromParentType`'s positional arm
+    /// (`checker.go:17768`): an array-like parent is indexed with the element's
+    /// position, the element's name as access node, and
+    /// `AccessFlagsAllowMissing` when the element has a default.
+    pub(crate) fn check_binding_element_tuple_bounds(&mut self, node: NodeId) {
+        if self.file_has_parse_errors || self.in_js_file(node) {
+            return;
+        }
+        let Some(Node::BindingElement(element)) = self.node_map.get(node) else { return };
+        if element.dot_dot_dot_token.is_some() || element.initializer.is_some() {
+            return;
+        }
+        let Some(name) = element.name.and_then(|name| name.node_id()) else { return };
+        let Some(pattern_id) = self.nodes.parent(node) else { return };
+        if self.nodes.kind(pattern_id) != SyntaxKind::ArrayBindingPattern {
+            return;
+        }
+        let Some(Node::BindingPattern(pattern)) = self.node_map.get(pattern_id) else { return };
+        let Some(index) = pattern.elements.iter().position(|e| e.node_id == Some(node)) else {
+            return;
+        };
+        let Some(holder) = self.nodes.parent(pattern_id) else { return };
+        let parent_type = self.get_type_for_binding_element_parent(holder);
+        if parent_type == self.intrinsics.any || self.is_error(parent_type) {
+            return;
+        }
+        let parent_type = self.destructuring_parent_adjusted(node, holder, parent_type);
+        if self.binding_parent_is_array_like(parent_type) != Some(true) {
+            return;
+        }
+        let apparent = self.apparent_type(parent_type);
+        self.report_tuple_index_out_of_bounds(apparent, &index.to_string(), name);
+    }
+
+    /// `checkArrayLiteralDestructuringElementAssignment` (`checker.go:12663`)
+    /// for the outermost `=` target: each non-spread, non-omitted element
+    /// without a default indexes an array-like source at its position.
+    pub(crate) fn check_array_assignment_tuple_bounds(&mut self, node: NodeId) {
+        if self.file_has_parse_errors || self.in_js_file(node) {
+            return;
+        }
+        let Some(Node::ArrayLiteralExpression(literal)) = self.node_map.get(node) else { return };
+        let Some(parent) = self.nodes.parent(node) else { return };
+        let Some(Node::BinaryExpression(binary)) = self.node_map.get(parent) else { return };
+        if binary.operator_token.is_none_or(|token| token.kind != SyntaxKind::EqualsToken)
+            || binary.left.and_then(|left| left.node_id()) != Some(node)
+        {
+            return;
+        }
+        let Some(right) = binary.right else { return };
+        let elements: Vec<_> = literal.elements.iter().map(tsr_ast::Expression::node_id).collect();
+        let source = self.check_expression(right);
+        if source == self.intrinsics.any || self.is_error(source) {
+            return;
+        }
+        if self.binding_parent_is_array_like(source) != Some(true) {
+            return;
+        }
+        let apparent = self.apparent_type(source);
+        for (index, element) in elements.into_iter().enumerate() {
+            let Some(element) = element else { continue };
+            match self.node_map.get(element) {
+                Some(Node::OmittedExpression(_) | Node::SpreadElement(_)) | None => continue,
+                // hasDefaultValue: `[x = 1] = …` sets AccessFlagsAllowMissing.
+                Some(Node::BinaryExpression(binary))
+                    if binary.operator_token.is_some_and(|t| t.kind == SyntaxKind::EqualsToken) =>
+                {
+                    continue;
+                }
+                Some(_) => {}
+            }
+            self.report_tuple_index_out_of_bounds(apparent, &index.to_string(), element);
+        }
     }
 }

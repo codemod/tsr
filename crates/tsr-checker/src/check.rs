@@ -928,8 +928,12 @@ impl Checker<'_, '_> {
         }
         match typed {
             Node::BindingPattern(_) => self.check_array_binding_pattern_iteration(node),
+            Node::BindingElement(_) => self.check_binding_element_tuple_bounds(node),
+            Node::ElementAccessExpression(_) => self.check_element_access_tuple_bounds(node),
+            Node::IndexedAccessTypeNode(_) => self.check_indexed_access_type_tuple_bounds(node),
             Node::ArrayLiteralExpression(_) => {
                 self.check_array_destructuring_assignment_iteration(node);
+                self.check_array_assignment_tuple_bounds(node);
             }
             Node::SpreadElement(_) => self.check_spread_element_iteration(node),
             _ => {}
