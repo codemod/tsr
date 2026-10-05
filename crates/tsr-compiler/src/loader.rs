@@ -695,21 +695,25 @@ impl<'host, 'a> FileLoader<'host, 'a> {
             self.statistics.metadata_time += started.elapsed();
         }
 
-        let read_started = self.options.extended_diagnostics.is_true().then(Instant::now);
-        let text = self.host.fs().read_file(&file_name);
-        if let Some(started) = read_started {
-            self.statistics.read_time += started.elapsed();
-        }
-        let Some(text) = text else { return };
-
         // The host's `String` is copied into the arena and then dropped. That
         // copy is what lets `ProgramFile` own nothing: a `Symbol`'s name and the
         // binder's `FileInfo` borrow the source text, so under one program-wide
         // `SymbolStore` the text has to outlive every file — which the arena
         // does and a per-file `String` does not. See ADR-0034, "Who owns the
-        // arena". The cost is one extra copy of text already in memory.
+        // arena". The cost is one extra copy of text already in memory. Text
+        // that already lives for the process (the embedded libraries,
+        // `bundled.WrapFS`) is borrowed as is: native `ReadFile` shares those
+        // bytes too.
         let arena = self.arena;
-        let text: &'a str = arena.alloc_str(&text);
+        let read_started = self.options.extended_diagnostics.is_true().then(Instant::now);
+        let fs = self.host.fs();
+        let text: Option<&'a str> = fs
+            .read_static(&file_name)
+            .or_else(|| fs.read_file(&file_name).map(|text| &*arena.alloc_str(&text)));
+        if let Some(started) = read_started {
+            self.statistics.read_time += started.elapsed();
+        }
+        let Some(text) = text else { return };
         let name: &'a str = arena.alloc_str(&file_name);
 
         let inferred_script_kind = tsr_parser::ScriptKind::from_file_name(name);

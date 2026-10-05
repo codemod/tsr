@@ -47,7 +47,7 @@ with an upstream anchor and a test, and no caller sequencing them.
 | `tsconfig.json` → options | **done** | `tsr_tsoptions::parse_config_file` |
 | `include`/`exclude`/`files` expansion | **done** | `tsr_tsoptions::file_names::expand` |
 | program assembly from roots | **done** | `Program::from_root_files` |
-| the bundled `lib.*.d.ts` | **on disk** | `vendor/typescript-go/internal/bundled/libs`, reachable through `LoadOptions::default_library_path` |
+| the bundled `lib.*.d.ts` | **embedded** | `tsr_vfs::BundledFileSystem` at `bundled:///libs` (`internal/bundled/embed.go`) |
 | checker configuration | **done** | `Checker::apply_compiler_options` ([ADR-0042](docs/adr/0042-checker-options-come-from-compiler-options.md)) |
 | plain diagnostic rendering | **done** | `tsr_diagnostics::format`, byte-exact |
 | a `ResolutionHost` over the OS | **done** | `tsr_execute::compile::DriverHost` |
@@ -266,13 +266,14 @@ upstream accepts it.
 `ResolutionHost` impl pairing `OsFileSystem` with a current directory, which is
 four lines and the last missing piece of the seam.
 
-`DefaultLibraryPath` needed a decision upstream does not, because Go embeds its
-libs. **Decided: on disk**, with the reasoning and the search order in
-`crates/tsr-execute/src/os_system.rs`. `TSR_LIB_PATH`, then `<exe dir>/lib`, then
-the vendored submodule path recorded at build time so `cargo run` works in this
-checkout with no setup. Embedding was rejected for ~3.9 MB of binary and for
-making the libraries un-swappable; the accepted cost is a binary that is not
-self-contained. **§7.1 is answered and now records the answer.**
+`DefaultLibraryPath` is native's: the libraries are compiled in, as Go's
+default `!noembed` build embeds them, and mounted at `bundled:///libs` by
+`tsr_vfs::BundledFileSystem` (`internal/bundled/embed.go`). An earlier on-disk
+decision was reversed for whole-project performance: library loading now opens
+no file and copies no library text, and `--listFiles` prints native's library
+paths. `TSR_LIB_PATH` remains as a non-native override naming an on-disk
+directory; see `crates/tsr-execute/src/os_system.rs`. **§7.1 is answered and
+now records the answer.**
 
 **Gate:** a `tsr` binary exists and `tsr --version` prints upstream's banner
 byte-for-byte.

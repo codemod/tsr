@@ -4,7 +4,7 @@
 //! Ported from `internal/compiler/checkerpool.go` at the pinned commit:
 //! `newCheckerPoolWithTracing` (`:40`) sizes the pool, `createCheckers`
 //! (`:98`) constructs every checker concurrently and associates program file
-//! `i` with checker `i % checkerCount`, and `forEachCheckerGroupDo` (`:161`)
+//! `i` with checker `i % checkerCount`, and `forEachCheckerGroupDo` (`:148`)
 //! runs one task per checker that visits, in program order, only the files
 //! associated with it.
 //!

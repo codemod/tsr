@@ -27,10 +27,12 @@
 //! in-memory host remains the conformance harness's, and the two implement the
 //! same six questions.
 
+pub mod bundled;
 pub mod cached;
 pub mod glob;
 pub mod os;
 
+pub use bundled::BundledFileSystem;
 pub use cached::CachedFileSystem;
 pub use os::OsFileSystem;
 
@@ -108,6 +110,15 @@ pub trait FileSystem {
 
     /// The contents of `path`, or `None` if it is not a readable file.
     fn read_file(&self, path: &str) -> Option<String>;
+
+    /// The contents of `path` when they live for the whole process and need
+    /// no read — the embedded libraries of [`bundled`]. `None` means "use
+    /// [`FileSystem::read_file`]", not "missing". Native `ReadFile` returns
+    /// a Go string that shares the embedded bytes; this is that borrow, which
+    /// an owned `String` cannot express.
+    fn read_static(&self, _path: &str) -> Option<&'static str> {
+        None
+    }
 
     /// Whether a directory exists at `path`, following symlinks.
     fn directory_exists(&self, path: &str) -> bool;

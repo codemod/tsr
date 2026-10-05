@@ -6,16 +6,15 @@
 //! Go's standard library and neither of which Rust's provides.
 
 use std::io::{IsTerminal, Write};
-use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use tsr_vfs::{FileSystem, OsFileSystem};
+use tsr_vfs::{BundledFileSystem, FileSystem, OsFileSystem};
 
 use crate::system::System;
 
 /// A `tsr` process: the real disk, the real terminal, the real clock.
 pub struct OsSystem {
-    fs: OsFileSystem,
+    fs: BundledFileSystem<OsFileSystem>,
     current_directory: String,
     default_library_path: String,
     started: Instant,
@@ -38,7 +37,7 @@ impl OsSystem {
             .map(|path| tsr_path::normalize_slashes(&path.to_string_lossy()))
             .expect("the current directory must be readable");
         Self {
-            fs: OsFileSystem::new(),
+            fs: BundledFileSystem::new(OsFileSystem::new()),
             current_directory,
             default_library_path: default_library_path(),
             started: Instant::now(),
@@ -142,61 +141,21 @@ fn open_work_trace() -> Option<std::sync::Arc<crate::work_trace::WorkTrace>> {
     )))
 }
 
-/// Where `lib.*.d.ts` is expected to be found.
+/// Where `lib.*.d.ts` is found (`bundled.LibPath`, `cmd/tsgo/sys.go:72`).
 ///
-/// **STATUS-cli.md §7.1 asked whether these should be embedded in the binary or
-/// found on disk; this answers "on disk", and the reasoning is worth keeping.**
+/// The libraries are compiled into the binary, as native's default `!noembed`
+/// build does (`internal/bundled/embed.go`), and mounted at
+/// `bundled:///libs` by [`tsr_vfs::BundledFileSystem`]. That makes the binary
+/// relocatable, keeps library loading free of file I/O, and prints the same
+/// library paths native prints (`--listFiles`, diagnostics located in a
+/// library).
 ///
-/// Embedding via `include_str!` is what upstream effectively does — Go's
-/// `bundled` package compiles them in — and it makes the binary relocatable and
-/// startup free of I/O. It also adds ~3.9 MB to every build, of which
-/// `lib.dom.d.ts` is 2.3 MB, and it makes the libraries un-swappable: a user who
-/// wants a newer `lib.esnext.d.ts` than the binary shipped with cannot have one,
-/// and `--lib` cannot be pointed anywhere.
-///
-/// On-disk keeps the choice open and matches the shape upstream's own
-/// `DefaultLibraryPath` implies. The cost is a binary that is not self-contained
-/// and a search order that has to be documented, which is this function.
-///
-/// The order, first hit wins:
-///
-/// 1. `TSR_LIB_PATH`, so a caller can be explicit. There is no upstream
-///    counterpart; it exists because the two fallbacks below are guesses and a
-///    guess needs an override.
-/// 2. `<directory of the executable>/lib`, which is where an installed layout
-///    puts them.
-/// 3. The vendored submodule path recorded at build time, which is what makes
-///    `cargo run` work in this repository without any setup.
-///
-/// **This would be wrong if** the binary were ever distributed without either
-/// its sibling `lib/` directory or the environment variable — at which point
-/// every compilation silently loses its global types, which surfaces as
-/// thousands of `Cannot find name 'Array'` rather than as a missing-file error.
-/// Making that failure loud is `bd`-less item: the driver should report when the
-/// library path names nothing.
+/// `TSR_LIB_PATH` overrides it with an on-disk directory. There is no
+/// upstream counterpart (native's equivalent is a `noembed` build); it exists
+/// so a caller can check against libraries other than the pinned ones.
 fn default_library_path() -> String {
-    if let Ok(explicit) = std::env::var("TSR_LIB_PATH") {
-        if !explicit.is_empty() {
-            return tsr_path::normalize_slashes(&explicit);
-        }
+    match std::env::var("TSR_LIB_PATH") {
+        Ok(explicit) if !explicit.is_empty() => tsr_path::normalize_slashes(&explicit),
+        _ => tsr_vfs::bundled::LIB_PATH.to_string(),
     }
-
-    if let Ok(executable) = std::env::current_exe() {
-        if let Some(directory) = executable.parent() {
-            let beside = directory.join("lib");
-            if beside.is_dir() {
-                return tsr_path::normalize_slashes(&beside.to_string_lossy());
-            }
-        }
-    }
-
-    // The checkout's own submodule. `CARGO_MANIFEST_DIR` is this crate's
-    // directory at build time, so two ancestors up is the workspace root.
-    let vendored = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .ancestors()
-        .nth(2)
-        .map(|root| root.join("vendor/typescript-go/internal/bundled/libs"));
-    vendored
-        .filter(|path| path.is_dir())
-        .map_or_else(String::new, |path| tsr_path::normalize_slashes(&path.to_string_lossy()))
 }

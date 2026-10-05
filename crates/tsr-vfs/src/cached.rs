@@ -88,6 +88,10 @@ impl FileSystem for CachedFileSystem<'_> {
         self.fs.read_file(path)
     }
 
+    fn read_static(&self, path: &str) -> Option<&'static str> {
+        self.fs.read_static(path)
+    }
+
     fn directory_exists(&self, path: &str) -> bool {
         self.cached(&self.directories, path, || self.fs.directory_exists(path))
     }

@@ -634,3 +634,25 @@ Nine alternating pairs against pinned tsgo on the 14-CPU Linux box:
 
 Diagnostics match tsgo on both projects. The smoke fixture is dominated by
 library loading (66 files, 2.8 MB), not checking.
+
+## Embedded default libraries
+
+After the checker pool, the smoke fixture spent most of its program time on
+library I/O: 66 opens and reads of 2.8 MB, plus a copy of each text into the
+arena. Native's default build embeds the libraries (`internal/bundled/embed.go`)
+and its CLI wraps the OS file system with `bundled.WrapFS`, so library loading
+opens nothing. `tsr_vfs::BundledFileSystem` ports that wrapper: `build.rs`
+embeds every pinned `vendor/.../internal/bundled/libs/*.d.ts`, the CLI's
+default library path is native's `bundled:///libs`, and
+`FileSystem::read_static` lends the loader the embedded text so it is never
+copied. `--listFiles` and library locations now print native's paths.
+`TSR_LIB_PATH` still selects an on-disk directory.
+
+| Project | Before TSR | Embedded TSR | tsgo | Ratio before | Ratio after |
+|---|---:|---:|---:|---:|---:|
+| domain-model | 259 ms | 215 ms | 219 ms | 1.181 | 0.983 |
+| generic-imports | 144 ms | 101 ms | 121 ms | 1.171 | 0.828 |
+
+Nine alternating pairs on the same 14-CPU Linux box; loaded scope, options
+and diagnostics match tsgo on both. This box's file opens are unusually slow
+(about 0.1–0.7 ms each), which inflates the I/O share relative to a local SSD.
