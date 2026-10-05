@@ -22,6 +22,17 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
+Native mapper controls (`tsr-1yb.4.1.2.1`), pinned native `5b1047d` and Rust
+consumer inventory frozen at `0ba36938`, distinguish exact mapper/type identity,
+ordered composition, borrowed arrays, live/fixing inference and active-cache
+completion/pop lifetime. Seven private tests pass five repetitions, race,
+affected package and vet; three wrong implementations and three qualification
+guards are rejected. Twenty fresh CLI children preserve complete output across
+observers and default/one checker; eight worker traces qualify. Sixteen Rust
+consumer files are inventoried. Production Rust/vendor unchanged; the broader
+mapper contract, full forcing/input/work/admission and comparable median <=0.50
+remain open. [Identity/lifetime evidence](docs/architecture/native-mapper-identity.md).
+
 
 Cross-tool lifecycle qualification (`tsr-1yb.1.2.3.2.3`), frozen TSR `c30db42a`
 and native `5b1047d` plus archived patch, independently validates constructor,
@@ -2801,6 +2812,13 @@ rendering `any` for `errorType` (ADR-0038).
 ---
 
 ## 4. What is next — the scored board
+
+Mapper child `.4.1.2.1` establishes executable identity/composition/lifetime
+distinctions without a production cache. Parent `.4.1.2` retains broader native
+family/publication controls, representative mapper work counts and implementation
+handoff. Concrete-member builder `.4.2.1` can consume this evidence while preserving
+its own receiver and lazy-publication obligations. Attribution `.16.1` remains
+separate; the vector representation has no measured replacement winner.
 
 Worker qualifier `.1.2.3.2.3` now independently validates both named lifecycle
 schemas. Parent admission `.1.2.3.2` stays open for unobserved ownership/admission;
@@ -6222,6 +6240,16 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+### Mapper equality or wider lifetime by convenience — native `5b1047d`, Rust inventory `0ba36938`
+
+Three deliberate wrong implementations fail their intended assertions: printed
+name equality, reversed merged composition and retaining cache entries after pop.
+Six active-reuse requests execute four workers across two top-level rounds;
+the completed nested answer alone is reused. Borrowed slices and live inference
+also defeat an assumed immutable-vector contract. Twenty native CLI children and
+eight lifecycle traces prove bounded mechanics/output only; no representation,
+global TypeId cache, full forcing or <=0.50 throughput claim follows.
 
 ### Qualified worker fixtures as throughput or memory admission — TSR `c30db42a` / native `5b1047d` plus patch
 
@@ -12805,6 +12833,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
+| 2026-10-04 | native `5b1047d`; Rust inventory `0ba36938` | not remeasured | not remeasured | Mapper prerequisite; no speed claim | `tsr-1yb.4.1.2.1`: seven private controls/five repetitions/race/package/vet, three rejected semantic mutations and three qualification guards; 20 fresh CLI children/eight qualified traces preserve complete output for ordered pairs, composition, shadowing, inference, receiver and recursive mapped/conditional types. Sixteen Rust consumer files inventoried; production Rust/vendor unchanged. Parent mapper/work/forcing/input/admission and comparable median <=0.50 remain open. |
 | 2026-10-04 | frozen TSR `c30db42a`; native `5b1047d` plus archived patch | not remeasured | not remeasured | Independent worker mechanics; no speed claim | `tsr-1yb.1.2.3.2.3`: 135 normal children/60 accepted traces, six actual failure children and eight corrupt artifacts. Distinct interval unions, constructor order, private ownership, native affinity/leases/clamps; noCheck/list-only remain distinct. Production Rust/vendor unchanged; initialization/all forcing, complete inputs/work, memory admission and comparable median <=0.50 remain open. |
 | 2026-10-04 | native `5b1047d` plus archived activity patch; TSR prework `1dfcdb93` | not remeasured | not remeasured | Native lifecycle producer; no speed claim | `tsr-1yb.1.2.3.2.1`: selected pools, direct constructor return, private slots, published file affinity, exclusive leases and bounded full/query spans. 32 fresh children preserve output/order; 16 traces recompute distinct peaks, plus three stale/write/kill controls. Affected Go package tests, focused race tests, vet and six-file exact patch replay pass. Canonical vendor and production Rust unchanged. Independent cross-tool qualification, full forcing, memory admission and comparable native median <=0.50 stay open. |
 | 2026-10-04 | `50905e4b` plus activity patch (initial proof `a91643a7`) | not remeasured | not remeasured | Direct serial worker intervals; no speed claim | `tsr-1yb.1.2.3.2.2`: constructor start/return and monotonic covered-span timestamps, distinct checker activity peaks, unfinished construction/unwinding controls. 52 fresh public children preserve output/options/loaded identities; 26 traces pass artifact integrity and recomputed peaks. Integrated feature workspace 3,039 pass/six existing ignores; 49 ordinary CLI tests/one existing ignore, 15 reader tests, 13 ordinary environment-ignore children, strict release CLI/execute Clippy both modes and format/anchors/sections pass. Initial source proofs remain archived; concurrent main ports are preserved. Issue-ID gate retains the 190 historical missing IDs (`tsr-10`). Native producer, independent worker qualification, all forcing, memory admission and comparable median <=0.50 remain open. |
