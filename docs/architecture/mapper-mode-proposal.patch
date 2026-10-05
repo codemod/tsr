@@ -1,0 +1,205 @@
+diff --git a/crates/tsr-checker/src/checker.rs b/crates/tsr-checker/src/checker.rs
+index a82dceee..c66c0fda 100644
+--- a/crates/tsr-checker/src/checker.rs
++++ b/crates/tsr-checker/src/checker.rs
+@@ -34,6 +34,14 @@ use crate::{
+ /// §79/§80's interning key: (member, optional) pairs, labels, readonly.
+ pub(crate) type OptionalTupleKey = (Vec<(TypeId, bool)>, Vec<Option<String>>, bool);
+
++/// Private object/signature substitution identity, including print-only behavior.
++#[derive(Clone, Debug, PartialEq, Eq, Hash)]
++pub(crate) struct InstantiationCacheKey {
++    source: TypeId,
++    substitutions: Vec<(TypeId, TypeId)>,
++    print_mode: bool,
++}
++
+ /// Computes types.
+ ///
+ /// **Every method takes `&mut self` and returns [`TypeId`].** No method hands out
+@@ -724,7 +732,7 @@ pub struct Checker<'a, 'n> {
+     /// Module copies have distinct identity, but share their source's property
+     /// symbols. Native cloneTypeAsModuleType's originating import/target links.
+     pub(crate) module_value_clones: FxHashMap<TypeId, (SymbolId, TypeId)>,
+-    pub(crate) instantiated_objects: rustc_hash::FxHashMap<(TypeId, Vec<(TypeId, TypeId)>), TypeId>,
++    pub(crate) instantiated_objects: rustc_hash::FxHashMap<InstantiationCacheKey, TypeId>,
+     pub(crate) any_function_type: Option<TypeId>,
+     /// `ObjectFlagsNonInferrableType` on `SkipContextSensitive` object images.
+     pub(crate) non_inferrable_types: rustc_hash::FxHashSet<TypeId>,
+@@ -1065,7 +1073,7 @@ pub struct Checker<'a, 'n> {
+     /// survive for union parenthesisation), so resolving a call through that
+     /// symbol would answer the uninstantiated return type — a wrong line. The
+     /// resolver tests [`Checker::is_instantiated_signature_type`] and gaps.
+-    pub(crate) instantiated_signatures: FxHashMap<(TypeId, Vec<(TypeId, TypeId)>), TypeId>,
++    pub(crate) instantiated_signatures: FxHashMap<InstantiationCacheKey, TypeId>,
+     /// Instantiated anonymous types retain their mapper for native array-member
+     /// union fallback (getArrayMemberCallSignatures, checker.go).
+     pub(crate) instantiated_signature_mappers: FxHashMap<TypeId, Vec<(TypeId, TypeId)>>,
+@@ -1144,6 +1152,18 @@ pub struct Checker<'a, 'n> {
+ }
+
+ impl<'a, 'n> Checker<'a, 'n> {
++    pub(crate) fn instantiation_cache_key(
++        &self,
++        source: TypeId,
++        substitutions: &[(TypeId, TypeId)],
++    ) -> InstantiationCacheKey {
++        InstantiationCacheKey {
++            source,
++            substitutions: substitutions.to_vec(),
++            print_mode: self.identity_unmapped_type_parameters,
++        }
++    }
++
+     /// Create a checker with no way to reach another file.
+     ///
+     /// # Why the host is a second constructor and not a fourth parameter
+diff --git a/crates/tsr-checker/src/declared.rs b/crates/tsr-checker/src/declared.rs
+index ef8e89fc..ff273740 100644
+--- a/crates/tsr-checker/src/declared.rs
++++ b/crates/tsr-checker/src/declared.rs
+@@ -1757,7 +1757,7 @@ impl<'a> Checker<'a, '_> {
+         if properties.is_none() && original_signatures.is_none() {
+             return None;
+         }
+-        let cache_key = (id, map.to_vec());
++        let cache_key = self.instantiation_cache_key(id, map);
+         if let Some(&cached) = self.instantiated_objects.get(&cache_key) {
+             return Some(cached);
+         }
+diff --git a/crates/tsr-checker/src/inference.rs b/crates/tsr-checker/src/inference.rs
+index 249feb5e..1e695b02 100644
+--- a/crates/tsr-checker/src/inference.rs
++++ b/crates/tsr-checker/src/inference.rs
+@@ -5367,7 +5367,7 @@ impl Checker<'_, '_> {
+         parameters: &[TypeId],
+         names: &[&str],
+     ) -> TypeId {
+-        let key = (id, map.to_vec());
++        let key = self.instantiation_cache_key(id, map);
+         if let Some(&cached) = self.instantiated_objects.get(&key) {
+             return cached;
+         }
+@@ -5444,7 +5444,7 @@ impl Checker<'_, '_> {
+         names: &[&str],
+     ) -> TypeId {
+         let error = self.intrinsics.error;
+-        let key = (id, map.to_vec());
++        let key = self.instantiation_cache_key(id, map);
+         if let Some(&cached) = self.instantiated_signatures.get(&key) {
+             return cached;
+         }
+@@ -6173,6 +6173,100 @@ mod tests {
+
+     use super::mentions_identifier;
+     use crate::Checker;
++    #[test]
++    fn print_created_object_does_not_complete_semantic_instantiation() {
++        use crate::flags::TypeFlags;
++
++        for print_first in [true, false] {
++            let arena = Arena::new();
++            let source = "declare function f<T,U>(x: {value: T; other: U}): U;";
++            let parsed = tsr_parser::parse(&arena, source);
++            assert!(parsed.diagnostics.is_empty());
++            let bound = tsr_binder::bind(
++                &arena,
++                parsed.source_file,
++                &parsed.nodes,
++                tsr_binder::FileInfo { name: "mapper.ts", text: source },
++            );
++            let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
++            let Statement::FunctionDeclaration(node) = parsed.source_file.statements[0] else {
++                panic!("generic function");
++            };
++            let signature = checker
++                .get_signatures_of_symbol(bound.symbol_of(node.node_id.unwrap()).unwrap())
++                .unwrap()
++                .remove(0);
++            let parameters = checker.type_parameter_types(&signature).unwrap();
++            let original = signature.parameters[0].r#type;
++            let map = [(parameters[0], checker.intrinsics.string)];
++            for printing in [print_first, !print_first] {
++                checker.identity_unmapped_type_parameters = printing;
++                let result = checker.instantiate_type(original, &map, &parameters, &["T", "U"]);
++                if printing {
++                    assert_ne!(
++                        result, checker.intrinsics.error,
++                        "semantic refusal poisoned print cache"
++                    );
++                    assert!(checker.store.get(result).flags.contains(TypeFlags::OBJECT));
++                } else {
++                    assert_eq!(
++                        result, checker.intrinsics.error,
++                        "print result bypassed semantic refusal"
++                    );
++                }
++            }
++            checker.identity_unmapped_type_parameters = false;
++            assert_eq!(
++                checker.instantiate_type(original, &map, &parameters, &["T", "U"]),
++                checker.intrinsics.error
++            );
++        }
++    }
++
++    #[test]
++    fn print_created_signature_does_not_complete_semantic_instantiation() {
++        use crate::flags::TypeFlags;
++
++        for print_first in [true, false] {
++            let arena = Arena::new();
++            let source = "declare function f<T,U>(x: T): U;";
++            let parsed = tsr_parser::parse(&arena, source);
++            assert!(parsed.diagnostics.is_empty());
++            let bound = tsr_binder::bind(
++                &arena,
++                parsed.source_file,
++                &parsed.nodes,
++                tsr_binder::FileInfo { name: "mapper.ts", text: source },
++            );
++            let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
++            let Statement::FunctionDeclaration(node) = parsed.source_file.statements[0] else {
++                panic!("generic function");
++            };
++            let owner = bound.symbol_of(node.node_id.unwrap()).unwrap();
++            let mut signature = checker.get_signatures_of_symbol(owner).unwrap().remove(0);
++            let parameters = checker.type_parameter_types(&signature).unwrap();
++            signature.type_parameters.clear();
++            let original =
++                checker.store.new_anonymous(TypeFlags::OBJECT, "(x: T) => U".into(), owner, true);
++            checker.signature_types.insert(original, vec![signature]);
++            let map = [(parameters[0], checker.intrinsics.string)];
++            for printing in [print_first, !print_first] {
++                checker.identity_unmapped_type_parameters = printing;
++                let result = checker.instantiate_type(original, &map, &parameters, &["T", "U"]);
++                if printing {
++                    assert_ne!(result, checker.intrinsics.error);
++                    assert!(checker.store.get(result).flags.contains(TypeFlags::OBJECT));
++                } else {
++                    assert_eq!(result, checker.intrinsics.error);
++                }
++            }
++            checker.identity_unmapped_type_parameters = false;
++            assert_eq!(
++                checker.instantiate_type(original, &map, &parameters, &["T", "U"]),
++                checker.intrinsics.error
++            );
++        }
++    }
+
+     #[test]
+     fn dependent_conditional_constraint_uses_the_inferred_outer_mapper() {
+diff --git a/crates/tsr-checker/src/mapped.rs b/crates/tsr-checker/src/mapped.rs
+index c4751a62..f779e525 100644
+--- a/crates/tsr-checker/src/mapped.rs
++++ b/crates/tsr-checker/src/mapped.rs
+@@ -770,7 +770,7 @@ impl<'a> Checker<'a, '_> {
+         parameters: &[TypeId],
+         names: &[&str],
+     ) -> TypeId {
+-        let key = (id, map.to_vec());
++        let key = self.instantiation_cache_key(id, map);
+         if let Some(&cached) = self.instantiated_objects.get(&key) {
+             return cached;
+         }

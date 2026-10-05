@@ -22,6 +22,21 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
+Mapper context controls (`tsr-1yb.4.1.2.3.1`), frozen `ed40c6c8` / native
+`5b1047d`, reproduce print-created object/signature answers leaking into later
+semantic requests. Two red/green tests and a rejected omitted-mode mutation
+qualify a context-key proposal; 1,492 checker tests, strict Clippy and formatting
+pass. Full 475,538 assertion and 10,570 diagnostic outputs stay byte-identical
+(464,198 RIGHT, zero losses). Twelve new public children match native; both
+64-child mapper matrices retain the existing private-brand detail gap.
+Ordinary two-round default/single preservation gates reject the proposal:
+wall changes -26/-15 ms then -24/+33 ms; the final default regression exceeds
+20 ms. All 40 timed children finish, memory gates pass, private source/binaries
+are restored exactly, and canonical runtime stays unchanged. The repair parent
+remains open; current mapper-key cost attribution precedes another candidate.
+No retained speedup or comparable native <=0.50 claim.
+[Context proof, rejection and reproduction](docs/architecture/mapper-mode.md).
+
 Mapper lifetime audit (`tsr-1yb.4.1.2.2`), frozen `b466d030` /
 native `5b1047d`, inventories 102 lexical method sites in 17 Rust files.
 Eight private controls and three rejected mutations distinguish ordered source
