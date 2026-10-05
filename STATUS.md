@@ -22,6 +22,18 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
+Private checker storage (`tsr-1yb.3.1.1.3`), frozen Rust `4faf1cbd` and native
+`5b1047d`, measures simultaneous Next.js requested live bytes of 145,855,984 /
+167,069,892 / 208,035,249 at 1/2/4 workers. Eighteen off/on pairs preserve
+117 diagnostics, 1,397 actual checks and 14,050 loaded payloads. Private release
+retains zero requested bytes; this is allocation-origin accounting, not RSS.
+A 20KB post-file budget completes seven of 21 growth checks but overshoots to
+1.27MB before controlled exit2. No safe automatic bound is established; new P1
+`tsr-1yb.3.1.1.4` blocks production worker enablement until fallible growth
+admission is settled. Canonical runtime source is unchanged. Full required-work
+equivalence and the native median <=0.50 remain unverified.
+[Memory evidence and admission recommendation](docs/architecture/checker-memory.md).
+
 JSDoc attribution (`tsr-1yb.9.1`), frozen Rust `24aebf06` and native `5b1047d`,
 measures 230.293 ms documentation-body work within 627.050 ms parse intervals
 on the Next.js project. Three off/on pairs preserve 117 diagnostics and ordered
@@ -2937,6 +2949,15 @@ rendering `any` for `errorType` (ADR-0038).
 ---
 
 ## 4. What is next — the scored board
+
+Checker admission now has an independently actionable P1 cut,
+`tsr-1yb.3.1.1.4`: identify fallible reservation/growth boundaries before a
+single private operation expands its backing stores, then demonstrate bounded
+failure/progress or document the missing API. It blocks `tsr-1yb.6`; the memory
+measurement child does not close worker-policy/ownership parents. The frozen
+`4faf1cbd` single-owner 32,416,622 allocation/reallocation requests are handed
+to the existing `tsr-1yb.11` owner, without assigning an unmeasured site or
+duplicating profiling work. Preserve existing concurrent claims.
 
 JSDoc `.9.2` can consume `.9.1` attribution and conservative TS-only plain-text
 candidate requirements. Measure eligible tag/range costs before changing
@@ -6382,6 +6403,15 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+Refused at frozen `4faf1cbd`: treating a post-file private-memory check as an
+admission bound. Growth budget20,000B passes initialized14,804B, completes7/21
+checks, then fails explicitly at live1,269,287B/peak1,512,523B. All private
+allocations release; failed children are not complete/speed-qualified. Requested
+and padded layouts do not bound RSS, allocator retention, stacker or shared
+Program storage. On4-worker Next.js memory bookkeeping adds3.955155s paired
+median, so instrumented wall is not scheduling scalability evidence. No
+production default/count reduction or native2x acceptance follows.
 
 ### All JSDoc parsing removed as a speed estimate — frozen Rust `24aebf06`
 
@@ -12986,6 +13016,19 @@ cargo run -p xtask -- issue-ids    # every `bd <id>` cited in docs/ exists
 ---
 
 ## 7. Session log
+
+2026-10-05 — `tsr-1yb.3.1.1.3`, immutable main4faf1cbd/native5b1047d archives:
+completed eighteen qualified public/Next.js memory off/on pairs plus skewed
+mapped/cross-file-cycle, zero/post-initialization budget and singleThreaded
+physical controls. Ordinary TSR CLI diagnostics agree with helpers on all four
+projects; pinned native agrees on three public projects. Ten archived example
+tests, eight reader tests, exact four-file patch replay, strict archived release
+Clippy and meter format pass. Stored source/binary/input/checked/output hashes,
+simultaneous owner bytes and CPU/RSS/wall ranges in checker-memory.json/md.
+Production source is untouched. No safe admission bound: cut P1 .3.1.1.4 and
+block .6, retain unfinished worker/ownership parents and native<=0.50 goal.
+Independent review coverage0; private raw app outputs stay local. Main delivery
+is recorded separately in Beads after push.
 
 Append one row per session. Keep it to what a future session needs.
 

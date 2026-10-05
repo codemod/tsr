@@ -1,0 +1,581 @@
+--- a/crates/tsr-execute/Cargo.toml
++++ b/crates/tsr-execute/Cargo.toml
+@@ -9,6 +9,7 @@
+ authors.workspace = true
+
+ [features]
++checker-memory-probe = []
+ work-trace = ["dep:serde_json", "tsr-checker/work-trace"]
+
+ [[test]]
+--- a/crates/tsr-execute/src/compile.rs
++++ b/crates/tsr-execute/src/compile.rs
+@@ -558,7 +558,8 @@
+ /// ordered files preserves default-library membership without a name heuristic
+ /// or a per-file library scan. Project-reference redirects are not implemented
+ /// in this driver, so their native exclusion is not claimed here.
+-pub(crate) fn full_check_exclusion(
++#[must_use]
++pub fn full_check_exclusion(
+     program: &tsr_compiler::Program<'_>,
+     file_index: usize,
+ ) -> Option<&'static str> {
+--- a/crates/tsr-execute/examples/checker_workers.rs
++++ b/crates/tsr-execute/examples/checker_workers.rs
+@@ -4,7 +4,54 @@
+ //! Stdout contains plain diagnostics. Stderr contains tab-separated scope,
+ //! phase and worker counters for an external fresh-process/RSS harness.
+
++use std::sync::{
++    Barrier,
++    atomic::{AtomicBool, Ordering},
++};
+ use std::time::Instant;
++
++#[cfg(feature = "checker-memory-probe")]
++#[path = "checker_workers/memory_meter.rs"]
++mod memory_meter;
++#[cfg(feature = "checker-memory-probe")]
++#[global_allocator]
++static MEMORY_METER: memory_meter::Meter = memory_meter::Meter;
++
++fn memory_enabled() -> bool {
++    cfg!(feature = "checker-memory-probe") && std::env::var_os("TSR_CHECKER_MEMORY_PROBE").is_some()
++}
++
++fn memory_boundary(phase: &str, workers: usize, budget: Option<usize>, stopped: &AtomicBool) {
++    #[cfg(feature = "checker-memory-probe")]
++    if memory_enabled() {
++        let total = memory_meter::snapshot(0);
++        let mut sum = 0;
++        for owner in 1..=workers {
++            let row = memory_meter::snapshot(owner);
++            sum += row.live_requested_bytes;
++            eprintln!(
++                "MEMORY_OWNER\t{phase}\t{owner}\t{}\t{}\t{}\t{}",
++                row.live_requested_bytes,
++                row.peak_requested_bytes,
++                row.allocation_requests,
++                row.live_padded_layout_bytes
++            );
++        }
++        assert_eq!(sum, total.live_requested_bytes, "quiescent owner sum differs");
++        eprintln!(
++            "MEMORY_TOTAL\t{phase}\t{}\t{}\t{}\t{}",
++            total.live_requested_bytes,
++            total.peak_requested_bytes,
++            total.allocation_requests,
++            total.live_padded_layout_bytes
++        );
++        if budget.is_some_and(|limit| total.live_requested_bytes > limit) {
++            stopped.store(true, Ordering::SeqCst);
++        }
++    }
++    #[cfg(not(feature = "checker-memory-probe"))]
++    let _ = (phase, workers, budget, stopped);
++}
+
+ use tsr_checker::{Checker, check::FileContext};
+ use tsr_compiler::{LoadOptions, Program};
+@@ -37,6 +84,7 @@
+ struct WorkerResult {
+     diagnostics: Vec<(u32, Diagnostic)>,
+     checked: usize,
++    checked_ids: Vec<usize>,
+     initial_types: usize,
+     final_types: usize,
+     computations: usize,
+@@ -44,7 +92,21 @@
+     checking_seconds: f64,
+ }
+
+-fn check_group(program: &Program<'_>, options: &CompilerOptions, group: &[usize]) -> WorkerResult {
++fn check_group(
++    program: &Program<'_>,
++    options: &CompilerOptions,
++    group: &[usize],
++    worker: usize,
++    rendezvous: &Barrier,
++    budget: Option<usize>,
++    stopped: &AtomicBool,
++) -> WorkerResult {
++    #[cfg(feature = "checker-memory-probe")]
++    let meter_enabled = memory_enabled();
++    #[cfg(feature = "checker-memory-probe")]
++    let owner_guard = memory_meter::OwnerGuard::enter(if meter_enabled { worker + 1 } else { 0 });
++    #[cfg(not(feature = "checker-memory-probe"))]
++    let _ = (worker, budget);
+     let started = Instant::now();
+     let mut checker = Checker::with_module_host(
+         program.binder(),
+@@ -54,11 +116,24 @@
+     );
+     checker.apply_compiler_options(options);
+     checker.set_checked_files(
+-        program.root_and_referenced_files().iter().filter_map(|file| file.source_file().node_id),
++        program
++            .source_files()
++            .iter()
++            .enumerate()
++            .filter(|(index, _)| {
++                tsr_execute::compile::full_check_exclusion(program, *index).is_none()
++            })
++            .filter_map(|(_, file)| file.source_file().node_id),
+     );
+     let initial_types = checker.type_count();
+     let initialized = Instant::now();
++    rendezvous.wait();
++    rendezvous.wait();
++    let mut checked_count = 0;
+     for &index in group {
++        if stopped.load(Ordering::SeqCst) {
++            break;
++        }
+         let file = &program.source_files()[index];
+         checker.check_source_file(
+             file.source_file().node_id.expect("a parsed root is registered"),
+@@ -67,15 +142,27 @@
+                 has_parse_errors: !file.diagnostics().is_empty(),
+             },
+         );
++        checked_count += 1;
++        #[cfg(feature = "checker-memory-probe")]
++        if meter_enabled
++            && budget.is_some_and(|limit| memory_meter::snapshot(0).live_requested_bytes > limit)
++        {
++            stopped.store(true, Ordering::SeqCst);
++        }
+     }
+     let finished = Instant::now();
++    rendezvous.wait();
++    rendezvous.wait();
++    #[cfg(feature = "checker-memory-probe")]
++    drop(owner_guard);
+     WorkerResult {
+         diagnostics: checker
+             .diagnostics()
+             .iter()
+             .map(|(id, diagnostic)| (id.as_u32(), diagnostic.clone()))
+             .collect(),
+-        checked: group.len(),
++        checked: checked_count,
++        checked_ids: group[..checked_count].to_vec(),
+         initial_types,
+         final_types: checker.type_count(),
+         computations: checker.computations(),
+@@ -92,6 +179,20 @@
+         _ => return Err("usage: checker_workers /absolute/tsconfig.json [positive-count]".into()),
+     };
+     let override_count = selection::parse_override(requested)?;
++    let budget = std::env::var("TSR_CHECKER_MEMORY_BUDGET")
++        .ok()
++        .map(|value| value.parse::<usize>())
++        .transpose()?;
++    if budget.is_some() && !memory_enabled() {
++        return Err("logical request budget requires enabled archived memory observer".into());
++    }
++    if memory_enabled() {
++        eprintln!(
++            "MEMORY_HEADER\t{}\t{}",
++            std::process::id(),
++            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_nanos()
++        );
++    }
+     let started = Instant::now();
+     let sys = OsSystem::new();
+     let text = sys.fs().read_file(project).ok_or("cannot read project")?;
+@@ -136,24 +237,17 @@
+         requested.map_or_else(|| "default".into(), |n| n.to_string()),
+         options.single_threaded.is_true()
+     );
+-    let lib_count = program.lib_files().len();
+     let eligible: Vec<_> = program
+         .source_files()
+         .iter()
+         .enumerate()
+-        .filter(|(index, file)| {
+-            *index >= lib_count
+-                && file.source_file().node_id.is_some()
+-                && !options.no_check.is_true()
+-                && !(options.skip_lib_check.is_true()
+-                    && tsr_path::is_declaration_file_name(file.file_name()))
+-                && !(options.skip_default_lib_check.is_true()
+-                    && program.lib_files().iter().any(|lib| lib.file_name() == file.file_name()))
+-        })
++        .filter(|(index, _)| tsr_execute::compile::full_check_exclusion(&program, *index).is_none())
+         .map(|(index, _)| index)
+         .collect();
+     // Native checkerpool.go associates every file before selecting checked
+     // files; filtering first would give different cache affinity and costs.
++    let rendezvous = Barrier::new(workers + 1);
++    let stopped = AtomicBool::new(false);
+     let results = std::thread::scope(|scope| {
+         let handles: Vec<_> = (0..workers)
+             .map(|worker| {
+@@ -161,15 +255,42 @@
+                     eligible.iter().copied().filter(|index| index % workers == worker).collect();
+                 let program = &program;
+                 let options = &*options;
+-                scope.spawn(move || check_group(program, options, &group))
++                let rendezvous = &rendezvous;
++                let stopped = &stopped;
++                scope.spawn(move || {
++                    check_group(program, options, &group, worker, rendezvous, budget, stopped)
++                })
+             })
+             .collect();
++        rendezvous.wait();
++        memory_boundary("initialized", workers, budget, &stopped);
++        rendezvous.wait();
++        rendezvous.wait();
++        memory_boundary("checked", workers, budget, &stopped);
++        rendezvous.wait();
+         handles
+             .into_iter()
+             .map(|handle| handle.join().expect("worker panicked"))
+             .collect::<Vec<_>>()
+     });
+     let checked = Instant::now();
++    memory_boundary("released", workers, None, &stopped);
++    if stopped.load(Ordering::SeqCst) {
++        let mut actual: Vec<_> =
++            results.iter().flat_map(|result| result.checked_ids.iter().copied()).collect();
++        actual.sort_unstable();
++        for index in actual {
++            eprintln!("CHECKED\t{}", program.source_files()[index].file_name());
++        }
++        eprintln!(
++            "MEMORY_BUDGET_EXCEEDED\t{}\t{}",
++            budget.unwrap(),
++            results.iter().map(|result| result.checked).sum::<usize>()
++        );
++        return Err(
++            "logical private-allocation budget exceeded; incomplete checking is not success".into(),
++        );
++    }
+     let mut raw: Vec<_> = results.iter().flat_map(|worker| worker.diagnostics.clone()).collect();
+     let file_names: std::collections::HashMap<_, _> = program
+         .source_files()
+@@ -179,13 +300,13 @@
+     worker_diagnostics::normalize(&mut raw, |id| file_names[&id]);
+     let mut diagnostics = Vec::new();
+     let files: Vec<_> = program
+-        .root_and_referenced_files()
++        .source_files()
+         .iter()
+         .map(|file| DiagnosticFile::new(file.file_name(), file.text()))
+         .collect();
+     for &index in &eligible {
+         let source = &program.source_files()[index];
+-        let file = &files[index - lib_count];
++        let file = &files[index];
+         let id = source.source_file().node_id.unwrap().as_u32();
+         let entries: Vec<_> = raw
+             .iter()
+@@ -237,7 +358,11 @@
+     for file in program.source_files() {
+         eprintln!("LOADED\t{}", file.file_name());
+     }
+-    for &index in &eligible {
++    let mut completed: Vec<_> =
++        results.iter().flat_map(|result| result.checked_ids.iter().copied()).collect();
++    completed.sort_unstable();
++    assert_eq!(completed, eligible, "full checking did not complete the assigned scope");
++    for index in completed {
+         eprintln!("CHECKED\t{}", program.source_files()[index].file_name());
+     }
+     Ok(diagnostics
+--- /dev/null
++++ b/crates/tsr-execute/examples/checker_workers/memory_meter.rs
+@@ -0,0 +1,291 @@
++//! Archived executable allocator observer; never a production memory ceiling.
++//!
++//! The prefix attributes live Rust global-allocation *requested* bytes to their
++//! original private owner, including deallocation/reallocation on another thread.
++//! System usable sizes, retained pages, stacks and non-Rust allocation are excluded.
++
++#![allow(
++    unsafe_code,
++    reason = "archived GlobalAlloc observer requires System allocation and prefix access; canonical production allocator is unchanged"
++)]
++
++use std::alloc::{GlobalAlloc, Layout, System};
++use std::cell::Cell;
++use std::marker::PhantomData;
++use std::ptr;
++use std::rc::Rc;
++use std::sync::atomic::{AtomicUsize, Ordering};
++
++pub const MAX_OWNERS: usize = 256;
++
++struct Counts {
++    live: AtomicUsize,
++    peak: AtomicUsize,
++    allocations: AtomicUsize,
++    padded_live: AtomicUsize,
++}
++
++impl Counts {
++    const fn new() -> Self {
++        Self {
++            live: AtomicUsize::new(0),
++            peak: AtomicUsize::new(0),
++            allocations: AtomicUsize::new(0),
++            padded_live: AtomicUsize::new(0),
++        }
++    }
++
++    fn add(&self, size: usize, padded: usize) {
++        let live = self.live.fetch_add(size, Ordering::SeqCst) + size;
++        self.peak.fetch_max(live, Ordering::SeqCst);
++        self.allocations.fetch_add(1, Ordering::SeqCst);
++        self.padded_live.fetch_add(padded, Ordering::SeqCst);
++    }
++
++    fn subtract(&self, size: usize, padded: usize) {
++        self.live.fetch_sub(size, Ordering::SeqCst);
++        self.padded_live.fetch_sub(padded, Ordering::SeqCst);
++    }
++
++    fn resize(&self, old: usize, next: usize, old_padded: usize, next_padded: usize) {
++        let live = if next >= old {
++            self.live.fetch_add(next - old, Ordering::SeqCst) + next - old
++        } else {
++            self.live.fetch_sub(old - next, Ordering::SeqCst) - (old - next)
++        };
++        self.peak.fetch_max(live, Ordering::SeqCst);
++        self.allocations.fetch_add(1, Ordering::SeqCst);
++        if next_padded >= old_padded {
++            self.padded_live.fetch_add(next_padded - old_padded, Ordering::SeqCst);
++        } else {
++            self.padded_live.fetch_sub(old_padded - next_padded, Ordering::SeqCst);
++        }
++    }
++}
++
++static OWNERS: [Counts; MAX_OWNERS] = [const { Counts::new() }; MAX_OWNERS];
++static TOTAL: Counts = Counts::new();
++
++thread_local! {
++    static OWNER: Cell<usize> = const { Cell::new(0) };
++}
++
++/// Construct the guard inside the private worker; zero is unclassified/shared.
++pub struct OwnerGuard(usize, PhantomData<Rc<()>>);
++
++impl OwnerGuard {
++    pub fn enter(owner: usize) -> Self {
++        assert!(owner <= MAX_OWNERS);
++        Self(OWNER.with(|slot| slot.replace(owner)), PhantomData)
++    }
++}
++
++impl Drop for OwnerGuard {
++    fn drop(&mut self) {
++        OWNER.with(|slot| slot.set(self.0));
++    }
++}
++
++#[derive(Clone, Copy, Debug)]
++pub struct Snapshot {
++    pub live_requested_bytes: usize,
++    pub peak_requested_bytes: usize,
++    pub allocation_requests: usize,
++    pub live_padded_layout_bytes: usize,
++}
++
++fn read(counts: &Counts) -> Snapshot {
++    Snapshot {
++        live_requested_bytes: counts.live.load(Ordering::SeqCst),
++        peak_requested_bytes: counts.peak.load(Ordering::SeqCst),
++        allocation_requests: counts.allocations.load(Ordering::SeqCst),
++        live_padded_layout_bytes: counts.padded_live.load(Ordering::SeqCst),
++    }
++}
++
++/// Boundary snapshots are coherent only after all private owners are quiescent.
++pub fn snapshot(owner: usize) -> Snapshot {
++    if owner == 0 { read(&TOTAL) } else { read(&OWNERS[owner - 1]) }
++}
++
++fn prefixed(layout: Layout) -> Option<(Layout, usize)> {
++    Layout::new::<usize>()
++        .extend(layout)
++        .ok()
++        .map(|(layout, offset)| (layout.pad_to_align(), offset))
++}
++
++unsafe fn allocation_owner(base: *const u8) -> usize {
++    let mut bytes = [0u8; std::mem::size_of::<usize>()];
++    // SAFETY: the allocation prefix contains one owner word; byte copies have
++    // no additional pointer-alignment requirement.
++    unsafe { ptr::copy_nonoverlapping(base, bytes.as_mut_ptr(), bytes.len()) };
++    usize::from_ne_bytes(bytes)
++}
++
++pub struct Meter;
++
++impl Meter {
++    unsafe fn allocate(layout: Layout, owner: usize, zeroed: bool) -> *mut u8 {
++        let Some((padded, offset)) = prefixed(layout) else { return ptr::null_mut() };
++        // SAFETY: padded is a valid allocation Layout. System owns this base.
++        let base =
++            unsafe { if zeroed { System.alloc_zeroed(padded) } else { System.alloc(padded) } };
++        if base.is_null() {
++            return base;
++        }
++        let bytes = owner.to_ne_bytes();
++        // SAFETY: the prefix has owner-word space, before the aligned payload.
++        unsafe { ptr::copy_nonoverlapping(bytes.as_ptr(), base, bytes.len()) };
++        if owner != 0 {
++            OWNERS[owner - 1].add(layout.size(), padded.size());
++            TOTAL.add(layout.size(), padded.size());
++        }
++        // SAFETY: extend guarantees offset addresses the original aligned payload.
++        unsafe { base.add(offset) }
++    }
++}
++
++// SAFETY: each returned payload has the requested alignment and size, with a
++// disjoint valid prefix. The corresponding Layout reconstructs its System base.
++// Counters are static atomics; allocator hooks neither allocate nor unwind.
++unsafe impl GlobalAlloc for Meter {
++    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
++        let owner = OWNER.try_with(Cell::get).unwrap_or(0);
++        unsafe { Self::allocate(layout, owner, false) }
++    }
++
++    unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
++        let owner = OWNER.try_with(Cell::get).unwrap_or(0);
++        unsafe { Self::allocate(layout, owner, true) }
++    }
++
++    unsafe fn dealloc(&self, pointer: *mut u8, layout: Layout) {
++        // SAFETY: the caller supplies the same Layout used by this allocator.
++        let (padded, offset) = unsafe { prefixed(layout).unwrap_unchecked() };
++        let base = unsafe { pointer.sub(offset) };
++        let owner = unsafe { allocation_owner(base) };
++        if owner != 0 {
++            OWNERS[owner - 1].subtract(layout.size(), padded.size());
++            TOTAL.subtract(layout.size(), padded.size());
++        }
++        unsafe { System.dealloc(base, padded) };
++    }
++
++    unsafe fn realloc(&self, pointer: *mut u8, layout: Layout, size: usize) -> *mut u8 {
++        let Some((padded, offset)) = prefixed(layout) else { return ptr::null_mut() };
++        let base = unsafe { pointer.sub(offset) };
++        let owner = unsafe { allocation_owner(base) };
++        let Ok(next_layout) = Layout::from_size_align(size, layout.align()) else {
++            return ptr::null_mut();
++        };
++        let Some((next_padded, next_offset)) = prefixed(next_layout) else {
++            return ptr::null_mut();
++        };
++        // Alignment is unchanged, so the prefix/payload offset is unchanged.
++        // Retain System's realloc behavior rather than forcing a copying resize.
++        let next_base = unsafe { System.realloc(base, padded, next_padded.size()) };
++        if next_base.is_null() {
++            return next_base;
++        }
++        if owner != 0 {
++            for counts in [&OWNERS[owner - 1], &TOTAL] {
++                counts.resize(layout.size(), size, padded.size(), next_padded.size());
++            }
++        }
++        unsafe { next_base.add(next_offset) }
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use std::sync::Mutex;
++
++    static TEST_LOCK: Mutex<()> = Mutex::new(());
++
++    #[cfg(not(feature = "checker-memory-probe"))]
++    #[global_allocator]
++    static TEST_ALLOCATOR: Meter = Meter;
++
++    #[test]
++    fn aligned_zeroed_payload_and_owner_survive_cross_thread_free() {
++        let _lock = TEST_LOCK.lock().unwrap();
++        let layout = Layout::from_size_align(1003, 4096).unwrap();
++        let owner = OwnerGuard::enter(250);
++        let pointer = unsafe { Meter.alloc_zeroed(layout) };
++        assert!(!pointer.is_null());
++        assert_eq!(pointer as usize % 4096, 0);
++        assert!(
++            unsafe { std::slice::from_raw_parts(pointer, layout.size()) }
++                .iter()
++                .all(|byte| *byte == 0)
++        );
++        assert_eq!(snapshot(250).live_requested_bytes, 1003);
++        assert!(snapshot(250).live_padded_layout_bytes > 1003);
++        drop(owner);
++        let address = pointer as usize;
++        std::thread::spawn(move || unsafe { Meter.dealloc(address as *mut u8, layout) })
++            .join()
++            .unwrap();
++        assert_eq!(snapshot(250).live_requested_bytes, 0);
++        assert_eq!(snapshot(250).live_padded_layout_bytes, 0);
++    }
++
++    #[test]
++    fn reallocation_preserves_payload_and_original_owner() {
++        let _lock = TEST_LOCK.lock().unwrap();
++        let layout = Layout::from_size_align(32, 64).unwrap();
++        let owner = OwnerGuard::enter(251);
++        let pointer = unsafe { Meter.alloc(layout) };
++        assert!(!pointer.is_null());
++        unsafe { pointer.write_bytes(17, 32) };
++        drop(owner);
++        let _other = OwnerGuard::enter(252);
++        let resized = unsafe { Meter.realloc(pointer, layout, 103) };
++        assert!(!resized.is_null());
++        assert_eq!(resized as usize % 64, 0);
++        assert!(unsafe { std::slice::from_raw_parts(resized, 32) }.iter().all(|byte| *byte == 17));
++        assert_eq!(snapshot(251).live_requested_bytes, 103);
++        assert_eq!(snapshot(252).live_requested_bytes, 0);
++        unsafe { Meter.dealloc(resized, Layout::from_size_align(103, 64).unwrap()) };
++        assert_eq!(snapshot(251).live_requested_bytes, 0);
++    }
++
++    #[test]
++    fn rejected_layout_keeps_old_payload_and_accounting() {
++        let _lock = TEST_LOCK.lock().unwrap();
++        let layout = Layout::from_size_align(32, 1).unwrap();
++        let _owner = OwnerGuard::enter(253);
++        let pointer = unsafe { Meter.alloc_zeroed(layout) };
++        assert!(!pointer.is_null());
++        let failed = unsafe { Meter.realloc(pointer, layout, isize::MAX as usize) };
++        assert!(failed.is_null());
++        assert_eq!(snapshot(253).live_requested_bytes, 32);
++        assert!(unsafe { std::slice::from_raw_parts(pointer, 32) }.iter().all(|byte| *byte == 0));
++        unsafe { Meter.dealloc(pointer, layout) };
++        assert_eq!(snapshot(253).live_requested_bytes, 0);
++    }
++
++    #[test]
++    fn actual_vector_nested_owners_and_shrink_release_all_requests() {
++        let _lock = TEST_LOCK.lock().unwrap();
++        let outer = OwnerGuard::enter(254);
++        let mut buffer: Vec<u8> = Vec::with_capacity(512);
++        buffer.extend_from_slice(&[7; 16]);
++        assert_eq!(snapshot(254).live_requested_bytes, buffer.capacity());
++        {
++            let _inner = OwnerGuard::enter(255);
++            let other = vec![2u8; 100];
++            buffer.shrink_to_fit();
++            assert_eq!(snapshot(254).live_requested_bytes, buffer.capacity());
++            assert_eq!(snapshot(255).live_requested_bytes, other.capacity());
++            drop(other);
++        }
++        assert_eq!(snapshot(255).live_requested_bytes, 0);
++        drop(buffer);
++        drop(outer);
++        assert_eq!(snapshot(254).live_requested_bytes, 0);
++        assert_eq!(snapshot(254).live_padded_layout_bytes, 0);
++    }
++}
