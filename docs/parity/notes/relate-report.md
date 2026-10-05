@@ -247,3 +247,24 @@ now-correct `NotRelated` in files this lane does not own:
 Kept out until those two are fixed by their owners; the integrator has the
 one-hunk change (delete `matches!(self.relation, Relation::Subtype |
 Relation::StrictSubtype) &&` in the primitive-apparent arm).
+
+## 11. Ported (narrow slice): `getBestMatchingType` for an object literal against `Object | primitives`
+
+`report_assignability_failure` declined every object literal against a union
+target (the discriminant/excess machinery is unported), so
+`function foo(): Stuff | string { return { b: () => "hello", … } }` reported
+nothing where upstream elaborates each member against `Stuff`
+(`elaborateObjectLiteral` → `getBestMatchIndexedAccessTypeOrUndefined` →
+`getBestMatchingType`). `best_matching_object_constituent` answers only where
+that choice is certain without the unported parts: exactly one non-primitive
+constituent, a plain object type that is not array-like, sharing a property
+name with the literal. In that domain `findMatchingDiscriminantType` can only
+return that constituent or nil, the type-reference and invokable steps do not
+apply to a signature-less literal, `findBestTypeForObjectLiteral` needs an
+array-like constituent, and `findMostOverlappyType` picks it on any key
+overlap. The literal is elaborated against it only when the whole relation is
+`NotRelated`; otherwise the old decline stands.
+
+Converted: `compiler/errorOnUnionVsObjectShouldDeeplyDisambiguate`. Its
+sibling `…Disambiguate2` (`Stuff | Date`, two object constituents) needs the
+full `findMostOverlappyType` key-overlap count and the discriminant step.
