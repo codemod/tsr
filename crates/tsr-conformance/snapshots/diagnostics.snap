@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics Summary:
 What a pass means: every diagnostic in upstream's .errors.txt reproduced exactly — same file, line, column and code, no more and no fewer — for cases that expect at least one; scanner, parser and binder only, with no checker (bd tsr-4sc)
-Passed         : 2912/5488 (53.06%)
-Failed         : 2576
+Passed         : 2948/5488 (53.72%)
+Failed         : 2540
 Skipped        : 6956 (excluded from the denominator)
 
   793  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -11,7 +11,7 @@ Skipped        : 6956 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   464  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 2576 failures:
+First 100 of 2540 failures:
 compiler/ClassDeclaration26
   2 unexpected (first TS1005 at ClassDeclaration26.ts(2,22)), 5 missing
 compiler/TransportStream
@@ -179,11 +179,11 @@ compiler/baseConstraintOfDecorator
 compiler/baseExpressionTypeParameters
   1 missing (first TS2562 at baseExpressionTypeParameters.ts(10,27))
 compiler/baseIndexSignatureResolution
-  1 unexpected (first TS2415 at baseIndexSignatureResolution.ts(2,7)), 1 missing
+  2 unexpected (first TS2415 at baseIndexSignatureResolution.ts(2,7)), 1 missing
 compiler/baseTypePrivateMemberClash
   1 unexpected (first TS2430 at baseTypePrivateMemberClash.ts(8,11)), 1 missing
 compiler/bases
-  4 missing (first TS2693 at bases.ts(7,17))
+  3 missing (first TS2693 at bases.ts(7,17))
 compiler/bestCommonTypeReturnStatement
   2 missing (first TS2322 at bestCommonTypeReturnStatement.ts(11,32))
 compiler/betterErrorForUnionCall
