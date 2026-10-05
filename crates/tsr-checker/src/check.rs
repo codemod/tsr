@@ -13621,6 +13621,9 @@ impl Checker<'_, '_> {
     /// upstream being careful rather than discriminating, and it is left out —
     /// the same set on this corpus, stated rather than assumed.
     ///
+    /// The whole pass is skipped for a declaration file (`checker.go:2212`,
+    /// `docs/parity/notes/misc-checks.md` §7).
+    ///
     /// `docs/architecture/checker-notes-diag2.md` §804.
     fn check_renamed_binding_element_in_signature(&mut self, node: NodeId) {
         if self.file_has_parse_errors {
@@ -13665,6 +13668,13 @@ impl Checker<'_, '_> {
             return;
         }
         let Some(file) = self.source_file_of_for_diagnostics(name_id) else { return };
+        // `checkSourceFile` runs `checkUnusedRenamedBindingElements` only
+        // `if !sourceFile.IsDeclarationFile` (`checker.go:2212`).
+        if self.file_is_ambient
+            || self.module_host.is_some_and(|host| host.is_declaration_file(file))
+        {
+            return;
+        }
         let span = self.nodes.span(name_id);
         let original = property_name
             .node_id()

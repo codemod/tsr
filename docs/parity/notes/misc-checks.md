@@ -131,3 +131,12 @@ indexed-access, `typeof` and intersection bodies decline (an intersection with
 `{}` can reduce to a single anonymous type). Would be replaced by the
 declared-type test once generic alias declared types are resolved
 (type-refs box).
+
+## §7 TS2842 is not reported in declaration files
+
+`checkSourceFile` collects renamed binding elements in body-less signatures
+but runs `checkUnusedRenamedBindingElements` only
+`if !sourceFile.IsDeclarationFile` (`checker.go:2212`). The port reported them
+in `.d.ts` files too (`renamingDestructuredPropertyInFunctionType2`, 13 extra
+lines). The gate is `file_is_ambient` (set from the declaration-file name) or
+the module host's `is_declaration_file`.
