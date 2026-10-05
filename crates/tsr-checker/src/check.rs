@@ -52,8 +52,8 @@ use tsr_diagnostics::{Diagnostic, messages};
 
 use crate::checker::Checker;
 use crate::flags::TypeFlags;
-use crate::relater::{Relation, Ternary};
-use crate::types::{TypeData, TypeId};
+use crate::relater::Ternary;
+use crate::types::TypeId;
 
 /// The written name of a class member, for the kinds an `abstract` member can
 /// take. Wider than [`class_member_shape`], which omits methods because its own
@@ -8163,7 +8163,18 @@ impl Checker<'_, '_> {
         };
         let Some(Node::Identifier(identifier)) = self.node_map.get(name) else { return };
         let Some(own) = self.binder.symbol_of(node) else { return };
-        let symbol = self.binder.merged_symbol(own);
+        // **A merge the excludes forbid did not happen upstream.**
+        // `mergeSymbol` reports `reportMergeSymbolError` and leaves the source
+        // unmerged (`checker.go:14199`), so `getSymbolOfDeclaration` answers
+        // the file's own symbol — `var eval` in a script stays apart from
+        // `lib.d.ts`'s `function eval`. This port's binder records the conflict
+        // but still maps the source to the target (`Binder::merge_globals`), so
+        // the conflict list is what restores the unmerged symbol.
+        let symbol = if self.binder.merge_conflicts().iter().any(|&(_, source)| source == own) {
+            own
+        } else {
+            self.binder.merged_symbol(own)
+        };
         // `symbol.ValueDeclaration` is the primary; this arm is only for the
         // ones after it.
         let Some(primary) = self.binder.symbols().get(symbol).value_declaration else { return };
@@ -8196,7 +8207,21 @@ impl Checker<'_, '_> {
         {
             return;
         }
-        if self.type_identity_fragment(first, next) != Ternary::NotRelated {
+        // **The structural arm is trusted only between written types.** Full
+        // identity is exact, so a negative it gives between *inferred*
+        // initializer types inherits every near-miss of the subsystems that
+        // inferred them (array-literal widening, overload choice, subtype
+        // reduction); between annotations it compares what the user wrote.
+        // Inferred operands keep the earlier necessary condition, mutual
+        // assignability. `docs/parity/notes/decls.md` §2.
+        let identity = if self.declaration_type_annotation(primary).is_some()
+            && declaration.r#type.is_some()
+        {
+            self.is_type_identical_to(first, next)
+        } else {
+            self.is_type_identical_to_by_assignability(first, next)
+        };
+        if identity != Ternary::NotRelated {
             return;
         }
         let Some(file) = self.source_file_of_for_diagnostics(name) else { return };
@@ -8216,6 +8241,16 @@ impl Checker<'_, '_> {
         );
     }
 
+    /// The written type annotation of a variable-like declaration.
+    fn declaration_type_annotation(&self, declaration: NodeId) -> Option<NodeId> {
+        match self.node_map.get(declaration) {
+            Some(Node::VariableDeclaration(variable)) => variable.r#type?.node_id(),
+            Some(Node::ParameterDeclaration(parameter)) => parameter.r#type?.node_id(),
+            Some(Node::PropertyDeclaration(property)) => property.r#type?.node_id(),
+            _ => None,
+        }
+    }
+
     /// A top-level `any`/`unknown` is an identity operand only when the
     /// declaration's written annotation is that keyword.
     fn identity_side_is_trusted(&self, ty: TypeId, declaration: NodeId) -> bool {
@@ -8224,6 +8259,28 @@ impl Checker<'_, '_> {
             return true;
         }
         let annotation = match self.node_map.get(declaration) {
+            // **No annotation and no initializer is a written `any` too.**
+            // `getTypeForVariableLikeDeclaration` answers `anyType` for a
+            // `var x;` of a variable statement (or `autoType`, which the
+            // secondary-declaration arm turns back into `any` through
+            // `convertAutoToAny`, `checker.go:5932`). Nothing here is a
+            // fallback: the declaration has no other source of a type. A
+            // `for (var x in …)` / `for (var x of …)` declaration also has
+            // neither, but takes its type from the loop, so only a variable
+            // statement's list qualifies. `docs/parity/notes/decls.md` §1.
+            Some(Node::VariableDeclaration(variable))
+                if variable.r#type.is_none()
+                    && variable.initializer.is_none()
+                    && flags.contains(TypeFlags::ANY) =>
+            {
+                return self
+                    .nodes
+                    .parent(declaration)
+                    .and_then(|list| self.nodes.parent(list))
+                    .is_some_and(|statement| {
+                        self.nodes.kind(statement) == SyntaxKind::VariableStatement
+                    });
+            }
             Some(Node::VariableDeclaration(variable)) => variable.r#type,
             Some(Node::ParameterDeclaration(parameter)) => parameter.r#type,
             _ => None,
@@ -8237,126 +8294,15 @@ impl Checker<'_, '_> {
         self.nodes.kind(annotation) == keyword
     }
 
-    /// The decidable fragment of `isTypeIdenticalTo` (`relater.go:119`,
-    /// `isTypeRelatedTo` and `isRelatedTo` under `identityRelation`).
-    ///
-    /// - fresh literals are regularized and the same type is identical;
-    /// - outside unions, intersections, indexed-access, conditional and
-    ///   substitution types, differing flags are non-identical and equal
-    ///   singleton flags identical (`relater.go:183`); after normalization the
-    ///   flags test applies to every pair (`relater.go:2625`);
-    /// - two unions (or intersections) are identical when each constituent
-    ///   of either is identical to some constituent of the other
-    ///   (`eachTypeRelatedToSomeType` both ways);
-    /// - for any other pair identity implies mutual assignability, so either
-    ///   direction deciding `NotRelated` is non-identity. Everything else is
-    ///   `Unknown`.
-    ///
-    /// No cache: each call is a bounded walk over the two types' constituent
-    /// lists plus at most two existing assignability queries.
-    pub(crate) fn type_identity_fragment(&mut self, source: TypeId, target: TypeId) -> Ternary {
-        let source = self.get_regular_type_of_literal_type(source);
-        let target = self.get_regular_type_of_literal_type(target);
-        if source == target {
-            return Ternary::Related;
-        }
-        if self.is_error(source)
-            || self.is_error(target)
-            || source == self.intrinsics.unresolved
-            || target == self.intrinsics.unresolved
-        {
-            return Ternary::Unknown;
-        }
-        let source_flags = self.type_of(source).flags;
-        let target_flags = self.type_of(target).flags;
-        if source_flags != target_flags {
-            // **Enum types are declined.** This port builds one enum under two
-            // representations — `var p: M3.Color; var p = M3.Color.Red` prints
-            // `M3.Color` on both sides with different flags — and a narrowed
-            // enum union can come back as `number`; a flags difference
-            // involving an enum is not yet evidence of non-identity.
-            let enum_like = TypeFlags::ENUM | TypeFlags::ENUM_LITERAL;
-            if (source_flags | target_flags).intersects(enum_like) {
-                return Ternary::Unknown;
-            }
-            return Ternary::NotRelated;
-        }
-        if source_flags.intersects(TypeFlags::UNION | TypeFlags::INTERSECTION) {
-            let (TypeData::Union { types: sources, .. }
-            | TypeData::Intersection { types: sources, .. }) = self.type_of(source).data.clone()
-            else {
-                return Ternary::Unknown;
-            };
-            let (TypeData::Union { types: targets, .. }
-            | TypeData::Intersection { types: targets, .. }) = self.type_of(target).data.clone()
-            else {
-                return Ternary::Unknown;
-            };
-            let forward = self.each_type_identical_to_some_type(&sources, &targets);
-            if forward == Ternary::NotRelated {
-                return forward;
-            }
-            let backward = self.each_type_identical_to_some_type(&targets, &sources);
-            return match (forward, backward) {
-                (_, Ternary::NotRelated) => Ternary::NotRelated,
-                (Ternary::Related, Ternary::Related) => Ternary::Related,
-                _ => Ternary::Unknown,
-            };
-        }
-        // A resolved mapped type (`Partial<…>`, `Required<…>`) is related to
-        // its expansion by machinery this port's relation does not finish yet,
-        // so a negative there is not a proof.
-        if !self.pair_is_reportable(source, target)
-            || self.is_mapped_for_identity(source)
-            || self.is_mapped_for_identity(target)
-        {
-            return Ternary::Unknown;
-        }
-        if self.relate_ternary(source, target, Relation::Assignable) == Ternary::NotRelated
-            || self.relate_ternary(target, source, Relation::Assignable) == Ternary::NotRelated
-        {
-            return Ternary::NotRelated;
-        }
-        Ternary::Unknown
-    }
-
     /// A mapped type, read through its alias body and apparent type the way
     /// `get_property_names_of_type` declines composite mapped metadata.
-    fn is_mapped_for_identity(&mut self, ty: TypeId) -> bool {
+    pub(crate) fn is_mapped_for_identity(&mut self, ty: TypeId) -> bool {
         let body = self.binding_type_alias_body(ty);
         let apparent = self.apparent_type(body);
         [ty, body, apparent].into_iter().any(|id| {
             self.mapped_types.contains_key(&id)
                 || self.mapped_identity_optionality.contains_key(&id)
         })
-    }
-
-    /// `eachTypeRelatedToSomeType` under identity.
-    fn each_type_identical_to_some_type(
-        &mut self,
-        sources: &[TypeId],
-        targets: &[TypeId],
-    ) -> Ternary {
-        let mut result = Ternary::Related;
-        for &source in sources {
-            let mut best = Ternary::NotRelated;
-            for &target in targets {
-                match self.type_identity_fragment(source, target) {
-                    Ternary::Related => {
-                        best = Ternary::Related;
-                        break;
-                    }
-                    Ternary::NotRelated => {}
-                    Ternary::Unknown => best = Ternary::Unknown,
-                }
-            }
-            match best {
-                Ternary::NotRelated => return Ternary::NotRelated,
-                Ternary::Related => {}
-                Ternary::Unknown => result = Ternary::Unknown,
-            }
-        }
-        result
     }
 
     /// An intrinsic primitive: a singleton id, so inequality *is* non-identity.
