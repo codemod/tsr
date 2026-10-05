@@ -1447,6 +1447,19 @@ impl<'a> Checker<'a, '_> {
         source: TypeId,
         target: TypeId,
     ) -> bool {
+        self.report_assignability_failure_with(at, Some(source_node), source, target)
+    }
+
+    /// [`Checker::report_assignability_failure`]; with no `source_node` the
+    /// expression is not elaborated — `checkTypeRelatedToEx` reached from an
+    /// elaboration that already chose its error node.
+    fn report_assignability_failure_with(
+        &mut self,
+        at: NodeId,
+        source_node: Option<NodeId>,
+        source: TypeId,
+        target: TypeId,
+    ) -> bool {
         // An object literal against a **union** target is the excess-property
         // and discriminated-union machinery
         // (`getMatchingUnionConstituentForObjectLiteral`,
@@ -1469,7 +1482,8 @@ impl<'a> Checker<'a, '_> {
                 }
             };
         }
-        if self.nodes.kind(source_node) == SyntaxKind::ObjectLiteralExpression
+        if source_node
+            .is_some_and(|node| self.nodes.kind(node) == SyntaxKind::ObjectLiteralExpression)
             && self.type_of(target).flags.contains(TypeFlags::UNION)
         {
             probe!(PROBE_OBJECT_LITERAL_UNION);
@@ -1479,7 +1493,7 @@ impl<'a> Checker<'a, '_> {
         // report and, when it speaks, `checkTypeRelatedToEx` stays silent. The
         // hand-off is exclusive by construction here because both live in this
         // one function: elaborating returns, it does not fall through. §176.
-        if self.elaborate_error(source_node, source, target) {
+        if source_node.is_some_and(|node| self.elaborate_error(node, source, target)) {
             probe!(PROBE_REPORTED);
             return true;
         }
@@ -1760,6 +1774,19 @@ impl<'a> Checker<'a, '_> {
         if self.is_or_has_generic_conditional(target) {
             return false;
         }
+        if self.elaborate_did_you_mean_to_call_or_construct(
+            node,
+            source,
+            target,
+            crate::signatures::SignatureKind::Construct,
+        ) || self.elaborate_did_you_mean_to_call_or_construct(
+            node,
+            source,
+            target,
+            crate::signatures::SignatureKind::Call,
+        ) {
+            return true;
+        }
         let inner = match self.node_map.get(node) {
             Some(Node::ParenthesizedExpression(parenthesized)) => parenthesized.expression,
             Some(Node::AsExpression(assertion))
@@ -1795,6 +1822,38 @@ impl<'a> Checker<'a, '_> {
         inner
             .and_then(|inner| inner.node_id())
             .is_some_and(|inner| self.elaborate_error(inner, source, target))
+    }
+
+    /// `elaborateDidYouMeanToCallOrConstruct` (`relater.go:480`): when some
+    /// `kind` signature of the source returns a type (not `any`/`never`)
+    /// related to the target, the failure is reported at the expression
+    /// itself — upstream adds "Did you mean to call this expression?" as
+    /// related information, which the suite does not compare. A pair the
+    /// relation does not reject falls through to the remaining arms.
+    fn elaborate_did_you_mean_to_call_or_construct(
+        &mut self,
+        node: NodeId,
+        source: TypeId,
+        target: TypeId,
+        kind: crate::signatures::SignatureKind,
+    ) -> bool {
+        let Some(signatures) = self.signatures_of_type_kind(source, kind) else { return false };
+        let mut callable = false;
+        for signature in &signatures {
+            let Some(return_type) = self.get_return_type_of_signature(signature) else {
+                continue;
+            };
+            if self.type_of(return_type).flags.intersects(TypeFlags::ANY | TypeFlags::NEVER) {
+                continue;
+            }
+            if self.relate_ternary(return_type, target, crate::relater::Relation::Assignable)
+                == crate::relater::Ternary::Related
+            {
+                callable = true;
+                break;
+            }
+        }
+        callable && self.report_assignability_failure_with(node, None, source, target)
     }
 
     /// `isOrHasGenericConditional` (`relater.go:474`).

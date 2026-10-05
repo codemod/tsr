@@ -195,3 +195,25 @@ Converted: `conformance/mappedTypes5`. `mappedTypes6` and
 `mappedTypeRelationships` need the unported remainder (template comparison,
 type-parameter targets, and the default branch's "non-mapped source against a
 generic mapped target is false").
+
+## 9. Ported: `elaborateDidYouMeanToCallOrConstruct`
+
+`elaborateError` (`relater.go:440`) first asks, for construct then call
+signatures of the source, whether some signature's return type (not
+`any`/`never`) is related to the target; if so and the whole pair fails, the
+failure is reported **at the expression** (`x = f` reports at `f`), with
+"Did you mean to call this expression?" as related information. The port's
+`elaborate_error` lacked the arm, so these TS2322s landed at the assignment
+target or declaration name (one MISSING + one EXTRA each).
+
+`report_assignability_failure_with(at, None, …)` is the unelaborated report
+the arm needs (upstream's `checkTypeRelatedToEx` with the expression as error
+node); it keeps every decline of `report_assignability_failure`, so a pair the
+relation does not reject falls through to the remaining elaboration arms as
+upstream's related result would.
+
+Converted: `compiler/avoidListingPropertiesForTypesWithOnlyCallOrConstructSignatures`,
+`compiler/functionSignatureAssignmentCompat1`, `compiler/optionalParamAssignmentCompat`,
+`compiler/staticMemberOfClassAndPublicMemberOfAnotherClassAssignment`,
+`compiler/typeMatch1`, `conformance/invalidAssignmentsToVoid`,
+`conformance/invalidVoidValues`.
