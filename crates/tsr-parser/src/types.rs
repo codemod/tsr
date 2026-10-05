@@ -520,8 +520,65 @@ impl<'a> Parser<'a> {
         result
     }
 
+    /// typescript-go's `Parser.nextIsUnambiguouslyStartOfFunctionType`
+    /// (`parser.go`).
+    fn next_is_unambiguously_start_of_function_type(&mut self) -> bool {
+        self.next_token();
+        // `( )` and `( ...`
+        if self.at(SyntaxKind::CloseParenToken) || self.at(SyntaxKind::DotDotDotToken) {
+            return true;
+        }
+        if self.skip_parameter_start() {
+            // `( xxx :`, `( xxx ,`, `( xxx ?`, `( xxx =`
+            if matches!(
+                self.token.kind,
+                SyntaxKind::ColonToken
+                    | SyntaxKind::CommaToken
+                    | SyntaxKind::QuestionToken
+                    | SyntaxKind::EqualsToken
+            ) {
+                return true;
+            }
+            // `( xxx ) =>`
+            if self.at(SyntaxKind::CloseParenToken) {
+                self.next_token();
+                return self.at(SyntaxKind::EqualsGreaterThanToken);
+            }
+        }
+        false
+    }
+
+    /// typescript-go's `Parser.skipParameterStart` (`parser.go`).
+    fn skip_parameter_start(&mut self) -> bool {
+        if self.token.kind.is_modifier() {
+            self.parse_modifiers();
+        }
+        self.eat(SyntaxKind::DotDotDotToken);
+        if self.is_identifier() || self.at(SyntaxKind::ThisKeyword) {
+            self.next_token();
+            return true;
+        }
+        if self.at(SyntaxKind::OpenBracketToken) || self.at(SyntaxKind::OpenBraceToken) {
+            // Only a binding pattern that parses without errors.
+            let errors = self.diagnostics.len();
+            self.parse_binding_name();
+            return errors == self.diagnostics.len();
+        }
+        false
+    }
+
     /// `(a: T) => R` and `<T>(a: T) => R`, when the lookahead confirms one.
     fn try_parse_function_type(&mut self) -> Option<TypeNode<'a>> {
+        // `isStartOfFunctionTypeOrConstructorType`: a `(` opens a function
+        // type only when what follows is unambiguously a parameter list
+        // (`nextIsUnambiguouslyStartOfFunctionType`); otherwise it is a
+        // parenthesized type, whose recovering parameter list must not be
+        // tried.
+        if self.at(SyntaxKind::OpenParenToken)
+            && !self.look_ahead(Self::next_is_unambiguously_start_of_function_type)
+        {
+            return None;
+        }
         let start = self.pos();
         let parsed = self.try_parse(|p| {
             let type_parameters = p.parse_type_parameters();
@@ -879,6 +936,79 @@ impl<'a> Parser<'a> {
             start,
         );
         TypeNode::MappedTypeNode(node)
+    }
+
+    /// Whether a type can start at the cursor — typescript-go's
+    /// `Parser.isStartOfType` (`parser.go`). `in_start_of_parameter` refuses
+    /// the forms that begin a parameter's own syntax.
+    pub(crate) fn is_start_of_type(&mut self, in_start_of_parameter: bool) -> bool {
+        match self.token.kind {
+            SyntaxKind::AnyKeyword
+            | SyntaxKind::UnknownKeyword
+            | SyntaxKind::StringKeyword
+            | SyntaxKind::NumberKeyword
+            | SyntaxKind::BigIntKeyword
+            | SyntaxKind::BooleanKeyword
+            | SyntaxKind::ReadonlyKeyword
+            | SyntaxKind::SymbolKeyword
+            | SyntaxKind::UniqueKeyword
+            | SyntaxKind::VoidKeyword
+            | SyntaxKind::UndefinedKeyword
+            | SyntaxKind::NullKeyword
+            | SyntaxKind::ThisKeyword
+            | SyntaxKind::TypeOfKeyword
+            | SyntaxKind::NeverKeyword
+            | SyntaxKind::OpenBraceToken
+            | SyntaxKind::OpenBracketToken
+            | SyntaxKind::LessThanToken
+            | SyntaxKind::BarToken
+            | SyntaxKind::AmpersandToken
+            | SyntaxKind::NewKeyword
+            | SyntaxKind::StringLiteral
+            | SyntaxKind::NumericLiteral
+            | SyntaxKind::BigIntLiteral
+            | SyntaxKind::TrueKeyword
+            | SyntaxKind::FalseKeyword
+            | SyntaxKind::ObjectKeyword
+            | SyntaxKind::AsteriskToken
+            | SyntaxKind::QuestionToken
+            | SyntaxKind::ExclamationToken
+            | SyntaxKind::DotDotDotToken
+            | SyntaxKind::InferKeyword
+            | SyntaxKind::ImportKeyword
+            | SyntaxKind::AssertsKeyword
+            | SyntaxKind::NoSubstitutionTemplateLiteral
+            | SyntaxKind::TemplateHead => true,
+            SyntaxKind::FunctionKeyword => !in_start_of_parameter,
+            SyntaxKind::MinusToken => {
+                !in_start_of_parameter
+                    && self.peek_kind(|kind| {
+                        matches!(kind, SyntaxKind::NumericLiteral | SyntaxKind::BigIntLiteral)
+                    })
+            }
+            // Only `(` followed by `)`, `...`, an identifier, a modifier, or
+            // something that starts a type: not `(1)`.
+            SyntaxKind::OpenParenToken => {
+                !in_start_of_parameter
+                    && self.look_ahead(|p| {
+                        p.next_token();
+                        p.at(SyntaxKind::CloseParenToken)
+                            || p.is_start_of_parameter()
+                            || p.is_start_of_type(false)
+                    })
+            }
+            _ => self.is_identifier(),
+        }
+    }
+
+    /// typescript-go's `Parser.isStartOfParameter(isJSDocParameter: false)`
+    /// (`parser.go`).
+    pub(crate) fn is_start_of_parameter(&mut self) -> bool {
+        self.at(SyntaxKind::DotDotDotToken)
+            || self.is_binding_identifier_or_private_identifier_or_pattern()
+            || self.token.kind.is_modifier()
+            || self.at(SyntaxKind::AtToken)
+            || self.is_start_of_type(true)
     }
 
     /// `{ a: string; b(): void }` — typescript-go's `Parser.parseTypeLiteral`

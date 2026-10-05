@@ -486,19 +486,14 @@ impl<'a> Parser<'a> {
         // `parseBracketedList(PCParameters, parseParameter, [, ])`. §209/§210:
         // a list of zero or more ordinary parameters, each able to carry
         // modifiers and an initializer.
-        self.expect(SyntaxKind::OpenBracketToken);
-        let mut parsed = Vec::new();
-        while !self.at(SyntaxKind::CloseBracketToken) && !self.at(SyntaxKind::EndOfFile) {
-            let before = self.pos();
-            parsed.push(self.parse_parameter());
-            if !self.eat(SyntaxKind::CommaToken) {
-                break;
-            }
-            if self.pos() == before {
-                break;
-            }
-        }
-        self.expect(SyntaxKind::CloseBracketToken);
+        let parsed = if self.expect(SyntaxKind::OpenBracketToken) {
+            let (parsed, _) =
+                self.parse_delimited_list(ParsingContext::Parameters, Self::parse_parameter);
+            self.expect(SyntaxKind::CloseBracketToken);
+            parsed
+        } else {
+            Vec::new()
+        };
         let value_type = self.parse_type_annotation();
         self.parse_type_member_semicolon();
         let modifiers = self.arena.alloc_slice(modifiers);

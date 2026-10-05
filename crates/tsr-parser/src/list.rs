@@ -48,12 +48,14 @@ pub(crate) enum ParsingContext {
     ArgumentExpressions = 11,
     /// `PCArrayLiteralMembers`: elements of an array literal.
     ArrayLiteralMembers = 15,
+    /// `PCParameters`: parameters of a signature or index signature.
+    Parameters = 16,
 }
 
 impl ParsingContext {
     /// Every context, in upstream's order — `isInSomeParsingContext` walks
     /// them lowest bit first.
-    const ALL: [Self; 10] = [
+    const ALL: [Self; 11] = [
         Self::SourceElements,
         Self::BlockStatements,
         Self::SwitchClauses,
@@ -64,6 +66,7 @@ impl ParsingContext {
         Self::VariableDeclarations,
         Self::ArgumentExpressions,
         Self::ArrayLiteralMembers,
+        Self::Parameters,
     ];
 
     const fn bit(self) -> u32 {
@@ -200,6 +203,7 @@ impl Parser<'_> {
                     SyntaxKind::CommaToken | SyntaxKind::DotToken | SyntaxKind::DotDotDotToken
                 ) || self.is_start_of_expression()
             }
+            ParsingContext::Parameters => self.is_start_of_parameter(),
         }
     }
 
@@ -342,6 +346,14 @@ impl Parser<'_> {
                 matches!(self.token.kind, SyntaxKind::CloseParenToken | SyntaxKind::SemicolonToken)
             }
             ParsingContext::ArrayLiteralMembers => self.at(SyntaxKind::CloseBracketToken),
+            // Tokens other than ')' and ']' (the latter for index signatures)
+            // are here for better error recovery.
+            ParsingContext::Parameters => {
+                matches!(
+                    self.token.kind,
+                    SyntaxKind::CloseParenToken | SyntaxKind::CloseBracketToken
+                )
+            }
             ParsingContext::SwitchClauseStatements => matches!(
                 self.token.kind,
                 SyntaxKind::CloseBraceToken | SyntaxKind::CaseKeyword | SyntaxKind::DefaultKeyword
@@ -418,6 +430,16 @@ impl Parser<'_> {
             }
             ParsingContext::ArrayLiteralMembers => {
                 self.error_at_current(&messages::EXPRESSION_OR_COMMA_EXPECTED);
+            }
+            ParsingContext::Parameters if self.token.kind.is_keyword() => {
+                let text = self.token_text();
+                self.error_at_current_with(
+                    &messages::_0_IS_NOT_ALLOWED_AS_A_PARAMETER_NAME,
+                    &[text],
+                );
+            }
+            ParsingContext::Parameters => {
+                self.error_at_current(&messages::PARAMETER_DECLARATION_EXPECTED);
             }
         }
     }

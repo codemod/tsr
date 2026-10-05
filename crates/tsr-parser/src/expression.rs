@@ -121,29 +121,6 @@ fn is_left_hand_side_expression(expression: Expression<'_>) -> bool {
     )
 }
 
-/// The unambiguous half of `isStartOfParameter` (`parser.go:886`).
-///
-/// Upstream's predicate ends in `isStartOfType`, which this port does not have;
-/// omitting it makes this a **subset**, and a subset is safe here because every
-/// token it rejects keeps the caller's `break`. See `checker-notes-diag2.md`
-/// §200 for why the complete predicate is priced separately.
-fn starts_parameter(kind: SyntaxKind) -> bool {
-    matches!(
-        kind,
-        SyntaxKind::DotDotDotToken
-            | SyntaxKind::Identifier
-            | SyntaxKind::OpenBraceToken
-            | SyntaxKind::OpenBracketToken
-            | SyntaxKind::AtToken
-            | SyntaxKind::ThisKeyword
-            | SyntaxKind::PublicKeyword
-            | SyntaxKind::PrivateKeyword
-            | SyntaxKind::ProtectedKeyword
-            | SyntaxKind::ReadonlyKeyword
-            | SyntaxKind::OverrideKeyword
-    )
-}
-
 /// `isListElement(PCObjectLiteralMembers)` (`parser.go:845`).
 ///
 /// `[`, `*`, `...` and `.` are admitted verbatim from upstream — the last is
@@ -1484,9 +1461,9 @@ impl<'a> Parser<'a> {
 
         // A bare `x => …` needs no speculation. The name may be a contextual
         // keyword — `async => async` names its parameter `async`.
-        if self.at(SyntaxKind::Identifier)
-            || crate::statement::is_contextual_keyword(self.token.kind)
-        {
+        // `isIdentifier`: `await` names no parameter inside an await
+        // context (`isSimpleArrowFunction` / `parseSimpleArrowFunctionExpression`).
+        if self.is_identifier() {
             let saved_start = modifier_start;
             let parsed = self.try_parse(|p| {
                 let parameter_start = p.pos();
@@ -1536,24 +1513,55 @@ impl<'a> Parser<'a> {
         if !self.at(SyntaxKind::OpenParenToken) && !self.at(SyntaxKind::LessThanToken) {
             return None;
         }
-        // Decide with a token-only scan before committing to a real parse. See
-        // `is_arrow_function_ahead` for why speculating directly is catastrophic.
-        if !self.is_arrow_function_ahead() {
+        // `isParenthesizedArrowFunctionExpression`: a definite answer is
+        // upstream's; an ambiguous one is decided with a token-only scan
+        // before committing to a real parse. See `is_arrow_function_ahead_given`
+        // for why speculating directly is catastrophic.
+        let tristate = self.look_ahead(Self::next_is_parenthesized_arrow_function_expression);
+        if !self.is_arrow_function_ahead_given(tristate) {
             return None;
         }
 
         let start = modifier_start;
         let is_async = async_modifier.is_some();
-        let type_parameters = self.parse_type_parameters();
-        // Parameters take the signature's await context (`parser.go:3299`), the
-        // body the same one (`:4484`); the `=>` between them is neither's.
-        let (parameters, return_type) = self.with_await_context(is_async, |parser| {
-            let parameters = parser.parse_parameter_list();
-            // A return type may intervene: `(a): number => a`.
-            (parameters, parser.parse_return_type_annotation())
+        // `parseParenthesizedArrowFunctionExpression(allowAmbiguity)`: only a
+        // definite arrow may have a parameter list that is not one — an
+        // ambiguous one is abandoned (and the group reparsed as an
+        // expression) at a parameter that starts with no parameter name.
+        let allow_ambiguity = tristate == Some(true);
+        let signature = self.try_parse(|parser| {
+            let type_parameters = parser.parse_type_parameters();
+            // Parameters take the signature's await context (`parser.go:3299`),
+            // the body the same one (`:4484`); the `=>` between them is
+            // neither's.
+            parser.with_await_context(is_async, |parser| {
+                let parameters = if allow_ambiguity {
+                    parser.parse_parameter_list()
+                } else {
+                    parser.parse_unambiguous_parameter_list()?
+                };
+                // A return type may intervene: `(a): number => a`.
+                Some((type_parameters, parameters, parser.parse_return_type_annotation()))
+            })
         });
-        let arrow = self.take_token();
-        let body = self.with_await_context(is_async, Self::parse_arrow_body_inner);
+        let (type_parameters, parameters, return_type) = signature?;
+        // A definite arrow may be missing its `=>` (`() :void {}`): report it,
+        // and parse a body only after `=>` or `{`.
+        let last_token = self.token.kind;
+        let arrow = if self.at(SyntaxKind::EqualsGreaterThanToken) {
+            self.take_token()
+        } else {
+            self.error_at_current_with(&messages::_0_EXPECTED, &["=>"]);
+            self.alloc_token(SyntaxKind::EqualsGreaterThanToken, Span::at(self.node_end()))
+        };
+        let body = if matches!(
+            last_token,
+            SyntaxKind::EqualsGreaterThanToken | SyntaxKind::OpenBraceToken
+        ) {
+            self.with_await_context(is_async, Self::parse_arrow_body_inner)
+        } else {
+            ConciseBody::from(Expression::Identifier(self.parse_identifier()))
+        };
         let parameters = self.arena.alloc_slice(&parameters);
         let type_parameters = self.arena.alloc_slice(&type_parameters);
         let modifiers = modifier_slice(self.arena, async_modifier);
@@ -1620,7 +1628,19 @@ impl<'a> Parser<'a> {
             matched = match p.token.kind {
                 SyntaxKind::Identifier => p.peek_kind(|k| k == SyntaxKind::EqualsGreaterThanToken),
                 SyntaxKind::OpenParenToken | SyntaxKind::LessThanToken => {
-                    p.is_arrow_function_ahead()
+                    // The same decision `try_parse_arrow_function` makes after
+                    // the `async`, including an ambiguous list's abandonment,
+                    // so the modifier is never consumed for a non-arrow.
+                    let tristate =
+                        p.look_ahead(Self::next_is_parenthesized_arrow_function_expression);
+                    p.is_arrow_function_ahead_given(tristate)
+                        && (tristate == Some(true)
+                            || p.look_ahead(|p| {
+                                p.parse_type_parameters();
+                                p.with_await_context(true, |p| {
+                                    p.parse_unambiguous_parameter_list().is_some()
+                                })
+                            }))
                 }
                 _ => false,
             };
@@ -1644,7 +1664,147 @@ impl<'a> Parser<'a> {
     /// This scan only moves the token cursor: no nodes are built and no
     /// expression parser is re-entered, so it is linear in the group's length.
     /// TypeScript resolves the same ambiguity the same way.
-    fn is_arrow_function_ahead(&mut self) -> bool {
+    ///
+    /// Upstream's tristate comes first: `Some(answer)` is definite, `None`
+    /// is decided by the scan.
+    fn is_arrow_function_ahead_given(&mut self, tristate: Option<bool>) -> bool {
+        if let Some(answer) = tristate {
+            return answer;
+        }
+        self.scan_for_arrow_function()
+    }
+
+    /// typescript-go's `Parser.nextIsParenthesizedArrowFunctionExpression`
+    /// (`parser.go`), from the `(` or `<` (the `async` is already consumed):
+    /// `Some(true)`/`Some(false)` are its definite answers, `None` its
+    /// `TSUnknown`.
+    fn next_is_parenthesized_arrow_function_expression(&mut self) -> Option<bool> {
+        let first = self.token.kind;
+        self.next_token();
+        let second = self.token.kind;
+        if first == SyntaxKind::OpenParenToken {
+            if second == SyntaxKind::CloseParenToken {
+                // `() =>`, `():` and `() {` — the last is not an arrow
+                // function, but probably what the user intended.
+                self.next_token();
+                return Some(matches!(
+                    self.token.kind,
+                    SyntaxKind::EqualsGreaterThanToken
+                        | SyntaxKind::ColonToken
+                        | SyntaxKind::OpenBraceToken
+                ));
+            }
+            // `([` or `({` could start a binding pattern.
+            if matches!(second, SyntaxKind::OpenBracketToken | SyntaxKind::OpenBraceToken) {
+                return None;
+            }
+            // `(...` is a rest parameter.
+            if second == SyntaxKind::DotDotDotToken {
+                return Some(true);
+            }
+            // `(xxx yyy` with xxx a modifier: not allowed, but treated as a
+            // lambda for a good error message.
+            if second.is_modifier()
+                && second != SyntaxKind::AsyncKeyword
+                && self.look_ahead(|p| {
+                    p.next_token();
+                    p.is_identifier()
+                })
+            {
+                self.next_token();
+                return Some(!self.at(SyntaxKind::AsKeyword));
+            }
+            // `(` followed by something that is not an identifier is not a
+            // lambda; `this` is parsed and given a semantic error.
+            if !self.is_identifier() && second != SyntaxKind::ThisKeyword {
+                return Some(false);
+            }
+            self.next_token();
+            return match self.token.kind {
+                // `(a:` — a type-annotated parameter.
+                SyntaxKind::ColonToken => Some(true),
+                // `(a?:`, `(a?,`, `(a?=`, `(a?)` — definitely; otherwise
+                // definitely not.
+                SyntaxKind::QuestionToken => {
+                    self.next_token();
+                    Some(matches!(
+                        self.token.kind,
+                        SyntaxKind::ColonToken
+                            | SyntaxKind::CommaToken
+                            | SyntaxKind::EqualsToken
+                            | SyntaxKind::CloseParenToken
+                    ))
+                }
+                // `(a,`, `(a=` or `(a)` could be an arrow function.
+                SyntaxKind::CommaToken | SyntaxKind::EqualsToken | SyntaxKind::CloseParenToken => {
+                    None
+                }
+                _ => Some(false),
+            };
+        }
+        // `<` not followed by an identifier is not an arrow function.
+        if !self.is_identifier() && second != SyntaxKind::ConstKeyword {
+            return Some(false);
+        }
+        if self.script_kind.allows_jsx() {
+            return Some(self.look_ahead(|p| {
+                p.eat(SyntaxKind::ConstKeyword);
+                p.next_token();
+                match p.token.kind {
+                    SyntaxKind::ExtendsKeyword => {
+                        p.next_token();
+                        !matches!(
+                            p.token.kind,
+                            SyntaxKind::EqualsToken
+                                | SyntaxKind::GreaterThanToken
+                                | SyntaxKind::SlashToken
+                        )
+                    }
+                    SyntaxKind::CommaToken | SyntaxKind::EqualsToken => true,
+                    _ => false,
+                }
+            }));
+        }
+        None
+    }
+
+    /// `parseParametersWorker(allowAmbiguity: false)` between parentheses:
+    /// `None` when a parameter, past its modifiers and `...`, does not start
+    /// with a parameter name (`isParameterNameStart`) or the `)` is missing —
+    /// upstream's `nil` that abandons a speculative arrow function.
+    fn parse_unambiguous_parameter_list(&mut self) -> Option<Vec<&'a ParameterDeclaration<'a>>> {
+        if !self.expect(SyntaxKind::OpenParenToken) {
+            return None;
+        }
+        let mut failed = false;
+        let (parameters, _) = self.parse_delimited_list(ParsingContext::Parameters, |parser| {
+            if !failed && !parser.look_ahead(Self::parameter_name_starts_after_prefix) {
+                failed = true;
+            }
+            parser.parse_parameter()
+        });
+        if failed || !self.expect(SyntaxKind::CloseParenToken) {
+            return None;
+        }
+        Some(parameters)
+    }
+
+    /// `parseParameterEx`'s `!allowAmbiguity` test: past modifiers, a `this`
+    /// parameter is fine; otherwise past an optional `...` the token must be
+    /// `isParameterNameStart`.
+    fn parameter_name_starts_after_prefix(&mut self) -> bool {
+        self.parse_modifiers();
+        if self.at(SyntaxKind::ThisKeyword) {
+            return true;
+        }
+        self.eat(SyntaxKind::DotDotDotToken);
+        self.is_binding_identifier()
+            || self.at(SyntaxKind::OpenBracketToken)
+            || self.at(SyntaxKind::OpenBraceToken)
+    }
+
+    /// The token-only scan behind an ambiguous [`Self::is_arrow_function_ahead_given`].
+    fn scan_for_arrow_function(&mut self) -> bool {
         let mut result = false;
         self.try_parse(|p| {
             // A generic arrow opens with type parameters: `<T>(a: T) => T`.
@@ -2664,60 +2824,12 @@ impl<'a> Parser<'a> {
         if !self.expect(SyntaxKind::OpenParenToken) {
             return Vec::new();
         }
-        let mut parameters = Vec::new();
-        while !self.at(SyntaxKind::CloseParenToken) && !self.at(SyntaxKind::EndOfFile) {
-            // §277: a bare `,` cannot start a parameter and mints NO element —
-            // upstream's `parseDelimitedList` falls to its abort-or-skip arm,
-            // reports TS1138 at the token, and moves on. This loop instead
-            // called `parse_parameter`, which synthesized a zero-width
-            // identifier the baseline walker then printed: `get x(,)`
-            // (`trailingCommasInGetter`) rendered one assertion more than
-            // upstream and shifted every later position. Only the comma is
-            // rejected here — `starts_parameter` is a deliberate SUBSET
-            // (contextual keywords scan as keyword kinds), so a head-guard on
-            // its complement would skip valid parameters like `type` or
-            // `async`; the §200 discipline, third application.
-            if self.at(SyntaxKind::CommaToken) {
-                self.error_at_current(&messages::PARAMETER_DECLARATION_EXPECTED);
-                self.next_token();
-                continue;
-            }
-            let before = self.pos();
-            parameters.push(self.parse_parameter());
-            if self.eat(SyntaxKind::CommaToken) {
-                if self.pos() == before {
-                    break;
-                }
-                continue;
-            }
-            // `parseDelimitedList` (`parser.go:664`) reports the missing
-            // separator and **continues the list**; this loop used to leave it,
-            // which turned one recovery into a cascade —
-            // `constructor(...public rest: string[])` is a single `',' expected`
-            // upstream and was four errors here (§198).
-            //
-            // **Continuing is guarded, and the guard is a deliberate SUBSET of
-            // upstream's.** `isListElement` for `PCParameters` is
-            // `isStartOfParameter` (`parser.go:886`), whose last disjunct is
-            // `isStartOfType` — a predicate this port does not have. Porting the
-            // continue *without* any guard was §198, and it invented a parameter
-            // from whatever token was there: 64 valid files gained
-            // `TS1003 Identifier expected`.
-            //
-            // What is admitted here is the unambiguous half. Everything else
-            // falls back to the `break` this loop already did, so the change can
-            // only turn an abort into a continue where a parameter genuinely
-            // follows — it cannot manufacture one. §200.
-            if !starts_parameter(self.token.kind) {
-                break;
-            }
-            self.expect(SyntaxKind::CommaToken);
-            // `if startPos == p.nodePos() { p.nextToken() }` (`parser.go:686`):
-            // an element that consumed nothing must not spin the loop.
-            if self.pos() == before {
-                self.next_token();
-            }
-        }
+        // `parseParametersWorker`: `parseDelimitedList(PCParameters,
+        // parseParameter)`. A token that starts no parameter is reported
+        // (TS1138, or TS1390 for a keyword) and skipped unless an enclosing
+        // list wants it — the general form of §198/§200/§277's subsets.
+        let (parameters, _) =
+            self.parse_delimited_list(ParsingContext::Parameters, Self::parse_parameter);
         self.expect(SyntaxKind::CloseParenToken);
         parameters
     }
