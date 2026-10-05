@@ -2,7 +2,7 @@
   "schema": 1,
   "kind": "reference-preflight-prototype",
   "prototype_complete": true,
-  "performance_validation_pending": true,
+  "performance_validation_pending": false,
   "speed_claim": false,
   "root_goal_complete": false,
   "identity": {
@@ -28183,5 +28183,11 @@
     },
     "meter_tests": "four standalone allocator invariants pass; parent shim uses measured meter bytes, recognizes cfg(test) and original feature; helper API dead_code allowed",
     "reader_tests": "four reference-display reader tests/20negative variants and three allocator/worker receipt tests pass"
+  },
+  "retained": false,
+  "retention_decision": {
+    "path": "docs/architecture/reference-preflight-decision.json",
+    "sha256": "c2da8ed22d4a79a68aa5e7e690c6847171aed7ad0cfb4fbcb16c929915e99bbf",
+    "outcome": "rejected-contradictory-rounds"
   }
 }

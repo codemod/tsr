@@ -89,7 +89,7 @@ the original `jsdoc-setup-probe` cfg value. No production allocator is changed.
 Four allocator tests and three receipt-reader tests pass; strict release checker
 Clippy and candidate formatting pass.
 
-The next task, `tsr-1yb.16.3.3.2`, owns the decision to retain or reject. Its fixed
+Task `tsr-1yb.16.3.3.2` completed with rejection. Its fixed
 protocol uses two independent five-pair rounds in default and single modes,
 ordinary binaries, stable observed inputs/options, full output, wall/CPU/RSS and
 variance. Each round must independently pass the existing 20 ms absolute gate
@@ -97,6 +97,34 @@ without a required-mode regression beyond that threshold, with at most 5%
 median peak-RSS growth per mode. Sub-noise or contradictory rounds require
 no-change. The initial four-child ordinary baseline is 3.352/5.232 seconds;
 single samples range 5.120–5.344, so it is not a confirmation result.
+
+The [final decision receipt](reference-preflight-decision.json) retains the
+frozen specification and driver, every child status/output hash, observed input
+identity, wall/CPU/RSS ranges, both unchanged decider inputs/results and exact
+restoration. Forty timed children and ten preflights finish, with the same 117
+diagnostics and ordered 14,050 loaded files. Reported counts remain 1,397 checked
+and 14,746 parsed files. Incremental/composite reuse and all TSR observers are
+disabled for timing; baseline/candidate execution order alternates within pairs.
+The second independent round reverses the mode order.
+
+| Independent round | Default baseline → candidate | Single baseline → candidate | Fixed decision |
+| --- | --- | --- | --- |
+| 1 | 3.148184 → 3.132174 s | 4.925134 → 4.886526 s | Keep: single improves 39 ms; default is within noise |
+| 2 | 3.103894 → 3.155599 s | 4.887825 → 4.898430 s | Revert: default regresses 52 ms; single is within noise |
+
+All per-mode median peak-RSS ratios pass the 1.05 limit (range 0.9904–1.0108).
+Correctness and allocation savings therefore qualify, but repeatable whole-CLI
+benefit does not. The predeclared rule requires both rounds to pass independently;
+pooling samples or moving the threshold would change that rule. Reject the
+candidate. External host activity remains uncontrolled, so these results do not
+establish a universal slowdown either.
+
+The private source is restored to `a49a171a`, then rebuilt successfully. CLI,
+reference helper and both corpus binaries exactly match their baseline hashes;
+candidate copies and the proposal remain archived. Canonical checker code was
+never modified by this experiment. Concurrent `c1f545cd` changed checker/parser
+behavior while evidence was delivered; none of these frozen timings qualify that
+newer main. Reconsideration needs a new source-qualified experiment and hypothesis.
 
 Original comparable full-project TSR/pinned-tsgo median wall ≤0.50 acceptance
 remains unmet and unverified. This component cannot close that goal.

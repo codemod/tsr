@@ -30,7 +30,11 @@ candidate source/binary restoration is exact. Four archive observer children
 preserve 1,397 actual checked identities and default/single peaks 4/1, with
 equal selected semantic entries. Discarded returned spelling falls from
 2.35MB/1.64MB to zero. The six-line patch remains an isolated proposal;
-ordinary full-CLI validation `.16.3.3.2` is still required before retention.
+ordinary full-CLI validation `.16.3.3.2` rejected retention: independent
+rounds save 16/39 ms, then lose 52/11 ms in default/single modes against the
+fixed 20 ms gate. All 40 timed children complete. The private baseline and
+all four ordinary binaries are restored exactly; canonical checker code
+was never changed. Concurrent newer main is not covered by these timings.
 [Current-source proof and handoff](docs/architecture/reference-preflight.md).
 
 Written-reference contract (`tsr-1yb.16.3.2.2`), frozen `abe7eafe` /
