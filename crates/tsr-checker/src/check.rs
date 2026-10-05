@@ -902,6 +902,7 @@ impl Checker<'_, '_> {
             self.check_for_in_reference_expression(node);
             self.check_for_in_or_of_declarations(node);
             self.check_for_await_context(node);
+            self.check_for_of_reference_assignment(node, ambient);
         }
         if matches!(typed, Node::ImportTypeNode(_)) {
             self.check_import_type_argument(node);

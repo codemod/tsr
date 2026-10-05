@@ -118,6 +118,46 @@ impl<'a> Checker<'a, '_> {
         self.report_assignability_failure(left_id, right_id, source, target);
     }
 
+    /// `checkForOfStatement` (`checker.go:4032`), the reference-expression arm:
+    /// `for (v of xs)` relates the iterated element type to `v`'s type through
+    /// `checkTypeAssignableToAndOptionallyElaborate`, error node the left
+    /// expression. A declaration list is `checkVariableDeclarationList`'s, and
+    /// an array/object literal is `checkDestructuringAssignment`'s, so neither
+    /// is this position. An unresolved iterated type (native nil) is silent.
+    ///
+    /// `for await` iterates `getIteratedTypeOrElementType`'s async arm, which
+    /// this port's `for_of_element_type` does not answer, so it is declined.
+    /// The left-hand type comes from [`Checker::assignment_target_type`], the
+    /// same declared-type reader (and declines) the `=` arm uses.
+    pub(crate) fn check_for_of_reference_assignment(&mut self, node: NodeId, ambient: bool) {
+        if ambient || self.file_has_parse_errors || self.in_js_file(node) {
+            return;
+        }
+        let Some(Node::ForInOrOfStatement(statement)) = self.node_map.get(node) else { return };
+        if statement.kind.kind != SyntaxKind::ForOfStatement || statement.await_modifier.is_some() {
+            return;
+        }
+        let (Some(initializer), Some(expression)) = (statement.initializer, statement.expression)
+        else {
+            return;
+        };
+        let (Some(left_id), Some(right_id)) = (initializer.node_id(), expression.node_id()) else {
+            return;
+        };
+        if matches!(
+            self.nodes.kind(left_id),
+            SyntaxKind::VariableDeclarationList
+                | SyntaxKind::ArrayLiteralExpression
+                | SyntaxKind::ObjectLiteralExpression
+        ) {
+            return;
+        }
+        let Some(target) = self.assignment_target_type(left_id) else { return };
+        let iterable = self.check_expression_at_node(right_id);
+        let Some(source) = self.for_of_element_type(iterable) else { return };
+        self.report_assignability_failure(left_id, right_id, source, target);
+    }
+
     /// `checkVariableLikeDeclaration` (`checker.go:9967`) — the annotation
     /// against the initialiser.
     ///
