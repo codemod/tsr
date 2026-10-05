@@ -1909,7 +1909,7 @@ impl Checker<'_, '_> {
         // `any` answered here is an honest computation, not a failed one wearing
         // `any`'s name — `docs/architecture/checker-notes-calleegap.md` argues it
         // from those two adjacent upstream lines.
-        if self.is_untyped_call_target(callee, callee_type) {
+        if self.is_untyped_call_target(callee_type) {
             bump(&COUNTERS.untyped_call);
             return self.intrinsics.any;
         }
@@ -2421,7 +2421,7 @@ impl Checker<'_, '_> {
         // Placed after the template check, which is the order upstream's
         // `resolveUntypedCall` uses — the template is checked for its own lines
         // whether or not the tag is typed.
-        if self.is_untyped_call_target(tag, tag_type) {
+        if self.is_untyped_call_target(tag_type) {
             return self.intrinsics.any;
         }
         // §914: an OVERLOADED tag is selected by ARITY, which a tagged template
@@ -3322,126 +3322,20 @@ impl Checker<'_, '_> {
     }
 
     /// Whether a call through this callee is an **untyped call** —
-    /// `isUntypedFunctionCall` (`checker.go:9931`), reduced to its first
-    /// disjunct, `IsTypeAny(funcType)`.
+    /// `isUntypedFunctionCall` (`checker.go:9933`), its first disjunct
+    /// `IsTypeAny(funcType)`; `resolveNewExpression` asks the same of the
+    /// apparent type (`checker.go:8593`), which for `any` is `any`.
     ///
-    /// Upstream's other two disjuncts are **not** ported and each is a gap
-    /// rather than a guess: the `TypeFlagsTypeParameter` arm needs an apparent
-    /// type this port does not compute for every parameter, and the
-    /// `globalFunctionType` assignability arm needs the global `Function`
-    /// interface.
-    ///
-    /// # The positional refusal, and why it is a rule and not a trade
-    ///
-    /// An **unannotated parameter** types as `any` in this port and is
-    /// **contextually typed** upstream, so upstream's answer for a call through
-    /// one is the contextual parameter type — never `any`. Answering `any` there
-    /// would assert something upstream never computes, which is a wrong rule,
-    /// and `docs/conventions.md` says a rule is not priced. It is `STATUS.md`
-    /// §5's 2,082-line contextual-typing refusal reached through a new door, and
-    /// `examples/calleegap.rs` measured it at **64 of 77 misses removed for 36
-    /// conversions**.
-    ///
-    /// **The refusal needs no test of its own.** It was written as one and the
-    /// narrowing below subsumed it: an unannotated parameter has no annotation,
-    /// so [`Checker::any_is_written_in_an_annotation`] already excludes it. The
-    /// explicit predicate was deleted rather than left as dead code, and this
-    /// paragraph is why the family is still refused without one.
-    pub(crate) fn is_untyped_call_target(
-        &mut self,
-        callee: Expression<'_>,
-        callee_type: TypeId,
-    ) -> bool {
-        if !self.store.get(callee_type).flags.intersects(TypeFlags::ANY) {
-            return false;
-        }
-        // `errorType` carries `ANY` too. A gap must stay a gap: answering `any`
-        // for it is precisely ADR-0038's forbidden rendering, and this is the
-        // one place this arm could commit it.
-        if callee_type == self.intrinsics.error {
-            return false;
-        }
-        // NARROWED after the first run measured 248 gap->wrong against a bar of
-        // 20. The counterfactual sized a design whose `any` comes from a
-        // **written** annotation; this arm had been firing wherever the callee
-        // typed as `any` for ANY reason, including the many places this port
-        // produces `any` from an unported mechanism where upstream computes a
-        // real type. `want string | got any` was 137 of the 248.
-        //
-        // So the test is not "is the type `any`" but "did the source **say**
-        // `any`". That is the only form in which this port's `any` and
-        // upstream's are the same claim.
-        if self.any_is_written_in_an_annotation(callee) {
-            // §30's narrowing: a named class expression's name is in scope
-            // inside its own body upstream; this port's resolver reaches the
-            // outer binding instead (`classBlockScoping`, 5 G→W in the §30
-            // first pair). An identifier callee lexically inside a class
-            // bearing its name is that resolver miss — contained here.
-            if let Expression::Identifier(identifier) = callee
-                && let Some(id) = identifier.node_id
-            {
-                let mut ancestor = self.nodes.parent(id);
-                while let Some(node) = ancestor {
-                    let name = match self.node_map.get(node) {
-                        Some(tsr_ast::Node::ClassExpression(class)) => class.name,
-                        Some(tsr_ast::Node::ClassDeclaration(class)) => class.name,
-                        _ => None,
-                    };
-                    if let Some(name) = name
-                        && name.text == identifier.text
-                    {
-                        return false;
-                    }
-                    ancestor = self.nodes.parent(node);
-                }
-            }
-            return true;
-        }
-        // §23 (`checker-notes-callres.md`): a property/element access whose
-        // RECEIVER is `any` or a minted unresolved is `any` in both
-        // compilers, and a call through it is an untyped call.
-        let receiver = match callee {
-            Expression::PropertyAccessExpression(access) => access.expression,
-            Expression::ElementAccessExpression(access) => access.expression,
-            _ => None,
-        };
-        // §24: an IDENTIFIER callee whose `any` is §31's own answer — the
-        // name resolves nowhere and the file carries no import machinery.
-        if let Expression::Identifier(identifier) = callee
-            && let Some(id) = identifier.node_id
-            && self
-                .binder
-                .resolve_name(
-                    self.nodes,
-                    self.node_map,
-                    id,
-                    identifier.text,
-                    SymbolFlags::VALUE
-                        | SymbolFlags::TYPE
-                        | SymbolFlags::NAMESPACE
-                        | SymbolFlags::ALIAS,
-                )
-                .is_none()
-            && !self.file_has_import_machinery(id)
-        {
-            return true;
-        }
-        let Some(receiver) = receiver else { return false };
-        // §30's second narrowing: a parser-minted MISSING receiver (the
-        // empty identifier `new.targ` recovery produces) is not a source
-        // `any` — its `any` is §31 answering an empty name.
-        if matches!(receiver, Expression::Identifier(identifier) if identifier.text.is_empty()) {
-            return false;
-        }
-        let receiver_type = self.check_expression(receiver);
-        if self.unresolved_types.contains(&receiver_type) {
-            return true;
-        }
-        // An `any` receiver admits only outside JS files — the AMD/require
-        // shapes type through machinery upstream has and this port lacks
-        // (`amdLikeInputDeclarationEmit`, the §23 bar's fired leg).
-        receiver_type == self.intrinsics.any
-            && receiver.node_id().is_some_and(|id| !self.in_js_file(id))
+    /// `errorType` carries `ANY` too, but every caller upstream has already
+    /// answered it through `resolveErrorCall` (`checker.go:9923`) before
+    /// asking, so it is excluded here. The type-parameter and
+    /// `globalFunctionType` disjuncts are not ported on this road. The
+    /// diagnostic heads keep [`Checker::any_is_written_in_an_annotation`]'s
+    /// provenance test: there this port's `any` for an unresolved name or a
+    /// missing member stands for upstream's `errorType`, which reports nothing.
+    pub(crate) fn is_untyped_call_target(&self, callee_type: TypeId) -> bool {
+        callee_type != self.intrinsics.error
+            && self.store.get(callee_type).flags.intersects(TypeFlags::ANY)
     }
 
     /// Whether the callee's `any` was **written** in the source, rather than
