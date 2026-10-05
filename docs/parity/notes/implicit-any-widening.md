@@ -124,3 +124,24 @@ binding-pattern name supplies a contextual type (`checker.go:29431`) —
 **Falsifier.** When `crate::contextual` stops answering `Absent` where tsgo
 has a signature, admitting source 2 must convert cases without losses; if it
 still loses, the cause is here.
+
+## 4. TS7008 follows `getFlowTypeInConstructor`'s reference matching
+
+An unannotated, initializer-less property is typed from
+`getFlowTypeInConstructor` / `getFlowTypeInStaticBlocks` (`flow.go:2466`,
+`:2488`) and reports TS7008 only when that answers nil. The flow query reads a
+synthesized `this.<name>`, which `isMatchingReference` matches against
+`this.#name` and a literal element access `this['name']` as well; and a
+**static** member reads the class's static blocks, not the constructor.
+`subtree_assigns_this_member` (`check.rs`, used only by this rule) still
+approximates the flow query by "an assignment exists in the body"; it now
+matches the same reference forms, and the member rule asks static blocks for
+static members. `isPrivateWithinAmbient`'s private-identifier half is added to
+the ambient exemption (`declare class A { #prop; }`).
+
+**Measured.** Corpus TS7008 extra 16 → 1, missing 1 → 0; seven cases
+converted, no verdict lost, no types line lost.
+
+**Known approximation.** Upstream also answers nil (and reports) when every
+assigned value is nullable (`everyType(flowType, IsNullableType)`); the
+syntactic test does not see types and declines there.

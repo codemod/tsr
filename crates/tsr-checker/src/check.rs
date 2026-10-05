@@ -10134,17 +10134,41 @@ impl Checker<'_, '_> {
         if depth > 64 {
             return false;
         }
+        // `getFlowTypeInConstructor` (`flow.go:2466`) asks the flow type of a
+        // synthesized `this.<name>`, and `isMatchingReference` matches it
+        // against any access expression on `this` whose
+        // `getAccessedPropertyName` is the same: a private name
+        // (`this.#x`, `controlFlowPrivateClassField`) or a literal element
+        // access (`this['x']`, `classPropInitializationInferenceWithElementAccess`).
         if let Some(Node::BinaryExpression(binary)) = self.node_map.get(node)
             && binary.operator_token.is_some_and(|t| t.kind == SyntaxKind::EqualsToken)
             && let Some(left) = binary.left.and_then(|left| left.node_id())
-            && let Some(Node::PropertyAccessExpression(access)) = self.node_map.get(left)
-            && Self::expression_is_this(access.expression)
-            && matches!(
-                access.name,
-                Some(tsr_ast::MemberName::Identifier(name)) if name.text == text
-            )
         {
-            return true;
+            let assigned = match self.node_map.get(left) {
+                Some(Node::PropertyAccessExpression(access)) => {
+                    Self::expression_is_this(access.expression)
+                        && match access.name {
+                            Some(tsr_ast::MemberName::Identifier(name)) => name.text == text,
+                            Some(tsr_ast::MemberName::PrivateIdentifier(name)) => name.text == text,
+                            _ => false,
+                        }
+                }
+                Some(Node::ElementAccessExpression(access)) => {
+                    Self::expression_is_this(access.expression)
+                        && match access.argument_expression {
+                            Some(tsr_ast::Expression::StringLiteral(name)) => name.text == text,
+                            Some(tsr_ast::Expression::NoSubstitutionTemplateLiteral(name)) => {
+                                name.text == text
+                            }
+                            Some(tsr_ast::Expression::NumericLiteral(name)) => name.text == text,
+                            _ => false,
+                        }
+                }
+                _ => false,
+            };
+            if assigned {
+                return true;
+            }
         }
         let mut children = Vec::new();
         if let Some(typed) = self.node_map.get(node) {

@@ -77,6 +77,28 @@ impl Checker<'_, '_> {
         })
     }
 
+    /// Does a class static block assign `this.<name>`?
+    ///
+    /// `getFlowTypeInStaticBlocks` (`flow.go:2488`) — the static twin of
+    /// [`Checker::constructor_assigns_this_member`], reached from the static
+    /// arm of `getTypeForVariableLikeDeclaration` (`checker.go:16768`). In a
+    /// static block `this` is the class, so `static x; static { this.x = 1 }`
+    /// types `x` (`classStaticBlockUseBeforeDef1`).
+    fn static_block_assigns_this_member(&mut self, member: NodeId, text: &str) -> bool {
+        let Some(class) = self.nodes.parent(member) else { return false };
+        let members = match self.node_map.get(class) {
+            Some(Node::ClassDeclaration(class)) => class.members,
+            Some(Node::ClassExpression(class)) => class.members,
+            _ => return false,
+        };
+        members.iter().any(|each| {
+            let tsr_ast::ClassElement::ClassStaticBlockDeclaration(block) = each else {
+                return false;
+            };
+            block.node_id.is_some_and(|block| self.subtree_assigns_this_member(block, text, 0))
+        })
+    }
+
     /// Every parameter of one function-like declaration that is an implicit
     /// `any`.
     ///
@@ -102,10 +124,18 @@ impl Checker<'_, '_> {
         // answer.** `ambient` is *is it ambient*; upstream exempts *ambient
         // **and** private*. §582 fixed the identical defect in the parameter
         // rule and this comment used to assert the guard was sufficient. §664.
+        // `IsPrivateIdentifierClassElementDeclaration` is the other half of
+        // `isPrivateWithinAmbient` (`utilities.go:343`): `declare class A {
+        // #prop; }` is private without the keyword
+        // (`privateNameAmbientNoImplicitAny`).
         let is_private =
             self.node_map.get(node).and_then(crate::check::modifiers_of).is_some_and(|m| {
                 tsr_ast::has_syntactic_modifier(m, tsr_ast::SyntaxKind::PrivateKeyword)
-            });
+            }) || matches!(
+                self.node_map.get(node),
+                Some(Node::PropertyDeclaration(property))
+                    if matches!(property.name, tsr_ast::PropertyName::PrivateIdentifier(_))
+            );
         if !self.no_implicit_any || (ambient && is_private) {
             return;
         }
@@ -150,6 +180,9 @@ impl Checker<'_, '_> {
         let is_static = crate::check::modifiers_of(typed_member)
             .is_some_and(|m| tsr_ast::has_syntactic_modifier(m, SyntaxKind::StaticKeyword));
         if !is_static && self.constructor_assigns_this_member(node, text) {
+            return;
+        }
+        if is_static && self.static_block_assigns_this_member(node, text) {
             return;
         }
         let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
