@@ -634,30 +634,11 @@ impl Checker<'_, '_> {
         // Other targets use the existing relation answer; unsupported
         // applicability never recovers the original function's signature.
         if self.module_value_clones.contains_key(&callee_type) {
-            let Some(function) = self.global_type_symbol_with_arity("Function", 0) else {
-                return error;
+            return if self.is_assignable_to_global_function(callee_type) {
+                self.intrinsics.any
+            } else {
+                error
             };
-            if !self
-                .binder
-                .symbols()
-                .get(function)
-                .flags
-                .intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE)
-            {
-                return error;
-            }
-            let function = self.get_declared_type_of_symbol(function);
-            if function != error
-                && (self.is_empty_spread_object_type(function)
-                    || self.relate_ternary(
-                        callee_type,
-                        function,
-                        crate::relater::Relation::Assignable,
-                    ) == crate::relater::Ternary::Related)
-            {
-                return self.intrinsics.any;
-            }
-            return error;
         }
         // Split the largest bucket in the funnel by *why* the callee has no
         // object type. Done here rather than in `resolve_call_signature`
@@ -682,6 +663,10 @@ impl Checker<'_, '_> {
         // from those two adjacent upstream lines.
         if self.is_untyped_call_target(callee, callee_type) {
             bump(&COUNTERS.untyped_call);
+            return self.intrinsics.any;
+        }
+        // isUntypedFunctionCall's third disjunct: a `Function`-typed callee.
+        if self.is_untyped_function_typed_callee(callee_type) {
             return self.intrinsics.any;
         }
         let resolved = self.resolve_call_signature_at(
@@ -1193,6 +1178,9 @@ impl Checker<'_, '_> {
         // `resolveUntypedCall` uses — the template is checked for its own lines
         // whether or not the tag is typed.
         if self.is_untyped_call_target(tag, tag_type) {
+            return self.intrinsics.any;
+        }
+        if self.is_untyped_function_typed_callee(tag_type) {
             return self.intrinsics.any;
         }
         // §914: an OVERLOADED tag is selected by ARITY, which a tagged template
@@ -2214,6 +2202,57 @@ impl Checker<'_, '_> {
         // (`amdLikeInputDeclarationEmit`, the §23 bar's fired leg).
         receiver_type == self.intrinsics.any
             && receiver.node_id().is_some_and(|id| !self.in_js_file(id))
+    }
+
+    /// `isUntypedFunctionCall`'s third disjunct (`checker.go:9936`): a callee
+    /// whose apparent type is not a union, does not reduce to `never`, has
+    /// **no** call and **no** construct signatures, and is assignable to the
+    /// global `Function` interface — a value typed `Function` — is an untyped
+    /// call answering `any`.
+    ///
+    /// Both signature lists must come from a complete query: an unresolved
+    /// list (`None`) is not "zero", so the arm declines rather than reading an
+    /// incomplete list as empty.
+    pub(crate) fn is_untyped_function_typed_callee(&mut self, callee_type: TypeId) -> bool {
+        let apparent = self.apparent_type(callee_type);
+        let flags = self.store.get(apparent).flags;
+        if flags.intersects(TypeFlags::UNION | TypeFlags::NEVER | TypeFlags::ANY)
+            || self.intersection_has_never_discriminant(apparent)
+        {
+            return false;
+        }
+        if !self
+            .signatures_of_type_kind(apparent, SignatureKind::Call)
+            .is_some_and(|s| s.is_empty())
+            || !self
+                .signatures_of_type_kind(apparent, SignatureKind::Construct)
+                .is_some_and(|s| s.is_empty())
+        {
+            return false;
+        }
+        self.is_assignable_to_global_function(callee_type)
+    }
+
+    /// `isTypeAssignableTo(t, globalFunctionType)`, declining (false) when the
+    /// global `Function` interface is missing or unreadable.
+    fn is_assignable_to_global_function(&mut self, ty: TypeId) -> bool {
+        let Some(function) = self.global_type_symbol_with_arity("Function", 0) else {
+            return false;
+        };
+        if !self
+            .binder
+            .symbols()
+            .get(function)
+            .flags
+            .intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE)
+        {
+            return false;
+        }
+        let function = self.get_declared_type_of_symbol(function);
+        function != self.intrinsics.error
+            && (self.is_empty_spread_object_type(function)
+                || self.relate_ternary(ty, function, crate::relater::Relation::Assignable)
+                    == crate::relater::Ternary::Related)
     }
 
     /// Whether the callee's `any` was **written** in the source, rather than

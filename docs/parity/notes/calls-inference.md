@@ -58,3 +58,25 @@ stay gaps (`decoratorReferences`, `contextuallyTypedIife`, two private-name
 **When to delete it:** when the verbatim test measures zero gap→wrong — i.e.
 once the unported `any` producers listed above are ported, the allowlist should
 be replaced by `IsTypeAny(funcType)`.
+
+## 2. `Function`-typed callees are untyped calls (tsr-2zk.16.5)
+
+`isUntypedFunctionCall`'s third disjunct (`checker.go:9936`): a callee whose
+apparent type is not a union, does not reduce to `never`, has no call and no
+construct signatures, and is assignable to the global `Function` interface is
+an untyped call answering `any` (`fn: Function; fn()`). Ported as
+`Checker::is_untyped_function_typed_callee` (`calls.rs`) on the call and
+tagged-template roads; the `new` road has no such disjunct upstream.
+
+**Judgment.** Both signature lists must come from a *complete* query
+(`signatures_of_type_kind` answering `Some`). `None` means "unresolved", not
+"zero"; reading it as zero would turn every unresolved callee into `any`. The
+module-clone special case in `check_call_expression_worker` already computed
+the `Function` assignability; it now shares `is_assignable_to_global_function`.
+
+Measured alone on top of §1: +4 gap→right, 0 gap→wrong, 0 losses
+(`functionType`, `callWithSpreadES6` converted).
+
+**Not ported:** the type-parameter disjunct
+(`IsTypeAny(apparent) && funcType is TypeParameter`); TSR does not answer an
+`any` apparent type for an unconstrained type parameter.
