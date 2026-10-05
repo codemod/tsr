@@ -29,6 +29,18 @@ Parity epic (`tsr-2zk`), measured at `586c2ec0` against native `5b1047d`:
 cases are split into sixteen disjoint lanes in [docs/parity](docs/parity/README.md),
 worked by parallel Box agents and merged one at a time.
 
+Conservative plain TS documentation (`tsr-1yb.9.2`), frozen Rust `a24cacb2`,
+costs 83.374 ms median body work across 135,767 comments on Next.js; 24,126,296
+cumulative requested arena bytes are not retained memory. Three off/on pairs
+preserve 117 diagnostics and loaded payloads; separate traces preserve all
+1,397 actual full-file checks. Observer overhead/noise prevents a speed claim.
+A drop-plain mutant fails documented-node lookup. Borrowed lazy-result ownership
+and attachment/private transport costs remain P1 `.9.2.1` / `.9.2.2` before
+deferral. A minimal isolated CLI annotation candidate passes but still misses
+the stronger four-error native JS negative (`tsr-6.65`); canonical runtime is
+unchanged. [Eligible-body evidence](docs/architecture/jsdoc-eligible.md).
+Equivalent full-work TSR/native median <=0.50 remains unmet and unverified.
+
 Private checker storage (`tsr-1yb.3.1.1.3`), frozen Rust `4faf1cbd` and native
 `5b1047d`, measures simultaneous Next.js requested live bytes of 145,855,984 /
 167,069,892 / 208,035,249 at 1/2/4 workers. Eighteen off/on pairs preserve
@@ -2993,6 +3005,15 @@ rendering `any` for `errorType` (ADR-0038).
 ---
 
 ## 4. What is next — the scored board
+
+JSDoc `.9.2` now has a measured conservative plain-body slice. Settle private
+lazy query/arena/borrowed-result ownership in `.9.2.1` and measure attachment,
+table transport and retained owner costs in `.9.2.2` before implementing
+deferral. `tsr-6.65.1` / `.2` retain the localized CLI transport and initializer
+gaps; a primitive-case pass does not satisfy the parent's mixed native negative.
+CI `.8.2` connects existing qualified work/worker receipts to already-shipped
+reports, without certifying incomplete inputs/forcing or activating `.13`.
+Existing mapper/key/admission owners and production gates remain intact.
 
 Checker admission now has an independently actionable P1 cut,
 `tsr-1yb.3.1.1.4`: identify fallible reservation/growth boundaries before a
@@ -6447,6 +6468,16 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+Plain documentation omission is rejected at frozen `a24cacb2`: returning no
+document for an untagged comment breaks `a_documented_node_can_be_found_from_its_id`.
+The measured 83.374 ms body component excludes attachment/private lazy query
+costs and is not a full-deferral ceiling. Observer wall overhead is 0.852217 s
+paired median with broad spread; neither instrumented timing nor 24.1 MB of
+cumulative arena requests proves a retained win. A transport-plus-effective
+initializer candidate passes a minimal primitive JS test but still emits zero
+of the four mixed native errors; it is not accepted as faithful checking.
+[Evidence and limits](docs/architecture/jsdoc-eligible.md).
 
 Refused at frozen `4faf1cbd`: treating a post-file private-memory check as an
 admission bound. Growth budget20,000B passes initialized14,804B, completes7/21
@@ -13060,6 +13091,18 @@ cargo run -p xtask -- issue-ids    # every `bd <id>` cited in docs/ exists
 ---
 
 ## 7. Session log
+
+2026-10-05 — `tsr-1yb.9.2`, immutable Rust a24cacb2/native5b1047d:
+qualified conservative plain-document attribution, public/Next.js off/on work
+controls and rejected documented-node omission mutant. Seven reader tests,
+one classifier, 26 existing JSDoc tests, exact ten-file patch replay, archived
+strict release Clippy and formatting pass. Plain body83.374ms, cumulative
+requested24,126,296B; full app117diagnostics/1397actualchecks preserved.
+No production deferral, speed winner or native<=0.50 proof. New P1 ownership,
+attachment/setup and CI receipt tasks are synced. Isolated primitive CLI
+regression passes only after transport plus effective initializer reading;
+mixed native4/TSR0 remains unresolved. Canonical runtime untouched; independent
+review coverage0. Main delivery is recorded in Beads after push.
 
 2026-10-05 — `tsr-1yb.3.1.1.3`, immutable main4faf1cbd/native5b1047d archives:
 completed eighteen qualified public/Next.js memory off/on pairs plus skewed
