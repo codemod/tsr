@@ -190,3 +190,24 @@ cases (`decoratorUsedBeforeDeclaration`, `scopeCheckStaticInitializer`,
 `computedPropertyNamesWithStaticProperty`, …), no losses, no new extras.
 Class-expression self-references (`(class C2 { [C2.p]() {} })`) stay missing.
 Perf bias-corrected ≈1.021 (`domain-model`) and ≈1.010 (`generic-imports`).
+
+## 8. TS2448: the binding-element and variable-declaration arms
+
+The rule only knew `VariableDeclaration` declarations and "inside its own
+initializer". Upstream's `checkResolvedBlockScopedVariable` picks any
+block-scoped declaration, a `BindingElement` included, and
+`isBlockScopedNameDeclaredBeforeUse` has two arms for a use positioned after
+the declaration starts (`checker.go:1937`): a binding element is illegal when
+the use is in the same binding element (`let {[a]: a}`, `const { f = f }`) and
+otherwise defers to its `VariableDeclaration` (`let [x1] = x1`); a variable
+declaration is illegal when the use is inside it or in its `for-in`/`for-of`
+expression (`for (let v of v)`) — `isImmediatelyUsedInInitializerOfBlockScopedVariable`
+over `isSameScopeDescendentOf` (IIFEs see through, async generators do not).
+Ported as `variable_declared_before_use`; the old `reference_is_in_own_initializer`
+is removed. The deferral gate that precedes the arms is unchanged.
+
+**Measured.** Five lane cases converted (`blockScopedBindingUsedBeforeDef`,
+`recursiveLetConst`, `tryCatchFinallyControlFlow`,
+`awaitUsingDeclarationsInForAwaitOf.2`, `destructuringObjectBindingPatternAndAssignment4`),
+19 new lines all expected, none unexpected, no losses. Perf bias-corrected
+≈1.011 / ≈1.006.
