@@ -21,7 +21,9 @@ const ARRAY_LIKE: &[&str] =
 impl Checker<'_, '_> {
     /// One parameter declaration.
     pub(crate) fn check_rest_parameter_type(&mut self, node: NodeId) {
-        if self.file_has_parse_errors || self.in_js_file(node) {
+        // `checkParameter`'s test is semantic: a file's syntax errors do not
+        // suppress it.
+        if self.in_js_file(node) {
             return;
         }
         let Some(Node::ParameterDeclaration(parameter)) = self.node_map.get(node) else { return };
@@ -95,8 +97,18 @@ impl Checker<'_, '_> {
         // **The baseline is the oracle and it wants only TS1014 there**; taking
         // the comment at its word was §984's first measurement, 28 wrong lines
         // in that one fixture. §985.
-        !declarations.is_empty()
-            && declarations.iter().all(|&declaration| {
+        //
+        // A merged **value** declaration (`declare var Date: DateConstructor`
+        // beside `interface Date`) contributes nothing to the instance type,
+        // so it neither proves nor refutes array-likeness and is skipped; at
+        // least one class or interface declaration must remain.
+        let mut type_declarations = declarations
+            .iter()
+            .copied()
+            .filter(|&declaration| self.nodes.kind(declaration) != SyntaxKind::VariableDeclaration)
+            .peekable();
+        type_declarations.peek().is_some()
+            && type_declarations.all(|declaration| {
                 matches!(
                     self.nodes.kind(declaration),
                     SyntaxKind::ClassDeclaration
