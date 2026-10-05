@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 7488/9538 (78.51%)
-Assertion lines: 465643/478855 (97.24%)  — a gradient, not a pass rate
-Failed         : 2050
+Passed         : 7510/9538 (78.74%)
+Assertion lines: 465754/478855 (97.26%)  — a gradient, not a pass rate
+Failed         : 2028
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -12,7 +12,7 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 2050 failures:
+First 100 of 2028 failures:
 compiler/abstractClassInLocalScopeIsAbstract
   abstractClassInLocalScopeIsAbstract.ts: >new A() : any — expected >new A() : A
 compiler/abstractClassUnionInstantiation
@@ -40,7 +40,7 @@ compiler/aliasOfGenericFunctionWithRestBehavedSameAsUnaliased
 compiler/aliasOnMergedModuleInterface
   aliasOnMergedModuleInterface_1.ts: >z.bar("hello") : B.A — expected >z.bar("hello") : foo.A
 compiler/allowImportClausesToMergeWithTypes
-  a.ts: >x : any — expected >x : zzz
+  index.ts: >x : any — expected >x : zzz
 compiler/allowJscheckJsTypeParameterNoCrash
   app.js: >this.data2 : WatchHandler<any> — expected >this.data2 : (val: any) => void
 compiler/allowSyntheticDefaultImports1
