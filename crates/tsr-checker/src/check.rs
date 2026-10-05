@@ -5610,24 +5610,110 @@ impl Checker<'_, '_> {
         tsr_ast::has_syntactic_modifier(modifiers, SyntaxKind::StaticKeyword)
     }
 
-    /// Is `node` read inside `declaration`'s own initializer, with no
-    /// function-like boundary between them? §964.
-    fn reference_is_in_own_initializer(&self, node: NodeId, declaration: NodeId) -> bool {
-        let mut found = false;
-        for ancestor in self.nodes.ancestors(node) {
-            if ancestor == declaration {
-                found = true;
-                break;
+    /// `isBlockScopedNameDeclaredBeforeUse`'s two variable arms
+    /// (`checker.go:1937`), for a use positioned at or after the declaration.
+    ///
+    /// - A **binding element** is still illegal when the use sits in the
+    ///   same binding element (`let {[a]: a}`, `const { f = f }`), and
+    ///   otherwise asks the question of its `VariableDeclaration`
+    ///   (`let [x1] = x1`).
+    /// - A **variable declaration** is illegal when the use is inside it
+    ///   (`let x = x`) or in the expression of its `for-in`/`for-of`
+    ///   (`for (let v of v)`): `isImmediatelyUsedInInitializerOfBlockScopedVariable`.
+    fn variable_declared_before_use(&self, declaration: NodeId, usage: NodeId, depth: u32) -> bool {
+        if depth > 8 || self.declaration_name_of(declaration) == Some(usage) {
+            return true;
+        }
+        let container = self.enclosing_block_scope_container(declaration);
+        match self.nodes.kind(declaration) {
+            SyntaxKind::BindingElement => {
+                if let Some(error_element) = self
+                    .nodes
+                    .ancestors(usage)
+                    .find(|&a| self.nodes.kind(a) == SyntaxKind::BindingElement)
+                {
+                    return error_element != declaration
+                        || self.nodes.span(declaration).start
+                            < self.nodes.span(error_element).start;
+                }
+                let Some(variable) = self
+                    .nodes
+                    .ancestors(declaration)
+                    .find(|&a| self.nodes.kind(a) == SyntaxKind::VariableDeclaration)
+                else {
+                    return true;
+                };
+                if self.nodes.span(variable).start <= self.nodes.span(usage).start {
+                    self.variable_declared_before_use(variable, usage, depth + 1)
+                } else {
+                    !self.use_is_not_deferred(usage, variable)
+                }
             }
-            if self.is_function_like_or_static_block(ancestor) {
+            SyntaxKind::VariableDeclaration => {
+                let Some(grandparent) =
+                    self.nodes.parent(declaration).and_then(|list| self.nodes.parent(list))
+                else {
+                    return true;
+                };
+                let kind = self.nodes.kind(grandparent);
+                if matches!(
+                    kind,
+                    SyntaxKind::VariableStatement
+                        | SyntaxKind::ForStatement
+                        | SyntaxKind::ForOfStatement
+                ) && self.is_same_scope_descendent_of(usage, Some(declaration), container)
+                {
+                    return false;
+                }
+                if matches!(kind, SyntaxKind::ForInStatement | SyntaxKind::ForOfStatement)
+                    && let Some(Node::ForInOrOfStatement(statement)) =
+                        self.node_map.get(grandparent)
+                {
+                    let expression = statement.expression.and_then(|e| e.node_id());
+                    return !self.is_same_scope_descendent_of(usage, expression, container);
+                }
+                true
+            }
+            _ => true,
+        }
+    }
+
+    /// `isSameScopeDescendentOf` (`checker.go:2090`): `initial` is under
+    /// `parent` with no non-IIFE function (or async generator) and not
+    /// past `stop_at` in between.
+    fn is_same_scope_descendent_of(
+        &self,
+        initial: NodeId,
+        parent: Option<NodeId>,
+        stop_at: Option<NodeId>,
+    ) -> bool {
+        let Some(parent) = parent else { return false };
+        let mut n = Some(initial);
+        while let Some(current) = n {
+            if current == parent {
+                return true;
+            }
+            if Some(current) == stop_at {
                 return false;
             }
+            if self.is_function_like_or_static_block(current)
+                && self.nodes.kind(current) != SyntaxKind::ClassStaticBlockDeclaration
+                && (self.immediately_invoked_call(current).is_none()
+                    || self.is_async_generator(current))
+            {
+                return false;
+            }
+            n = self.nodes.parent(current);
         }
-        if !found {
-            return false;
-        }
-        // The *name* of the declaration is not a use of it.
-        self.declaration_name_of(declaration) != Some(node)
+        false
+    }
+
+    fn is_async_generator(&self, function: NodeId) -> bool {
+        let (modifiers, asterisk) = match self.node_map.get(function) {
+            Some(Node::FunctionExpression(f)) => (f.modifiers, f.asterisk_token.is_some()),
+            _ => return false,
+        };
+        asterisk && has_modifier(modifiers, SyntaxKind::AsyncKeyword)
     }
 
     fn check_used_before_its_declaration(&mut self, node: NodeId, text: &str) {
@@ -5679,7 +5765,7 @@ impl Checker<'_, '_> {
         {
             (
                 &messages::BLOCK_SCOPED_VARIABLE_0_USED_BEFORE_ITS_DECLARATION,
-                &[SyntaxKind::VariableDeclaration],
+                &[SyntaxKind::VariableDeclaration, SyntaxKind::BindingElement],
             )
         } else if entry.flags.intersects(SymbolFlags::REGULAR_ENUM) {
             // `RegularEnum`, not `Enum` (`checker.go:1908`). A `const enum`
@@ -5775,9 +5861,12 @@ impl Checker<'_, '_> {
         // Letting the arm see classes was §964's first measurement: −3 cases
         // and five new `extraonly` rows, every one of them a TS2449 on a class
         // extending itself. §965.
-        let inside_own_initializer = self.nodes.kind(declaration)
-            == SyntaxKind::VariableDeclaration
-            && self.reference_is_in_own_initializer(node, declaration);
+        let inside_own_initializer = matches!(
+            self.nodes.kind(declaration),
+            SyntaxKind::VariableDeclaration | SyntaxKind::BindingElement
+        ) && self.nodes.span(declaration).start
+            <= self.nodes.span(node).start
+            && !self.variable_declared_before_use(declaration, node, 0);
         if !inside_own_initializer
             && self.nodes.span(declaration).start <= self.nodes.span(node).start
         {
