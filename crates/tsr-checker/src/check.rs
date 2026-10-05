@@ -5225,61 +5225,85 @@ impl Checker<'_, '_> {
 
     /// TS2323 — `Cannot redeclare exported variable '{0}'.`
     ///
-    /// `checkExportsOnMergedDeclarations`'s exports loop (`checker.go:5716`),
-    /// **restricted to the `default` export**.
+    /// `checkExportsOnMergedDeclarations`'s exports loop (`checker.go:5716`)
+    /// over `getExportsOfModule(moduleSymbol)`.
     ///
-    /// §1010 built this over the whole export table and measured +4 with **2
-    /// lost** and 21 wrong lines: this port has the *declared* export table and
-    /// upstream's `getExportsOfModule` **resolves** — export stars, alias
-    /// targets, `export =` — so for a rule whose content is "count what is in
-    /// the table" the two cannot agree.
-    ///
-    /// `default` is the one name whose membership is not computed. It is
-    /// written, once per `export default`, and no star, alias or `export =` can
-    /// put a `default` into another module's table. §1011.
+    /// §1010 built this over the whole *declared* export table and measured
+    /// +4 with 2 lost: upstream's `getExportsOfModule` **resolves** — export
+    /// stars and `export =`. Neither changes a name the module declares
+    /// itself — own exports shadow star exports and are not alias-resolved —
+    /// so this walks the declared table and skips only a module with an
+    /// `export =` (whose exports are the target's). §1011 restricted it to
+    /// `default`; this is the declared-name generalisation.
     fn check_exported_redeclarations(&mut self, file: NodeId) {
         if self.file_has_parse_errors || self.in_js_file(file) {
             return;
         }
         let Some(module) = self.binder.symbol_of(file) else { return };
-        let exports = self.binder.symbols().get(self.binder.merged_symbol(module)).exports.clone();
-        let Some(&exported) = exports.get("default") else { return };
-        let symbol = self.binder.merged_symbol(exported);
-        let entry = self.binder.symbols().get(symbol);
-        let flags = entry.flags;
-        let declarations = entry.declarations.clone();
-        let counted: Vec<NodeId> = declarations
-            .iter()
-            .copied()
-            .filter(|&declaration| self.declaration_counts_for_redeclaration(declaration))
-            .collect();
-        // `SymbolFlagsNamespace | SymbolFlagsEnum` merge legally and are skipped
-        // before the count; a type alias merged with one value is legal, which
-        // upstream spells as `TypeAlias` with a count of `<= 2`.
-        if flags.intersects(SymbolFlags::NAMESPACE_MODULE | SymbolFlags::ENUM) {
+        let module = self.binder.merged_symbol(module);
+        let exports = &self.binder.symbols().get(module).exports;
+        if exports.contains_key("export=") {
             return;
         }
-        if flags.intersects(SymbolFlags::TYPE_ALIAS) && counted.len() <= 2 {
-            return;
+        let mut named: Vec<(String, tsr_binder::SymbolId)> =
+            exports.iter().map(|(name, &symbol)| (name.to_string(), symbol)).collect();
+        named.sort_unstable_by(|a, b| a.0.cmp(&b.0));
+        for (name, exported) in named {
+            if name == "__export" {
+                continue;
+            }
+            let symbol = self.binder.merged_symbol(exported);
+            let entry = self.binder.symbols().get(symbol);
+            let flags = entry.flags;
+            let declarations = entry.declarations.clone();
+            let counted: Vec<NodeId> = declarations
+                .iter()
+                .copied()
+                .filter(|&declaration| self.declaration_counts_for_redeclaration(declaration))
+                .collect();
+            // `SymbolFlagsNamespace | SymbolFlagsEnum` merge legally and are
+            // skipped before the count; a type alias merged with one value is
+            // legal, which upstream spells as `TypeAlias` with a count of `<= 2`.
+            if flags.intersects(SymbolFlags::NAMESPACE) {
+                continue;
+            }
+            if flags.intersects(SymbolFlags::TYPE_ALIAS) && counted.len() <= 2 {
+                continue;
+            }
+            if counted.len() <= 1 {
+                continue;
+            }
+            // `isNotOverload(declaration)` — every non-overload declaration,
+            // interfaces included, is reported.
+            for declaration in declarations {
+                if !self.declaration_is_not_overload(declaration) {
+                    continue;
+                }
+                let Some(at) = self.source_file_of_for_diagnostics(declaration) else { continue };
+                // **`c.error(declaration, …)` folds to the declaration's name**
+                // (§11): `export default class Foo {}` reports at `Foo`. An
+                // `export default expr` has no name and keeps the statement's
+                // span. §1013.
+                let span = self.error_span(declaration);
+                self.report(
+                    at,
+                    Diagnostic::with_args(
+                        &messages::CANNOT_REDECLARE_EXPORTED_VARIABLE_0,
+                        span,
+                        [name.clone()],
+                    ),
+                );
+            }
         }
-        if counted.len() <= 1 {
-            return;
-        }
-        for declaration in counted {
-            let Some(at) = self.source_file_of_for_diagnostics(declaration) else { continue };
-            // **`c.error(declaration, …)` folds to the declaration's name**
-            // (§11): `export default class Foo {}` reports at `Foo`, column 22,
-            // not at the `export`. An `export default expr` has no name and
-            // keeps the statement's span. §1013.
-            let span = self.error_span(declaration);
-            self.report(
-                at,
-                Diagnostic::with_args(
-                    &messages::CANNOT_REDECLARE_EXPORTED_VARIABLE_0,
-                    span,
-                    ["default".to_string()],
-                ),
-            );
+    }
+
+    /// `isNotOverload` (`checker.go`): a function-like declaration without a
+    /// body is an overload; every other declaration is not.
+    fn declaration_is_not_overload(&self, declaration: NodeId) -> bool {
+        match self.node_map.get(declaration) {
+            Some(Node::FunctionDeclaration(n)) => n.body.is_some(),
+            Some(Node::MethodDeclaration(n)) => n.body.is_some(),
+            _ => true,
         }
     }
 
