@@ -321,11 +321,4 @@ impl Checker<'_, '_> {
             }),
         }
     }
-
-    /// `isConstEnumObjectType` (`checker.go:27664`).
-    fn is_const_enum_object_type(&self, ty: TypeId) -> bool {
-        let TypeData::Anonymous { symbol, .. } = self.store.get(ty).data else { return false };
-        let merged = self.binder.merged_symbol(symbol);
-        self.binder.symbols().get(merged).flags.contains(tsr_binder::SymbolFlags::CONST_ENUM)
-    }
 }

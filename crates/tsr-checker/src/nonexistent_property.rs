@@ -943,8 +943,8 @@ impl Checker<'_, '_> {
             })
     }
 
-    /// `isConstEnumObjectType`: a const enum's object type.
-    fn is_const_enum_object_type(&self, id: TypeId) -> bool {
+    /// `isConstEnumObjectType` (`checker.go:27664`): a const enum's object type.
+    pub(crate) fn is_const_enum_object_type(&self, id: TypeId) -> bool {
         matches!(self.store.get(id).data, crate::types::TypeData::Anonymous { symbol, .. }
             if self.binder.symbols().get(symbol).flags.contains(SymbolFlags::CONST_ENUM))
     }
