@@ -580,15 +580,28 @@ impl<'a> Parser<'a> {
         let mut name = self.parse_jsdoc_identifier_name_with(
             &messages::UNEXPECTED_TOKEN_A_TYPE_PARAMETER_NAME_WAS_EXPECTED_WITHOUT_CURLY_BRACES,
         );
-        // `parseModifiersEx` (`jsdoc.go:1260`): `const`, `in`, `out` and
-        // `in out` precede the actual parameter name. Parsing only `const`
-        // made `@template out T` declare a parameter literally named `out`
-        // and discard T (`jsdocTemplateTag8`).
+        // `parseModifiersEx` (`jsdoc.go:1260`): any modifier keyword followed
+        // by a name on the line is a modifier — `const`, `in`, `out`, but also
+        // `@template private T`, whose `private` the checker rejects (TS1273)
+        // rather than taking as the parameter's name (`jsdocTemplateTag7`).
+        // `default` is not one here: `nextTokenCanFollowDefaultKeyword` wants
+        // a declaration keyword after it.
         let mut modifiers = Vec::new();
         while let Some(kind) = match name.text {
             "const" => Some(SyntaxKind::ConstKeyword),
             "in" => Some(SyntaxKind::InKeyword),
             "out" => Some(SyntaxKind::OutKeyword),
+            "abstract" => Some(SyntaxKind::AbstractKeyword),
+            "accessor" => Some(SyntaxKind::AccessorKeyword),
+            "async" => Some(SyntaxKind::AsyncKeyword),
+            "declare" => Some(SyntaxKind::DeclareKeyword),
+            "export" => Some(SyntaxKind::ExportKeyword),
+            "override" => Some(SyntaxKind::OverrideKeyword),
+            "private" => Some(SyntaxKind::PrivateKeyword),
+            "protected" => Some(SyntaxKind::ProtectedKeyword),
+            "public" => Some(SyntaxKind::PublicKeyword),
+            "readonly" => Some(SyntaxKind::ReadonlyKeyword),
+            "static" => Some(SyntaxKind::StaticKeyword),
             _ => None,
         } {
             let modifier_end = self.pos();

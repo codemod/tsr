@@ -81,3 +81,19 @@ filtered:
 **How we would know we were wrong.** A checkJs case whose baseline is clean
 going EMPTY_WRONG with a `TS1xxx` inside a comment: that is a JSDoc grammar
 divergence, and the fix is the grammar, never a filter on the list.
+
+## 2. `@template` modifiers are any modifier keyword
+
+`parseTemplateTagTypeParameter` calls `parseModifiersEx(false, true, false)`
+(`jsdoc.go:1260`), so `@template private T` is modifier `private` on parameter
+`T` — the checker's TS1273 rejects it — not a parameter named `private`. This
+port took only `const`/`in`/`out`. Now every modifier keyword `isModifierKind`
+lists except `default` (whose `nextTokenCanFollowDefaultKeyword` wants a
+declaration keyword) is taken when a name follows on the line.
+
+No score movement: `jsdocTemplateTag7:0:1` moves from `<private>(x: T) => T` to
+`any` (both WRONG) because the checker's JSDoc-template signature road declines
+a modifier-bearing parameter, as it already did for `<in T>`
+(`jsdocTemplateTag8:0:47`); that road is `signatures.rs` (calls lane). The
+grammar checks TS1273/TS1274/TS1277 on type-parameter modifiers are not
+implemented for any file kind.
