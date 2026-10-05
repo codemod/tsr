@@ -640,6 +640,14 @@ impl tsr_checker::resolution::ModuleHost for Program<'_> {
         Program::resolved_module(self, importing_file, specifier)
     }
 
+    fn source_text(&self, file: NodeId, nodes: &NodeTable) -> Option<&str> {
+        if !std::ptr::eq(nodes, self.nodes()) {
+            return None;
+        }
+        let &index = self.files_by_source_file.get(&file)?;
+        Some(self.files[index].text())
+    }
+
     fn module_resolution_found(&self, importing_file: NodeId, specifier: &str) -> bool {
         Program::module_resolution_found(self, importing_file, specifier)
     }

@@ -34,7 +34,7 @@
 //! pushes supply the checker's existing publication facts through `push_with`;
 //! callers without independently published identities retain ordinary `push`.
 
-use tsr_ast::NodeId;
+use tsr_ast::{NodeId, NodeTable};
 use tsr_binder::SymbolId;
 
 /// Native `TypeSystemEntity`: a symbol and its declaration-owned return slot
@@ -108,6 +108,16 @@ pub trait ModuleHost {
     /// that answers `Some` for a plain script is answering correctly, and the
     /// checker still gaps.
     fn resolved_module(&self, importing_file: NodeId, specifier: &str) -> Option<NodeId>;
+
+    /// Original source bytes owned by this `SourceFile` and node table.
+    ///
+    /// Native source is carried by the `SourceFile`; this port keeps it in the
+    /// `ProgramFile` instead. A host must witness the table's identity before
+    /// interpreting `file`, because raw `NodeId`s can collide across programs.
+    /// Unsupported/legacy hosts decline; absence does not certify clean syntax.
+    fn source_text(&self, _file: NodeId, _nodes: &NodeTable) -> Option<&str> {
+        None
+    }
 
     /// §110: the `TypeParameterDeclaration` node ids a declaration's JSDoc
     /// `@template` tags carry, in tag order. Id-vocabulary per ADR-0034;

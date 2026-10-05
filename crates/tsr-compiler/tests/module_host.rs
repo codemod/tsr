@@ -194,3 +194,75 @@ fn the_fixture_discovers_the_imported_file() {
     names.sort_unstable();
     assert_eq!(names, ["/a.ts", "/b.ts"]);
 }
+
+#[test]
+fn source_text_is_borrowed_from_the_exact_file_and_node_table() {
+    let arena = tsr_core::Arena::new();
+    let program = Program::in_arena(
+        &arena,
+        ProgramOptions {
+            files: vec![
+                ("/index.ts".into(), "var left: Shape = {};".into()),
+                ("/branch/index.ts".into(), "var right: Shape = {};".into()),
+            ],
+            ..Default::default()
+        },
+    );
+    let foreign_arena = tsr_core::Arena::new();
+    let foreign = Program::in_arena(
+        &foreign_arena,
+        ProgramOptions {
+            files: vec![("/index.ts".into(), "var alien: Other = {};".into())],
+            ..Default::default()
+        },
+    );
+    let left = file_id(&program, "/index.ts");
+    let right = file_id(&program, "/branch/index.ts");
+    assert_eq!(left, file_id(&foreign, "/index.ts"), "raw ids deliberately collide");
+    let module_host: &dyn ModuleHost = &program;
+    let text = module_host.source_text(left, program.nodes()).expect("original source");
+    assert_eq!(text, "var left: Shape = {};");
+    assert!(std::ptr::eq(text, program.source_file("/index.ts").unwrap().text()));
+    assert_eq!(
+        module_host.source_text(right, program.nodes()),
+        Some("var right: Shape = {};"),
+        "same basenames and source positions are different owners"
+    );
+    assert_eq!(module_host.source_text(left, foreign.nodes()), None);
+    let foreign_host: &dyn ModuleHost = &foreign;
+    assert_eq!(foreign_host.source_text(left, program.nodes()), None);
+    assert_eq!(module_host.source_text(NodeId::new(0), program.nodes()), None);
+    assert_eq!(module_host.source_text(NodeId::new(1_000_000), program.nodes()), None);
+}
+
+#[test]
+fn absent_and_legacy_hosts_do_not_supply_source_text() {
+    struct LegacyHost;
+
+    impl ModuleHost for LegacyHost {
+        fn resolved_module(&self, _file: NodeId, _specifier: &str) -> Option<NodeId> {
+            None
+        }
+
+        fn module_resolution_found(&self, _file: NodeId, _specifier: &str) -> bool {
+            false
+        }
+    }
+
+    let arena = tsr_core::Arena::new();
+    let program = Program::in_arena(
+        &arena,
+        ProgramOptions {
+            files: vec![("/index.ts".into(), "const value = 37;".into())],
+            ..Default::default()
+        },
+    );
+    let file = file_id(&program, "/index.ts");
+    let legacy: &dyn ModuleHost = &LegacyHost;
+    assert_eq!(legacy.source_text(file, program.nodes()), None);
+    let checker = Checker::new(program.binder(), program.nodes(), program.node_map());
+    assert_eq!(
+        checker.module_host().and_then(|host| host.source_text(file, program.nodes())),
+        None
+    );
+}
