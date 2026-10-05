@@ -45,6 +45,23 @@ lane's cases. The scoring run before a commit is always unfiltered.
   `docs/architecture/*.md`, or the lane's own `docs/parity/notes/<lane>.md`
   (create it; no other box writes it).
 
+## 3a. What the integrator rejects
+
+Measured on round-1 reviews (2026-10-05); each was reverted, not merged:
+
+- **Guessing whether a TSR `any` is upstream's `any`** from declaration syntax
+  (calls `48ce04a1`). Upstream asks `IsTypeAny(t)`. Where TSR answers `any`
+  for "could not compute", that producer is the bug (`tsr-2zk.31`): fix it
+  in an owned file or report it.
+- **A side pass re-deriving a decision upstream makes inside another
+  algorithm** (misc `5a517c22`: call-site TS2344 outside `chooseOverload`).
+  If the faithful home is another lane's file, report it; the integrator
+  routes it.
+
+Narrowing or removing an existing decline toward upstream is welcome; adding
+a new one needs the upstream reason it mirrors, or a filed issue naming the
+missing upstream piece it waits for.
+
 ## 4. Ownership
 
 Edit only the files the brief lists as owned. Hub files (`check.rs`,
@@ -88,11 +105,16 @@ them after each merge), `STATUS.md`, `docs/parity/README.md`, `docs/parity/lanes
        --tsgo $B/tsr --samples 9 --output /tmp/box/perf-$p.json
    done
    ```
-   Read `observed_wall_ratio`. Identical binaries read up to ~1.05 at three
-   samples on a 4-core box, so: above 1.03, re-run with `--samples 21`; still
-   above 1.03 is a regression and is fixed before pushing. A hot-path change
-   also needs a measured reason it is not slower. Diagnostics must match the
-   baseline binary's (`diagnostics_match: true`) unless the change is the port.
+   Judge by **median child CPU time** (`user_seconds + system_seconds` of
+   `tools.<name>.samples` in the JSON), not `observed_wall_ratio`: the bench
+   runs last ~0.1–0.4 s and per-pair wall ratios on a 4-core box range
+   0.71–1.75 between identical binaries (integrator measurement,
+   2026-10-05), while median CPU ratios of identical binaries stay within
+   about ±2%. Use `--samples 21`; above 1.03 on either project, re-run with
+   41; still above 1.03 is a regression and is fixed before pushing. A
+   hot-path change also needs a measured reason it is not slower.
+   Diagnostics must match the baseline binary's (`diagnostics_match: true`)
+   unless the change is the port.
 6. **Commit** one root cause per commit, message `<lane>: <what was ported> (<issue id>)`,
    naming the tsgo function and the cases converted. Push to the branch the
    session was created with (`git push -u origin HEAD`).
