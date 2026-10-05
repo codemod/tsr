@@ -190,7 +190,47 @@ plain-JS diagnostic policy, project references, all forcing/input/worker budgets
 and comparable native median <=0.50 are not certified.
 [Qualified alignment evidence](docs/architecture/tsr-work-trace-producer.md#eligibility-alignment-after-the-producer).
 
-### Current checker checkpoint — cold keyword original-owner completion
+### Current checker checkpoint — rooted TYPE naming prerequisite; session wrap
+
+Measured source revision **`a81312a3`**, pinned native **`5b1047d`**:
+**464,069/478,855 RIGHT assertions**, **475,538 aligned positions**, 1,604 GAP
+and 9,865 WRONG. The fixed 99% target remains **474,067 RIGHT**;
+**9,998 additional matches remain**. The session stops at the user's request,
+below target, with the cold-keyword and TYPE-naming prerequisites delivered.
+
+All **475,538 complete type payloads** and **10,570 duplicate/empty diagnostic
+bags remain byte-identical** to the published cold-keyword checkpoint: zero
+key changes, prior-RIGHT byte losses, matched-occurrence losses or new extras.
+Diagnostic totals remain 30,874 expected, 24,533 actual, 20,829 matched,
+10,045 missing and 3,704 extras. There is no corpus-score gain.
+
+TYPE naming returns original SymbolId rooted chains through completed
+declaration-file namespace tables, with native innermost/direct/shortest order,
+NAMESPACE shadowing and per-query cycle paths. Only the two reserved naming
+readers and reference_text_at's TYPE choice change; ordinary resolve_alias,
+module_default_target, best_name, VALUE naming and the rejected React producer
+remain unchanged. Current-main red names Safe.Pair under a value-only shadow;
+green preserves DefaultOnly.Pair while a namespace shadow still selects Safe.
+Fifteen conformance controls and one private test pass. The standalone native
+matrix has ten naming gains, zero losses and eleven retained mismatches;
+these are control gains, not corpus gains. Traversal cost is unmeasured and
+no performance gain is claimed.
+
+Release all-target/doc tests pass **3,111 default / 3,124 full work-trace**,
+with zero failures and six existing ignores each. Strict Clippy in both modes,
+formatting, source whitespace, 3,402 anchors, 16,596 section citations and
+equality of all three final default scan binaries pass.
+
+The exported owner-prefix increment remains frozen and unintegrated pending
+cumulative replay. Returned-arrow assignment remains rejected at the owned
+single-image assignment/body-completion boundary; recursive Stage2 and broader
+inferred/boolean display admission remain frozen. The issue-ID gate still
+reports 201 existing documentation references absent from this local Beads
+store. Dolt sync has no common ancestor; both histories are preserved without
+reset, fabricated records or gate suppression. Remaining work is tracked in
+Beads; the fixed 99% task remains open.
+
+### Historical checker checkpoint — cold keyword original-owner completion
 
 Measured source revision **`26d4ded7`** (rebased without production changes from
 `c5a7d688` / `3b94a149`), pinned native **`5b1047d`**:
