@@ -752,12 +752,134 @@ impl<'a> Checker<'a, '_> {
             return;
         }
         let Some(Node::ReturnStatement(statement)) = self.node_map.get(node) else { return };
-        let Some(expression) = statement.expression else { return };
-        let Some(expression_id) = expression.node_id() else { return };
-        let Some(annotation) = self.enclosing_return_annotation(node) else { return };
-        let target = self.get_type_from_type_node(annotation);
-        let source = self.check_expression(expression);
-        self.check_return_expression(target, node, expression_id, source, false);
+        let expression = statement.expression.and_then(|expression| expression.node_id());
+        let Some(container) = self.return_statement_container(node) else { return };
+        match self.node_map.get(container) {
+            Some(Node::SetAccessorDeclaration(_)) => return,
+            Some(Node::ConstructorDeclaration(_)) => {
+                if let Some(expression) = expression {
+                    self.check_constructor_return(container, node, expression);
+                }
+                return;
+            }
+            _ => {}
+        }
+        let Some(target) = self.return_type_from_annotation(container) else { return };
+        if !self.strict_null_checks
+            && expression.is_none()
+            && !self.type_of(target).flags.contains(TypeFlags::NEVER)
+        {
+            return;
+        }
+        if let Some(expression) = expression {
+            let source = self.check_expression_at_node(expression);
+            self.check_return_expression(target, node, expression, source, false);
+        } else {
+            let undefined = self.intrinsics().undefined;
+            self.report_assignability_failure(node, node, undefined, target);
+        }
+    }
+
+    /// `checkReturnStatement`'s constructor arm (`checker.go:4115`): the
+    /// returned value against `getReturnTypeFromAnnotation`'s class instance
+    /// type (`checker.go:20058`), and TS2409 at the return statement when that
+    /// relation fails.
+    fn check_constructor_return(&mut self, constructor: NodeId, node: NodeId, expression: NodeId) {
+        let Some(class) = self.nodes.parent(constructor) else { return };
+        let Some(symbol) = self.binder.symbol_of(class) else { return };
+        let symbol = self.binder.merged_symbol(symbol);
+        let target = self.get_declared_type_of_symbol(symbol);
+        let source = self.check_expression_at_node(expression);
+        let before = self.diagnostics.len();
+        self.check_excess_properties(target, expression);
+        if self.diagnostics.len() == before
+            && !self.report_assignability_failure(node, expression, source, target)
+        {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        let span = self.error_span(node);
+        self.report(
+            file,
+            Diagnostic::new(
+                &messages::RETURN_TYPE_OF_CONSTRUCTOR_SIGNATURE_MUST_BE_ASSIGNABLE_TO_THE_INSTANCE_TYPE_OF_THE_CLASS,
+                span,
+            ),
+        );
+    }
+
+    /// `getContainingFunctionOrClassStaticBlock` for a return statement; a
+    /// static block (TS18041's rule) answers `None`.
+    fn return_statement_container(&self, node: NodeId) -> Option<NodeId> {
+        let mut at = self.nodes.parent(node);
+        while let Some(current) = at {
+            match self.nodes.kind(current) {
+                SyntaxKind::FunctionDeclaration
+                | SyntaxKind::FunctionExpression
+                | SyntaxKind::ArrowFunction
+                | SyntaxKind::MethodDeclaration
+                | SyntaxKind::GetAccessor
+                | SyntaxKind::SetAccessor
+                | SyntaxKind::Constructor => return Some(current),
+                SyntaxKind::ClassStaticBlockDeclaration => return None,
+                _ => at = self.nodes.parent(current),
+            }
+        }
+        None
+    }
+
+    /// `getReturnTypeFromAnnotation` (`checker.go:20058`) for a non-constructor
+    /// container, unwrapped as `unwrapReturnType` would for a plain function: the
+    /// written annotation, or for an unannotated get accessor with a bindable
+    /// name its set accessor's parameter annotation (`getAnnotatedAccessorType`).
+    ///
+    /// **Async and generator functions are declined**: their annotation is a
+    /// `Promise<T>` or an `Iterator<…>` and the value returned is compared
+    /// against `unwrapReturnType`'s unwrapped `T` after `checkAwaitedType`.
+    /// The awaited type of a generic alias (`await (x as PromiseOrValue<U>)`)
+    /// is not yet `Awaited<U>` here (`discriminateWithOptionalProperty2`), so
+    /// relating it would be a wrong diagnostic on correct code.
+    fn return_type_from_annotation(&mut self, container: NodeId) -> Option<TypeId> {
+        let (annotation, generator, modifiers) = match self.node_map.get(container)? {
+            Node::FunctionDeclaration(n) => (n.r#type, n.asterisk_token.is_some(), n.modifiers),
+            Node::FunctionExpression(n) => (n.r#type, n.asterisk_token.is_some(), n.modifiers),
+            Node::ArrowFunction(n) => (n.r#type, false, n.modifiers),
+            Node::MethodDeclaration(n) => (n.r#type, n.asterisk_token.is_some(), n.modifiers),
+            Node::GetAccessorDeclaration(n) => (n.r#type, false, n.modifiers),
+            _ => return None,
+        };
+        if generator || has_async(modifiers) {
+            return None;
+        }
+        if let Some(annotation) = annotation {
+            return Some(self.get_type_from_type_node(annotation));
+        }
+        let annotation = self.set_accessor_parameter_annotation(container)?;
+        Some(self.get_type_from_type_node(annotation))
+    }
+
+    /// `getAnnotatedAccessorType` of the set accessor paired with an
+    /// unannotated get accessor: its first non-`this` parameter's annotation.
+    /// A computed name only pairs when the binder bound it (`hasBindableName`).
+    fn set_accessor_parameter_annotation(&self, getter: NodeId) -> Option<tsr_ast::TypeNode<'a>> {
+        if self.nodes.kind(getter) != SyntaxKind::GetAccessor {
+            return None;
+        }
+        let symbol = self.binder.symbol_of(getter)?;
+        let declarations = self.binder.symbols().get(symbol).declarations.clone();
+        declarations.into_iter().find_map(|declaration| {
+            let Some(Node::SetAccessorDeclaration(setter)) = self.node_map.get(declaration) else {
+                return None;
+            };
+            setter
+                .parameters
+                .iter()
+                .find(|parameter| {
+                    !matches!(parameter.name, Some(tsr_ast::BindingName::Identifier(name))
+                        if name.text == "this")
+                })
+                .and_then(|parameter| parameter.r#type)
+        })
     }
 
     /// `checkFunctionExpressionOrObjectLiteralMethodDeferred`
@@ -847,45 +969,6 @@ impl<'a> Checker<'a, '_> {
                 None => return node,
             }
         }
-    }
-
-    /// The return annotation of the function a `return` belongs to, where this
-    /// port can use it directly.
-    ///
-    /// **Async and generator functions are declined**: their annotation is a
-    /// `Promise<T>` or an `Iterator<…>` and the value returned is compared
-    /// against `unwrapReturnType`'s unwrapped `T` after `checkAwaitedType`.
-    /// The awaited type of a generic alias (`await (x as PromiseOrValue<U>)`)
-    /// is not yet `Awaited<U>` here (`discriminateWithOptionalProperty2`), so
-    /// relating it would be a wrong diagnostic on correct code.
-    fn enclosing_return_annotation(&self, node: NodeId) -> Option<tsr_ast::TypeNode<'a>> {
-        let mut at = self.nodes.parent(node);
-        while let Some(current) = at {
-            let typed = self.node_map.get(current)?;
-            let parts = match typed {
-                Node::FunctionDeclaration(n) => {
-                    Some((n.r#type, n.asterisk_token.is_some(), n.modifiers))
-                }
-                Node::FunctionExpression(n) => {
-                    Some((n.r#type, n.asterisk_token.is_some(), n.modifiers))
-                }
-                Node::ArrowFunction(n) => Some((n.r#type, false, n.modifiers)),
-                Node::MethodDeclaration(n) => {
-                    Some((n.r#type, n.asterisk_token.is_some(), n.modifiers))
-                }
-                Node::GetAccessorDeclaration(n) => Some((n.r#type, false, n.modifiers)),
-                Node::ConstructorDeclaration(_) | Node::SetAccessorDeclaration(_) => return None,
-                _ => None,
-            };
-            if let Some((annotation, generator, modifiers)) = parts {
-                if generator || has_async(modifiers) {
-                    return None;
-                }
-                return annotation;
-            }
-            at = self.nodes.parent(current);
-        }
-        None
     }
 
     /// The type an assignment writes *into*, or `None` where this port declines.
