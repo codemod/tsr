@@ -20,3 +20,6 @@ perf-summary.md
 
 # Amp orb portal registrations.
 .amp/portals/*
+
+# Python bytecode written by scripts/tests; box sessions auto-commit stray files.
+__pycache__/
