@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics Summary:
 What a pass means: every diagnostic in upstream's .errors.txt reproduced exactly — same file, line, column and code, no more and no fewer — for cases that expect at least one; scanner, parser and binder only, with no checker (bd tsr-4sc)
-Passed         : 2881/5488 (52.50%)
-Failed         : 2607
+Passed         : 2912/5488 (53.06%)
+Failed         : 2576
 Skipped        : 6956 (excluded from the denominator)
 
   793  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -11,7 +11,7 @@ Skipped        : 6956 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   464  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 2607 failures:
+First 100 of 2576 failures:
 compiler/ClassDeclaration26
   2 unexpected (first TS1005 at ClassDeclaration26.ts(2,22)), 5 missing
 compiler/TransportStream
@@ -20,8 +20,6 @@ compiler/abstractClassUnionInstantiation
   5 missing (first TS2511 at abstractClassUnionInstantiation.ts(14,1))
 compiler/abstractPropertyInConstructor
   11 missing (first TS2715 at abstractPropertyInConstructor.ts(4,24))
-compiler/accessInstanceMemberFromStaticMethod01
-  1 unexpected (first TS2304 at accessInstanceMemberFromStaticMethod01.ts(5,17)), 1 missing
 compiler/accessorBodyInTypeContext
   8 unexpected (first TS1131 at accessorBodyInTypeContext.ts(2,15)), 4 missing
 compiler/accessorInferredReturnTypeErrorInReturnStatement
@@ -212,3 +210,5 @@ compiler/builtinIterator
   7 missing (first TS2511 at builtinIterator.ts(38,1))
 compiler/callOnInstance
   2 missing (first TS2349 at callOnInstance.ts(7,18))
+compiler/callOverloads1
+  3 missing (first TS2813 at callOverloads1.ts(1,7))
