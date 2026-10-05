@@ -10,6 +10,27 @@ Baseline at `586c2ec0`, measured by `cargo run --release -p tsr-conformance --bi
 | `checker_types` | 7,365/9,538 | 77.22% (lines 464,069/478,855 = 96.91%) |
 | `diagnostics` | 2,880/5,488 | 52.48% |
 
+Progress after each integrated lane (same command, on `main`; diagnostics counts
+judged RIGHT cases only, EMPTY cases are excluded by the suite):
+
+| merged | `checker_types` | `diagnostics` | smoke ratio (macOS) |
+|---|---|---|---|
+| baseline `a6afac52` | 7,365 (77.22%) | 2,880 (52.48%) | 1.31 |
+| perf `33c8e121` | 7,365 | 2,881 | 1.21 |
+| names-modules `9cb129a9` | 7,365 | 2,912 | 1.16 |
+| misc-checks `51fcf59f` | 7,365 | 2,948 | 1.16 |
+| js `c1f545cd` | 7,366 | 2,954 | 1.17 |
+| relate-report `caad9396` | 7,374 | 3,093 | 1.16 |
+| decls `b5db8d9f` | 7,374 | 3,196 | 1.18 |
+| perf-2 `ed40c6c8` | 7,374 | 3,196 | 1.13 |
+| harness `829611e9` | 7,374 | 3,219 | 1.14 |
+| parser `ae656118` | 7,464 | 3,318 | 1.18 |
+| property `d599c504` | 7,466 (78.28%) | 3,375 (61.50%) | 1.15 |
+
+The smoke ratio is `perf-project` on `benches/projects/generic-imports`, 9
+samples, observed (not verified). `benches/projects/domain-model` reads 1.42 on
+macOS and 0.79 on the Linux box after perf-2; the 0.50 target is not met.
+
 `lanes/<lane>.txt` lists every failing case at that commit, assigned to exactly
 one lane (`T` = fails `checker_types`, `D` = fails `diagnostics`). Assignment:
 
