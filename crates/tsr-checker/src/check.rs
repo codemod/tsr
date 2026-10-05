@@ -896,6 +896,7 @@ impl Checker<'_, '_> {
         }
         if matches!(typed, Node::ForInOrOfStatement(_)) {
             self.check_for_in_variable_type(node);
+            self.check_for_in_right_operand(node);
             self.check_for_in_reference_expression(node);
             self.check_for_in_or_of_declarations(node);
             self.check_for_await_context(node);
@@ -5599,6 +5600,57 @@ impl Checker<'_, '_> {
             Diagnostic::new(
                 &messages::THE_LEFT_HAND_SIDE_OF_A_FOR_IN_STATEMENT_MUST_BE_OF_TYPE_STRING_OR_ANY,
                 span,
+            ),
+        );
+    }
+
+    /// TS2407 — `The right-hand side of a 'for...in' statement must be of type
+    /// 'any', an object type or a type parameter, but here has type '{0}'.`
+    ///
+    /// `checkForInStatement`'s tail (`checker.go:4018`): the expression's type,
+    /// made non-nullable when nullable (`getNonNullableTypeIfNeeded`), must be
+    /// `never`-free and `isTypeAssignableToKind(NonPrimitive |
+    /// InstantiableNonPrimitive)` (`checker.go:27645`): the kind flags, else
+    /// assignability to `object`. Only a definite `NotRelated` reports.
+    fn check_for_in_right_operand(&mut self, node: NodeId) {
+        let Some(Node::ForInOrOfStatement(statement)) = self.node_map.get(node) else { return };
+        if statement.kind.kind != SyntaxKind::ForInStatement {
+            return;
+        }
+        let Some(expression) = statement.expression else { return };
+        let Some(at) = expression.node_id() else { return };
+        // `getNonNullableTypeIfNeeded`: `GetNonNullableType` leaves a type
+        // without null/undefined facts unchanged, so the nullable test is the
+        // adjustment's own.
+        let right = self.check_expression(expression);
+        let right = self.get_non_nullable_type(right);
+        if self.is_error(right) {
+            return;
+        }
+        let never = right == self.intrinsics.never;
+        if !never {
+            if self.store.get(right).flags.intersects(
+                crate::flags::TypeFlags::NON_PRIMITIVE
+                    | crate::flags::TypeFlags::INSTANTIABLE_NON_PRIMITIVE,
+            ) {
+                return;
+            }
+            let object = self.intrinsics.non_primitive;
+            if self.relate_ternary(right, object, crate::relater::Relation::Assignable)
+                != crate::relater::Ternary::NotRelated
+            {
+                return;
+            }
+        }
+        let printed = self.type_to_string(right);
+        let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
+        let span = self.error_span(at);
+        self.report(
+            file,
+            Diagnostic::with_args(
+                &messages::THE_RIGHT_HAND_SIDE_OF_A_FOR_IN_STATEMENT_MUST_BE_OF_TYPE_ANY_AN_OBJECT_TYPE_OR_A_TYPE_PARAMETER_BUT_HERE_HAS_TYPE_0,
+                span,
+                [printed],
             ),
         );
     }
