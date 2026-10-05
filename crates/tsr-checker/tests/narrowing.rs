@@ -1744,3 +1744,33 @@ fn nullable_unions_and_any_do_not_take_scalar_nullable_facts() {
         "string",
     );
 }
+
+#[test]
+fn javascript_loop_flow_keeps_assigned_error_and_completed_numeric_writes() {
+    // Pinned 5b1047d jsErrorFlowWave47: the loop worker has no JS-file
+    // exclusion. The assignment's error TypeId is not ordinary any, and a
+    // later complete assignment must still replace it rather than stick.
+    for (body, expected) in [
+        (
+            "var v, T, h = 0; v = missing, T = v;
+             for (; h < 4; h = h + 1) {} T;",
+            "error",
+        ),
+        (
+            "var v, T, h = 0; v = missing, T = v;
+             for (; h < 4; h = h + 1) {} T = 17; T;",
+            "number",
+        ),
+        (
+            "var v, T; v = missing, T = v;
+             (function() { var h = 0; for (; h < 4; h = h + 1) {} })(); T;",
+            "error",
+        ),
+    ] {
+        assert_eq!(
+            type_of_last_expression_in_file(&format!("function f() {{ {body} }}"), "test.js"),
+            expected,
+            "{body}",
+        );
+    }
+}

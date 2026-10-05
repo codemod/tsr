@@ -782,7 +782,11 @@ impl Checker<'_, '_> {
                 }
             } else if flags.intersects(FlowFlags::CONDITION) {
                 break self.get_type_at_flow_condition(state, flow);
-            } else if flags.contains(FlowFlags::LOOP_LABEL) && !self.in_js_file(state.reference) {
+            } else if flags.contains(FlowFlags::LOOP_LABEL) {
+                // Native 5b1047d getTypeAtFlowNode (flow.go:169-174) uses the same
+                // loop worker in JS. Keep its existing captured initial-type
+                // key, active accumulator and completed-cache publication;
+                // falling through would erase an assigned error into any.
                 break self.get_type_at_flow_loop_label(state, flow);
             } else if flags.contains(FlowFlags::BRANCH_LABEL) {
                 let antecedents =
