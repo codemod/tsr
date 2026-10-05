@@ -64,3 +64,12 @@ fresh literal *and* no excess property were expected to report TS2678 — none
 in the corpus does at this commit.
 
 **Measured.** TS2678 missing 47 → 0, extra 0 → 0; 17 cases converted.
+
+## 3. TS2873's `undefined` arm compares against the seeded symbol
+
+`getSyntacticTruthySemantics` reads `getResolvedSymbol(node) == c.undefinedSymbol`
+(`checker.go:12907`). The port tested for *no* resolution, which stopped holding
+once the binder seeded a global `undefined` (`declare_synthesised_globals`), so
+every `undefined && x`, `undefined ? a : b` and `void 0 || void 0` was silent.
+Now compares against `binder.undefined_symbol()`; a shadowing local still
+resolves elsewhere and stays `Sometimes`. Seven cases converted, no losses.
