@@ -159,7 +159,40 @@ plain-JS diagnostic policy, project references, all forcing/input/worker budgets
 and comparable native median <=0.50 are not certified.
 [Qualified alignment evidence](docs/architecture/tsr-work-trace-producer.md#eligibility-alignment-after-the-producer).
 
-### Current checker checkpoint — exported alias meaning and keyword publication
+### Current checker checkpoint — explicit call targets and binding keywords
+
+Measured source revision **`84edae3c`**, pinned native **`5b1047d`**:
+**464,069/478,855 RIGHT assertions**, **475,538 aligned positions**, 1,604 GAP
+and 9,865 WRONG. The fixed 99% target remains **474,067 RIGHT**;
+**9,998 additional matches remain**. This is a checkpoint, not completion.
+
+All type payloads and all **10,570 duplicate/empty diagnostic bags are
+byte-identical** to the preceding checkpoint: 30,874 expected, 24,533 actual,
+20,829 matched, 10,045 missing and 3,704 extras. There is no corpus-score gain.
+The independent controls demonstrate the behavior: certified original written
+generic calls publish only complete existing-worker results, erase result
+parameters without evaluating target-only constraints/defaults, and retain the
+original target's ordered generic metadata. Existing inner completion wins;
+ordinary inferred calls and unsupported parameter images remain unpublished.
+Per-call repeated target identity is verified, not native cross-call pointer
+sharing. The binding-token certificate accepts the native contextual-keyword
+range only for the exact written AST binding, without widening type/callee or
+owner admission. Raw LF and CRLF controls preserve complete diagnostic bags.
+
+Release all-target plus doc tests pass **3,099 default / 3,111 full work-trace**,
+with zero failures and six existing ignores each. Four focused explicit-call
+tests and nine source-initializer tests pass; the latter were rerun with raw
+CRLF in both modes after correcting the test helper's LF normalization.
+Strict all-target Clippy in both modes, formatting/source whitespace,
+3,397 anchors and 16,596 section citations pass. All three final default scan
+binaries equal the captured measurement binaries. No speed claim follows.
+
+The function/block owner successor remains separate; parser admission is still
+rejected. TYPE naming and cold keyword-owner preflight are isolated experiments,
+not integrated gains. Boolean union reader admission and recursive original
+reference/argument ownership remain unresolved; Stage2 stays frozen.
+
+### Historical prerequisite checkpoint — exported alias meaning and keyword publication
 
 Measured source revision **`67033d75`**, pinned native **`5b1047d`**:
 **464,069/478,855 RIGHT assertions**, **475,538 aligned positions**, 1,604 GAP
