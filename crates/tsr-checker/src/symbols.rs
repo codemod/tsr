@@ -225,9 +225,52 @@ impl<'a> Checker<'a, '_> {
             return self.intrinsics.error;
         }
         let computed = self.get_type_of_accessors_worker(symbol);
-        let computed = if self.resolutions.pop() { computed } else { self.intrinsics.error };
+        // Native answers `anyType` here; this port keeps `errorType` because
+        // its eager object-literal members close cycles native never forms
+        // (`noCircularitySelfReferentialGetter3/4`), where `any` prints wrong.
+        let computed = if self.resolutions.pop() {
+            computed
+        } else {
+            self.report_accessor_circularity(symbol);
+            self.intrinsics.error
+        };
         self.symbol_types.insert(symbol, computed);
         computed
+    }
+
+    /// `getTypeOfAccessors`' failed-pop arm (`checker.go:18511`): TS2502 at the
+    /// first annotated accessor (getter, then setter).
+    ///
+    /// Native's last arm, TS7023 at an unannotated getter under
+    /// `noImplicitAny`, is not ported: this port resolves object-literal and
+    /// signature members eagerly, so its unannotated cycles include ones native
+    /// never forms (`noCircularitySelfReferentialGetter4`).
+    fn report_accessor_circularity(&mut self, symbol: SymbolId) {
+        use tsr_diagnostics::{Diagnostic, messages};
+        let declarations = self.binder.symbols().get(symbol).declarations.clone();
+        let of_kind = |kind| {
+            declarations.iter().copied().find(|&declaration| self.nodes.kind(declaration) == kind)
+        };
+        let getter = of_kind(SyntaxKind::GetAccessor);
+        let setter = of_kind(SyntaxKind::SetAccessor);
+        let Some(at) = getter
+            .filter(|&node| self.accessor_annotation(node).is_some())
+            .or_else(|| setter.filter(|&node| self.accessor_annotation(node).is_some()))
+        else {
+            return;
+        };
+        let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
+        if self.circularity_reported.insert(at) {
+            let name = self.binder.symbols().get(symbol).name.to_string();
+            self.report(
+                file,
+                Diagnostic::with_args(
+                    &messages::_0_IS_REFERENCED_DIRECTLY_OR_INDIRECTLY_IN_ITS_OWN_TYPE_ANNOTATION,
+                    self.error_span(at),
+                    [name],
+                ),
+            );
+        }
     }
 
     /// `getWriteTypeOfAccessors` (`checker.go:16447`) — the type a WRITE to a
@@ -4496,7 +4539,7 @@ impl<'a> Checker<'a, '_> {
         // reaches itself through any depth of indirection is caught. Nothing
         // between here and `pop` may return early, or the stack unbalances.
         if !self.resolutions.push(symbol, PropertyName::Type) {
-            return self.report_circularity_error(declaration);
+            return self.report_circularity_error(symbol, declaration);
         }
 
         let kind = self.nodes.kind(declaration);
@@ -4747,13 +4790,26 @@ impl<'a> Checker<'a, '_> {
         if !self.resolutions.pop() {
             // A cycle closed *below* this frame, so the answer computed above was
             // built on a partial one and must not be kept.
-            return self.report_circularity_error(declaration);
+            return self.report_circularity_error(symbol, declaration);
         }
         result
     }
 
-    /// Ported from `Checker.reportCircularityError` (`checker.go:18822`),
-    /// without the diagnostics — the checker has none yet (`bd tsr-5e7.6`).
+    /// Ported from `Checker.reportCircularityError` (`checker.go:18822`).
+    ///
+    /// An annotated declaration reports TS2502 at the declaration and yields
+    /// `errorType`. Native reports from both the failed push and the failed pop
+    /// of `getTypeOfVariableOrParameterOrPropertyWorker`; its diagnostic
+    /// collection drops the identical second report. `circularity_reported`
+    /// (declaration node ids, Checker-private, whole-check lifetime) is that
+    /// de-duplication and nothing else.
+    ///
+    /// The unannotated arm's TS7022 is not ported yet. It reports on every
+    /// unannotated cycle participant, and this port forms cycles native does
+    /// not: it lacks `getResolvedSignature`'s `resolutionStart` reset
+    /// (`checker.go:8417`), resolves function-type signatures eagerly
+    /// (`functionWithDefaultParameterWithNoStatements16`) and asks a later
+    /// `const`'s type from flow (`typeGuardNarrowsIndexedAccessOfKnownProperty10`).
     ///
     /// The **return type differs by cause**, which is easy to get wrong because
     /// the two print identically:
@@ -4798,11 +4854,25 @@ impl<'a> Checker<'a, '_> {
     /// be added usefully until return types are computed lazily. That is the
     /// same blocker §217 recorded from the opposite direction — it is now
     /// carried by two independent findings rather than one.
-    fn report_circularity_error(&mut self, declaration: NodeId) -> TypeId {
-        if self.type_annotation_of(declaration).is_some() {
-            return self.intrinsics.error;
+    fn report_circularity_error(&mut self, symbol: SymbolId, declaration: NodeId) -> TypeId {
+        use tsr_diagnostics::{Diagnostic, messages};
+        if self.type_annotation_of(declaration).is_none() {
+            return self.intrinsics.any;
         }
-        self.intrinsics.any
+        if let Some(file) = self.source_file_of_for_diagnostics(declaration)
+            && self.circularity_reported.insert(declaration)
+        {
+            let name = self.binder.symbols().get(symbol).name.to_string();
+            self.report(
+                file,
+                Diagnostic::with_args(
+                    &messages::_0_IS_REFERENCED_DIRECTLY_OR_INDIRECTLY_IN_ITS_OWN_TYPE_ANNOTATION,
+                    self.error_span(declaration),
+                    [name],
+                ),
+            );
+        }
+        self.intrinsics.error
     }
 
     /// Ported from `Checker.getWidenedTypeForVariableLikeDeclaration`, which is
