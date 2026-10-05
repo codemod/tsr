@@ -683,17 +683,100 @@ impl<'a> Checker<'a, '_> {
         }
         let Some(Node::ReturnStatement(statement)) = self.node_map.get(node) else { return };
         let Some(expression) = statement.expression else { return };
+        let Some(expression_id) = expression.node_id() else { return };
         let Some(annotation) = self.enclosing_return_annotation(node) else { return };
         let target = self.get_type_from_type_node(annotation);
         let source = self.check_expression(expression);
-        let Some(expression_id) = expression.node_id() else { return };
+        self.check_return_expression(target, node, expression_id, source, false);
+    }
+
+    /// `checkFunctionExpressionOrObjectLiteralMethodDeferred`
+    /// (`checker.go:10206`), the concise-body arm: an arrow function whose body
+    /// is an expression relates that expression, through
+    /// `checkReturnExpression`, to `unwrapReturnType` of its written return
+    /// annotation. The error node is the body itself. Async arrows are declined
+    /// with async functions (see [`Checker::enclosing_return_annotation`]).
+    pub(crate) fn check_arrow_expression_body(&mut self, node: NodeId, ambient: bool) {
+        if ambient || self.file_has_parse_errors || self.in_js_file(node) {
+            return;
+        }
+        let Some(Node::ArrowFunction(arrow)) = self.node_map.get(node) else { return };
+        let (Some(annotation), Some(body)) = (arrow.r#type, arrow.body) else { return };
+        let Some(body_id) = body.node_id() else { return };
+        if self.nodes.kind(body_id) == SyntaxKind::Block {
+            return;
+        }
+        if has_async(arrow.modifiers) {
+            return;
+        }
+        let target = self.get_type_from_type_node(annotation);
+        let source = self.check_expression_at_node(body_id);
+        self.check_return_expression(target, body_id, body_id, source, false);
+    }
+
+    /// `checkReturnExpression` (`checker.go:4131`). A conditional expression
+    /// (under parentheses) checks each branch on its own, reporting at the
+    /// branch. Otherwise the error node is the return statement, or the
+    /// effective expression for a concise body or a conditional branch. Async
+    /// containers (the `checkAwaitedType` arm) never reach here.
+    fn check_return_expression(
+        &mut self,
+        target: TypeId,
+        node: NodeId,
+        expression: NodeId,
+        source: TypeId,
+        in_conditional: bool,
+    ) {
+        let unwrapped = self.skip_outer_parentheses(expression);
+        if let Some(Node::ConditionalExpression(conditional)) = self.node_map.get(unwrapped) {
+            for branch in [conditional.when_true, conditional.when_false].into_iter().flatten() {
+                let Some(branch_id) = branch.node_id() else { continue };
+                let branch_type = self.check_expression_at_node(branch_id);
+                self.check_return_expression(target, node, branch_id, branch_type, true);
+            }
+            return;
+        }
+        let effective = self.effective_check_node(expression);
+        let error_node = if self.nodes.kind(node) == SyntaxKind::ReturnStatement && !in_conditional
+        {
+            node
+        } else {
+            effective
+        };
         // §73: the elaboration reports the member instead of the outer message.
         let before = self.diagnostics.len();
-        self.check_excess_properties(target, expression_id);
+        self.check_excess_properties(target, effective);
         if self.diagnostics.len() != before {
             return;
         }
-        self.report_assignability_failure(node, expression_id, source, target);
+        self.report_assignability_failure(error_node, effective, source, target);
+    }
+
+    /// `ast.SkipParentheses`.
+    fn skip_outer_parentheses(&self, mut node: NodeId) -> NodeId {
+        while let Some(Node::ParenthesizedExpression(inner)) = self.node_map.get(node)
+            && let Some(expression) = inner.expression.and_then(|e| e.node_id())
+        {
+            node = expression;
+        }
+        node
+    }
+
+    /// `getEffectiveCheckNode` (`checker.go:9381`): `ast.SkipOuterExpressions`
+    /// over parentheses and `satisfies`, repeatedly (TS files; the JS-only
+    /// JSDoc-assertion exclusion never applies because JS files are declined).
+    fn effective_check_node(&self, mut node: NodeId) -> NodeId {
+        loop {
+            let inner = match self.node_map.get(node) {
+                Some(Node::ParenthesizedExpression(inner)) => inner.expression,
+                Some(Node::SatisfiesExpression(inner)) => inner.expression,
+                _ => return node,
+            };
+            match inner.and_then(|expression| expression.node_id()) {
+                Some(inner) => node = inner,
+                None => return node,
+            }
+        }
     }
 
     /// The return annotation of the function a `return` belongs to, where this
@@ -701,9 +784,10 @@ impl<'a> Checker<'a, '_> {
     ///
     /// **Async and generator functions are declined**: their annotation is a
     /// `Promise<T>` or an `Iterator<…>` and the value returned is compared
-    /// against the *unwrapped* `T` (`checkReturnStatement`'s
-    /// `getReturnTypeFromAnnotation` unwrapping, `checker.go:12420`). Comparing
-    /// against the wrapper is a wrong diagnostic on correct code.
+    /// against `unwrapReturnType`'s unwrapped `T` after `checkAwaitedType`.
+    /// The awaited type of a generic alias (`await (x as PromiseOrValue<U>)`)
+    /// is not yet `Awaited<U>` here (`discriminateWithOptionalProperty2`), so
+    /// relating it would be a wrong diagnostic on correct code.
     fn enclosing_return_annotation(&self, node: NodeId) -> Option<tsr_ast::TypeNode<'a>> {
         let mut at = self.nodes.parent(node);
         while let Some(current) = at {

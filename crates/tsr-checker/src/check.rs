@@ -904,6 +904,9 @@ impl Checker<'_, '_> {
             self.check_for_await_context(node);
             self.check_for_of_reference_assignment(node, ambient);
         }
+        if matches!(typed, Node::ArrowFunction(_)) {
+            self.check_arrow_expression_body(node, ambient);
+        }
         if matches!(typed, Node::ImportTypeNode(_)) {
             self.check_import_type_argument(node);
         }
