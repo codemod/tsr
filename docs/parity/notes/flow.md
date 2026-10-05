@@ -153,3 +153,40 @@ flips sign between projects, so each project was run both ways (21 samples):
 `domain-model` 0.955 / 1.052 direct and 1.051 / 0.946 swapped-inverted,
 `generic-imports` 1.068 / 1.070 direct and 0.966 / 0.969 swapped-inverted —
 geometric means ≈ 1.00 and ≈ 1.017.
+
+## 7. TS2448/TS2449: `isUsedInFunctionOrInstanceProperty` and the class arm
+
+`check.rs::use_is_not_deferred` deferred a use at **any** property declaration,
+computed property name or decorator ancestor. Upstream
+(`isUsedInFunctionOrInstanceProperty`, `checker.go:2011`) defers only a
+property's *instance* initializer (for the variable/class/enum declarations
+this rule asks about), a non-IIFE function, a static block whose declaration
+precedes the use, and a decorator only when its decorated method or
+parameter's function is itself deferred. Ported as written, so
+`static p = After.x` before `class After` is TS2449
+(`scopeCheckStaticInitializer`).
+
+The **class arm** (`checker.go:1955`) was missing entirely: a use *after* the
+class starts is still illegal inside its own computed property names, and —
+without `experimentalDecorators` — inside decorators on the class, its members
+or their parameters, unless a non-IIFE function intervenes. Added before the
+deferral gate, as upstream asks it.
+
+**Two declines.**
+- `isInAmbientOrTypeNode(usage)`: a use inside `declare class C { [k]: … }`
+  is never evaluated (`forwardRefInTypeDeclaration`, which the first
+  measurement lost).
+- A use under a **parameter** of the function whose body declares the name.
+  Upstream's `useOuterVariableScopeInParameter` (in `resolveNameHelper`)
+  resolves such a name to the *outer* scope for ES2015+ targets; this port's
+  binder resolves the body's declaration, so the position comparison would be
+  about the wrong symbol (`parameterInitializersForwardReferencing1_es6`'s
+  `function f7({[foo]: bar}) { let foo … }`, lost in the first measurement).
+  Silence until the resolver is fixed; reported to the names lane.
+
+**Measured.** Two lane cases converted (`classDeclarationShouldBeOutOfScopeInComputedNames`,
+`useBeforeDeclaration_classDecorators.1`), 40+ new correct lines in still-WRONG
+cases (`decoratorUsedBeforeDeclaration`, `scopeCheckStaticInitializer`,
+`computedPropertyNamesWithStaticProperty`, …), no losses, no new extras.
+Class-expression self-references (`(class C2 { [C2.p]() {} })`) stay missing.
+Perf bias-corrected ≈1.021 (`domain-model`) and ≈1.010 (`generic-imports`).

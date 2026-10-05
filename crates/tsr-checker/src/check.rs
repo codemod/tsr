@@ -5715,6 +5715,31 @@ impl Checker<'_, '_> {
         else {
             return;
         };
+        // `isBlockScopedNameDeclaredBeforeUse`'s class arm (`checker.go:1955`):
+        // a use after the class starts is still illegal inside the class's
+        // own computed property names and decorators. Upstream asks it before
+        // any deferral and returns its answer outright.
+        if is_class
+            && matches!(
+                self.nodes.kind(declaration),
+                SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression
+            )
+            && self.nodes.span(declaration).start <= self.nodes.span(node).start
+        {
+            if !self.is_value_reference(node)
+                || self.entity_name_root_is_a_type_query(node)
+                || self.source_file_of_for_diagnostics(declaration)
+                    != self.source_file_of_for_diagnostics(node)
+                || self.declaration_is_in_an_ambient_context(declaration)
+                || !self.class_used_in_own_computed_name_or_decorator(node, declaration)
+            {
+                return;
+            }
+            let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+            let span = self.error_span(node);
+            self.report(file, Diagnostic::with_args(message, span, [text.to_string()]));
+            return;
+        }
         // §83's class arm keeps its `extends` bound exactly as measured; the
         // arms §96-§99 added carry the deferral predicate instead.
         if !self.is_in_extends_clause(node) && !self.use_is_not_deferred(node, declaration) {
@@ -5901,63 +5926,176 @@ impl Checker<'_, '_> {
         {
             return false;
         }
+        // `isInAmbientOrTypeNode(usage)` (`checker.go:1932`): a use inside an
+        // ambient declaration — `declare class C { [k]: number }` before
+        // `const k` — is never evaluated.
+        if self.declaration_is_in_an_ambient_context(node) {
+            return false;
+        }
+        // **Not upstream's rule; a decline for a resolver gap.** From a
+        // parameter, a name declared in the function's own body resolves to
+        // the *outer* scope when the target needs no scope change
+        // (`useOuterVariableScopeInParameter`, `checker.go`, in
+        // `resolveNameHelper`); this port's binder resolves the body's
+        // declaration, so the comparison below would be about the wrong
+        // symbol (`parameterInitializersForwardReferencing1_es6`'s
+        // `function f7({[foo]: bar}) { let foo }`). Silence until the
+        // resolver is fixed — reported to the names lane.
+        if self.use_in_parameter_of_declaring_function(node, declaration) {
+            return false;
+        }
         let container = self.enclosing_block_scope_container(declaration);
-        let mut came_from = node;
-        for ancestor in self.nodes.ancestors(node) {
-            if Some(ancestor) == container {
-                return true;
+        !self.is_used_in_function_or_instance_property(node, declaration, container)
+    }
+
+    /// Is `usage` under a parameter of the function whose body holds
+    /// `declaration`?
+    fn use_in_parameter_of_declaring_function(&self, usage: NodeId, declaration: NodeId) -> bool {
+        let mut last = usage;
+        for ancestor in self.nodes.ancestors(usage) {
+            if self.is_function_like_or_static_block(ancestor) {
+                return self.nodes.kind(last) == SyntaxKind::Parameter
+                    && self.nodes.ancestors(declaration).any(|a| a == ancestor);
             }
-            // **Edge, not node** — §108. Upstream's own test is
-            // `initializerOfProperty := propertyDeclaration.Initializer() == current`
-            // (`checker.go:2025`): a `PropertyDeclaration` defers a use in its
-            // *initialiser*, and a computed property name is not that. It is
-            // evaluated where the class is, so it defers nothing.
-            if self.nodes.kind(came_from) == SyntaxKind::ComputedPropertyName
-                && matches!(
-                    self.nodes.kind(ancestor),
-                    SyntaxKind::PropertyDeclaration
-                        | SyntaxKind::MethodDeclaration
-                        | SyntaxKind::GetAccessor
-                        | SyntaxKind::SetAccessor
-                )
-            {
-                came_from = ancestor;
-                continue;
-            }
-            // **A condition, not a membership.** Upstream's static-block arm is
-            // `return ToFindAncestorResult(declaration.Pos() < usage.Pos())`
-            // (`checker.go:2018`): a static block runs when the class is
-            // evaluated, so it defers a use only when the declaration already
-            // exists by then. `ToFindAncestorResult(false)` is
-            // `FindAncestorFalse` — *keep walking* — not "deferred", and a
-            // `matches!` list can express neither half. Every other kind below
-            // defers unconditionally and belongs there. §353.
-            if self.nodes.kind(ancestor) == SyntaxKind::ClassStaticBlockDeclaration {
-                if self.nodes.span(declaration).start < self.nodes.span(node).start {
-                    return false;
-                }
-                came_from = ancestor;
-                continue;
-            }
-            if matches!(
-                self.nodes.kind(ancestor),
-                SyntaxKind::FunctionDeclaration
-                    | SyntaxKind::FunctionExpression
-                    | SyntaxKind::ArrowFunction
-                    | SyntaxKind::MethodDeclaration
-                    | SyntaxKind::GetAccessor
-                    | SyntaxKind::SetAccessor
-                    | SyntaxKind::Constructor
-                    | SyntaxKind::PropertyDeclaration
-                    | SyntaxKind::InterfaceDeclaration
-                    | SyntaxKind::TypeAliasDeclaration
-                    | SyntaxKind::TypeLiteral
-                    | SyntaxKind::ComputedPropertyName
-                    | SyntaxKind::Decorator
-            ) {
+            last = ancestor;
+        }
+        false
+    }
+
+    /// `isUsedInFunctionOrInstanceProperty` (`checker.go:2011`), for the
+    /// declarations this rule asks about — block-scoped variables, classes and
+    /// regular enums, none of which is a property or method declaration, so
+    /// the static-initializer arm never finds and the instance-initializer arm
+    /// always does.
+    ///
+    /// Replaces a kind list that deferred at **every** property declaration
+    /// and decorator: upstream defers only a property's *initializer*, only
+    /// when it is an instance one (`static p = After.x` before `class After`
+    /// is TS2449, `scopeCheckStaticInitializer`), and only a decorator whose
+    /// decorated member is itself deferred. A function-like ancestor defers
+    /// unless it is an IIFE, which runs where it stands.
+    fn is_used_in_function_or_instance_property(
+        &self,
+        usage: NodeId,
+        declaration: NodeId,
+        container: Option<NodeId>,
+    ) -> bool {
+        let mut current = usage;
+        for _ in 0..1024 {
+            if Some(current) == container {
                 return false;
             }
-            came_from = ancestor;
+            let kind = self.nodes.kind(current);
+            if kind == SyntaxKind::ClassStaticBlockDeclaration {
+                if self.nodes.span(declaration).start < self.nodes.span(usage).start {
+                    return true;
+                }
+            } else if self.is_function_like_or_static_block(current)
+                && self.immediately_invoked_call(current).is_none()
+            {
+                return true;
+            }
+            // Type positions are value-free: an interface, alias or type
+            // literal never evaluates the name. `use_is_not_deferred`'s
+            // caller has already asked `is_value_reference`; this keeps the
+            // walk from treating a type member's signature as a function.
+            if matches!(
+                kind,
+                SyntaxKind::InterfaceDeclaration
+                    | SyntaxKind::TypeAliasDeclaration
+                    | SyntaxKind::TypeLiteral
+            ) {
+                return true;
+            }
+            let Some(parent) = self.nodes.parent(current) else { return false };
+            if let Some(Node::PropertyDeclaration(property)) = self.node_map.get(parent)
+                && property.initializer.and_then(|i| i.node_id()) == Some(current)
+                && !self.member_is_static(parent)
+            {
+                return true;
+            }
+            if let Some(Node::Decorator(decorator)) = self.node_map.get(parent)
+                && decorator.expression.and_then(|e| e.node_id()) == Some(current)
+                && let Some(decorated) = self.nodes.parent(parent)
+            {
+                let member = match self.nodes.kind(decorated) {
+                    SyntaxKind::Parameter => {
+                        self.nodes.parent(decorated).and_then(|f| self.nodes.parent(f))
+                    }
+                    SyntaxKind::MethodDeclaration => self.nodes.parent(decorated),
+                    _ => None,
+                };
+                if let Some(member) = member {
+                    return self.is_used_in_function_or_instance_property(
+                        member,
+                        declaration,
+                        container,
+                    );
+                }
+            }
+            current = parent;
+        }
+        false
+    }
+
+    /// The class arm of `isBlockScopedNameDeclaredBeforeUse`
+    /// (`checker.go:1955`), for a use positioned **after** the class
+    /// declaration starts: still illegal inside one of the class's own
+    /// computed property names, or (without `experimentalDecorators`) inside
+    /// a decorator on the class, its members or their parameters — unless a
+    /// non-IIFE function between the use and that decorator defers it.
+    fn class_used_in_own_computed_name_or_decorator(
+        &self,
+        usage: NodeId,
+        declaration: NodeId,
+    ) -> bool {
+        let grandparent = |id: NodeId| self.nodes.parent(id).and_then(|p| self.nodes.parent(p));
+        let mut container = Some(usage);
+        while let Some(id) = container {
+            if id == declaration {
+                return false;
+            }
+            let kind = self.nodes.kind(id);
+            if kind == SyntaxKind::ComputedPropertyName && grandparent(id) == Some(declaration) {
+                break;
+            }
+            if !self.legacy_decorators
+                && kind == SyntaxKind::Decorator
+                && let Some(parent) = self.nodes.parent(id)
+            {
+                let on_class = parent == declaration;
+                let on_member = matches!(
+                    self.nodes.kind(parent),
+                    SyntaxKind::MethodDeclaration
+                        | SyntaxKind::GetAccessor
+                        | SyntaxKind::SetAccessor
+                        | SyntaxKind::PropertyDeclaration
+                ) && self.nodes.parent(parent) == Some(declaration);
+                let on_parameter = self.nodes.kind(parent) == SyntaxKind::Parameter
+                    && grandparent(parent) == Some(declaration);
+                if on_class || on_member || on_parameter {
+                    break;
+                }
+            }
+            container = self.nodes.parent(id);
+        }
+        let Some(container) = container else { return false };
+        if !self.legacy_decorators && self.nodes.kind(container) == SyntaxKind::Decorator {
+            // Legal when a non-IIFE function sits between the use and the
+            // decorator; upstream's `n != nil && n != container` is "found
+            // one", which makes the use legal, so illegal is its negation.
+            let mut n = usage;
+            while n != container {
+                if self.is_function_like_or_static_block(n)
+                    && self.nodes.kind(n) != SyntaxKind::ClassStaticBlockDeclaration
+                    && self.immediately_invoked_call(n).is_none()
+                {
+                    return false;
+                }
+                let Some(parent) = self.nodes.parent(n) else { return true };
+                n = parent;
+            }
+            return true;
         }
         true
     }
