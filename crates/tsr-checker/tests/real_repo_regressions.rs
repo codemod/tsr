@@ -346,11 +346,16 @@ fn a_class_implements_over_a_type_only_import_is_silent() {
 #[test]
 fn a_class_extends_over_a_type_only_import_still_reports() {
     // The value position, and the control for both tests above: a class's
-    // `extends` is the base constructor and it *is* emitted, so a type-only
-    // import there is exactly what TS1361 exists for.
+    // `extends` is the base constructor and it *is* emitted, so it must still
+    // report. `Base` is an *interface*, so upstream's `getSymbol` alias arm
+    // rejects the import for a value lookup and the failure cascade's
+    // `checkAndReportErrorForExtendingInterface` answers TS2689 — `tsc` 6.0.2
+    // on this exact pair says so. This asserted TS1361 until
+    // `docs/parity/notes/names-modules.md` §1; TS1361 is the code for a
+    // type-only import of a *class* (`conformance/extendsClause`).
     assert_eq!(
         codes(&[LIB, ("/a.ts", &format!("{TYPE_IMPORT}export class C extends Base {{}}\n")),]),
-        vec!["TS1361".to_string()]
+        vec!["TS2689".to_string()]
     );
 }
 

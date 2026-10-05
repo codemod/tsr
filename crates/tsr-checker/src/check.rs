@@ -4020,6 +4020,9 @@ impl Checker<'_, '_> {
         if self.check_and_report_error_for_missing_prefix(node, text) {
             return;
         }
+        if self.check_and_report_error_for_extending_interface(node) {
+            return;
+        }
         if self.report_meaning_mismatch_in_value_position(node, text) {
             return;
         }

@@ -1170,13 +1170,21 @@ impl<'a, 'n> Binder<'a, 'n> {
         if !(self.in_ambient_module || has_declare(module.modifiers) || self.in_declaration_file) {
             return false;
         }
-        // `ast.IsModuleAugmentationExternal`, on the ancestor chain.
-        let mut ancestors = self.ancestors.iter().rev().skip(1).map(|(_, node)| *node);
-        match ancestors.next() {
+        self.is_module_augmentation_external(
+            self.ancestors.iter().rev().skip(1).map(|(_, node)| *node),
+        )
+    }
+
+    /// `ast.IsModuleAugmentationExternal` (`utilities.go:1694`), read from a
+    /// parent chain (nearest first) because the tree has no back-edges. An
+    /// external augmentation is an ambient module declared at the top level of
+    /// an external module, or inside a top-level ambient module of a script.
+    fn is_module_augmentation_external(&self, mut parents: impl Iterator<Item = Node<'a>>) -> bool {
+        match parents.next() {
             Some(Node::SourceFile(_)) => self.is_module,
             Some(Node::ModuleBlock(_)) => {
                 matches!(
-                    (ancestors.next(), ancestors.next()),
+                    (parents.next(), parents.next()),
                     (Some(Node::ModuleDeclaration(outer)), Some(Node::SourceFile(_)))
                         if is_ambient_module(outer)
                 ) && !self.is_module
@@ -2658,6 +2666,25 @@ impl<'a, 'n> Binder<'a, 'n> {
             };
             return Some((SymbolFlags::TYPE_PARAMETER, destination));
         }
+        // `bindModuleDeclaration`'s ambient arm (`binder.go:773-781`): an
+        // ambient module — `declare module "x"`, or `declare global` — that is
+        // not an external augmentation is declared `ValueModule`
+        // unconditionally, whatever its instance state. Only augmentations and
+        // ordinary namespaces go through `declareModuleSymbol`'s
+        // instance-state choice, which the kind-only [`classify`] makes.
+        // A type-only `declare module "x" { export type T = … }` in a script
+        // was a `NamespaceModule` here, so `tryFindAmbientModule`'s
+        // `ValueModule` meaning filter (`checker.go:15533`) missed it and every
+        // import of it reported TS2307 (`docs/parity/notes/names-modules.md` §1).
+        // The node is not yet on `ancestors` when it is declared, so the chain
+        // starts at its parent.
+        if let Node::ModuleDeclaration(module) = node
+            && is_ambient_module(module)
+            && !self
+                .is_module_augmentation_external(self.ancestors.iter().rev().map(|(_, node)| *node))
+        {
+            return Some((SymbolFlags::VALUE_MODULE, Destination::Locals));
+        }
 
         let (flags, destination) = classify(node)?;
 
@@ -2898,11 +2925,15 @@ impl<'a, 'n> Binder<'a, 'n> {
         // a local `x` is the case that looks like it should be a local, and is not:
         // the export half is a separate symbol in the container's exports, which is
         // what makes `M.x` reachable, and the local it aliases already exists.
-        // declareModuleMember handles aliases before ExportContext: imports
-        // remain local in declaration files. Only explicit export specifiers
-        // and exported import-equals declarations enter exports. The source
-        // file arm is ported here; applying it inside ambient namespaces also
-        // requires their local-alias type recovery (tsr-6.44.1).
+        // declareModuleMember handles aliases before ExportContext
+        // (`binder.go:399-404`): only explicit export specifiers and exported
+        // import-equals declarations enter exports; every other import stays
+        // local, in a source file and in an ambient module alike. The ambient
+        // module arm used to follow ExportContext, which filed
+        // `declare module "m" { import { I } from "n"; }`'s `I` in the
+        // module's exports, where the exports arm of name resolution declines
+        // an ambient alias — so `I` never resolved inside its own module
+        // (`docs/parity/notes/names-modules.md` §1).
         let exported = match node {
             Node::ExportSpecifier(_) => true,
             Node::ImportEqualsDeclaration(_)
