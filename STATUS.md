@@ -22,6 +22,17 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
+Reference-retention prototype (`tsr-1yb.16.3.3.1`), frozen `a49a171a` /
+private candidate `2fd26c80` / native `5b1047d`, preserves byte-identical full
+type and diagnostic outputs: 475,538 assertions, 464,093 RIGHT, zero RIGHT
+losses. All 55 oracle, 44 public CLI and 22 bad-mutation fixture children finish;
+candidate source/binary restoration is exact. Four archive observer children
+preserve 1,397 actual checked identities and default/single peaks 4/1, with
+equal selected semantic entries. Discarded returned spelling falls from
+2.35MB/1.64MB to zero. The six-line patch remains an isolated proposal;
+ordinary full-CLI validation `.16.3.3.2` is still required before retention.
+[Current-source proof and handoff](docs/architecture/reference-preflight.md).
+
 Written-reference contract (`tsr-1yb.16.3.2.2`), frozen `abe7eafe` /
 native `5b1047d`, refreshes all 55 oracle children after the module-host port.
 Two archive mutations create seven/five new native display mismatches across

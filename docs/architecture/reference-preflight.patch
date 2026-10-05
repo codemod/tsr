@@ -1,0 +1,17 @@
+diff --git a/crates/tsr-checker/src/declared.rs b/crates/tsr-checker/src/declared.rs
+index ef8e89fc..5d87cbaf 100644
+--- a/crates/tsr-checker/src/declared.rs
++++ b/crates/tsr-checker/src/declared.rs
+@@ -4082,6 +4082,12 @@ impl<'a> Checker<'a, '_> {
+         // argument actually carries a written spelling, so nothing else changes.
+         if !node.type_arguments.is_empty()
+             && let Some(id) = node.node_id
++            && (partially_written
++                || node.type_arguments.iter().any(|argument| {
++                    tsr_ast::Node::from(*argument)
++                        .node_id()
++                        .is_some_and(|id| self.qualified_written_text.contains_key(&id))
++                }))
+             && let Some(base) = Self::entity_name_text(node.type_name)
+         {
+             let mut spelled = Vec::with_capacity(arguments.len());
