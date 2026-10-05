@@ -144,29 +144,6 @@ fn starts_parameter(kind: SyntaxKind) -> bool {
     )
 }
 
-/// The unambiguous half of `isListElement(PCArrayLiteralMembers)`
-/// (`parser.go`): upstream admits `,`, `...` or `isStartOfExpression`.
-///
-/// `isStartOfExpression` is not ported, so this is a **subset** and every token
-/// it rejects keeps the caller's `break` — the §200 shape.
-fn starts_array_element(kind: SyntaxKind) -> bool {
-    matches!(
-        kind,
-        SyntaxKind::CommaToken
-            | SyntaxKind::DotDotDotToken
-            | SyntaxKind::Identifier
-            | SyntaxKind::NumericLiteral
-            | SyntaxKind::BigIntLiteral
-            | SyntaxKind::StringLiteral
-            | SyntaxKind::NoSubstitutionTemplateLiteral
-            | SyntaxKind::TemplateHead
-            | SyntaxKind::RegularExpressionLiteral
-            | SyntaxKind::OpenBracketToken
-            | SyntaxKind::OpenBraceToken
-            | SyntaxKind::OpenParenToken
-    )
-}
-
 /// `isListElement(PCObjectLiteralMembers)` (`parser.go:845`).
 ///
 /// `[`, `*`, `...` and `.` are admitted verbatim from upstream — the last is
@@ -1182,88 +1159,20 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// typescript-go's `Parser.parseArrayLiteralExpression` (`parser.go`):
+    /// `parseDelimitedList(PCArrayLiteralMembers,
+    /// parseArgumentOrArrayLiteralElement)`. An elision is an
+    /// `OmittedExpression`; a token that is no element is reported and
+    /// skipped unless an enclosing list wants it (§237's stand-in, now the
+    /// real `isInSomeParsingContext`).
     pub(crate) fn parse_array_literal(&mut self) -> Expression<'a> {
         let start = self.pos();
         self.expect(SyntaxKind::OpenBracketToken);
-        let mut elements = Vec::new();
-        while !self.at(SyntaxKind::CloseBracketToken) && !self.at(SyntaxKind::EndOfFile) {
-            if self.at(SyntaxKind::CommaToken) {
-                // Elision: `[1, , 2]` has a hole.
-                let hole_start = self.pos();
-                let node = self.finish_node(
-                    OmittedExpression::new(),
-                    SyntaxKind::OmittedExpression,
-                    hole_start,
-                );
-                elements.push(Expression::OmittedExpression(node));
-                self.next_token();
-                continue;
-            }
-            // §237: `isListElement(PCArrayLiteralMembers)` — the same third arm
-            // §235 gave argument lists, in the context that falls through to
-            // the same predicate. Upstream (`parser.go:877-883`) answers `true`
-            // for `,` and `.` and otherwise falls through to
-            // `token == KindDotDotDotToken || isStartOfExpression()`; a token
-            // failing all of that is reported, **skipped, and the list retries**
-            // (`abortParsingListOrMoveToNextToken`, `:698`), creating no node.
-            //
-            // `.` is upstream's completion affordance — *"not an array literal
-            // member, but don't want to close the array"* — and is deliberately
-            // NOT skipped here, so it keeps reaching `parse_argument` as it does
-            // today. The comma is handled by the elision arm above.
-            // **The break comes first, and the first draft omitted it** — which
-            // reproduced §191's exact prediction, that a skip without the
-            // `parsingContexts` mask eats a token belonging to an outer
-            // construct. `new DisplayPosition([), 3, …], NoMove, 0)`
-            // (`conformance/parser0_004152`): upstream ends the array at `[`
-            // because `)` closes the enclosing ARGUMENT list, and the skip
-            // swallowed it and consumed the rest of the call — **−8 lines**.
-            //
-            // So the stand-in for `isInSomeParsingContext` here is the same one
-            // §235 relies on: the closers that certainly end an enclosing
-            // construct. For an array element that is `)`, `}` and `;`; `]` is
-            // this list's own terminator and is handled by the `while`.
-            if matches!(
-                self.token.kind,
-                SyntaxKind::CloseParenToken
-                    | SyntaxKind::CloseBraceToken
-                    | SyntaxKind::SemicolonToken
-            ) {
-                break;
-            }
-            if !self.at(SyntaxKind::DotDotDotToken)
-                && !self.at(SyntaxKind::DotToken)
-                && !self.is_start_of_expression()
-            {
-                self.next_token();
-                continue;
-            }
-            let before = self.pos();
-            elements.push(self.parse_argument());
-            if self.eat(SyntaxKind::CommaToken) {
-                continue;
-            }
-            if self.at(SyntaxKind::CloseBracketToken) || self.at(SyntaxKind::EndOfFile) {
-                break;
-            }
-            // `parseDelimitedList` (`parser.go:664`) reports the missing
-            // separator and continues. `var v = [1, 2, 3\n4, 5, 6, 7];` is one
-            // `',' expected` upstream and was two here: this loop left the
-            // list, so the `]` was reported missing as well.
-            //
-            // Guarded by a **subset** of `isListElement(PCArrayLiteralMembers)`
-            // — upstream's is `,`, `...` or `isStartOfExpression`, and the last
-            // is a sixty-kind predicate this port does not have. Everything the
-            // subset rejects keeps the `break`, so this can only turn an abort
-            // into a continue where an element genuinely follows (§200). §219.
-            if !starts_array_element(self.token.kind) {
-                break;
-            }
-            self.expect(SyntaxKind::CommaToken);
-            if self.pos() == before {
-                self.next_token();
-            }
-        }
+        let saved_no_in = std::mem::take(&mut self.no_in);
+        let (elements, _) =
+            self.parse_delimited_list(ParsingContext::ArrayLiteralMembers, Self::parse_argument);
+        self.no_in = saved_no_in;
+        // `parseExpectedMatchingBrackets`.
         self.expect(SyntaxKind::CloseBracketToken);
         let elements = self.arena.alloc_slice(&elements);
         let node = self.finish_node(

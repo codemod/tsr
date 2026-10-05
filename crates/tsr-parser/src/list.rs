@@ -46,12 +46,14 @@ pub(crate) enum ParsingContext {
     VariableDeclarations = 8,
     /// `PCArgumentExpressions`: arguments of a call or `new`.
     ArgumentExpressions = 11,
+    /// `PCArrayLiteralMembers`: elements of an array literal.
+    ArrayLiteralMembers = 15,
 }
 
 impl ParsingContext {
     /// Every context, in upstream's order — `isInSomeParsingContext` walks
     /// them lowest bit first.
-    const ALL: [Self; 9] = [
+    const ALL: [Self; 10] = [
         Self::SourceElements,
         Self::BlockStatements,
         Self::SwitchClauses,
@@ -61,6 +63,7 @@ impl ParsingContext {
         Self::EnumMembers,
         Self::VariableDeclarations,
         Self::ArgumentExpressions,
+        Self::ArrayLiteralMembers,
     ];
 
     const fn bit(self) -> u32 {
@@ -189,6 +192,13 @@ impl Parser<'_> {
             }
             ParsingContext::ArgumentExpressions => {
                 self.at(SyntaxKind::DotDotDotToken) || self.is_start_of_expression()
+            }
+            // Not an array literal member, but don't want to close the array.
+            ParsingContext::ArrayLiteralMembers => {
+                matches!(
+                    self.token.kind,
+                    SyntaxKind::CommaToken | SyntaxKind::DotToken | SyntaxKind::DotDotDotToken
+                ) || self.is_start_of_expression()
             }
         }
     }
@@ -331,6 +341,7 @@ impl Parser<'_> {
             ParsingContext::ArgumentExpressions => {
                 matches!(self.token.kind, SyntaxKind::CloseParenToken | SyntaxKind::SemicolonToken)
             }
+            ParsingContext::ArrayLiteralMembers => self.at(SyntaxKind::CloseBracketToken),
             ParsingContext::SwitchClauseStatements => matches!(
                 self.token.kind,
                 SyntaxKind::CloseBraceToken | SyntaxKind::CaseKeyword | SyntaxKind::DefaultKeyword
@@ -404,6 +415,9 @@ impl Parser<'_> {
             }
             ParsingContext::ArgumentExpressions => {
                 self.error_at_current(&messages::ARGUMENT_EXPRESSION_EXPECTED);
+            }
+            ParsingContext::ArrayLiteralMembers => {
+                self.error_at_current(&messages::EXPRESSION_OR_COMMA_EXPECTED);
             }
         }
     }
