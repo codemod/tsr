@@ -253,7 +253,7 @@ impl Checker<'_, '_> {
                 self.check_exports_on_merged_declarations(node);
                 self.check_super_call_is_first(node);
                 self.check_derived_constructor_calls_super(node);
-                self.check_static_side_kind_mismatch(node);
+                self.check_static_side_assignability(node);
                 self.check_extends_primitive(node);
                 self.check_implements_missing_member(node);
                 // `declare class C { x: number }` puts every member in an
@@ -1916,15 +1916,17 @@ impl Checker<'_, '_> {
     /// TS2417 — `Class static side '{0}' incorrectly extends base class static
     /// side '{1}'.`
     ///
-    /// The **kind-mismatch** subset: a static member declared as a property in
-    /// one class and a method or accessor in the other. A method is never a
-    /// property, and no relation compares declaration kinds — §407's `absent`
-    /// argument one step over. Same-kind pairs decline; that is where the
-    /// relation would be needed and where §405 measured `+0`. §463.
-    fn check_static_side_kind_mismatch(&mut self, node: NodeId) {
-        if self.file_has_parse_errors {
-            return;
-        }
+    /// `checkClassLikeDeclaration`'s static-side arm (`checker.go:4337`):
+    /// `checkTypeAssignableTo(staticType, getTypeWithoutSignatures(staticBaseType))`
+    /// at the class name, reached only when the instance side is assignable
+    /// (`checker.go:4333`). The structural relation of two `typeof` class
+    /// types is `propertiesRelatedTo` (`relater.go`) over the base's static
+    /// properties: each one the derived class also declares must agree on
+    /// private/protected visibility and have an assignable type. Declines a
+    /// generic class or base, a base written with type arguments or not as an
+    /// identifier, a base merged across declarations, and any member pair the
+    /// three-valued relation cannot definitely reject.
+    fn check_static_side_assignability(&mut self, node: NodeId) {
         let Some(Node::ClassDeclaration(class)) = self.node_map.get(node) else { return };
         if !class.type_parameters.is_empty() {
             return;
@@ -1943,7 +1945,7 @@ impl Checker<'_, '_> {
         }
         let Some(expression) = base.expression.and_then(|e| e.node_id()) else { return };
         let Some(text) = self.identifier_text(expression).map(str::to_string) else { return };
-        let Some(symbol) = self.binder.resolve_name(
+        let Some(base_symbol) = self.binder.resolve_name(
             self.nodes,
             self.node_map,
             expression,
@@ -1952,8 +1954,8 @@ impl Checker<'_, '_> {
         ) else {
             return;
         };
-        let declarations =
-            self.binder.symbols().get(self.binder.merged_symbol(symbol)).declarations.clone();
+        let base_symbol = self.binder.merged_symbol(base_symbol);
+        let declarations = self.binder.symbols().get(base_symbol).declarations.clone();
         let [declaration] = declarations.as_slice() else { return };
         let Some(Node::ClassDeclaration(base_class)) = self.node_map.get(*declaration) else {
             return;
@@ -1961,49 +1963,89 @@ impl Checker<'_, '_> {
         if !base_class.type_parameters.is_empty() {
             return;
         }
-        let kinds = |members: &[tsr_ast::ClassElement<'_>]| -> Vec<(String, u8)> {
-            members
-                .iter()
-                .filter_map(|member| {
-                    let (name, kind, modifiers) = match member {
-                        tsr_ast::ClassElement::PropertyDeclaration(p) => (p.name, 0u8, p.modifiers),
-                        tsr_ast::ClassElement::MethodDeclaration(m) => (m.name, 1, m.modifiers),
-                        tsr_ast::ClassElement::GetAccessorDeclaration(a) => {
-                            (a.name, 2, a.modifiers)
-                        }
-                        tsr_ast::ClassElement::SetAccessorDeclaration(a) => {
-                            (a.name, 2, a.modifiers)
-                        }
-                        _ => return None,
-                    };
-                    if !has_modifier(modifiers, SyntaxKind::StaticKeyword) {
-                        return None;
-                    }
-                    let tsr_ast::PropertyName::Identifier(name) = name else { return None };
-                    Some((name.text.to_string(), kind))
-                })
-                .collect()
-        };
-        let base_kinds = kinds(base_class.members);
-        for (name, kind) in kinds(class.members) {
-            let Some((_, base_kind)) = base_kinds.iter().find(|(other, _)| *other == name) else {
-                continue;
-            };
-            if *base_kind == kind {
-                continue;
-            }
-            let Some(file) = self.source_file_of_for_diagnostics(name_id) else { return };
-            let span = self.error_span(name_id);
-            self.report(
-                file,
-                Diagnostic::with_args(
-                    &messages::CLASS_STATIC_SIDE_0_INCORRECTLY_EXTENDS_BASE_CLASS_STATIC_SIDE_1,
-                    span,
-                    [String::new(), String::new()],
-                ),
-            );
+        let Some(symbol) = self.binder.symbol_of(node) else { return };
+        let symbol = self.binder.merged_symbol(symbol);
+        // Only when the instance side is assignable; a failing instance side
+        // is TS2415's report instead.
+        let instance = self.get_declared_type_of_class_or_interface(symbol);
+        let base_instance = self.get_declared_type_of_class_or_interface(base_symbol);
+        if self.relate_ternary(instance, base_instance, crate::relater::Relation::Assignable)
+            != crate::relater::Ternary::Related
+        {
             return;
         }
+        let base_statics: Vec<(String, tsr_binder::SymbolId)> = self
+            .binder
+            .symbols()
+            .get(base_symbol)
+            .exports
+            .iter()
+            .map(|(name, &member)| (name.to_string(), member))
+            .collect();
+        let mut failed = false;
+        for (name, base_member) in base_statics {
+            // A private name's symbol key is per declaring class
+            // (`binder.GetSymbolNameForPrivateIdentifier`), so a derived `#x`
+            // never matches the base's.
+            if name == "prototype" || name.starts_with('#') {
+                continue;
+            }
+            let Some(&member) = self.binder.symbols().get(symbol).exports.get(name.as_str()) else {
+                continue;
+            };
+            let member = self.binder.merged_symbol(member);
+            let base_member = self.binder.merged_symbol(base_member);
+            if member == base_member {
+                continue;
+            }
+            let visibility = |checker: &Self, member: tsr_binder::SymbolId| -> (bool, bool) {
+                let entry = checker.binder.symbols().get(member);
+                let modifiers = entry
+                    .value_declaration
+                    .or_else(|| entry.declarations.first().copied())
+                    .and_then(|declaration| checker.node_map.get(declaration))
+                    .and_then(modifiers_of)
+                    .unwrap_or(&[]);
+                (
+                    has_modifier(modifiers, SyntaxKind::PrivateKeyword),
+                    has_modifier(modifiers, SyntaxKind::ProtectedKeyword),
+                )
+            };
+            let (private, protected) = visibility(self, member);
+            let (base_private, base_protected) = visibility(self, base_member);
+            // propertiesRelatedTo's visibility arms: private on either side
+            // needs one declaration; a protected source needs a protected
+            // target.
+            if private || base_private || (protected && !base_protected) {
+                failed = true;
+                break;
+            }
+            let source = self.get_type_of_symbol(member);
+            let target = self.get_type_of_symbol(base_member);
+            if self.relate_ternary(source, target, crate::relater::Relation::Assignable)
+                == crate::relater::Ternary::NotRelated
+                && self.pair_is_reportable(source, target)
+            {
+                failed = true;
+                break;
+            }
+        }
+        if !failed {
+            return;
+        }
+        let static_type = self.get_type_of_symbol(symbol);
+        let base_static_type = self.get_type_of_symbol(base_symbol);
+        let printed = [self.type_to_string(static_type), self.type_to_string(base_static_type)];
+        let Some(file) = self.source_file_of_for_diagnostics(name_id) else { return };
+        let span = self.error_span(name_id);
+        self.report(
+            file,
+            Diagnostic::with_args(
+                &messages::CLASS_STATIC_SIDE_0_INCORRECTLY_EXTENDS_BASE_CLASS_STATIC_SIDE_1,
+                span,
+                printed,
+            ),
+        );
     }
 
     /// TS2358 — `The left-hand side of an 'instanceof' expression must be of
