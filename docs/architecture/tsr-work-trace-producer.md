@@ -8,16 +8,121 @@ not a scheduler or a throughput improvement.
 
 ## Entry boundaries and ownership
 
-The private checker attaches its observer after construction and applying
-compiler options. Initialization before attachment is explicitly unobserved.
-The producer records one actual `checker_created` event at that site; requested
-worker flags are separate fields. Current TSR uses one serial checker even with
+The private checker attaches its semantic observer after construction and applying
+compiler options. Inner initialization forcing before attachment is explicitly
+unobserved. The driver brackets `Checker::with_module_host` directly and records
+one actual `checker_created` event immediately after that constructor returns,
+before applying options; requested worker flags are separate fields. Current TSR uses one serial checker even with
 `--checkers 2`. `effective_serial_checker_limit: 1` describes that implementation;
 `memory_admission_budget: null` leaves admission policy unsupported.
 `requested_checkers_matches_actual_instances` records numerical agreement only;
 `worker_options_applied_by_driver: false` records that the current driver does
 not implement worker selection. A request for one can coincide with the actual
 count without showing that worker policy ran.
+
+### Direct activity intervals
+
+The additive `worker_activity_schema_version: 1` header distinguishes this
+producer from earlier schema-1 artifacts that lack activity evidence. Every
+record carries `recorded_at_ns` from a private `Instant` started at invocation
+entry. These are monotonic elapsed nanoseconds, not Unix timestamps or CPU time.
+Zero-duration intervals are valid at the clock's resolution. Constructor start
+and return are `construction_started_at_ns` and `construction_finished_at_ns`
+on `checker_created`; this interval excludes compiler-option application. The
+existing work begin/end timestamps bracket only their named observed operations.
+
+End records separate four directly observed peaks:
+
+| Field | Counted activity |
+| --- | --- |
+| `peak_constructing_checkers` | Instances inside the constructor bracket |
+| `peak_covered_semantic_checkers` | Distinct private checkers with at least one covered work span |
+| `peak_full_checkers` | Distinct private checkers with at least one full-file span |
+| `peak_observed_checkers` | Union of constructor and covered semantic activity |
+
+All count at most one in this serial producer. Nested queries on checker zero
+remain one checker; the earlier `peak_full_checks` retains its full-span count.
+A noCheck invocation constructs one instance but starts no covered semantic or
+full-file work. A listFilesOnly invocation constructs none. An unfinished
+constructor is retained in `unfinished_constructions` and its start timestamp
+on the incomplete end record. Panic or process termination does not manufacture
+a successful constructor return or normal invocation end. Existing returned and
+unwinding work outcomes retain their meanings.
+
+These intervals include observer bookkeeping/I/O and exclude unobserved work;
+they do not measure CPU utilization, native admission, all initialization
+forcing or a safe memory bound. The bounded artifact reader ignores these
+additive fields and cannot qualify worker activity by accepting the stream.
+Native producer and independent cross-tool qualification remain
+`tsr-1yb.1.2.3.2.1` and `tsr-1yb.1.2.3.2.3`; private-store admission remains
+`tsr-1yb.3.1.1.3`. None is satisfied by an observed peak of one.
+
+Current source `a91643a7` plus qualified constructor/activity patch uses
+`/tmp/tsr-worker-activity-controls.py` and the immutable receipt directory
+`/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-worker-activity-a916-w53mqzx2`.
+Thirteen public modes each run preflight, probe-off, probe-on and repeat: 52
+fresh processes preserve complete output, status, options and ordered loaded
+identities. All 26 traces pass the existing artifact reader; an additional
+control recomputes interval peaks independently from their records. Default,
+single and two-requested modes perform three full checks; noCheck performs zero;
+library-enabled and default-library-skipped modes perform 67 and four. Seven JS
+controls retain full-check counts 1/0/1/1/0/1/0. Constructor peaks are one in all
+these modes; semantic/full-check peaks are zero in the zero-check cases and one
+otherwise. Raw per-child wall/CPU/RSS observations are retained separately for
+probe-off/on overhead; these small, unpaired controls support no throughput
+claim. Constructor durations are observations of these frozen processes, not
+current-source performance acceptance.
+
+| Activity evidence | SHA256 |
+| --- | --- |
+| Frozen probe | `19289f57036913c71bf84b9cb82cdecbd8f31357e99c880760a53480bcdd3162` |
+| Public helper | `9290ec8d1bd8a009b68b90ef3cbb65a77e2d089e760ac0ac7c1f18b12240b1b7` |
+| Public controls | `8e0e387a5794e4391d927d427447393a66a00699c57be37a47c7719c294947d9` |
+| Qualified production-source patch | `2180e4a0dda09d158483e9e29c365ab3662a960e4152d7193f64fdace4e0e08e` |
+
+The interval assertions fail on the previous producer's missing activity fields
+before implementation (`/tmp/tsr-activity-red.log`). CLI tests now compare stable
+records after removing only clock fields and separately validate monotonicity.
+Collector failure controls retain unfinished construction and nested unwinding
+as incomplete. Physical CLI controls also reject stale sidecars and prove a
+killed real compiler produces no completed invocation. These are producer
+controls; they do not implement the sibling worker-evidence validator.
+
+The ordinary release was rebuilt without `work-trace`. Its 49 CLI/execute tests
+pass with one existing ignore. Thirteen further fresh ordinary children preserve
+the probe-off output with `TSR_WORK_TRACE` set and create no sidecar. Their
+separate receipt is
+`/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-ordinary-activity-controls-2r791atd/ordinary-controls.json`;
+the ordinary binary SHA256 is
+`f09cb4c6b6ff9b32c16b9f7ccb4d7a858e657b3c670531bc682523d0c335fc63`.
+
+Concurrent main commits were then incorporated at `50905e4b`. All four captured
+producer/reader source fingerprints and the production patch hash remain
+identical; the checker and binder changed. A fresh feature workspace run passes
+3,039 tests with six existing ignores, and 49 ordinary CLI tests pass with one
+existing ignore. Strict release all-target Clippy passes for the affected CLI
+and execute packages in both modes. The old-base ordinary all-workspace lint
+was stopped when main advanced; it supplies no completed lint result.
+
+The rebuilt probe's 52 fresh public children and 26 traces retain the same
+full-check and activity counts. Each current probe-off result is the baseline
+for its probe-on/repeat output comparisons, so these controls do not assert
+that the intervening semantic ports preserved the earlier diagnostic payloads.
+Thirteen fresh ordinary children again preserve those current baselines and
+create no sidecar with tracing requested. No type-corpus verdict or speed
+acceptance is remeasured by these producer controls.
+
+Current feature evidence is in
+`/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-worker-activity-50905-08b9hrun`;
+the ordinary receipt is in
+`/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-ordinary-activity-controls-oqc56zp2`.
+
+| Integrated activity evidence | SHA256 |
+| --- | --- |
+| Frozen probe | `06ea9f6c83e3ba80cc6b404a3d58d521c344b08d86a9892aab66d540ddb0e61a` |
+| Public helper | `a156a0d24a48640f6265162d1fa024e2d2939abdf2bb757629728775597a9e5a` |
+| Public controls | `1b63b3e10e24105a5981037e395ddff4157cc098ef152f1e5375562700b2cbb8` |
+| Ordinary binary | `100edd8cbc494048292b9f3680b877cefda7ba08ffea7448735336cb7ef127a0` |
 
 | Operation | Entry | Meaning |
 | --- | --- | --- |

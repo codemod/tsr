@@ -7,6 +7,7 @@
 use std::collections::HashMap;
 use std::io::Write;
 use std::sync::{Mutex, MutexGuard};
+use std::time::Instant;
 
 use serde_json::{Value, json};
 use tsr_checker::work_trace::{NodeId, Operation, WorkObserver};
@@ -52,6 +53,12 @@ struct State {
     full_checks: usize,
     peak_full_checks: usize,
     checker_instances: usize,
+    started_at: Instant,
+    construction_started_at_ns: Option<u64>,
+    peak_constructing_checkers: usize,
+    peak_covered_semantic_checkers: usize,
+    peak_full_checkers: usize,
+    peak_observed_checkers: usize,
     saw_unwind: bool,
 }
 
@@ -62,11 +69,28 @@ impl State {
         }
     }
 
-    fn record(&mut self, value: &Value) {
+    fn elapsed_ns(&self) -> u64 {
+        u64::try_from(self.started_at.elapsed().as_nanos()).unwrap_or(u64::MAX)
+    }
+
+    fn observe_activity(&mut self) {
+        // This producer supports one private checker. Nested spans on that
+        // instance are activity, not additional workers or CPU utilization.
+        let constructing = usize::from(self.construction_started_at_ns.is_some());
+        let semantic = usize::from(!self.active.is_empty());
+        let full = usize::from(self.full_checks != 0);
+        self.peak_constructing_checkers = self.peak_constructing_checkers.max(constructing);
+        self.peak_covered_semantic_checkers = self.peak_covered_semantic_checkers.max(semantic);
+        self.peak_full_checkers = self.peak_full_checkers.max(full);
+        self.peak_observed_checkers = self.peak_observed_checkers.max(constructing.max(semantic));
+    }
+
+    fn record(&mut self, mut value: Value) {
         if self.failure.is_some() {
             return;
         }
-        let result = serde_json::to_writer(&mut self.writer, value)
+        value["recorded_at_ns"] = self.elapsed_ns().into();
+        let result = serde_json::to_writer(&mut self.writer, &value)
             .map_err(std::io::Error::other)
             .and_then(|()| self.writer.write_all(b"\n"));
         if let Err(error) = result {
@@ -100,6 +124,12 @@ impl WorkTrace {
                 full_checks: 0,
                 peak_full_checks: 0,
                 checker_instances: 0,
+                started_at: Instant::now(),
+                construction_started_at_ns: None,
+                peak_constructing_checkers: 0,
+                peak_covered_semantic_checkers: 0,
+                peak_full_checkers: 0,
+                peak_observed_checkers: 0,
                 saw_unwind: false,
             }),
         }
@@ -120,8 +150,11 @@ impl WorkTrace {
             return;
         }
         state.lifecycle = Lifecycle::Running;
-        state.record(&json!({
+        state.started_at = Instant::now();
+        state.record(json!({
             "event": "invocation_start", "schema_version": 1,
+            "worker_activity_schema_version": 1,
+            "activity_clock": "monotonic_elapsed_ns",
             "producer": "tsr-work-trace", "pid": self.identity.pid,
             "invocation_id": self.identity.invocation_id, "args": args,
             "source_sha_claim": self.identity.source_sha_claim,
@@ -155,7 +188,7 @@ impl WorkTrace {
         let option = |value: tsr_core::Tristate| {
             if value.is_unknown() { None } else { Some(value.is_true()) }
         };
-        state.record(&json!({
+        state.record(json!({
             "event": "program", "current_directory": current_directory,
             "case_sensitive": case_sensitive, "root_files": roots,
             "compiler_options_debug": format!("{options:?}"),
@@ -181,7 +214,7 @@ impl WorkTrace {
             }
             let name = file.file_name();
             let exclusion = crate::compile::full_check_exclusion(program, file_id);
-            state.record(&json!({
+            state.record(json!({
                 "event": "program_file", "file_id": file_id, "path": name,
                 "source_node_id": source_node_id, "text_bytes": file.text().len(),
                 "full_check_eligible": exclusion.is_none(),
@@ -194,6 +227,20 @@ impl WorkTrace {
         }
     }
 
+    pub(crate) fn checker_construction_started(&self) {
+        let mut state = self.state();
+        if state.lifecycle != Lifecycle::Running
+            || !state.program_observed
+            || state.checker_instances != 0
+            || state.construction_started_at_ns.is_some()
+        {
+            state.fail("unsupported checker construction in serial CLI producer");
+            return;
+        }
+        state.construction_started_at_ns = Some(state.elapsed_ns());
+        state.observe_activity();
+    }
+
     pub(crate) fn checker_created(&self, options: &CompilerOptions) {
         let mut state = self.state();
         if state.lifecycle != Lifecycle::Running
@@ -203,9 +250,16 @@ impl WorkTrace {
             state.fail("unsupported checker lifetime in serial CLI producer");
             return;
         }
+        let Some(construction_started_at_ns) = state.construction_started_at_ns.take() else {
+            state.fail("checker created without observed construction");
+            return;
+        };
+        let construction_finished_at_ns = state.elapsed_ns();
         state.checker_instances += 1;
-        state.record(&json!({
+        state.record(json!({
             "event": "checker_created", "checker_id": 0,
+            "construction_started_at_ns": construction_started_at_ns,
+            "construction_finished_at_ns": construction_finished_at_ns,
             "requested_checkers": options.checkers,
             "requested_single_threaded": if options.single_threaded.is_unknown() {
                 None
@@ -227,19 +281,25 @@ impl WorkTrace {
         state.lifecycle = Lifecycle::Finished;
         let record = json!({
             "event": "invocation_end", "exit_code": exit_code,
-            "state": if state.active.is_empty() && !state.saw_unwind {
+            "state": if state.active.is_empty() && state.construction_started_at_ns.is_none() && !state.saw_unwind {
                 "complete"
             } else { "incomplete" },
             "semantic_program_observed": state.program_observed,
             "checker_instances_created": state.checker_instances,
             "peak_full_checks": state.peak_full_checks,
+            "peak_constructing_checkers": state.peak_constructing_checkers,
+            "peak_covered_semantic_checkers": state.peak_covered_semantic_checkers,
+            "peak_full_checkers": state.peak_full_checkers,
+            "peak_observed_checkers": state.peak_observed_checkers,
+            "unfinished_constructions": usize::from(state.construction_started_at_ns.is_some()),
+            "construction_started_at_ns": state.construction_started_at_ns,
             "unfinished_spans": state.active.len(),
             "all_forcing_observed": false,
             "complete_provenance_verified": false,
             "actual_work_equivalence_verified": false,
             "memory_admission_budget": null,
         });
-        state.record(&record);
+        state.record(record);
         state.flush();
         state.failure.clone()
     }
@@ -267,7 +327,8 @@ impl WorkObserver for WorkTrace {
             state.full_checks += 1;
             state.peak_full_checks = state.peak_full_checks.max(state.full_checks);
         }
-        state.record(&json!({
+        state.observe_activity();
+        state.record(json!({
             "event": "work_begin", "span_id": token, "operation": operation.name(),
             "checker_id": 0, "file_ids": files, "unmapped_source_node_ids": unmapped,
         }));
@@ -284,9 +345,88 @@ impl WorkObserver for WorkTrace {
             state.full_checks -= 1;
         }
         state.saw_unwind |= panicking;
-        state.record(&json!({
+        state.record(json!({
             "event": "work_end", "span_id": token,
             "outcome": if panicking { "panicking" } else { "returned" },
         }));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+
+    #[derive(Clone, Default)]
+    struct Capture(Arc<Mutex<Vec<u8>>>);
+
+    impl Write for Capture {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    fn construction() -> (WorkTrace, Capture) {
+        let capture = Capture::default();
+        let trace = WorkTrace::new(
+            Box::new(capture.clone()),
+            TraceIdentity {
+                pid: 7,
+                invocation_id: "collector-failure-control".into(),
+                source_sha_claim: None,
+                binary_sha256_claim: None,
+            },
+        );
+        trace.start(&[]);
+        // Collector failure tests isolate lifecycle bookkeeping. Actual Program
+        // and constructor wiring is exercised through command_line integration.
+        trace.state().program_observed = true;
+        trace.checker_construction_started();
+        (trace, capture)
+    }
+
+    fn last(capture: &Capture) -> Value {
+        let bytes = capture.0.lock().unwrap();
+        serde_json::from_slice(
+            bytes.split(|&byte| byte == b'\n').rfind(|line| !line.is_empty()).unwrap(),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn unfinished_construction_cannot_finish_as_complete() {
+        let (trace, capture) = construction();
+        assert!(trace.finish(1).is_none());
+        let end = last(&capture);
+        assert_eq!(end["state"], "incomplete");
+        assert_eq!(end["unfinished_constructions"], 1);
+        assert_eq!(end["checker_instances_created"], 0);
+        assert_eq!(end["peak_observed_checkers"], 1);
+        assert_eq!(end["peak_covered_semantic_checkers"], 0);
+        assert!(
+            end["construction_started_at_ns"].as_u64().unwrap()
+                <= end["recorded_at_ns"].as_u64().unwrap()
+        );
+    }
+
+    #[test]
+    fn nested_unwinding_work_is_one_checker_and_incomplete() {
+        let (trace, capture) = construction();
+        trace.checker_created(&CompilerOptions::default());
+        let file = trace.begin(Operation::SourceFileCheck, &[]);
+        let query = trace.begin(Operation::SymbolTypeQuery, &[]);
+        trace.end(query, true);
+        trace.end(file, true);
+        assert!(trace.finish(1).is_none());
+        let end = last(&capture);
+        assert_eq!(end["state"], "incomplete");
+        assert_eq!(end["unfinished_spans"], 0);
+        assert_eq!(end["peak_full_checkers"], 1);
+        assert_eq!(end["peak_covered_semantic_checkers"], 1);
+        assert_eq!(end["peak_observed_checkers"], 1);
     }
 }

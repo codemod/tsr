@@ -22,6 +22,23 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
+Direct TSR worker intervals (`tsr-1yb.1.2.3.2.2`), integrated at `50905e4b` plus
+the activity patch after initial proof on `a91643a7`, bracket actual construction
+and timestamp covered work. Nested queries remain one private checker; noCheck
+separates one constructor from zero covered semantic/full workers, while
+listFilesOnly creates none.
+Thirteen modes use 52 fresh public children with unchanged complete output;
+all 26 trace artifacts pass the reader and independently recomputed peaks.
+Integrated feature workspace tests pass 3,039 with six existing ignores; 15 reader tests
+and 49 ordinary CLI tests pass (one existing ignore). Thirteen fresh ordinary
+children ignore the trace environment and preserve complete output. Unfinished
+construction and unwinding remain incomplete. Strict release all-target Clippy
+passes for the CLI/execute packages in both modes; format, anchors and sections
+pass. The issue-ID gate retains the 190 historical missing IDs (`tsr-10`). Ordinary
+execution remains serial; native producer, cross-tool qualification, full
+forcing, memory admission and comparable native median <=0.50 remain open.
+[Interval contract and receipts](docs/architecture/tsr-work-trace-producer.md#direct-activity-intervals).
+
 Trace artifact integrity (`tsr-1yb.1.2.4.1`), pre-work `e3acf869` plus the
 qualified producer/reader patch, validates supervising PID/start time/outcome,
 file fingerprints, resolved options, eligibility, span references and cumulative
@@ -2759,6 +2776,12 @@ rendering `any` for `errorType` (ADR-0038).
 ---
 
 ## 4. What is next — the scored board
+
+TSR interval child `.1.2.3.2.2` has verified direct construction/covered activity.
+Native worker producer `.1.2.3.2.1` and independent cross-tool qualification
+`.1.2.3.2.3` remain open; the parent admission task cannot close from serial
+peaks. Lazy forcing `.1.2.3.1` and private-store admission `.3.1.1.3` retain
+their independent obligations before semantic comparison or production workers.
 
 Performed-work producer `.1.2.3` has a verified, feature-gated Rust slice;
 broader native forcing, qualified provenance and admission evidence remain in
@@ -6168,6 +6191,16 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+### Observed activity as safe parallel admission — patch on `a91643a7`
+
+All 26 public interval traces show at most one constructed/active TSR checker,
+including one constructor but zero semantic/full workers under noCheck. This
+is direct serial activity evidence, not a native worker budget, CPU utilization,
+complete initialization forcing or safe private-store/RSS ceiling. Nested
+spans are not additional workers. The old reader accepts additive stream fields
+without validating worker intervals; its acceptance cannot enable comparability.
+Native/cross-tool producer qualification and memory admission remain separate.
 
 ### Artifact integrity as verified semantic work — patch on `e3acf869`
 
@@ -12721,6 +12754,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
+| 2026-10-04 | `50905e4b` plus activity patch (initial proof `a91643a7`) | not remeasured | not remeasured | Direct serial worker intervals; no speed claim | `tsr-1yb.1.2.3.2.2`: constructor start/return and monotonic covered-span timestamps, distinct checker activity peaks, unfinished construction/unwinding controls. 52 fresh public children preserve output/options/loaded identities; 26 traces pass artifact integrity and recomputed peaks. Integrated feature workspace 3,039 pass/six existing ignores; 49 ordinary CLI tests/one existing ignore, 15 reader tests, 13 ordinary environment-ignore children, strict release CLI/execute Clippy both modes and format/anchors/sections pass. Initial source proofs remain archived; concurrent main ports are preserved. Issue-ID gate retains the 190 historical missing IDs (`tsr-10`). Native producer, independent worker qualification, all forcing, memory admission and comparable median <=0.50 remain open. |
 | 2026-10-04 | `e3acf869` plus qualified producer/reader patch | not remeasured | not remeasured | Trace artifact integrity; no speed claim | `tsr-1yb.1.2.4.1`: strict process/start-time/file/options/eligibility/span validation; 52 fresh public children preserve output and 26 artifacts pass. Fifteen reader controls/60 script tests, 2,933 feature-workspace tests/six existing ignores, 49 ordinary CLI tests/one existing ignore, strict Clippy both modes and format/anchors/sections pass. Inline review found and fixed same-PID replay; no independent model coverage claimed. Ordinary build ignores tracing. Receipt authenticity, compiled provenance, complete inputs, lazy forcing/native admission and comparable median <=0.50 remain unverified. |
 | 2026-10-04 | `58cfa176` plus qualified eligibility patch | 461,575 RIGHT preserved; 474,852 type rows identical | six diagnostic case gains; zero previous passing losses | Native public checking scope aligned; no speed claim | `.1.1.2`/`.1.1.2.1`: complete Program eligibility, shared trace/directive rule, JSON lazy availability, native-supported optional/omitted merged parameters and never rest, deterministic diagnostic ordering. Thirty-six public children preserve 68 loaded identities and native full checks 3/0/67/4 with complete ordered diagnostics; seven JS/eight parameter controls. All 10,570 diagnostic cases retained; 2,931 feature-workspace/49 ordinary CLI tests, strict Clippy both modes, format/anchors/sections pass. Issue-ID gate retains unchanged 190 historical missing IDs (`tsr-10`). Broader resolved identity, plain-JS diagnostic policy, forcing/input/worker admission and native median <=0.50 remain unverified. |
 | 2026-10-04 | `7762af68` plus qualified producer patch | not remeasured | not remeasured | Opt-in actual-work producer; no speed claim | `tsr-1yb.1.2.3`: 15 public off/on/repeat children preserve 68 loaded identities/output, 4/0/5 TSR full checks versus native 3/0/67, one actual serial instance. Seven virtual/two physical controls cover write/flush, stale-file and abort boundaries; 2,924 feature-enabled release workspace tests/258 blocks, strict Clippy both modes and formatting. Forty separate paired overhead children preserve output. Ordinary build ignores observer environment. New P1 `.1.1.2` owns eligibility alignment; forcing/provenance/input/worker admission and native median <=0.50 remain unverified. |

@@ -119,6 +119,41 @@ fn file_id(records: &[Value], suffix: &str) -> u64 {
         .unwrap()
 }
 
+fn without_timing(records: &[Value]) -> Vec<Value> {
+    records
+        .iter()
+        .cloned()
+        .map(|mut row| {
+            let object = row.as_object_mut().unwrap();
+            for key in
+                ["recorded_at_ns", "construction_started_at_ns", "construction_finished_at_ns"]
+            {
+                object.remove(key);
+            }
+            row
+        })
+        .collect()
+}
+
+fn assert_intervals(records: &[Value]) {
+    assert_eq!(records[0]["worker_activity_schema_version"], 1);
+    assert_eq!(records[0]["activity_clock"], "monotonic_elapsed_ns");
+    let mut previous = 0;
+    for row in records {
+        let now = row["recorded_at_ns"].as_u64().expect("direct monotonic event timestamp");
+        assert!(now >= previous);
+        previous = now;
+    }
+    if let Some(created) = records.iter().find(|row| row["event"] == "checker_created") {
+        let start = created["construction_started_at_ns"].as_u64().unwrap();
+        let end = created["construction_finished_at_ns"].as_u64().unwrap();
+        assert!(start <= end && end <= created["recorded_at_ns"].as_u64().unwrap());
+        for row in records.iter().filter(|row| row["event"] == "work_begin") {
+            assert!(row["recorded_at_ns"].as_u64().unwrap() >= end);
+        }
+    }
+}
+
 #[test]
 fn cli_trace_preserves_output_and_distinguishes_lazy_work_from_file_checks() {
     let (off_status, off_output, off_records) = run(&[], false);
@@ -128,7 +163,9 @@ fn cli_trace_preserves_output_and_distinguishes_lazy_work_from_file_checks() {
     assert_eq!(status, off_status);
     assert_eq!(output, off_output);
     assert_eq!(repeat_output, off_output);
-    assert_eq!(records, repeat);
+    assert_eq!(without_timing(&records), without_timing(&repeat));
+    assert_intervals(&records);
+    assert_intervals(&repeat);
     assert!(output.contains("error TS2322:"));
     assert_eq!(records.first().unwrap()["event"], "invocation_start");
     assert_eq!(records.last().unwrap()["event"], "invocation_end");
@@ -156,17 +193,24 @@ fn cli_trace_preserves_output_and_distinguishes_lazy_work_from_file_checks() {
         && row["operation"] == "declared_type_query"
         && row["file_ids"].as_array().unwrap().contains(&serde_json::json!(decl))));
     let mut active = Vec::new();
+    let mut peak_spans = 0;
     for row in &records {
         if row["event"] == "work_begin" {
             active.push(row["span_id"].as_u64().unwrap());
+            peak_spans = peak_spans.max(active.len());
         } else if row["event"] == "work_end" {
             assert_eq!(active.pop(), row["span_id"].as_u64());
             assert_eq!(row["outcome"], "returned");
         }
     }
     assert!(active.is_empty());
+    assert!(peak_spans > 1, "the control must exercise nested private-checker work");
     assert_eq!(records.last().unwrap()["all_forcing_observed"], false);
     assert_eq!(records.last().unwrap()["complete_provenance_verified"], false);
+    // The fixture has nested queries, but they share one private checker.
+    assert_eq!(records.last().unwrap()["peak_covered_semantic_checkers"], 1);
+    assert_eq!(records.last().unwrap()["peak_observed_checkers"], 1);
+    assert_eq!(records.last().unwrap()["peak_full_checkers"], 1);
 }
 
 #[test]
@@ -223,6 +267,11 @@ fn no_check_and_worker_requests_do_not_become_performed_work() {
         assert_eq!(records.iter().filter(|row| row["event"] == "checker_created").count(), 1);
         assert_eq!(records.last().unwrap()["checker_instances_created"], 1);
         assert_eq!(records.last().unwrap()["peak_full_checks"], 0);
+        assert_intervals(&records);
+        assert_eq!(records.last().unwrap()["peak_constructing_checkers"], 1);
+        assert_eq!(records.last().unwrap()["peak_covered_semantic_checkers"], 0);
+        assert_eq!(records.last().unwrap()["peak_full_checkers"], 0);
+        assert_eq!(records.last().unwrap()["peak_observed_checkers"], 1);
     }
     for request in ["1", "2"] {
         let (_, _, records) = run(&["--checkers", request], true);
@@ -263,6 +312,9 @@ fn list_files_only_loads_a_program_without_creating_a_checker() {
     assert!(!records.iter().any(|row| row["event"] == "work_begin"));
     assert_eq!(records.last().unwrap()["semantic_program_observed"], true);
     assert_eq!(records.last().unwrap()["checker_instances_created"], 0);
+    assert_intervals(&records);
+    assert_eq!(records.last().unwrap()["peak_observed_checkers"], 0);
+    assert_eq!(records.last().unwrap()["peak_constructing_checkers"], 0);
 }
 
 /// Fail after the flushed header, while preserving the bytes already written.

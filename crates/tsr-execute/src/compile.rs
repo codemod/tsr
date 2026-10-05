@@ -297,16 +297,23 @@ pub fn run_compilation(
         }
     }
 
+    #[cfg(feature = "work-trace")]
+    if let Some(trace) = &work_trace {
+        trace.checker_construction_started();
+    }
     let mut checker = tsr_checker::Checker::with_module_host(
         program.binder(),
         program.nodes(),
         program.node_map(),
         Some(&program),
     );
+    #[cfg(feature = "work-trace")]
+    if let Some(trace) = &work_trace {
+        trace.checker_created(&options);
+    }
     checker.apply_compiler_options(&options);
     #[cfg(feature = "work-trace")]
     if let Some(trace) = work_trace {
-        trace.checker_created(&options);
         checker.set_work_observer(trace);
     }
 
