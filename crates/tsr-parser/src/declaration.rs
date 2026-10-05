@@ -3,6 +3,7 @@
 use tsr_ast::*;
 use tsr_diagnostics::messages;
 
+use crate::list::ParsingContext;
 use crate::parser::Parser;
 
 impl<'a> Parser<'a> {
@@ -55,22 +56,14 @@ impl<'a> Parser<'a> {
         let type_parameters = self.parse_type_parameters();
         let heritage = self.parse_heritage_clauses();
 
-        self.expect(SyntaxKind::OpenBraceToken);
-        let mut members = Vec::new();
-        while !self.at(SyntaxKind::CloseBraceToken) && !self.at(SyntaxKind::EndOfFile) {
-            let before = self.pos();
-            if let Some(member) = self.parse_class_member() {
-                members.push(member);
-            } else {
-                self.error_at_current(&messages::PROPERTY_OR_SIGNATURE_EXPECTED);
-                self.next_token();
-                continue;
-            }
-            if self.pos() == before {
-                self.next_token();
-            }
-        }
-        self.expect(SyntaxKind::CloseBraceToken);
+        // `parseClassDeclarationOrExpression`: no members without the `{`.
+        let members = if self.expect(SyntaxKind::OpenBraceToken) {
+            let members = self.parse_list(ParsingContext::ClassMembers, Self::parse_class_element);
+            self.expect(SyntaxKind::CloseBraceToken);
+            members
+        } else {
+            Vec::new()
+        };
 
         let modifiers = self.arena.alloc_slice(modifiers);
         let type_parameters = self.arena.alloc_slice(&type_parameters);
@@ -288,17 +281,16 @@ impl<'a> Parser<'a> {
         expression
     }
 
-    /// One member of a class body.
-    fn parse_class_member(&mut self) -> Option<ClassElement<'a>> {
+    /// One member of a class body — typescript-go's `Parser.parseClassElement`
+    /// (`parser.go`). Only called where `isListElement(PCClassMembers)` holds.
+    fn parse_class_element(&mut self) -> ClassElement<'a> {
         let docs = self.parse_leading_jsdoc();
-        let member = self.parse_class_member_worker();
-        if let Some(member) = member {
-            self.attach_jsdoc(member.into(), docs);
-        }
+        let member = self.parse_class_element_worker();
+        self.attach_jsdoc(member.into(), docs);
         member
     }
 
-    fn parse_class_member_worker(&mut self) -> Option<ClassElement<'a>> {
+    fn parse_class_element_worker(&mut self) -> ClassElement<'a> {
         let start = self.pos();
 
         if self.at(SyntaxKind::SemicolonToken) {
@@ -308,83 +300,44 @@ impl<'a> Parser<'a> {
                 SyntaxKind::SemicolonClassElement,
                 start,
             );
-            return Some(ClassElement::SemicolonClassElement(node));
+            return ClassElement::SemicolonClassElement(node);
         }
 
         // A class member is one of the two positions where `const` is a
         // modifier rather than a declaration keyword; see `parse_modifiers_ex`.
         let modifiers = self.parse_modifiers_ex(true, true);
 
-        // `static { … }` is a static initialization block; `static` followed by
-        // anything else is a modifier.
-        //
-        // **After the modifier run, not before** — upstream's order
-        // (`parseClassElement`, `parser.go:2500`, having told `parseModifiersEx`
-        // to stop at `static {`). Checked first, as this port did, the branch is
-        // unreachable for `async static { }` or `public static { }`: the
-        // leading modifier is not `static`, so the run swallows both keywords
-        // and the `{` is read as an object literal. Illegal modifiers on a
-        // static block are still a static block upstream —
-        // `conformance/classStaticBlock20` records one assertion for three of
-        // them. §211.
+        // `static { … }` is a static initialization block; upstream told
+        // `parseModifiersEx` to stop at `static {`, so illegal modifiers before
+        // it (`async static { }`) still make a static block. §211.
         if self.at(SyntaxKind::StaticKeyword) && self.next_is_open_brace() {
             self.next_token();
-            // `parseClassStaticBlockBody` (`parser.go:2539`) turns the await
-            // context ON unconditionally: `static { await x }` is legal.
+            // `parseClassStaticBlockBody` turns the await context ON
+            // unconditionally: `static { await x }` is legal.
             let body = self.with_await_context(true, Self::parse_block);
             let modifiers = self.arena.alloc_slice(&modifiers);
-            return Some(ClassElement::ClassStaticBlockDeclaration(self.finish_node(
+            return ClassElement::ClassStaticBlockDeclaration(self.finish_node(
                 ClassStaticBlockDeclaration::new(modifiers, Some(body)),
                 SyntaxKind::ClassStaticBlockDeclaration,
                 start,
-            )));
+            ));
         }
 
-        // `[key: string]: T` — an index signature on a class.
-        if self.at(SyntaxKind::OpenBracketToken) && self.bracket_holds_index_signature() {
-            // **§209's second consumer, and it is §209's own lesson.** That
-            // section widened `bracket_holds_index_signature` to upstream's
-            // nine shapes and rewrote the TYPE-LITERAL consumer to
-            // `parseIndexSignatureDeclaration`'s bracketed parameter LIST
-            // (`parser.go:3562`). This one — the CLASS member — was left
-            // reading a single bare `id: type`, which is the same narrow
-            // assumption the predicate used to license, at the other of its
-            // two call sites.
-            //
-            // `class C { [a: number = 1]: number; }` is the witness:
-            // `parse_parameter` reads the initializer and upstream records
-            // `>1 : 1` for it, where the hand-rolled read stopped at the type
-            // annotation and left `= 1` behind to be re-scanned into an
-            // expression position. §210.
-            self.expect(SyntaxKind::OpenBracketToken);
-            let mut parsed = Vec::new();
-            while !self.at(SyntaxKind::CloseBracketToken) && !self.at(SyntaxKind::EndOfFile) {
-                let before = self.pos();
-                parsed.push(self.parse_parameter());
-                if !self.eat(SyntaxKind::CommaToken) {
-                    break;
+        if let Some(is_getter) = self.parse_get_or_set_contextual_modifier() {
+            return match self.parse_accessor_declaration(start, &modifiers, is_getter, false) {
+                AccessorDeclaration::GetAccessorDeclaration(node) => {
+                    ClassElement::GetAccessorDeclaration(node)
                 }
-                if self.pos() == before {
-                    break;
+                AccessorDeclaration::SetAccessorDeclaration(node) => {
+                    ClassElement::SetAccessorDeclaration(node)
                 }
-            }
-            self.expect(SyntaxKind::CloseBracketToken);
-            let value_type = self.parse_type_annotation();
-            self.parse_semicolon();
-            let modifiers = self.arena.alloc_slice(&modifiers);
-            let parameters = self.arena.alloc_slice(&parsed);
-            return Some(ClassElement::IndexSignatureDeclaration(self.finish_node(
-                IndexSignatureDeclaration::new(modifiers, parameters, value_type, None, &[]),
-                SyntaxKind::IndexSignature,
-                start,
-            )));
+            };
         }
 
-        // Ported from `Parser.tryParseConstructorDeclaration` (`parser.go:1917`):
-        // the `constructor` keyword commits unconditionally, and a string literal
-        // spelling `"constructor"` commits when `(` follows. The signature parses
-        // type parameters and a return type — both grammar errors the checker
-        // reports, not the parser.
+        // `tryParseConstructorDeclaration`: the `constructor` keyword commits
+        // unconditionally, and a string literal spelling `"constructor"`
+        // commits when `(` follows. Type parameters and a return type are
+        // grammar errors the checker reports, not the parser.
         if self.at(SyntaxKind::ConstructorKeyword)
             || (self.at(SyntaxKind::StringLiteral)
                 && self.token_value() == "constructor"
@@ -397,7 +350,9 @@ impl<'a> Parser<'a> {
             let (parameters, return_type, body) = self.with_await_context(false, |parser| {
                 let parameters = parser.parse_parameter_list();
                 let return_type = parser.parse_return_type_annotation();
-                (parameters, return_type, parser.parse_method_body())
+                let body =
+                    parser.parse_function_block_or_semicolon(false, Some(&messages::OR_EXPECTED));
+                (parameters, return_type, body)
             });
             let modifiers = self.arena.alloc_slice(&modifiers);
             let type_parameters = self.arena.alloc_slice(&type_parameters);
@@ -415,94 +370,174 @@ impl<'a> Parser<'a> {
                 SyntaxKind::Constructor,
                 start,
             );
-            return Some(ClassElement::ConstructorDeclaration(node));
+            return ClassElement::ConstructorDeclaration(node);
         }
 
-        // `get x() {}` is an accessor; `get` alone is a property named "get", so
-        // the following token decides.
-        if matches!(self.token.kind, SyntaxKind::GetKeyword | SyntaxKind::SetKeyword)
-            && self.next_starts_accessor_name()
+        // `[key: string]: T` — an index signature on a class.
+        if self.at(SyntaxKind::OpenBracketToken) && self.bracket_holds_index_signature() {
+            return ClassElement::IndexSignatureDeclaration(
+                self.parse_index_signature_declaration(start, &modifiers),
+            );
+        }
+
+        // Checked *after* indexers, because `[` can start an index signature
+        // or a computed property name.
+        if crate::list::token_is_identifier_or_keyword(self.token.kind)
+            || matches!(
+                self.token.kind,
+                SyntaxKind::StringLiteral
+                    | SyntaxKind::NumericLiteral
+                    | SyntaxKind::BigIntLiteral
+                    | SyntaxKind::AsteriskToken
+                    | SyntaxKind::OpenBracketToken
+            )
         {
-            let is_getter = self.at(SyntaxKind::GetKeyword);
-            self.next_token();
-            let name = self.parse_property_name();
-            // An accessor cannot be `async` either — same reasoning as the
-            // constructor above.
-            let (parameters, return_type, body) = self.with_await_context(false, |parser| {
-                let parameters = parser.parse_parameter_list();
-                let return_type = parser.parse_return_type_annotation();
-                (parameters, return_type, parser.parse_method_body())
-            });
-            let modifiers = self.arena.alloc_slice(&modifiers);
-            let parameters = self.arena.alloc_slice(&parameters);
-            return Some(if is_getter {
-                ClassElement::GetAccessorDeclaration(self.finish_node(
-                    GetAccessorDeclaration::new(
-                        modifiers,
-                        name,
-                        &[],
-                        parameters,
-                        return_type,
-                        None,
-                        body,
-                        None,
-                        None,
-                    ),
-                    SyntaxKind::GetAccessor,
-                    start,
-                ))
-            } else {
-                ClassElement::SetAccessorDeclaration(self.finish_node(
-                    SetAccessorDeclaration::new(
-                        modifiers,
-                        name,
-                        &[],
-                        parameters,
-                        return_type,
-                        None,
-                        body,
-                        None,
-                        None,
-                    ),
-                    SyntaxKind::SetAccessor,
-                    start,
-                ))
-            });
+            return self.parse_property_or_method_declaration(start, &modifiers);
         }
 
-        // Ported from `Parser.parsePropertyOrMethodDeclaration` (`parser.go:1938`):
-        // the asterisk is parsed here, after the constructor and accessor arms,
-        // and its presence alone commits to a method.
-        let asterisk =
-            if self.at(SyntaxKind::AsteriskToken) { Some(self.take_token()) } else { None };
+        // `isListElement` admitted the token, so modifiers were parsed:
+        // treat this as a property declaration with a missing name.
+        let at = self.node_end();
+        self.error_at(&messages::DECLARATION_EXPECTED, tsr_core::Span::at(at));
+        let name = PropertyName::Identifier(self.missing_identifier());
+        let modifiers = self.arena.alloc_slice(&modifiers);
+        self.parse_property_declaration(start, modifiers, name, None)
+    }
 
-        if asterisk.is_none() && !self.at_property_name_start() {
+    /// `parseContextualModifier(KindGetKeyword)` then `(KindSetKeyword)`
+    /// (`parser.go`): consumes `get`/`set` when what follows can name an
+    /// accessor, answering whether it was a getter.
+    pub(crate) fn parse_get_or_set_contextual_modifier(&mut self) -> Option<bool> {
+        if !matches!(self.token.kind, SyntaxKind::GetKeyword | SyntaxKind::SetKeyword) {
             return None;
         }
+        let is_getter = self.at(SyntaxKind::GetKeyword);
+        self.try_parse(|p| {
+            p.next_token();
+            // `canFollowGetOrSetKeyword`.
+            (p.at(SyntaxKind::OpenBracketToken) || p.is_literal_property_name())
+                .then_some(is_getter)
+        })
+    }
 
+    /// typescript-go's `Parser.parseAccessorDeclaration` (`parser.go`), after
+    /// the `get`/`set` keyword. `is_type` is `ParseFlagsType`: an accessor in
+    /// an interface or type literal.
+    pub(crate) fn parse_accessor_declaration(
+        &mut self,
+        start: u32,
+        modifiers: &[ModifierLike<'a>],
+        is_getter: bool,
+        is_type: bool,
+    ) -> AccessorDeclaration<'a> {
         let name = self.parse_property_name();
+        let type_parameters = self.parse_type_parameters();
+        // An accessor cannot be `async`: its context is OFF.
+        let (parameters, return_type, body) = self.with_await_context(false, |parser| {
+            let parameters = parser.parse_parameter_list();
+            let return_type = parser.parse_return_type_annotation();
+            let body = parser.parse_function_block_or_semicolon(is_type, None);
+            (parameters, return_type, body)
+        });
+        let modifiers = self.arena.alloc_slice(modifiers);
+        let type_parameters = self.arena.alloc_slice(&type_parameters);
+        let parameters = self.arena.alloc_slice(&parameters);
+        if is_getter {
+            AccessorDeclaration::GetAccessorDeclaration(self.finish_node(
+                GetAccessorDeclaration::new(
+                    modifiers,
+                    name,
+                    type_parameters,
+                    parameters,
+                    return_type,
+                    None,
+                    body,
+                    None,
+                    None,
+                ),
+                SyntaxKind::GetAccessor,
+                start,
+            ))
+        } else {
+            AccessorDeclaration::SetAccessorDeclaration(self.finish_node(
+                SetAccessorDeclaration::new(
+                    modifiers,
+                    name,
+                    type_parameters,
+                    parameters,
+                    return_type,
+                    None,
+                    body,
+                    None,
+                    None,
+                ),
+                SyntaxKind::SetAccessor,
+                start,
+            ))
+        }
+    }
+
+    /// typescript-go's `Parser.parseIndexSignatureDeclaration` (`parser.go`).
+    pub(crate) fn parse_index_signature_declaration(
+        &mut self,
+        start: u32,
+        modifiers: &[ModifierLike<'a>],
+    ) -> &'a IndexSignatureDeclaration<'a> {
+        // `parseBracketedList(PCParameters, parseParameter, [, ])`. §209/§210:
+        // a list of zero or more ordinary parameters, each able to carry
+        // modifiers and an initializer.
+        self.expect(SyntaxKind::OpenBracketToken);
+        let mut parsed = Vec::new();
+        while !self.at(SyntaxKind::CloseBracketToken) && !self.at(SyntaxKind::EndOfFile) {
+            let before = self.pos();
+            parsed.push(self.parse_parameter());
+            if !self.eat(SyntaxKind::CommaToken) {
+                break;
+            }
+            if self.pos() == before {
+                break;
+            }
+        }
+        self.expect(SyntaxKind::CloseBracketToken);
+        let value_type = self.parse_type_annotation();
+        self.parse_type_member_semicolon();
+        let modifiers = self.arena.alloc_slice(modifiers);
+        let parameters = self.arena.alloc_slice(&parsed);
+        self.finish_node(
+            IndexSignatureDeclaration::new(modifiers, parameters, value_type, None, &[]),
+            SyntaxKind::IndexSignature,
+            start,
+        )
+    }
+
+    /// typescript-go's `Parser.parsePropertyOrMethodDeclaration` (`parser.go`).
+    fn parse_property_or_method_declaration(
+        &mut self,
+        start: u32,
+        modifiers: &[ModifierLike<'a>],
+    ) -> ClassElement<'a> {
+        let asterisk =
+            if self.at(SyntaxKind::AsteriskToken) { Some(self.take_token()) } else { None };
+        let name = self.parse_property_name();
+        // Note: this is not legal as per the grammar. But we allow it in the
+        // parser and report an error in the grammar checker.
         let question =
-            if self.at(SyntaxKind::QuestionToken) || self.at(SyntaxKind::ExclamationToken) {
-                Some(self.take_token())
-            } else {
-                None
-            };
-
-        let modifiers_slice = self.arena.alloc_slice(&modifiers);
-
-        // A `(` or `<` here makes it a method rather than a property, and an
-        // asterisk already has (`parser.go:1944`).
+            if self.at(SyntaxKind::QuestionToken) { Some(self.take_token()) } else { None };
+        let modifiers_slice = self.arena.alloc_slice(modifiers);
         if asterisk.is_some()
             || self.at(SyntaxKind::OpenParenToken)
             || self.at(SyntaxKind::LessThanToken)
         {
+            // `parseMethodDeclaration`.
             let type_parameters = self.parse_type_parameters();
             // A method's own await context, from its own `async` — §193.
-            let is_async = Self::is_async(&modifiers);
+            let is_async = Self::is_async(modifiers);
             let (parameters, return_type, body) = self.with_await_context(is_async, |parser| {
                 let parameters = parser.parse_parameter_list();
                 let return_type = parser.parse_return_type_annotation();
-                (parameters, return_type, parser.parse_method_body())
+                let body =
+                    parser.parse_function_block_or_semicolon(false, Some(&messages::OR_EXPECTED));
+                (parameters, return_type, body)
             });
             let type_parameters = self.arena.alloc_slice(&type_parameters);
             let parameters = self.arena.alloc_slice(&parameters);
@@ -521,43 +556,121 @@ impl<'a> Parser<'a> {
                 SyntaxKind::MethodDeclaration,
                 start,
             );
-            return Some(ClassElement::MethodDeclaration(node));
+            return ClassElement::MethodDeclaration(node);
         }
+        self.parse_property_declaration(start, modifiers_slice, name, question)
+    }
 
+    /// typescript-go's `Parser.parsePropertyDeclaration` (`parser.go`).
+    fn parse_property_declaration(
+        &mut self,
+        start: u32,
+        modifiers: &'a [ModifierLike<'a>],
+        name: PropertyName<'a>,
+        question: Option<&'a tsr_ast::Token<'a>>,
+    ) -> ClassElement<'a> {
+        let postfix = question.or_else(|| {
+            (self.at(SyntaxKind::ExclamationToken) && !self.token.has_preceding_line_break())
+                .then(|| self.take_token())
+        });
         let type_node = self.parse_type_annotation();
         let initializer = if self.eat(SyntaxKind::EqualsToken) {
             Some(self.parse_assignment_expression())
         } else {
             None
         };
-        self.parse_semicolon();
+        self.parse_semicolon_after_property_name(name, type_node.is_some(), initializer.is_some());
         let node = self.finish_node(
-            PropertyDeclaration::new(modifiers_slice, name, question, type_node, initializer),
+            PropertyDeclaration::new(modifiers, name, postfix, type_node, initializer),
             SyntaxKind::PropertyDeclaration,
             start,
         );
-        Some(ClassElement::PropertyDeclaration(node))
+        ClassElement::PropertyDeclaration(node)
     }
 
-    /// A method body, or `None` for an overload signature.
-    fn parse_method_body(&mut self) -> Option<FunctionBody<'a>> {
-        if self.at(SyntaxKind::OpenBraceToken) {
-            Some(FunctionBody::Block(self.parse_block()))
-        } else {
-            self.parse_semicolon();
-            None
+    /// typescript-go's `Parser.parseSemicolonAfterPropertyName` (`parser.go`).
+    fn parse_semicolon_after_property_name(
+        &mut self,
+        name: PropertyName<'a>,
+        has_type: bool,
+        has_initializer: bool,
+    ) {
+        if self.at(SyntaxKind::AtToken) && !self.token.has_preceding_line_break() {
+            self.error_at_current(
+                &messages::DECORATORS_MUST_PRECEDE_THE_NAME_AND_ALL_KEYWORDS_OF_PROPERTY_DECLARATIONS,
+            );
+            return;
         }
+        if self.at(SyntaxKind::OpenParenToken) {
+            self.error_at_current(&messages::CANNOT_START_A_FUNCTION_CALL_IN_A_TYPE_ANNOTATION);
+            self.next_token();
+            return;
+        }
+        if has_type && !self.can_parse_semicolon() {
+            if has_initializer {
+                self.error_at_current_with(&messages::_0_EXPECTED, &[";"]);
+            } else {
+                self.error_at_current(&messages::EXPECTED_FOR_PROPERTY_INITIALIZER);
+            }
+            return;
+        }
+        if self.try_parse_semicolon() {
+            return;
+        }
+        if has_initializer {
+            self.error_at_current_with(&messages::_0_EXPECTED, &[";"]);
+            return;
+        }
+        let (text, span) = match name {
+            PropertyName::Identifier(identifier) => (
+                identifier.text,
+                identifier.node_id.map_or(self.token.span, |id| self.nodes.span(id)),
+            ),
+            _ => ("", self.token.span),
+        };
+        self.parse_error_for_missing_semicolon_after_name(text, span);
     }
 
-    /// Whether the token after `get`/`set` starts a property name.
-    fn next_starts_accessor_name(&mut self) -> bool {
-        let mut matched = false;
-        self.try_parse(|p| {
-            p.next_token();
-            matched = p.at_property_name_start();
-            None::<()>
-        });
-        matched
+    /// typescript-go's `Parser.parseFunctionBlockOrSemicolon` (`parser.go`):
+    /// a body, or `None` for an overload signature. `is_type` is
+    /// `ParseFlagsType`; `missing_open_brace` replaces `'{' expected`.
+    ///
+    /// Without its `{`, upstream's `parseBlock` builds an empty block that
+    /// covers no text, and `ast.NodeIsMissing` makes every consumer treat the
+    /// function as bodiless (`f(), f()` is two overloads returning `any`).
+    /// This port has no zero-width node, so that body is `None`.
+    pub(crate) fn parse_function_block_or_semicolon(
+        &mut self,
+        is_type: bool,
+        missing_open_brace: Option<&'static tsr_diagnostics::Message>,
+    ) -> Option<FunctionBody<'a>> {
+        if !self.at(SyntaxKind::OpenBraceToken) {
+            if is_type {
+                self.parse_type_member_semicolon();
+                return None;
+            }
+            if self.can_parse_semicolon() {
+                self.parse_semicolon();
+                return None;
+            }
+            match missing_open_brace {
+                Some(message) => self.error_at_current(message),
+                None => {
+                    self.expect(SyntaxKind::OpenBraceToken);
+                }
+            }
+            return None;
+        }
+        Some(FunctionBody::Block(self.parse_block()))
+    }
+
+    /// typescript-go's `Parser.parseTypeMemberSemicolon` (`parser.go`): type
+    /// members are separated by commas or (possibly ASI) semicolons.
+    pub(crate) fn parse_type_member_semicolon(&mut self) {
+        if self.eat(SyntaxKind::CommaToken) {
+            return;
+        }
+        self.parse_semicolon();
     }
 
     pub(crate) fn next_is_open_brace(&mut self) -> bool {
@@ -574,18 +687,6 @@ impl<'a> Parser<'a> {
         matched
     }
 
-    /// Whether the cursor can begin a property name.
-    pub(crate) fn at_property_name_start(&self) -> bool {
-        matches!(
-            self.token.kind,
-            SyntaxKind::Identifier
-                | SyntaxKind::StringLiteral
-                | SyntaxKind::NumericLiteral
-                | SyntaxKind::OpenBracketToken
-                | SyntaxKind::PrivateIdentifier
-        ) || self.token.kind.is_keyword()
-    }
-
     /// `interface I<T> extends J { … }`.
     pub(crate) fn parse_interface_declaration(
         &mut self,
@@ -597,25 +698,7 @@ impl<'a> Parser<'a> {
         let type_parameters = self.parse_type_parameters();
         let heritage = self.parse_heritage_clauses();
 
-        self.expect(SyntaxKind::OpenBraceToken);
-        let mut members = Vec::new();
-        while !self.at(SyntaxKind::CloseBraceToken) && !self.at(SyntaxKind::EndOfFile) {
-            let before = self.pos();
-            if let Some(member) = self.parse_type_member() {
-                members.push(member);
-            } else {
-                self.error_at_current(&messages::PROPERTY_OR_SIGNATURE_EXPECTED);
-                self.next_token();
-                continue;
-            }
-            if !self.eat(SyntaxKind::SemicolonToken)
-                && !self.eat(SyntaxKind::CommaToken)
-                && self.pos() == before
-            {
-                self.next_token();
-            }
-        }
-        self.expect(SyntaxKind::CloseBraceToken);
+        let members = self.parse_object_type_members();
 
         let modifiers = self.arena.alloc_slice(modifiers);
         let type_parameters = self.arena.alloc_slice(&type_parameters);
@@ -660,31 +743,16 @@ impl<'a> Parser<'a> {
     ) -> Statement<'a> {
         self.expect(SyntaxKind::EnumKeyword);
         let name = self.parse_identifier();
-        self.expect(SyntaxKind::OpenBraceToken);
-
-        let mut members = Vec::new();
-        while !self.at(SyntaxKind::CloseBraceToken) && !self.at(SyntaxKind::EndOfFile) {
-            let before = self.pos();
-            let member_start = self.pos();
-            let member_name = self.parse_property_name();
-            let initializer = if self.eat(SyntaxKind::EqualsToken) {
-                Some(self.parse_assignment_expression())
-            } else {
-                None
-            };
-            members.push(self.finish_node(
-                EnumMember::new(member_name, initializer, &[], None),
-                SyntaxKind::EnumMember,
-                member_start,
-            ));
-            if !self.eat(SyntaxKind::CommaToken) {
-                break;
-            }
-            if self.pos() == before {
-                break;
-            }
-        }
-        self.expect(SyntaxKind::CloseBraceToken);
+        let members = if self.expect(SyntaxKind::OpenBraceToken) {
+            // Enum members are in neither a yield nor an await context.
+            let (members, _) = self.with_await_context(false, |parser| {
+                parser.parse_delimited_list(ParsingContext::EnumMembers, Self::parse_enum_member)
+            });
+            self.expect(SyntaxKind::CloseBraceToken);
+            members
+        } else {
+            Vec::new()
+        };
 
         let modifiers = self.arena.alloc_slice(modifiers);
         let members = self.arena.alloc_slice(&members);
@@ -694,6 +762,22 @@ impl<'a> Parser<'a> {
             start,
         );
         Statement::EnumDeclaration(node)
+    }
+
+    /// typescript-go's `Parser.parseEnumMember` (`parser.go`).
+    fn parse_enum_member(&mut self) -> &'a EnumMember<'a> {
+        let member_start = self.pos();
+        let member_name = self.parse_property_name();
+        let initializer = if self.eat(SyntaxKind::EqualsToken) {
+            Some(self.parse_assignment_expression())
+        } else {
+            None
+        };
+        self.finish_node(
+            EnumMember::new(member_name, initializer, &[], None),
+            SyntaxKind::EnumMember,
+            member_start,
+        )
     }
 
     /// Type arguments in a heritage clause, which may be absent.

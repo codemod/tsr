@@ -1987,10 +1987,12 @@ fn an_array_literal_aborts_on_an_enclosing_closer() {
 /// that a skip without the `parsingContexts` mask eats a token belonging to an
 /// outer construct. With it, that case *passes*.
 #[test]
-fn an_array_literal_skips_a_token_that_closes_nothing() {
+fn an_array_literal_keeps_its_elements_around_a_stray_decorator() {
     let arena = Arena::new();
-    // `@` starts no expression and closes no enclosing construct, so upstream
-    // skips it and carries on: the array still has its two elements.
+    // `@` starts an expression (`isStartOfExpression`), so upstream parses it:
+    // `parseDecoratedExpression` reports `Expression expected.` and yields a
+    // missing node, and the array keeps the elements on both sides — native's
+    // `.types` records `1`, an empty-text line and `2`.
     let parsed = parse(&arena, "var a = [1, @, 2];");
     let arrays: Vec<_> = all_nodes(tsr_ast::Node::SourceFile(parsed.source_file))
         .into_iter()
@@ -2000,7 +2002,7 @@ fn an_array_literal_skips_a_token_that_closes_nothing() {
         })
         .collect();
     let [array] = arrays.as_slice() else { panic!("expected one array literal") };
-    assert_eq!(array.elements.len(), 2, "`@` is skipped, not parsed into an element");
+    assert_eq!(array.elements.len(), 3, "`@` is a missing element between `1` and `2`");
 }
 
 /// §238. No `(`, no parameters.

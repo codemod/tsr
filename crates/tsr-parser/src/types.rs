@@ -7,6 +7,7 @@
 use tsr_ast::*;
 use tsr_diagnostics::messages;
 
+use crate::list::ParsingContext;
 use crate::parser::Parser;
 
 impl<'a> Parser<'a> {
@@ -880,185 +881,86 @@ impl<'a> Parser<'a> {
         TypeNode::MappedTypeNode(node)
     }
 
-    /// `{ a: string; b(): void }`.
+    /// `{ a: string; b(): void }` — typescript-go's `Parser.parseTypeLiteral`
+    /// (`parser.go`).
     fn parse_type_literal(&mut self) -> TypeNode<'a> {
         let start = self.pos();
-        self.expect(SyntaxKind::OpenBraceToken);
-        let mut members = Vec::new();
-        while !self.at(SyntaxKind::CloseBraceToken) && !self.at(SyntaxKind::EndOfFile) {
-            let before = self.pos();
-            if let Some(member) = self.parse_type_member() {
-                members.push(member);
-            } else {
-                self.error_at_current(&messages::PROPERTY_OR_SIGNATURE_EXPECTED);
-                self.next_token();
-            }
-            // Members are separated by `;` or `,`, either optional before `}`.
-            // Members are separated by `;` or `,`, both optional before `}`.
-            if !self.eat(SyntaxKind::SemicolonToken)
-                && !self.eat(SyntaxKind::CommaToken)
-                && self.pos() == before
-            {
-                break;
-            }
-        }
-        self.expect(SyntaxKind::CloseBraceToken);
+        let members = self.parse_object_type_members();
         let members = self.arena.alloc_slice(&members);
         let node = self.finish_node(TypeLiteralNode::new(members), SyntaxKind::TypeLiteral, start);
         TypeNode::TypeLiteralNode(node)
     }
 
-    /// One member of a type literal or interface body.
-    ///
-    /// Five shapes share this position, distinguished by their first tokens:
-    /// call signatures `(): T`, construct signatures `new (): T`, index
-    /// signatures `[k: string]: T`, accessors `get x(): T`, and named
-    /// property/method signatures.
-    pub(crate) fn parse_type_member(&mut self) -> Option<TypeElement<'a>> {
+    /// typescript-go's `Parser.parseObjectTypeMembers` (`parser.go`): no
+    /// members without the `{`.
+    pub(crate) fn parse_object_type_members(&mut self) -> Vec<TypeElement<'a>> {
+        if !self.expect(SyntaxKind::OpenBraceToken) {
+            return Vec::new();
+        }
+        let members = self.parse_list(ParsingContext::TypeMembers, Self::parse_type_member);
+        self.expect(SyntaxKind::CloseBraceToken);
+        members
+    }
+
+    /// One member of a type literal or interface body — typescript-go's
+    /// `Parser.parseTypeMember` (`parser.go`). Only called where
+    /// `isListElement(PCTypeMembers)` holds.
+    pub(crate) fn parse_type_member(&mut self) -> TypeElement<'a> {
         let docs = self.parse_leading_jsdoc();
         let member = self.parse_type_member_worker();
-        if let Some(member) = member {
-            self.attach_jsdoc(member.into(), docs);
-        }
+        self.attach_jsdoc(member.into(), docs);
         member
     }
 
-    fn parse_type_member_worker(&mut self) -> Option<TypeElement<'a>> {
+    fn parse_type_member_worker(&mut self) -> TypeElement<'a> {
         let start = self.pos();
 
         // `(): T` and `<T>(): U` — a call signature has no name.
         if self.at(SyntaxKind::OpenParenToken) || self.at(SyntaxKind::LessThanToken) {
-            let type_parameters = self.parse_type_parameters();
-            let parameters = self.parse_parameter_list();
-            let return_type = self.parse_return_type_annotation();
-            let type_parameters = self.arena.alloc_slice(&type_parameters);
-            let parameters = self.arena.alloc_slice(&parameters);
-            return Some(TypeElement::CallSignatureDeclaration(self.finish_node(
-                CallSignatureDeclaration::new(type_parameters, parameters, return_type, None),
-                SyntaxKind::CallSignature,
-                start,
-            )));
+            return self.parse_signature_member(start, false);
         }
-
         // `new (): T` — but `new` can also name a property, so the next token
         // decides.
         if self.at(SyntaxKind::NewKeyword) && self.next_starts_signature() {
-            self.next_token();
-            let type_parameters = self.parse_type_parameters();
-            let parameters = self.parse_parameter_list();
-            let return_type = self.parse_return_type_annotation();
-            let type_parameters = self.arena.alloc_slice(&type_parameters);
-            let parameters = self.arena.alloc_slice(&parameters);
-            return Some(TypeElement::ConstructSignatureDeclaration(self.finish_node(
-                ConstructSignatureDeclaration::new(type_parameters, parameters, return_type, None),
-                SyntaxKind::ConstructSignature,
-                start,
-            )));
+            return self.parse_signature_member(start, true);
         }
 
         let modifiers = self.parse_modifiers();
 
+        if let Some(is_getter) = self.parse_get_or_set_contextual_modifier() {
+            return match self.parse_accessor_declaration(start, &modifiers, is_getter, true) {
+                AccessorDeclaration::GetAccessorDeclaration(node) => {
+                    TypeElement::GetAccessorDeclaration(node)
+                }
+                AccessorDeclaration::SetAccessorDeclaration(node) => {
+                    TypeElement::SetAccessorDeclaration(node)
+                }
+            };
+        }
+
         // `[key: string]: T` is an index signature; `[Symbol.iterator]()` is a
-        // computed property name. Only the former has `identifier :` inside.
+        // computed property name.
         if self.at(SyntaxKind::OpenBracketToken) && self.bracket_holds_index_signature() {
-            // `parseIndexSignatureDeclaration` (`parser.go:3562`) is
-            // `parseBracketedList(PCParameters, parseParameter, [, ])` — a
-            // *list*, of zero or more parameters, each parsed by the ordinary
-            // parameter parser and so each able to carry modifiers.
-            //
-            // This port read exactly one bare `identifier: type`, which was
-            // consistent with the old one-shape lookahead and became wrong the
-            // moment §209 admitted upstream's eight recovery shapes: `[]` has
-            // no parameter to read and `[public x: string]` has a modifier
-            // before it. Both derailed the whole member — the first
-            // manufactured a missing identifier, the second parsed `public` as
-            // the parameter name and then failed to find `]`. §209.
-            self.expect(SyntaxKind::OpenBracketToken);
-            let mut parsed = Vec::new();
-            while !self.at(SyntaxKind::CloseBracketToken) && !self.at(SyntaxKind::EndOfFile) {
-                let before = self.pos();
-                parsed.push(self.parse_parameter());
-                if !self.eat(SyntaxKind::CommaToken) {
-                    break;
-                }
-                if self.pos() == before {
-                    break;
-                }
-            }
-            self.expect(SyntaxKind::CloseBracketToken);
-            let value_type = self.parse_type_annotation();
-            let modifiers = self.arena.alloc_slice(&modifiers);
-            let parameters = self.arena.alloc_slice(&parsed);
-            return Some(TypeElement::IndexSignatureDeclaration(self.finish_node(
-                IndexSignatureDeclaration::new(modifiers, parameters, value_type, None, &[]),
-                SyntaxKind::IndexSignature,
-                start,
-            )));
+            return TypeElement::IndexSignatureDeclaration(
+                self.parse_index_signature_declaration(start, &modifiers),
+            );
         }
 
-        // `get x(): T` / `set x(v: T)`.
-        if matches!(self.token.kind, SyntaxKind::GetKeyword | SyntaxKind::SetKeyword)
-            && self.next_starts_property_name()
-        {
-            let is_getter = self.at(SyntaxKind::GetKeyword);
-            self.next_token();
-            let name = self.parse_property_name();
-            let parameters = self.parse_parameter_list();
-            let return_type = self.parse_return_type_annotation();
-            let modifiers = self.arena.alloc_slice(&modifiers);
-            let parameters = self.arena.alloc_slice(&parameters);
-            return Some(if is_getter {
-                TypeElement::GetAccessorDeclaration(self.finish_node(
-                    GetAccessorDeclaration::new(
-                        modifiers,
-                        name,
-                        &[],
-                        parameters,
-                        return_type,
-                        None,
-                        None,
-                        None,
-                        None,
-                    ),
-                    SyntaxKind::GetAccessor,
-                    start,
-                ))
-            } else {
-                TypeElement::SetAccessorDeclaration(self.finish_node(
-                    SetAccessorDeclaration::new(
-                        modifiers,
-                        name,
-                        &[],
-                        parameters,
-                        return_type,
-                        None,
-                        None,
-                        None,
-                        None,
-                    ),
-                    SyntaxKind::SetAccessor,
-                    start,
-                ))
-            });
-        }
-
-        if !self.at_property_name_start() {
-            return None;
-        }
-
+        // `parsePropertyOrMethodSignature`.
         let name = self.parse_property_name();
         let question =
             if self.at(SyntaxKind::QuestionToken) { Some(self.take_token()) } else { None };
         let modifiers = self.arena.alloc_slice(&modifiers);
-
-        // `m(): T` and `m<U>(): T` are method signatures.
         if self.at(SyntaxKind::OpenParenToken) || self.at(SyntaxKind::LessThanToken) {
+            // Method signatures don't exist in expression contexts, so they
+            // have neither [Yield] nor [Await].
             let type_parameters = self.parse_type_parameters();
-            let parameters = self.parse_parameter_list();
-            let return_type = self.parse_return_type_annotation();
+            let parameters = self.with_await_context(false, Self::parse_parameter_list);
+            let return_type = self.parse_return_type_in_type();
+            self.parse_type_member_semicolon();
             let type_parameters = self.arena.alloc_slice(&type_parameters);
             let parameters = self.arena.alloc_slice(&parameters);
-            return Some(TypeElement::MethodSignatureDeclaration(self.finish_node(
+            return TypeElement::MethodSignatureDeclaration(self.finish_node(
                 MethodSignatureDeclaration::new(
                     modifiers,
                     name,
@@ -1070,15 +972,61 @@ impl<'a> Parser<'a> {
                 ),
                 SyntaxKind::MethodSignature,
                 start,
-            )));
+            ));
         }
-
         let type_node = self.parse_type_annotation();
-        Some(TypeElement::PropertySignatureDeclaration(self.finish_node(
-            PropertySignatureDeclaration::new(modifiers, name, question, type_node, None),
+        // Type literal properties cannot have initializers, but one is parsed
+        // so the checker can report it.
+        let initializer = if self.eat(SyntaxKind::EqualsToken) {
+            Some(self.parse_assignment_expression())
+        } else {
+            None
+        };
+        self.parse_type_member_semicolon();
+        TypeElement::PropertySignatureDeclaration(self.finish_node(
+            PropertySignatureDeclaration::new(modifiers, name, question, type_node, initializer),
             SyntaxKind::PropertySignature,
             start,
-        )))
+        ))
+    }
+
+    /// typescript-go's `Parser.parseSignatureMember` (`parser.go`): a call
+    /// signature, or with `is_construct` a construct signature after `new`.
+    fn parse_signature_member(&mut self, start: u32, is_construct: bool) -> TypeElement<'a> {
+        if is_construct {
+            self.expect(SyntaxKind::NewKeyword);
+        }
+        let type_parameters = self.parse_type_parameters();
+        let parameters = self.with_await_context(false, Self::parse_parameter_list);
+        let return_type = self.parse_return_type_in_type();
+        self.parse_type_member_semicolon();
+        let type_parameters = self.arena.alloc_slice(&type_parameters);
+        let parameters = self.arena.alloc_slice(&parameters);
+        if is_construct {
+            TypeElement::ConstructSignatureDeclaration(self.finish_node(
+                ConstructSignatureDeclaration::new(type_parameters, parameters, return_type, None),
+                SyntaxKind::ConstructSignature,
+                start,
+            ))
+        } else {
+            TypeElement::CallSignatureDeclaration(self.finish_node(
+                CallSignatureDeclaration::new(type_parameters, parameters, return_type, None),
+                SyntaxKind::CallSignature,
+                start,
+            ))
+        }
+    }
+
+    /// typescript-go's `Parser.parseReturnType(KindColonToken, isType: true)`
+    /// (`parser.go`): `=>` where `:` belongs is reported and the type parsed
+    /// anyway — easy to get backward in a type context.
+    fn parse_return_type_in_type(&mut self) -> Option<TypeNode<'a>> {
+        if self.at(SyntaxKind::EqualsGreaterThanToken) {
+            self.error_at_current_with(&messages::_0_EXPECTED, &[":"]);
+            self.next_token();
+            return Some(self.with_conditional_types_allowed(Parser::parse_type_or_type_predicate));
+        }
+        self.parse_return_type_annotation()
     }
 
     /// Whether `new` or `get`/`set` here introduces a signature rather than a name.

@@ -1272,11 +1272,22 @@ impl<'a> Parser<'a> {
             Expression::Identifier(identifier) => identifier.text,
             _ => "",
         };
+        let span = node.node_id().map_or(self.token.span, |id| self.nodes.span(id));
+        self.parse_error_for_missing_semicolon_after_name(expression_text, span);
+    }
+
+    /// The identifier half of `parseErrorForMissingSemicolonAfter`: `text` is
+    /// the node's identifier text (empty for any other node) and `span` its
+    /// trivia-free extent.
+    pub(crate) fn parse_error_for_missing_semicolon_after_name(
+        &mut self,
+        expression_text: &str,
+        span: tsr_core::Span,
+    ) {
         if expression_text.is_empty() {
             self.error_at_current_with(&messages::_0_EXPECTED, &[";"]);
             return;
         }
-        let span = node.node_id().map_or(self.token.span, |id| self.nodes.span(id));
         match expression_text {
             "const" | "let" | "var" => {
                 self.error_at(&messages::VARIABLE_DECLARATION_NOT_ALLOWED_AT_THIS_LOCATION, span);
