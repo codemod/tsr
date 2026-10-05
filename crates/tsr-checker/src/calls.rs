@@ -2110,6 +2110,11 @@ impl Checker<'_, '_> {
     /// so [`Checker::any_is_written_in_an_annotation`] already excludes it. The
     /// explicit predicate was deleted rather than left as dead code, and this
     /// paragraph is why the family is still refused without one.
+    ///
+    /// **Refined, not repealed** (`docs/parity/notes/calls-inference.md` §1):
+    /// a parameter whose position has NO contextual type is implicit `any`
+    /// upstream too, and [`Checker::any_is_upstreams_implicit_any`] admits
+    /// exactly that subset.
     pub(crate) fn is_untyped_call_target(
         &mut self,
         callee: Expression<'_>,
@@ -2158,6 +2163,10 @@ impl Checker<'_, '_> {
                     ancestor = self.nodes.parent(node);
                 }
             }
+            return true;
+        }
+        // The implicit-any provenances upstream computes too; see the callee.
+        if callee_type == self.intrinsics.any && self.any_is_upstreams_implicit_any(callee) {
             return true;
         }
         // §23 (`checker-notes-callres.md`): a property/element access whose
@@ -2365,6 +2374,207 @@ impl Checker<'_, '_> {
             return Self::is_written_any_cast(initializer);
         }
         false
+    }
+
+    /// Whether the callee's `any` is one **upstream computes too**, though
+    /// nobody wrote it — the implicit-any provenances, each an arm measured on
+    /// its own (`docs/parity/notes/calls-inference.md` §1).
+    ///
+    /// Upstream's test is `IsTypeAny(funcType)` (`isUntypedFunctionCall`,
+    /// `checker.go:9933`). Adopted verbatim it measured 42 gap→right and
+    /// 30 gap→wrong at `0d996e8`: the wrongs are callees this port types `any`
+    /// through unported machinery (UMD augmentation members, private-name
+    /// accessors, module augmentation, the class-expression name resolver
+    /// miss). So the predicate stays a provenance allowlist, widened by:
+    ///
+    /// - an **unannotated parameter with no contextual type** — of a function
+    ///   declaration, class method, constructor or accessor, or of a function
+    ///   expression/arrow whose position has none (`has_no_contextual_type`).
+    ///   This replaces the blanket positional refusal: it refuses exactly the
+    ///   parameters upstream would contextually type;
+    /// - an **unannotated variable initialised with `undefined`/`null`**,
+    ///   whose widened type is `any` (`getWidenedTypeForVariableLikeDeclaration`);
+    /// - a **property of `typeof globalThis` that no global declares** —
+    ///   `checkPropertyAccessExpressionOrQualifiedName`'s `globalThisSymbol`
+    ///   arm returns `anyType` (`checker.go:11337-11344`);
+    /// - a **member declared `: any`** (property, property signature or get
+    ///   accessor), and an unannotated get accessor whose every `return` is
+    ///   `null`/`undefined` without `noImplicitAny` (widened to `any`);
+    /// - an **element of an unannotated `var x = []`** without `noImplicitAny`,
+    ///   upstream's widened auto-array `any[]`.
+    ///
+    /// Each arm also requires the callee to type as the `any` intrinsic, so a
+    /// provenance this port mis-types elsewhere still gaps rather than
+    /// answering `any`. JS files decline: JSDoc can annotate what the syntax
+    /// leaves bare.
+    fn any_is_upstreams_implicit_any(&mut self, callee: Expression<'_>) -> bool {
+        let mut stripped = callee;
+        while let Expression::ParenthesizedExpression(paren) = stripped {
+            let Some(inner) = paren.expression else { return false };
+            stripped = inner;
+        }
+        match stripped {
+            Expression::Identifier(identifier) => {
+                let Some(id) = identifier.node_id else { return false };
+                if self.in_js_file(id) {
+                    return false;
+                }
+                let Some(symbol) = self.binder.resolve_name(
+                    self.nodes,
+                    self.node_map,
+                    id,
+                    identifier.text,
+                    SymbolFlags::VALUE,
+                ) else {
+                    return false;
+                };
+                let Some(declaration) = self.binder.symbols().get(symbol).value_declaration else {
+                    return false;
+                };
+                match self.node_map.get(declaration) {
+                    Some(tsr_ast::Node::ParameterDeclaration(parameter)) => {
+                        self.parameter_is_upstreams_implicit_any(declaration, parameter)
+                    }
+                    Some(tsr_ast::Node::VariableDeclaration(variable)) => {
+                        variable.r#type.is_none()
+                            && variable.initializer.is_some_and(Self::is_null_or_undefined_literal)
+                    }
+                    _ => false,
+                }
+            }
+            Expression::PropertyAccessExpression(access) => {
+                let Some(receiver) = access.expression else { return false };
+                let Some(tsr_ast::MemberName::Identifier(name)) = access.name else {
+                    return false;
+                };
+                let receiver_type = self.check_expression(receiver);
+                if Some(receiver_type) == self.global_this_type
+                    && let Some(id) = name.node_id
+                {
+                    return self
+                        .binder
+                        .resolve_name(self.nodes, self.node_map, id, name.text, SymbolFlags::VALUE)
+                        .is_none();
+                }
+                let Some(property) = self.get_property_of_type(receiver_type, name.text) else {
+                    return false;
+                };
+                let Some(declaration) = self.binder.symbols().get(property).value_declaration
+                else {
+                    return false;
+                };
+                if self.in_js_file(declaration) {
+                    return false;
+                }
+                match self.node_map.get(declaration) {
+                    Some(tsr_ast::Node::PropertyDeclaration(node)) => {
+                        Self::is_any_keyword(node.r#type)
+                    }
+                    Some(tsr_ast::Node::PropertySignatureDeclaration(node)) => {
+                        Self::is_any_keyword(node.r#type)
+                    }
+                    Some(tsr_ast::Node::GetAccessorDeclaration(node)) => {
+                        Self::is_any_keyword(node.r#type)
+                            || (node.r#type.is_none() && !self.no_implicit_any && {
+                                let returns = match node
+                                    .body
+                                    .and_then(|b| tsr_ast::Node::from(b).node_id())
+                                {
+                                    Some(body) => self.return_expressions_of(body, declaration),
+                                    None => Vec::new(),
+                                };
+                                !returns.is_empty()
+                                    && returns
+                                        .iter()
+                                        .all(|r| r.is_some_and(Self::is_null_or_undefined_literal))
+                            })
+                    }
+                    _ => false,
+                }
+            }
+            Expression::ElementAccessExpression(access) if !self.no_implicit_any => {
+                let Some(Expression::Identifier(receiver)) = access.expression else {
+                    return false;
+                };
+                let Some(id) = receiver.node_id else { return false };
+                let Some(symbol) = self.binder.resolve_name(
+                    self.nodes,
+                    self.node_map,
+                    id,
+                    receiver.text,
+                    SymbolFlags::VALUE,
+                ) else {
+                    return false;
+                };
+                let Some(declaration) = self.binder.symbols().get(symbol).value_declaration else {
+                    return false;
+                };
+                matches!(self.node_map.get(declaration),
+                    Some(tsr_ast::Node::VariableDeclaration(variable))
+                        if variable.r#type.is_none()
+                            && matches!(variable.initializer,
+                                Some(Expression::ArrayLiteralExpression(array)) if array.elements.is_empty()))
+            }
+            _ => false,
+        }
+    }
+
+    /// An unannotated, uninitialised, non-rest identifier parameter that no
+    /// contextual signature can type — upstream's implicit `any`
+    /// (`getWidenedTypeForVariableLikeDeclaration` reached with no context).
+    /// Object-literal methods are contextually typed upstream and decline.
+    fn parameter_is_upstreams_implicit_any(
+        &mut self,
+        declaration: tsr_ast::NodeId,
+        parameter: &tsr_ast::ParameterDeclaration<'_>,
+    ) -> bool {
+        if parameter.r#type.is_some()
+            || parameter.initializer.is_some()
+            || parameter.dot_dot_dot_token.is_some()
+            || !matches!(parameter.name, Some(tsr_ast::BindingName::Identifier(_)))
+        {
+            return false;
+        }
+        let Some(function) = self.nodes.parent(declaration) else { return false };
+        match self.nodes.kind(function) {
+            tsr_ast::SyntaxKind::FunctionDeclaration
+            | tsr_ast::SyntaxKind::Constructor
+            | tsr_ast::SyntaxKind::GetAccessor
+            | tsr_ast::SyntaxKind::SetAccessor => true,
+            tsr_ast::SyntaxKind::MethodDeclaration => {
+                self.nodes.parent(function).is_some_and(|owner| {
+                    matches!(
+                        self.nodes.kind(owner),
+                        tsr_ast::SyntaxKind::ClassDeclaration
+                            | tsr_ast::SyntaxKind::ClassExpression
+                    )
+                })
+            }
+            tsr_ast::SyntaxKind::FunctionExpression | tsr_ast::SyntaxKind::ArrowFunction => {
+                self.has_no_contextual_type(function)
+            }
+            _ => false,
+        }
+    }
+
+    fn is_null_or_undefined_literal(expression: Expression<'_>) -> bool {
+        let mut expression = expression;
+        while let Expression::ParenthesizedExpression(paren) = expression {
+            let Some(inner) = paren.expression else { return false };
+            expression = inner;
+        }
+        match expression {
+            Expression::Identifier(identifier) => identifier.text == "undefined",
+            Expression::KeywordExpression(keyword) => {
+                keyword.kind == tsr_ast::SyntaxKind::NullKeyword
+            }
+            _ => false,
+        }
+    }
+
+    fn is_any_keyword(node: Option<tsr_ast::TypeNode<'_>>) -> bool {
+        matches!(node, Some(tsr_ast::TypeNode::KeywordTypeNode(k))
+            if k.kind == tsr_ast::SyntaxKind::AnyKeyword)
     }
 
     /// §297: `expr as any` or `<any>expr`, the two written-cast spellings.
