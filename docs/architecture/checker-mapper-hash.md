@@ -45,9 +45,11 @@ still unproved.
 The difference includes borrowed index-signature/member queries, the empty
 reference key, deferred `arguments.to_vec()` construction and target-pair clone,
 and NonNullable singleton lookup/publication keys. It is not an allocation
-estimate. P1 **tsr-1yb.16.1.2.1.1** owns the exhaustive site inventory and
-construction counters. Parent **tsr-1yb.16.1.2.1** stays in progress;
-**tsr-1yb.16.1.4** explicitly depends on this coverage proof. Reference refusal,
+estimate. The subsequent [reference-key coverage archive](checker-reference-key.md)
+qualifies the exhaustive site inventory and construction counters under
+**tsr-1yb.16.1.2.1.1** on a separate frozen source. It does not relabel these
+older measurements. **tsr-1yb.16.1.4** retains its opportunity and semantic
+prerequisites. Reference refusal,
 error and publication controls remain independently owned by
 **tsr-1yb.16.1.2.2**. The rejected mode-key timing gate and mapper-context repair
 prerequisites remain unchanged.

@@ -1,0 +1,1566 @@
+--- a/crates/tsr-checker/src/checker.rs
++++ b/crates/tsr-checker/src/checker.rs
+@@ -239 +239 @@
+-    pub(crate) instantiations: FxHashMap<(SymbolId, Vec<TypeId>), TypeId>,
++    pub(crate) instantiations: crate::mapper_hash_probe::Map<(SymbolId, Vec<TypeId>), TypeId, 2>,
+@@ -730 +730,2 @@
+-    pub(crate) instantiated_objects: rustc_hash::FxHashMap<(TypeId, Vec<(TypeId, TypeId)>), TypeId>,
++    pub(crate) instantiated_objects:
++        crate::mapper_hash_probe::Map<(TypeId, Vec<(TypeId, TypeId)>), TypeId, 0>,
+@@ -1071 +1072,2 @@
+-    pub(crate) instantiated_signatures: FxHashMap<(TypeId, Vec<(TypeId, TypeId)>), TypeId>,
++    pub(crate) instantiated_signatures:
++        crate::mapper_hash_probe::Map<(TypeId, Vec<(TypeId, TypeId)>), TypeId, 1>,
+@@ -1112 +1114,2 @@
+-    pub(crate) could_contain_parameter_cache: rustc_hash::FxHashMap<(TypeId, Vec<TypeId>), bool>,
++    pub(crate) could_contain_parameter_cache:
++        crate::mapper_hash_probe::Map<(TypeId, Vec<TypeId>), bool, 3>,
+@@ -1309 +1312 @@
+-            instantiations: FxHashMap::default(),
++            instantiations: crate::mapper_hash_probe::Map::default(),
+@@ -1403 +1406 @@
+-            instantiated_objects: rustc_hash::FxHashMap::default(),
++            instantiated_objects: crate::mapper_hash_probe::Map::default(),
+@@ -1491 +1494 @@
+-            instantiated_signatures: FxHashMap::default(),
++            instantiated_signatures: crate::mapper_hash_probe::Map::default(),
+@@ -1498 +1501 @@
+-            could_contain_parameter_cache: rustc_hash::FxHashMap::default(),
++            could_contain_parameter_cache: crate::mapper_hash_probe::Map::default(),
+--- a/crates/tsr-checker/src/declared.rs
++++ b/crates/tsr-checker/src/declared.rs
+@@ -1646,2 +1646,4 @@
+-                let key = (symbol, Vec::new());
+-                if let Some(&cached) = self.instantiations.get(&key) {
++                let key = crate::reference_key_probe::build(0, 10, || (symbol, Vec::new()));
++                if let Some(&cached) =
++                    crate::reference_key_probe::at(0, || self.instantiations.get(&key))
++                {
+@@ -1653 +1655 @@
+-                self.instantiations.insert(key, named);
++                crate::reference_key_probe::at(1, || self.instantiations.insert(key, named));
+@@ -1762,2 +1764,2 @@
+-        let mut properties = self.anonymous_properties.get(&id).map(|(p, _)| p.clone());
+-        let original_signatures = self.signature_types.get(&id).cloned();
++        let mut properties = crate::mapper_key_probe::literal_properties(self, id);
++        let original_signatures = crate::mapper_key_probe::literal_signatures(self, id);
+@@ -1767 +1769,3 @@
+-        let cache_key = (id, map.to_vec());
++        let cache_key = crate::mapper_key_probe::key(3, id, map);
++        let lookup_start = crate::mapper_key_probe::lookup_start();
++        let diagnostic_owner = std::ptr::from_ref(self) as usize;
+@@ -1768,0 +1773,8 @@
++            crate::mapper_key_probe::lookup(
++                3,
++                diagnostic_owner,
++                &cache_key,
++                Some(cached),
++                self.intrinsics.error,
++                lookup_start,
++            );
+@@ -1770,0 +1783,10 @@
++        crate::mapper_key_probe::lookup(
++            3,
++            diagnostic_owner,
++            &cache_key,
++            None,
++            self.intrinsics.error,
++            lookup_start,
++        );
++        let mut diagnostic_worker =
++            crate::mapper_key_probe::Worker::enter(3, diagnostic_owner, &cache_key);
+@@ -1777 +1799 @@
+-        self.instantiated_objects.insert(cache_key.clone(), reserved);
++        self.instantiated_objects.insert(crate::mapper_key_probe::clone_key(&cache_key), reserved);
+@@ -1909,0 +1932 @@
++        diagnostic_worker.complete(true);
+@@ -3883,2 +3906,4 @@
+-                let key = (symbol, arguments.to_vec());
+-                if let Some(&existing) = self.instantiations.get(&key) {
++                let key = crate::reference_key_probe::build(2, 10, || (symbol, arguments.to_vec()));
++                if let Some(&existing) =
++                    crate::reference_key_probe::at(2, || self.instantiations.get(&key))
++                {
+@@ -3890 +3915,2 @@
+-                self.type_reference_targets.insert(deferred, key.clone());
++                self.type_reference_targets
++                    .insert(deferred, crate::reference_key_probe::build(19, 12, || key.clone()));
+@@ -3893 +3919 @@
+-                self.instantiations.insert(key, deferred);
++                crate::reference_key_probe::at(3, || self.instantiations.insert(key, deferred));
+@@ -4016 +4042,4 @@
+-            self.type_reference_targets.insert(minted, (symbol, arguments.to_vec()));
++            self.type_reference_targets.insert(
++                minted,
++                crate::reference_key_probe::build(20, 12, || (symbol, arguments.to_vec())),
++            );
+@@ -4633 +4662,2 @@
+-            self.type_reference_targets.insert(minted, (symbol, arguments));
++            self.type_reference_targets
++                .insert(minted, crate::reference_key_probe::build(21, 12, || (symbol, arguments)));
+@@ -4863 +4893,4 @@
+-            self.type_reference_targets.insert(minted, (resolved, arguments));
++            self.type_reference_targets.insert(
++                minted,
++                crate::reference_key_probe::build(22, 12, || (resolved, arguments)),
++            );
+@@ -5213 +5246,6 @@
+-            self.instantiations.insert((symbol, arguments), mapped);
++            crate::reference_key_probe::at(4, || {
++                self.instantiations.insert(
++                    crate::reference_key_probe::build(4, 11, || (symbol, arguments)),
++                    mapped,
++                )
++            });
+@@ -5220 +5258,6 @@
+-            self.instantiations.insert((symbol, arguments), mapped);
++            crate::reference_key_probe::at(5, || {
++                self.instantiations.insert(
++                    crate::reference_key_probe::build(5, 11, || (symbol, arguments)),
++                    mapped,
++                )
++            });
+@@ -5235 +5278,14 @@
+-        if let Some(&cached) = self.instantiations.get(&(symbol, arguments.clone())) {
++        let diagnostic_key = crate::mapper_key_probe::reference_key(|| {
++            crate::reference_key_probe::build(6, 10, || (symbol, arguments.clone()))
++        });
++        let diagnostic_lookup_start = crate::mapper_key_probe::lookup_start();
++        let diagnostic_owner = std::ptr::from_ref(self) as usize;
++        if let Some(&cached) =
++            crate::reference_key_probe::at(6, || self.instantiations.get(&diagnostic_key))
++        {
++            crate::mapper_key_probe::reference_lookup(
++                diagnostic_owner,
++                &diagnostic_key,
++                Some(cached),
++                diagnostic_lookup_start,
++            );
+@@ -5237,0 +5294,9 @@
++        crate::mapper_key_probe::reference_lookup(
++            diagnostic_owner,
++            &diagnostic_key,
++            None,
++            diagnostic_lookup_start,
++        );
++        let _diagnostic_worker =
++            crate::mapper_key_probe::ReferenceWorker::enter(diagnostic_owner, &diagnostic_key);
++        drop(diagnostic_key);
+@@ -5248 +5313,6 @@
+-            self.instantiations.insert((symbol, arguments), evaluated);
++            crate::reference_key_probe::at(7, || {
++                self.instantiations.insert(
++                    crate::reference_key_probe::build(7, 11, || (symbol, arguments)),
++                    evaluated,
++                )
++            });
+@@ -5252 +5322,6 @@
+-            self.instantiations.insert((symbol, arguments), evaluated);
++            crate::reference_key_probe::at(8, || {
++                self.instantiations.insert(
++                    crate::reference_key_probe::build(8, 11, || (symbol, arguments)),
++                    evaluated,
++                )
++            });
+@@ -5270 +5345,4 @@
+-                self.type_reference_targets.insert(named, (symbol, arguments.clone()));
++                self.type_reference_targets.insert(
++                    named,
++                    crate::reference_key_probe::build(23, 12, || (symbol, arguments.clone())),
++                );
+@@ -5281 +5359,4 @@
+-                self.type_reference_targets.insert(named, (symbol, arguments.clone()));
++                self.type_reference_targets.insert(
++                    named,
++                    crate::reference_key_probe::build(24, 12, || (symbol, arguments.clone())),
++                );
+@@ -5292 +5373,4 @@
+-                self.type_reference_targets.insert(named, (symbol, arguments.clone()));
++                self.type_reference_targets.insert(
++                    named,
++                    crate::reference_key_probe::build(25, 12, || (symbol, arguments.clone())),
++                );
+@@ -5297 +5381,6 @@
+-            self.instantiations.insert((symbol, arguments), evaluated);
++            crate::reference_key_probe::at(9, || {
++                self.instantiations.insert(
++                    crate::reference_key_probe::build(9, 11, || (symbol, arguments)),
++                    evaluated,
++                )
++            });
+@@ -5301 +5390,6 @@
+-            self.instantiations.insert((symbol, arguments), template);
++            crate::reference_key_probe::at(10, || {
++                self.instantiations.insert(
++                    crate::reference_key_probe::build(10, 11, || (symbol, arguments)),
++                    template,
++                )
++            });
+@@ -5305 +5399,6 @@
+-            self.instantiations.insert((symbol, arguments), mapped);
++            crate::reference_key_probe::at(11, || {
++                self.instantiations.insert(
++                    crate::reference_key_probe::build(11, 11, || (symbol, arguments)),
++                    mapped,
++                )
++            });
+@@ -5356 +5455,6 @@
+-        self.instantiations.insert((symbol, arguments.clone()), id);
++        crate::reference_key_probe::at(12, || {
++            self.instantiations.insert(
++                crate::reference_key_probe::build(12, 11, || (symbol, arguments.clone())),
++                id,
++            )
++        });
+@@ -5364 +5468,2 @@
+-        self.type_reference_targets.insert(id, (symbol, arguments.clone()));
++        self.type_reference_targets
++            .insert(id, crate::reference_key_probe::build(26, 12, || (symbol, arguments.clone())));
+@@ -5367 +5472,6 @@
+-            self.instantiations.insert((symbol, arguments), mapped);
++            crate::reference_key_probe::at(13, || {
++                self.instantiations.insert(
++                    crate::reference_key_probe::build(13, 11, || (symbol, arguments)),
++                    mapped,
++                )
++            });
+@@ -5385 +5495,4 @@
+-        if let Some(&cached) = self.instantiations.get(&(symbol, vec![t])) {
++        if let Some(&cached) = crate::reference_key_probe::at(14, || {
++            self.instantiations
++                .get(&crate::reference_key_probe::build(14, 10, || (symbol, vec![t])))
++        }) {
+@@ -5399 +5512,2 @@
+-            self.type_reference_targets.insert(named, (symbol, vec![t]));
++            self.type_reference_targets
++                .insert(named, crate::reference_key_probe::build(27, 12, || (symbol, vec![t])));
+@@ -5404 +5518,4 @@
+-        self.instantiations.insert((symbol, vec![t]), result);
++        crate::reference_key_probe::at(15, || {
++            self.instantiations
++                .insert(crate::reference_key_probe::build(15, 11, || (symbol, vec![t])), result)
++        });
+--- a/crates/tsr-checker/src/inference.rs
++++ b/crates/tsr-checker/src/inference.rs
+@@ -3915 +3915 @@
+-        let key = (id, parameters.to_vec());
++        let key = crate::mapper_key_probe::predicate_key(id, parameters, top_level);
+@@ -3916,0 +3917 @@
++            crate::mapper_key_probe::predicate_hit();
+@@ -3918,0 +3920 @@
++        crate::mapper_key_probe::predicate_worker(top_level);
+@@ -5370 +5372,3 @@
+-        let key = (id, map.to_vec());
++        let key = crate::mapper_key_probe::key(0, id, map);
++        let lookup_start = crate::mapper_key_probe::lookup_start();
++        let diagnostic_owner = std::ptr::from_ref(self) as usize;
+@@ -5371,0 +5376,8 @@
++            crate::mapper_key_probe::lookup(
++                0,
++                diagnostic_owner,
++                &key,
++                Some(cached),
++                self.intrinsics.error,
++                lookup_start,
++            );
+@@ -5373,0 +5386,10 @@
++        crate::mapper_key_probe::lookup(
++            0,
++            diagnostic_owner,
++            &key,
++            None,
++            self.intrinsics.error,
++            lookup_start,
++        );
++        let mut diagnostic_worker =
++            crate::mapper_key_probe::Worker::enter(0, diagnostic_owner, &key);
+@@ -5415,0 +5438 @@
++        diagnostic_worker.complete(true);
+@@ -5447 +5470,3 @@
+-        let key = (id, map.to_vec());
++        let key = crate::mapper_key_probe::key(1, id, map);
++        let lookup_start = crate::mapper_key_probe::lookup_start();
++        let diagnostic_owner = std::ptr::from_ref(self) as usize;
+@@ -5448,0 +5474,8 @@
++            crate::mapper_key_probe::lookup(
++                1,
++                diagnostic_owner,
++                &key,
++                Some(cached),
++                self.intrinsics.error,
++                lookup_start,
++            );
+@@ -5450,0 +5484,10 @@
++        crate::mapper_key_probe::lookup(
++            1,
++            diagnostic_owner,
++            &key,
++            None,
++            self.intrinsics.error,
++            lookup_start,
++        );
++        let mut diagnostic_worker =
++            crate::mapper_key_probe::Worker::enter(1, diagnostic_owner, &key);
+@@ -5545,0 +5589 @@
++        diagnostic_worker.complete(true);
+--- a/crates/tsr-checker/src/mapped.rs
++++ b/crates/tsr-checker/src/mapped.rs
+@@ -773 +773,3 @@
+-        let key = (id, map.to_vec());
++        let key = crate::mapper_key_probe::key(2, id, map);
++        let lookup_start = crate::mapper_key_probe::lookup_start();
++        let diagnostic_owner = std::ptr::from_ref(self) as usize;
+@@ -774,0 +777,8 @@
++            crate::mapper_key_probe::lookup(
++                2,
++                diagnostic_owner,
++                &key,
++                Some(cached),
++                self.intrinsics.error,
++                lookup_start,
++            );
+@@ -777 +787,12 @@
+-        self.instantiated_objects.insert(key.clone(), self.intrinsics.error);
++        crate::mapper_key_probe::lookup(
++            2,
++            diagnostic_owner,
++            &key,
++            None,
++            self.intrinsics.error,
++            lookup_start,
++        );
++        let mut diagnostic_worker =
++            crate::mapper_key_probe::Worker::enter(2, diagnostic_owner, &key);
++        self.instantiated_objects
++            .insert(crate::mapper_key_probe::clone_key(&key), self.intrinsics.error);
+@@ -779,0 +801 @@
++        diagnostic_worker.complete(result != self.intrinsics.error);
+--- a/crates/tsr-checker/src/lib.rs
++++ b/crates/tsr-checker/src/lib.rs
+@@ -197,0 +198,7 @@
++
++#[doc(hidden)]
++pub mod mapper_hash_probe;
++#[doc(hidden)]
++pub mod mapper_key_probe;
++#[doc(hidden)]
++pub mod reference_key_probe;
+--- a/crates/tsr-checker/src/index_signatures.rs
++++ b/crates/tsr-checker/src/index_signatures.rs
+@@ -220 +220 @@
+-        if self.instantiations.get(key) != Some(&id)
++        if crate::reference_key_probe::at(16, || self.instantiations.get(key)) != Some(&id)
+@@ -253 +253,2 @@
+-            || self.instantiations.get(body_key) != Some(&body)
++            || crate::reference_key_probe::at(17, || self.instantiations.get(body_key))
++                != Some(&body)
+--- a/crates/tsr-checker/src/members.rs
++++ b/crates/tsr-checker/src/members.rs
+@@ -1652 +1652 @@
+-            || self.instantiations.get(key) != Some(&body)
++            || crate::reference_key_probe::at(18, || self.instantiations.get(key)) != Some(&body)
+--- /dev/null
++++ b/crates/tsr-checker/src/mapper_key_probe.rs
+@@ -0,0 +1,695 @@
++// Temporary diagnostic module. No production cache or representation changes.
++#![allow(missing_docs)]
++use crate::{Checker, TypeId};
++use std::cell::RefCell;
++use std::sync::OnceLock;
++use std::sync::atomic::{AtomicU64, Ordering};
++use std::time::Instant;
++use tsr_binder::SymbolId;
++
++static COUNTS: [AtomicU64; 48] = [const { AtomicU64::new(0) }; 48];
++std::thread_local! { static LOCAL_COUNTS: std::cell::Cell<[u64;100]> = const { std::cell::Cell::new([0;100]) }; }
++fn local_add(index: usize, value: u64) {
++    LOCAL_COUNTS.with(|local| {
++        let mut values = local.get();
++        values[index] += value;
++        local.set(values);
++    });
++}
++fn local_max(index: usize, value: u64) {
++    LOCAL_COUNTS.with(|local| {
++        let mut values = local.get();
++        values[index] = values[index].max(value);
++        local.set(values);
++    });
++}
++fn predicate_record(index: usize, value: u64) {
++    PREDICATE[index].fetch_add(value, Ordering::Relaxed);
++    local_add(48 + index, value);
++}
++fn reference_record(index: usize, value: u64) {
++    REFERENCE[index].fetch_add(value, Ordering::Relaxed);
++    local_add(56 + index, value);
++}
++
++fn enabled() -> bool {
++    static ENABLED: OnceLock<bool> = OnceLock::new();
++    *ENABLED.get_or_init(|| std::env::var_os("TSR_MAPPER_PROFILE").is_some())
++}
++fn record(site: usize, offset: usize, value: u64) {
++    if enabled() {
++        COUNTS[site * 12 + offset].fetch_add(value, Ordering::Relaxed);
++        local_add(site * 12 + offset, value);
++    }
++}
++type Key = (TypeId, Vec<(TypeId, TypeId)>);
++type Frame = (usize, usize, Key);
++fn table_domain(site: usize) -> usize {
++    usize::from(site == 1)
++}
++std::thread_local! { static ACTIVE: RefCell<Vec<Frame>> = const { RefCell::new(Vec::new()) }; }
++fn active(owner: usize, site: usize, key: &Key) -> bool {
++    ACTIVE.with(|s| {
++        s.borrow().iter().any(|(live_owner, domain, k)| {
++            *live_owner == owner && *domain == table_domain(site) && k == key
++        })
++    })
++}
++
++static PREDICATE: [AtomicU64; 8] = [const { AtomicU64::new(0) }; 8];
++pub fn predicate_key(id: TypeId, parameters: &[TypeId], top_level: bool) -> (TypeId, Vec<TypeId>) {
++    if enabled() {
++        predicate_record(usize::from(!top_level), 1);
++        predicate_record(if top_level { 2 } else { 3 }, parameters.len() as u64);
++    }
++    let start = enabled().then(Instant::now);
++    let key = {
++        let _scope = allocation::enter(if top_level { 5 } else { 6 });
++        (id, parameters.to_vec())
++    };
++    if let Some(start) = start {
++        predicate_record(
++            4,
++            u64::try_from(start.elapsed().as_nanos())
++                .expect("probe interval exceeds u64 nanoseconds"),
++        );
++    }
++    key
++}
++pub fn predicate_hit() {
++    if enabled() {
++        predicate_record(5, 1);
++    }
++}
++pub fn predicate_worker(top_level: bool) {
++    if enabled() {
++        predicate_record(if top_level { 6 } else { 7 }, 1);
++    }
++}
++
++pub fn key(site: usize, id: TypeId, map: &[(TypeId, TypeId)]) -> Key {
++    let start = enabled().then(Instant::now);
++    record(site, 0, 1);
++    record(site, 1, map.len() as u64);
++    if enabled() {
++        COUNTS[site * 12 + 2].fetch_max(map.len() as u64, Ordering::Relaxed);
++        local_max(site * 12 + 2, map.len() as u64);
++    }
++    let key = {
++        let _scope = allocation::enter(site + 1);
++        (id, map.to_vec())
++    };
++    if let Some(start) = start {
++        record(
++            site,
++            3,
++            u64::try_from(start.elapsed().as_nanos())
++                .expect("probe interval exceeds u64 nanoseconds"),
++        );
++    }
++    key
++}
++pub fn lookup_start() -> Option<Instant> {
++    enabled().then(Instant::now)
++}
++pub fn lookup(
++    site: usize,
++    owner: usize,
++    key: &Key,
++    result: Option<TypeId>,
++    error: TypeId,
++    start: Option<Instant>,
++) {
++    if let Some(start) = start {
++        record(
++            site,
++            4,
++            u64::try_from(start.elapsed().as_nanos())
++                .expect("probe interval exceeds u64 nanoseconds"),
++        );
++    }
++    match result {
++        None => record(site, 8, 1),
++        Some(value) => {
++            let active = enabled() && active(owner, site, key);
++            record(
++                site,
++                if active {
++                    5
++                } else if value == error {
++                    7
++                } else {
++                    6
++                },
++                1,
++            );
++        }
++    }
++}
++pub struct Worker {
++    site: usize,
++    start: Option<Instant>,
++    success: bool,
++}
++impl Worker {
++    pub fn enter(site: usize, owner: usize, key: &Key) -> Self {
++        // Pointer values identify only overlapping method frames. They never
++        // dereference storage, resolve a type or survive this worker's Drop.
++        // Exact ordered keys separate contexts within the same live checker.
++        if enabled() {
++            ACTIVE.with(|s| s.borrow_mut().push((owner, table_domain(site), key.clone())));
++        }
++        Self { site, start: enabled().then(Instant::now), success: false }
++    }
++    pub fn complete(&mut self, success: bool) {
++        self.success = success;
++    }
++}
++impl Drop for Worker {
++    fn drop(&mut self) {
++        if let Some(start) = self.start {
++            record(
++                self.site,
++                9,
++                u64::try_from(start.elapsed().as_nanos())
++                    .expect("probe interval exceeds u64 nanoseconds"),
++            );
++            record(self.site, if self.success { 10 } else { 11 }, 1);
++            ACTIVE.with(|s| {
++                s.borrow_mut().pop().expect("balanced diagnostic worker frames");
++            });
++        }
++    }
++}
++#[must_use]
++pub fn clone_key(key: &Key) -> Key {
++    let _scope = allocation::enter(7);
++    key.clone()
++}
++pub(crate) fn literal_properties(
++    checker: &Checker<'_, '_>,
++    id: TypeId,
++) -> Option<Vec<crate::objects::AnonymousProperty>> {
++    let _scope = allocation::enter(8);
++    checker.anonymous_properties.get(&id).map(|(p, _)| p.clone())
++}
++pub(crate) fn literal_signatures(
++    checker: &Checker<'_, '_>,
++    id: TypeId,
++) -> Option<Vec<crate::signatures::Signature>> {
++    let _scope = allocation::enter(9);
++    checker.signature_types.get(&id).cloned()
++}
++pub fn global_counts() -> Vec<(&'static str, u64)> {
++    let names = [
++        "anonymous_requests",
++        "anonymous_key_items",
++        "anonymous_max_key_items",
++        "anonymous_key_ns",
++        "anonymous_lookup_ns",
++        "anonymous_active_hits",
++        "anonymous_nonactive_hits",
++        "anonymous_nonactive_error_hits",
++        "anonymous_worker_starts",
++        "anonymous_worker_inclusive_ns",
++        "anonymous_worker_successes",
++        "anonymous_worker_failures",
++        "signature_requests",
++        "signature_key_items",
++        "signature_max_key_items",
++        "signature_key_ns",
++        "signature_lookup_ns",
++        "signature_active_hits",
++        "signature_nonactive_hits",
++        "signature_nonactive_error_hits",
++        "signature_worker_starts",
++        "signature_worker_inclusive_ns",
++        "signature_worker_successes",
++        "signature_worker_failures",
++        "mapped_requests",
++        "mapped_key_items",
++        "mapped_max_key_items",
++        "mapped_key_ns",
++        "mapped_lookup_ns",
++        "mapped_active_hits",
++        "mapped_nonactive_hits",
++        "mapped_nonactive_error_hits",
++        "mapped_worker_starts",
++        "mapped_worker_inclusive_ns",
++        "mapped_worker_successes",
++        "mapped_worker_failures",
++        "literal_requests",
++        "literal_key_items",
++        "literal_max_key_items",
++        "literal_key_ns",
++        "literal_lookup_ns",
++        "literal_active_hits",
++        "literal_nonactive_hits",
++        "literal_nonactive_error_hits",
++        "literal_worker_starts",
++        "literal_worker_inclusive_ns",
++        "literal_worker_successes",
++        "literal_worker_failures",
++    ];
++    let mut counts: Vec<_> =
++        names.into_iter().zip(COUNTS.iter().map(|v| v.load(Ordering::Relaxed))).collect();
++    counts.extend(
++        [
++            "predicate_top_requests",
++            "predicate_unused_nested_keys",
++            "predicate_top_key_items",
++            "predicate_unused_nested_key_items",
++            "predicate_key_ns",
++            "predicate_top_hits",
++            "predicate_top_workers",
++            "predicate_nested_workers",
++        ]
++        .into_iter()
++        .zip(PREDICATE.iter().map(|v| v.load(Ordering::Relaxed))),
++    );
++    counts.extend(reference_counts());
++    counts.extend(allocation::counts());
++
++    counts
++}
++
++// GlobalAlloc is diagnostic tooling only (ADR-0011), removed after profiling.
++#[allow(unsafe_code)]
++mod allocation {
++    use std::alloc::{GlobalAlloc, Layout, System};
++    use std::cell::Cell;
++    use std::sync::atomic::{AtomicU64, Ordering};
++    std::thread_local! { static TAG: Cell<usize> = const { Cell::new(0) }; }
++    static COUNTS: [AtomicU64; 36] = [const { AtomicU64::new(0) }; 36];
++    pub struct Scope(usize);
++    impl Drop for Scope {
++        fn drop(&mut self) {
++            TAG.with(|t| t.set(self.0));
++        }
++    }
++    pub fn enter(tag: usize) -> Scope {
++        Scope(TAG.with(|t| t.replace(if super::enabled() { tag } else { 0 })))
++    }
++    struct Probe;
++    #[global_allocator]
++    static GLOBAL: Probe = Probe;
++    unsafe extern "C" {
++        fn malloc_size(ptr: *const std::ffi::c_void) -> usize;
++    }
++    fn observe(ptr: *mut u8, size: usize) {
++        if ptr.is_null() {
++            return;
++        }
++        let tag = TAG.try_with(Cell::get).unwrap_or(0);
++        if tag == 0 {
++            return;
++        }
++        // SAFETY: immediately returned successful live System allocation; the
++        // macOS SDK malloc_size declaration observes it without retaining it.
++        let usable = unsafe { malloc_size(ptr.cast()) };
++        crate::reference_key_probe::allocation(size as u64, usable as u64);
++        for (offset, value) in [1, size as u64, usable as u64].into_iter().enumerate() {
++            COUNTS[(tag - 1) * 3 + offset].fetch_add(value, Ordering::Relaxed);
++            super::local_add(64 + (tag - 1) * 3 + offset, value);
++        }
++    }
++    // SAFETY: unmodified arguments delegate to System; constant TLS and atomics
++    // do not allocate, retain pointers or change the allocation's ownership.
++    unsafe impl GlobalAlloc for Probe {
++        unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
++            let p = unsafe { System.alloc(layout) };
++            observe(p, layout.size());
++            p
++        }
++        unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
++            let p = unsafe { System.alloc_zeroed(layout) };
++            observe(p, layout.size());
++            p
++        }
++        unsafe fn realloc(&self, p: *mut u8, layout: Layout, size: usize) -> *mut u8 {
++            let p = unsafe { System.realloc(p, layout, size) };
++            observe(p, size);
++            p
++        }
++        unsafe fn dealloc(&self, p: *mut u8, layout: Layout) {
++            unsafe { System.dealloc(p, layout) };
++        }
++    }
++    pub fn counts() -> Vec<(&'static str, u64)> {
++        [
++            "anonymous_key_allocations",
++            "anonymous_key_requested_bytes",
++            "anonymous_key_usable_bytes",
++            "signature_key_allocations",
++            "signature_key_requested_bytes",
++            "signature_key_usable_bytes",
++            "mapped_key_allocations",
++            "mapped_key_requested_bytes",
++            "mapped_key_usable_bytes",
++            "literal_key_allocations",
++            "literal_key_requested_bytes",
++            "literal_key_usable_bytes",
++            "predicate_top_allocations",
++            "predicate_top_requested_bytes",
++            "predicate_top_usable_bytes",
++            "predicate_unused_nested_allocations",
++            "predicate_unused_nested_requested_bytes",
++            "predicate_unused_nested_usable_bytes",
++            "publication_clone_allocations",
++            "publication_clone_requested_bytes",
++            "publication_clone_usable_bytes",
++            "literal_prelookup_property_allocations",
++            "literal_prelookup_property_requested_bytes",
++            "literal_prelookup_property_usable_bytes",
++            "literal_prelookup_signature_allocations",
++            "literal_prelookup_signature_requested_bytes",
++            "literal_prelookup_signature_usable_bytes",
++            "reference_key_allocations",
++            "reference_key_requested_bytes",
++            "reference_key_usable_bytes",
++            "reference_publication_allocations",
++            "reference_publication_requested_bytes",
++            "reference_publication_usable_bytes",
++            "reference_target_allocations",
++            "reference_target_requested_bytes",
++            "reference_target_usable_bytes",
++        ]
++        .into_iter()
++        .zip(COUNTS.iter().map(|v| v.load(Ordering::Relaxed)))
++        .collect()
++    }
++}
++static REFERENCE: [AtomicU64; 8] = [const { AtomicU64::new(0) }; 8];
++type ReferenceKey = (SymbolId, Vec<TypeId>);
++std::thread_local! { static REFERENCE_ACTIVE: RefCell<Vec<(usize,ReferenceKey)>> = const { RefCell::new(Vec::new()) }; }
++pub fn reference_key(original: impl FnOnce() -> ReferenceKey) -> ReferenceKey {
++    let start = enabled().then(Instant::now);
++    let key = original();
++    if enabled() {
++        reference_record(0, 1);
++        reference_record(1, key.1.len() as u64);
++    }
++    if let Some(start) = start {
++        reference_record(
++            2,
++            u64::try_from(start.elapsed().as_nanos()).expect("probe interval fits u64"),
++        );
++    }
++    key
++}
++#[must_use]
++pub fn reference_allocation_scope(tag: usize) -> impl Drop {
++    allocation::enter(tag)
++}
++#[must_use]
++pub fn reference_copy(arguments: &[TypeId], tag: usize) -> Vec<TypeId> {
++    let _scope = allocation::enter(tag);
++    arguments.to_vec()
++}
++pub fn reference_lookup(
++    owner: usize,
++    key: &ReferenceKey,
++    result: Option<TypeId>,
++    start: Option<Instant>,
++) {
++    if let Some(start) = start {
++        reference_record(
++            3,
++            u64::try_from(start.elapsed().as_nanos())
++                .expect("probe interval exceeds u64 nanoseconds"),
++        );
++    }
++    if result.is_some() && enabled() {
++        let active = REFERENCE_ACTIVE
++            .with(|s| s.borrow().iter().any(|(domain, k)| *domain == owner && k == key));
++        reference_record(if active { 4 } else { 5 }, 1);
++    }
++}
++pub struct ReferenceWorker {
++    start: Option<Instant>,
++}
++impl ReferenceWorker {
++    pub fn enter(owner: usize, key: &ReferenceKey) -> Self {
++        if enabled() {
++            reference_record(6, 1);
++            REFERENCE_ACTIVE.with(|s| s.borrow_mut().push((owner, key.clone())));
++        }
++        Self { start: enabled().then(Instant::now) }
++    }
++}
++impl Drop for ReferenceWorker {
++    fn drop(&mut self) {
++        if let Some(start) = self.start {
++            reference_record(
++                7,
++                u64::try_from(start.elapsed().as_nanos())
++                    .expect("probe interval exceeds u64 nanoseconds"),
++            );
++            REFERENCE_ACTIVE.with(|s| {
++                s.borrow_mut().pop().expect("balanced reference diagnostic frames");
++            });
++        }
++    }
++}
++fn reference_counts() -> Vec<(&'static str, u64)> {
++    [
++        "reference_lookup_requests",
++        "reference_key_items",
++        "reference_key_ns",
++        "reference_lookup_ns",
++        "reference_active_hits",
++        "reference_nonactive_hits",
++        "reference_miss_blocks",
++        "reference_miss_inclusive_ns",
++    ]
++    .into_iter()
++    .zip(REFERENCE.iter().map(|v| v.load(Ordering::Relaxed)))
++    .collect()
++}
++
++#[must_use]
++pub fn capacities(checker: &Checker<'_, '_>) -> Vec<(&'static str, u64)> {
++    let mut counts = Vec::new();
++    counts.extend([
++        ("reference_cache_entries", checker.instantiations.len() as u64),
++        ("reference_cache_bucket_capacity", checker.instantiations.capacity() as u64),
++        (
++            "reference_cache_key_payload_capacity_bytes",
++            checker
++                .instantiations
++                .keys()
++                .map(|(_, a)| a.capacity() * std::mem::size_of::<TypeId>())
++                .sum::<usize>() as u64,
++        ),
++    ]);
++    counts.extend([
++        ("object_cache_entries", checker.instantiated_objects.len() as u64),
++        ("object_cache_bucket_capacity", checker.instantiated_objects.capacity() as u64),
++        (
++            "object_cache_key_payload_capacity_bytes",
++            checker
++                .instantiated_objects
++                .keys()
++                .map(|(_, m)| m.capacity() * std::mem::size_of::<(TypeId, TypeId)>())
++                .sum::<usize>() as u64,
++        ),
++        ("signature_cache_entries", checker.instantiated_signatures.len() as u64),
++        ("signature_cache_bucket_capacity", checker.instantiated_signatures.capacity() as u64),
++        (
++            "signature_cache_key_payload_capacity_bytes",
++            checker
++                .instantiated_signatures
++                .keys()
++                .map(|(_, m)| m.capacity() * std::mem::size_of::<(TypeId, TypeId)>())
++                .sum::<usize>() as u64,
++        ),
++        ("predicate_cache_entries", checker.could_contain_parameter_cache.len() as u64),
++        (
++            "predicate_cache_bucket_capacity",
++            checker.could_contain_parameter_cache.capacity() as u64,
++        ),
++        (
++            "predicate_cache_key_payload_capacity_bytes",
++            checker
++                .could_contain_parameter_cache
++                .keys()
++                .map(|(_, p)| p.capacity() * std::mem::size_of::<TypeId>())
++                .sum::<usize>() as u64,
++        ),
++    ]);
++    counts
++}
++
++// Actual pool events are independently enabled by a trace path; allocation and
++// key counters can be disabled while observing the same admitted workers/files.
++// One file per owner avoids locks and parallel stderr interleaving. Aggregate
++// counters are read once, after every checker has dropped and every join ended.
++use std::io::Write;
++use std::marker::PhantomData;
++use std::path::PathBuf;
++use std::rc::Rc;
++static EPOCH: OnceLock<(Instant, u128)> = OnceLock::new();
++fn epoch() -> &'static (Instant, u128) {
++    EPOCH.get_or_init(|| {
++        let unix =
++            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
++        (Instant::now(), unix)
++    })
++}
++fn trace_path() -> Option<&'static PathBuf> {
++    static PATH: OnceLock<Option<PathBuf>> = OnceLock::new();
++    PATH.get_or_init(|| std::env::var_os("TSR_MAPPER_TRACE").map(PathBuf::from)).as_ref()
++}
++fn elapsed() -> u128 {
++    epoch().0.elapsed().as_nanos()
++}
++pub struct PoolWorker {
++    owner: usize,
++    count: usize,
++    started: u128,
++    setup_end: u128,
++    checks: Vec<(usize, String, u128, u128)>,
++    retained: Vec<(&'static str, u64)>,
++    complete: bool,
++    _thread: PhantomData<Rc<()>>,
++}
++impl PoolWorker {
++    #[must_use]
++    pub fn enter(owner: usize, count: usize) -> Self {
++        Self {
++            owner,
++            count,
++            started: elapsed(),
++            setup_end: 0,
++            checks: Vec::new(),
++            retained: Vec::new(),
++            complete: false,
++            _thread: PhantomData,
++        }
++    }
++    pub fn setup_complete(&mut self) {
++        self.setup_end = elapsed();
++    }
++    #[must_use]
++    pub fn check_start(&self) -> u128 {
++        elapsed()
++    }
++    pub fn checked(&mut self, index: usize, name: &str, start: u128) {
++        if trace_path().is_some() {
++            self.checks.push((index, name.to_string(), start, elapsed()));
++        }
++    }
++    pub fn complete(&mut self, checker: &Checker<'_, '_>) {
++        if enabled() {
++            self.retained = capacities(checker);
++        }
++        self.complete = true;
++    }
++}
++impl Drop for PoolWorker {
++    fn drop(&mut self) {
++        let Some(base) = trace_path() else { return };
++        let ended = elapsed();
++        let path = base.with_extension(format!("owner-{}.tsv", self.owner));
++        let mut out = std::fs::File::create_new(path).expect("fresh mapper owner receipt");
++        writeln!(
++            out,
++            "owner\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
++            std::process::id(),
++            self.owner,
++            self.count,
++            self.started,
++            self.setup_end,
++            ended,
++            usize::from(self.complete && !std::thread::panicking())
++        )
++        .unwrap();
++        for (index, name, start, end) in &self.checks {
++            // File spellings are local evidence; do not export private names.
++            writeln!(out, "check\t{index}\t{start}\t{end}\t{name}").unwrap();
++        }
++        if enabled() {
++            let local = LOCAL_COUNTS.with(std::cell::Cell::get);
++            let names = global_counts();
++            assert_eq!(names.len(), local.len());
++            for ((name, _), value) in names.into_iter().zip(local) {
++                writeln!(out, "owner_count\t{name}\t{value}").unwrap();
++            }
++            for (name, value) in crate::mapper_hash_probe::local_counts() {
++                writeln!(out, "owner_count\t{name}\t{value}").unwrap();
++            }
++            for (name, value) in crate::reference_key_probe::local_counts() {
++                writeln!(out, "owner_count\t{name}\t{value}").unwrap();
++            }
++        }
++        for (name, value) in &self.retained {
++            writeln!(out, "capacity\t{name}\t{value}").unwrap();
++        }
++    }
++}
++pub fn finish_pool(count: usize) {
++    let Some(path) = trace_path() else { return };
++    let mut out = std::fs::File::create_new(path).expect("fresh mapper aggregate receipt");
++    writeln!(out, "schema\tmapper-reference-key-v1").unwrap();
++    writeln!(
++        out,
++        "process\t{}\t{}\t{}\t{}",
++        std::process::id(),
++        count,
++        usize::from(enabled()),
++        epoch().1
++    )
++    .unwrap();
++    if enabled() {
++        for (name, value) in global_counts() {
++            writeln!(out, "count\t{name}\t{value}").unwrap();
++        }
++        for (name, value) in crate::mapper_hash_probe::global_counts() {
++            writeln!(out, "count\t{name}\t{value}").unwrap();
++        }
++        for (name, value) in crate::reference_key_probe::global_counts() {
++            writeln!(out, "count\t{name}\t{value}").unwrap();
++        }
++    }
++    writeln!(out, "pool_joined\t{}", elapsed()).unwrap();
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    #[test]
++    fn object_and_signature_active_domains_stay_disjoint() {
++        let mut store = crate::TypeStore::new();
++        let id = store.new_named(crate::TypeFlags::OBJECT, "source".to_string(), None);
++        let image = store.new_named(crate::TypeFlags::OBJECT, "image".to_string(), None);
++        let key = (id, vec![(id, image)]);
++        ACTIVE.with(|s| s.borrow_mut().push((7, table_domain(0), key.clone())));
++        assert!(active(7, 0, &key));
++        assert!(active(7, 2, &key));
++        assert!(active(7, 3, &key));
++        assert!(!active(7, 1, &key));
++        assert!(!active(8, 0, &key));
++        let reordered = (id, vec![(image, id)]);
++        assert!(!active(7, 0, &reordered));
++        ACTIVE.with(|s| s.borrow_mut().pop().unwrap());
++        assert!(!active(7, 0, &key));
++    }
++    #[test]
++    fn owner_guard_records_initialization_only_and_is_thread_local() {
++        assert_eq!(table_domain(1), 1);
++        assert_eq!(table_domain(0), 0);
++        assert_eq!(table_domain(2), 0);
++        assert_eq!(table_domain(3), 0);
++        std::thread::scope(|s| {
++            for owner in 0..4 {
++                s.spawn(move || {
++                    let mut guard = PoolWorker::enter(owner, 4);
++                    guard.setup_complete();
++                    assert!(guard.setup_end >= guard.started);
++                    assert!(guard.checks.is_empty());
++                    assert!(!guard.complete);
++                });
++            }
++        });
++    }
++}
+--- /dev/null
++++ b/crates/tsr-checker/src/mapper_hash_probe.rs
+@@ -0,0 +1,486 @@
++//! Archive-only map-operation observation. Keys, hashing and equality are delegated unchanged.
++#![allow(missing_docs)]
++use crate::TypeId;
++use rustc_hash::FxHashMap;
++use std::borrow::Borrow;
++use std::cell::Cell;
++use std::hash::{Hash, Hasher};
++use std::sync::OnceLock;
++use std::sync::atomic::{AtomicU64, Ordering};
++use std::time::Instant;
++use tsr_binder::SymbolId;
++
++const DOMAINS: [&str; 4] = ["object", "signature", "reference", "predicate"];
++const OPERATIONS: [&str; 3] = ["lookup", "insert", "unscoped"];
++const FIELDS: [&str; 12] = [
++    "operations",
++    "hash_invocations",
++    "hash_vector_items",
++    "hash_identity_fields",
++    "hash_delegate_ns",
++    "eq_key_comparisons",
++    "eq_true",
++    "eq_false",
++    "eq_delegate_ns",
++    "map_ns",
++    "max_vector_items",
++    "eq_vector_items_supplied",
++];
++const N: usize = 4 * 3 * 12;
++static GLOBAL: [AtomicU64; N] = [const { AtomicU64::new(0) }; N];
++std::thread_local! {
++    static LOCAL: Cell<[u64; N]> = const { Cell::new([0; N]) };
++    static OPERATION: Cell<Option<(usize, usize)>> = const { Cell::new(None) };
++}
++fn enabled() -> bool {
++    static ENABLED: OnceLock<bool> = OnceLock::new();
++    *ENABLED.get_or_init(|| std::env::var_os("TSR_MAPPER_PROFILE").is_some())
++}
++fn add(domain: usize, operation: usize, field: usize, value: u64) {
++    let index = (domain * 3 + operation) * 12 + field;
++    LOCAL.with(|cell| {
++        let mut counts = cell.get();
++        if field == 10 {
++            counts[index] = counts[index].max(value);
++        } else {
++            counts[index] += value;
++        }
++        cell.set(counts);
++    });
++    if field == 10 {
++        GLOBAL[index].fetch_max(value, Ordering::Relaxed);
++    } else {
++        GLOBAL[index].fetch_add(value, Ordering::Relaxed);
++    }
++}
++fn operation(domain: usize) -> usize {
++    OPERATION.with(|cell| match cell.get() {
++        Some((active_domain, operation)) => {
++            assert_eq!(active_domain, domain, "hash/equality escaped its actual table domain");
++            operation
++        }
++        None => 2,
++    })
++}
++fn named(values: &[u64; N]) -> Vec<(String, u64)> {
++    let mut out = Vec::with_capacity(N);
++    for (domain, name) in DOMAINS.iter().enumerate() {
++        for (operation, op_name) in OPERATIONS.iter().enumerate() {
++            for (field, field_name) in FIELDS.iter().enumerate() {
++                out.push((
++                    format!("table_{name}_{op_name}_{field_name}"),
++                    values[(domain * 3 + operation) * 12 + field],
++                ));
++            }
++        }
++    }
++    out
++}
++#[must_use]
++pub fn global_counts() -> Vec<(String, u64)> {
++    named(&std::array::from_fn(|i| GLOBAL[i].load(Ordering::Relaxed)))
++}
++#[must_use]
++pub fn local_counts() -> Vec<(String, u64)> {
++    named(&LOCAL.with(Cell::get))
++}
++
++pub trait KeyShape {
++    fn vector_items(&self) -> usize;
++    fn identity_fields(&self) -> usize;
++}
++impl KeyShape for (TypeId, Vec<(TypeId, TypeId)>) {
++    fn vector_items(&self) -> usize {
++        self.1.len()
++    }
++    fn identity_fields(&self) -> usize {
++        1 + 2 * self.1.len()
++    }
++}
++impl KeyShape for (SymbolId, Vec<TypeId>) {
++    fn vector_items(&self) -> usize {
++        self.1.len()
++    }
++    fn identity_fields(&self) -> usize {
++        1 + self.1.len()
++    }
++}
++impl KeyShape for (TypeId, Vec<TypeId>) {
++    fn vector_items(&self) -> usize {
++        self.1.len()
++    }
++    fn identity_fields(&self) -> usize {
++        1 + self.1.len()
++    }
++}
++fn hash_key<K: Hash + KeyShape, H: Hasher>(key: &K, hasher: &mut H, domain: usize) {
++    if !enabled() {
++        key.hash(hasher);
++        return;
++    }
++    let op = operation(domain);
++    let started = Instant::now();
++    key.hash(hasher);
++    let elapsed = u64::try_from(started.elapsed().as_nanos())
++        .expect("observer interval fits u64 nanoseconds");
++    add(domain, op, 1, 1);
++    add(domain, op, 2, key.vector_items() as u64);
++    add(domain, op, 3, key.identity_fields() as u64);
++    add(domain, op, 4, elapsed);
++    add(domain, op, 10, key.vector_items() as u64);
++}
++fn equal_keys<K: Eq + KeyShape>(left: &K, right: &K, domain: usize) -> bool {
++    if !enabled() {
++        return left.eq(right);
++    }
++    let op = operation(domain);
++    let started = Instant::now();
++    let answer = left.eq(right);
++    let elapsed = u64::try_from(started.elapsed().as_nanos())
++        .expect("observer interval fits u64 nanoseconds");
++    add(domain, op, 5, 1);
++    add(domain, op, if answer { 6 } else { 7 }, 1);
++    add(domain, op, 8, elapsed);
++    // Inputs available to key equality, not a scalar-comparison or traversal count.
++    add(domain, op, 11, (left.vector_items() + right.vector_items()) as u64);
++    answer
++}
++trait View<K, const D: usize> {
++    fn raw(&self) -> &K;
++}
++#[repr(transparent)]
++#[derive(Clone, Debug)]
++struct Stored<K, const D: usize>(K);
++impl<K, const D: usize> View<K, D> for Stored<K, D> {
++    fn raw(&self) -> &K {
++        &self.0
++    }
++}
++impl<K: Hash + KeyShape, const D: usize> Hash for Stored<K, D> {
++    fn hash<H: Hasher>(&self, state: &mut H) {
++        hash_key(&self.0, state, D);
++    }
++}
++impl<K: Eq + KeyShape, const D: usize> PartialEq for Stored<K, D> {
++    fn eq(&self, other: &Self) -> bool {
++        equal_keys(&self.0, &other.0, D)
++    }
++}
++impl<K: Eq + KeyShape, const D: usize> Eq for Stored<K, D> {}
++impl<'v, K: 'v, const D: usize> Borrow<dyn View<K, D> + 'v> for Stored<K, D> {
++    fn borrow(&self) -> &(dyn View<K, D> + 'v) {
++        self
++    }
++}
++struct Query<'k, K>(&'k K);
++impl<K, const D: usize> View<K, D> for Query<'_, K> {
++    fn raw(&self) -> &K {
++        self.0
++    }
++}
++impl<K: Hash + KeyShape, const D: usize> Hash for dyn View<K, D> + '_ {
++    fn hash<H: Hasher>(&self, state: &mut H) {
++        hash_key(self.raw(), state, D);
++    }
++}
++impl<K: Eq + KeyShape, const D: usize> PartialEq for dyn View<K, D> + '_ {
++    fn eq(&self, other: &Self) -> bool {
++        equal_keys(self.raw(), other.raw(), D)
++    }
++}
++impl<K: Eq + KeyShape, const D: usize> Eq for dyn View<K, D> + '_ {}
++struct Scope {
++    prior: Option<(usize, usize)>,
++    started: Option<Instant>,
++    domain: usize,
++    op: usize,
++}
++impl Scope {
++    fn enter(domain: usize, op: usize) -> Self {
++        if !enabled() {
++            return Self { prior: None, started: None, domain, op };
++        }
++        let prior = OPERATION.with(|cell| cell.replace(Some((domain, op))));
++        assert!(prior.is_none(), "map calls cannot nest semantic work inside hash/equality");
++        add(domain, op, 0, 1);
++        Self { prior, started: Some(Instant::now()), domain, op }
++    }
++}
++impl Drop for Scope {
++    fn drop(&mut self) {
++        if let Some(started) = self.started {
++            let elapsed = u64::try_from(started.elapsed().as_nanos())
++                .expect("observer interval fits u64 nanoseconds");
++            OPERATION.with(|cell| cell.set(self.prior));
++            add(self.domain, self.op, 9, elapsed);
++        }
++    }
++}
++#[repr(transparent)]
++#[derive(Clone, Debug)]
++pub struct Map<K, V, const D: usize> {
++    inner: FxHashMap<Stored<K, D>, V>,
++}
++impl<K, V, const D: usize> Default for Map<K, V, D> {
++    fn default() -> Self {
++        Self { inner: FxHashMap::default() }
++    }
++}
++impl<K: Eq + Hash + KeyShape, V, const D: usize> Map<K, V, D> {
++    pub fn get(&self, key: &K) -> Option<&V> {
++        if D == 2 {
++            crate::reference_key_probe::map_operation(0, key.vector_items());
++        }
++        let _scope = Scope::enter(D, 0);
++        let query = Query(key);
++        let view: &(dyn View<K, D> + '_) = &query;
++        self.inner.get(view)
++    }
++    pub fn contains_key(&self, key: &K) -> bool {
++        if D == 2 {
++            crate::reference_key_probe::map_operation(0, key.vector_items());
++        }
++        let _scope = Scope::enter(D, 0);
++        let query = Query(key);
++        let view: &(dyn View<K, D> + '_) = &query;
++        self.inner.contains_key(view)
++    }
++    pub fn insert(&mut self, key: K, value: V) -> Option<V> {
++        if D == 2 {
++            crate::reference_key_probe::map_operation(1, key.vector_items());
++        }
++        let _scope = Scope::enter(D, 1);
++        self.inner.insert(Stored(key), value)
++    }
++}
++impl<K, V, const D: usize> Map<K, V, D> {
++    #[must_use]
++    pub fn len(&self) -> usize {
++        self.inner.len()
++    }
++    #[must_use]
++    pub fn is_empty(&self) -> bool {
++        self.inner.is_empty()
++    }
++    #[must_use]
++    pub fn capacity(&self) -> usize {
++        self.inner.capacity()
++    }
++    pub fn keys(&self) -> impl Iterator<Item = &K> {
++        self.inner.keys().map(|key| &key.0)
++    }
++}
++impl<K: Eq + Hash + KeyShape, V: PartialEq, const D: usize> PartialEq for Map<K, V, D> {
++    fn eq(&self, other: &Self) -> bool {
++        self.inner == other.inner
++    }
++}
++impl<K: Eq + Hash + KeyShape, V: Eq, const D: usize> Eq for Map<K, V, D> {}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use rustc_hash::FxHasher;
++    use std::collections::HashMap;
++    use std::hash::BuildHasherDefault;
++    impl KeyShape for (u32, Vec<u32>) {
++        fn vector_items(&self) -> usize {
++            self.1.len()
++        }
++        fn identity_fields(&self) -> usize {
++            1 + self.1.len()
++        }
++    }
++    impl KeyShape for (u32, Vec<(u32, u32)>) {
++        fn vector_items(&self) -> usize {
++            self.1.len()
++        }
++        fn identity_fields(&self) -> usize {
++            1 + 2 * self.1.len()
++        }
++    }
++    #[derive(Default, Debug, PartialEq)]
++    struct Feed(Vec<(String, Vec<u8>)>);
++    impl Hasher for Feed {
++        fn finish(&self) -> u64 {
++            0
++        }
++        fn write(&mut self, bytes: &[u8]) {
++            self.0.push(("bytes".into(), bytes.to_vec()));
++        }
++        fn write_u32(&mut self, value: u32) {
++            self.0.push(("u32".into(), value.to_ne_bytes().to_vec()));
++        }
++        fn write_usize(&mut self, value: usize) {
++            self.0.push(("usize".into(), value.to_ne_bytes().to_vec()));
++        }
++    }
++    fn feed<K: Hash + ?Sized>(key: &K) -> Feed {
++        let mut h = Feed::default();
++        key.hash(&mut h);
++        h
++    }
++    fn digest<K: Hash + ?Sized>(key: &K) -> u64 {
++        let mut h = FxHasher::default();
++        key.hash(&mut h);
++        h.finish()
++    }
++    #[test]
++    fn original_hash_feed_and_fx_digest_are_exact_for_owned_and_borrowed_keys() {
++        let maps = [
++            vec![],
++            vec![(7, 9)],
++            vec![(7, 9), (9, 11)],
++            vec![(9, 11), (7, 9)],
++            (0..128).map(|i| (i, i + 1)).collect(),
++        ];
++        for items in maps {
++            for id in [3u32, 4] {
++                let raw = (id, items.clone());
++                let stored = Stored::<_, 0>(raw.clone());
++                let query = Query(&raw);
++                let view: &dyn View<_, 0> = &query;
++                assert_eq!(feed(&raw), feed(&stored));
++                assert_eq!(feed(&raw), feed(view));
++                assert_eq!(digest(&raw), digest(&stored));
++                assert_eq!(digest(&raw), digest(view));
++            }
++        }
++        for size in [0, 1, 8, 128] {
++            let raw = (3u32, (0..size).collect::<Vec<u32>>());
++            let stored = Stored::<_, 2>(raw.clone());
++            let query = Query(&raw);
++            let view: &dyn View<_, 2> = &query;
++            assert_eq!(feed(&raw), feed(&stored));
++            assert_eq!(feed(&raw), feed(view));
++            assert_eq!(digest(&raw), digest(&stored));
++            assert_eq!(digest(&raw), digest(view));
++        }
++    }
++    #[test]
++    fn actual_checker_type_and_symbol_ids_delegate_the_identical_hash_feed() {
++        let mut types = crate::TypeStore::new();
++        let id = types.new_named(crate::TypeFlags::OBJECT, "source".to_owned(), None);
++        let image = types.new_named(crate::TypeFlags::OBJECT, "image".to_owned(), None);
++        let raw = (id, vec![(id, image), (image, id)]);
++        let stored = Stored::<_, 0>(raw.clone());
++        let query = Query(&raw);
++        let view: &dyn View<_, 0> = &query;
++        assert_eq!(feed(&raw), feed(&stored));
++        assert_eq!(feed(&raw), feed(view));
++        assert_eq!(digest(&raw), digest(view));
++        let mut symbols = tsr_binder::SymbolStore::new();
++        let symbol = symbols.create("Alias", tsr_binder::SymbolFlags::TYPE_ALIAS);
++        let raw = (symbol, vec![id, image]);
++        let stored = Stored::<_, 2>(raw.clone());
++        let query = Query(&raw);
++        let view: &dyn View<_, 2> = &query;
++        assert_eq!(feed(&raw), feed(&stored));
++        assert_eq!(feed(&raw), feed(view));
++        assert_eq!(digest(&raw), digest(view));
++    }
++    #[test]
++    fn moved_key_has_same_layout_and_vector_allocation_and_lookup_answers() {
++        type K = (u32, Vec<(u32, u32)>);
++        assert_eq!(size_of::<Stored<K, 0>>(), size_of::<K>());
++        assert_eq!(size_of::<Map<K, u32, 0>>(), size_of::<FxHashMap<K, u32>>());
++        let mut map = Map::<K, u32, 0>::default();
++        let mut raw_map = FxHashMap::default();
++        for i in 0..64u32 {
++            let key = (i, vec![(7, 9), (i, 11)]);
++            let ptr = key.1.as_ptr();
++            raw_map.insert(key.clone(), i);
++            map.insert(key, i);
++            assert_eq!(map.keys().find(|k| k.0 == i).unwrap().1.as_ptr(), ptr);
++        }
++        for i in 0..65u32 {
++            for items in [vec![(7, 9), (i, 11)], vec![(i, 11), (7, 9)], vec![(7, 9)], vec![]] {
++                let key = (i, items);
++                assert_eq!(map.get(&key), raw_map.get(&key));
++            }
++        }
++        assert_eq!(map.len(), raw_map.len());
++        assert_eq!(map.capacity(), raw_map.capacity());
++    }
++    #[derive(Default)]
++    struct Collision;
++    impl Hasher for Collision {
++        fn finish(&self) -> u64 {
++            0
++        }
++        fn write(&mut self, _: &[u8]) {}
++    }
++    #[test]
++    fn test_only_collisions_exercise_equal_unequal_and_missing_counter_guards() {
++        assert!(enabled(), "run focused controls with TSR_MAPPER_PROFILE=1");
++        let before = LOCAL.with(Cell::get);
++        let mut map =
++            HashMap::<Stored<(u32, Vec<u32>), 3>, u32, BuildHasherDefault<Collision>>::default();
++        for id in 0..8u32 {
++            map.insert(Stored((id, vec![1, 2, 3])), id);
++        }
++        for id in 0..9u32 {
++            let raw = (id, vec![1, 2, 3]);
++            let query = Query(&raw);
++            let view: &dyn View<_, 3> = &query;
++            assert_eq!(map.get(view).copied(), (id < 8).then_some(id));
++        }
++        let after = LOCAL.with(Cell::get);
++        let offset = (3 * 3 + 2) * 12;
++        let delta: [u64; 12] = std::array::from_fn(|i| after[offset + i] - before[offset + i]);
++        assert!(delta[1] > 0);
++        assert_eq!(delta[2], delta[1] * 3);
++        assert_eq!(delta[3], delta[1] + delta[2]);
++        assert!(delta[5] > 0);
++        assert!(delta[6] > 0);
++        assert!(delta[7] > 0);
++        assert_eq!(delta[5], delta[6] + delta[7]);
++        assert_eq!(delta[11], delta[5] * 6);
++    }
++    #[test]
++    fn actual_map_operations_reconcile_global_and_fresh_owner_tls_without_domain_aliasing() {
++        assert!(enabled());
++        let before: [u64; N] = std::array::from_fn(|i| GLOBAL[i].load(Ordering::Relaxed));
++        let owners: Vec<_> = (0..2)
++            .map(|owner| {
++                std::thread::spawn(move || {
++                    let mut objects = Map::<(u32, Vec<u32>), u32, 0>::default();
++                    let mut signatures = Map::<(u32, Vec<u32>), u32, 1>::default();
++                    for i in 0..32u32 {
++                        let key = (i, vec![owner; 1024]);
++                        objects.insert(key.clone(), i);
++                        signatures.insert(key, i + 1);
++                    }
++                    let key = (3, vec![owner; 1024]);
++                    assert_eq!(objects.get(&key), Some(&3));
++                    assert_eq!(signatures.get(&key), Some(&4));
++                    LOCAL.with(Cell::get)
++                })
++            })
++            .collect();
++        let values: Vec<_> = owners.into_iter().map(|h| h.join().unwrap()).collect();
++        for i in 0..N {
++            let after = GLOBAL[i].load(Ordering::Relaxed);
++            if i % 12 == 10 {
++                assert_eq!(after, values.iter().map(|v| v[i]).fold(before[i], u64::max));
++            } else {
++                assert_eq!(after - before[i], values.iter().map(|v| v[i]).sum::<u64>());
++            }
++        }
++        for owner in values {
++            for domain in 0..2 {
++                let lookup = domain * 3 * 12;
++                let insert = lookup + 12;
++                assert_eq!(owner[lookup], 1);
++                assert_eq!(owner[lookup + 1], 1);
++                assert_eq!(owner[lookup + 5], 1);
++                assert_eq!(owner[lookup + 6], 1);
++                assert_eq!(owner[lookup + 7], 0);
++                assert_eq!(owner[insert], 32);
++                assert!(owner[insert + 1] >= 32, "inserts include table-growth rehashing");
++                assert_eq!(owner[insert + 3], owner[insert + 1] + owner[insert + 2]);
++            }
++            assert!(owner[2 * 3 * 12..].iter().all(|v| *v == 0));
++        }
++    }
++}
+--- a/crates/tsr-execute/src/checker_pool.rs
++++ b/crates/tsr-execute/src/checker_pool.rs
+@@ -107,0 +108 @@
++        let mut mapper_probe = tsr_checker::mapper_key_probe::PoolWorker::enter(owner, count);
+@@ -120,0 +122,5 @@
++        mapper_probe.setup_complete();
++        assert!(
++            std::env::var("TSR_MAPPER_FAIL_OWNER").ok().as_deref() != Some(&owner.to_string()),
++            "deliberate archive-only mapper worker failure"
++        );
+@@ -141,0 +148 @@
++                let mapper_check_start = mapper_probe.check_start();
+@@ -148,0 +156 @@
++                mapper_probe.checked(index, file.file_name(), mapper_check_start);
+@@ -159,0 +168 @@
++        mapper_probe.complete(&checker);
+@@ -185,0 +195 @@
++    tsr_checker::mapper_key_probe::finish_pool(count);
