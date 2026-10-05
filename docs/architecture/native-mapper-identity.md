@@ -7,6 +7,17 @@ cache representations are ported. The current Rust inventory is frozen at
 The parent `tsr-1yb.4.1.2` remains open for its wider inventory, native work counts
 on representative projects, and implementation handoff.
 
+The next contract slice is `tsr-1yb.4.1.2.2`: reconcile current Rust substitution
+consumers with these executable lifetime distinctions before extending reuse.
+Allocation attribution remains with `tsr-1yb.16.1`; this audit does not choose a
+representation from equal answers alone. Relation identity is separately split
+into native executable controls (`tsr-1yb.4.1.4.1`) and their dependent Rust
+key/context handoff (`tsr-1yb.4.1.4.2`). Keeping the native characterization ready
+before a Rust cache candidate avoids making the proposed representation its own
+oracle. The dependent handoff still requires publication and measured worker
+cost evidence before production retention; no speed benefit follows from these
+task definitions.
+
 The forcing constraint is concrete: equal substitution answers are not native
 mapper identity. Mapper callbacks can change their answers, and inference reads
 invalidate active caches. Flattening all these forms into an interned vector
