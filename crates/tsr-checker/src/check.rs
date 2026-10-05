@@ -717,6 +717,7 @@ impl Checker<'_, '_> {
             // `type A = {}`, and had no arm in this match at all.
             Node::TypeAliasDeclaration(_) => {
                 self.check_exports_on_merged_declarations(node);
+                self.check_type_alias_circularity(node);
                 ambient
             }
             _ => ambient,
@@ -1161,6 +1162,23 @@ impl Checker<'_, '_> {
         }
         let parameter = self.get_declared_type_of_symbol(symbol);
         self.base_constraint_of_type(parameter);
+    }
+
+    /// TS2456 — `Type alias '{0}' circularly references itself.`
+    ///
+    /// `checkTypeAliasDeclaration`'s `checkSourceElement(node.Type())`
+    /// resolves the body's references, which is what reaches
+    /// `getDeclaredTypeOfTypeAlias` for an alias nothing else mentions
+    /// (`type T0 = T0`). The report is that getter's failed pop. Only a
+    /// non-generic alias resolves its body through the push/pop frame here.
+    fn check_type_alias_circularity(&mut self, node: NodeId) {
+        let Some(symbol) = self.binder.symbol_of(node) else { return };
+        if !self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_ALIAS)
+            || !self.local_type_parameters_of(symbol).is_empty()
+        {
+            return;
+        }
+        self.get_declared_type_of_symbol(symbol);
     }
 
     /// TS1042 — `'{0}' modifier cannot be used here.`

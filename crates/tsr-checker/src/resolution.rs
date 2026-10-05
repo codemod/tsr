@@ -324,11 +324,19 @@ struct Resolution<K> {
 #[derive(Debug)]
 pub struct Resolutions<K> {
     stack: Vec<Resolution<K>>,
+    /// Stack depths at which this port entered a type construct that native
+    /// resolves *lazily* (an anonymous type literal's members, a deferred
+    /// type reference's arguments; `getTypeFromTypeLiteralOrFunctionOrConstructorTypeNode`,
+    /// `isDeferredTypeReferenceNode`, `checker.go:22933`, `:23236`). This port
+    /// builds those eagerly, so it re-reaches frames native never re-reaches
+    /// while they are active. Such a re-entry is not a native cycle: it must
+    /// not fail any frame. See [`Resolutions::deferred_since`].
+    deferrals: Vec<usize>,
 }
 
 impl<K> Default for Resolutions<K> {
     fn default() -> Self {
-        Self { stack: Vec::new() }
+        Self { stack: Vec::new(), deferrals: Vec::new() }
     }
 }
 
@@ -357,6 +365,38 @@ impl<K: Clone + PartialEq> Resolutions<K> {
     pub fn on_stack(&self, target: impl Into<K>, property: PropertyName) -> bool {
         let target = target.into();
         self.stack.iter().any(|r| r.target == target && r.property == property)
+    }
+
+    /// Enter a construct native resolves lazily; balance with
+    /// [`Resolutions::exit_deferred`].
+    pub(crate) fn enter_deferred(&mut self) {
+        self.deferrals.push(self.stack.len());
+    }
+
+    /// Leave the innermost lazily resolved construct.
+    pub(crate) fn exit_deferred(&mut self) {
+        self.deferrals.pop().expect("exited a deferral that was never entered");
+    }
+
+    /// Whether the innermost active `(target, property)` frame was pushed
+    /// *before* the current lazily resolved construct was entered — native
+    /// would only reach it again after that frame completed, so the re-entry
+    /// is this port's eagerness, not a cycle. Read-only: marks nothing.
+    #[must_use]
+    pub(crate) fn deferred_since(&self, target: impl Into<K>, property: PropertyName) -> bool {
+        let target = target.into();
+        let Some(index) =
+            self.stack.iter().rposition(|r| r.target == target && r.property == property)
+        else {
+            return false;
+        };
+        self.deferrals.last().is_some_and(|&depth| depth > index)
+    }
+
+    /// Whether any frame resolves `property`.
+    #[must_use]
+    pub(crate) fn has_property_frame(&self, property: PropertyName) -> bool {
+        self.stack.iter().any(|frame| frame.property == property)
     }
 
     /// Begin resolving `property` of `symbol`.
@@ -459,6 +499,24 @@ mod tests {
         assert!(r.push(0u32, PropertyName::Type));
         assert!(!r.push(0u32, PropertyName::Type), "`const a = a` must not recurse forever");
         assert!(!r.pop(), "the frame it re-entered is now known to have failed");
+    }
+
+    #[test]
+    fn only_a_reentry_past_a_lazy_construct_is_deferred() {
+        let mut r: Resolutions<u32> = Resolutions::new();
+        assert!(r.push(0u32, PropertyName::DeclaredType));
+        // `type T = T | string`: the union resolves eagerly natively too.
+        assert!(!r.deferred_since(0u32, PropertyName::DeclaredType));
+        // `type T = { x: T }`: the literal's members are native's lazy work.
+        r.enter_deferred();
+        assert!(r.deferred_since(0u32, PropertyName::DeclaredType));
+        // A frame pushed inside the literal is re-entered eagerly again.
+        assert!(r.push(1u32, PropertyName::DeclaredType));
+        assert!(!r.deferred_since(1u32, PropertyName::DeclaredType));
+        assert!(r.pop());
+        r.exit_deferred();
+        assert!(!r.deferred_since(0u32, PropertyName::DeclaredType));
+        assert!(r.pop(), "a deferred re-entry fails no frame");
     }
 
     #[test]

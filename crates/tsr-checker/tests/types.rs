@@ -677,15 +677,12 @@ declare const x: T;"#,
 
 #[test]
 fn a_circular_type_alias_answers_rather_than_hanging() {
-    // §29 (`checker-notes-narrow.md`) changed the degenerate cycle's answer
-    // from `errorType` to the alias's NAME — the documented consequence of
-    // serving on-stack mentions a placeholder so that PRODUCTIVE recursion
-    // (`type BigUnion = { children: BigUnion[] } | …`, +2,107 lines)
-    // resolves. Upstream reports "circularly references itself" and answers
-    // `errorType`; that report is a diagnostic (`bd tsr-5e7.6`), and the
-    // name printed here is the one its message would carry.
-    assert_eq!(type_of_declaration("type T = T;\ndeclare const x: T;", "x"), "T");
-    assert_eq!(type_of_declaration("type A = B;\ntype B = A;\ndeclare const x: A;", "x"), "A");
+    // getDeclaredTypeOfTypeAlias (`checker.go:23837`): a direct cycle fails
+    // every participant's frame, reports "circularly references itself" and
+    // answers `errorType`. §29's NAME placeholder now serves only a mention
+    // inside a construct native resolves lazily (`type L = { next: L }`).
+    assert_eq!(type_of_declaration("type T = T;\ndeclare const x: T;", "x"), "error");
+    assert_eq!(type_of_declaration("type A = B;\ntype B = A;\ndeclare const x: A;", "x"), "error");
 }
 
 #[test]
