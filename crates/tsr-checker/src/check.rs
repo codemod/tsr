@@ -588,6 +588,7 @@ impl Checker<'_, '_> {
             }
             Node::BinaryExpression(_) => {
                 self.check_instanceof_left_operand(node);
+                self.check_instanceof_right_operand(node);
                 self.check_comparison_overlap(node, ambient);
                 self.check_operator_operands(node, ambient);
                 self.check_in_expression(node, ambient);
@@ -2039,6 +2040,150 @@ impl Checker<'_, '_> {
                 span,
             ),
         );
+    }
+
+    /// TS2359 — `The right-hand side of an 'instanceof' expression must be
+    /// either of type 'any', a class, function, or other type assignable to
+    /// the 'Function' interface type, or an object type with a
+    /// 'Symbol.hasInstance' method.`
+    ///
+    /// `resolveInstanceofExpression` (`checker.go:8800`): a non-`any` right
+    /// operand with no `[Symbol.hasInstance]` method
+    /// (`getSymbolHasInstanceMethodOfObjectType`, `flow.go:2093`, which only
+    /// looks when every constituent is non-primitive) must have call or
+    /// construct signatures or be a subtype of `Function`.
+    ///
+    /// Ported for the two domains where every arm is decidable here:
+    /// - **A primitive constituent** (`number`, `''`, `symbol`, `null` under
+    ///   `strictNullChecks`, …). It skips the hasInstance lookup, leaves a
+    ///   union with no union signatures, and is not a subtype of `Function`,
+    ///   so the whole operand fails. `null`/`undefined` without
+    ///   `strictNullChecks` are subtypes of everything and do not count.
+    /// - **A certified plain object** ([`Checker::object_lacks_instanceof_target`]):
+    ///   `{}`, `Object`, a class instance with no heritage and no computed
+    ///   member.
+    ///
+    /// Everything else declines. `docs/parity/notes/misc-checks.md` §3.
+    fn check_instanceof_right_operand(&mut self, node: NodeId) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let Some(Node::BinaryExpression(binary)) = self.node_map.get(node) else { return };
+        if binary.operator_token.is_none_or(|t| t.kind != SyntaxKind::InstanceOfKeyword) {
+            return;
+        }
+        let Some(right) = binary.right else { return };
+        let Some(id) = right.node_id() else { return };
+        let right_type = self.check_expression(right);
+        if self.is_error(right_type) {
+            return;
+        }
+        let constituents = match &self.type_of(right_type).data {
+            crate::types::TypeData::Union { types, .. } => types.clone(),
+            _ => vec![right_type],
+        };
+        let fails = constituents.iter().any(|&t| self.primitive_outside_function(t))
+            || (constituents.len() == 1 && self.object_lacks_instanceof_target(right_type));
+        if !fails {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(id) else { return };
+        let span = self.error_span(id);
+        self.report(
+            file,
+            Diagnostic::new(
+                &messages::THE_RIGHT_HAND_SIDE_OF_AN_INSTANCEOF_EXPRESSION_MUST_BE_EITHER_OF_TYPE_ANY_A_CLASS_FUNCTION_OR_OTHER_TYPE_ASSIGNABLE_TO_THE_FUNCTION_INTERFACE_TYPE_OR_AN_OBJECT_TYPE_WITH_A_SYMBOL_HASINSTANCE_METHOD,
+                span,
+            ),
+        );
+    }
+
+    /// A primitive type that is not a subtype of `Function`: every primitive
+    /// but `never`, and `null`/`undefined` only under `strictNullChecks`.
+    fn primitive_outside_function(&self, ty: crate::types::TypeId) -> bool {
+        use crate::flags::TypeFlags;
+        let flags = self.type_of(ty).flags;
+        if !flags.intersects(TypeFlags::PRIMITIVE)
+            || flags.intersects(TypeFlags::ANY_OR_UNKNOWN | TypeFlags::NEVER)
+        {
+            return false;
+        }
+        self.strict_null_checks || !flags.intersects(TypeFlags::NULLABLE)
+    }
+
+    /// An object type whose every `resolveInstanceofExpression` arm is
+    /// certified negative: its declarations (a type literal, interface or
+    /// class) have no heritage and no computed member (so no
+    /// `[Symbol.hasInstance]`, which `Object` does not supply either), it has
+    /// no call or construct signature, and no member is named `apply`, which
+    /// `Function` requires, so it is not a subtype. (A plain declaration's
+    /// properties are its own members plus `Object`'s, which has no `apply`.)
+    fn object_lacks_instanceof_target(&mut self, ty: crate::types::TypeId) -> bool {
+        use crate::signatures::SignatureKind;
+        use crate::types::TypeData;
+        if !self.type_of(ty).flags.intersects(crate::flags::TypeFlags::OBJECT) {
+            return false;
+        }
+        let owner = match self.type_of(ty).data {
+            TypeData::Named { members: Some(owner), .. } => owner,
+            TypeData::Anonymous { symbol, .. } => symbol,
+            _ => return false,
+        };
+        let declarations = self.binder.symbols().get(owner).declarations.clone();
+        let mut shaping = 0usize;
+        for declaration in declarations {
+            // A merged value (`declare var Object: ObjectConstructor`) or
+            // namespace contributes nothing to the declared object type.
+            if matches!(
+                self.nodes.kind(declaration),
+                SyntaxKind::VariableDeclaration
+                    | SyntaxKind::FunctionDeclaration
+                    | SyntaxKind::ModuleDeclaration
+            ) {
+                continue;
+            }
+            let plain = match self.node_map.get(declaration) {
+                Some(Node::TypeLiteralNode(_)) => true,
+                Some(Node::InterfaceDeclaration(interface)) => {
+                    interface.heritage_clauses.is_empty()
+                }
+                Some(Node::ClassDeclaration(class)) => class.heritage_clauses.is_empty(),
+                // A spread's members are not the literal's own declarations.
+                Some(Node::ObjectLiteralExpression(literal)) => !literal
+                    .properties
+                    .iter()
+                    .any(|p| matches!(p, tsr_ast::ObjectLiteralElementLike::SpreadAssignment(_))),
+                _ => false,
+            };
+            if !plain {
+                return false;
+            }
+            shaping += 1;
+            let mut members = Vec::new();
+            let Some(typed) = self.node_map.get(declaration) else { return false };
+            tsr_ast::for_each_child_id(typed, |child| members.push(child));
+            // No computed name (so no `[Symbol.hasInstance]`), and no `apply`,
+            // which `Function` requires of a subtype.
+            if members.into_iter().any(|member| {
+                self.declaration_name_of(member).is_some_and(|name| {
+                    self.nodes.kind(name) == SyntaxKind::ComputedPropertyName
+                        || self.identifier_text(name).is_none_or(|text| text == "apply")
+                })
+            }) {
+                return false;
+            }
+        }
+        if shaping == 0 {
+            return false;
+        }
+        if self.signatures_of_type_kind(ty, SignatureKind::Call).is_none_or(|s| !s.is_empty())
+            || self
+                .signatures_of_type_kind(ty, SignatureKind::Construct)
+                .is_none_or(|s| !s.is_empty())
+        {
+            return false;
+        }
+        true
     }
 
     /// TS2376 — `A 'super' call must be the first statement in the constructor

@@ -79,3 +79,22 @@ can still close a cycle upstream through `computeBaseConstraint`'s other arms
 (`circularBaseTypes`, `recursiveMappedTypes`), which this walk does not
 follow: a gap, not a wrong line. The "Circularity originates in type at this
 location" related info is not produced (related info is not compared).
+
+## §3 TS2359: invalid `instanceof` right operand
+
+`resolveInstanceofExpression` (`checker.go:8800`). Ported where every arm is
+decidable: (a) a primitive constituent (`getSymbolHasInstanceMethodOfObjectType`
+only looks when every constituent is non-primitive, `flow.go:2093`; a primitive
+has no union signatures and is not a `Function` subtype; `null`/`undefined`
+count only under `strictNullChecks`), and (b) a single object type whose
+type-shaping declarations (type literal, object literal without spread,
+interface or class, no heritage) declare no computed member, no member named
+`apply` (required by `Function`), and no signature. Merged value and namespace
+declarations (`declare var Object`) are skipped because they do not shape the
+declared type. `declared_property_table` was tried for the `apply` test and
+rejected: it cannot certify lib `Object`, losing `x instanceof o2`.
+
+**Rejected:** using the relater for `isTypeSubtypeOf(t, Function)`. The
+`Subtype` relation shares the assignable structural walk
+(`relater.rs` `Relation::Subtype`); the syntactic `apply` test is exact on the
+certified domain and cheaper.
