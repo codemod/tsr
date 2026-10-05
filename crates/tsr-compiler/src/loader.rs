@@ -1553,7 +1553,7 @@ pub(crate) fn import_syntax_affects_module_resolution(options: &CompilerOptions)
 }
 
 /// `ast.GetImpliedNodeFormatForEmitWorker`.
-fn implied_node_format_for_emit(
+pub(crate) fn implied_node_format_for_emit(
     options: &CompilerOptions,
     file_name: &str,
     metadata: &SourceFileMetaData,

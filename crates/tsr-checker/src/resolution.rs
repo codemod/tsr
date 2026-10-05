@@ -217,6 +217,27 @@ pub trait ModuleHost {
         ResolutionMode::None
     }
 
+    /// `Program.GetEmitSyntaxForUsageLocation` (`program.go:1550`): the
+    /// module syntax the string-literal specifier `usage` will be emitted as
+    /// (`getEmitSyntaxForUsageLocationWorker`, `fileloader.go:764`), without
+    /// the `resolution-mode` overrides and option gate that
+    /// [`ModuleHost::mode_for_usage_location`] applies. `None` for a host
+    /// without per-file module formats.
+    fn emit_syntax_for_usage_location(
+        &self,
+        _importing_file: NodeId,
+        _usage: NodeId,
+    ) -> ResolutionMode {
+        ResolutionMode::None
+    }
+
+    /// `Program.GetImpliedNodeFormatForEmit` (`program.go:1554`): the format a
+    /// file is emitted in (`ast.GetImpliedNodeFormatForEmitWorker`). `None`
+    /// for a host without per-file module formats.
+    fn implied_node_format_for_emit(&self, _file: NodeId) -> ResolutionMode {
+        ResolutionMode::None
+    }
+
     /// For an unresolved specifier that `resolveExternalModule`'s TS2834/TS2835
     /// arm (`checker.go:15420`) can describe — extensionless, relative, under
     /// `moduleResolution: node16`/`nodenext` — the
