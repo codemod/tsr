@@ -52,6 +52,12 @@ pub(crate) enum ParsingContext {
     ArgumentExpressions = 11,
     /// `PCArrayLiteralMembers`: elements of an array literal.
     ArrayLiteralMembers = 15,
+    /// `PCJsxAttributes`: attributes of a JSX opening or self-closing tag.
+    JsxAttributes = 13,
+    /// `PCJsxChildren`: things between opening and closing JSX tags. Its
+    /// list loop is `parseJsxChildren` (`crate::jsx`), which sets the bit
+    /// by hand as upstream does.
+    JsxChildren = 14,
     /// `PCParameters`: parameters of a signature or index signature.
     Parameters = 16,
     /// `PCImportOrExportSpecifiers`: a named import or export clause.
@@ -63,7 +69,7 @@ pub(crate) enum ParsingContext {
 impl ParsingContext {
     /// Every context, in upstream's order — `isInSomeParsingContext` walks
     /// them lowest bit first.
-    const ALL: [Self; 15] = [
+    const ALL: [Self; 17] = [
         Self::SourceElements,
         Self::BlockStatements,
         Self::SwitchClauses,
@@ -75,13 +81,15 @@ impl ParsingContext {
         Self::ObjectBindingElements,
         Self::ArrayBindingElements,
         Self::ArgumentExpressions,
+        Self::JsxAttributes,
+        Self::JsxChildren,
         Self::ArrayLiteralMembers,
         Self::Parameters,
         Self::ImportOrExportSpecifiers,
         Self::ImportAttributes,
     ];
 
-    const fn bit(self) -> u32 {
+    pub(crate) const fn bit(self) -> u32 {
         1 << self as u8
     }
 }
@@ -249,6 +257,11 @@ impl Parser<'_> {
                 token_is_identifier_or_keyword(self.token.kind)
                     || self.at(SyntaxKind::StringLiteral)
             }
+            ParsingContext::JsxAttributes => {
+                token_is_identifier_or_keyword(self.token.kind)
+                    || self.at(SyntaxKind::OpenBraceToken)
+            }
+            ParsingContext::JsxChildren => true,
         }
     }
 
@@ -408,6 +421,19 @@ impl Parser<'_> {
                 self.token.kind,
                 SyntaxKind::CloseBraceToken | SyntaxKind::CaseKeyword | SyntaxKind::DefaultKeyword
             ),
+            // Upstream's scanner only ever produces a lone `>` (compounds come
+            // from `reScanGreaterToken`), so split one here before asking.
+            ParsingContext::JsxAttributes => {
+                self.rescan_greater_than();
+                matches!(self.token.kind, SyntaxKind::GreaterThanToken | SyntaxKind::SlashToken)
+            }
+            ParsingContext::JsxChildren => {
+                self.at(SyntaxKind::LessThanToken)
+                    && self.look_ahead(|p| {
+                        p.next_token();
+                        p.at(SyntaxKind::SlashToken)
+                    })
+            }
         }
     }
 
@@ -500,7 +526,9 @@ impl Parser<'_> {
             ParsingContext::ImportOrExportSpecifiers if self.at(SyntaxKind::FromKeyword) => {
                 self.error_at_current_with(&messages::_0_EXPECTED, &["}"]);
             }
-            ParsingContext::ImportOrExportSpecifiers => {
+            ParsingContext::ImportOrExportSpecifiers
+            | ParsingContext::JsxAttributes
+            | ParsingContext::JsxChildren => {
                 self.error_at_current(&messages::IDENTIFIER_EXPECTED);
             }
             ParsingContext::ImportAttributes => {
