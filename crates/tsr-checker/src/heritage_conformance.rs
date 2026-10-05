@@ -1,4 +1,4 @@
-//! TS2415 / TS2420 / TS2720 / TS2430 / TS2416 — a class or interface that does
+//! TS2415 / TS2420 / TS2720 / TS2430 / TS2416 / TS2320 — a class or interface that does
 //! not satisfy what it says it does.
 //!
 //! `checkClassLikeDeclaration`'s `extends` and `implements` arms and
@@ -209,73 +209,225 @@ impl Checker<'_, '_> {
         self.report(file, Diagnostic::with_args(broad, span, [source_text, target_text]));
     }
 
-    /// `checkInterfaceDeclaration`'s base loop (`checker.go:4991`):
+    /// `checkInterfaceDeclaration`'s once-per-symbol block (`checker.go:4991`):
+    /// `checkInheritedPropertiesAreIdentical`, and only when that succeeds,
     /// `checkTypeAssignableTo(typeWithThis, baseWithThis, node.Name(),
-    /// Interface_0_incorrectly_extends_interface_1)` for each base type.
+    /// Interface_0_incorrectly_extends_interface_1)` for each base type and
+    /// `checkIndexConstraints`.
+    ///
+    /// `links.interfaceChecked` is the symbol's first interface declaration
+    /// here, the one a file-order check reaches first.
     fn check_interface_heritage_conformance(&mut self, node: NodeId) {
         let Some(Node::InterfaceDeclaration(interface)) = self.node_map.get(node) else { return };
         let Some(name) = interface.name.and_then(|n| n.node_id) else { return };
-        if !interface.type_parameters.is_empty() {
-            return;
-        }
-        let clauses = interface.heritage_clauses;
         let Some(symbol) = self.binder.symbol_of(node) else { return };
         let symbol = self.binder.merged_symbol(symbol);
-        if self.binder.symbols().get(symbol).declarations.len() > 1 {
+        let declarations = self.binder.symbols().get(symbol).declarations.clone();
+        let first = declarations
+            .iter()
+            .copied()
+            .find(|&declaration| self.nodes.kind(declaration) == SyntaxKind::InterfaceDeclaration);
+        if first != Some(node) {
             return;
         }
         let source = self.get_declared_type_of_class_or_interface(symbol);
-        let mut targets: Vec<TypeId> = Vec::new();
-        for clause in clauses {
-            if clause.token.kind != SyntaxKind::ExtendsKeyword {
+        // `getBaseTypes(t)`, across every declaration; `None` marks a base
+        // this port cannot resolve, which the identity walk cannot skip.
+        let mut bases: Vec<Option<(SymbolId, TypeId)>> = Vec::new();
+        for declaration in declarations {
+            let Some(Node::InterfaceDeclaration(each)) = self.node_map.get(declaration) else {
                 continue;
-            }
-            for entry in clause.types {
-                // A base with type arguments needs instantiation; a base that
-                // is not a plain identifier needs `resolveEntityName`.
-                if !entry.type_arguments.is_empty() {
-                    return;
+            };
+            for clause in each.heritage_clauses {
+                if clause.token.kind != SyntaxKind::ExtendsKeyword {
+                    continue;
                 }
-                let Some(tsr_ast::Expression::Identifier(written)) = entry.expression else {
-                    return;
-                };
-                let Some(written_id) = written.node_id else { return };
-                let Some(base) = self.binder.resolve_name(
-                    self.nodes,
-                    self.node_map,
-                    written_id,
-                    written.text,
-                    SymbolFlags::TYPE,
-                ) else {
-                    return;
-                };
-                let base = self.binder.merged_symbol(base);
-                if !self.is_single_class_or_interface(base) {
-                    return;
+                for entry in clause.types {
+                    let base = entry
+                        .expression
+                        .and_then(|e| self.heritage_entity_symbol(e, SymbolFlags::TYPE))
+                        .filter(|&base| {
+                            self.binder
+                                .symbols()
+                                .get(base)
+                                .flags
+                                .intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE)
+                        })
+                        .and_then(|base| {
+                            let ty = self.instantiated_heritage_base(
+                                base,
+                                entry.type_arguments,
+                                entry.node_id,
+                            )?;
+                            (!self.is_error(ty)).then_some((base, ty))
+                        });
+                    bases.push(base);
                 }
-                targets.push(self.get_declared_type_of_class_or_interface(base));
             }
         }
-        for target in targets {
-            if !self.pair_is_reportable(source, target) {
-                continue;
-            }
-            if self.relate_ternary(source, target, Relation::Assignable) != Ternary::NotRelated {
-                continue;
-            }
-            let Some(file) = self.source_file_of_for_diagnostics(name) else { return };
-            let span = self.error_span(name);
-            let source_text = self.type_to_string(source);
-            let target_text = self.type_to_string(target);
-            self.report(
-                file,
-                Diagnostic::with_args(
-                    &messages::INTERFACE_0_INCORRECTLY_EXTENDS_INTERFACE_1,
-                    span,
-                    [source_text, target_text],
-                ),
-            );
+        match self.check_inherited_properties_are_identical(symbol, source, &bases, name) {
+            Some(true) => {}
+            Some(false) | None => return,
         }
+        // A **merged** source assembles its member table from several
+        // declarations, and upstream's merge is not this port's for private
+        // and inherited members (`mergedInterfacesWithInheritedPrivates3`).
+        if self.binder.symbols().get(symbol).declarations.len() == 1 {
+            for (base, target) in bases.into_iter().flatten() {
+                if !self.has_single_type_declaration(base)
+                    || !self.pair_is_reportable(source, target)
+                {
+                    continue;
+                }
+                if self.relate_ternary(source, target, Relation::Assignable) != Ternary::NotRelated
+                {
+                    continue;
+                }
+                let Some(file) = self.source_file_of_for_diagnostics(name) else { return };
+                let span = self.error_span(name);
+                let source_text = self.type_to_string(source);
+                let target_text = self.type_to_string(target);
+                self.report(
+                    file,
+                    Diagnostic::with_args(
+                        &messages::INTERFACE_0_INCORRECTLY_EXTENDS_INTERFACE_1,
+                        span,
+                        [source_text, target_text],
+                    ),
+                );
+            }
+        }
+        self.check_index_constraints(node);
+    }
+
+    /// `checkInheritedPropertiesAreIdentical` (`checker.go`): two bases that
+    /// contribute one name the interface does not redeclare must contribute
+    /// identical properties, else TS2320 at the interface name.
+    ///
+    /// `None` when the answer is not decidable here: a base that cannot be
+    /// resolved, or a pair of property types that are neither the same type
+    /// nor shown non-identical. `isTypeIdenticalTo` is not ported; a pair is
+    /// non-identical when either direction of assignability is `NotRelated`,
+    /// since identity implies both.
+    fn check_inherited_properties_are_identical(
+        &mut self,
+        symbol: SymbolId,
+        source: TypeId,
+        bases: &[Option<(SymbolId, TypeId)>],
+        name: NodeId,
+    ) -> Option<bool> {
+        if bases.len() < 2 {
+            return Some(true);
+        }
+        let bases: Vec<(SymbolId, TypeId)> = bases.iter().copied().collect::<Option<_>>()?;
+        // `seen`: the base that first contributed each inherited name.
+        let mut seen: Vec<(String, SymbolId, TypeId)> = Vec::new();
+        let mut identical = true;
+        let mut undecided = false;
+        for (_, base) in bases {
+            let names = self.get_property_names_of_type(base)?;
+            for property_name in names {
+                if self.binder.symbols().get(symbol).members.get(property_name.as_str()).is_some() {
+                    continue;
+                }
+                let Some(property) = self.get_property_of_type(base, &property_name) else {
+                    continue;
+                };
+                let Some(&(_, existing, existing_base)) =
+                    seen.iter().find(|(seen_name, _, _)| *seen_name == property_name)
+                else {
+                    seen.push((property_name, property, base));
+                    continue;
+                };
+                match self.is_property_identical_to(
+                    existing,
+                    existing_base,
+                    property,
+                    base,
+                    &property_name,
+                ) {
+                    Some(true) => continue,
+                    Some(false) => {}
+                    None => {
+                        undecided = true;
+                        continue;
+                    }
+                }
+                identical = false;
+                let Some(file) = self.source_file_of_for_diagnostics(name) else { continue };
+                let span = self.error_span(name);
+                let interface_text = self.type_to_string(source);
+                let first_text = self.type_to_string(existing_base);
+                let second_text = self.type_to_string(base);
+                self.report(
+                    file,
+                    Diagnostic::with_args(
+                        &messages::INTERFACE_0_CANNOT_SIMULTANEOUSLY_EXTEND_TYPES_1_AND_2,
+                        span,
+                        [interface_text, first_text, second_text],
+                    ),
+                );
+            }
+        }
+        if undecided && identical {
+            return None;
+        }
+        Some(identical)
+    }
+
+    /// `isPropertyIdenticalTo` → `compareProperties(…, compareTypesIdentical)`
+    /// (`checker.go:5066`). `None` when the type comparison is undecidable.
+    fn is_property_identical_to(
+        &mut self,
+        source: SymbolId,
+        source_owner: TypeId,
+        target: SymbolId,
+        target_owner: TypeId,
+        name: &str,
+    ) -> Option<bool> {
+        // The same declared symbol read through two instantiations of one
+        // generic base (`A<string>, A<number>`) is two properties upstream.
+        if source == target && source_owner == target_owner {
+            return Some(true);
+        }
+        let accessibility = |checker: &Self, symbol| {
+            if checker.property_has_modifier(symbol, SyntaxKind::PrivateKeyword) {
+                1
+            } else if checker.property_has_modifier(symbol, SyntaxKind::ProtectedKeyword) {
+                2
+            } else {
+                0
+            }
+        };
+        let source_access = accessibility(self, source);
+        if source_access != accessibility(self, target) {
+            return Some(false);
+        }
+        if source_access != 0 {
+            // `getTargetSymbol`: a non-public member is identical only to
+            // instantiations of itself.
+            if source != target {
+                return Some(false);
+            }
+        } else if self.property_is_optional(source) != self.property_is_optional(target) {
+            return Some(false);
+        }
+        if self.is_readonly_property(source) != self.is_readonly_property(target) {
+            return Some(false);
+        }
+        let source_type = self.get_type_of_property_of_type(source_owner, name)?;
+        let target_type = self.get_type_of_property_of_type(target_owner, name)?;
+        let source_type = self.remove_missing_type(source_type);
+        let target_type = self.remove_missing_type(target_type);
+        if source_type == target_type {
+            return Some(true);
+        }
+        if !self.pair_is_reportable(source_type, target_type) {
+            return None;
+        }
+        let forward = self.relate_ternary(source_type, target_type, Relation::Assignable);
+        let backward = self.relate_ternary(target_type, source_type, Relation::Assignable);
+        (forward == Ternary::NotRelated || backward == Ternary::NotRelated).then_some(false)
     }
 
     /// One class or interface declaration among the symbol's declarations; a
@@ -296,14 +448,5 @@ impl Checker<'_, '_> {
             })
             .count()
             == 1
-    }
-
-    /// A class or interface with one declaration: a target whose members come
-    /// from several declarations is a table this port assembles differently
-    /// from upstream.
-    fn is_single_class_or_interface(&self, symbol: SymbolId) -> bool {
-        let entry = self.binder.symbols().get(symbol);
-        entry.flags.intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE)
-            && entry.declarations.len() == 1
     }
 }
