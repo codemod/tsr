@@ -644,6 +644,7 @@ impl Checker<'_, '_> {
                 self.check_call_arity(node);
                 self.check_call_type_argument_arity(node);
                 self.check_untyped_call_type_arguments(node, typed);
+                self.check_import_call_specifier(node);
                 ambient
             }
             Node::NewExpression(_) => {

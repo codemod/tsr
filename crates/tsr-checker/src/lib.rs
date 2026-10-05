@@ -128,6 +128,7 @@ pub mod function_types;
 mod grammar;
 pub mod heritage_conformance;
 pub mod implicit_any;
+mod import_call;
 mod index_access_reports;
 pub mod index_constraint;
 pub mod index_signatures;
