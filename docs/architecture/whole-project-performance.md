@@ -713,3 +713,25 @@ not committed:
 - **Parallel parse and bind** (`filesParser.start`, `BindSourceFiles`) need
   per-worker arenas and deterministic node and symbol id assignment
   (`bd tsr-1yb.5`, ADR-0034).
+
+## Pattern ambient modules collected once
+
+A frame-pointer `perf` profile of 20 domain-model runs put 19.5% of all
+samples in `module_specifier_unfindable` and the `memchr` under it:
+`has_pattern_ambient_module` scanned every global name for `*` on each
+module-specifier query, including the ones `get_type_of_alias` makes for
+every imported call or `new`. Native fills `c.patternAmbientModules` once in
+`initializeChecker` (`checker.go:1318`). The checker now takes the same
+answer once at construction (`Checker::has_pattern_ambient_modules`; owner:
+the checker, one answer per program, published at construction, never
+invalidated because the binder's globals are immutable for the checker's
+lifetime). Pooled check time on domain-model fell from 75 to 56 ms.
+
+| Project | TSR before | TSR after | tsgo | Ratio before | Ratio after |
+|---|---:|---:|---:|---:|---:|
+| domain-model | 191 ms | 173 ms | 215 ms | 0.897 | 0.805 |
+| generic-imports | 93 ms | 94 ms | 118 ms | 0.786 | 0.790 |
+
+Fifteen alternating pairs each on the 14-CPU Linux box; diagnostics match
+tsgo and are identical across 20 runs of each project. All conformance
+verdicts are byte-identical.

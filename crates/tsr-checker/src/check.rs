@@ -13161,14 +13161,18 @@ impl Checker<'_, '_> {
 
     /// Is there any `declare module "…*…"` in the program?
     ///
-    /// Upstream keeps `c.patternAmbientModules`, filled while collecting
-    /// globals; this port has no such list, so the question is asked of the
-    /// binder's global table. **A name-shape test, and it is deliberately
-    /// coarse**: a global whose name contains `*` can only have come from a
-    /// pattern module declaration, and the cost of a false `true` is silence on
-    /// one case rather than a wrong diagnostic on another.
+    /// Upstream keeps `c.patternAmbientModules`, filled once while collecting
+    /// globals in `initializeChecker` (`checker.go:1318`) and read by
+    /// `resolveExternalModule` (`checker.go:15364`); this port has no such
+    /// list, so the question is asked of the binder's global table. **A
+    /// name-shape test, and it is deliberately coarse**: a global whose name
+    /// contains `*` can only have come from a pattern module declaration, and
+    /// the cost of a false `true` is silence on one case rather than a wrong
+    /// diagnostic on another. The scan runs once, at checker construction
+    /// (`Checker::has_pattern_ambient_modules`), as upstream's collection
+    /// does, rather than over every global on each module-specifier query.
     fn has_pattern_ambient_module(&self) -> bool {
-        self.binder.globals().keys().any(|name| name.contains('*'))
+        self.has_pattern_ambient_modules
     }
 
     /// [`Checker::ambient_module`] is private to `symbols`; this is the same

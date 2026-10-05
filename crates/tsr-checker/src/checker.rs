@@ -1126,6 +1126,21 @@ pub struct Checker<'a, 'n> {
     /// The statement/deferred-node reset sites remain outside this port's
     /// on-demand expression traversal.
     pub(crate) instantiation_count: u32,
+    /// Whether the program declares any pattern ambient module
+    /// (`declare module "*.css"`).
+    ///
+    /// Upstream's `c.patternAmbientModules` (`checker.go:765`), filled once by
+    /// `initializeChecker` (`checker.go:1318`) from each file's binder list.
+    /// This port's binder keeps no such list, so the answer is the same
+    /// name-shape test over the binder's global table that
+    /// `Checker::has_pattern_ambient_module` documents, taken once here.
+    ///
+    /// Port boundary: owned by this checker, keyed by nothing (one answer per
+    /// program), published at construction and never changed — the binder's
+    /// globals are immutable for the checker's lifetime. The expensive work
+    /// (one scan of every global name) happens here instead of on every
+    /// module-specifier query.
+    pub(crate) has_pattern_ambient_modules: bool,
 }
 
 impl<'a, 'n> Checker<'a, 'n> {
@@ -1324,6 +1339,7 @@ impl<'a, 'n> Checker<'a, 'n> {
 
             instantiation_depth: 0,
             instantiation_count: 0,
+            has_pattern_ambient_modules: binder.globals().keys().any(|name| name.contains('*')),
             strict_null_checks: true,
             strict_function_types: true,
             strict_builtin_iterator_return: true,
