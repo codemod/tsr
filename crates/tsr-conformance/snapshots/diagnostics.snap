@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics Summary:
 What a pass means: every diagnostic in upstream's .errors.txt reproduced exactly — same file, line, column and code, no more and no fewer — for cases that expect at least one; scanner, parser and binder only, with no checker (bd tsr-4sc)
-Passed         : 2856/5488 (52.04%)
-Failed         : 2632
+Passed         : 2880/5488 (52.48%)
+Failed         : 2608
 Skipped        : 6956 (excluded from the denominator)
 
   793  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -11,7 +11,7 @@ Skipped        : 6956 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   464  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 2632 failures:
+First 100 of 2608 failures:
 compiler/ClassDeclaration26
   2 unexpected (first TS1005 at ClassDeclaration26.ts(2,22)), 5 missing
 compiler/TransportStream
@@ -136,8 +136,6 @@ compiler/assignmentCompatability_checking-call-member-off-of-function-interface
   3 unexpected (first TS2322 at assignmentCompatability_checking-call-member-off-of-function-interface.ts(11,1)), 3 missing
 compiler/assignmentToAnyArrayRestParameters
   2 missing (first TS2339 at assignmentToAnyArrayRestParameters.ts(15,25))
-compiler/assignmentToInstantiationExpression
-  3 unexpected (first TS1109 at assignmentToInstantiationExpression.ts(2,16)), 4 missing
 compiler/assignmentToObjectAndFunction
   1 unexpected (first TS2322 at assignmentToObjectAndFunction.ts(8,5)), 2 missing
 compiler/asyncFunctionReturnExpressionErrorSpans
@@ -157,7 +155,7 @@ compiler/augmentedTypesFunction
 compiler/augmentedTypesVar
   1 missing (first TS2403 at augmentedTypesVar.ts(10,5))
 compiler/autoLift2
-  8 missing (first TS2339 at autoLift2.ts(5,14))
+  2 missing (first TS2693 at autoLift2.ts(5,19))
 compiler/autoTypeAssignedUsingDestructuringFromNeverNoCrash
   1 missing (first TS2488 at autoTypeAssignedUsingDestructuringFromNeverNoCrash.ts(9,3))
 compiler/avoidListingPropertiesForTypesWithOnlyCallOrConstructSignatures
@@ -174,8 +172,6 @@ compiler/awaitedTypeStrictNull
   2 missing (first TS2589 at awaitedTypeStrictNull.ts(22,12))
 compiler/badArrayIndex
   1 unexpected (first TS1109 at badArrayIndex.ts(1,22)), 2 missing
-compiler/badArraySyntax
-  6 unexpected (first TS1109 at badArraySyntax.ts(6,16)), 6 missing
 compiler/baseCheck
   2 missing (first TS2554 at baseCheck.ts(17,53))
 compiler/baseClassImprovedMismatchErrors
@@ -189,7 +185,7 @@ compiler/baseIndexSignatureResolution
 compiler/baseTypePrivateMemberClash
   1 unexpected (first TS2430 at baseTypePrivateMemberClash.ts(8,11)), 1 missing
 compiler/bases
-  9 missing (first TS2339 at bases.ts(7,14))
+  4 missing (first TS2693 at bases.ts(7,17))
 compiler/bestCommonTypeReturnStatement
   2 missing (first TS2322 at bestCommonTypeReturnStatement.ts(11,32))
 compiler/betterErrorForUnionCall
@@ -212,3 +208,7 @@ compiler/blockScopedBindingUsedBeforeDef
   6 missing (first TS2448 at blockScopedBindingUsedBeforeDef.ts(2,12))
 compiler/bluebirdStaticThis
   1 unexpected (first TS2724 at bluebirdStaticThis.ts(22,51)), 2 missing
+compiler/builtinIterator
+  7 missing (first TS2511 at builtinIterator.ts(38,1))
+compiler/callOnInstance
+  2 missing (first TS2349 at callOnInstance.ts(7,18))

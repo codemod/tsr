@@ -1,0 +1,6 @@
+# lane contextual (tsr-2zk.14): failing cases at 586c2ec0; suites: T=checker_types, D=diagnostics
+compiler/innerTypeArgumentInference	T
+compiler/recursiveGenericMethodCall	T
+conformance/FunctionPropertyAssignments2_es6	T
+conformance/FunctionPropertyAssignments3_es6	T
+conformance/FunctionPropertyAssignments6_es6	T

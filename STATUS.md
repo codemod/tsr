@@ -22,6 +22,13 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
+Parity epic (`tsr-2zk`), measured at `586c2ec0` against native `5b1047d`:
+`checker_types` 7,365/9,538 (77.22%, lines 464,069/478,855 = 96.91%),
+`diagnostics` 2,880/5,488 (52.48%); about 3,994 distinct failing cases. Target is
+99.9% on both with zero RIGHT losses and TSR/tsgo median wall <=0.50. Failing
+cases are split into sixteen disjoint lanes in [docs/parity](docs/parity/README.md),
+worked by parallel Box agents and merged one at a time.
+
 Private checker storage (`tsr-1yb.3.1.1.3`), frozen Rust `4faf1cbd` and native
 `5b1047d`, measures simultaneous Next.js requested live bytes of 145,855,984 /
 167,069,892 / 208,035,249 at 1/2/4 workers. Eighteen off/on pairs preserve

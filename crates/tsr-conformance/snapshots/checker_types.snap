@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 7198/9538 (75.47%)
-Assertion lines: 460066/478855 (96.08%)  — a gradient, not a pass rate
-Failed         : 2340
+Passed         : 7365/9538 (77.22%)
+Assertion lines: 464069/478855 (96.91%)  — a gradient, not a pass rate
+Failed         : 2173
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -12,7 +12,7 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 2340 failures:
+First 100 of 2173 failures:
 compiler/ClassDeclaration26
   ClassDeclaration26.ts: 5 assertion(s), expected 6
 compiler/abstractClassInLocalScopeIsAbstract
@@ -43,8 +43,6 @@ compiler/aliasOfGenericFunctionWithRestBehavedSameAsUnaliased
   aliasOfGenericFunctionWithRestBehavedSameAsUnaliased.ts: >a : ExtendedMapper<any, any, [any]> — expected >a : a
 compiler/aliasOnMergedModuleInterface
   aliasOnMergedModuleInterface_1.ts: >z.bar("hello") : B.A — expected >z.bar("hello") : foo.A
-compiler/aliasUsageInObjectLiteral
-  aliasUsageInObjectLiteral_main.ts: >a : { x: typeof /aliasUsageInObjectLiteral_moduleA; } — expected >a : { x: typeof moduleA; }
 compiler/allowImportClausesToMergeWithTypes
   a.ts: >x : any — expected >x : zzz
 compiler/allowJscheckJsTypeParameterNoCrash
@@ -75,8 +73,6 @@ compiler/argumentsUsedInClassFieldInitializerOrStaticInitializationBlock
   argumentsUsedInClassFieldInitializerOrStaticInitializationBlock.ts: >a : any — expected >a : (x?: any) => void
 compiler/arrayBindingPatternOmittedExpressions
   arrayBindingPatternOmittedExpressions.ts: >f : any — expected >f : ([, a, , b, , , , s, , ,]?: string[]) => void
-compiler/arrayDestructuringInSwitch1
-  arrayDestructuringInSwitch1.ts: >expression : ["and", ...Expression[]] | ["not", Expression] — expected >expression : BooleanLogicExpression
 compiler/arrayDestructuringInSwitch2
   arrayDestructuringInSwitch2.ts: >n : any — expected >n : never
 compiler/arrayFakeFlatNoCrashInferenceDeclarations
@@ -89,10 +85,6 @@ compiler/arrayFlatNoCrashInferenceDeclarations
   arrayFlatNoCrashInferenceDeclarations.ts: >foo : <T>(arr: T[], depth: number) => FlatArray<T[], number>[] — expected >foo : <T>(arr: T[], depth: number) => FlatArray<T, -1 | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20>[]
 compiler/arraySigChecking
   arraySigChecking.ts: >foo : any — expected >foo : {}
-compiler/arrayToLocaleStringES2015
-  arrayToLocaleStringES2015.ts: >style : string — expected >style : "currency"
-compiler/arrayToLocaleStringES2020
-  arrayToLocaleStringES2020.ts: >style : string — expected >style : "currency"
 compiler/arrayconcat
   arrayconcat.ts: >this.options.sort : (compareFn?: (a: IOptions, b: IOptions) => number) => IOptions[] — expected >this.options.sort : (compareFn?: ((a: IOptions, b: IOptions) => number) | undefined) => IOptions[]
 compiler/arrowExpressionBodyJSDoc
@@ -104,7 +96,7 @@ compiler/arrowFunctionJSDocAnnotation
 compiler/arrowFunctionsMissingTokens
   arrowFunctionsMissingTokens.ts: 133 assertion(s), expected 107
 compiler/assignmentToInstantiationExpression
-  assignmentToInstantiationExpression.ts: 28 assertion(s), expected 22
+  assignmentToInstantiationExpression.ts: >obj.fn<number> : any — expected >obj.fn<number> : (() => number) | undefined
 compiler/asyncFunctionContextuallyTypedReturns
   asyncFunctionContextuallyTypedReturns.ts: >v => v ? [0] : Promise.reject() : (v: boolean) => any — expected >v => v ? [0] : Promise.reject() : (v: boolean) => Promise<[0]> | [0]
 compiler/asyncFunctionReturnType
@@ -133,8 +125,6 @@ compiler/awaitedTypeNoLib
   awaitedTypeNoLib.ts: >result : Thenable<NotPromise<TResult>> — expected >result : Thenable<NotPromise<TResult>> | NotPromise<TResult>
 compiler/awaitedTypeStrictNull
   awaitedTypeStrictNull.ts: >T2 : any — expected >T2 : number
-compiler/badArraySyntax
-  badArraySyntax.ts: 34 assertion(s), expected 32
 compiler/badInferenceLowerPriorityThanGoodInference
   badInferenceLowerPriorityThanGoodInference.ts: >result : unknown — expected >result : { BLAH: number; }
 compiler/baseClassImprovedMismatchErrors
@@ -157,10 +147,8 @@ compiler/bluebirdStaticThis
   bluebirdStaticThis.ts: >settle : { <R>(dit: typeof Promise, values: Promise.Thenable<Promise.Thenable<R>[]>): Promise<Promise.Inspection<R>[]>; <R_1>(dit: typeof Promise, values: Promise.Thenable<R_1[]>): Promise<Promise.Inspection<R>[]>; <R_1>(dit: typeof Promise, values: Promise.Thenable<R_1>[]): Promise<Promise.Inspection<R>[]>; <R_1>(dit: typeof Promise, values: R_1[]): Promise<Promise.Inspection<R>[]>; } — expected >settle : { <R>(dit: typeof Promise, values: Promise.Thenable<Promise.Thenable<R>[]>): Promise<Promise.Inspection<R>[]>; <R_1>(dit: typeof Promise, values: Promise.Thenable<R_1[]>): Promise<Promise.Inspection<R_1>[]>; <R_1>(dit: typeof Promise, values: Promise.Thenable<R_1>[]): Promise<Promise.Inspection<R_1>[]>; <R_1>(dit: typeof Promise, values: R_1[]): Promise<Promise.Inspection<R_1>[]>; }
 compiler/booleanFilterAnyArray
   booleanFilterAnyArray.ts: >anys.filter(Bullean) : error — expected >anys.filter(Bullean) : Ari<any>
-compiler/booleanLiteralsContextuallyTypedFromUnion
-  booleanLiteralsContextuallyTypedFromUnion.tsx: >optionalBool : boolean — expected >optionalBool : true
 compiler/builtinIterator
-  builtinIterator.ts: >iteratorFromBare : any — expected >iteratorFromBare : IteratorObject<string, undefined, unknown>
+  builtinIterator.ts: >Iterator : Iterator<number> — expected >Iterator : Iterator<number, undefined, unknown>
 compiler/callOfConditionalTypeWithConcreteBranches
   callOfConditionalTypeWithConcreteBranches.ts: >arg => useT(arg) : (arg: number) => void — expected >arg => useT(arg) : (arg: T & number) => void
 compiler/callbacksDontShareTypes
@@ -169,10 +157,6 @@ compiler/callsOnComplexSignatures
   callsOnComplexSignatures.tsx: >React : any — expected >React : typeof React
 compiler/cannotIndexGenericWritingError
   cannotIndexGenericWritingError.ts: >foo2 : <T extends number[] & { [s: string]: string | number; }>(target: T, p: string | number) => void — expected >foo2 : <T extends number[] & { [s: string]: number | string; }>(target: T, p: string | number) => void
-compiler/cannotInvokeNewOnErrorExpression
-  cannotInvokeNewOnErrorExpression.ts: >new M.ClassA : any — expected >M.ClassA[] : any
-compiler/cannotInvokeNewOnIndexExpression
-  cannotInvokeNewOnIndexExpression.ts: >new any : any — expected >any[1] : any
 compiler/capturedParametersInInitializers1
   capturedParametersInInitializers1.ts: >foo3 : (y?: { x: number; }, z?: number) => void — expected >foo3 : (y?: { x: typeof z; }, z?: number) => void
 compiler/caseInsensitiveFileSystemWithCapsImportTypeDeclarations
@@ -185,12 +169,8 @@ compiler/chainedCallsWithTypeParameterConstrainedToOtherTypeParameter2
   chainedCallsWithTypeParameterConstrainedToOtherTypeParameter2.ts: >(new Chain(t)).then(tt => s).then : <S extends S>(cb: (x: S) => S) => Chain<S> — expected >(new Chain(t)).then(tt => s).then : <S extends S_1>(cb: (x: S_1) => S) => Chain<S>
 compiler/chainedImportAlias
   chainedImportAlias_file1.ts: >y : any — expected >y : typeof x
-compiler/checkDestructuringShorthandAssigment
-  bug25434.js: >Test : ({ b }?: {}) => void — expected >Test : ({ b }?: { b?: string | undefined; }) => void
 compiler/checkInheritedProperty
   checkInheritedProperty.ts: >BaseFactory : new () => Base & { c: string; } — expected >BaseFactory : Base & { c: string; }
-compiler/checkJsTypeDefNoUnusedLocalMarked
-  something.js: >module.exports : any — expected >module.exports : FooFun
 compiler/checkJsdocTypeTagOnExportAssignment1
   b.js: >a : any — expected >a : import("./a").Foo
 compiler/checkJsdocTypeTagOnExportAssignment2
@@ -205,11 +185,31 @@ compiler/checkMergedGlobalUMDSymbol
   global.d.ts: >THREE : typeof THREE — expected >THREE : typeof import("./global")
 compiler/checkSuperCallBeforeThisAccess
   checkSuperCallBeforeThisAccess.ts: >e1 : { w: void | 0; } — expected >e1 : { w: void | number; }
-compiler/checkSwitchStatementIfCaseTypeIsString
-  checkSwitchStatementIfCaseTypeIsString.ts: >(v) => {            switch(v) {                case "test": use(this);            }        } : error — expected >(v) => {            switch(v) {                case "test": use(this);            }        } : (v: string) => void
 compiler/checkerInitializationCrash
   /node_modules/@fullcalendar/core/index.d.ts: >VNode : any — expected >VNode : VNode
-compiler/checkingObjectDefinePropertyOnFunctionNonexistentPropertyNoCrash1
-  index.js: >test : (fn: any) => any — expected >test : (fn: any) => { (...args: any[]): void; readonly name: string; }
 compiler/checkingObjectWithThisInNamePositionNoCrash
   checkingObjectWithThisInNamePositionNoCrash.ts: >this : this — expected >this : { doit(): { [x: number]: string; }; }
+compiler/circularAccessorAnnotations
+  circularAccessorAnnotations.ts: >c1 : any — expected >c1 : { readonly foo: typeof c1.foo; }
+compiler/circularConstraintYieldsAppropriateError
+  circularConstraintYieldsAppropriateError.ts: >NextType : NextType<Foo> — expected >NextType : NextType<Foo, { test: true; }>
+compiler/circularContextualReturnType
+  circularContextualReturnType.ts: >Object.freeze : { <T extends Function>(f: T): T; <T extends { [idx: string]: object | U | null | undefined; }, U extends string | bigint | number | boolean | symbol>(o: T): Readonly<T>; <T>(o: T): Readonly<T>; } — expected >Object.freeze : { <T extends Function>(f: T): T; <T extends { [idx: string]: U | null | undefined | object; }, U extends string | bigint | number | boolean | symbol>(o: T): Readonly<T>; <T>(o: T): Readonly<T>; }
+compiler/circularInlineMappedGenericTupleTypeNoCrash
+  circularInlineMappedGenericTupleTypeNoCrash.ts: >...this.elements : any — expected >...this.elements : { bar: unknown; }
+compiler/circularInstantiationExpression
+  circularInstantiationExpression.ts: >foo : error — expected >foo : <T>(t: T) => typeof foo<T>
+compiler/circularReferenceInImport
+  db.d.ts: >Db : typeof Types.Types — expected >Db : typeof Types
+compiler/circularReferenceInReturnType
+  circularReferenceInReturnType.ts: >res3 : any — expected >res3 : (a: unknown) => void
+compiler/circularReferenceInReturnType2
+  circularReferenceInReturnType2.ts: >object<Something>()({  name: "A",  fields: () => ({    a: field({      type: A,      resolve() {        return {          foo: 100,        };      },    }),  }),}) : any — expected >object<Something>()({  name: "A",  fields: () => ({    a: field({      type: A,      resolve() {        return {          foo: 100,        };      },    }),  }),}) : ObjectType<Something>
+compiler/circularResolvedSignature
+  circularResolvedSignature.ts: >useState : <S>(initialState: () => S) => [S, (s: S) => void] — expected >useState : <S>(initialState: (() => S)) => [S, (s: S) => void]
+compiler/circularTypeArgumentsLocalAndOuterNoCrash1
+  circularTypeArgumentsLocalAndOuterNoCrash1.ts: >X : NumArray<X extends {} ? number : number> — expected >X : f.NumArray<any>
+compiler/circularlyReferentialInterfaceAccessNoCrash
+  circularlyReferentialInterfaceAccessNoCrash.ts: >Mxs : any — expected >Mxs : Mxs
+compiler/circularlySimplifyingConditionalTypesNoCrash
+  circularlySimplifyingConditionalTypesNoCrash.ts: >function(    mapStateToProps?: any,    mapDispatchToProps?: any,    mergeProps?: any,    options: unknown = {},) {    return connect(        mapStateToProps,        mapDispatchToProps,        mergeProps,        options,    );} : (mapStateToProps?: any, mapDispatchToProps?: any, mergeProps?: any, options?: unknown) => InferableComponentEnhancerWithProps<unknown, unknown> — expected >function(    mapStateToProps?: any,    mapDispatchToProps?: any,    mergeProps?: any,    options: unknown = {},) {    return connect(        mapStateToProps,        mapDispatchToProps,        mergeProps,        options,    );} : (mapStateToProps?: any, mapDispatchToProps?: any, mergeProps?: any, options?: unknown) => InferableComponentEnhancerWithProps<TStateProps, Omit<P, Extract<keyof TStateProps, keyof P>> & TOwnProps>
