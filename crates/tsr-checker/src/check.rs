@@ -404,6 +404,7 @@ impl Checker<'_, '_> {
             }
             Node::PropertySignatureDeclaration(_) => {
                 self.check_implicit_any_member(node, ambient);
+                self.check_subsequent_declaration_type(node);
                 ambient
             }
             Node::GetAccessorDeclaration(accessor) => {
@@ -423,6 +424,7 @@ impl Checker<'_, '_> {
                 );
                 self.check_annotated_initializer(node, ambient);
                 self.check_jsdoc_annotated_initializer(node, ambient);
+                self.check_subsequent_declaration_type(node);
                 ambient
             }
             // `checkVariableLikeDeclaration` runs for a binding element too,
@@ -448,7 +450,7 @@ impl Checker<'_, '_> {
                     declaration.r#type,
                     ambient,
                 );
-                self.check_subsequent_declaration_type(node, declaration);
+                self.check_subsequent_declaration_type(node);
                 self.check_variable_like_declaration(node, declaration, ambient);
                 self.check_jsdoc_annotated_initializer(node, ambient);
                 self.check_empty_binding_pattern_source(node, declaration, ambient);
@@ -751,6 +753,7 @@ impl Checker<'_, '_> {
             Node::ClassDeclaration(class_declaration) => {
                 self.check_duplicate_class_computed_members(class_declaration.members);
                 self.check_merged_namespace_prototype(node);
+                self.check_class_static_property_names(node, class_declaration.members);
                 self.check_type_parameter_lists_identical(node);
                 self.check_base_chain_is_acyclic(node);
                 self.check_abstract_members_implemented(node);
@@ -7429,6 +7432,18 @@ impl Checker<'_, '_> {
         };
         let declarations = self.binder.symbols().get(exported).declarations.clone();
         let Some(&declaration) = declarations.first() else { return };
+        // This port keeps a class's **static members** in the same `exports`
+        // table. Upstream binds them after `bindClassLikeDeclaration`'s check,
+        // into the class's own table, so a `static prototype` is not this
+        // collision — it is TS2699 (`check_class_static_property_names`).
+        if self.nodes.parent(declaration).is_some_and(|parent| {
+            matches!(
+                self.nodes.kind(parent),
+                SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression
+            )
+        }) {
+            return;
+        }
         let Some(name) = self.name_node_of(declaration) else { return };
         let Some(file) = self.source_file_of_for_diagnostics(name) else { return };
         let span = self.error_span(name);
@@ -7440,6 +7455,88 @@ impl Checker<'_, '_> {
                 ["prototype".to_string()],
             ),
         );
+    }
+
+    /// TS2699 — `Static property '{0}' conflicts with built-in property
+    /// 'Function.{0}' of constructor function '{1}'.`
+    ///
+    /// Two upstream sites, both skipped in an ambient context
+    /// (`checkClassLikeDeclaration`, `checker.go:4308`):
+    /// `checkObjectTypeForDuplicateDeclarations`'s `prototype` arm
+    /// (`checker.go:3184`) for any static member, and
+    /// `checkClassForStaticPropertyNameConflicts` (`checker.go:4393`) for
+    /// `name`, `length`, `caller` and `arguments` when class fields are not
+    /// defined with `[[Define]]` semantics (`useDefineForClassFields`).
+    /// The error node is the member's name. `docs/parity/notes/decls.md` §9.
+    fn check_class_static_property_names(
+        &mut self,
+        node: NodeId,
+        members: &[tsr_ast::ClassElement<'_>],
+    ) {
+        if self.file_has_parse_errors || self.is_in_ambient_context_for_overloads(node) {
+            return;
+        }
+        let Some(symbol) = self.binder.symbol_of(node) else { return };
+        let class_name =
+            self.binder.symbols().get(self.binder.merged_symbol(symbol)).name.to_string();
+        for member in members {
+            let Some(id) = Node::from(*member).node_id() else { continue };
+            let is_static = self
+                .node_map
+                .get(id)
+                .and_then(modifiers_of)
+                .is_some_and(|modifiers| has_modifier(modifiers, SyntaxKind::StaticKeyword));
+            if !is_static {
+                continue;
+            }
+            let Some(name) = self.declaration_name_of(id) else { continue };
+            // `getEffectivePropertyNameForPropertyNameNode`.
+            let text = match self.node_map.get(name) {
+                Some(Node::Identifier(identifier)) => identifier.text.to_string(),
+                Some(Node::StringLiteral(literal)) => literal.text.to_string(),
+                Some(Node::ComputedPropertyName(computed)) => match computed.expression {
+                    Some(tsr_ast::Expression::StringLiteral(literal)) => literal.text.to_string(),
+                    _ => continue,
+                },
+                _ => continue,
+            };
+            let conflicts = text == "prototype"
+                || (!self.standard_class_fields
+                    && matches!(text.as_str(), "name" | "length" | "caller" | "arguments"));
+            if !conflicts {
+                continue;
+            }
+            let Some(file) = self.source_file_of_for_diagnostics(name) else { continue };
+            let span = self.error_span(name);
+            // The binder half: `bindClassLikeDeclaration` mints a `prototype`
+            // property in the class's exports, and a static method or accessor
+            // of that name collides with it (`MethodExcludes` and the accessor
+            // excludes include `Property`; `PropertyExcludes` is empty), so
+            // `declareSymbol` reports TS2300 on it. This port's binder never
+            // mints the symbol — the same gap `check_merged_namespace_prototype`
+            // fills.
+            if text == "prototype"
+                && matches!(
+                    member,
+                    ClassElement::MethodDeclaration(_)
+                        | ClassElement::GetAccessorDeclaration(_)
+                        | ClassElement::SetAccessorDeclaration(_)
+                )
+            {
+                self.report(
+                    file,
+                    Diagnostic::with_args(&messages::DUPLICATE_IDENTIFIER_0, span, [text.clone()]),
+                );
+            }
+            self.report(
+                file,
+                Diagnostic::with_args(
+                    &messages::STATIC_PROPERTY_0_CONFLICTS_WITH_BUILT_IN_PROPERTY_FUNCTION_0_OF_CONSTRUCTOR_FUNCTION_1,
+                    span,
+                    [text, class_name.clone()],
+                ),
+            );
+        }
     }
 
     fn check_duplicate_class_computed_members(&mut self, members: &[tsr_ast::ClassElement<'_>]) {
@@ -8619,13 +8716,19 @@ impl Checker<'_, '_> {
         })
     }
 
-    /// TS2403 — `Subsequent variable declarations must have the same type.`
+    /// TS2403 / TS2717 — `Subsequent variable (property) declarations must
+    /// have the same type.` — and TS2687 — `All declarations of '{0}' must
+    /// have identical modifiers.`
     ///
-    /// `checkVariableLikeDeclaration`'s secondary-declaration arm
-    /// (`checker.go:5928`): `t := getTypeOfSymbol(symbol)` against the
-    /// declaration's own widened type, reported when `!c.isTypeIdenticalTo(t,
-    /// declarationType)`. The identity relation is the fragment in
-    /// [`Self::type_identity_fragment`]; a pair it cannot decide is not
+    /// `checkVariableLikeDeclaration`'s merged-declaration arms
+    /// (`checker.go:5893-5935`), for variable declarations, property
+    /// declarations and property signatures. On the symbol's primary
+    /// declaration (`symbol.ValueDeclaration`): TS2687 when another
+    /// variable-like declaration's flags differ (`areDeclarationFlagsIdentical`).
+    /// On a secondary one: `t := getTypeOfSymbol(symbol)` against the
+    /// declaration's own widened type, TS2403/TS2717 when `!isTypeIdenticalTo`
+    /// ([`Self::is_type_identical_to`], `crate::identity`), then TS2687 against
+    /// the primary. A type pair the identity relation cannot decide is not
     /// reported.
     ///
     /// **`any` and `unknown` are trusted only where written.** In this port
@@ -8633,18 +8736,27 @@ impl Checker<'_, '_> {
     /// (§338; §865 measured −34 cases admitting it unconditionally), so a
     /// top-level `any`/`unknown` takes part only when the declaration's own
     /// annotation is that keyword.
-    fn check_subsequent_declaration_type(
-        &mut self,
-        node: NodeId,
-        declaration: &tsr_ast::VariableDeclaration<'_>,
-    ) {
+    fn check_subsequent_declaration_type(&mut self, node: NodeId) {
         if self.file_has_parse_errors {
             return;
         }
-        let Some(name) = declaration.name.as_ref().and_then(tsr_ast::BindingName::node_id) else {
-            return;
+        let (name, annotated, is_property) = match self.node_map.get(node) {
+            Some(Node::VariableDeclaration(declaration)) => (
+                declaration.name.as_ref().and_then(tsr_ast::BindingName::node_id),
+                declaration.r#type.is_some(),
+                false,
+            ),
+            Some(Node::PropertyDeclaration(declaration)) => {
+                (declaration.name.node_id(), declaration.r#type.is_some(), true)
+            }
+            Some(Node::PropertySignatureDeclaration(declaration)) => {
+                (declaration.name.node_id(), declaration.r#type.is_some(), true)
+            }
+            _ => return,
         };
+        let Some(name) = name else { return };
         let Some(Node::Identifier(identifier)) = self.node_map.get(name) else { return };
+        let text = identifier.text.to_string();
         let Some(own) = self.binder.symbol_of(node) else { return };
         // **A merge the excludes forbid did not happen upstream.**
         // `mergeSymbol` reports `reportMergeSymbolError` and leaves the source
@@ -8658,10 +8770,21 @@ impl Checker<'_, '_> {
         } else {
             self.binder.merged_symbol(own)
         };
-        // `symbol.ValueDeclaration` is the primary; this arm is only for the
-        // ones after it.
+        // `symbol.ValueDeclaration` is the primary.
         let Some(primary) = self.binder.symbols().get(symbol).value_declaration else { return };
         if primary == node {
+            // `checker.go:5916`: a primary with siblings whose modifiers
+            // differ reports on itself.
+            let declarations = self.binder.symbols().get(symbol).declarations.clone();
+            if declarations.len() > 1
+                && declarations.iter().any(|&other| {
+                    other != node
+                        && self.is_variable_like(other)
+                        && !self.declaration_flags_identical(other, node)
+                })
+            {
+                self.report_identical_modifiers(name, &text);
+            }
             return;
         }
         // `symbol.Flags&ast.SymbolFlagsAssignment == 0` (`checker.go:5929`). A
@@ -8680,9 +8803,51 @@ impl Checker<'_, '_> {
         }) {
             return;
         }
+        self.check_subsequent_declaration_identity(
+            node,
+            symbol,
+            primary,
+            name,
+            &text,
+            annotated,
+            is_property,
+        );
+        // `checker.go:5933`.
+        if !self.declaration_flags_identical(node, primary) {
+            self.report_identical_modifiers(name, &text);
+        }
+    }
+
+    /// The identity half of the secondary-declaration arm: TS2403, or TS2717
+    /// for a property (`errorNextVariableOrPropertyDeclarationMustHaveSameType`).
+    #[allow(clippy::too_many_arguments)]
+    fn check_subsequent_declaration_identity(
+        &mut self,
+        node: NodeId,
+        symbol: tsr_binder::SymbolId,
+        primary: NodeId,
+        name: NodeId,
+        text: &str,
+        annotated: bool,
+        is_property: bool,
+    ) {
         let first = self.get_type_of_symbol(symbol);
         let next = self.get_widened_type_for_variable_like_declaration(node);
         if self.is_error(first) || self.is_error(next) {
+            return;
+        }
+        // `widenTypeForVariableLikeDeclaration` (`checker.go:18246`) turns a
+        // `symbol`-typed member of the global `SymbolConstructor` into that
+        // member's `unique symbol`, on both sides here (typescript-go#1212).
+        // This port's widening lacks the special case, so the pair declines.
+        if is_property
+            && [first, next].into_iter().any(|ty| {
+                self.type_of(ty)
+                    .flags
+                    .intersects(TypeFlags::ES_SYMBOL | TypeFlags::UNIQUE_ES_SYMBOL)
+            })
+            && self.is_global_symbol_constructor(self.nodes.parent(node))
+        {
             return;
         }
         if !self.identity_side_is_trusted(first, primary)
@@ -8697,9 +8862,7 @@ impl Checker<'_, '_> {
         // reduction); between annotations it compares what the user wrote.
         // Inferred operands keep the earlier necessary condition, mutual
         // assignability. `docs/parity/notes/decls.md` §2.
-        let identity = if self.declaration_type_annotation(primary).is_some()
-            && declaration.r#type.is_some()
-        {
+        let identity = if self.declaration_type_annotation(primary).is_some() && annotated {
             self.is_type_identical_to(first, next)
         } else {
             self.is_type_identical_to_by_assignability(first, next)
@@ -8709,19 +8872,108 @@ impl Checker<'_, '_> {
         }
         let Some(file) = self.source_file_of_for_diagnostics(name) else { return };
         let span = self.error_span(name);
-        let (Some(text), Some(next_text)) =
+        let (Some(first_text), Some(next_text)) =
             (self.type_to_string_at(first, node), self.type_to_string_at(next, node))
         else {
             return;
         };
+        let message = if is_property {
+            &messages::SUBSEQUENT_PROPERTY_DECLARATIONS_MUST_HAVE_THE_SAME_TYPE_PROPERTY_0_MUST_BE_OF_TYPE_1_BUT_HERE_HAS_TYPE_2
+        } else {
+            &messages::SUBSEQUENT_VARIABLE_DECLARATIONS_MUST_HAVE_THE_SAME_TYPE_VARIABLE_0_MUST_BE_OF_TYPE_1_BUT_HERE_HAS_TYPE_2
+        };
+        self.report(
+            file,
+            Diagnostic::with_args(message, span, [text.to_string(), first_text, next_text]),
+        );
+    }
+
+    /// `isGlobalSymbolConstructor`: the node is a declaration of the global
+    /// `SymbolConstructor` interface.
+    fn is_global_symbol_constructor(&self, node: Option<NodeId>) -> bool {
+        let Some(node) = node else { return false };
+        if self.nodes.kind(node) != SyntaxKind::InterfaceDeclaration {
+            return false;
+        }
+        let Some(symbol) = self.binder.symbol_of(node) else { return false };
+        self.global_type_symbol_with_arity("SymbolConstructor", 0).is_some_and(|global| {
+            self.binder.merged_symbol(global) == self.binder.merged_symbol(symbol)
+        })
+    }
+
+    /// TS2687 at a declaration's name.
+    fn report_identical_modifiers(&mut self, name: NodeId, text: &str) {
+        let Some(file) = self.source_file_of_for_diagnostics(name) else { return };
+        let span = self.error_span(name);
         self.report(
             file,
             Diagnostic::with_args(
-                &messages::SUBSEQUENT_VARIABLE_DECLARATIONS_MUST_HAVE_THE_SAME_TYPE_VARIABLE_0_MUST_BE_OF_TYPE_1_BUT_HERE_HAS_TYPE_2,
+                &messages::ALL_DECLARATIONS_OF_0_MUST_HAVE_IDENTICAL_MODIFIERS,
                 span,
-                [identifier.text.to_string(), text, next_text],
+                [text.to_string()],
             ),
         );
+    }
+
+    /// `ast.IsVariableLike`.
+    fn is_variable_like(&self, node: NodeId) -> bool {
+        matches!(
+            self.nodes.kind(node),
+            SyntaxKind::BindingElement
+                | SyntaxKind::EnumMember
+                | SyntaxKind::Parameter
+                | SyntaxKind::PropertyAssignment
+                | SyntaxKind::PropertyDeclaration
+                | SyntaxKind::PropertySignature
+                | SyntaxKind::ShorthandPropertyAssignment
+                | SyntaxKind::VariableDeclaration
+        )
+    }
+
+    /// `areDeclarationFlagsIdentical` (`checker.go:6864`): optionality, then
+    /// the private/protected/async/abstract/readonly/static modifiers. A
+    /// parameter and a variable may differ in optionality.
+    fn declaration_flags_identical(&self, left: NodeId, right: NodeId) -> bool {
+        const INTERESTING: [SyntaxKind; 6] = [
+            SyntaxKind::PrivateKeyword,
+            SyntaxKind::ProtectedKeyword,
+            SyntaxKind::AsyncKeyword,
+            SyntaxKind::AbstractKeyword,
+            SyntaxKind::ReadonlyKeyword,
+            SyntaxKind::StaticKeyword,
+        ];
+        let kinds = (self.nodes.kind(left), self.nodes.kind(right));
+        if matches!(
+            kinds,
+            (SyntaxKind::Parameter, SyntaxKind::VariableDeclaration)
+                | (SyntaxKind::VariableDeclaration, SyntaxKind::Parameter)
+        ) {
+            return true;
+        }
+        if self.declaration_has_question_token(left) != self.declaration_has_question_token(right) {
+            return false;
+        }
+        let selected = |node: NodeId| {
+            let modifiers = self.node_map.get(node).and_then(modifiers_of).unwrap_or_default();
+            INTERESTING.map(|kind| has_modifier(modifiers, kind))
+        };
+        selected(left) == selected(right)
+    }
+
+    /// `isOptionalDeclaration` for the variable-like kinds: a `?` postfix (a
+    /// parameter's `?` too).
+    fn declaration_has_question_token(&self, node: NodeId) -> bool {
+        let question = |token: Option<&tsr_ast::Token<'_>>| {
+            token.is_some_and(|token| token.kind == SyntaxKind::QuestionToken)
+        };
+        match self.node_map.get(node) {
+            Some(Node::PropertyDeclaration(declaration)) => question(declaration.postfix_token),
+            Some(Node::PropertySignatureDeclaration(declaration)) => {
+                question(declaration.postfix_token)
+            }
+            Some(Node::ParameterDeclaration(declaration)) => question(declaration.question_token),
+            _ => false,
+        }
     }
 
     /// The written type annotation of a variable-like declaration.
@@ -8730,6 +8982,7 @@ impl Checker<'_, '_> {
             Some(Node::VariableDeclaration(variable)) => variable.r#type?.node_id(),
             Some(Node::ParameterDeclaration(parameter)) => parameter.r#type?.node_id(),
             Some(Node::PropertyDeclaration(property)) => property.r#type?.node_id(),
+            Some(Node::PropertySignatureDeclaration(property)) => property.r#type?.node_id(),
             _ => None,
         }
     }
@@ -8766,6 +9019,8 @@ impl Checker<'_, '_> {
             }
             Some(Node::VariableDeclaration(variable)) => variable.r#type,
             Some(Node::ParameterDeclaration(parameter)) => parameter.r#type,
+            Some(Node::PropertyDeclaration(property)) => property.r#type,
+            Some(Node::PropertySignatureDeclaration(property)) => property.r#type,
             _ => None,
         };
         let Some(annotation) = annotation.and_then(|a| a.node_id()) else { return false };
@@ -8960,19 +9215,55 @@ impl Checker<'_, '_> {
             let Some(base_kind) = self.base_member_kind(declaration, derived_name) else {
                 continue;
             };
-            let message = match (base_kind, derived_kind) {
-                (MemberKind::Property, MemberKind::Accessor) => {
-                    &messages::_0_IS_DEFINED_AS_A_PROPERTY_IN_CLASS_1_BUT_IS_OVERRIDDEN_HERE_IN_2_AS_AN_ACCESSOR
-                }
-                (MemberKind::Accessor, MemberKind::Property) => {
-                    &messages::_0_IS_DEFINED_AS_AN_ACCESSOR_IN_CLASS_1_BUT_IS_OVERRIDDEN_HERE_IN_2_AS_AN_INSTANCE_PROPERTY
-                }
+            // The method arms (`checker.go:4728-4740`): a method overridden by
+            // an accessor, or a property or accessor overridden by a method.
+            // Their arguments are ordered base class, member, derived class.
+            // A method overridden by a property is the one correct mixed case.
+            let (message, method_arm) = match (base_kind, derived_kind) {
+                (MemberKind::Property, MemberKind::Accessor) => (
+                    &messages::_0_IS_DEFINED_AS_A_PROPERTY_IN_CLASS_1_BUT_IS_OVERRIDDEN_HERE_IN_2_AS_AN_ACCESSOR,
+                    false,
+                ),
+                (MemberKind::Accessor, MemberKind::Property) => (
+                    &messages::_0_IS_DEFINED_AS_AN_ACCESSOR_IN_CLASS_1_BUT_IS_OVERRIDDEN_HERE_IN_2_AS_AN_INSTANCE_PROPERTY,
+                    false,
+                ),
+                (MemberKind::Method, MemberKind::Accessor) => (
+                    &messages::CLASS_0_DEFINES_INSTANCE_MEMBER_FUNCTION_1_BUT_EXTENDED_CLASS_2_DEFINES_IT_AS_INSTANCE_MEMBER_ACCESSOR,
+                    true,
+                ),
+                (MemberKind::Accessor, MemberKind::Method) => (
+                    &messages::CLASS_0_DEFINES_INSTANCE_MEMBER_ACCESSOR_1_BUT_EXTENDED_CLASS_2_DEFINES_IT_AS_INSTANCE_MEMBER_FUNCTION,
+                    true,
+                ),
+                (MemberKind::Property, MemberKind::Method) => (
+                    &messages::CLASS_0_DEFINES_INSTANCE_MEMBER_PROPERTY_1_BUT_EXTENDED_CLASS_2_DEFINES_IT_AS_INSTANCE_MEMBER_FUNCTION,
+                    true,
+                ),
                 _ => continue,
             };
             if reported.contains(&derived_name) {
                 continue;
             }
             reported.push(derived_name);
+            if method_arm {
+                let Some(file) = self.source_file_of_for_diagnostics(derived_at) else { continue };
+                let span = self.nodes.span(derived_at);
+                let derived_text = match typed {
+                    Node::ClassDeclaration(class) => class.name.map(|name| name.text.to_string()),
+                    _ => None,
+                };
+                let Some(derived_text) = derived_text else { continue };
+                self.report(
+                    file,
+                    Diagnostic::with_args(
+                        message,
+                        span,
+                        [name.text.to_string(), derived_name.to_string(), derived_text],
+                    ),
+                );
+                continue;
+            }
             let Some(file) = self.source_file_of_for_diagnostics(derived_at) else { continue };
             let span = self.nodes.span(derived_at);
             let base_text = name.text.to_string();
@@ -12811,20 +13102,19 @@ impl Checker<'_, '_> {
             return;
         }
 
-        // `hasNonAmbientClass` (`checker.go:3660`): a symbol that merges a class
-        // with a function has its own arm upstream — TS2813
-        // `Class declaration cannot implement overload list for '{0}'` and
-        // TS2814 `Function with bodies can only merge with classes that are
-        // ambient` — reached *instead of* the duplicate-implementation report.
-        // Neither is ported, so the whole symbol is declined: it was 18 of the
-        // 34 wrong lines this rule's second measurement produced, all in the
-        // `ClassAndModuleThatMerge…` family.
-        if declarations.iter().any(|&declaration| {
-            matches!(
-                self.nodes.kind(declaration),
-                SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression
-            )
-        }) {
+        // `hasNonAmbientClass` (`checker.go:3606`): a class declaration outside
+        // an ambient context among the symbol's declarations. Class
+        // declarations are not function-like, so the walk below skips them;
+        // the arm after it reports TS2813/TS2814. `docs/parity/notes/decls.md`
+        // §7.
+        let has_non_ambient_class = declarations.iter().any(|&declaration| {
+            self.nodes.kind(declaration) == SyntaxKind::ClassDeclaration
+                && !self.is_in_ambient_context_for_overloads(declaration)
+        });
+        if declarations
+            .iter()
+            .any(|&declaration| self.nodes.kind(declaration) == SyntaxKind::ClassExpression)
+        {
             return;
         }
         // **All declarations must share one parent.** Upstream's overloads are
@@ -12840,7 +13130,7 @@ impl Checker<'_, '_> {
             let first = parents.next();
             parents.all(|parent| Some(parent) == first)
         };
-        if !parents_agree {
+        if !parents_agree && !self.declarations_are_merged_namespace_exports(&declarations) {
             return;
         }
         let is_constructor = self.nodes.kind(node) == SyntaxKind::Constructor;
@@ -12913,6 +13203,32 @@ impl Checker<'_, '_> {
                 );
             }
         }
+        // `checker.go:3660-3678`: a function merged with a non-ambient class
+        // reports on every class (TS2813) and every function declaration
+        // (TS2814), each at its name. The related "Consider adding a
+        // `declare` modifier" chain is not carried (`Diagnostic` has no
+        // related information).
+        if has_non_ambient_class
+            && !is_constructor
+            && let Some(symbol) = self.binder.symbol_of(node).map(|s| self.binder.merged_symbol(s))
+            && self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::FUNCTION)
+        {
+            let name = self.binder.symbols().get(symbol).name.to_string();
+            for &declaration in &declarations {
+                let message = match self.nodes.kind(declaration) {
+                    SyntaxKind::ClassDeclaration => {
+                        &messages::CLASS_DECLARATION_CANNOT_IMPLEMENT_OVERLOAD_LIST_FOR_0
+                    }
+                    SyntaxKind::FunctionDeclaration => {
+                        &messages::FUNCTION_WITH_BODIES_CAN_ONLY_MERGE_WITH_CLASSES_THAT_ARE_AMBIENT
+                    }
+                    _ => continue,
+                };
+                let at = self.declaration_name_of(declaration).unwrap_or(declaration);
+                let span = self.error_span(at);
+                self.report(file, Diagnostic::with_args(message, span, [name.clone()]));
+            }
+        }
         // "Abstract methods can't have an implementation -- in particular, they
         // don't need one." (`checker.go:3679`)
         if let Some(last) = last_non_ambient
@@ -12934,6 +13250,35 @@ impl Checker<'_, '_> {
                 self.check_overloads_compatible_with_implementation(file, body, &overloads);
             }
         }
+    }
+
+    /// Whether every declaration is an `export`ed member of a block of one
+    /// (merged) namespace — the one cross-container shape upstream's binder
+    /// also merges: `declareModuleMember` puts exported members into the
+    /// namespace symbol's `exports`, shared by all its blocks. Locals of two
+    /// blocks, or a class body beside a namespace block, stay apart upstream.
+    /// `docs/parity/notes/decls.md` §7.
+    fn declarations_are_merged_namespace_exports(&self, declarations: &[NodeId]) -> bool {
+        let mut namespace = None;
+        for &declaration in declarations {
+            let exported = self
+                .node_map
+                .get(declaration)
+                .and_then(modifiers_of)
+                .is_some_and(|modifiers| has_modifier(modifiers, SyntaxKind::ExportKeyword));
+            let Some(block) = self.nodes.parent(declaration) else { return false };
+            if !exported || self.nodes.kind(block) != SyntaxKind::ModuleBlock {
+                return false;
+            }
+            let Some(module) = self.nodes.parent(block) else { return false };
+            let Some(symbol) = self.binder.symbol_of(module) else { return false };
+            let symbol = self.binder.merged_symbol(symbol);
+            if namespace.is_some_and(|namespace| namespace != symbol) {
+                return false;
+            }
+            namespace = Some(symbol);
+        }
+        namespace.is_some()
     }
 
     /// TS2394 — `This overload signature is not compatible with its
@@ -14151,6 +14496,7 @@ const NODE_CORE_MODULES: &[&str] = &[
 enum MemberKind {
     Property,
     Accessor,
+    Method,
 }
 
 /// A class member's name, kind and name-node, skipping `static` and `private`
@@ -14167,6 +14513,7 @@ fn class_member_shape(member: tsr_ast::ClassElement<'_>) -> Option<(&str, Member
         tsr_ast::ClassElement::SetAccessorDeclaration(a) => {
             (a.name, MemberKind::Accessor, a.modifiers)
         }
+        tsr_ast::ClassElement::MethodDeclaration(m) => (m.name, MemberKind::Method, m.modifiers),
         _ => return None,
     };
     if modifiers.iter().any(|modifier| {

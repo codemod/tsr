@@ -176,3 +176,90 @@ class through `import type { Services }`, which this port fails to resolve, so
 its "error type" is a resolution gap rather than an upstream error. **Not
 shipped.** Unblocked by resolving namespace members through a type-only
 import (names lane); then the `computed_name` condition goes.
+
+## §7 TS2813/TS2814: a function merged with a non-ambient class
+
+`check_function_or_constructor_symbol` declined every symbol with a class
+declaration, because upstream's `hasNonAmbientClass` arm (`checker.go:3660`)
+was unported and running the rest of the walk without it gave wrong lines in
+the `ClassAndModuleThatMerge…` family (`checker-notes-diag2.md`). The arm is
+now ported: when a non-ambient class declaration is among the declarations of
+a `Function`-flagged symbol (and the symbol is not a constructor), every class
+declaration gets TS2813 and every function declaration TS2814, at its name.
+Class *expressions* still decline the symbol (they do not merge by name
+upstream, so their presence means the binder merged something upstream did
+not).
+
+The "all declarations share one parent" bound now admits one more shape: every
+declaration an `export`ed member of a block of the same merged namespace.
+Upstream's binder merges exactly those (`declareModuleMember` → the namespace's
+`exports`), so `namespace M { export function f() {} } namespace M { export
+class f {} }` is one symbol upstream too (`duplicateIdentifiersAcrossContainerBoundaries`).
+Locals of two blocks and a class body beside a namespace block stay declined.
+
+**Measured** (full run): +14 cases, no loss — `augmentedTypesClass2a`,
+`augmentedTypesFunction`, `callOverloads1`–`5`, `classOverloadForFunction{,2}`,
+`funClodule`, `nameCollisions`, `staticClassMemberError`,
+`multipleExportDefault5`, `duplicateIdentifiersAcrossContainerBoundaries`.
+
+## §8 TS2717 and TS2687: the rest of `checkVariableLikeDeclaration`'s merge arms
+
+The TS2403 rule (§1–§3) now runs for property declarations and property
+signatures too, as upstream's `checkVariableLikeDeclaration` does
+(`checker.go:5893-5935`): a secondary declaration whose widened type is not
+identical to the symbol's reports TS2717 (`errorNextVariableOrPropertyDeclarationMustHaveSameType`
+picks the property message), and the TS2687 arms — `areDeclarationFlagsIdentical`
+(optionality plus private/protected/async/abstract/readonly/static) on the
+primary against every other variable-like declaration and on each secondary
+against the primary — are ported beside it.
+
+**One upstream special case is mirrored as a decline.**
+`widenTypeForVariableLikeDeclaration` (`checker.go:18246`) turns a
+`symbol`-typed member of the global `SymbolConstructor` into the member's
+`unique symbol` (typescript-go#1212), so `readonly observer: symbol` merged with
+`readonly observer: unique symbol` is identical upstream. This port's widening
+(`crate::symbols`, not this lane's) lacks it, so the identity check declines
+a symbol-typed pair under the global `SymbolConstructor`; the first measurement
+without that decline lost `symbolObserverMismatchingPolyfillsWorkTogether`.
+The proper fix is the special case in the widening.
+
+## §9 TS2699: static members that collide with `Function`'s own properties
+
+Ported both upstream sites, skipped in an ambient context as
+`checkClassLikeDeclaration` does (`checker.go:4308`):
+`checkObjectTypeForDuplicateDeclarations`' `prototype` arm (any static member
+named `prototype`, `checker.go:3184`) and
+`checkClassForStaticPropertyNameConflicts` (`name`/`length`/`caller`/`arguments`
+unless `useDefineForClassFields`, read from `standard_class_fields`).
+
+`check_merged_namespace_prototype` used to report TS2300 for a class's own
+`static prototype`, because this port keeps static members in the class
+symbol's `exports`, where that rule looks for a namespace's exported
+`prototype`. Upstream binds static members after `bindClassLikeDeclaration`'s
+check, so a static member never meets it; the rule now skips a declaration
+whose parent is a class. The binder-side collision that *does* exist upstream —
+a static method or accessor named `prototype` against the minted `prototype`
+property (`MethodExcludes`/accessor excludes include `Property`) — is reported
+beside TS2699, since this port's binder never mints that symbol.
+
+Measured: `propertyNamedPrototype`, `staticPropertyNameConflictsInAmbientContext`
+converted, no loss.
+
+## §10 TS2423/TS2425/TS2426: methods in `checkKindsOfPropertyMemberOverrides`
+
+`check_override_kind` ported only the property/accessor pair (TS2610/TS2611)
+of `checkKindsOfPropertyMemberOverrides` (`checker.go:4626`), reading
+declaration kinds syntactically along the base chain. The method arms are now
+in the same walk: a base method overridden by an accessor (TS2423), a base
+accessor or property overridden by a method (TS2426, TS2425); a method
+overridden by a property stays the one legal mixed override. Methods now also
+count as the nearest base member, which is what `getPropertiesOfType(baseType)`
+answers — previously a method in an intermediate class was skipped and the
+search continued to its ancestors.
+
+Measured: +6 cases (`inheritance`, `inheritanceMemberFuncOverridingAccessor`,
+`inheritanceMemberFuncOverridingProperty`, `multipleInheritance`,
+`accessorsOverrideMethod`, `derivedClassFunctionOverridesBaseClassAccessor`),
+no loss. The arguments keep the existing rule's simplification of printing the
+class *names* (`TypeToString` of a generic class would print its type
+parameters).
