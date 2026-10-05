@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics Summary:
 What a pass means: every diagnostic in upstream's .errors.txt reproduced exactly — same file, line, column and code, no more and no fewer — for cases that expect at least one; syntactic, bind-and-check and isolatedDeclarations diagnostics collected as upstream's test runner collects them
-Passed         : 3532/5488 (64.36%)
-Failed         : 1956
+Passed         : 3549/5488 (64.67%)
+Failed         : 1939
 Skipped        : 6956 (excluded from the denominator)
 
   793  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -11,7 +11,7 @@ Skipped        : 6956 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   464  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 1956 failures:
+First 100 of 1939 failures:
 compiler/TransportStream
   1 missing (first TS1434 at TransportStream.ts(1,1))
 compiler/abstractClassUnionInstantiation
@@ -48,8 +48,6 @@ compiler/argumentsUsedInClassFieldInitializerOrStaticInitializationBlock
   11 missing (first TS2815 at argumentsUsedInClassFieldInitializerOrStaticInitializationBlock.ts(3,10))
 compiler/arithmeticOnInvalidTypes2
   1 missing (first TS2365 at arithmeticOnInvalidTypes2.ts(2,14))
-compiler/arrayAssignmentTest5
-  1 missing (first TS2366 at arrayAssignmentTest5.ts(21,66))
 compiler/arrayBestCommonTypes
   22 missing (first TS2769 at arrayBestCommonTypes.ts(16,37))
 compiler/arrayCast
@@ -212,3 +210,5 @@ compiler/circularConstraintYieldsAppropriateError
   1 missing (first TS2310 at circularConstraintYieldsAppropriateError.ts(10,7))
 compiler/circularInlineMappedGenericTupleTypeNoCrash
   1 missing (first TS2589 at circularInlineMappedGenericTupleTypeNoCrash.ts(11,12))
+compiler/circularOptionalityRemoval
+  2 missing (first TS2502 at circularOptionalityRemoval.ts(2,14))
