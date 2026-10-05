@@ -433,6 +433,7 @@ impl Checker<'_, '_> {
                 self.check_outer_scoped_variable(node);
                 self.check_renamed_binding_element_in_signature(node);
                 self.check_binding_element_initializer(node, ambient);
+                self.check_binding_element_accessibility(node, ambient);
                 ambient
             }
             Node::VariableDeclaration(declaration) => {

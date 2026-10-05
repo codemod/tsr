@@ -747,6 +747,90 @@ impl Checker<'_, '_> {
         let property = self.get_property_of_type(containing, name.text)?;
         let writing =
             self.assignment_target_kind(node) != crate::expressions::AssignmentTargetKind::None;
+        let (message, arguments) = self.property_accessibility_error(
+            node, is_super, writing, containing, property, name.text,
+        )?;
+        Some((message, arguments, name_id))
+    }
+
+    /// `checkVariableLikeDeclaration`'s binding-element arm (`checker.go`):
+    /// an object binding element names a property of its parent's type,
+    /// and `checkPropertyAccessibility` runs on it as a read, reported at
+    /// `getBindingElementPropertyName` (the property name, else the name).
+    pub(crate) fn check_binding_element_accessibility(&mut self, node: NodeId, ambient: bool) {
+        if ambient || self.file_has_parse_errors || self.in_js_file(node) {
+            return;
+        }
+        let Some(Node::BindingElement(element)) = self.node_map.get(node) else { return };
+        let Some(pattern) = self.nodes.parent(node) else { return };
+        if self.nodes.kind(pattern) != SyntaxKind::ObjectBindingPattern {
+            return;
+        }
+        let Some(holder) = self.nodes.parent(pattern) else { return };
+        let (name_text, at) = match (element.property_name, element.name) {
+            (Some(property_name), _) => {
+                let Some(at) = property_name.node_id() else { return };
+                let text = match property_name {
+                    tsr_ast::PropertyName::Identifier(identifier) => identifier.text.to_string(),
+                    tsr_ast::PropertyName::StringLiteral(literal) => literal.text.to_string(),
+                    tsr_ast::PropertyName::NumericLiteral(literal) => literal.text.to_string(),
+                    // getLiteralTypeFromPropertyName: a computed name's
+                    // checked type, when usable as a property name.
+                    tsr_ast::PropertyName::ComputedPropertyName(computed) => {
+                        let Some(expression) = computed.expression else { return };
+                        let key = self.check_expression(expression);
+                        match &self.type_of(key).data {
+                            crate::types::TypeData::StringLiteral(text)
+                            | crate::types::TypeData::NumberLiteral(text) => text.clone(),
+                            _ => return,
+                        }
+                    }
+                    _ => return,
+                };
+                (text, at)
+            }
+            (None, Some(tsr_ast::BindingName::Identifier(identifier))) => {
+                let Some(at) = identifier.node_id else { return };
+                (identifier.text.to_string(), at)
+            }
+            _ => return,
+        };
+        let parent_type = self.get_type_for_binding_element_parent(holder);
+        if self.is_error(parent_type)
+            || self.type_of(parent_type).flags.intersects(TypeFlags::ANY_OR_UNKNOWN)
+        {
+            return;
+        }
+        let Some(property) = self.get_property_of_type(parent_type, &name_text) else { return };
+        let Some((message, arguments)) = self.property_accessibility_error(
+            node,
+            false,
+            false,
+            parent_type,
+            property,
+            &name_text,
+        ) else {
+            return;
+        };
+        let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
+        let span = self.error_span(at);
+        self.report(file, Diagnostic::with_args(message, span, arguments));
+    }
+
+    /// `checkPropertyAccessibilityAtLocation` (`checker.go`) after the
+    /// property is found: the message and arguments an inaccessible `prop`
+    /// reports at `location`, or `None` when it is accessible or a link
+    /// cannot be followed.
+    fn property_accessibility_error(
+        &mut self,
+        location: NodeId,
+        is_super: bool,
+        writing: bool,
+        containing: crate::types::TypeId,
+        property: SymbolId,
+        name: &str,
+    ) -> Option<(&'static tsr_diagnostics::Message, Vec<String>)> {
+        let node = location;
         let declaration = self.modifier_declaration_of(property, writing)?;
         let is_private = self.member_declaration_has(declaration, SyntaxKind::PrivateKeyword);
         if !is_private && !self.member_declaration_has(declaration, SyntaxKind::ProtectedKeyword) {
@@ -763,8 +847,7 @@ impl Checker<'_, '_> {
             }
             return Some((
                 &messages::PROPERTY_0_IS_PRIVATE_AND_ONLY_ACCESSIBLE_WITHIN_CLASS_1,
-                vec![name.text.to_string(), declaring_name],
-                name_id,
+                vec![name.to_string(), declaring_name],
             ));
         }
         if is_super {
@@ -786,8 +869,7 @@ impl Checker<'_, '_> {
             if is_static || enclosing_class.is_none() {
                 return Some((
                     &messages::PROPERTY_0_IS_PROTECTED_AND_ONLY_ACCESSIBLE_WITHIN_CLASS_1_AND_ITS_SUBCLASSES,
-                    vec![name.text.to_string(), declaring_name],
-                    name_id,
+                    vec![name.to_string(), declaring_name],
                 ));
             }
         }
@@ -810,8 +892,7 @@ impl Checker<'_, '_> {
         let containing_text = self.type_to_string(containing);
         Some((
             &messages::PROPERTY_0_IS_PROTECTED_AND_ONLY_ACCESSIBLE_THROUGH_AN_INSTANCE_OF_CLASS_1_THIS_IS_AN_INSTANCE_OF_CLASS_2,
-            vec![name.text.to_string(), enclosing_name, containing_text],
-            name_id,
+            vec![name.to_string(), enclosing_name, containing_text],
         ))
     }
 
@@ -878,7 +959,12 @@ impl Checker<'_, '_> {
         };
         let Some(annotation) = this_parameter.r#type else { return ThisParameterClass::None };
         let this_type = self.get_type_from_type_node(annotation);
+        // A type parameter is read through its constraint; an unconstrained
+        // or primitive one is no class (`ObjectFlagsClassOrInterface` unset).
         let this_type = self.apparent_type(this_type);
+        if !self.type_of(this_type).flags.intersects(TypeFlags::OBJECT) {
+            return ThisParameterClass::None;
+        }
         let crate::types::TypeData::Named { members: Some(owner), .. } =
             self.type_of(this_type).data
         else {
