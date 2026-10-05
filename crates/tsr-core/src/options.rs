@@ -642,7 +642,7 @@ pub struct CompilerOptions {
     pub no_implicit_returns: Tristate,
     /// `noFallthroughCasesInSwitch`. Parsed; not yet read.
     pub no_fallthrough_cases_in_switch: Tristate,
-    /// `noImplicitOverride`. Parsed; not yet read.
+    /// `noImplicitOverride`. Read by the checker's override-modifier check.
     pub no_implicit_override: Tristate,
     /// `noPropertyAccessFromIndexSignature`. Parsed; not yet read.
     pub no_property_access_from_index_signature: Tristate,

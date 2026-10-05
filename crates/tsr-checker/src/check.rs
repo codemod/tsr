@@ -266,7 +266,7 @@ impl Checker<'_, '_> {
                     ambient || has_modifier(declaration.modifiers, SyntaxKind::DeclareKeyword);
                 self.check_property_initialization(declaration.members, ambient);
                 self.check_heritage_conformance(node);
-                self.check_members_for_override_modifier(node);
+                self.check_members_for_override_modifier(node, ambient);
                 self.check_index_constraints(node);
                 self.check_duplicate_index_signatures(node);
                 ambient
@@ -281,7 +281,7 @@ impl Checker<'_, '_> {
                 // `checkClassLikeDeclaration` (`checker.go:4293`) runs for
                 // class expressions as well as declarations.
                 self.check_heritage_conformance(node);
-                self.check_members_for_override_modifier(node);
+                self.check_members_for_override_modifier(node, ambient);
                 self.check_index_constraints(node);
                 ambient
             }
@@ -7497,6 +7497,23 @@ impl Checker<'_, '_> {
                 );
                 return;
             }
+            // The accessibility chain's last arm (`grammarchecks.go:355`),
+            // reached only without `abstract`.
+            if matches!(
+                kind,
+                SyntaxKind::PublicKeyword
+                    | SyntaxKind::ProtectedKeyword
+                    | SyntaxKind::PrivateKeyword
+            ) && !seen.contains(&SyntaxKind::AbstractKeyword)
+                && self.is_private_identifier_class_element_declaration(node)
+            {
+                self.report_modifier_error(
+                    token,
+                    &messages::AN_ACCESSIBILITY_MODIFIER_CANNOT_BE_USED_WITH_A_PRIVATE_IDENTIFIER,
+                    &[],
+                );
+                return;
+            }
             // `declare` with `accessor`, the last arm of the `declare` chain.
             if kind == SyntaxKind::DeclareKeyword && seen.contains(&SyntaxKind::AccessorKeyword) {
                 self.report_modifier_error(
@@ -7508,6 +7525,7 @@ impl Checker<'_, '_> {
             }
             seen.push(kind);
         }
+        self.check_jsdoc_reparsed_modifier_grammar(node, &mut seen);
     }
 
     /// `grammarErrorOnNode(modifier, …)` — every arm of
