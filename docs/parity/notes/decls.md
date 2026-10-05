@@ -201,3 +201,24 @@ Locals of two blocks and a class body beside a namespace block stay declined.
 `augmentedTypesFunction`, `callOverloads1`–`5`, `classOverloadForFunction{,2}`,
 `funClodule`, `nameCollisions`, `staticClassMemberError`,
 `multipleExportDefault5`, `duplicateIdentifiersAcrossContainerBoundaries`.
+
+## §8 TS2717 and TS2687: the rest of `checkVariableLikeDeclaration`'s merge arms
+
+The TS2403 rule (§1–§3) now runs for property declarations and property
+signatures too, as upstream's `checkVariableLikeDeclaration` does
+(`checker.go:5893-5935`): a secondary declaration whose widened type is not
+identical to the symbol's reports TS2717 (`errorNextVariableOrPropertyDeclarationMustHaveSameType`
+picks the property message), and the TS2687 arms — `areDeclarationFlagsIdentical`
+(optionality plus private/protected/async/abstract/readonly/static) on the
+primary against every other variable-like declaration and on each secondary
+against the primary — are ported beside it.
+
+**One upstream special case is mirrored as a decline.**
+`widenTypeForVariableLikeDeclaration` (`checker.go:18246`) turns a
+`symbol`-typed member of the global `SymbolConstructor` into the member's
+`unique symbol` (typescript-go#1212), so `readonly observer: symbol` merged with
+`readonly observer: unique symbol` is identical upstream. This port's widening
+(`crate::symbols`, not this lane's) lacks it, so the identity check declines
+a symbol-typed pair under the global `SymbolConstructor`; the first measurement
+without that decline lost `symbolObserverMismatchingPolyfillsWorkTogether`.
+The proper fix is the special case in the widening.

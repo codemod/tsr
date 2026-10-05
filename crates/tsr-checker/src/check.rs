@@ -404,6 +404,7 @@ impl Checker<'_, '_> {
             }
             Node::PropertySignatureDeclaration(_) => {
                 self.check_implicit_any_member(node, ambient);
+                self.check_subsequent_declaration_type(node);
                 ambient
             }
             Node::GetAccessorDeclaration(accessor) => {
@@ -423,6 +424,7 @@ impl Checker<'_, '_> {
                 );
                 self.check_annotated_initializer(node, ambient);
                 self.check_jsdoc_annotated_initializer(node, ambient);
+                self.check_subsequent_declaration_type(node);
                 ambient
             }
             // `checkVariableLikeDeclaration` runs for a binding element too,
@@ -448,7 +450,7 @@ impl Checker<'_, '_> {
                     declaration.r#type,
                     ambient,
                 );
-                self.check_subsequent_declaration_type(node, declaration);
+                self.check_subsequent_declaration_type(node);
                 self.check_variable_like_declaration(node, declaration, ambient);
                 self.check_jsdoc_annotated_initializer(node, ambient);
                 self.check_empty_binding_pattern_source(node, declaration, ambient);
@@ -8006,13 +8008,19 @@ impl Checker<'_, '_> {
         })
     }
 
-    /// TS2403 — `Subsequent variable declarations must have the same type.`
+    /// TS2403 / TS2717 — `Subsequent variable (property) declarations must
+    /// have the same type.` — and TS2687 — `All declarations of '{0}' must
+    /// have identical modifiers.`
     ///
-    /// `checkVariableLikeDeclaration`'s secondary-declaration arm
-    /// (`checker.go:5928`): `t := getTypeOfSymbol(symbol)` against the
-    /// declaration's own widened type, reported when `!c.isTypeIdenticalTo(t,
-    /// declarationType)`. The identity relation is the fragment in
-    /// [`Self::type_identity_fragment`]; a pair it cannot decide is not
+    /// `checkVariableLikeDeclaration`'s merged-declaration arms
+    /// (`checker.go:5893-5935`), for variable declarations, property
+    /// declarations and property signatures. On the symbol's primary
+    /// declaration (`symbol.ValueDeclaration`): TS2687 when another
+    /// variable-like declaration's flags differ (`areDeclarationFlagsIdentical`).
+    /// On a secondary one: `t := getTypeOfSymbol(symbol)` against the
+    /// declaration's own widened type, TS2403/TS2717 when `!isTypeIdenticalTo`
+    /// ([`Self::is_type_identical_to`], `crate::identity`), then TS2687 against
+    /// the primary. A type pair the identity relation cannot decide is not
     /// reported.
     ///
     /// **`any` and `unknown` are trusted only where written.** In this port
@@ -8020,18 +8028,27 @@ impl Checker<'_, '_> {
     /// (§338; §865 measured −34 cases admitting it unconditionally), so a
     /// top-level `any`/`unknown` takes part only when the declaration's own
     /// annotation is that keyword.
-    fn check_subsequent_declaration_type(
-        &mut self,
-        node: NodeId,
-        declaration: &tsr_ast::VariableDeclaration<'_>,
-    ) {
+    fn check_subsequent_declaration_type(&mut self, node: NodeId) {
         if self.file_has_parse_errors {
             return;
         }
-        let Some(name) = declaration.name.as_ref().and_then(tsr_ast::BindingName::node_id) else {
-            return;
+        let (name, annotated, is_property) = match self.node_map.get(node) {
+            Some(Node::VariableDeclaration(declaration)) => (
+                declaration.name.as_ref().and_then(tsr_ast::BindingName::node_id),
+                declaration.r#type.is_some(),
+                false,
+            ),
+            Some(Node::PropertyDeclaration(declaration)) => {
+                (declaration.name.node_id(), declaration.r#type.is_some(), true)
+            }
+            Some(Node::PropertySignatureDeclaration(declaration)) => {
+                (declaration.name.node_id(), declaration.r#type.is_some(), true)
+            }
+            _ => return,
         };
+        let Some(name) = name else { return };
         let Some(Node::Identifier(identifier)) = self.node_map.get(name) else { return };
+        let text = identifier.text.to_string();
         let Some(own) = self.binder.symbol_of(node) else { return };
         // **A merge the excludes forbid did not happen upstream.**
         // `mergeSymbol` reports `reportMergeSymbolError` and leaves the source
@@ -8045,10 +8062,21 @@ impl Checker<'_, '_> {
         } else {
             self.binder.merged_symbol(own)
         };
-        // `symbol.ValueDeclaration` is the primary; this arm is only for the
-        // ones after it.
+        // `symbol.ValueDeclaration` is the primary.
         let Some(primary) = self.binder.symbols().get(symbol).value_declaration else { return };
         if primary == node {
+            // `checker.go:5916`: a primary with siblings whose modifiers
+            // differ reports on itself.
+            let declarations = self.binder.symbols().get(symbol).declarations.clone();
+            if declarations.len() > 1
+                && declarations.iter().any(|&other| {
+                    other != node
+                        && self.is_variable_like(other)
+                        && !self.declaration_flags_identical(other, node)
+                })
+            {
+                self.report_identical_modifiers(name, &text);
+            }
             return;
         }
         // `symbol.Flags&ast.SymbolFlagsAssignment == 0` (`checker.go:5929`). A
@@ -8067,9 +8095,51 @@ impl Checker<'_, '_> {
         }) {
             return;
         }
+        self.check_subsequent_declaration_identity(
+            node,
+            symbol,
+            primary,
+            name,
+            &text,
+            annotated,
+            is_property,
+        );
+        // `checker.go:5933`.
+        if !self.declaration_flags_identical(node, primary) {
+            self.report_identical_modifiers(name, &text);
+        }
+    }
+
+    /// The identity half of the secondary-declaration arm: TS2403, or TS2717
+    /// for a property (`errorNextVariableOrPropertyDeclarationMustHaveSameType`).
+    #[allow(clippy::too_many_arguments)]
+    fn check_subsequent_declaration_identity(
+        &mut self,
+        node: NodeId,
+        symbol: tsr_binder::SymbolId,
+        primary: NodeId,
+        name: NodeId,
+        text: &str,
+        annotated: bool,
+        is_property: bool,
+    ) {
         let first = self.get_type_of_symbol(symbol);
         let next = self.get_widened_type_for_variable_like_declaration(node);
         if self.is_error(first) || self.is_error(next) {
+            return;
+        }
+        // `widenTypeForVariableLikeDeclaration` (`checker.go:18246`) turns a
+        // `symbol`-typed member of the global `SymbolConstructor` into that
+        // member's `unique symbol`, on both sides here (typescript-go#1212).
+        // This port's widening lacks the special case, so the pair declines.
+        if is_property
+            && [first, next].into_iter().any(|ty| {
+                self.type_of(ty)
+                    .flags
+                    .intersects(TypeFlags::ES_SYMBOL | TypeFlags::UNIQUE_ES_SYMBOL)
+            })
+            && self.is_global_symbol_constructor(self.nodes.parent(node))
+        {
             return;
         }
         if !self.identity_side_is_trusted(first, primary)
@@ -8084,9 +8154,7 @@ impl Checker<'_, '_> {
         // reduction); between annotations it compares what the user wrote.
         // Inferred operands keep the earlier necessary condition, mutual
         // assignability. `docs/parity/notes/decls.md` §2.
-        let identity = if self.declaration_type_annotation(primary).is_some()
-            && declaration.r#type.is_some()
-        {
+        let identity = if self.declaration_type_annotation(primary).is_some() && annotated {
             self.is_type_identical_to(first, next)
         } else {
             self.is_type_identical_to_by_assignability(first, next)
@@ -8096,19 +8164,108 @@ impl Checker<'_, '_> {
         }
         let Some(file) = self.source_file_of_for_diagnostics(name) else { return };
         let span = self.error_span(name);
-        let (Some(text), Some(next_text)) =
+        let (Some(first_text), Some(next_text)) =
             (self.type_to_string_at(first, node), self.type_to_string_at(next, node))
         else {
             return;
         };
+        let message = if is_property {
+            &messages::SUBSEQUENT_PROPERTY_DECLARATIONS_MUST_HAVE_THE_SAME_TYPE_PROPERTY_0_MUST_BE_OF_TYPE_1_BUT_HERE_HAS_TYPE_2
+        } else {
+            &messages::SUBSEQUENT_VARIABLE_DECLARATIONS_MUST_HAVE_THE_SAME_TYPE_VARIABLE_0_MUST_BE_OF_TYPE_1_BUT_HERE_HAS_TYPE_2
+        };
+        self.report(
+            file,
+            Diagnostic::with_args(message, span, [text.to_string(), first_text, next_text]),
+        );
+    }
+
+    /// `isGlobalSymbolConstructor`: the node is a declaration of the global
+    /// `SymbolConstructor` interface.
+    fn is_global_symbol_constructor(&self, node: Option<NodeId>) -> bool {
+        let Some(node) = node else { return false };
+        if self.nodes.kind(node) != SyntaxKind::InterfaceDeclaration {
+            return false;
+        }
+        let Some(symbol) = self.binder.symbol_of(node) else { return false };
+        self.global_type_symbol_with_arity("SymbolConstructor", 0).is_some_and(|global| {
+            self.binder.merged_symbol(global) == self.binder.merged_symbol(symbol)
+        })
+    }
+
+    /// TS2687 at a declaration's name.
+    fn report_identical_modifiers(&mut self, name: NodeId, text: &str) {
+        let Some(file) = self.source_file_of_for_diagnostics(name) else { return };
+        let span = self.error_span(name);
         self.report(
             file,
             Diagnostic::with_args(
-                &messages::SUBSEQUENT_VARIABLE_DECLARATIONS_MUST_HAVE_THE_SAME_TYPE_VARIABLE_0_MUST_BE_OF_TYPE_1_BUT_HERE_HAS_TYPE_2,
+                &messages::ALL_DECLARATIONS_OF_0_MUST_HAVE_IDENTICAL_MODIFIERS,
                 span,
-                [identifier.text.to_string(), text, next_text],
+                [text.to_string()],
             ),
         );
+    }
+
+    /// `ast.IsVariableLike`.
+    fn is_variable_like(&self, node: NodeId) -> bool {
+        matches!(
+            self.nodes.kind(node),
+            SyntaxKind::BindingElement
+                | SyntaxKind::EnumMember
+                | SyntaxKind::Parameter
+                | SyntaxKind::PropertyAssignment
+                | SyntaxKind::PropertyDeclaration
+                | SyntaxKind::PropertySignature
+                | SyntaxKind::ShorthandPropertyAssignment
+                | SyntaxKind::VariableDeclaration
+        )
+    }
+
+    /// `areDeclarationFlagsIdentical` (`checker.go:6864`): optionality, then
+    /// the private/protected/async/abstract/readonly/static modifiers. A
+    /// parameter and a variable may differ in optionality.
+    fn declaration_flags_identical(&self, left: NodeId, right: NodeId) -> bool {
+        const INTERESTING: [SyntaxKind; 6] = [
+            SyntaxKind::PrivateKeyword,
+            SyntaxKind::ProtectedKeyword,
+            SyntaxKind::AsyncKeyword,
+            SyntaxKind::AbstractKeyword,
+            SyntaxKind::ReadonlyKeyword,
+            SyntaxKind::StaticKeyword,
+        ];
+        let kinds = (self.nodes.kind(left), self.nodes.kind(right));
+        if matches!(
+            kinds,
+            (SyntaxKind::Parameter, SyntaxKind::VariableDeclaration)
+                | (SyntaxKind::VariableDeclaration, SyntaxKind::Parameter)
+        ) {
+            return true;
+        }
+        if self.declaration_has_question_token(left) != self.declaration_has_question_token(right) {
+            return false;
+        }
+        let selected = |node: NodeId| {
+            let modifiers = self.node_map.get(node).and_then(modifiers_of).unwrap_or_default();
+            INTERESTING.map(|kind| has_modifier(modifiers, kind))
+        };
+        selected(left) == selected(right)
+    }
+
+    /// `isOptionalDeclaration` for the variable-like kinds: a `?` postfix (a
+    /// parameter's `?` too).
+    fn declaration_has_question_token(&self, node: NodeId) -> bool {
+        let question = |token: Option<&tsr_ast::Token<'_>>| {
+            token.is_some_and(|token| token.kind == SyntaxKind::QuestionToken)
+        };
+        match self.node_map.get(node) {
+            Some(Node::PropertyDeclaration(declaration)) => question(declaration.postfix_token),
+            Some(Node::PropertySignatureDeclaration(declaration)) => {
+                question(declaration.postfix_token)
+            }
+            Some(Node::ParameterDeclaration(declaration)) => question(declaration.question_token),
+            _ => false,
+        }
     }
 
     /// The written type annotation of a variable-like declaration.
@@ -8117,6 +8274,7 @@ impl Checker<'_, '_> {
             Some(Node::VariableDeclaration(variable)) => variable.r#type?.node_id(),
             Some(Node::ParameterDeclaration(parameter)) => parameter.r#type?.node_id(),
             Some(Node::PropertyDeclaration(property)) => property.r#type?.node_id(),
+            Some(Node::PropertySignatureDeclaration(property)) => property.r#type?.node_id(),
             _ => None,
         }
     }
@@ -8153,6 +8311,8 @@ impl Checker<'_, '_> {
             }
             Some(Node::VariableDeclaration(variable)) => variable.r#type,
             Some(Node::ParameterDeclaration(parameter)) => parameter.r#type,
+            Some(Node::PropertyDeclaration(property)) => property.r#type,
+            Some(Node::PropertySignatureDeclaration(property)) => property.r#type,
             _ => None,
         };
         let Some(annotation) = annotation.and_then(|a| a.node_id()) else { return false };
