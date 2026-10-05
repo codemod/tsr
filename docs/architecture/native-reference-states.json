@@ -1,0 +1,606 @@
+{
+  "schema": "native-reference-states-v1",
+  "task": "tsr-1yb.16.1.2.2",
+  "task_complete": false,
+  "rust_source": "b8cbb92a999961b15e6a0f69588319e96e57192e",
+  "native_source": "5b1047d10d32e7d5b446be4de56b126ff42f82bb",
+  "production_changed": false,
+  "speed_claim": false,
+  "required_native_wall_ratio": 0.5,
+  "comparable_native_wall_ratio": null,
+  "branch_ledger": {
+    "rust_source": "b8cbb92a999961b15e6a0f69588319e96e57192e",
+    "native_source": "5b1047d10d32e7d5b446be4de56b126ff42f82bb",
+    "anchors": {
+      "native_reference": {
+        "path": "internal/checker/checker.go",
+        "line": 25107,
+        "function": "func (c *Checker) createTypeReferenceEx(",
+        "sha256": "0a3f1067c18e20321ba21bc7ae49dafb267b50421e86dab62c68b4b393da049d",
+        "body": "func (c *Checker) createTypeReferenceEx(target *Type, typeArguments []*Type, objectFlags ObjectFlags) *Type {\n\tid := getTypeListKey(typeArguments)\n\tintf := target.AsInterfaceType()\n\tif t, ok := intf.instantiations[id]; ok {\n\t\treturn t\n\t}\n\tt := c.newObjectType(ObjectFlagsReference|objectFlags|c.getPropagatingFlagsOfTypes(typeArguments, TypeFlagsNone), target.symbol)\n\td := t.AsTypeReference()\n\td.target = target\n\td.resolvedTypeArguments = typeArguments\n\tintf.instantiations[id] = t\n\treturn t\n}\n"
+      },
+      "native_refusal": {
+        "path": "internal/checker/checker.go",
+        "line": 25096,
+        "function": "func (c *Checker) tryCreateTypeReference(",
+        "sha256": "fb22102082a5691a0c32338b842445ff7a1fa4bc784390173b5d227c917ea501",
+        "body": "func (c *Checker) tryCreateTypeReference(target *Type, typeArguments []*Type) *Type {\n\tif len(typeArguments) != 0 && target == c.emptyGenericType {\n\t\treturn c.unknownType\n\t}\n\treturn c.createTypeReference(target, typeArguments)\n}\n"
+      },
+      "native_alias": {
+        "path": "internal/checker/checker.go",
+        "line": 23641,
+        "function": "func (c *Checker) getTypeAliasInstantiation(",
+        "sha256": "2a32928e40bf12389f165a3f86580fc420fb5a64007bac54c4edd6a00c508598",
+        "body": "func (c *Checker) getTypeAliasInstantiation(symbol *ast.Symbol, typeArguments []*Type, alias *TypeAlias) *Type {\n\tt := c.getDeclaredTypeOfSymbol(symbol)\n\tif t == c.intrinsicMarkerType {\n\t\tif typeKind, ok := intrinsicTypeKinds[symbol.Name]; ok && len(typeArguments) == 1 {\n\t\t\tswitch typeKind {\n\t\t\tcase IntrinsicTypeKindNoInfer:\n\t\t\t\treturn c.getNoInferType(typeArguments[0])\n\t\t\tdefault:\n\t\t\t\treturn c.getStringMappingType(symbol, typeArguments[0])\n\t\t\t}\n\t\t}\n\t}\n\tlinks := c.typeAliasLinks.Get(symbol)\n\ttypeParameters := links.typeParameters\n\tkey := getTypeAliasInstantiationKey(typeArguments, alias)\n\tinstantiation := links.instantiations[key]\n\tif instantiation == nil {\n\t\tmapper := newTypeMapper(typeParameters, c.fillMissingTypeArguments(typeArguments, typeParameters, c.getMinTypeArgumentCount(typeParameters), ast.IsInJSFile(symbol.ValueDeclaration)))\n\t\tinstantiation = c.instantiateTypeWithAlias(t, mapper, alias)\n\t\tlinks.instantiations[key] = instantiation\n\t}\n\treturn instantiation\n}\n"
+      },
+      "native_active": {
+        "path": "internal/checker/checker.go",
+        "line": 22104,
+        "function": "func (c *Checker) instantiateTypeWithAlias(",
+        "sha256": "905c350fc6561f7bb73ce028e79ee9e96d854c2b38df6f66c69ee9896cdf29d2",
+        "body": "func (c *Checker) instantiateTypeWithAlias(t *Type, m *TypeMapper, alias *TypeAlias) *Type {\n\t// Check for type variables in the alias, so things like `type Brand<T> = number & {}` can potentially be copied with new alias type args, despite them being unreferenced.\n\t// This is the behavior most people using aliases expect, and prevents the cache from leaking type parameters outside their scope of validity.\n\t// tests/cases/compiler/declarationEmitArrowFunctionNoRenaming.ts contains an example of this, which previously only worked in strada via some input node reuse logic instead.\n\tif t == nil || m == nil || !(c.couldContainTypeVariables(t) || (t.alias != nil && len(t.alias.typeArguments) > 0 && core.Some(t.alias.typeArguments, c.couldContainTypeVariables))) {\n\t\treturn t\n\t}\n\tif c.instantiationDepth == 100 || c.instantiationCount >= 5_000_000 {\n\t\t// We have reached 100 recursive type instantiations, or 5M type instantiations caused by the same statement\n\t\t// or expression. There is a very high likelihood we're dealing with a combination of infinite generic types\n\t\t// that perpetually generate new type identities, so we stop the recursion here by yielding the error type.\n\t\tif tr := c.tracer; tr != nil {\n\t\t\ttr.Instant(tracing.PhaseCheckTypes, \"instantiateType_DepthLimit\", map[string]any{\"typeId\": t.id, \"instantiationDepth\": c.instantiationDepth, \"instantiationCount\": c.instantiationCount})\n\t\t}\n\t\tc.error(c.currentNode, diagnostics.Type_instantiation_is_excessively_deep_and_possibly_infinite)\n\t\treturn c.errorType\n\t}\n\tindex := c.findActiveMapper(m)\n\tif index == -1 {\n\t\tc.pushActiveMapper(m)\n\t}\n\tvar b keyBuilder\n\tb.writeType(t)\n\tb.writeAlias(alias)\n\tkey := b.hash()\n\tcache := c.activeTypeMappersCaches[core.IfElse(index != -1, index, len(c.activeTypeMappersCaches)-1)]\n\tif cachedType, ok := cache[key]; ok {\n\t\treturn cachedType\n\t}\n\tc.TotalInstantiationCount++\n\tc.instantiationCount++\n\tc.instantiationDepth++\n\tresult := c.instantiateTypeWorker(t, m, alias)\n\tif index == -1 {\n\t\tc.popActiveMapper()\n\t} else {\n\t\tcache[key] = result\n\t}\n\tc.instantiationDepth--\n\treturn result\n}\n"
+      },
+      "native_members": {
+        "path": "internal/checker/checker.go",
+        "line": 25145,
+        "function": "func (c *Checker) setStructuredTypeMembers(",
+        "sha256": "d0cadb6eafe3050bdd487ce231c0c7fb20c39b02ee78a5d7225efd528a6b9e09",
+        "body": "func (c *Checker) setStructuredTypeMembers(t *Type, members ast.SymbolTable, callSignatures []*Signature, constructSignatures []*Signature, indexInfos []*IndexInfo) {\n\tt.objectFlags |= ObjectFlagsMembersResolved\n\tdata := t.AsStructuredType()\n\tdata.members = members\n\tdata.properties = c.getNamedMembers(members, t.symbol)\n\tif len(callSignatures) != 0 {\n\t\tif len(constructSignatures) != 0 {\n\t\t\tdata.signatures = core.Concatenate(callSignatures, constructSignatures)\n\t\t} else {\n\t\t\tdata.signatures = slices.Clip(callSignatures)\n\t\t}\n\t\tdata.callSignatureCount = len(callSignatures)\n\t} else {\n\t\tif len(constructSignatures) != 0 {\n\t\t\tdata.signatures = slices.Clip(constructSignatures)\n\t\t} else {\n\t\t\tdata.signatures = nil\n\t\t}\n\t\tdata.callSignatureCount = 0\n\t}\n\tdata.indexInfos = slices.Clip(indexInfos)\n}\n"
+      },
+      "rust_reference": {
+        "path": "crates/tsr-checker/src/declared.rs",
+        "line": 5378,
+        "function": "pub(crate) fn create_type_reference_with_display(",
+        "sha256": "b6fb1c0950f1a85458d570a1c98e7713fcffd00501ae5300e8e1d680466b74fa",
+        "body": "    pub(crate) fn create_type_reference_with_display(\n        &mut self,\n        symbol: SymbolId,\n        arguments: Vec<TypeId>,\n        display: Option<usize>,\n    ) -> TypeId {\n        if arguments.len() == 1\n            && self.global_type_symbol_with_arity(\"NonNullable\", 1) == Some(symbol)\n        {\n            return self.get_global_non_nullable_type_instantiation(arguments[0]);\n        }\n        if let Some(mapped) = self.instantiate_string_mapping_alias(symbol, &arguments) {\n            self.instantiations.insert((symbol, arguments), mapped);\n            return mapped;\n        }\n        if let Some(mapped) = self.instantiate_identity_mapped_alias(symbol, &arguments) {\n            if self.mapped_identity_sources.contains_key(&mapped) {\n                self.capture_mapped_alias(mapped, symbol, &arguments);\n            }\n            self.instantiations.insert((symbol, arguments), mapped);\n            return mapped;\n        }\n        // Native 5b1047d getTypeAliasInstantiation completes its DeclaredType\n        // owner before an instantiation-cache hit. Reuse that existing\n        // SymbolId-owned publication only for the certified original bare\n        // keyword route and full default-filled arity; completed/failed entries\n        // and mapped/active contexts keep their existing routes and keys.\n        if !self.declared_types.contains_key(&symbol)\n            && self.original_generic_keyword_alias_body(symbol).is_some()\n            && matches!(self.type_alias_body(symbol), Some(TypeNode::KeywordTypeNode(_)))\n            && self.local_type_parameters_of(symbol).len() == arguments.len()\n        {\n            let _ = self.get_declared_type_of_symbol(symbol);\n        }\n        if let Some(&cached) = self.instantiations.get(&(symbol, arguments.clone())) {\n            return cached;\n        }\n        // A type alias instantiation has the flags and identity of its body.\n        // Keyword bodies do not depend on the mapper or carry an alias name.\n        if self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_ALIAS)\n            && let Some(declaration) =\n                self.binder.symbols().get(symbol).declarations.first().copied()\n            && let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration)\n            && let Some(body @ TypeNode::KeywordTypeNode(keyword)) = alias.r#type\n            && keyword.kind != SyntaxKind::IntrinsicKeyword\n        {\n            let evaluated = self.get_type_from_type_node(body);\n            self.instantiations.insert((symbol, arguments), evaluated);\n            return evaluated;\n        }\n        if let Some(evaluated) = self.evaluate_conditional_alias(symbol, &arguments, None) {\n            self.instantiations.insert((symbol, arguments), evaluated);\n            return evaluated;\n        }\n        if self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_ALIAS)\n            && let Some(declaration) =\n                self.binder.symbols().get(symbol).declarations.first().copied()\n            && let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration)\n            && (matches!(alias.r#type, Some(TypeNode::IndexedAccessTypeNode(_)))\n                || self.is_closed_literal_union_alias(symbol, &arguments))\n            && let Some(evaluated) = self.evaluate_alias_body(symbol, &arguments)\n        {\n            let text = self.type_reference_text(symbol, &arguments);\n            let evaluated = if let Some(&operands) =\n                self.deferred_indexed_access_types.get(&evaluated)\n            {\n                let named = self.store.new_named(TypeFlags::INDEXED_ACCESS, text, None);\n                self.deferred_indexed_access_types.insert(named, operands);\n                self.deferred_index_mints.insert(named);\n                self.type_reference_targets.insert(named, (symbol, arguments.clone()));\n                named\n            } else if let crate::types::TypeData::Union { types, .. } =\n                self.store.get(evaluated).data.clone()\n            {\n                let named = crate::unions::create_union(\n                    &mut self.store,\n                    TypeFlags::empty(),\n                    types,\n                    Some((symbol, text)),\n                );\n                self.type_reference_targets.insert(named, (symbol, arguments.clone()));\n                named\n            } else if let crate::types::TypeData::Anonymous {\n                symbol: owner, signature: true, ..\n            } = self.store.get(evaluated).data\n            {\n                let named = self.store.new_anonymous(TypeFlags::OBJECT, text, owner, true);\n                if let Some(signatures) = self.signature_types.get(&evaluated).cloned() {\n                    self.signature_types.insert(named, signatures);\n                }\n                self.alias_named_signature_types.insert(named);\n                self.type_reference_targets.insert(named, (symbol, arguments.clone()));\n                named\n            } else {\n                evaluated\n            };\n            self.instantiations.insert((symbol, arguments), evaluated);\n            return evaluated;\n        }\n        if let Some(template) = self.instantiate_template_alias(symbol, &arguments) {\n            self.instantiations.insert((symbol, arguments), template);\n            return template;\n        }\n        if let Some(mapped) = self.instantiate_normalized_mapped_alias(symbol, &arguments) {\n            self.instantiations.insert((symbol, arguments), mapped);\n            return mapped;\n        }\n        let shown = display.unwrap_or(arguments.len()).min(arguments.len());\n        let printed = self.type_reference_text(symbol, &arguments[..shown]);\n        // \u00a790 (`checker-notes-narrow.md`): a TYPE_ALIAS target with a\n        // TypeLiteral body mints the BODY's symbol \u2014 \u00a746's admission, one\n        // road lower, so `instantiate_type`'s arm-3 rebuilds keep their\n        // members and `o2.merge` resolves like `o1.merge` did.\n        // \u00a7823 (`checker-notes-deferred.md`): a CONDITIONAL body gets its\n        // member table from the branch its own arguments choose. \u00a790's helper\n        // admits `alias.r#type` only when it IS a `TypeLiteralNode`, so\n        // `type Action<T, P> = P extends void ? \u2026 : { type: T, payload: P }`\n        // fell back to the alias symbol \u2014 whose member table is structurally\n        // empty \u2014 and every property access on `Action<\u2026>` gapped. The probe's\n        // control proves the substitution seam itself is fine: the same access\n        // on a plain `type Plain<T, P> = { type: T, payload: P }` answers\n        // correctly, because that body IS a literal.\n        let mut member_symbol = self.alias_body_literal_symbol(symbol);\n        if member_symbol.is_none() {\n            member_symbol = self.conditional_alias_branch_literal_symbol(symbol, &arguments);\n        }\n        let member_symbol = member_symbol.unwrap_or(symbol);\n        // A deferred conditional keeps the flags of its body. In particular,\n        // indexed access must defer member selection until its arguments have\n        // chosen a branch, rather than treating the alias as an empty object.\n        let conditional = self\n            .binder\n            .symbols()\n            .get(symbol)\n            .declarations\n            .first()\n            .and_then(|&declaration| self.node_map.get(declaration))\n            .is_some_and(|node| {\n                matches!(node, Node::TypeAliasDeclaration(alias)\n                    if matches!(alias.r#type, Some(TypeNode::ConditionalTypeNode(_))))\n            });\n        // `Some(symbol)`: the reference's properties are looked up in the\n        // target's members table. **This is only safe because every consumer\n        // that turns a found property into a type goes through\n        // `get_type_of_property_of_type`** (`crate::members`), which\n        // instantiates the property's declared type through\n        // `type_reference_targets` \u2014 otherwise `c.a` on a `C<number>` whose\n        // member is declared `a: T` would answer `T` where upstream answers\n        // `number`, which is why this field was `None` from this type's\n        // creation until `bd tsr-4qx` step 4 flipped it. The routing of the\n        // three consumers (property access, element access, the relater) landed\n        // first and separately (`8fa6a3e`) so that this flip and the seam's\n        // instantiation could be one commit.\n        let flags = if conditional { TypeFlags::CONDITIONAL } else { TypeFlags::OBJECT };\n        let id = self.store.new_named(flags, printed, Some(member_symbol));\n        self.instantiations.insert((symbol, arguments.clone()), id);\n        if shown < arguments.len() {\n            self.reference_display_arity.insert(id, shown);\n        }\n        // The same pair, the other way round. Substitution starts from a\n        // `TypeId` and needs the pair, which only exists here as a key \u2014 see\n        // [`crate::checker::Checker::type_reference_targets`]. Written on the\n        // miss path only, so it is one insert per distinct reference.\n        self.type_reference_targets.insert(id, (symbol, arguments.clone()));\n        self.capture_mapped_alias(id, symbol, &arguments);\n        if let Some(mapped) = self.instantiate_mapped_alias_sequence(id, symbol, &arguments) {\n            self.instantiations.insert((symbol, arguments), mapped);\n            return mapped;\n        }\n        id\n    }\n"
+      },
+      "rust_nonnullable": {
+        "path": "crates/tsr-checker/src/declared.rs",
+        "line": 5553,
+        "function": "pub(crate) fn get_global_non_nullable_type_instantiation(",
+        "sha256": "cd0010f7eda2886610ef867e87cf92b224ad6a902a302854e229a98e1e8092a9",
+        "body": "    pub(crate) fn get_global_non_nullable_type_instantiation(&mut self, t: TypeId) -> TypeId {\n        // Unresolved names represent error-any with a reusable written node.\n        // Their semantic nullability cannot improve; retain that print carrier.\n        if self.unresolved_types.contains(&t) {\n            return t;\n        }\n        let Some(symbol) = self.global_type_symbol_with_arity(\"NonNullable\", 1) else {\n            return self.get_intersection_type(&[t, self.intrinsics.empty_object], None);\n        };\n        if let Some(&cached) = self.instantiations.get(&(symbol, vec![t])) {\n            return cached;\n        }\n        let Some(evaluated) = self.evaluate_alias_body(symbol, &[t]) else {\n            return self.intrinsics.error;\n        };\n        let result = if let crate::types::TypeData::Intersection { types, .. } =\n            self.store.get(evaluated).data.clone()\n        {\n            let text = self.type_reference_text(symbol, &[t]);\n            let named = self.store.intern_intersection(\n                TypeFlags::INTERSECTION,\n                crate::types::TypeData::Intersection { types, text, symbol: Some(symbol) },\n            );\n            self.type_reference_targets.insert(named, (symbol, vec![t]));\n            named\n        } else {\n            evaluated\n        };\n        self.instantiations.insert((symbol, vec![t]), result);\n        result\n    }\n"
+      }
+    },
+    "state_boundaries": [
+      "cached reference handle does not imply members resolved",
+      "persistent alias error is returned value, not universal member completion",
+      "active mapper cache publishes only returned nested answers, including errors",
+      "depth refusal precedes active cache lookup and cannot overwrite a cached answer",
+      "target, alias and active mapper domains are distinct even with the same argument shape"
+    ],
+    "pending": [
+      "actual Rust observer answer/worker/publication receipts",
+      "native public full-output controls for branch forcing",
+      "default/single actual-pool off/on performed-scope equality",
+      "actual Rust observer state-classification mutation and final restoration"
+    ]
+  },
+  "private_api_controls": {
+    "native_source": "5b1047d10d32e7d5b446be4de56b126ff42f82bb",
+    "go_version": "go version go1.26.0 darwin/arm64",
+    "go_sha256": "ae2238c208f2f1f5a8faa3287acf5ced5d6b3c396dbf75e8f446e47905b0a75d",
+    "driver_sha256": "961ac2c74f33157afc7ed6d4795b097d61e1e3b28068be0afdedc7b76bc240ea",
+    "test_sha256": "a19e86fe22800cb31d40738846687b6b81ed5de9806c02f37310573384dce461",
+    "checker_original_sha256": "e8903e8296b3bde06b1a982658f0d6bc9d390f5da09911695c6984ca46cbcfb6",
+    "environment": {
+      "GOCACHE": "/private/tmp/tsr-native-member-completion-cache",
+      "GOTOOLCHAIN": "local",
+      "GOPROXY": "off",
+      "GOSUMDB": "off",
+      "GOMAXPROCS": "2"
+    },
+    "children": [
+      {
+        "stage": "focused",
+        "command": [
+          "/Users/mohebifar/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.0.darwin-arm64/bin/go",
+          "test",
+          "-mod=readonly",
+          "-p",
+          "1",
+          "./internal/checker",
+          "-run",
+          "^TestReferenceState",
+          "-count=5",
+          "-v"
+        ],
+        "expected_success": true,
+        "status": "complete",
+        "checker_sha256": "e8903e8296b3bde06b1a982658f0d6bc9d390f5da09911695c6984ca46cbcfb6",
+        "test_sha256": "a19e86fe22800cb31d40738846687b6b81ed5de9806c02f37310573384dce461",
+        "pid": 19057,
+        "exit_code": 0,
+        "wall_seconds": 4.125385167018976,
+        "stdout_sha256": "00721877b25b4a8e7bb56924eb8c96f07463ebc025c67b46b2f2c9bb556cf942",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "focused_pass_count": 45,
+        "failed_tests": []
+      },
+      {
+        "stage": "race",
+        "command": [
+          "/Users/mohebifar/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.0.darwin-arm64/bin/go",
+          "test",
+          "-mod=readonly",
+          "-race",
+          "-p",
+          "1",
+          "./internal/checker",
+          "-run",
+          "^TestReferenceState",
+          "-count=1",
+          "-v"
+        ],
+        "expected_success": true,
+        "status": "complete",
+        "checker_sha256": "e8903e8296b3bde06b1a982658f0d6bc9d390f5da09911695c6984ca46cbcfb6",
+        "test_sha256": "a19e86fe22800cb31d40738846687b6b81ed5de9806c02f37310573384dce461",
+        "pid": 19126,
+        "exit_code": 0,
+        "wall_seconds": 4.8146154579590075,
+        "stdout_sha256": "f3c081021a4964b860c07735f9c6af85f47ad36778df508abba4be8b607d6c3e",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "focused_pass_count": 9,
+        "failed_tests": []
+      },
+      {
+        "stage": "suite",
+        "command": [
+          "/Users/mohebifar/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.0.darwin-arm64/bin/go",
+          "test",
+          "-mod=readonly",
+          "-p",
+          "1",
+          "./internal/checker"
+        ],
+        "expected_success": true,
+        "status": "complete",
+        "checker_sha256": "e8903e8296b3bde06b1a982658f0d6bc9d390f5da09911695c6984ca46cbcfb6",
+        "test_sha256": "a19e86fe22800cb31d40738846687b6b81ed5de9806c02f37310573384dce461",
+        "pid": 19276,
+        "exit_code": 0,
+        "wall_seconds": 1.4797009999747388,
+        "stdout_sha256": "ebffaf5fa58ab5b1604801a208d29e865e8536bb73df4913d3b2742f421bf210",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "focused_pass_count": 0,
+        "failed_tests": []
+      },
+      {
+        "stage": "vet",
+        "command": [
+          "/Users/mohebifar/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.0.darwin-arm64/bin/go",
+          "vet",
+          "-mod=readonly",
+          "./internal/checker"
+        ],
+        "expected_success": true,
+        "status": "complete",
+        "checker_sha256": "e8903e8296b3bde06b1a982658f0d6bc9d390f5da09911695c6984ca46cbcfb6",
+        "test_sha256": "a19e86fe22800cb31d40738846687b6b81ed5de9806c02f37310573384dce461",
+        "pid": 19331,
+        "exit_code": 0,
+        "wall_seconds": 2.465856166963931,
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "focused_pass_count": 0,
+        "failed_tests": []
+      },
+      {
+        "stage": "false-members-completion",
+        "command": [
+          "/Users/mohebifar/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.0.darwin-arm64/bin/go",
+          "test",
+          "-mod=readonly",
+          "-p",
+          "1",
+          "./internal/checker",
+          "-run",
+          "^TestReferenceState",
+          "-count=1",
+          "-v"
+        ],
+        "expected_success": false,
+        "status": "failed",
+        "checker_sha256": "1f92e8f9267920cbdff28c72d6ea8b6f1ee78f68bfb8ed361fea71378d72dc70",
+        "test_sha256": "a19e86fe22800cb31d40738846687b6b81ed5de9806c02f37310573384dce461",
+        "pid": 19566,
+        "exit_code": 1,
+        "wall_seconds": 23.782447375007905,
+        "stdout_sha256": "6c9f1e1872513e91352c6aeb8a2cac8db83fd78614275b46eeefb8cad519c6dd",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "focused_pass_count": 6,
+        "failed_tests": [
+          "TestReferenceStateHandlePrecedesMembers",
+          "TestReferenceStateEmptyAndErrorArguments",
+          "TestReferenceStateComposedMapperRetainsTargetCacheBoundary"
+        ]
+      },
+      {
+        "stage": "error-cache-value",
+        "command": [
+          "/Users/mohebifar/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.0.darwin-arm64/bin/go",
+          "test",
+          "-mod=readonly",
+          "-p",
+          "1",
+          "./internal/checker",
+          "-run",
+          "^TestReferenceState",
+          "-count=1",
+          "-v"
+        ],
+        "expected_success": false,
+        "status": "failed",
+        "checker_sha256": "ebb2632874460dcc4ce2e1823257ae0963697074cb7a3d43f38ce935fc7865c8",
+        "test_sha256": "a19e86fe22800cb31d40738846687b6b81ed5de9806c02f37310573384dce461",
+        "pid": 20306,
+        "exit_code": 1,
+        "wall_seconds": 31.030612332979217,
+        "stdout_sha256": "9050a60b41a51427783f9eda320ce53f63bc5fe0d77206bce22eb33f0a956d9d",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "focused_pass_count": 8,
+        "failed_tests": [
+          "TestReferenceStateActiveErrorEndsAtPop"
+        ]
+      }
+    ],
+    "restored": true,
+    "coverage": "private API state controls; actual Rust/public/pool work remains unverified",
+    "qualified": true
+  },
+  "initial_control_receipts": {
+    "focused": {
+      "stage": "focused",
+      "command": [
+        "/Users/mohebifar/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.0.darwin-arm64/bin/go",
+        "test",
+        "-p",
+        "1",
+        "./internal/checker",
+        "-run",
+        "^TestReferenceState",
+        "-count=5",
+        "-v"
+      ],
+      "native_source": "5b1047d10d32e7d5b446be4de56b126ff42f82bb",
+      "test_sha256": "a22bb92b76f7e237112c9cab4596509828d7d6a048fc425af70a16283f4eda6c",
+      "env": {
+        "GOCACHE": "/tmp/tsr-native-member-completion-cache",
+        "GOTOOLCHAIN": "local",
+        "GOPROXY": "off",
+        "GOSUMDB": "off",
+        "GOMAXPROCS": "2"
+      },
+      "pid": 15165,
+      "status": "complete",
+      "exit_code": 0,
+      "wall_seconds": 124.63902733300347,
+      "stdout_sha256": "99599e64c84478031fe5a802cc79bf298aecd176e44a908daff53a5953cef38a",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "focused-final": {
+      "stage": "focused-final",
+      "command": [
+        "/Users/mohebifar/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.0.darwin-arm64/bin/go",
+        "test",
+        "-p",
+        "1",
+        "./internal/checker",
+        "-run",
+        "^TestReferenceState",
+        "-count=5",
+        "-v"
+      ],
+      "native_source": "5b1047d10d32e7d5b446be4de56b126ff42f82bb",
+      "test_sha256": "a19e86fe22800cb31d40738846687b6b81ed5de9806c02f37310573384dce461",
+      "env": {
+        "GOCACHE": "/tmp/tsr-native-member-completion-cache",
+        "GOTOOLCHAIN": "local",
+        "GOPROXY": "off",
+        "GOSUMDB": "off",
+        "GOMAXPROCS": "2"
+      },
+      "pid": 17085,
+      "status": "complete",
+      "exit_code": 0,
+      "wall_seconds": 25.499144208035432,
+      "stdout_sha256": "b8fe20a8ce74c5c3b94bc9cf1519493a6f5c976faba135e67b0176e80ebdabde",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "race": {
+      "stage": "race",
+      "command": [
+        "/Users/mohebifar/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.0.darwin-arm64/bin/go",
+        "test",
+        "-race",
+        "-p",
+        "1",
+        "./internal/checker",
+        "-run",
+        "^TestReferenceState",
+        "-count=1",
+        "-v"
+      ],
+      "native_source": "5b1047d10d32e7d5b446be4de56b126ff42f82bb",
+      "test_sha256": "a19e86fe22800cb31d40738846687b6b81ed5de9806c02f37310573384dce461",
+      "env": {
+        "GOCACHE": "/tmp/tsr-native-member-completion-cache",
+        "GOTOOLCHAIN": "local",
+        "GOPROXY": "off",
+        "GOSUMDB": "off",
+        "GOMAXPROCS": "2"
+      },
+      "pid": 17200,
+      "status": "complete",
+      "exit_code": 0,
+      "wall_seconds": 123.96069762500701,
+      "stdout_sha256": "db6885be7d5f65787c6a9f208af7badcc2be2e5ec75af4c35ab844f8b6bb7859",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  },
+  "guards": [
+    {
+      "control": "shared-repository",
+      "exit_code": 2,
+      "reason": "isolated native checkout",
+      "unchanged": true,
+      "output_absent": true,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "df02db36fdc53883a8fdfdabcf3a9c99a18c5b129a46b5de492f8c10529eeb51"
+    },
+    {
+      "control": "wrong-source",
+      "exit_code": 2,
+      "reason": "pinned revision",
+      "unchanged": true,
+      "output_absent": true,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "caed7f3b0daa66b952ae4f31b5198d024af2febf2474619467db44d4eb0e1228"
+    },
+    {
+      "control": "changed-source",
+      "exit_code": 2,
+      "reason": "local changes",
+      "unchanged": true,
+      "output_absent": true,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "bba64a7c88249a73cf59b11464e8c8f74ef571ab7fcdd3d057e14448a3edfbd6"
+    },
+    {
+      "control": "existing-output",
+      "exit_code": 2,
+      "reason": "output must be new",
+      "unchanged": true,
+      "output_preexisting": true,
+      "output_preserved": true,
+      "compiler_not_launched": true,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "3376af0553df07c906828267c4b4a10156adce097af58c11f7585ccd178ee7ee"
+    }
+  ],
+  "limitations": [
+    "minimal checker and explicitly seeded declared alias state, not real NewChecker initialization",
+    "member publication primitive called directly rather than naturally forced",
+    "forced depth100 with nil diagnostic node, not natural project recursion",
+    "race instrumentation does not establish concurrent-query ownership",
+    "no actual Rust observer state receipt, default/single pool equality or full CLI diagnostic/display comparison",
+    "native baseline sources unchanged; no full Rust corpus rerun or native 2x claim"
+  ],
+  "artifacts": {
+    "native-reference-states-test.go": "a19e86fe22800cb31d40738846687b6b81ed5de9806c02f37310573384dce461",
+    "native-reference-states-controls.py": "961ac2c74f33157afc7ed6d4795b097d61e1e3b28068be0afdedc7b76bc240ea",
+    "native-reference-states.md": "e6ff812ad02c86c2dd910a2e82d8cf2907077a3a1c07eee177f28b0869965290"
+  },
+  "private_raw_sha256": {
+    "focused.stdout": "99599e64c84478031fe5a802cc79bf298aecd176e44a908daff53a5953cef38a",
+    "guard-changed-source.stdout": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "focused-final.stdout": "b8fe20a8ce74c5c3b94bc9cf1519493a6f5c976faba135e67b0176e80ebdabde",
+    "guard-shared-repository.stdout": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "race.stdout": "db6885be7d5f65787c6a9f208af7badcc2be2e5ec75af4c35ab844f8b6bb7859",
+    "guard-wrong-source.stdout": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "guard-existing-output-corrected.stdout": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "guard-existing-output.stdout": "d3caf4b9d92798ba786cdfd4de87158f202a2ac9e329bf7225668b5b5f74bfa4",
+    "guard-shared-repository.stderr": "df02db36fdc53883a8fdfdabcf3a9c99a18c5b129a46b5de492f8c10529eeb51",
+    "race.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "guard-wrong-source.stderr": "caed7f3b0daa66b952ae4f31b5198d024af2febf2474619467db44d4eb0e1228",
+    "focused-final.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "guard-changed-source.stderr": "bba64a7c88249a73cf59b11464e8c8f74ef571ab7fcdd3d057e14448a3edfbd6",
+    "focused.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "guard-existing-output.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "guard-existing-output-corrected.stderr": "3376af0553df07c906828267c4b4a10156adce097af58c11f7585ccd178ee7ee",
+    "portable-qualified/suite.stdout": "ebffaf5fa58ab5b1604801a208d29e865e8536bb73df4913d3b2742f421bf210",
+    "portable-qualified/focused.stdout": "00721877b25b4a8e7bb56924eb8c96f07463ebc025c67b46b2f2c9bb556cf942",
+    "portable-qualified/vet.stdout": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "portable-qualified/race.stdout": "f3c081021a4964b860c07735f9c6af85f47ad36778df508abba4be8b607d6c3e",
+    "portable-qualified/error-cache-value.stdout": "9050a60b41a51427783f9eda320ce53f63bc5fe0d77206bce22eb33f0a956d9d",
+    "portable-qualified/false-members-completion.stdout": "6c9f1e1872513e91352c6aeb8a2cac8db83fd78614275b46eeefb8cad519c6dd",
+    "portable-qualified/race.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "portable-qualified/vet.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "portable-qualified/focused.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "portable-qualified/suite.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "portable-qualified/false-members-completion.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "portable-qualified/error-cache-value.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "guard-output-existing-output/suite.stdout": "b070fb91d37974b5170b4ee538e7854db6ce53356802da8e9b26d5e55e5d6e44",
+    "guard-output-existing-output/focused.stdout": "8f622e91aabdd870ee225330c0c6eb0f63ef953ce200b37ffa514a141386fb28",
+    "guard-output-existing-output/vet.stdout": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "guard-output-existing-output/race.stdout": "b8501d96b89c4b9c92747bffbb3cb259a57dc68990ae5514abeb1bc30adae13e",
+    "guard-output-existing-output/error-cache-value.stdout": "ea8ca6e75e799adb464cab211a62f7dcbd2a79e19afc11511de53912839be9dc",
+    "guard-output-existing-output/false-members-completion.stdout": "5dfb97fa8a1cac7796f7850acdc3499c1357fe2f24588d026ee187b8c1644d37",
+    "guard-output-existing-output/race.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "guard-output-existing-output/vet.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "guard-output-existing-output/focused.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "guard-output-existing-output/suite.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "guard-output-existing-output/false-members-completion.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "guard-output-existing-output/error-cache-value.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "retained_guard_setup_failure": {
+    "stage": "temporary existing-output guard setup",
+    "wrapper_exit_code": 1,
+    "reason": "created guard-output-existing but requested guard-output-existing-output",
+    "unexpected_positive_run": {
+      "native_source": "5b1047d10d32e7d5b446be4de56b126ff42f82bb",
+      "go_version": "go version go1.26.0 darwin/arm64",
+      "go_sha256": "ae2238c208f2f1f5a8faa3287acf5ced5d6b3c396dbf75e8f446e47905b0a75d",
+      "driver_sha256": "961ac2c74f33157afc7ed6d4795b097d61e1e3b28068be0afdedc7b76bc240ea",
+      "test_sha256": "a19e86fe22800cb31d40738846687b6b81ed5de9806c02f37310573384dce461",
+      "checker_original_sha256": "e8903e8296b3bde06b1a982658f0d6bc9d390f5da09911695c6984ca46cbcfb6",
+      "environment": {
+        "GOCACHE": "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-states-t1j0xwt8/guard-output-existing-output/go-cache",
+        "GOTOOLCHAIN": "local",
+        "GOPROXY": "off",
+        "GOSUMDB": "off",
+        "GOMAXPROCS": "2"
+      },
+      "children": [
+        {
+          "stage": "focused",
+          "command": [
+            "/Users/mohebifar/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.0.darwin-arm64/bin/go",
+            "test",
+            "-mod=readonly",
+            "-p",
+            "1",
+            "./internal/checker",
+            "-run",
+            "^TestReferenceState",
+            "-count=5",
+            "-v"
+          ],
+          "expected_success": true,
+          "status": "complete",
+          "checker_sha256": "e8903e8296b3bde06b1a982658f0d6bc9d390f5da09911695c6984ca46cbcfb6",
+          "test_sha256": "a19e86fe22800cb31d40738846687b6b81ed5de9806c02f37310573384dce461",
+          "pid": 21110,
+          "exit_code": 0,
+          "wall_seconds": 75.35057595797116,
+          "stdout_sha256": "8f622e91aabdd870ee225330c0c6eb0f63ef953ce200b37ffa514a141386fb28",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "stage": "race",
+          "command": [
+            "/Users/mohebifar/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.0.darwin-arm64/bin/go",
+            "test",
+            "-mod=readonly",
+            "-race",
+            "-p",
+            "1",
+            "./internal/checker",
+            "-run",
+            "^TestReferenceState",
+            "-count=1",
+            "-v"
+          ],
+          "expected_success": true,
+          "status": "complete",
+          "checker_sha256": "e8903e8296b3bde06b1a982658f0d6bc9d390f5da09911695c6984ca46cbcfb6",
+          "test_sha256": "a19e86fe22800cb31d40738846687b6b81ed5de9806c02f37310573384dce461",
+          "pid": 21936,
+          "exit_code": 0,
+          "wall_seconds": 97.80634183401708,
+          "stdout_sha256": "b8501d96b89c4b9c92747bffbb3cb259a57dc68990ae5514abeb1bc30adae13e",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "stage": "suite",
+          "command": [
+            "/Users/mohebifar/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.0.darwin-arm64/bin/go",
+            "test",
+            "-mod=readonly",
+            "-p",
+            "1",
+            "./internal/checker"
+          ],
+          "expected_success": true,
+          "status": "complete",
+          "checker_sha256": "e8903e8296b3bde06b1a982658f0d6bc9d390f5da09911695c6984ca46cbcfb6",
+          "test_sha256": "a19e86fe22800cb31d40738846687b6b81ed5de9806c02f37310573384dce461",
+          "pid": 24225,
+          "exit_code": 0,
+          "wall_seconds": 3.5641395410057157,
+          "stdout_sha256": "b070fb91d37974b5170b4ee538e7854db6ce53356802da8e9b26d5e55e5d6e44",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "stage": "vet",
+          "command": [
+            "/Users/mohebifar/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.0.darwin-arm64/bin/go",
+            "vet",
+            "-mod=readonly",
+            "./internal/checker"
+          ],
+          "expected_success": true,
+          "status": "complete",
+          "checker_sha256": "e8903e8296b3bde06b1a982658f0d6bc9d390f5da09911695c6984ca46cbcfb6",
+          "test_sha256": "a19e86fe22800cb31d40738846687b6b81ed5de9806c02f37310573384dce461",
+          "pid": 24289,
+          "exit_code": 0,
+          "wall_seconds": 2.2101339169894345,
+          "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "stage": "false-members-completion",
+          "command": [
+            "/Users/mohebifar/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.0.darwin-arm64/bin/go",
+            "test",
+            "-mod=readonly",
+            "-p",
+            "1",
+            "./internal/checker",
+            "-run",
+            "^TestReferenceState",
+            "-count=1",
+            "-v"
+          ],
+          "expected_success": false,
+          "status": "failed",
+          "checker_sha256": "1f92e8f9267920cbdff28c72d6ea8b6f1ee78f68bfb8ed361fea71378d72dc70",
+          "test_sha256": "a19e86fe22800cb31d40738846687b6b81ed5de9806c02f37310573384dce461",
+          "pid": 24486,
+          "exit_code": 1,
+          "wall_seconds": 30.71124645904638,
+          "stdout_sha256": "5dfb97fa8a1cac7796f7850acdc3499c1357fe2f24588d026ee187b8c1644d37",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "stage": "error-cache-value",
+          "command": [
+            "/Users/mohebifar/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.0.darwin-arm64/bin/go",
+            "test",
+            "-mod=readonly",
+            "-p",
+            "1",
+            "./internal/checker",
+            "-run",
+            "^TestReferenceState",
+            "-count=1",
+            "-v"
+          ],
+          "expected_success": false,
+          "status": "failed",
+          "checker_sha256": "ebb2632874460dcc4ce2e1823257ae0963697074cb7a3d43f38ce935fc7865c8",
+          "test_sha256": "a19e86fe22800cb31d40738846687b6b81ed5de9806c02f37310573384dce461",
+          "pid": 24696,
+          "exit_code": 1,
+          "wall_seconds": 30.764762208040338,
+          "stdout_sha256": "ea8ca6e75e799adb464cab211a62f7dcbd2a79e19afc11511de53912839be9dc",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ],
+      "restored": true,
+      "coverage": "private API state controls; actual Rust/public/pool work remains unverified",
+      "qualified": true
+    },
+    "native_restored": true,
+    "corrected_guard_exit_code": 2,
+    "corrected_output_preserved": true
+  },
+  "native_state_controls_qualified": true,
+  "restoration": {
+    "primary_native_clean": true,
+    "guard_native_clean": true,
+    "canonical_vendor_clean": true
+  }
+}
