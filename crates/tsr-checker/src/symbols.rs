@@ -2039,18 +2039,41 @@ impl<'a> Checker<'a, '_> {
     ///
     /// Upstream chooses between six messages there: TS2724 for a near miss,
     /// TS2614 when the module has a default export, then
-    /// `reportNonExportedMember`'s TS2459 / TS2460 / TS2305. The `export =`
-    /// arm (`reportInvalidImportEqualsExportMember`) is declined, as is every
-    /// `export =` module above. See §228.
+    /// `reportNonExportedMember`'s TS2459 / TS2460 / TS2305 and
+    /// `reportInvalidImportEqualsExportMember`. An `export =` module is
+    /// decided only when its target is declaration-shaped; see
+    /// [`Checker::export_equals_module_member_exists`]. See §228.
     pub(crate) fn report_missing_module_export(&mut self, specifier: NodeId) -> Option<()> {
         let declaration = self.import_or_export_declaration_of(specifier)?;
         let module_specifier = self.external_module_name(declaration)?;
         let module_symbol = self.resolve_external_module_name(declaration, module_specifier)?;
-        // `export =`: the member lives on the exported type, which
-        // `get_external_module_member` already declines to read.
-        if self.resolve_external_module_symbol(module_symbol) != module_symbol {
-            return None;
-        }
+        // `resolveESModuleSymbol`: the `export =` target, or the module.
+        // `getExportsOfModule` follows the target to its final symbol; an
+        // `export =` this port cannot resolve (`export = a.b`) declines.
+        let export_equals = self.resolve_external_module_symbol(module_symbol);
+        let has_export_equals = export_equals != module_symbol;
+        let target = if has_export_equals {
+            let target = self.binder.merged_symbol(self.resolve_alias_fully(export_equals));
+            // Only a declaration-shaped target is decided here — a namespace,
+            // class, function or enum, whose static members are its own
+            // tables. A variable's members come from `getPropertyOfType` over
+            // an arbitrary declared type, whose misses in this port (unions,
+            // augmented interfaces) are not proof of absence.
+            let flags = self.binder.symbols().get(target).flags;
+            let declaration_shaped = SymbolFlags::VALUE_MODULE
+                | SymbolFlags::CLASS
+                | SymbolFlags::FUNCTION
+                | SymbolFlags::ENUM;
+            if flags.intersects(SymbolFlags::ALIAS)
+                || !flags.intersects(SymbolFlags::MODULE | declaration_shaped)
+                || flags.intersects(SymbolFlags::VALUE - declaration_shaped)
+            {
+                return None;
+            }
+            target
+        } else {
+            module_symbol
+        };
         let name = match self.node_map.get(specifier)? {
             Node::ImportSpecifier(node) => {
                 node.property_name.or(node.name.map(tsr_ast::ModuleExportName::Identifier))
@@ -2064,7 +2087,11 @@ impl<'a> Checker<'a, '_> {
             tsr_ast::ModuleExportName::Identifier(name) => (name.text, name.node_id?),
             tsr_ast::ModuleExportName::StringLiteral(name) => (name.text, name.node_id?),
         };
-        if self.get_export_of_module(module_symbol, text).is_some() {
+        if !has_export_equals {
+            if self.get_export_of_module(module_symbol, text).is_some() {
+                return None;
+            }
+        } else if self.export_equals_module_member_exists(module_symbol, target, text) {
             return None;
         }
         // `getExternalModuleMember` (`checker.go`): a missing `default` is
@@ -2091,7 +2118,16 @@ impl<'a> Checker<'a, '_> {
         let entry = self.binder.symbols().get(module_symbol);
         let has_default = entry.exports.contains_key("default");
         let value_declaration = entry.value_declaration;
-        let candidates: Vec<&str> = entry.exports.keys().copied().collect();
+        // `getSuggestedSymbolForNonexistentModule(name, targetSymbol)` spells
+        // against the export target's exports.
+        let candidates: Vec<&str> = self
+            .binder
+            .symbols()
+            .get(self.binder.merged_symbol(target))
+            .exports
+            .keys()
+            .copied()
+            .collect();
         // `getSuggestedSymbolForNonexistentModule` is tried **first**, so a
         // near miss makes TS2305 a wrong code at a right position — the failure
         // §185's falsifier caught for TS2694 on four of seven wrong lines.
@@ -2129,10 +2165,30 @@ impl<'a> Checker<'a, '_> {
             && let Some(local) =
                 self.binder.locals(source_file).and_then(|locals| locals.get(text).copied())
         {
-            // `export =` is its own pair of outcomes upstream — TS2305 or
-            // `reportInvalidImportEqualsExportMember` — chosen by
-            // `getSymbolIfSameReference`. Declined whole rather than guessed.
-            if entry.exports.contains_key("export=") {
+            // `export =` is its own pair of outcomes: the local *is* the
+            // `export =` target (`reportInvalidImportEqualsExportMember`), or
+            // TS2305.
+            if let Some(&export_equals) = entry.exports.get("export=") {
+                if self.same_reference_identity(export_equals)
+                    == self.same_reference_identity(local)
+                {
+                    self.report_invalid_import_equals_export_member(
+                        file,
+                        specifier,
+                        span,
+                        text,
+                        &module_name,
+                    );
+                } else {
+                    self.report(
+                        file,
+                        Diagnostic::with_args(
+                            &messages::MODULE_0_HAS_NO_EXPORTED_MEMBER_1,
+                            span,
+                            [module_name, text.to_string()],
+                        ),
+                    );
+                }
                 return None;
             }
             // `findInMap(exports, sameReference(localSymbol))`: when an export
@@ -2175,6 +2231,67 @@ impl<'a> Checker<'a, '_> {
             ),
         );
         None
+    }
+
+    /// `getExternalModuleMember`'s lookup for an `export =` module
+    /// (`checker.go`): a property of the target's type with
+    /// `skipObjectFunctionPropertyAugment`, else `getExportOfModule` over
+    /// `getExportsOfModule(moduleSymbol)` — the target's exports, plus the
+    /// original module's type/namespace-only exports.
+    fn export_equals_module_member_exists(
+        &mut self,
+        module_symbol: SymbolId,
+        target: SymbolId,
+        name: &str,
+    ) -> bool {
+        let target_type = self.get_type_of_symbol(target);
+        if self.get_property_of_type_ex(target_type, name, true).is_some() {
+            return true;
+        }
+        if self.get_export_of_module(target, name).is_some() {
+            return true;
+        }
+        let Some(&supplemental) = self.binder.symbols().get(module_symbol).exports.get(name) else {
+            return false;
+        };
+        if matches!(name, "export=" | "__export") {
+            return false;
+        }
+        let flags = self.get_symbol_flags(supplemental);
+        flags.intersects(SymbolFlags::TYPE | SymbolFlags::NAMESPACE)
+            && !flags.intersects(SymbolFlags::VALUE)
+    }
+
+    /// `reportInvalidImportEqualsExportMember` (`checker.go`): importing the
+    /// `export =` target by name.
+    fn report_invalid_import_equals_export_member(
+        &mut self,
+        file: NodeId,
+        specifier: NodeId,
+        span: tsr_core::Span,
+        name: &str,
+        module_name: &str,
+    ) {
+        let diagnostic = if self.module_kind >= tsr_core::ModuleKind::ES2015 {
+            Diagnostic::with_args(
+                &messages::_0_CAN_ONLY_BE_IMPORTED_BY_USING_A_DEFAULT_IMPORT,
+                span,
+                [name.to_string()],
+            )
+        } else if self.in_js_file(specifier) {
+            Diagnostic::with_args(
+                &messages::_0_CAN_ONLY_BE_IMPORTED_BY_USING_A_REQUIRE_CALL_OR_BY_USING_A_DEFAULT_IMPORT,
+                span,
+                [name.to_string()],
+            )
+        } else {
+            Diagnostic::with_args(
+                &messages::_0_CAN_ONLY_BE_IMPORTED_BY_USING_IMPORT_1_REQUIRE_2_OR_A_DEFAULT_IMPORT,
+                span,
+                [name.to_string(), name.to_string(), module_name.to_string()],
+            )
+        };
+        self.report(file, diagnostic);
     }
 
     /// The identity `getSymbolIfSameReference` (`checker.go`) compares:
