@@ -5123,6 +5123,24 @@ impl<'a> Checker<'a, '_> {
         (!yields.is_empty()).then(|| self.get_union_type(&yields))
     }
 
+    /// `checkRightHandSideOfForOf` (`checker.go:17678`) for a for-of head:
+    /// the iterated element of `expression`, through the async-first resolver
+    /// for `for await`. `None` when the element is undecided here.
+    pub(crate) fn for_of_statement_element_type(
+        &mut self,
+        expression: tsr_ast::Expression<'_>,
+        is_async: bool,
+    ) -> Option<TypeId> {
+        let iterated = self.check_expression(expression);
+        if is_async {
+            self.for_await_of_yield_types(iterated).map(|yields| {
+                if yields.is_empty() { self.intrinsics.any } else { self.get_union_type(&yields) }
+            })
+        } else {
+            self.for_of_element_type(iterated)
+        }
+    }
+
     /// `ForAwaitOf`'s async-first getIterationTypesOfIterableWorker and
     /// getAsyncFromSyncIterationTypes (pinned tsgo 5b1047d, checker.go:6288).
     /// Resolve each iterable union constituent before combining its yields.
@@ -5779,19 +5797,7 @@ impl<'a> Checker<'a, '_> {
             && let Some(expression) = for_of.expression
         {
             let is_async = for_of.await_modifier.is_some();
-            let iterated = self.check_expression(expression);
-            let element = if is_async {
-                self.for_await_of_yield_types(iterated).map(|yields| {
-                    if yields.is_empty() {
-                        self.intrinsics.any
-                    } else {
-                        self.get_union_type(&yields)
-                    }
-                })
-            } else {
-                self.for_of_element_type(iterated)
-            };
-            if let Some(element) = element {
+            if let Some(element) = self.for_of_statement_element_type(expression, is_async) {
                 let widened = self.get_widened_literal_type(element);
                 return Some(widened);
             }
