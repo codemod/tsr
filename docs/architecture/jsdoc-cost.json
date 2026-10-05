@@ -1,0 +1,1358 @@
+{
+  "source": "24aebf06072b9847667d39b21097be395c85134c",
+  "native": "5b1047d10d32e7d5b446be4de56b126ff42f82bb",
+  "root": "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-current-k2v_tq5h",
+  "archive_sha256": "0515f8264951c3c89605118f458437b0605d52127d2bc3e081fd75ab90636a68",
+  "probe_manifest": [
+    {
+      "path": "crates/tsr-parser/Cargo.toml",
+      "sha256": "229b108aec27f4df3653069c8a51ae4890659c84b2998ecbb0937eb3a41e5a02"
+    },
+    {
+      "path": "crates/tsr-compiler/Cargo.toml",
+      "sha256": "592c8ba1b498815746c8afaaa1c83dbc9c9433401de7133d2eccfb64a8c15d75"
+    },
+    {
+      "path": "crates/tsr-execute/Cargo.toml",
+      "sha256": "d14644c14fa4a4c50daeea468a85c643c2655983a01d3eed94788d62f5733122"
+    },
+    {
+      "path": "crates/tsr/Cargo.toml",
+      "sha256": "aec3dcea1ed7922e00c9115778ebdb22adbc57d2df8fe3720b45027f52a74c1f"
+    },
+    {
+      "path": "crates/tsr-parser/src/lib.rs",
+      "sha256": "ce66d1f11890c54ef82a33b94f5efc8f23a9d685ea449261ad6c758b79170a71"
+    },
+    {
+      "path": "crates/tsr-parser/src/parser.rs",
+      "sha256": "2322b69461be71dbc1b421b54284ec9da2b47a6827241f1ffa942bdb7c74d53c"
+    },
+    {
+      "path": "crates/tsr-parser/src/jsdoc.rs",
+      "sha256": "ec866b1c2810ed0fe5ff1cbfc7626f4f13a55a813da9b9b4893f69597ec364db"
+    },
+    {
+      "path": "crates/tsr-compiler/src/lib.rs",
+      "sha256": "6ae095921efec1354880edaa44fc049510fb963c0dd10b3dd96048f8dcdbba10"
+    },
+    {
+      "path": "crates/tsr-compiler/src/loader.rs",
+      "sha256": "942b0d017a993601eef5d7cb62de686df0a430c9cc8573e15c4c9cff31b35426"
+    },
+    {
+      "path": "crates/tsr-parser/src/jsdoc_cost.rs",
+      "sha256": "d48be9128c22628d995041baa2321b8b7ea582dabd800e928b00115edcd7e0af"
+    }
+  ],
+  "patch_sha256": "797a16ca46846ba68ee1f35e00b02a298a76c97a62819f3bfb6be96aec9ad4c6",
+  "fixture_manifest": {
+    "tsconfig.json": "a7f698941968315a5b6fbaa4f99ad89a36a91791645bfa5d6298bfd613f155a6",
+    "base.ts": "cab62f248ac0a9af282718bb40d77f305f44760a76aef6d89f864628585fc324",
+    "ordinary.ts": "6aab62b2d04f3a6ec6b1913064baab9431036f0b5ecf77716c901694b90a2cfe",
+    "links.ts": "59a84525d83f6acdffcae7aa5515f3d5cf25ad615dc8ae2a53863bf4e6353ce2",
+    "view.tsx": "1328e4f9413a00d958ba0779029093cb89270beed399b6ddea7ee32b5248b84d",
+    "ambient.d.ts": "b7b64da8ba69815508657a7a4a58b55edc2333cd5fe6f97568da4abd9e5deb70",
+    "checked.js": "eecc59851a0f7e1d35d1af823f79eb90a43a0bb01f64eac255a32364f83ec65a",
+    "imports.js": "f79c17de3a397312eb750a32e967f821414c62416429ab78ba7991bb9c67addf"
+  },
+  "native_binary_sha256": "b3cd1909b5dbc6582681e0a9d2641c7eefd9b7b6c3401cfad82b5e8b935b8033",
+  "baseline_summary": {
+    "wall_seconds": 4.459624207986053,
+    "user_seconds": 3.99905,
+    "system_seconds": 0.448852,
+    "peak_rss_bytes": 1260388352,
+    "complete_process": true,
+    "outputs_preserved": true
+  },
+  "baseline_wall_range": [
+    4.453123458020855,
+    4.517396958020981
+  ],
+  "work_summary": [
+    {
+      "project": "public",
+      "actual_checked_count": 6,
+      "checked_ids_fingerprint": "a47401edf2f0f18bf50a36aa5de7ce32b2b5e82cc1c8890628c9511554f24c21"
+    },
+    {
+      "project": "nextjs",
+      "actual_checked_count": 1397,
+      "checked_ids_fingerprint": "7e412392732bb054d62f26b9c9e2f4ea49b8b3405fc9d903fca1ef45f0432379"
+    }
+  ],
+  "native_mutations": [
+    {
+      "name": "link-deferral",
+      "exit_code": 1,
+      "expected_failure": "initial eager state false, want true",
+      "mutant_sha256": "df2c94e0afb62b3e301fee39aa653ac0370b05f2b43aacf3422357b0b8af6a48",
+      "output_sha256": "546aa34de121062436f58dd9ecf65a83ab9b992c2371890e9ddcd876df5f78fd"
+    },
+    {
+      "name": "deprecated-flag",
+      "exit_code": 1,
+      "expected_failure": "deprecated flag false, want true",
+      "mutant_sha256": "5e418cbcdab7a833d880cc75eda73050e23e21bfa3826c2a60f674a0374b80d5",
+      "output_sha256": "956b810062c67837fb7c8b0c45f449a8a59f7cd80db232b8302ec3ff966ff429"
+    },
+    {
+      "name": "js-deferral",
+      "exit_code": 1,
+      "expected_failure": "initial eager state false, want true",
+      "mutant_sha256": "f023ad6cf56072f76167c983f7c705cde4788e3d5333374687b4f0ace6f44287",
+      "output_sha256": "9b36decfe0127b8ff53057b59daa980e2fd91564cacd05fc22efd075d160f271"
+    }
+  ],
+  "baseline_binary_sha256": "fa9faadb5366de5786618820c27ab25ee965e90e24f12cca6ec657d22a9fa6ac",
+  "trace_schema": "tsr-jsdoc-cost-v2",
+  "harness_sha256": "bec92bcc3aa4159dea7fa4bd0ae8e20cc96bd72926e5754fb28294c478644d74",
+  "gates": {
+    "python_reader_controls": 11,
+    "native_boundary_subcases": 11,
+    "native_boundary_repetitions": 5,
+    "native_boundary_race": "pass",
+    "native_parser_package": "pass",
+    "native_parser_vet_after_restore": "pass",
+    "affected_rust_package_tests": "pass",
+    "strict_archived_clippy": "pass",
+    "rust_raw_jsdoc_printer_controls": 3,
+    "native_clean_cli_controls": 2,
+    "native_declaration_emit_files": 6,
+    "strict_archived_clippy_v2": "pass",
+    "archived_parser_tests_v2": "pass",
+    "durable_public_pair_driver": "pass",
+    "durable_public_work_driver": "pass",
+    "complete_native_negative_entries": "pass",
+    "exact_patch_replay_files": 10,
+    "sections_dangling": 0,
+    "anchors_unresolved": 0,
+    "observer_rustfmt": "pass",
+    "native_test_gofmt": "pass"
+  },
+  "source_has_production_deferral": false,
+  "performance_target_verified": false,
+  "limitations": [
+    "Observer is opt-in archived source only; its time includes clock/counter overhead.",
+    "Inclusive JSDoc body intervals exclude attach/table growth and other later consumers.",
+    "Arena requested bytes exclude chunks/padding, NodeMap/NodeTable/temp heap and copy counts.",
+    "Sparse table capacity is sampled at parser return, including later-discarded loader parses.",
+    "Loaded-source/root-config snapshots are partial input coverage; all lazy forcing remains unverified.",
+    "Archive default-library spelling differs; ordered realpaths and SHA256 payloads match.",
+    "Observer overhead is paired three times; no production speed gain or faithful native ratio is claimed.",
+    "Four public checkJs negative native diagnostics are absent from TSR; positive preservation does not qualify equivalent native checking (tsr-6.65)."
+  ],
+  "projects": {
+    "public": {
+      "samples": [
+        {
+          "index": 0,
+          "off": {
+            "wall_seconds": 0.03134425001917407,
+            "user_seconds": 0.02581,
+            "system_seconds": 0.0044659999999999995,
+            "peak_rss_bytes": 35356672,
+            "complete_process": true,
+            "outputs_preserved": true
+          },
+          "on": {
+            "wall_seconds": 0.03376670804573223,
+            "user_seconds": 0.026462,
+            "system_seconds": 0.0060409999999999995,
+            "peak_rss_bytes": 35356672,
+            "complete_process": true,
+            "outputs_preserved": true
+          },
+          "overhead_seconds": 0.0024224580265581608,
+          "counts": {
+            "Files": 70,
+            "Checked files": 6,
+            "Parsed files": 70
+          },
+          "diagnostics_count": 0,
+          "diagnostics_fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "raw_loaded_order_sha256": "4fcc8ed507b8183126ad9704913d9c3fa3d68d41ac6e29cf0a8f2d9dd3a22caa",
+          "ordered_physical_sources_fingerprint": "3405a5031dfa27e5c2252350f2aba9a4e6dc1375576e755d594e27384597b478",
+          "config_fingerprint": "b2a96f85ce65b16c76de885a2a8f8edb9b1175d61a35f4bcf1221feefcb52939",
+          "binary_sha256": "6658644fbf53c1c7520fb8288db1d1db1ad9921f8e51460ad66ad2df71872c45",
+          "probe": {
+            "parse_ns": 17806421,
+            "parse_arena_requested_bytes": 8011479,
+            "jsdoc_ns": 9344875,
+            "jsdoc_arena_requested_bytes": 2155884,
+            "eligible_leading_calls": 8434,
+            "comments": 8440,
+            "comment_range_bytes": 1888431,
+            "documented_nodes": 8434,
+            "table_capacity_bytes": 268416
+          },
+          "categories": {
+            "declaration": {
+              "parse_ns": 17760504,
+              "parse_arena_requested_bytes": 8003582,
+              "jsdoc_ns": 9325875,
+              "jsdoc_arena_requested_bytes": 2152134,
+              "eligible_leading_calls": 8426,
+              "comments": 8428,
+              "comment_range_bytes": 1887976,
+              "documented_nodes": 8426,
+              "table_capacity_bytes": 267936
+            },
+            "tsx": {
+              "parse_ns": 6416,
+              "parse_arena_requested_bytes": 1115,
+              "jsdoc_ns": 625,
+              "jsdoc_arena_requested_bytes": 120,
+              "eligible_leading_calls": 1,
+              "comments": 1,
+              "comment_range_bytes": 20,
+              "documented_nodes": 1,
+              "table_capacity_bytes": 96
+            },
+            "js": {
+              "parse_ns": 14708,
+              "parse_arena_requested_bytes": 4614,
+              "jsdoc_ns": 8416,
+              "jsdoc_arena_requested_bytes": 2934,
+              "eligible_leading_calls": 4,
+              "comments": 8,
+              "comment_range_bytes": 324,
+              "documented_nodes": 4,
+              "table_capacity_bytes": 192
+            },
+            "ts": {
+              "parse_ns": 24793,
+              "parse_arena_requested_bytes": 2168,
+              "jsdoc_ns": 9959,
+              "jsdoc_arena_requested_bytes": 696,
+              "eligible_leading_calls": 3,
+              "comments": 3,
+              "comment_range_bytes": 111,
+              "documented_nodes": 3,
+              "table_capacity_bytes": 192
+            },
+            "json": {
+              "parse_ns": 0,
+              "parse_arena_requested_bytes": 0,
+              "jsdoc_ns": 0,
+              "jsdoc_arena_requested_bytes": 0,
+              "eligible_leading_calls": 0,
+              "comments": 0,
+              "comment_range_bytes": 0,
+              "documented_nodes": 0,
+              "table_capacity_bytes": 0
+            }
+          },
+          "child_pids": [
+            57821,
+            57824
+          ]
+        },
+        {
+          "index": 1,
+          "off": {
+            "wall_seconds": 0.0315415000077337,
+            "user_seconds": 0.026428999999999998,
+            "system_seconds": 0.0038499999999999997,
+            "peak_rss_bytes": 35356672,
+            "complete_process": true,
+            "outputs_preserved": true
+          },
+          "on": {
+            "wall_seconds": 0.03346674999920651,
+            "user_seconds": 0.026660999999999997,
+            "system_seconds": 0.005464,
+            "peak_rss_bytes": 35700736,
+            "complete_process": true,
+            "outputs_preserved": true
+          },
+          "overhead_seconds": 0.0019252499914728105,
+          "counts": {
+            "Files": 70,
+            "Checked files": 6,
+            "Parsed files": 70
+          },
+          "diagnostics_count": 0,
+          "diagnostics_fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "raw_loaded_order_sha256": "4fcc8ed507b8183126ad9704913d9c3fa3d68d41ac6e29cf0a8f2d9dd3a22caa",
+          "ordered_physical_sources_fingerprint": "3405a5031dfa27e5c2252350f2aba9a4e6dc1375576e755d594e27384597b478",
+          "config_fingerprint": "b2a96f85ce65b16c76de885a2a8f8edb9b1175d61a35f4bcf1221feefcb52939",
+          "binary_sha256": "6658644fbf53c1c7520fb8288db1d1db1ad9921f8e51460ad66ad2df71872c45",
+          "probe": {
+            "parse_ns": 17699130,
+            "parse_arena_requested_bytes": 8011479,
+            "jsdoc_ns": 9318136,
+            "jsdoc_arena_requested_bytes": 2155884,
+            "eligible_leading_calls": 8434,
+            "comments": 8440,
+            "comment_range_bytes": 1888431,
+            "documented_nodes": 8434,
+            "table_capacity_bytes": 268416
+          },
+          "categories": {
+            "declaration": {
+              "parse_ns": 17649044,
+              "parse_arena_requested_bytes": 8003582,
+              "jsdoc_ns": 9298303,
+              "jsdoc_arena_requested_bytes": 2152134,
+              "eligible_leading_calls": 8426,
+              "comments": 8428,
+              "comment_range_bytes": 1887976,
+              "documented_nodes": 8426,
+              "table_capacity_bytes": 267936
+            },
+            "tsx": {
+              "parse_ns": 7709,
+              "parse_arena_requested_bytes": 1115,
+              "jsdoc_ns": 708,
+              "jsdoc_arena_requested_bytes": 120,
+              "eligible_leading_calls": 1,
+              "comments": 1,
+              "comment_range_bytes": 20,
+              "documented_nodes": 1,
+              "table_capacity_bytes": 96
+            },
+            "js": {
+              "parse_ns": 15251,
+              "parse_arena_requested_bytes": 4614,
+              "jsdoc_ns": 9042,
+              "jsdoc_arena_requested_bytes": 2934,
+              "eligible_leading_calls": 4,
+              "comments": 8,
+              "comment_range_bytes": 324,
+              "documented_nodes": 4,
+              "table_capacity_bytes": 192
+            },
+            "ts": {
+              "parse_ns": 27126,
+              "parse_arena_requested_bytes": 2168,
+              "jsdoc_ns": 10083,
+              "jsdoc_arena_requested_bytes": 696,
+              "eligible_leading_calls": 3,
+              "comments": 3,
+              "comment_range_bytes": 111,
+              "documented_nodes": 3,
+              "table_capacity_bytes": 192
+            },
+            "json": {
+              "parse_ns": 0,
+              "parse_arena_requested_bytes": 0,
+              "jsdoc_ns": 0,
+              "jsdoc_arena_requested_bytes": 0,
+              "eligible_leading_calls": 0,
+              "comments": 0,
+              "comment_range_bytes": 0,
+              "documented_nodes": 0,
+              "table_capacity_bytes": 0
+            }
+          },
+          "child_pids": [
+            57830,
+            57827
+          ]
+        },
+        {
+          "index": 2,
+          "off": {
+            "wall_seconds": 0.03132150002056733,
+            "user_seconds": 0.025821999999999998,
+            "system_seconds": 0.004503,
+            "peak_rss_bytes": 35438592,
+            "complete_process": true,
+            "outputs_preserved": true
+          },
+          "on": {
+            "wall_seconds": 0.03383616596693173,
+            "user_seconds": 0.026455,
+            "system_seconds": 0.005947,
+            "peak_rss_bytes": 34045952,
+            "complete_process": true,
+            "outputs_preserved": true
+          },
+          "overhead_seconds": 0.0025146659463644028,
+          "counts": {
+            "Files": 70,
+            "Checked files": 6,
+            "Parsed files": 70
+          },
+          "diagnostics_count": 0,
+          "diagnostics_fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "raw_loaded_order_sha256": "4fcc8ed507b8183126ad9704913d9c3fa3d68d41ac6e29cf0a8f2d9dd3a22caa",
+          "ordered_physical_sources_fingerprint": "3405a5031dfa27e5c2252350f2aba9a4e6dc1375576e755d594e27384597b478",
+          "config_fingerprint": "b2a96f85ce65b16c76de885a2a8f8edb9b1175d61a35f4bcf1221feefcb52939",
+          "binary_sha256": "6658644fbf53c1c7520fb8288db1d1db1ad9921f8e51460ad66ad2df71872c45",
+          "probe": {
+            "parse_ns": 17781374,
+            "parse_arena_requested_bytes": 8011479,
+            "jsdoc_ns": 9390152,
+            "jsdoc_arena_requested_bytes": 2155884,
+            "eligible_leading_calls": 8434,
+            "comments": 8440,
+            "comment_range_bytes": 1888431,
+            "documented_nodes": 8434,
+            "table_capacity_bytes": 268416
+          },
+          "categories": {
+            "declaration": {
+              "parse_ns": 17736751,
+              "parse_arena_requested_bytes": 8003582,
+              "jsdoc_ns": 9372236,
+              "jsdoc_arena_requested_bytes": 2152134,
+              "eligible_leading_calls": 8426,
+              "comments": 8428,
+              "comment_range_bytes": 1887976,
+              "documented_nodes": 8426,
+              "table_capacity_bytes": 267936
+            },
+            "tsx": {
+              "parse_ns": 6250,
+              "parse_arena_requested_bytes": 1115,
+              "jsdoc_ns": 667,
+              "jsdoc_arena_requested_bytes": 120,
+              "eligible_leading_calls": 1,
+              "comments": 1,
+              "comment_range_bytes": 20,
+              "documented_nodes": 1,
+              "table_capacity_bytes": 96
+            },
+            "js": {
+              "parse_ns": 14708,
+              "parse_arena_requested_bytes": 4614,
+              "jsdoc_ns": 8458,
+              "jsdoc_arena_requested_bytes": 2934,
+              "eligible_leading_calls": 4,
+              "comments": 8,
+              "comment_range_bytes": 324,
+              "documented_nodes": 4,
+              "table_capacity_bytes": 192
+            },
+            "ts": {
+              "parse_ns": 23665,
+              "parse_arena_requested_bytes": 2168,
+              "jsdoc_ns": 8791,
+              "jsdoc_arena_requested_bytes": 696,
+              "eligible_leading_calls": 3,
+              "comments": 3,
+              "comment_range_bytes": 111,
+              "documented_nodes": 3,
+              "table_capacity_bytes": 192
+            },
+            "json": {
+              "parse_ns": 0,
+              "parse_arena_requested_bytes": 0,
+              "jsdoc_ns": 0,
+              "jsdoc_arena_requested_bytes": 0,
+              "eligible_leading_calls": 0,
+              "comments": 0,
+              "comment_range_bytes": 0,
+              "documented_nodes": 0,
+              "table_capacity_bytes": 0
+            }
+          },
+          "child_pids": [
+            57840,
+            57843
+          ]
+        }
+      ],
+      "aggregate": {
+        "wall_seconds": {
+          "off": 0.03134425001917407,
+          "on": 0.03376670804573223
+        },
+        "user_seconds": {
+          "off": 0.025821999999999998,
+          "on": 0.026462
+        },
+        "system_seconds": {
+          "off": 0.0044659999999999995,
+          "on": 0.005947
+        },
+        "peak_rss_bytes": {
+          "off": 35356672,
+          "on": 35356672
+        },
+        "paired_wall_overhead_seconds": 0.0024224580265581608,
+        "probe_totals": {
+          "parse_ns": 17781374,
+          "parse_arena_requested_bytes": 8011479,
+          "jsdoc_ns": 9344875,
+          "jsdoc_arena_requested_bytes": 2155884,
+          "eligible_leading_calls": 8434,
+          "comments": 8440,
+          "comment_range_bytes": 1888431,
+          "documented_nodes": 8434,
+          "table_capacity_bytes": 268416
+        }
+      },
+      "normal_command": [
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-current-k2v_tq5h/baseline-target/release/tsr",
+        "--project",
+        "tsconfig.json",
+        "--noEmit",
+        "--incremental",
+        "false",
+        "--composite",
+        "false",
+        "--pretty",
+        "false",
+        "--extendedDiagnostics",
+        "--listFiles"
+      ],
+      "probe_command": [
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-current-k2v_tq5h/probe-target/release/tsr",
+        "--project",
+        "tsconfig.json",
+        "--noEmit",
+        "--incremental",
+        "false",
+        "--composite",
+        "false",
+        "--pretty",
+        "false",
+        "--extendedDiagnostics",
+        "--listFiles"
+      ],
+      "effective_compiler_options": {
+        "allowJs": true,
+        "checkJs": true,
+        "composite": false,
+        "incremental": false,
+        "jsx": "preserve",
+        "noEmit": true,
+        "skipLibCheck": true,
+        "strict": true,
+        "target": "es2022"
+      },
+      "baseline_binary_sha256": "fa9faadb5366de5786618820c27ab25ee965e90e24f12cca6ec657d22a9fa6ac",
+      "largest_jsdoc_body_intervals": [
+        {
+          "file": "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-current-k2v_tq5h/probe-source/vendor/typescript-go/internal/bundled/libs/lib.dom.d.ts",
+          "source_bytes": 2349483,
+          "parser_kind": "TypeScript",
+          "parse_ns": 13730208,
+          "parse_arena_requested_bytes": 6170159,
+          "jsdoc_ns": 7195468,
+          "jsdoc_arena_requested_bytes": 1427256,
+          "eligible_leading_calls": 6151,
+          "comments": 6153,
+          "comment_range_bytes": 1560188,
+          "documented_nodes": 6151,
+          "table_capacity_bytes": 196608
+        },
+        {
+          "file": "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-current-k2v_tq5h/probe-source/vendor/typescript-go/internal/bundled/libs/lib.es5.d.ts",
+          "source_bytes": 218947,
+          "parser_kind": "TypeScript",
+          "parse_ns": 1654708,
+          "parse_arena_requested_bytes": 710339,
+          "jsdoc_ns": 916157,
+          "jsdoc_arena_requested_bytes": 259352,
+          "eligible_leading_calls": 614,
+          "comments": 614,
+          "comment_range_bytes": 155440,
+          "documented_nodes": 614,
+          "table_capacity_bytes": 24576
+        },
+        {
+          "file": "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-current-k2v_tq5h/public/ambient.d.ts",
+          "source_bytes": 63780,
+          "parser_kind": "TypeScript",
+          "parse_ns": 630334,
+          "parse_arena_requested_bytes": 380968,
+          "jsdoc_ns": 404676,
+          "jsdoc_arena_requested_bytes": 233472,
+          "eligible_leading_calls": 1024,
+          "comments": 1024,
+          "comment_range_bytes": 36754,
+          "documented_nodes": 1024,
+          "table_capacity_bytes": 24576
+        },
+        {
+          "file": "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-current-k2v_tq5h/probe-source/vendor/typescript-go/internal/bundled/libs/lib.es2020.bigint.d.ts",
+          "source_bytes": 38258,
+          "parser_kind": "TypeScript",
+          "parse_ns": 257167,
+          "parse_arena_requested_bytes": 120545,
+          "jsdoc_ns": 149164,
+          "jsdoc_arena_requested_bytes": 45720,
+          "eligible_leading_calls": 103,
+          "comments": 103,
+          "comment_range_bytes": 27049,
+          "documented_nodes": 103,
+          "table_capacity_bytes": 3072
+        },
+        {
+          "file": "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-current-k2v_tq5h/probe-source/vendor/typescript-go/internal/bundled/libs/lib.es2015.core.d.ts",
+          "source_bytes": 22821,
+          "parser_kind": "TypeScript",
+          "parse_ns": 162792,
+          "parse_arena_requested_bytes": 75270,
+          "jsdoc_ns": 94374,
+          "jsdoc_arena_requested_bytes": 30240,
+          "eligible_leading_calls": 70,
+          "comments": 70,
+          "comment_range_bytes": 16142,
+          "documented_nodes": 70,
+          "table_capacity_bytes": 3072
+        },
+        {
+          "file": "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-current-k2v_tq5h/probe-source/vendor/typescript-go/internal/bundled/libs/lib.es2020.intl.d.ts",
+          "source_bytes": 22394,
+          "parser_kind": "TypeScript",
+          "parse_ns": 130125,
+          "parse_arena_requested_bytes": 50120,
+          "jsdoc_ns": 69668,
+          "jsdoc_arena_requested_bytes": 15216,
+          "eligible_leading_calls": 40,
+          "comments": 40,
+          "comment_range_bytes": 13875,
+          "documented_nodes": 40,
+          "table_capacity_bytes": 1536
+        },
+        {
+          "file": "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-current-k2v_tq5h/probe-source/vendor/typescript-go/internal/bundled/libs/lib.decorators.d.ts",
+          "source_bytes": 13153,
+          "parser_kind": "TypeScript",
+          "parse_ns": 98750,
+          "parse_arena_requested_bytes": 40268,
+          "jsdoc_ns": 57377,
+          "jsdoc_arena_requested_bytes": 17448,
+          "eligible_leading_calls": 60,
+          "comments": 60,
+          "comment_range_bytes": 8607,
+          "documented_nodes": 60,
+          "table_capacity_bytes": 1536
+        },
+        {
+          "file": "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-current-k2v_tq5h/probe-source/vendor/typescript-go/internal/bundled/libs/lib.es2015.iterable.d.ts",
+          "source_bytes": 18185,
+          "parser_kind": "TypeScript",
+          "parse_ns": 143291,
+          "parse_arena_requested_bytes": 89816,
+          "jsdoc_ns": 56204,
+          "jsdoc_arena_requested_bytes": 20856,
+          "eligible_leading_calls": 79,
+          "comments": 79,
+          "comment_range_bytes": 8477,
+          "documented_nodes": 79,
+          "table_capacity_bytes": 3072
+        },
+        {
+          "file": "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-current-k2v_tq5h/probe-source/vendor/typescript-go/internal/bundled/libs/lib.es2015.symbol.wellknown.d.ts",
+          "source_bytes": 10971,
+          "parser_kind": "TypeScript",
+          "parse_ns": 142125,
+          "parse_arena_requested_bytes": 38268,
+          "jsdoc_ns": 38168,
+          "jsdoc_arena_requested_bytes": 9360,
+          "eligible_leading_calls": 28,
+          "comments": 28,
+          "comment_range_bytes": 5606,
+          "documented_nodes": 28,
+          "table_capacity_bytes": 768
+        },
+        {
+          "file": "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-current-k2v_tq5h/probe-source/vendor/typescript-go/internal/bundled/libs/lib.scripthost.d.ts",
+          "source_bytes": 9412,
+          "parser_kind": "TypeScript",
+          "parse_ns": 75208,
+          "parse_arena_requested_bytes": 26736,
+          "jsdoc_ns": 36582,
+          "jsdoc_arena_requested_bytes": 8752,
+          "eligible_leading_calls": 45,
+          "comments": 45,
+          "comment_range_bytes": 5773,
+          "documented_nodes": 45,
+          "table_capacity_bytes": 1536
+        },
+        {
+          "file": "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-current-k2v_tq5h/probe-source/vendor/typescript-go/internal/bundled/libs/lib.es2015.reflect.d.ts",
+          "source_bytes": 6454,
+          "parser_kind": "TypeScript",
+          "parse_ns": 54208,
+          "parse_arena_requested_bytes": 22584,
+          "jsdoc_ns": 29708,
+          "jsdoc_arena_requested_bytes": 8928,
+          "eligible_leading_calls": 13,
+          "comments": 13,
+          "comment_range_bytes": 3753,
+          "documented_nodes": 13,
+          "table_capacity_bytes": 384
+        },
+        {
+          "file": "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-current-k2v_tq5h/probe-source/vendor/typescript-go/internal/bundled/libs/lib.es2022.intl.d.ts",
+          "source_bytes": 7653,
+          "parser_kind": "TypeScript",
+          "parse_ns": 43834,
+          "parse_arena_requested_bytes": 13767,
+          "jsdoc_ns": 27416,
+          "jsdoc_arena_requested_bytes": 6304,
+          "eligible_leading_calls": 17,
+          "comments": 17,
+          "comment_range_bytes": 5403,
+          "documented_nodes": 17,
+          "table_capacity_bytes": 768
+        }
+      ]
+    },
+    "nextjs": {
+      "samples": [
+        {
+          "index": 0,
+          "off": {
+            "wall_seconds": 4.547335458977614,
+            "user_seconds": 3.98161,
+            "system_seconds": 0.509446,
+            "peak_rss_bytes": 1213431808,
+            "complete_process": true,
+            "outputs_preserved": true
+          },
+          "on": {
+            "wall_seconds": 4.796990417002235,
+            "user_seconds": 4.011418,
+            "system_seconds": 0.729945,
+            "peak_rss_bytes": 1148518400,
+            "complete_process": true,
+            "outputs_preserved": true
+          },
+          "overhead_seconds": 0.249654958024621,
+          "counts": {
+            "Files": 14050,
+            "Checked files": 1397,
+            "Parsed files": 14746
+          },
+          "diagnostics_count": 117,
+          "diagnostics_fingerprint": "e9c6de9dac9c7d5a57a12b60697b27f8585d88a4dedb1a08edeeb6a126b5c191",
+          "raw_loaded_order_sha256": "1be9a3663b710f49f9aff4666ed13bb29858db7845a097aecf114a0831af5160",
+          "ordered_physical_sources_fingerprint": "2ca0d478c3c1ad4fdf13fefb198acdcc2e0a83d4d2c5818ae9f4537441b0f00e",
+          "config_fingerprint": "33014c4d45ccc885c15f802270b5397a3b8b21dcdfb82086d0df631974dd9b72",
+          "binary_sha256": "6658644fbf53c1c7520fb8288db1d1db1ad9921f8e51460ad66ad2df71872c45",
+          "probe": {
+            "parse_ns": 620111558,
+            "parse_arena_requested_bytes": 302949415,
+            "jsdoc_ns": 227864844,
+            "jsdoc_arena_requested_bytes": 61104711,
+            "eligible_leading_calls": 202567,
+            "comments": 202949,
+            "comment_range_bytes": 41141935,
+            "documented_nodes": 202567,
+            "table_capacity_bytes": 7211424
+          },
+          "categories": {
+            "declaration": {
+              "parse_ns": 526147523,
+              "parse_arena_requested_bytes": 253066988,
+              "jsdoc_ns": 226631209,
+              "jsdoc_arena_requested_bytes": 60854419,
+              "eligible_leading_calls": 201288,
+              "comments": 201667,
+              "comment_range_bytes": 40996624,
+              "documented_nodes": 201288,
+              "table_capacity_bytes": 7159200
+            },
+            "tsx": {
+              "parse_ns": 53107363,
+              "parse_arena_requested_bytes": 22381619,
+              "jsdoc_ns": 193046,
+              "jsdoc_arena_requested_bytes": 41328,
+              "eligible_leading_calls": 220,
+              "comments": 220,
+              "comment_range_bytes": 24603,
+              "documented_nodes": 220,
+              "table_capacity_bytes": 10752
+            },
+            "js": {
+              "parse_ns": 83041,
+              "parse_arena_requested_bytes": 46127,
+              "jsdoc_ns": 2916,
+              "jsdoc_arena_requested_bytes": 980,
+              "eligible_leading_calls": 3,
+              "comments": 3,
+              "comment_range_bytes": 142,
+              "documented_nodes": 3,
+              "table_capacity_bytes": 192
+            },
+            "ts": {
+              "parse_ns": 40689756,
+              "parse_arena_requested_bytes": 27418082,
+              "jsdoc_ns": 1037673,
+              "jsdoc_arena_requested_bytes": 207984,
+              "eligible_leading_calls": 1056,
+              "comments": 1059,
+              "comment_range_bytes": 120566,
+              "documented_nodes": 1056,
+              "table_capacity_bytes": 41280
+            },
+            "json": {
+              "parse_ns": 83875,
+              "parse_arena_requested_bytes": 36599,
+              "jsdoc_ns": 0,
+              "jsdoc_arena_requested_bytes": 0,
+              "eligible_leading_calls": 0,
+              "comments": 0,
+              "comment_range_bytes": 0,
+              "documented_nodes": 0,
+              "table_capacity_bytes": 0
+            }
+          },
+          "child_pids": [
+            57864,
+            57885
+          ]
+        },
+        {
+          "index": 1,
+          "off": {
+            "wall_seconds": 4.4420042500132695,
+            "user_seconds": 3.976432,
+            "system_seconds": 0.455908,
+            "peak_rss_bytes": 1132560384,
+            "complete_process": true,
+            "outputs_preserved": true
+          },
+          "on": {
+            "wall_seconds": 4.739461791992653,
+            "user_seconds": 3.994316,
+            "system_seconds": 0.725677,
+            "peak_rss_bytes": 1176256512,
+            "complete_process": true,
+            "outputs_preserved": true
+          },
+          "overhead_seconds": 0.2974575419793837,
+          "counts": {
+            "Files": 14050,
+            "Checked files": 1397,
+            "Parsed files": 14746
+          },
+          "diagnostics_count": 117,
+          "diagnostics_fingerprint": "e9c6de9dac9c7d5a57a12b60697b27f8585d88a4dedb1a08edeeb6a126b5c191",
+          "raw_loaded_order_sha256": "1be9a3663b710f49f9aff4666ed13bb29858db7845a097aecf114a0831af5160",
+          "ordered_physical_sources_fingerprint": "2ca0d478c3c1ad4fdf13fefb198acdcc2e0a83d4d2c5818ae9f4537441b0f00e",
+          "config_fingerprint": "33014c4d45ccc885c15f802270b5397a3b8b21dcdfb82086d0df631974dd9b72",
+          "binary_sha256": "6658644fbf53c1c7520fb8288db1d1db1ad9921f8e51460ad66ad2df71872c45",
+          "probe": {
+            "parse_ns": 627049675,
+            "parse_arena_requested_bytes": 302949415,
+            "jsdoc_ns": 230292688,
+            "jsdoc_arena_requested_bytes": 61104711,
+            "eligible_leading_calls": 202567,
+            "comments": 202949,
+            "comment_range_bytes": 41141935,
+            "documented_nodes": 202567,
+            "table_capacity_bytes": 7211424
+          },
+          "categories": {
+            "declaration": {
+              "parse_ns": 532457837,
+              "parse_arena_requested_bytes": 253066988,
+              "jsdoc_ns": 229034587,
+              "jsdoc_arena_requested_bytes": 60854419,
+              "eligible_leading_calls": 201288,
+              "comments": 201667,
+              "comment_range_bytes": 40996624,
+              "documented_nodes": 201288,
+              "table_capacity_bytes": 7159200
+            },
+            "tsx": {
+              "parse_ns": 53830632,
+              "parse_arena_requested_bytes": 22381619,
+              "jsdoc_ns": 204793,
+              "jsdoc_arena_requested_bytes": 41328,
+              "eligible_leading_calls": 220,
+              "comments": 220,
+              "comment_range_bytes": 24603,
+              "documented_nodes": 220,
+              "table_capacity_bytes": 10752
+            },
+            "js": {
+              "parse_ns": 78833,
+              "parse_arena_requested_bytes": 46127,
+              "jsdoc_ns": 3042,
+              "jsdoc_arena_requested_bytes": 980,
+              "eligible_leading_calls": 3,
+              "comments": 3,
+              "comment_range_bytes": 142,
+              "documented_nodes": 3,
+              "table_capacity_bytes": 192
+            },
+            "ts": {
+              "parse_ns": 40593832,
+              "parse_arena_requested_bytes": 27418082,
+              "jsdoc_ns": 1050266,
+              "jsdoc_arena_requested_bytes": 207984,
+              "eligible_leading_calls": 1056,
+              "comments": 1059,
+              "comment_range_bytes": 120566,
+              "documented_nodes": 1056,
+              "table_capacity_bytes": 41280
+            },
+            "json": {
+              "parse_ns": 88541,
+              "parse_arena_requested_bytes": 36599,
+              "jsdoc_ns": 0,
+              "jsdoc_arena_requested_bytes": 0,
+              "eligible_leading_calls": 0,
+              "comments": 0,
+              "comment_range_bytes": 0,
+              "documented_nodes": 0,
+              "table_capacity_bytes": 0
+            }
+          },
+          "child_pids": [
+            58128,
+            57984
+          ]
+        },
+        {
+          "index": 2,
+          "off": {
+            "wall_seconds": 4.524933292006608,
+            "user_seconds": 4.024721,
+            "system_seconds": 0.456252,
+            "peak_rss_bytes": 1184071680,
+            "complete_process": true,
+            "outputs_preserved": true
+          },
+          "on": {
+            "wall_seconds": 4.865492124983575,
+            "user_seconds": 4.063932,
+            "system_seconds": 0.7386189999999999,
+            "peak_rss_bytes": 1121976320,
+            "complete_process": true,
+            "outputs_preserved": true
+          },
+          "overhead_seconds": 0.3405588329769671,
+          "counts": {
+            "Files": 14050,
+            "Checked files": 1397,
+            "Parsed files": 14746
+          },
+          "diagnostics_count": 117,
+          "diagnostics_fingerprint": "e9c6de9dac9c7d5a57a12b60697b27f8585d88a4dedb1a08edeeb6a126b5c191",
+          "raw_loaded_order_sha256": "1be9a3663b710f49f9aff4666ed13bb29858db7845a097aecf114a0831af5160",
+          "ordered_physical_sources_fingerprint": "2ca0d478c3c1ad4fdf13fefb198acdcc2e0a83d4d2c5818ae9f4537441b0f00e",
+          "config_fingerprint": "33014c4d45ccc885c15f802270b5397a3b8b21dcdfb82086d0df631974dd9b72",
+          "binary_sha256": "6658644fbf53c1c7520fb8288db1d1db1ad9921f8e51460ad66ad2df71872c45",
+          "probe": {
+            "parse_ns": 633506839,
+            "parse_arena_requested_bytes": 302949415,
+            "jsdoc_ns": 233552367,
+            "jsdoc_arena_requested_bytes": 61104711,
+            "eligible_leading_calls": 202567,
+            "comments": 202949,
+            "comment_range_bytes": 41141935,
+            "documented_nodes": 202567,
+            "table_capacity_bytes": 7211424
+          },
+          "categories": {
+            "declaration": {
+              "parse_ns": 537628855,
+              "parse_arena_requested_bytes": 253066988,
+              "jsdoc_ns": 232369845,
+              "jsdoc_arena_requested_bytes": 60854419,
+              "eligible_leading_calls": 201288,
+              "comments": 201667,
+              "comment_range_bytes": 40996624,
+              "documented_nodes": 201288,
+              "table_capacity_bytes": 7159200
+            },
+            "tsx": {
+              "parse_ns": 54438389,
+              "parse_arena_requested_bytes": 22381619,
+              "jsdoc_ns": 198955,
+              "jsdoc_arena_requested_bytes": 41328,
+              "eligible_leading_calls": 220,
+              "comments": 220,
+              "comment_range_bytes": 24603,
+              "documented_nodes": 220,
+              "table_capacity_bytes": 10752
+            },
+            "js": {
+              "parse_ns": 89791,
+              "parse_arena_requested_bytes": 46127,
+              "jsdoc_ns": 3500,
+              "jsdoc_arena_requested_bytes": 980,
+              "eligible_leading_calls": 3,
+              "comments": 3,
+              "comment_range_bytes": 142,
+              "documented_nodes": 3,
+              "table_capacity_bytes": 192
+            },
+            "ts": {
+              "parse_ns": 41269805,
+              "parse_arena_requested_bytes": 27418082,
+              "jsdoc_ns": 980067,
+              "jsdoc_arena_requested_bytes": 207984,
+              "eligible_leading_calls": 1056,
+              "comments": 1059,
+              "comment_range_bytes": 120566,
+              "documented_nodes": 1056,
+              "table_capacity_bytes": 41280
+            },
+            "json": {
+              "parse_ns": 79999,
+              "parse_arena_requested_bytes": 36599,
+              "jsdoc_ns": 0,
+              "jsdoc_arena_requested_bytes": 0,
+              "eligible_leading_calls": 0,
+              "comments": 0,
+              "comment_range_bytes": 0,
+              "documented_nodes": 0,
+              "table_capacity_bytes": 0
+            }
+          },
+          "child_pids": [
+            58149,
+            58173
+          ]
+        }
+      ],
+      "aggregate": {
+        "wall_seconds": {
+          "off": 4.524933292006608,
+          "on": 4.796990417002235
+        },
+        "user_seconds": {
+          "off": 3.98161,
+          "on": 4.011418
+        },
+        "system_seconds": {
+          "off": 0.456252,
+          "on": 0.729945
+        },
+        "peak_rss_bytes": {
+          "off": 1184071680,
+          "on": 1148518400
+        },
+        "paired_wall_overhead_seconds": 0.2974575419793837,
+        "probe_totals": {
+          "parse_ns": 627049675,
+          "parse_arena_requested_bytes": 302949415,
+          "jsdoc_ns": 230292688,
+          "jsdoc_arena_requested_bytes": 61104711,
+          "eligible_leading_calls": 202567,
+          "comments": 202949,
+          "comment_range_bytes": 41141935,
+          "documented_nodes": 202567,
+          "table_capacity_bytes": 7211424
+        }
+      },
+      "normal_command": [
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-current-k2v_tq5h/baseline-target/release/tsr",
+        "--project",
+        "tsconfig.json",
+        "--noEmit",
+        "--incremental",
+        "false",
+        "--composite",
+        "false",
+        "--pretty",
+        "false",
+        "--extendedDiagnostics",
+        "--listFiles"
+      ],
+      "probe_command": [
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-current-k2v_tq5h/probe-target/release/tsr",
+        "--project",
+        "tsconfig.json",
+        "--noEmit",
+        "--incremental",
+        "false",
+        "--composite",
+        "false",
+        "--pretty",
+        "false",
+        "--extendedDiagnostics",
+        "--listFiles"
+      ],
+      "effective_compiler_options": {
+        "allowJs": true,
+        "checkJs": true,
+        "composite": false,
+        "isolatedModules": true,
+        "incremental": false,
+        "jsx": "preserve",
+        "lib": [
+          "ES2022",
+          "dom",
+          "dom.iterable"
+        ],
+        "module": "esnext",
+        "moduleResolution": "bundler",
+        "moduleDetection": "force",
+        "noEmit": true,
+        "noUncheckedIndexedAccess": true,
+        "resolveJsonModule": true,
+        "skipLibCheck": true,
+        "strict": true,
+        "target": "es2022",
+        "esModuleInterop": true,
+        "preserveConstEnums": true
+      },
+      "baseline_binary_sha256": "fa9faadb5366de5786618820c27ab25ee965e90e24f12cca6ec657d22a9fa6ac",
+      "largest_jsdoc_body_intervals": [
+        {
+          "file": "/Users/mohebifar/dev/codemod/app/node_modules/@kubernetes/client-node/dist/gen/types/ObjectParamAPI.d.ts",
+          "source_bytes": 4370199,
+          "parser_kind": "TypeScript",
+          "parse_ns": 23963459,
+          "parse_arena_requested_bytes": 6032582,
+          "jsdoc_ns": 18001066,
+          "jsdoc_arena_requested_bytes": 3442840,
+          "eligible_leading_calls": 8740,
+          "comments": 8740,
+          "comment_range_bytes": 3740380,
+          "documented_nodes": 8740,
+          "table_capacity_bytes": 393216
+        },
+        {
+          "file": "/Users/mohebifar/dev/codemod/app/node_modules/@octokit/openapi-types/types.d.ts",
+          "source_bytes": 4549667,
+          "parser_kind": "TypeScript",
+          "parse_ns": 32470084,
+          "parse_arena_requested_bytes": 15420796,
+          "jsdoc_ns": 15684269,
+          "jsdoc_arena_requested_bytes": 5256392,
+          "eligible_leading_calls": 24601,
+          "comments": 24602,
+          "comment_range_bytes": 2308969,
+          "documented_nodes": 24601,
+          "table_capacity_bytes": 786432
+        },
+        {
+          "file": "/Users/mohebifar/dev/codemod/app/node_modules/@octokit/openapi-webhooks-types/types.d.ts",
+          "source_bytes": 2651180,
+          "parser_kind": "TypeScript",
+          "parse_ns": 19934250,
+          "parse_arena_requested_bytes": 9219642,
+          "jsdoc_ns": 9042076,
+          "jsdoc_arena_requested_bytes": 3313664,
+          "eligible_leading_calls": 19220,
+          "comments": 19221,
+          "comment_range_bytes": 1168753,
+          "documented_nodes": 19220,
+          "table_capacity_bytes": 786432
+        },
+        {
+          "file": "/Users/mohebifar/dev/codemod/app/node_modules/lucide-react/dist/lucide-react.d.ts",
+          "source_bytes": 2282529,
+          "parser_kind": "TypeScript",
+          "parse_ns": 12316750,
+          "parse_arena_requested_bytes": 4941457,
+          "jsdoc_ns": 8089813,
+          "jsdoc_arena_requested_bytes": 2308248,
+          "eligible_leading_calls": 1770,
+          "comments": 1770,
+          "comment_range_bytes": 1747497,
+          "documented_nodes": 1770,
+          "table_capacity_bytes": 49152
+        },
+        {
+          "file": "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-current-k2v_tq5h/probe-source/vendor/typescript-go/internal/bundled/libs/lib.dom.d.ts",
+          "source_bytes": 2349483,
+          "parser_kind": "TypeScript",
+          "parse_ns": 15424125,
+          "parse_arena_requested_bytes": 6170159,
+          "jsdoc_ns": 7187909,
+          "jsdoc_arena_requested_bytes": 1427256,
+          "eligible_leading_calls": 6151,
+          "comments": 6153,
+          "comment_range_bytes": 1560188,
+          "documented_nodes": 6151,
+          "table_capacity_bytes": 196608
+        },
+        {
+          "file": "/Users/mohebifar/dev/codemod/app/node_modules/playwright-core/types/types.d.ts",
+          "source_bytes": 944714,
+          "parser_kind": "TypeScript",
+          "parse_ns": 7186333,
+          "parse_arena_requested_bytes": 2061320,
+          "jsdoc_ns": 4005982,
+          "jsdoc_arena_requested_bytes": 1100216,
+          "eligible_leading_calls": 2226,
+          "comments": 2228,
+          "comment_range_bytes": 812876,
+          "documented_nodes": 2226,
+          "table_capacity_bytes": 98304
+        },
+        {
+          "file": "/Users/mohebifar/dev/codemod/app/node_modules/@linear/sdk/dist/_generated_sdk.d.ts",
+          "source_bytes": 934437,
+          "parser_kind": "TypeScript",
+          "parse_ns": 6876959,
+          "parse_arena_requested_bytes": 3552600,
+          "jsdoc_ns": 3804136,
+          "jsdoc_arena_requested_bytes": 1376168,
+          "eligible_leading_calls": 5291,
+          "comments": 5291,
+          "comment_range_bytes": 555033,
+          "documented_nodes": 5291,
+          "table_capacity_bytes": 196608
+        },
+        {
+          "file": "/Users/mohebifar/dev/codemod/app/node_modules/schema-dts/dist/schema.d.ts",
+          "source_bytes": 918992,
+          "parser_kind": "TypeScript",
+          "parse_ns": 6399959,
+          "parse_arena_requested_bytes": 2995761,
+          "jsdoc_ns": 3276104,
+          "jsdoc_arena_requested_bytes": 1026072,
+          "eligible_leading_calls": 3187,
+          "comments": 3187,
+          "comment_range_bytes": 536722,
+          "documented_nodes": 3187,
+          "table_capacity_bytes": 98304
+        },
+        {
+          "file": "/Users/mohebifar/dev/codemod/app/node_modules/csstype/index.d.ts",
+          "source_bytes": 903116,
+          "parser_kind": "TypeScript",
+          "parse_ns": 5740584,
+          "parse_arena_requested_bytes": 2286945,
+          "jsdoc_ns": 3186593,
+          "jsdoc_arena_requested_bytes": 1019032,
+          "eligible_leading_calls": 1591,
+          "comments": 1591,
+          "comment_range_bytes": 695034,
+          "documented_nodes": 1591,
+          "table_capacity_bytes": 49152
+        },
+        {
+          "file": "/Users/mohebifar/dev/codemod/app/node_modules/@aws-sdk/client-s3/dist-types/models/models_0.d.ts",
+          "source_bytes": 820126,
+          "parser_kind": "TypeScript",
+          "parse_ns": 4184333,
+          "parse_arena_requested_bytes": 1130804,
+          "jsdoc_ns": 3110845,
+          "jsdoc_arena_requested_bytes": 773416,
+          "eligible_leading_calls": 1641,
+          "comments": 1641,
+          "comment_range_bytes": 739371,
+          "documented_nodes": 1641,
+          "table_capacity_bytes": 49152
+        },
+        {
+          "file": "/Users/mohebifar/dev/codemod/app/node_modules/@linear/sdk/dist/_generated_documents.d.ts",
+          "source_bytes": 2317882,
+          "parser_kind": "TypeScript",
+          "parse_ns": 18377917,
+          "parse_arena_requested_bytes": 12056739,
+          "jsdoc_ns": 2703874,
+          "jsdoc_arena_requested_bytes": 805808,
+          "eligible_leading_calls": 6486,
+          "comments": 6486,
+          "comment_range_bytes": 371469,
+          "documented_nodes": 6486,
+          "table_capacity_bytes": 196608
+        },
+        {
+          "file": "/Users/mohebifar/dev/codemod/app/node_modules/@kubernetes/client-node/dist/gen/apis/CoreV1Api.d.ts",
+          "source_bytes": 715715,
+          "parser_kind": "TypeScript",
+          "parse_ns": 3292250,
+          "parse_arena_requested_bytes": 863985,
+          "jsdoc_ns": 2450536,
+          "jsdoc_arena_requested_bytes": 432136,
+          "eligible_leading_calls": 413,
+          "comments": 413,
+          "comment_range_bytes": 640270,
+          "documented_nodes": 413,
+          "table_capacity_bytes": 12288
+        }
+      ]
+    }
+  },
+  "raw_artifacts": {
+    "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-current-k2v_tq5h/baseline-measure.json": "a48af8b269592a34f836549d0f80d148765aa3099d6877a8913eafde825413bf",
+    "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-current-k2v_tq5h/observer-pairs.json": "f43855e71b85b19128fd5fcaedd071931ae747e7a0203da7a40d70ae7156c63d",
+    "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-current-k2v_tq5h/native-public.json": "27ac7d66faaebd3ee34d74a2470006af202c37d987797c31c1f276cc4a6d1703",
+    "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-current-k2v_tq5h/native-emit.json": "de7c6b592cc7933ec1730608581af39d541e70be0e73ee0c4d73f5a1ed4ddfc4",
+    "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-current-k2v_tq5h/work-controls-mu8kqnaq/public-work-results.json": "256ac0d3902956016bd8438479dba0297c7aa63025274a386d8995f13cc2f034",
+    "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-current-k2v_tq5h/work-controls-mu8kqnaq/nextjs-work-results.json": "f02d0179ef3b819f1911709487e49228419dc29f8a0a27f2435f665c2b866d6a",
+    "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-current-k2v_tq5h/negative-exact/results.json": "0f9a3fcb349e1c44c4465f58d5c5b80accaa43965b93ab176b619ecb0de72160",
+    "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-current-k2v_tq5h/durable-public-pairs/pairs.json": "31e91f33a791640bdeb7fd9026f5ce7d3dad284cb56bbeac5f5a01239e70622f",
+    "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-current-k2v_tq5h/durable-public-work/results.json": "22b0096aacab828ad45981a8abcff53a225e9e489683a2e9d5ba62eff3ea5182"
+  },
+  "negative_controls": {
+    "issue": "tsr-6.65",
+    "fixture_manifest": {
+      "base.ts": "cab62f248ac0a9af282718bb40d77f305f44760a76aef6d89f864628585fc324",
+      "imports.js": "2b765d3d6e373fca7b31966c25123d9353ca046cb719d72d5201b2e3a4f28e5d",
+      "view.tsx": "1328e4f9413a00d958ba0779029093cb89270beed399b6ddea7ee32b5248b84d",
+      "links.ts": "59a84525d83f6acdffcae7aa5515f3d5cf25ad615dc8ae2a53863bf4e6353ce2",
+      "ambient.d.ts": "b7b64da8ba69815508657a7a4a58b55edc2333cd5fe6f97568da4abd9e5deb70",
+      "ordinary.ts": "6aab62b2d04f3a6ec6b1913064baab9431036f0b5ecf77716c901694b90a2cfe",
+      "tsconfig.json": "a7f698941968315a5b6fbaa4f99ad89a36a91791645bfa5d6298bfd613f155a6",
+      "checked.js": "96ffbea8920a4a545b5edb941e46eacc9dfd993d1d8e5c4c0c9ce3650d6e188f"
+    },
+    "diagnostics": {
+      "normal": {
+        "count": 0,
+        "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "entries": []
+      },
+      "probe-off": {
+        "count": 0,
+        "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "entries": []
+      },
+      "probe-on": {
+        "count": 0,
+        "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "entries": []
+      },
+      "native": {
+        "count": 4,
+        "fingerprint": "d2ee8fbc2944029add17ee06fbe2c62b68b60681b8913a780e64e6907eb7f959",
+        "entries": [
+          "checked.js(18,14): error TS2322: Type 'string' is not assignable to type 'number'.",
+          "checked.js(20,29): error TS2322: Type 'string' is not assignable to type 'number'.",
+          "checked.js(21,41): error TS2769: No overload matches this call.\n  The last overload gave the following error.\n    Argument of type 'boolean' is not assignable to parameter of type 'number'.",
+          "imports.js(6,27): error TS2322: Type 'string' is not assignable to type 'number'."
+        ]
+      }
+    },
+    "source_snapshots_stable": true,
+    "equivalent_native_checking": false
+  },
+  "public_baseline_summary": {
+    "wall_seconds": 0.0315309590077959,
+    "user_seconds": 0.026254,
+    "system_seconds": 0.00413,
+    "peak_rss_bytes": 35274752,
+    "complete_process": true,
+    "outputs_preserved": true
+  },
+  "toolchain": {
+    "rustc": "1.96.0 (ac68faa20 2026-05-25)",
+    "native_go": "go1.26.0",
+    "release": {
+      "opt_level": 3,
+      "lto": false,
+      "codegen_units": 16,
+      "panic": "abort"
+    }
+  },
+  "durable_driver_sha256": {
+    "jsdoc-cost-controls.py": "bec92bcc3aa4159dea7fa4bd0ae8e20cc96bd72926e5754fb28294c478644d74",
+    "jsdoc-cost-pairs.py": "d24808c537a43b5fcbda62091570e60b5ad08a0dd7e1db5a349ac532adfd223d",
+    "jsdoc-cost-work-controls.py": "7cf46733013634e0e786d48e07f008ab93e9573189c3708b7dda4d9972e3965d",
+    "jsdoc-cost-negative-controls.py": "439ee389edb03aa618f5e42b810b61ab0df9ef58fd020ba70b49086d8620bca9"
+  },
+  "review": {
+    "mode": "scoped sequential inline review",
+    "independent_reviewers": 0,
+    "checks": [
+      "archived observer guards and byte/time boundaries",
+      "complete negative diagnostic entries including related overload detail",
+      "binary/fixture/source stability and ordered physical payloads",
+      "PID/time/partial/FIFO/reported parse coverage reader controls",
+      "shared/private arena and ID ownership handoff"
+    ],
+    "limitations": [
+      "No external cross-model review; prior automatic approval rejection was not retried.",
+      "No production representation or performance winner retained."
+    ]
+  }
+}

@@ -22,6 +22,18 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
+JSDoc attribution (`tsr-1yb.9.1`), frozen Rust `24aebf06` and native `5b1047d`,
+measures 230.293 ms documentation-body work within 627.050 ms parse intervals
+on the Next.js project. Three off/on pairs preserve 117 diagnostics and ordered
+physical source payloads; separate traces observe the same 1,397 full-file
+workers. The all-body removal ceiling is about 5.1% of the 4.524933 s off wall,
+before mandatory eager work and lazy-query costs. Probe overhead is 0.297458 s
+paired median. No production deferral, memory win or coverage gain is claimed.
+Strong public checkJs negatives expose four native errors versus zero TSR;
+new P1 `tsr-6.65` owns that fidelity gap. [Cost, boundaries and private ownership
+handoff](docs/architecture/jsdoc-cost.md). Comparable median <=0.50 remains
+unmet and unverified.
+
 Optimization task refinement at `fe728c21` adds three P1 contract slices:
 Rust mapper consumers (`tsr-1yb.4.1.2.2`), executable native relation identity
 (`tsr-1yb.4.1.4.1`) and dependent Rust key/context handoff
@@ -2853,6 +2865,15 @@ rendering `any` for `errorType` (ADR-0038).
 ---
 
 ## 4. What is next — the scored board
+
+JSDoc `.9.2` can consume `.9.1` attribution and conservative TS-only plain-text
+candidate requirements. Measure eligible tag/range costs before changing
+representation; preserve shared immutable Program identities and private lazy
+arena/ID ownership. P1 `tsr-6.65` separately fixes the four missed checkJs
+annotation/template/typedef/overload/import diagnostics. Positive zero-error
+fixtures do not establish semantic comparison. Keep JS discovery and semantic
+metadata eager; production deferral still needs corpus preservation and two
+independently confirmed whole-CLI rounds. No all-forcing or 2x gate is closed.
 
 Start the mapper consumer/lifetime audit `.4.1.2.2` and native relation-key
 controls `.4.1.4.1` during fidelity work. Rust relation-key handoff `.4.1.4.2`
@@ -6289,6 +6310,18 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+### All JSDoc parsing removed as a speed estimate — frozen Rust `24aebf06`
+
+230.293 ms is an instrumented body-work ceiling, not an achieved or predicted
+gain. The observer itself adds a paired median 297.458 ms wall; requested arena
+bytes and summed sparse capacities are not retained memory or RSS savings.
+Discarded overlapping calibration and trace-v1 samples do not score a candidate.
+Native rejects four public checkJs uses that TSR accepts (`tsr-6.65`), so clean
+positive output cannot qualify cross-tool semantics. Keep JS/import/link/see and
+deprecated boundaries intact; global disabling and shared lazy arena mutation
+are not accepted optimizations. Native boundary mutations for link, deprecated
+and JS each fail the intended assertion. [Evidence](docs/architecture/jsdoc-cost.md).
 
 Task-only refinement at `fe728c21` adds no measured refusal or accepted
 optimization. Existing mapper identity/lifetime refusals below remain in force;
@@ -12886,6 +12919,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
+| 2026-10-04 | frozen Rust `24aebf06`; native `5b1047d` | not remeasured | not remeasured | JSDoc attribution and ownership; no speed gain | `.9.1`: three paired fresh-process public/Next.js rounds preserve complete per-tool diagnostics, scope and physical sources; separate traces observe 6/1,397 workers. 230.293 ms body / 627.050 ms parse; 61,104,711 requested JSDoc arena bytes, no retained-memory claim. Eleven reader controls, native boundary repeats/race/parser/vet and three rejected mutations, archived Rust tests/strict Clippy and durable public reproduction pass. Native reports four strong JS negative errors versus TSR zero; new P1 `tsr-6.65`. `.9.2` owns eligible TS-only candidate or no-change, private lazy IDs and full preservation/timing gates; production Rust/vendor unchanged and comparable <=0.50 unverified. |
 | 2026-10-04 | native `5b1047d`; Rust inventory `0ba36938` | not remeasured | not remeasured | Mapper prerequisite; no speed claim | `tsr-1yb.4.1.2.1`: seven private controls/five repetitions/race/package/vet, three rejected semantic mutations and three qualification guards; 20 fresh CLI children/eight qualified traces preserve complete output for ordered pairs, composition, shadowing, inference, receiver and recursive mapped/conditional types. Sixteen Rust consumer files inventoried; production Rust/vendor unchanged. Parent mapper/work/forcing/input/admission and comparable median <=0.50 remain open. |
 | 2026-10-04 | `fe728c21` (inspected source) | not remeasured | not remeasured | Optimization tasks only | Three P1 slices: `tsr-1yb.4.1.2.2` Rust mapper consumer/lifetime audit; `tsr-1yb.4.1.4.1` executable native relation keys; dependent `tsr-1yb.4.1.4.2` Rust key/context handoff. Existing assignees, fidelity and production gates preserved; no source optimization, new refusal or comparable <=0.50 claim. |
 | 2026-10-04 | frozen TSR `c30db42a`; native `5b1047d` plus archived patch | not remeasured | not remeasured | Independent worker mechanics; no speed claim | `tsr-1yb.1.2.3.2.3`: 135 normal children/60 accepted traces, six actual failure children and eight corrupt artifacts. Distinct interval unions, constructor order, private ownership, native affinity/leases/clamps; noCheck/list-only remain distinct. Production Rust/vendor unchanged; initialization/all forcing, complete inputs/work, memory admission and comparable median <=0.50 remain open. |
