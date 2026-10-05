@@ -8,6 +8,15 @@ Two normal refresh checks took 6.080 and 6.014 seconds. Checking takes
 separate phase observations. These locate current work; they establish no
 optimization gain or comparable TSR/native ratio.
 
+After these observations, main received the native CLI checker-pool port
+`e495d66c`, embedded libraries, lazy diagnostic-file indexing and concurrent
+root preparation through `33c8e121`. The full pulled range changes runtime
+behavior even though its latest commit is documentation. These measurements
+remain qualified to the earlier `d6acb2c4` snapshot. Revalidate default and
+single-worker phases, admitted checking and inputs on integrated main before
+using this ranking to select a production change. The `.16.3` handoff records
+that requirement; broader `.2.2`/`.11` stay open.
+
 The [sanitized JSON](current-project-cost-profile.json) keeps the original c5
 fields intact and adds this evidence under `current_refresh`. The rebuilt binary
 SHA is `1e079f2cc610d27302b504ddb94c808cd59ca3f438e8764ee1443f0cba470aed`.

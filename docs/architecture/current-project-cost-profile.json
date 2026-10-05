@@ -3200,6 +3200,26 @@
       "runtime_changed": false,
       "full_corpus_rerun": false,
       "independent_review_count": 0
+    },
+    "post_observation_integration": {
+      "pulled_tip": "33c8e121607398098ff30380410591750bf1a26d",
+      "runtime_paths_changed_since_measured_source": [
+        "Cargo.lock",
+        "crates/tsr-compiler/src/loader.rs",
+        "crates/tsr-execute/Cargo.toml",
+        "crates/tsr-execute/src/checker_pool.rs",
+        "crates/tsr-execute/src/compile.rs",
+        "crates/tsr-execute/src/lib.rs",
+        "crates/tsr-execute/src/os_system.rs",
+        "crates/tsr-vfs/build.rs",
+        "crates/tsr-vfs/src/bundled.rs",
+        "crates/tsr-vfs/src/cached.rs",
+        "crates/tsr-vfs/src/lib.rs",
+        "crates/tsr-vfs/src/os.rs"
+      ],
+      "measured_data_relabelled_to_integrated_main": false,
+      "required_next": "Fresh integrated-source default/single-worker phase, input/output and admitted-work observations before a production origin candidate",
+      "original_measurement_valid_for_frozen_source": true
     }
   }
 }

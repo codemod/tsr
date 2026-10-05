@@ -22,7 +22,7 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
-Current cost refresh (`tsr-1yb.2.2.1`), frozen `d6acb2c4`/native `5b1047d`,
+Pre-pool cost refresh (`tsr-1yb.2.2.1`), frozen `d6acb2c4`/native `5b1047d`,
 preserves 117 diagnostics, 14,050 ordered loaded files and 1,397 reported checks.
 Two phase observations locate 3.321–3.353 s checking and 2.241–2.392 s program
 construction. Two later intervals consistently lead with member-name collection,
@@ -30,7 +30,9 @@ type-parameter graph traversal and binder name lookup; early intervals lead with
 file lookup/loading/package metadata. Exact allocation origins `.16.3` are next;
 rejected member indexing/vector experiments remain rejected. No production
 change, direct checked-identity trace, expensive-worker proof or comparable
-native <=0.50 claim. [Current ranking and capture limits](docs/architecture/current-project-cost-profile.md).
+native <=0.50 claim. Concurrent pool/loader/VFS integration requires fresh
+default and single-worker qualification before using this ranking.
+[Current ranking and capture limits](docs/architecture/current-project-cost-profile.md).
 
 JSDoc setup (`tsr-1yb.9.2.2`), frozen `a0fa106e`/native `5b1047d`,
 attributes 13.431ms median combined attachment/binder-copy/registration on
