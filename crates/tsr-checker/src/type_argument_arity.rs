@@ -63,6 +63,18 @@ impl Checker<'_, '_> {
         {
             return;
         }
+        // A **class's** `extends` entry is a value: `resolveBaseTypesOfClass`
+        // (`checker.go:19220`) reaches `getTypeFromClassOrInterfaceReference`
+        // only when the base constructor's symbol is a class; any other
+        // constructor value (`extends Array`, `extends Mup` for a declared
+        // `var Mup: MupConstructor`) is instantiated through its construct
+        // signatures, where this arity rule does not apply.
+        if self.nodes.kind(node) == SyntaxKind::ExpressionWithTypeArguments
+            && self.is_class_extends_entry(node)
+            && !self.class_extends_entry_names_a_class(name)
+        {
+            return;
+        }
         let Some((minimum, maximum)) = self.declared_type_parameter_arity(name) else { return };
         // `maximum == 0` is an **answer**, not a failure to compute one: the
         // class or interface resolved and declares no type parameters. Upstream
@@ -305,6 +317,47 @@ impl Checker<'_, '_> {
             }
         }
         arity
+    }
+
+    /// Is `node` an entry of a class declaration's or expression's `extends`
+    /// clause?
+    fn is_class_extends_entry(&self, node: NodeId) -> bool {
+        let Some(clause) = self.nodes.parent(node) else { return false };
+        let Some(Node::HeritageClause(heritage)) = self.node_map.get(clause) else {
+            return false;
+        };
+        heritage.token.kind == SyntaxKind::ExtendsKeyword
+            && self.nodes.parent(clause).is_some_and(|class| {
+                matches!(
+                    self.nodes.kind(class),
+                    SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression
+                )
+            })
+    }
+
+    /// Does a class `extends` expression resolve, as a value, to a class
+    /// symbol? Unresolvable or non-identifier expressions answer `true`, which
+    /// leaves the existing type-side resolution to decide.
+    fn class_extends_entry_names_a_class(&mut self, name: NodeId) -> bool {
+        let Some(Node::Identifier(identifier)) = self.node_map.get(name) else { return true };
+        let Some(symbol) = self.binder.resolve_name(
+            self.nodes,
+            self.node_map,
+            name,
+            identifier.text,
+            SymbolFlags::VALUE,
+        ) else {
+            return true;
+        };
+        let mut symbol = self.binder.merged_symbol(symbol);
+        for _ in 0..8u8 {
+            if !self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::ALIAS) {
+                break;
+            }
+            let Some(target) = self.resolve_alias(symbol) else { return true };
+            symbol = self.binder.merged_symbol(target);
+        }
+        self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::CLASS)
     }
 
     /// The written text of a type reference's name, for the message argument.
