@@ -56,6 +56,13 @@ pub struct CommentDirective {
 #[must_use]
 pub fn directives_in(source: &str) -> Vec<CommentDirective> {
     let mut out = Vec::new();
+    // Native collects directives while its parser scans each comment
+    // (`processCommentDirective`, `scanner.go:972`), so they cost no pass of
+    // their own. This port rescans the file; every directive spells `@ts-`
+    // (`scanner.go:1003`), so a text without it has none and is not rescanned.
+    if !source.contains("@ts-") {
+        return out;
+    }
     let mut scanner = Scanner::new(source);
     let mut seen_to = 0usize;
     loop {
