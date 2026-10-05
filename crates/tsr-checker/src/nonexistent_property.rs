@@ -138,14 +138,51 @@ impl Checker<'_, '_> {
         if self.global_this_member_is_not_reported(receiver_type, name_text) {
             return;
         }
-        if !self.receiver_type_is_the_declared_one(receiver_id, receiver_type)
-            || !self.declared_members_are_complete(receiver_type)
-        {
+        if !self.receiver_type_is_the_declared_one(receiver_id, receiver_type) {
             return;
         }
-        if self.get_property_of_type(receiver_type, name_text).is_some() {
-            return;
-        }
+        let apparent_receiver =
+            if matches!(self.node_map.get(node), Some(Node::ElementAccessExpression(_))) {
+                // getPropertyTypeForIndexType (checker.go:27001) reports a literal
+                // miss on an apparent primitive or union only through its
+                // noImplicitAny 7053 family, never as this dotted-name TS2339.
+                // Element access keeps the declared-table certification only.
+                if !self.declared_members_are_complete(receiver_type)
+                    || self.get_property_of_type(receiver_type, name_text).is_some()
+                {
+                    return;
+                }
+                receiver_type
+            } else {
+                // A union receiver that is a narrowable reference is the one
+                // shape whose flow type this port cannot certify: the narrowing
+                // arms decline to the declared union silently, and a declined
+                // narrowing reads exactly like no narrowing (the flowed == declared
+                // test above). `boolean` is a union only by representation.
+                if matches!(
+                    self.store.get(receiver_type).data,
+                    crate::types::TypeData::Union { .. }
+                ) && !self
+                    .store
+                    .get(receiver_type)
+                    .flags
+                    .contains(crate::flags::TypeFlags::BOOLEAN)
+                    && matches!(
+                        self.nodes.kind(receiver_id),
+                        SyntaxKind::Identifier
+                            | SyntaxKind::ThisKeyword
+                            | SyntaxKind::PropertyAccessExpression
+                            | SyntaxKind::ElementAccessExpression
+                            | SyntaxKind::ParenthesizedExpression
+                    )
+                {
+                    return;
+                }
+                let Some(apparent) = self.property_is_known_absent(receiver_type, name_text) else {
+                    return;
+                };
+                apparent
+            };
         if let crate::types::TypeData::Anonymous { symbol, .. } =
             &self.store.get(receiver_type).data
         {
@@ -245,6 +282,25 @@ impl Checker<'_, '_> {
             );
             return;
         }
+        // `getSuggestedLibForNonExistentProperty` (`checker.go:11593`) is asked
+        // before the spelling suggestion, keyed by the apparent type's symbol.
+        if !module_element_miss
+            && let Some(lib) =
+                self.suggested_lib_for_nonexistent_property(name_text, apparent_receiver)
+        {
+            let Some(file) = self.source_file_of_for_diagnostics(name_id) else { return };
+            let span = self.error_span(name_id);
+            let printed = self.type_to_string(receiver_type);
+            self.report(
+                file,
+                Diagnostic::with_args(
+                    &messages::PROPERTY_0_DOES_NOT_EXIST_ON_TYPE_1_DO_YOU_NEED_TO_CHANGE_YOUR_TARGET_LIBRARY_TRY_CHANGING_THE_LIB_COMPILER_OPTION_TO_2_OR_LATER,
+                    span,
+                    [name_text.to_string(), printed, lib.to_string()],
+                ),
+            );
+            return;
+        }
         // `reportNonexistentProperty`'s suggestion arm: a near-miss member name
         // is **TS2551**, not TS2339. §33 made the same move for TS2304/TS2552 —
         // the spelling algorithm is already exact, so reporting the code it
@@ -252,7 +308,7 @@ impl Checker<'_, '_> {
         let candidates = if module_element_miss {
             self.get_property_names_of_type(receiver_type).unwrap_or_default()
         } else {
-            self.property_names_of(receiver_type)
+            self.apparent_property_names(receiver_type, apparent_receiver)
         };
         if let Some(suggestion) = crate::check::spelling_suggestion(
             name_text,
@@ -302,6 +358,184 @@ impl Checker<'_, '_> {
                 [name_text.to_string(), printed],
             ),
         );
+    }
+
+    /// Is `name` certainly absent from `getPropertyOfType(getApparentType(
+    /// receiver))`, as `checkPropertyAccessExpressionOrQualifiedName`
+    /// (`checker.go:11258`) asks it? `Some(apparent)` is the certified miss and
+    /// the apparent type whose names feed the spelling suggestion; `None` is a
+    /// present property or a table this port cannot certify.
+    ///
+    /// Three receiver shapes, each read through the existing completeness walk:
+    ///
+    /// - a **primitive** is read through its global apparent interface
+    ///   (`getApparentType`, `checker.go:21745-21751`, ported as
+    ///   [`Checker::apparent_type`]);
+    /// - a **union** is `getUnionOrIntersectionProperty` →
+    ///   `createUnionOrIntersectionProperty`: each constituent's apparent type is
+    ///   asked, and one constituent without the name makes the property partial,
+    ///   which `getPropertyOfUnionOrIntersectionType` answers `nil`. An object
+    ///   literal constituent makes it write-partial instead (a readable
+    ///   `undefined`), and a nullable constituent belongs to
+    ///   `checkNonNullExpression`'s diagnostics, so both decline;
+    /// - anything else is the declared table the walk certifies.
+    ///
+    /// No cache: the walk and lookups are the existing members subsystem's, run
+    /// once per checked access after the type answer, as before.
+    fn property_is_known_absent(&mut self, receiver: TypeId, name: &str) -> Option<TypeId> {
+        use crate::flags::TypeFlags;
+        let flags = self.store.get(receiver).flags;
+        if let crate::types::TypeData::Union { types, .. } = &self.store.get(receiver).data {
+            let types = types.clone();
+            let mut missing = false;
+            for constituent in types {
+                let constituent_flags = self.store.get(constituent).flags;
+                if constituent_flags.intersects(TypeFlags::NEVER) {
+                    continue;
+                }
+                if constituent_flags
+                    .intersects(TypeFlags::NULLABLE | TypeFlags::ANY | TypeFlags::UNKNOWN)
+                    || self.is_object_literal_type(constituent)
+                {
+                    return None;
+                }
+                let apparent = self.primitive_apparent_type(constituent);
+                if apparent == self.intrinsics.error {
+                    return None;
+                }
+                missing |= self.apparent_type_lacks(apparent, name)?;
+            }
+            return missing.then_some(receiver);
+        }
+        let apparent = if flags.intersects(TypeFlags::PRIMITIVE) {
+            self.primitive_apparent_type(receiver)
+        } else {
+            receiver
+        };
+        self.apparent_type_lacks(apparent, name)?.then_some(apparent)
+    }
+
+    /// `getPropertyOfType(apparent, name) == nil` with no applicable index
+    /// signature, or `None` when this port cannot certify `apparent`'s table.
+    ///
+    /// The completeness walk certifies most tables. Its declines include two
+    /// shapes every global apparent interface has (`Number`, `String`,
+    /// `Object`, `Function`, `Date`, ...), and neither hides a dotted name:
+    ///
+    /// - a merged `declare var X: XConstructor` is the value side; it adds no
+    ///   member to the instance table (`resolveDeclaredMembers` reads
+    ///   `getMembersOfSymbol` only);
+    /// - a `[Symbol.x]` member late-binds to a unique-symbol key
+    ///   (`getPropertyNameFromType`), which no identifier text equals.
+    ///
+    /// Index signatures are asked per name, as `getApplicableIndexInfoForName`
+    /// (`checker.go:11330`) does: a `string` key admits every name, a `number`
+    /// key only a numeric one, a `symbol` key none; any other key declines.
+    fn apparent_type_lacks(&mut self, apparent: TypeId, name: &str) -> Option<bool> {
+        if self.declared_members_are_complete(apparent) {
+            return Some(self.get_property_of_type(apparent, name).is_none());
+        }
+        let crate::types::TypeData::Named { members: Some(owner), .. } =
+            self.store.get(apparent).data
+        else {
+            return None;
+        };
+        let declarations = self.binder.symbols().get(owner).declarations.to_vec();
+        let mut interfaces = 0usize;
+        for declaration in declarations {
+            match self.node_map.get(declaration) {
+                Some(Node::InterfaceDeclaration(interface)) => {
+                    if !interface.type_parameters.is_empty()
+                        || !interface.heritage_clauses.is_empty()
+                        || !interface.members.iter().all(|member| member_name_is_bound(*member))
+                    {
+                        return None;
+                    }
+                    interfaces += 1;
+                }
+                Some(Node::VariableDeclaration(_)) => {}
+                _ => return None,
+            }
+        }
+        if interfaces == 0 {
+            return None;
+        }
+        if self.get_property_of_type(apparent, name).is_some() {
+            return Some(false);
+        }
+        for info in self.get_index_infos_of_type(apparent)? {
+            if info.key == self.intrinsics.string {
+                return Some(false);
+            }
+            if info.key == self.intrinsics.number {
+                if crate::index_signatures::is_numeric_literal_name(name) {
+                    return Some(false);
+                }
+            } else if info.key != self.intrinsics.es_symbol {
+                return None;
+            }
+        }
+        Some(true)
+    }
+
+    /// `getApparentType` (`checker.go:21745-21751`) for a primitive; any other
+    /// type is its own answer here.
+    fn primitive_apparent_type(&mut self, id: TypeId) -> TypeId {
+        if self.store.get(id).flags.intersects(
+            crate::flags::TypeFlags::STRING_LIKE
+                | crate::flags::TypeFlags::NUMBER_LIKE
+                | crate::flags::TypeFlags::BIG_INT_LIKE
+                | crate::flags::TypeFlags::BOOLEAN_LIKE
+                | crate::flags::TypeFlags::ES_SYMBOL_LIKE,
+        ) {
+            self.apparent_type(id)
+        } else {
+            id
+        }
+    }
+
+    /// `getPropertiesOfType(containingType)` for
+    /// `getSuggestedSymbolForNonexistentProperty` (`checker.go:11608`): a
+    /// union's properties are the first constituent's that every constituent
+    /// has (`getPropertiesOfUnionOrIntersectionType`).
+    fn apparent_property_names(&mut self, receiver: TypeId, apparent: TypeId) -> Vec<String> {
+        let crate::types::TypeData::Union { types, .. } = &self.store.get(receiver).data else {
+            return self.property_names_of(apparent);
+        };
+        let types: Vec<TypeId> = types
+            .iter()
+            .copied()
+            .filter(|&t| !self.store.get(t).flags.intersects(crate::flags::TypeFlags::NEVER))
+            .collect();
+        let Some((&first, rest)) = types.split_first() else { return Vec::new() };
+        let first = self.primitive_apparent_type(first);
+        let rest: Vec<TypeId> = rest.iter().map(|&t| self.primitive_apparent_type(t)).collect();
+        let mut names = self.property_names_of(first);
+        names.retain(|name| rest.iter().all(|&t| self.get_property_of_type(t, name).is_some()));
+        names
+    }
+
+    /// `getSuggestedLibForNonExistentProperty` (`checker.go:11593`): the first
+    /// `getFeatureMap` entry, under the apparent type's symbol name, whose
+    /// property list holds `name`. A union's apparent type has no symbol.
+    fn suggested_lib_for_nonexistent_property(
+        &self,
+        name: &str,
+        apparent: TypeId,
+    ) -> Option<&'static str> {
+        let (crate::types::TypeData::Named { members: Some(symbol), .. }
+        | crate::types::TypeData::Anonymous { symbol, .. }) = self.store.get(apparent).data
+        else {
+            return None;
+        };
+        let container = &self.binder.symbols().get(symbol).name;
+        let index =
+            LIB_FEATURE_PROPERTIES.binary_search_by_key(container, |(feature, _)| feature).ok()?;
+        LIB_FEATURE_PROPERTIES[index]
+            .1
+            .iter()
+            .find(|(_, properties)| properties.contains(&name))
+            .map(|(lib, _)| *lib)
     }
 
     /// Whether `globalThis.<name>` is a missing property upstream stays silent
@@ -408,6 +642,9 @@ impl Checker<'_, '_> {
     /// conversions and `this` in a class body is not narrowed by anything this
     /// port models.
     fn receiver_type_is_the_declared_one(&mut self, receiver: NodeId, flowed: TypeId) -> bool {
+        if self.receiver_roots_in_node_format_import(receiver) {
+            return false;
+        }
         match self.node_map.get(receiver) {
             Some(Node::CallExpression(_)) => false,
             Some(Node::Identifier(identifier)) => {
@@ -426,6 +663,41 @@ impl Checker<'_, '_> {
             }
             _ => true,
         }
+    }
+
+    /// Does the receiver's dotted chain start at a default or namespace import
+    /// under Node16..NodeNext?
+    ///
+    /// `getTargetOfImportClause`/`getTargetOfNamespaceImport` (checker.go)
+    /// answer an ESM file's import of a CommonJS-format file with the whole
+    /// `module.exports` there. That usage/target format road is unported
+    /// (`missing_default_established` declines it the same way), so neither
+    /// the alias's type nor its `default` member is certified
+    /// (nodeNextCjsNamespaceImportDefault2).
+    fn receiver_roots_in_node_format_import(&self, receiver: NodeId) -> bool {
+        if !(tsr_core::ModuleKind::Node16..=tsr_core::ModuleKind::NodeNext)
+            .contains(&self.module_kind)
+        {
+            return false;
+        }
+        let mut root = receiver;
+        while let Some(Node::PropertyAccessExpression(access)) = self.node_map.get(root) {
+            let Some(left) = access.expression.and_then(|left| left.node_id()) else {
+                return false;
+            };
+            root = left;
+        }
+        let Some(Node::Identifier(identifier)) = self.node_map.get(root) else { return false };
+        self.binder
+            .resolve_name(self.nodes, self.node_map, root, identifier.text, SymbolFlags::VALUE)
+            .is_some_and(|symbol| {
+                self.binder.symbols().get(symbol).declarations.iter().any(|&declaration| {
+                    matches!(
+                        self.nodes.kind(declaration),
+                        SyntaxKind::ImportClause | SyntaxKind::NamespaceImport
+                    )
+                })
+            })
     }
 
     /// Is `name` a member every object type has anyway?
@@ -519,6 +791,380 @@ impl Checker<'_, '_> {
             crate::types::TypeData::Named { members, .. } => *members,
             _ => None,
         }
+    }
+}
+
+/// `getFeatureMap` (`utilities.go:1292`), sorted by container name; each
+/// container's entries keep upstream's order, which decides the first match.
+/// One `FeatureMapEntry`: a lib and the properties it introduces.
+type LibFeature = (&'static str, &'static [&'static str]);
+
+#[rustfmt::skip]
+const LIB_FEATURE_PROPERTIES: &[(&str, &[LibFeature])] = &[
+    (
+        "Array",
+        &[
+            ("es2015", &["find", "findIndex", "fill", "copyWithin", "entries", "keys", "values"]),
+            ("es2016", &["includes"]),
+            ("es2019", &["flat", "flatMap"]),
+            ("es2022", &["at"]),
+            (
+                "es2023",
+                &["findLastIndex", "findLast", "toReversed", "toSorted", "toSpliced", "with"],
+            ),
+        ],
+    ),
+    (
+        "ArrayBuffer",
+        &[(
+            "es2024",
+            &[
+                "maxByteLength",
+                "resizable",
+                "resize",
+                "detached",
+                "transfer",
+                "transferToFixedLength",
+            ],
+        )],
+    ),
+    ("ArrayConstructor", &[("es2015", &["from", "of"]), ("esnext", &["fromAsync"])]),
+    ("AsyncDisposableStack", &[("esnext", &[])]),
+    ("AsyncGenerator", &[("es2018", &[])]),
+    ("AsyncGeneratorFunction", &[("es2018", &[])]),
+    ("AsyncIterable", &[("es2018", &[])]),
+    ("AsyncIterableIterator", &[("es2018", &[])]),
+    ("AsyncIterator", &[("es2015", &[])]),
+    (
+        "Atomics",
+        &[
+            (
+                "es2017",
+                &[
+                    "add",
+                    "and",
+                    "compareExchange",
+                    "exchange",
+                    "isLockFree",
+                    "load",
+                    "or",
+                    "store",
+                    "sub",
+                    "wait",
+                    "notify",
+                    "xor",
+                ],
+            ),
+            ("es2024", &["waitAsync"]),
+        ],
+    ),
+    ("BigInt", &[("es2020", &[])]),
+    (
+        "BigInt64Array",
+        &[
+            ("es2020", &[]),
+            ("es2022", &["at"]),
+            (
+                "es2023",
+                &["findLastIndex", "findLast", "toReversed", "toSorted", "toSpliced", "with"],
+            ),
+        ],
+    ),
+    (
+        "BigUint64Array",
+        &[
+            ("es2020", &[]),
+            ("es2022", &["at"]),
+            (
+                "es2023",
+                &["findLastIndex", "findLast", "toReversed", "toSorted", "toSpliced", "with"],
+            ),
+        ],
+    ),
+    (
+        "DataView",
+        &[
+            ("es2020", &["setBigInt64", "setBigUint64", "getBigInt64", "getBigUint64"]),
+            ("es2025", &["setFloat16", "getFloat16"]),
+        ],
+    ),
+    ("Date", &[("esnext", &["toTemporalInstant"])]),
+    ("DateTimeFormat", &[("es2017", &["formatToParts"])]),
+    ("DisposableStack", &[("esnext", &[])]),
+    ("Error", &[("es2022", &["cause"])]),
+    ("ErrorConstructor", &[("esnext", &["isError"])]),
+    ("Float16Array", &[("es2025", &[])]),
+    (
+        "Float32Array",
+        &[
+            ("es2022", &["at"]),
+            (
+                "es2023",
+                &["findLastIndex", "findLast", "toReversed", "toSorted", "toSpliced", "with"],
+            ),
+        ],
+    ),
+    (
+        "Float64Array",
+        &[
+            ("es2022", &["at"]),
+            (
+                "es2023",
+                &["findLastIndex", "findLast", "toReversed", "toSorted", "toSpliced", "with"],
+            ),
+        ],
+    ),
+    (
+        "Int16Array",
+        &[
+            ("es2022", &["at"]),
+            (
+                "es2023",
+                &["findLastIndex", "findLast", "toReversed", "toSorted", "toSpliced", "with"],
+            ),
+        ],
+    ),
+    (
+        "Int32Array",
+        &[
+            ("es2022", &["at"]),
+            (
+                "es2023",
+                &["findLastIndex", "findLast", "toReversed", "toSorted", "toSpliced", "with"],
+            ),
+        ],
+    ),
+    (
+        "Int8Array",
+        &[
+            ("es2022", &["at"]),
+            (
+                "es2023",
+                &["findLastIndex", "findLast", "toReversed", "toSorted", "toSpliced", "with"],
+            ),
+        ],
+    ),
+    (
+        "Intl",
+        &[
+            ("es2018", &["PluralRules"]),
+            ("es2020", &["RelativeTimeFormat", "Locale", "DisplayNames"]),
+            ("es2021", &["ListFormat", "DateTimeFormat"]),
+            ("es2022", &["Segmenter"]),
+            ("es2025", &["DurationFormat"]),
+        ],
+    ),
+    ("Iterator", &[("es2015", &[])]),
+    (
+        "Map",
+        &[
+            ("es2015", &["entries", "keys", "values"]),
+            ("esnext", &["getOrInsert", "getOrInsertComputed"]),
+        ],
+    ),
+    ("MapConstructor", &[("es2024", &["groupBy"])]),
+    (
+        "Math",
+        &[
+            (
+                "es2015",
+                &[
+                    "clz32", "imul", "sign", "log10", "log2", "log1p", "expm1", "cosh", "sinh",
+                    "tanh", "acosh", "asinh", "atanh", "hypot", "trunc", "fround", "cbrt",
+                ],
+            ),
+            ("es2025", &["f16round"]),
+        ],
+    ),
+    (
+        "NumberConstructor",
+        &[(
+            "es2015",
+            &["isFinite", "isInteger", "isNaN", "isSafeInteger", "parseFloat", "parseInt"],
+        )],
+    ),
+    ("NumberFormat", &[("es2018", &["formatToParts"])]),
+    (
+        "ObjectConstructor",
+        &[
+            ("es2015", &["assign", "getOwnPropertySymbols", "keys", "is", "setPrototypeOf"]),
+            ("es2017", &["values", "entries", "getOwnPropertyDescriptors"]),
+            ("es2019", &["fromEntries"]),
+            ("es2022", &["hasOwn"]),
+            ("es2024", &["groupBy"]),
+        ],
+    ),
+    ("Promise", &[("es2015", &[]), ("es2018", &["finally"])]),
+    (
+        "PromiseConstructor",
+        &[
+            ("es2015", &["all", "race", "reject", "resolve"]),
+            ("es2020", &["allSettled"]),
+            ("es2021", &["any"]),
+            ("es2024", &["withResolvers"]),
+            ("es2025", &["try"]),
+        ],
+    ),
+    (
+        "Reflect",
+        &[(
+            "es2015",
+            &[
+                "apply",
+                "construct",
+                "defineProperty",
+                "deleteProperty",
+                "get",
+                "getOwnPropertyDescriptor",
+                "getPrototypeOf",
+                "has",
+                "isExtensible",
+                "ownKeys",
+                "preventExtensions",
+                "set",
+                "setPrototypeOf",
+            ],
+        )],
+    ),
+    (
+        "RegExp",
+        &[
+            ("es2015", &["flags", "sticky", "unicode"]),
+            ("es2018", &["dotAll"]),
+            ("es2024", &["unicodeSets"]),
+        ],
+    ),
+    ("RegExpConstructor", &[("es2025", &["escape"])]),
+    ("RegExpExecArray", &[("es2018", &["groups"])]),
+    ("RegExpMatchArray", &[("es2018", &["groups"])]),
+    ("RelativeTimeFormat", &[("es2020", &["format", "formatToParts", "resolvedOptions"])]),
+    (
+        "Set",
+        &[
+            ("es2015", &["entries", "keys", "values"]),
+            (
+                "es2025",
+                &[
+                    "union",
+                    "intersection",
+                    "difference",
+                    "symmetricDifference",
+                    "isSubsetOf",
+                    "isSupersetOf",
+                    "isDisjointFrom",
+                ],
+            ),
+        ],
+    ),
+    (
+        "SharedArrayBuffer",
+        &[("es2017", &["byteLength", "slice"]), ("es2024", &["growable", "maxByteLength", "grow"])],
+    ),
+    (
+        "String",
+        &[
+            (
+                "es2015",
+                &[
+                    "codePointAt",
+                    "includes",
+                    "endsWith",
+                    "normalize",
+                    "repeat",
+                    "startsWith",
+                    "anchor",
+                    "big",
+                    "blink",
+                    "bold",
+                    "fixed",
+                    "fontcolor",
+                    "fontsize",
+                    "italics",
+                    "link",
+                    "small",
+                    "strike",
+                    "sub",
+                    "sup",
+                ],
+            ),
+            ("es2017", &["padStart", "padEnd"]),
+            ("es2019", &["trimStart", "trimEnd", "trimLeft", "trimRight"]),
+            ("es2020", &["matchAll"]),
+            ("es2021", &["replaceAll"]),
+            ("es2022", &["at"]),
+            ("es2024", &["isWellFormed", "toWellFormed"]),
+        ],
+    ),
+    ("StringConstructor", &[("es2015", &["fromCodePoint", "raw"])]),
+    ("Symbol", &[("es2015", &["for", "keyFor"]), ("es2019", &["description"])]),
+    (
+        "SymbolConstructor",
+        &[("es2020", &["matchAll"]), ("esnext", &["metadata", "dispose", "asyncDispose"])],
+    ),
+    (
+        "Uint16Array",
+        &[
+            ("es2022", &["at"]),
+            (
+                "es2023",
+                &["findLastIndex", "findLast", "toReversed", "toSorted", "toSpliced", "with"],
+            ),
+        ],
+    ),
+    (
+        "Uint32Array",
+        &[
+            ("es2022", &["at"]),
+            (
+                "es2023",
+                &["findLastIndex", "findLast", "toReversed", "toSorted", "toSpliced", "with"],
+            ),
+        ],
+    ),
+    (
+        "Uint8Array",
+        &[
+            ("es2022", &["at"]),
+            (
+                "es2023",
+                &["findLastIndex", "findLast", "toReversed", "toSorted", "toSpliced", "with"],
+            ),
+        ],
+    ),
+    ("Uint8ArrayConstructor", &[("esnext", &["fromBase64", "fromHex"])]),
+    (
+        "Uint8ClampedArray",
+        &[
+            ("es2022", &["at"]),
+            (
+                "es2023",
+                &["findLastIndex", "findLast", "toReversed", "toSorted", "toSpliced", "with"],
+            ),
+        ],
+    ),
+    ("WeakMap", &[("es2015", &[]), ("esnext", &["getOrInsert", "getOrInsertComputed"])]),
+    ("WeakSet", &[("es2015", &[])]),
+];
+
+/// An interface member whose name the binder recorded, or whose computed name
+/// is a well-known `Symbol.x` (late-bound to a unique-symbol key). Index,
+/// call and construct signatures carry no name.
+fn member_name_is_bound(member: tsr_ast::TypeElement<'_>) -> bool {
+    let name = match member {
+        tsr_ast::TypeElement::PropertySignatureDeclaration(property) => property.name,
+        tsr_ast::TypeElement::MethodSignatureDeclaration(method) => method.name,
+        tsr_ast::TypeElement::GetAccessorDeclaration(accessor) => accessor.name,
+        tsr_ast::TypeElement::SetAccessorDeclaration(accessor) => accessor.name,
+        _ => return true,
+    };
+    match name {
+        tsr_ast::PropertyName::ComputedPropertyName(computed) => matches!(
+            computed.expression,
+            Some(tsr_ast::Expression::PropertyAccessExpression(access))
+                if matches!(access.expression,
+                    Some(tsr_ast::Expression::Identifier(symbol)) if symbol.text == "Symbol")
+        ),
+        _ => true,
     }
 }
 
