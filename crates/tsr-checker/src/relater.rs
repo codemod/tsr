@@ -87,6 +87,7 @@
 //! checker-local metadata-lifetime contracts (tsr-1yb.4.1.3).
 
 use rustc_hash::{FxHashMap, FxHashSet};
+use tsr_binder::SymbolFlags;
 
 use crate::{checker::Checker, flags::TypeFlags, types::TypeData, types::TypeId};
 
@@ -637,6 +638,162 @@ impl Checker<'_, '_> {
         let answer = relater.is_related_to(source, target).public_answer();
         reasons::finish(outer, answer == Ternary::Unknown);
         answer
+    }
+
+    /// The missing-property message `checkTypeRelatedToEx` would leave at the
+    /// head of a failed top-level `source -> target` chain, or `None` where the
+    /// head stays the caller's own message (TS2322/TS2345).
+    ///
+    /// Mirrors, for two plain object types, `propertiesRelatedTo`'s unmatched
+    /// arm (`relater.go:4100`), `getUnmatchedProperties` with
+    /// `requireOptionalProperties` false (`relater.go:978`; this caller asks the
+    /// assignable relation), `shouldReportUnmatchedPropertyError`
+    /// (`relater.go:959`) and `reportUnmatchedProperty`'s
+    /// `tryElaborateArrayLikeErrors` gate (`relater.go:4345`/`:4379`).
+    /// `reportRelationError` (`relater.go:4751`) then suppresses the head
+    /// message because the chain's last entry names the same pair.
+    ///
+    /// A tuple target related to an array/tuple source, and a tuple target
+    /// with variable elements, fail before the unmatched arm. Any name or
+    /// modifier this port cannot certify answers `None`, so the caller keeps
+    /// its own head rather than inventing a missing-property code. The caller
+    /// must already hold a `NotRelated` verdict for the pair.
+    pub(crate) fn unmatched_property_report(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+    ) -> Option<Vec<String>> {
+        use crate::signatures::SignatureKind;
+        let object_only = |flags: TypeFlags| {
+            flags.contains(TypeFlags::OBJECT)
+                && !flags.intersects(TypeFlags::UNION | TypeFlags::INTERSECTION)
+        };
+        if !object_only(self.type_of(source).flags) || !object_only(self.type_of(target).flags) {
+            return None;
+        }
+        // A fresh object literal first meets hasExcessProperties (relater.go:
+        // 2714), whose unported arms could own the failure; the reporter's
+        // written-key guard (`missing_required_property`) decides those.
+        if self.fresh_object_literal_types.contains(&source) {
+            return None;
+        }
+        // reportErrorResults (relater.go:4705) appends "The 'Object' type is
+        // assignable to very few other types" for the global Object source, so
+        // the chain no longer ends in the missing-property message.
+        if let TypeData::Named { members: Some(owner), .. } = self.type_of(source).data
+            && self.global_type_symbol_with_arity("Object", 0) == Some(owner)
+        {
+            return None;
+        }
+        // reportErrorResults displays an aliased or single-base original type,
+        // while the missing-property message names the normalized structure;
+        // chainArgsMatch then fails and the head message stays. An alias image
+        // or a generic class/interface reference that may normalize to its
+        // single base (getSingleBaseForNonAugmentingSubtype) is left there.
+        for side in [source, target] {
+            if let TypeData::Named { members: Some(owner), .. } = self.type_of(side).data
+                && self.binder.symbols().get(owner).flags.intersects(SymbolFlags::TYPE_ALIAS)
+            {
+                return None;
+            }
+            if let Some(&(owner, _)) = self.type_reference_targets.get(&side) {
+                let flags = self.binder.symbols().get(owner).flags;
+                if flags.intersects(SymbolFlags::TYPE_ALIAS) {
+                    return None;
+                }
+                if flags.intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE)
+                    && self.binder.symbols().get(owner).members.iter().all(|(_, &member)| {
+                        !self.binder.symbols().get(member).flags.intersects(SymbolFlags::VALUE)
+                    })
+                    && self.base_symbols_of_ex(owner, false).is_none_or(|bases| bases.len() == 1)
+                {
+                    return None;
+                }
+            }
+        }
+        let source_tuple = self.tuple_element_lists.contains_key(&source)
+            || self.variadic_tuple_elements.contains_key(&source);
+        let source_array = self.array_reference_readonly(source);
+        if self.variadic_tuple_elements.contains_key(&target) {
+            return None;
+        }
+        let target_tuple = self.tuple_element_lists.contains_key(&target);
+        if target_tuple && (source_tuple || source_array.is_some()) {
+            return None;
+        }
+        let names = self.get_property_names_of_type(target)?;
+        self.get_property_names_of_type(source)?;
+        let mut relater = Relater {
+            checker: self,
+            relation: Relation::Assignable,
+            results: FxHashMap::default(),
+            maybe_keys: Vec::new(),
+            maybe_keys_set: FxHashSet::default(),
+            depth: 0,
+            source_stack: Vec::new(),
+            target_stack: Vec::new(),
+            expanding: (false, false),
+        };
+        let mut missing = Vec::new();
+        for name in names {
+            if relater.checker.get_type_of_property_of_type(source, &name).is_some() {
+                continue;
+            }
+            let (optional, _) = relater.property_flags(target, &name)?;
+            if !optional {
+                missing.push(name);
+            }
+        }
+        if missing.is_empty() {
+            return None;
+        }
+        // shouldReportUnmatchedPropertyError: a source that is only
+        // signatures reports the unmatched property only against a target
+        // with a signature kind the source also has.
+        let source_calls = self.signatures_of_type_kind(source, SignatureKind::Call)?;
+        let source_constructs = self.signatures_of_type_kind(source, SignatureKind::Construct)?;
+        if (!source_calls.is_empty() || !source_constructs.is_empty())
+            && self.get_property_names_of_type(source)?.is_empty()
+        {
+            let target_calls = self.signatures_of_type_kind(target, SignatureKind::Call)?;
+            let target_constructs =
+                self.signatures_of_type_kind(target, SignatureKind::Construct)?;
+            if !((!target_calls.is_empty() && !source_calls.is_empty())
+                || (!target_constructs.is_empty() && !source_constructs.is_empty()))
+            {
+                return None;
+            }
+        }
+        if missing.len() == 1 {
+            return Some(missing);
+        }
+        // tryElaborateArrayLikeErrors with reportErrors false.
+        let target_array = self.array_reference_readonly(target);
+        let target_mutable_array_or_tuple =
+            target_array == Some(false) || (target_tuple && !self.tuple_is_readonly(target));
+        let elaborates = if source_tuple {
+            !(self.tuple_is_readonly(source) && target_mutable_array_or_tuple)
+                && (target_tuple || target_array.is_some())
+        } else if source_array == Some(true) && target_mutable_array_or_tuple {
+            false
+        } else if target_tuple {
+            source_array.is_some()
+        } else {
+            true
+        };
+        elaborates.then_some(missing)
+    }
+
+    /// `isArrayType` (`checker.go`): `Some(readonly)` for a reference to the
+    /// global `Array` (`false`) or `ReadonlyArray` (`true`).
+    fn array_reference_readonly(&self, id: TypeId) -> Option<bool> {
+        let (target, _) = self.type_reference_targets.get(&id)?;
+        let target = self.binder.merged_symbol(*target);
+        [("Array", false), ("ReadonlyArray", true)].into_iter().find_map(|(name, readonly)| {
+            self.global_type_symbol(name)
+                .is_some_and(|symbol| self.binder.merged_symbol(symbol) == target)
+                .then_some(readonly)
+        })
     }
 
     pub(crate) fn compare_signature_ternary(

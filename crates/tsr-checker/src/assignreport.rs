@@ -1186,10 +1186,44 @@ impl<'a> Checker<'a, '_> {
         (!missing.is_empty()).then_some(missing)
     }
 
+    /// `reportUnmatchedProperty`'s messages (`relater.go:4345`): TS2741 for one
+    /// missing property, else TS2739, or TS2740 past five names.
+    fn report_missing_properties(
+        &mut self,
+        file: NodeId,
+        span: tsr_core::Span,
+        source: TypeId,
+        target: TypeId,
+        properties: &[String],
+    ) {
+        let source_text = self.type_to_string(source);
+        let target_text = self.type_to_string(target);
+        let (message, args) = if properties.len() == 1 {
+            (
+                &messages::PROPERTY_0_IS_MISSING_IN_TYPE_1_BUT_REQUIRED_IN_TYPE_2,
+                vec![properties[0].clone(), source_text, target_text],
+            )
+        } else if properties.len() > 5 {
+            (
+                &messages::TYPE_0_IS_MISSING_THE_FOLLOWING_PROPERTIES_FROM_TYPE_1_COLON_2_AND_3_MORE,
+                vec![
+                    source_text,
+                    target_text,
+                    properties[..4].join(", "),
+                    (properties.len() - 4).to_string(),
+                ],
+            )
+        } else {
+            (
+                &messages::TYPE_0_IS_MISSING_THE_FOLLOWING_PROPERTIES_FROM_TYPE_1_COLON_2,
+                vec![source_text, target_text, properties.join(", ")],
+            )
+        };
+        self.report(file, Diagnostic::with_args(message, span, args));
+    }
+
     /// TS2345 at an argument position — the same verdict machinery as
-    /// [`Checker::report_assignability_failure`] with a different code and no
-    /// TS2741 arm (an argument's missing property is elaborated differently
-    /// upstream).
+    /// [`Checker::report_assignability_failure`] with a different head code.
     /// Answers **whether it reported**, so the caller can stop:
     /// `getSignatureApplicabilityError` returns on the first failing argument
     /// (`checker-notes-diag2.md` §59).
@@ -1207,14 +1241,24 @@ impl<'a> Checker<'a, '_> {
         if !self.assignability_pair_is_reportable(source, target) {
             return false;
         }
-        if self.relate_ternary(source, target, crate::relater::Relation::Assignable)
-            != crate::relater::Ternary::NotRelated
-            && !self.object_against_primitive(source, target)
-        {
+        let not_related = self.relate_ternary(source, target, crate::relater::Relation::Assignable)
+            == crate::relater::Ternary::NotRelated;
+        if !not_related && !self.object_against_primitive(source, target) {
             return false;
         }
         let Some(file) = self.source_file_of_for_diagnostics(at) else { return false };
         let span = self.error_span(at);
+        // reportRelationError suppresses the TS2345 head when the chain ends in
+        // the pair's missing-property message (relater.go:4751), exactly as it
+        // does for TS2322; a fresh literal keeps the written-key guard.
+        if not_related
+            && let Some(properties) = self
+                .missing_required_property(source, target)
+                .or_else(|| self.unmatched_property_report(source, target))
+        {
+            self.report_missing_properties(file, span, source, target, &properties);
+            return true;
+        }
         let displayed_source = self.assignability_source_for_error_display(source, target);
         let source_text = self.type_to_string(displayed_source);
         let target_text = self.type_to_string(target);
@@ -1285,31 +1329,8 @@ impl<'a> Checker<'a, '_> {
         if REPORT_MISSING_REQUIRED_PROPERTY
             && let Some(properties) = self.missing_required_property(source, target)
         {
-            let source_text = self.type_to_string(source);
-            let target_text = self.type_to_string(target);
-            let (message, args) = if properties.len() == 1 {
-                (
-                    &messages::PROPERTY_0_IS_MISSING_IN_TYPE_1_BUT_REQUIRED_IN_TYPE_2,
-                    vec![properties[0].clone(), source_text, target_text],
-                )
-            } else if properties.len() > 5 {
-                (
-                    &messages::TYPE_0_IS_MISSING_THE_FOLLOWING_PROPERTIES_FROM_TYPE_1_COLON_2_AND_3_MORE,
-                    vec![
-                        source_text,
-                        target_text,
-                        properties[..4].join(", "),
-                        (properties.len() - 4).to_string(),
-                    ],
-                )
-            } else {
-                (
-                    &messages::TYPE_0_IS_MISSING_THE_FOLLOWING_PROPERTIES_FROM_TYPE_1_COLON_2,
-                    vec![source_text, target_text, properties.join(", ")],
-                )
-            };
             probe!(PROBE_REPORTED);
-            self.report(file, Diagnostic::with_args(message, span, args));
+            self.report_missing_properties(file, span, source, target, &properties);
             return true;
         }
         // **`relate_ternary`, not `is_type_assignable_to`.** The relater is
@@ -1319,14 +1340,17 @@ impl<'a> Checker<'a, '_> {
         // which collapses `Unknown` into `false` — is what produced this
         // module's first measurement of **947 right against 988 wrong**. Every
         // undecidable pair was being reported as an error.
-        if self.relate_ternary(source, target, crate::relater::Relation::Assignable)
-            != crate::relater::Ternary::NotRelated
-            && !self.object_against_primitive(source, target)
-        {
+        let not_related = self.relate_ternary(source, target, crate::relater::Relation::Assignable)
+            == crate::relater::Ternary::NotRelated;
+        if !not_related && !self.object_against_primitive(source, target) {
             probe!(PROBE_RELATION_DECLINED);
             return false;
         }
         probe!(PROBE_REPORTED);
+        if not_related && let Some(properties) = self.unmatched_property_report(source, target) {
+            self.report_missing_properties(file, span, source, target, &properties);
+            return true;
+        }
         let displayed_source = self.assignability_source_for_error_display(source, target);
         let source_text = self.type_to_string(displayed_source);
         let target_text = self.type_to_string(target);
