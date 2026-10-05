@@ -135,6 +135,7 @@ pub mod intersections;
 pub mod intrinsics;
 mod js_case_data;
 mod jsdoc_links;
+mod jsdoc_params;
 pub mod jsx_intrinsic;
 pub mod literals;
 pub mod mapped;

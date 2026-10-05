@@ -798,7 +798,17 @@ impl<'a> Parser<'a> {
         self.scanner.set_skip_jsdoc_leading_asterisks(true);
         self.next_token();
         let type_start = self.pos();
+        // parseJSDocType (parser.go): a leading `...` makes the parsed type a
+        // JSDocVariadicType.
+        let has_dot_dot_dot = self.eat(SyntaxKind::DotDotDotToken);
         let mut inner = self.parse_type();
+        if has_dot_dot_dot {
+            inner = tsr_ast::TypeNode::JSDocVariadicType(self.finish_node(
+                tsr_ast::JSDocVariadicType::new(Some(inner)),
+                SyntaxKind::JSDocVariadicType,
+                type_start,
+            ));
+        }
         // parseJSDocType (parser.go): a suffix = wraps the complete type,
         // including arrays/unions, before the closing brace is consumed.
         if self.eat(SyntaxKind::EqualsToken) {

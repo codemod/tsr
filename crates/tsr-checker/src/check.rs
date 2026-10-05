@@ -946,6 +946,7 @@ impl Checker<'_, '_> {
         self.note_member_name_at(node);
         self.register_for_unused_check(node);
         self.check_jsdoc_link_references(node);
+        self.check_unmatched_jsdoc_parameters(node);
         let mut children = [const { None }; INLINE_CHILDREN];
         let mut count = 0usize;
         let mut overflow: Vec<NodeId> = Vec::new();
