@@ -1142,7 +1142,12 @@ impl<'a> Scanner<'a> {
         // `scanEscapeSequence`'s `start` (`scanner.go:1691`) is taken BEFORE
         // the first character is consumed.
         let backslash = self.pos - 1;
-        let Some(ch) = self.bump() else { return };
+        // `scanEscapeSequence` (`scanner.go:1694`): a backslash at end of
+        // text is TS1126 at that end, whatever `flags` says.
+        let Some(ch) = self.bump() else {
+            self.error(&messages::UNEXPECTED_END_OF_TEXT, Span::new(self.pos, self.pos));
+            return;
+        };
         match ch {
             'n' => out.push('\n'),
             't' => out.push('\t'),

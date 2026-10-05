@@ -437,17 +437,30 @@ impl<'a> Parser<'a> {
         } else {
             self.parse_primary_expression()
         };
+        // The `<`…`>` range of the instantiation expression `expression` is,
+        // while it is one: `parsePropertyAccessExpressionRest`'s TS1477 spans
+        // `typeArguments.Pos()-1` to `SkipTrivia(typeArguments.End())+1`, and
+        // this AST keeps neither bracket.
+        let mut instantiation_brackets: Option<Span> = None;
 
         loop {
             match self.token.kind {
                 SyntaxKind::DotToken => {
                     self.next_token();
                     let name = if self.right_side_of_dot_is_missing() {
-                        self.error_at_current(&messages::IDENTIFIER_EXPECTED);
+                        self.report_missing_right_side_of_dot();
                         MemberName::Identifier(self.missing_identifier())
                     } else {
                         self.parse_member_name()
                     };
+                    if let (Expression::ExpressionWithTypeArguments(_), Some(brackets)) =
+                        (expression, instantiation_brackets.take())
+                    {
+                        self.error_at(
+                            &messages::AN_INSTANTIATION_EXPRESSION_CANNOT_BE_FOLLOWED_BY_A_PROPERTY_ACCESS,
+                            brackets,
+                        );
+                    }
                     let is_chain = self.try_reparse_optional_chain(expression);
                     let node = self.finish_node(
                         PropertyAccessExpression::new(Some(expression), None, Some(name)),
@@ -554,6 +567,7 @@ impl<'a> Parser<'a> {
                     // > c` is a comparison, so the type arguments only stand
                     // without a call when what follows cannot continue an
                     // expression.
+                    let open_bracket = self.token.span.start;
                     let Some(type_arguments) = self.try_parse(|p| {
                         // `f<<T>() => U>(g)` starts a generic call whose first
                         // type argument is a generic arrow. The scanner sees
@@ -577,6 +591,7 @@ impl<'a> Parser<'a> {
                             start,
                         );
                         expression = Expression::ExpressionWithTypeArguments(node);
+                        instantiation_brackets = Some(Span::new(open_bracket, self.node_end()));
                         continue;
                     }
                     let arguments = self.parse_arguments();
@@ -804,7 +819,7 @@ impl<'a> Parser<'a> {
                 SyntaxKind::DotToken => {
                     self.next_token();
                     let name = if self.right_side_of_dot_is_missing() {
-                        self.error_at_current(&messages::IDENTIFIER_EXPECTED);
+                        self.report_missing_right_side_of_dot();
                         MemberName::Identifier(self.missing_identifier())
                     } else {
                         self.parse_member_name()
@@ -1117,7 +1132,21 @@ impl<'a> Parser<'a> {
             }
             // A *reserved* word in expression position is the keyword itself:
             // `this`, `super`, `true`, `false`, `null`.
-            kind if kind.is_keyword() && crate::statement::is_reserved_word(kind) => {
+            //
+            // Only these: `parsePrimaryExpression` (`parser.go:5530`) takes
+            // `this`/`super`/`null`/`true`/`false` as token nodes, and `import`
+            // reaches here for `import(…)`/`import.meta`
+            // (`parseMemberExpressionOrHigher`). Every other reserved word falls
+            // to `parseIdentifierWithDiagnostic(Expression_expected)` below and
+            // is left for the statement that follows — `1 +⏎return;` is TS1109
+            // at `return`, not a keyword operand.
+            SyntaxKind::ThisKeyword
+            | SyntaxKind::SuperKeyword
+            | SyntaxKind::NullKeyword
+            | SyntaxKind::TrueKeyword
+            | SyntaxKind::FalseKeyword
+            | SyntaxKind::ImportKeyword => {
+                let kind = self.token.kind;
                 self.next_token();
                 let node = self.finish_node(KeywordExpression::new(kind), kind, start);
                 Expression::KeywordExpression(node)
@@ -1128,9 +1157,19 @@ impl<'a> Parser<'a> {
             // — a `KeywordExpression` has no name — so every such reference
             // became anonymous. Upstream falls through to `parseIdentifier()`
             // here for the same reason.
-            kind if kind.is_keyword() => Expression::Identifier(self.parse_identifier()),
+            kind if kind.is_keyword() && !crate::statement::is_reserved_word(kind) => {
+                Expression::Identifier(self.parse_identifier())
+            }
             _ => {
-                self.error_at_current(&messages::EXPRESSION_EXPECTED);
+                // `parseIdentifierWithDiagnostic(Expression_expected)`: at end
+                // of file the report sits zero-width at the token's full
+                // start, as `report_missing_identifier`'s does.
+                let span = if self.at(SyntaxKind::EndOfFile) {
+                    Span::at(self.node_end())
+                } else {
+                    self.token.span
+                };
+                self.error_at(&messages::EXPRESSION_EXPECTED, span);
                 Expression::Identifier(self.missing_identifier())
             }
         }
@@ -2100,7 +2139,7 @@ impl<'a> Parser<'a> {
                 SyntaxKind::DotToken => {
                     self.next_token();
                     let name = if self.right_side_of_dot_is_missing() {
-                        self.error_at_current(&messages::IDENTIFIER_EXPECTED);
+                        self.report_missing_right_side_of_dot();
                         self.missing_identifier()
                     } else {
                         self.parse_identifier_name()
@@ -2484,6 +2523,24 @@ impl<'a> Parser<'a> {
     /// Upstream records `IgnoreRulesSpecific. : any` and a separate
     /// `var y = … : Position`; this port took `var` as the member name and
     /// emitted one line too many (`enumConflictsWithGlobalIdentifier`).
+    /// `parseRightSideOfDot(allowIdentifierNames: false, …)`: the dangling-dot
+    /// case, else a plain identifier (a reserved word is reported).
+    pub(crate) fn parse_right_side_of_dot_identifier(&mut self) -> &'a Identifier<'a> {
+        if self.right_side_of_dot_is_missing() {
+            self.report_missing_right_side_of_dot();
+            return self.missing_identifier();
+        }
+        self.parse_identifier()
+    }
+
+    /// `parseRightSideOfDot`'s report for that case: `parseErrorAt(p.nodePos(),
+    /// p.nodePos(), Identifier_expected)` — right after the dot, at the next
+    /// token's full start, "because the next token might actually be an
+    /// identifier and the error would be quite confusing".
+    fn report_missing_right_side_of_dot(&mut self) {
+        self.error_at(&messages::IDENTIFIER_EXPECTED, Span::at(self.node_end()));
+    }
+
     fn right_side_of_dot_is_missing(&mut self) -> bool {
         self.token.flags.contains(tsr_scanner::TokenFlags::PRECEDING_LINE_BREAK)
             && (self.token.kind == SyntaxKind::Identifier || self.token.kind.is_keyword())

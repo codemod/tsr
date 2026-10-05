@@ -85,6 +85,11 @@ impl<'a> Parser<'a> {
             let start = self.pos();
             let token = self.take_token();
             let mut types = Vec::new();
+            // Upstream reads a trailing comma off the list's span
+            // (`NodeList.HasTrailingComma`); this AST records it as
+            // `NodeFlags::HAS_TRAILING_COMMA` on the clause, for
+            // `checkGrammarHeritageClause`'s TS1009.
+            let mut trailing_comma = false;
             loop {
                 // `isListElement(PCHeritageClauseElement)` (`parser.go:858`),
                 // tested BEFORE each element including the first, exactly as
@@ -105,15 +110,24 @@ impl<'a> Parser<'a> {
                     SyntaxKind::ExpressionWithTypeArguments,
                     type_start,
                 ));
-                if !self.eat(SyntaxKind::CommaToken) {
+                trailing_comma = self.eat(SyntaxKind::CommaToken);
+                if !trailing_comma {
                     break;
                 }
             }
             let types = self.arena.alloc_slice(&types);
-            clauses.push(self.finish_node(
+            let end = self.node_end();
+            let flags = if trailing_comma {
+                tsr_ast::NodeFlags::HAS_TRAILING_COMMA
+            } else {
+                tsr_ast::NodeFlags::empty()
+            };
+            clauses.push(self.finish_node_with_flags(
                 HeritageClause::new(token, types),
                 SyntaxKind::HeritageClause,
                 start,
+                end,
+                flags,
             ));
         }
         clauses
@@ -714,6 +728,10 @@ impl<'a> Parser<'a> {
         modifiers: &[ModifierLike<'a>],
     ) -> Statement<'a> {
         self.expect(SyntaxKind::TypeKeyword);
+        // `parseTypeAliasDeclaration` (`parser.go:2095`).
+        if self.token.has_preceding_line_break() {
+            self.error_at_current(&messages::LINE_BREAK_NOT_PERMITTED_HERE);
+        }
         let name = self.parse_identifier();
         let type_parameters = self.parse_type_parameters();
         self.expect(SyntaxKind::EqualsToken);

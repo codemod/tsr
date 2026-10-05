@@ -869,6 +869,7 @@ impl Checker<'_, '_> {
         if !self.modifier_chain_reported.contains(&node) {
             self.check_grammar_modifier_shapes(node, typed);
         }
+        self.check_parser_lane_statement(typed);
         self.check_jsx_intrinsic_element(node, typed);
         self.check_jsx_factory_in_scope(typed);
         self.check_strict_mode_eval_or_arguments_sites(node, typed, ambient);
@@ -2680,7 +2681,8 @@ impl Checker<'_, '_> {
     /// `occupied` is `0/4` where those were taken, which is the difference.
     /// §472.
     fn check_index_signature_key_type(&mut self, node: NodeId) {
-        if self.file_has_parse_errors {
+        if self.file_has_parse_errors || self.index_signature_parameter_shape_error(node).is_some()
+        {
             return;
         }
         let Some(Node::IndexSignatureDeclaration(signature)) = self.node_map.get(node) else {
@@ -2929,9 +2931,8 @@ impl Checker<'_, '_> {
     /// test on two nodes, with no other conjunct, reported at the argument.
     /// §489.
     fn check_import_type_argument(&mut self, node: NodeId) {
-        if self.file_has_parse_errors {
-            return;
-        }
+        // A `c.error`, not a grammar report: it stands in a file with parse
+        // errors (`typeofImportDefer`).
         let Some(Node::ImportTypeNode(import)) = self.node_map.get(node) else { return };
         let Some(argument) = import.argument.and_then(|a| a.node_id()) else { return };
         let is_string_literal_type = matches!(
@@ -3155,6 +3156,14 @@ impl Checker<'_, '_> {
         }
         let Some(Node::VariableDeclaration(declaration)) = self.node_map.get(node) else { return };
         let Some(list) = self.nodes.parent(node) else { return };
+        // `checkGrammarVariableDeclaration` runs from `checkVariableDeclaration`,
+        // which only a declaration list reaches: a catch clause's declaration
+        // goes through `checkCatchClause` (`checker.go:4247`), which calls
+        // `checkVariableLikeDeclaration` alone, so `catch ({ a })` has no
+        // TS1182.
+        if self.nodes.kind(list) != SyntaxKind::VariableDeclarationList {
+            return;
+        }
         let Some(statement) = self.nodes.parent(list) else { return };
         // **Guard four** (`grammarchecks.go:1573`), which sits between §517's
         // and §509's and is not `using`-specific — so it has to be tested
@@ -3185,7 +3194,8 @@ impl Checker<'_, '_> {
         if !self.nodes.flags(list).contains(tsr_ast::NodeFlags::USING) {
             return;
         }
-        let awaited = matches!(self.node_map.get(statement), Some(Node::VariableStatement(s))
+        let awaited = self.nodes.flags(list).contains(tsr_ast::NodeFlags::CONSTANT)
+            || matches!(self.node_map.get(statement), Some(Node::VariableStatement(s))
             if has_modifier(s.modifiers, SyntaxKind::AwaitKeyword))
             || matches!(self.node_map.get(statement), Some(Node::ForInOrOfStatement(f))
                 if f.await_modifier.is_some());
@@ -3283,7 +3293,16 @@ impl Checker<'_, '_> {
         if !named {
             return;
         }
+        // A function *declaration's* name is parsed before the await context
+        // its `async` opens (`parseFunctionDeclaration`, `parser.go:1715`), so
+        // `async function await() {}` is legal; an expression's name is parsed
+        // inside it (`asyncFunctionDeclaration11` vs `…12`).
+        let own_declaration =
+            matches!(self.node_map.get(parent), Some(Node::FunctionDeclaration(_)));
         let in_context = self.nodes.ancestors(node).any(|ancestor| {
+            if own_declaration && ancestor == parent {
+                return false;
+            }
             let Some(typed) = self.node_map.get(ancestor) else { return false };
             modifiers_of(typed)
                 .is_some_and(|modifiers| has_modifier(modifiers, SyntaxKind::AsyncKeyword))
@@ -3321,7 +3340,9 @@ impl Checker<'_, '_> {
         let Some(list) = statement.declaration_list.and_then(|l| l.node_id) else { return };
         let flags = self.nodes.flags(list);
         let keyword = if flags.contains(tsr_ast::NodeFlags::USING) {
-            if has_modifier(statement.modifiers, SyntaxKind::AwaitKeyword) {
+            if flags.contains(tsr_ast::NodeFlags::CONSTANT)
+                || has_modifier(statement.modifiers, SyntaxKind::AwaitKeyword)
+            {
                 "await using"
             } else {
                 "using"
@@ -5344,7 +5365,8 @@ impl Checker<'_, '_> {
     /// annotation is TS1148, so a type parameter must stay silent here even
     /// though it is not a valid key type. §1033.
     fn check_index_signature_parameter_type(&mut self, node: NodeId) {
-        if self.file_has_parse_errors {
+        if self.file_has_parse_errors || self.index_signature_parameter_shape_error(node).is_some()
+        {
             return;
         }
         let Some(Node::IndexSignatureDeclaration(signature)) = self.node_map.get(node) else {
@@ -5986,7 +6008,15 @@ impl Checker<'_, '_> {
         node: NodeId,
         clause: &tsr_ast::HeritageClause<'_>,
     ) {
-        if self.file_has_parse_errors || !clause.types.is_empty() {
+        if self.file_has_parse_errors {
+            return;
+        }
+        // `checkGrammarForDisallowedTrailingComma(types, Trailing_comma_not_allowed)`
+        // comes first and short-circuits.
+        if self.report_disallowed_trailing_comma(node, &messages::TRAILING_COMMA_NOT_ALLOWED) {
+            return;
+        }
+        if !clause.types.is_empty() {
             return;
         }
         let keyword = match clause.token.kind {
@@ -6596,7 +6626,7 @@ impl Checker<'_, '_> {
     /// answer and this parser never sets it (see [`tsr_ast::NodeFlags::AMBIENT`],
     /// declared and written by nothing), so a rule reading the flag of a
     /// declaration rather than of a use has to walk.
-    fn declaration_is_in_an_ambient_context(&self, declaration: NodeId) -> bool {
+    pub(crate) fn declaration_is_in_an_ambient_context(&self, declaration: NodeId) -> bool {
         std::iter::once(declaration).chain(self.nodes.ancestors(declaration)).any(|at| {
             // Every kind that can carry `declare`, not just the two §83 needed.
             // A `declare const o` puts the modifier on the enclosing
@@ -7537,6 +7567,11 @@ impl Checker<'_, '_> {
         if self.decorator_error_reported.contains(&node) {
             return;
         }
+        if let Some(typed) = self.node_map.get(node)
+            && self.check_grammar_decorator_target(node, typed)
+        {
+            return;
+        }
         // **A type member takes no modifier but `readonly`**
         // (`grammarchecks.go:288`), tested in the `else` branch *before* the
         // per-keyword switch — so it takes precedence over every `must precede`
@@ -7996,6 +8031,10 @@ impl Checker<'_, '_> {
             }
             // `scanner.TokenToString(modifier.Kind)` — the keyword's own text.
             let Some(text) = modifier_keyword_text(token.kind) else { continue };
+            // `checkGrammarIndexSignature` is `checkGrammarModifiers(node) ||
+            // checkGrammarIndexSignatureParameters(node)`: a modifier report
+            // stops the parameter checks (`grammar.rs`).
+            self.modifier_chain_reported.insert(node);
             let Some(id) = token.node_id else { return };
             let Some(file) = self.source_file_of_for_diagnostics(id) else { return };
             let span = self.error_span(id);
@@ -8051,7 +8090,9 @@ impl Checker<'_, '_> {
         }
         // `blockScopeKind == ast.NodeFlagsConst` — the flag the parser sets on
         // the *list*, read the way `crate::flow` reads it.
-        if !self.nodes.flags(list).intersects(tsr_ast::NodeFlags::CONST) {
+        // `await using` is `CONST | USING` (`NodeFlagsAwaitUsing`), so the
+        // comparison is on the whole block-scope kind, not one bit of it.
+        if self.nodes.flags(list) & tsr_ast::NodeFlags::BLOCK_SCOPED != tsr_ast::NodeFlags::CONST {
             return;
         }
         // `node.Parent.Parent.Kind != KindForInStatement && … ForOfStatement`.
@@ -8146,6 +8187,9 @@ impl Checker<'_, '_> {
         if self.file_has_parse_errors {
             return;
         }
+        // The parser lane's `checkGrammar*` ports that upstream runs behind
+        // the same `!checkGrammarModifiers(node)` guard (`grammar.rs`).
+        self.check_grammar_behind_modifiers(node, typed);
         match typed {
             Node::ParameterDeclaration(parameter) => {
                 // `flags&ast.ModifierFlagsParameterPropertyModifier != 0` —
@@ -8218,6 +8262,7 @@ impl Checker<'_, '_> {
         }
         self.check_grammar_default_and_const_modifiers(node, typed);
         self.check_grammar_object_literal_modifiers(typed);
+        self.check_grammar_object_literal_postfix_tokens(typed);
     }
 
     /// `checkGrammarModifiers`' `KindDefaultKeyword` and `KindConstKeyword`
@@ -10476,7 +10521,13 @@ impl Checker<'_, '_> {
             let verdict = match self.node_map.get(ancestor) {
                 Some(Node::FunctionDeclaration(n)) => Some(n.asterisk_token.is_some()),
                 Some(Node::FunctionExpression(n)) => Some(n.asterisk_token.is_some()),
-                Some(Node::MethodDeclaration(n)) => Some(n.asterisk_token.is_some()),
+                // A method's computed name is outside its body too:
+                // `{ [yield 0]() {} }` in a generator (`generatorTypeCheck42`).
+                Some(Node::MethodDeclaration(n))
+                    if self.nodes.kind(came_from) != SyntaxKind::ComputedPropertyName =>
+                {
+                    Some(n.asterisk_token.is_some())
+                }
                 // Cannot be generators; they still bound the context — unless
                 // this is their computed name rather than their body.
                 Some(
@@ -10523,6 +10574,11 @@ impl Checker<'_, '_> {
     /// grandparent tests and are left to their own row
     /// (`checker-notes-diag2.md` §112).
     fn check_illegal_decorator(&mut self, modifiers: &[ModifierLike<'_>]) {
+        // `grammarErrorOnFirstToken` is silent in a file with parse
+        // diagnostics (`decoratorOnUsing`).
+        if self.file_has_parse_errors {
+            return;
+        }
         let Some(decorator) = modifiers.iter().find_map(|modifier| match modifier {
             ModifierLike::Decorator(decorator) => decorator.node_id,
             ModifierLike::Token(_) => None,
@@ -11924,7 +11980,7 @@ impl Checker<'_, '_> {
 
     /// `ast.IsEntityNameExpression` — an identifier, or a property access chain
     /// of identifiers. §636.
-    fn is_entity_name_expression(&self, node: NodeId) -> bool {
+    pub(crate) fn is_entity_name_expression(&self, node: NodeId) -> bool {
         match self.node_map.get(node) {
             Some(Node::Identifier(_)) => true,
             Some(Node::PropertyAccessExpression(access)) => {
