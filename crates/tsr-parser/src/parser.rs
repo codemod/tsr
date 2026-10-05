@@ -66,6 +66,9 @@ pub struct ParseResult<'a> {
 #[derive(Debug, Default)]
 pub struct JSDocTable<'a> {
     entries: Vec<(tsr_ast::NodeId, &'a [&'a tsr_ast::JSDoc<'a>])>,
+    /// What the parser objected to inside the comments — upstream's
+    /// `SourceFile.JSDocDiagnostics()` (`parser.go:468`).
+    diagnostics: Vec<Diagnostic>,
 }
 
 impl<'a> JSDocTable<'a> {
@@ -92,6 +95,18 @@ impl<'a> JSDocTable<'a> {
         &self,
     ) -> impl Iterator<Item = (tsr_ast::NodeId, &'a [&'a tsr_ast::JSDoc<'a>])> + '_ {
         self.entries.iter().copied()
+    }
+
+    /// The parse errors inside this file's JSDoc comments, in source order and
+    /// once each — upstream's `SourceFile.JSDocDiagnostics()`.
+    ///
+    /// Collected for every file because this parser does not know whether a
+    /// file is JavaScript (`ScriptKind` has no JS arm); only a checked
+    /// JavaScript file reports them (`getBindAndCheckDiagnosticsWithChecker`,
+    /// `program.go:1366`), and that gate is the consumer's.
+    #[must_use]
+    pub fn diagnostics(&self) -> &[Diagnostic] {
+        &self.diagnostics
     }
 }
 
@@ -202,6 +217,9 @@ pub struct Parser<'a> {
     /// absent from the overwhelming majority of nodes, and a field would cost
     /// every node a pointer to carry information a handful of them use.
     pub(crate) jsdoc: Vec<(tsr_ast::NodeId, &'a [&'a tsr_ast::JSDoc<'a>])>,
+    /// Parse errors inside JSDoc comments — upstream's `Parser.jsdocDiagnostics`.
+    /// Like upstream's, not rewound by speculation; `finish` drops repeats.
+    pub(crate) jsdoc_diagnostics: Vec<Diagnostic>,
     /// Whether to parse JSDoc; see [`ParseOptions::jsdoc`].
     pub(crate) parse_jsdoc: bool,
     /// Whether to record parents as nodes are finished.
@@ -310,6 +328,7 @@ impl<'a> Parser<'a> {
             disallow_conditional_types: 0,
             parsing_contexts: 0,
             jsdoc: Vec::new(),
+            jsdoc_diagnostics: Vec::new(),
             parse_jsdoc: options.jsdoc,
             assign_parents: options.parents,
             depth: 0,
@@ -343,7 +362,13 @@ impl<'a> Parser<'a> {
         tagged.sort_by_key(|(source, d)| (d.span.start, *source, d.span.end));
         let mut diagnostics: Vec<Diagnostic> = tagged.into_iter().map(|(_, d)| d).collect();
         diagnostics.dedup_by_key(|d| d.span.start);
-        (diagnostics, self.nodes, JSDocTable { entries: self.jsdoc }, self.node_map)
+        let mut jsdoc_diagnostics = self.jsdoc_diagnostics;
+        // A comment re-read after a speculative parse rewinds reports again;
+        // upstream's `SortAndDeduplicateDiagnostics` folds the repeats.
+        jsdoc_diagnostics.sort_by_key(|d| (d.span.start, d.span.end));
+        jsdoc_diagnostics.dedup_by(|a, b| a.span == b.span && a.message.code() == b.message.code());
+        let jsdoc = JSDocTable { entries: self.jsdoc, diagnostics: jsdoc_diagnostics };
+        (diagnostics, self.nodes, jsdoc, self.node_map)
     }
 
     // ---- token cursor ---------------------------------------------------
@@ -722,6 +747,12 @@ impl<'a> Parser<'a> {
     pub fn parse_source_file(&mut self) -> &'a SourceFile<'a> {
         let start = self.pos();
         let statements = self.parse_statement_list(crate::list::ParsingContext::SourceElements);
+        // Trailing comments document the end-of-file token
+        // (`parseSourceFileWorker`'s `withJSDoc(eof, endJSDoc)`, `parser.go:438`).
+        // Parsed for their diagnostics; not yet attached, because a bound
+        // end-of-file `@typedef` meets the checker's unfinished typedef alias
+        // bodies (docs/parity/notes/js.md).
+        let _end_docs = self.parse_leading_jsdoc();
         let eof = self.alloc_token(SyntaxKind::EndOfFile, self.token.span);
         self.finish_node(
             SourceFile::new(self.arena.alloc_slice(&statements), eof),
