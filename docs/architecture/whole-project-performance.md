@@ -679,3 +679,37 @@ The remaining program time on the smoke fixture is parsing (37 ms) and binding
 concurrently. Parallel parsing needs per-worker arenas and node-id assignment
 that keeps today's deterministic numbering (`bd tsr-1yb.5`); it is outside the
 loader and is the next lever toward the 0.50 target.
+
+## Attribution after the native work boundaries
+
+`--extendedDiagnostics` on the final tree (same Linux box, warm cache):
+
+| Phase | generic-imports | domain-model |
+|---|---:|---:|
+| Config | 2 ms | 3 ms |
+| Loader (reads, discovery) | 8 ms | 18 ms |
+| Parse (serial, JSDoc eager) | 39 ms | 46 ms |
+| Bind (serial) | 12 ms | 16 ms |
+| Checker pool (4 workers) | 5 ms | 81 ms |
+| Reporting | 0 ms | 2 ms |
+| Compilation | 66 ms | 165 ms |
+
+Nine pairs against pinned tsgo: generic-imports 95 ms vs 127 ms (ratio
+0.752), domain-model 198 ms vs 216 ms (ratio 0.916). Process creation and exit
+add about 25 ms to both tools on this box. The levers left are outside the
+loader and execute crates; each was measured with a throwaway patch that was
+not committed:
+
+- **Lazy JSDoc for TypeScript files.** Native `withJSDoc`
+  (`internal/parser/jsdoc.go:56`) defers JSDoc parsing for non-JS files to
+  first access (`parseJSDocForNode`). Skipping JSDoc for library files alone
+  cut parse time from 37 to 21 ms and compilation from 65 to 48 ms on
+  generic-imports.
+- **Pattern ambient modules collected once.** `has_pattern_ambient_module`
+  scans every global name for `*` on each module-specifier query; native
+  collects `patternAmbientModules` once in `initializeChecker`
+  (`checker.go:1318`). Caching the answer cut serial check time from 229 to
+  175 ms and pooled check time from 81 to 60 ms on domain-model.
+- **Parallel parse and bind** (`filesParser.start`, `BindSourceFiles`) need
+  per-worker arenas and deterministic node and symbol id assignment
+  (`bd tsr-1yb.5`, ADR-0034).
