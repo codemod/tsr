@@ -1240,6 +1240,16 @@ impl Checker<'_, '_> {
         this_argument: TypeId,
         skip_object_function_augment: bool,
     ) -> Option<TypeId> {
+        if name == "length"
+            && let Some(body) = self.completed_array_placeholder_length_body(id)
+        {
+            return self.get_type_of_property_with_this_argument(
+                body,
+                name,
+                this_argument,
+                skip_object_function_augment,
+            );
+        }
         self.resolve_mapped_type_members(id);
         if let Some(property) = self
             .anonymous_properties
@@ -1578,6 +1588,86 @@ impl Checker<'_, '_> {
             }
         }
         self.property_type_via_shape(id, name, skip_object_function_augment)
+    }
+
+    /// Native 5b1047d checker.go:24115/25121 publishes the original array
+    /// before recursive arguments (:21893); its tuple retains that identity.
+    /// This port's tuple retains `alias_placeholders`[owner] instead. Read only
+    /// the existing successful `declared_types`[owner] for a length lookup:
+    /// canonical Array/ReadonlyArray and its exact ordered argument key.
+    /// The explicit number property cannot depend on the original `this` or
+    /// element mapper. Other members, active/captured images and incomplete
+    /// owners decline; one existing-owner scan, no evaluation, publication,
+    /// source rekey or cache. The normal length getter retains its work boundary.
+    fn completed_array_placeholder_length_body(&self, id: TypeId) -> Option<TypeId> {
+        if !matches!(self.store.get(id).data, TypeData::Named { members: None, .. })
+            || !self.alias_evaluation_bindings.is_empty()
+            || self.mapped_template_depth != 0
+            || self.instantiation_depth != 0
+            || self.identity_unmapped_type_parameters
+            || !self.render_type_parameter_scope.is_empty()
+        {
+            return None;
+        }
+        let mut owners =
+            self.alias_placeholders.iter().filter(|(_, placeholder)| **placeholder == id);
+        let (&owner, _) = owners.next()?;
+        if owners.next().is_some()
+            || self.resolutions.on_stack(owner, crate::resolution::PropertyName::DeclaredType)
+            || !self.binder.symbols().get(owner).flags.contains(SymbolFlags::TYPE_ALIAS)
+        {
+            return None;
+        }
+        let [declaration] = self.binder.symbols().get(owner).declarations.as_slice() else {
+            return None;
+        };
+        let Node::TypeAliasDeclaration(alias) = self.node_map.get(*declaration)? else {
+            return None;
+        };
+        let root = self.nodes.parent(*declaration)?;
+        if !alias.type_parameters.is_empty()
+            || self.nodes.kind(root) != tsr_ast::SyntaxKind::SourceFile
+            || self.nodes.flags(root).contains(tsr_ast::NodeFlags::JAVASCRIPT_FILE)
+        {
+            return None;
+        }
+        let array = match alias.r#type? {
+            tsr_ast::TypeNode::ArrayTypeNode(_) => "Array",
+            tsr_ast::TypeNode::TypeOperatorNode(operator)
+                if operator.operator.kind == tsr_ast::SyntaxKind::ReadonlyKeyword
+                    && matches!(operator.r#type, Some(tsr_ast::TypeNode::ArrayTypeNode(_))) =>
+            {
+                "ReadonlyArray"
+            }
+            _ => return None,
+        };
+        let target = self.global_type_symbol_with_arity(array, 1)?;
+        let body = *self.declared_types.get(&owner)?;
+        if body == id || body == self.intrinsics.unresolved || self.is_error(body) {
+            return None;
+        }
+        let key @ (body_target, arguments) = self.type_reference_targets.get(&body)?;
+        let [element] = arguments.as_slice() else { return None };
+        if *body_target != target
+            || self.instantiations.get(key) != Some(&body)
+            || self.resolutions.on_stack(target, crate::resolution::PropertyName::DeclaredType)
+            || !self.binder.symbols().get(target).flags.contains(SymbolFlags::INTERFACE)
+            || !matches!(self.store.get(body).data, TypeData::Named { members: Some(member), .. } if member == target)
+            || *element == self.intrinsics.unresolved
+            || self.is_error(*element)
+        {
+            return None;
+        }
+        let length = *self.binder.symbols().get(target).members.get("length")?;
+        let [declaration] = self.binder.symbols().get(length).declarations.as_slice() else {
+            return None;
+        };
+        let Node::PropertySignatureDeclaration(property) = self.node_map.get(*declaration)? else {
+            return None;
+        };
+        (property.postfix_token.is_none()
+            && matches!(property.r#type, Some(tsr_ast::TypeNode::KeywordTypeNode(keyword)) if keyword.kind == tsr_ast::SyntaxKind::NumberKeyword))
+        .then_some(body)
     }
 
     /// Resolve inherited members through each instantiated base, guarded by
@@ -3940,5 +4030,251 @@ static readonly fixed = 29; static optional?: number; static #secret = 31;"#;
                 assert_eq!(checker.get_property_names_of_type(both), None);
             },
         );
+    }
+}
+
+#[cfg(test)]
+mod completed_array_placeholder_tests {
+    use super::*;
+    use tsr_ast::NodeId;
+
+    // Native 5b1047d1: both query orders produce number for child length and
+    // number[] for map. The recursive child retains its original Tree identity.
+    const LIB: &str = "interface Array<T> { [index: number]: T; length: number; map<U>(fn: (value: T) => U): U[]; }
+interface ReadonlyArray<T> { readonly [index: number]: T; readonly length: number; }";
+
+    fn with_checker(source: &str, test: impl FnOnce(&mut Checker<'_, '_>, NodeId)) {
+        let arena = tsr_core::Arena::new();
+        let parsed = tsr_parser::parse(&arena, source);
+        assert!(parsed.diagnostics.is_empty());
+        let root = Node::SourceFile(parsed.source_file).node_id().unwrap();
+        let bound = tsr_binder::bind(
+            &arena,
+            parsed.source_file,
+            &parsed.nodes,
+            tsr_binder::FileInfo { name: "tree.ts", text: source },
+        );
+        let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+        checker.set_strict_null_checks(true);
+        test(&mut checker, root);
+    }
+
+    fn value(checker: &mut Checker<'_, '_>, root: NodeId, name: &str) -> TypeId {
+        let symbol = checker.binder.lookup_local(root, name).unwrap();
+        checker.get_type_of_symbol(symbol)
+    }
+
+    fn publication(checker: &Checker<'_, '_>) -> String {
+        format!(
+            "{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}",
+            checker.store,
+            checker.alias_placeholders,
+            checker.declared_types,
+            checker.alias_body_evaluations,
+            checker.instantiations,
+            checker.type_reference_targets,
+            checker.symbol_types,
+        )
+    }
+
+    #[test]
+    fn child_length_and_map_return_match_native_in_cold_reverse_and_warm_orders() {
+        let source = format!(
+            "{LIB} type Tree = [string, Tree][]; declare const tree: Tree;
+type ReadTree = readonly [number, ReadTree][]; declare const readTree: ReadTree;
+const direct = tree[0][1].length; const mapped = tree.map(([label, child]) => child.length);
+const child = tree[0][1]; const readLength = readTree[0][1].length;"
+        );
+        for first in ["direct", "mapped", "readLength"] {
+            with_checker(&source, |checker, root| {
+                value(checker, root, first);
+                for order in [["direct", "readLength"], ["readLength", "direct"]] {
+                    for name in order {
+                        assert_eq!(value(checker, root, name), checker.intrinsics.number);
+                    }
+                    let mapped = value(checker, root, "mapped");
+                    assert_eq!(
+                        checker.type_reference_targets[&mapped].1,
+                        [checker.intrinsics.number]
+                    );
+                }
+                let owner = checker.binder.lookup_local(root, "Tree").unwrap();
+                let placeholder = checker.alias_placeholders[&owner];
+                let original = checker.declared_types[&owner];
+                let tuple = checker.type_reference_targets[&original].1[0];
+                assert_eq!(checker.tuple_element_lists[&tuple].0[1], placeholder);
+                assert_eq!(value(checker, root, "child"), placeholder);
+                assert_ne!(placeholder, original);
+                checker.check_source_file(
+                    root,
+                    crate::check::FileContext { ambient: false, has_parse_errors: false },
+                );
+                assert!(checker.diagnostics().is_empty());
+                let before = publication(checker);
+                for _ in 0..3 {
+                    assert_eq!(
+                        checker.completed_array_placeholder_length_body(placeholder),
+                        Some(original)
+                    );
+                    assert_eq!(publication(checker), before);
+                    assert_eq!(
+                        checker.get_type_of_property_with_this_argument(
+                            placeholder,
+                            "length",
+                            placeholder,
+                            true
+                        ),
+                        Some(checker.intrinsics.number),
+                    );
+                    assert_eq!(publication(checker), before);
+                }
+            });
+        }
+    }
+
+    #[test]
+    fn unfinished_foreign_ambiguous_and_captured_owners_stay_refused() {
+        let source = format!(
+            "{LIB} type Tree = [string, Tree][]; type Other = string; declare const tree: Tree;
+function outer<X>() {{ type Local = [X, Local][]; let local!: Local; return local; }}"
+        );
+        with_checker(&source, |checker, root| {
+            value(checker, root, "tree");
+            let owner = checker.binder.lookup_local(root, "Tree").unwrap();
+            let placeholder = checker.alias_placeholders[&owner];
+            let completed = checker.declared_types[&owner];
+            for incomplete in [
+                None,
+                Some(placeholder),
+                Some(checker.intrinsics.error),
+                Some(checker.intrinsics.unresolved),
+            ] {
+                if let Some(incomplete) = incomplete {
+                    checker.declared_types.insert(owner, incomplete);
+                } else {
+                    checker.declared_types.remove(&owner);
+                }
+                let before = publication(checker);
+                assert_eq!(checker.get_type_of_property_of_type(placeholder, "length"), None);
+                assert_eq!(publication(checker), before);
+            }
+            checker.declared_types.insert(owner, completed);
+            let target = checker.type_reference_targets[&completed].0;
+            for context in 0..7 {
+                match context {
+                    0 => assert!(
+                        checker
+                            .resolutions
+                            .push(owner, crate::resolution::PropertyName::DeclaredType)
+                    ),
+                    1 => checker.alias_evaluation_bindings.push(rustc_hash::FxHashMap::default()),
+                    2 => checker.mapped_template_depth = 1,
+                    3 => checker.instantiation_depth = 1,
+                    4 => checker.identity_unmapped_type_parameters = true,
+                    5 => checker.render_type_parameter_scope.push(("foreign".into(), owner)),
+                    _ => assert!(
+                        checker
+                            .resolutions
+                            .push(target, crate::resolution::PropertyName::DeclaredType)
+                    ),
+                }
+                let before = publication(checker);
+                assert_eq!(checker.get_type_of_property_of_type(placeholder, "length"), None);
+                assert_eq!(publication(checker), before);
+                match context {
+                    1 => {
+                        checker.alias_evaluation_bindings.pop();
+                    }
+                    2 => checker.mapped_template_depth = 0,
+                    3 => checker.instantiation_depth = 0,
+                    4 => checker.identity_unmapped_type_parameters = false,
+                    5 => {
+                        checker.render_type_parameter_scope.pop();
+                    }
+                    _ => assert!(checker.resolutions.pop()),
+                }
+            }
+            let foreign = checker.store.new_named(TypeFlags::OBJECT, "Tree".into(), None);
+            assert_eq!(checker.get_type_of_property_of_type(foreign, "length"), None);
+            let other = checker.binder.lookup_local(root, "Other").unwrap();
+            checker.alias_placeholders.insert(other, placeholder);
+            let before = publication(checker);
+            assert_eq!(checker.get_type_of_property_of_type(placeholder, "length"), None);
+            assert_eq!(publication(checker), before);
+            checker.alias_placeholders.remove(&other);
+            let key = checker.type_reference_targets[&completed].clone();
+            checker
+                .type_reference_targets
+                .insert(completed, (key.0, vec![checker.intrinsics.number]));
+            let before = publication(checker);
+            assert_eq!(checker.get_type_of_property_of_type(placeholder, "length"), None);
+            assert_eq!(publication(checker), before);
+            checker.type_reference_targets.insert(completed, key);
+            let mut nodes = vec![checker.node_map.get(root).unwrap()];
+            let local = loop {
+                let node = nodes.pop().unwrap();
+                if let Node::VariableDeclaration(declaration) = node
+                    && matches!(declaration.name, Some(tsr_ast::BindingName::Identifier(name)) if name.text == "local")
+                {
+                    break checker.binder.symbol_of(declaration.node_id.unwrap()).unwrap();
+                }
+                tsr_ast::push_children(node, &mut nodes);
+            };
+            checker.get_type_of_symbol(local);
+            let local_owner = checker
+                .alias_placeholders
+                .iter()
+                .find(|(symbol, _)| checker.binder.symbols().get(**symbol).name == "Local")
+                .unwrap()
+                .0;
+            let local_placeholder = checker.alias_placeholders[local_owner];
+            let before = publication(checker);
+            assert_eq!(checker.get_type_of_property_of_type(local_placeholder, "length"), None);
+            assert_eq!(publication(checker), before);
+        });
+    }
+
+    #[test]
+    fn other_members_and_this_dependent_length_do_not_use_the_view() {
+        for annotation in ["number", "T", "this"] {
+            let source = format!(
+                "interface Array<T> {{ [index: number]: T; length: {annotation}; other: number; }}
+type Tree = [string, Tree][]; declare const tree: Tree;"
+            );
+            with_checker(&source, |checker, root| {
+                value(checker, root, "tree");
+                let owner = checker.binder.lookup_local(root, "Tree").unwrap();
+                let placeholder = checker.alias_placeholders[&owner];
+                for name in ["other", "0", "map", "missing"] {
+                    let before = publication(checker);
+                    assert_eq!(checker.get_type_of_property_of_type(placeholder, name), None);
+                    assert_eq!(publication(checker), before);
+                }
+                if annotation != "number" {
+                    let before = publication(checker);
+                    assert_eq!(checker.get_type_of_property_of_type(placeholder, "length"), None);
+                    assert_eq!(publication(checker), before);
+                }
+            });
+        }
+    }
+
+    #[test]
+    fn unsupported_written_roots_do_not_certify_length() {
+        for body in ["[string, Tree][]", "Array<[string, Tree]>", "([string, Tree][])"] {
+            let source = format!("{LIB} type Tree = {body}; declare const tree: Tree;");
+            with_checker(&source, |checker, root| {
+                value(checker, root, "tree");
+                let owner = checker.binder.lookup_local(root, "Tree").unwrap();
+                let placeholder = checker.alias_placeholders[&owner];
+                let before = publication(checker);
+                if body == "[string, Tree][]" {
+                    assert!(checker.completed_array_placeholder_length_body(placeholder).is_some());
+                } else {
+                    assert!(checker.completed_array_placeholder_length_body(placeholder).is_none());
+                }
+                assert_eq!(publication(checker), before);
+            });
+        }
     }
 }
