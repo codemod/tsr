@@ -583,6 +583,7 @@ impl Checker<'_, '_> {
                 self.check_instanceof_left_operand(node);
                 self.check_comparison_overlap(node, ambient);
                 self.check_operator_operands(node, ambient);
+                self.check_in_expression(node, ambient);
                 ambient
             }
             Node::ComputedPropertyName(_) => {

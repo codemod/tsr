@@ -118,6 +118,76 @@ impl<'a> Checker<'a, '_> {
         self.report_assignability_failure(left_id, right_id, source, target);
     }
 
+    /// `checkInExpression` (`checker.go:13077`): the left operand must be
+    /// assignable to `string | number | symbol` (unless it is a private name)
+    /// and the right operand to `object`, each through `checkTypeAssignableTo`
+    /// with the operand as error node and no expression elaboration. Operand
+    /// types are `checkNonNullType`'s; its own nullability diagnostics belong
+    /// to that rule, and a refused (error) operand is silent here. When the
+    /// right operand does relate, `hasEmptyObjectIntersection` still rejects a
+    /// `{}` that may be a primitive (TS2638).
+    pub(crate) fn check_in_expression(&mut self, node: NodeId, ambient: bool) {
+        if ambient || self.file_has_parse_errors || self.in_js_file(node) {
+            return;
+        }
+        let Some(Node::BinaryExpression(binary)) = self.node_map.get(node) else { return };
+        if binary.operator_token.is_none_or(|token| token.kind != SyntaxKind::InKeyword) {
+            return;
+        }
+        let (Some(left), Some(right)) = (
+            binary.left.and_then(|left| left.node_id()),
+            binary.right.and_then(|right| right.node_id()),
+        ) else {
+            return;
+        };
+        let left_type = self.check_expression_at_node(left);
+        let right_type = self.check_expression_at_node(right);
+        if self.nodes.kind(left) != SyntaxKind::PrivateIdentifier {
+            let intrinsics = self.intrinsics();
+            let (string, number, symbol) =
+                (intrinsics.string, intrinsics.number, intrinsics.es_symbol);
+            let target = self.get_union_type(&[string, number, symbol]);
+            let source = self.check_non_null_type(left_type);
+            self.report_assignability_failure(left, left, source, target);
+        }
+        let source = self.check_non_null_type(right_type);
+        let non_primitive = self.intrinsics().non_primitive;
+        if self.report_assignability_failure(right, right, source, non_primitive)
+            || self.relate_ternary(source, non_primitive, crate::relater::Relation::Assignable)
+                != crate::relater::Ternary::Related
+            || !self.has_empty_object_intersection(right_type)
+        {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(right) else { return };
+        let span = self.error_span(right);
+        let text = self.type_to_string(right_type);
+        self.report(
+            file,
+            Diagnostic::with_args(
+                &messages::TYPE_0_MAY_REPRESENT_A_PRIMITIVE_VALUE_WHICH_IS_NOT_PERMITTED_AS_THE_RIGHT_OPERAND_OF_THE_IN_OPERATOR,
+                span,
+                [text],
+            ),
+        );
+    }
+
+    /// `hasEmptyObjectIntersection` (`checker.go:13111`).
+    fn has_empty_object_intersection(&mut self, t: TypeId) -> bool {
+        let parts = match &self.type_of(t).data {
+            TypeData::Union { types, .. } => types.clone(),
+            _ => vec![t],
+        };
+        let unknown_empty_object = self.intrinsics().unknown_empty_object;
+        parts.into_iter().any(|part| {
+            part == unknown_empty_object
+                || (self.type_of(part).flags.contains(TypeFlags::INTERSECTION) && {
+                    let constraint = self.base_constraint_or_type(part);
+                    self.is_empty_anonymous_object_type(constraint)
+                })
+        })
+    }
+
     /// `checkForOfStatement` (`checker.go:4032`), the reference-expression arm:
     /// `for (v of xs)` relates the iterated element type to `v`'s type through
     /// `checkTypeAssignableToAndOptionallyElaborate`, error node the left
