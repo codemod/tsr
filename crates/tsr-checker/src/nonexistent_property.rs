@@ -578,6 +578,9 @@ impl Checker<'_, '_> {
         } else {
             receiver
         };
+        if let Some(apparent) = self.function_declaration_lacks(apparent, name) {
+            return apparent.then_some(receiver);
+        }
         if apparent == self.intrinsics.empty_object {
             // The canonical empty object: no own members, the global
             // `Object` augment only (getPropertyOfTypeEx).
@@ -603,6 +606,10 @@ impl Checker<'_, '_> {
     /// (`checker.go:11330`) does: a `string` key admits every name, a `number`
     /// key only a numeric one, a `symbol` key none; any other key declines.
     fn apparent_type_lacks(&mut self, apparent: TypeId, name: &str) -> Option<bool> {
+        self.apparent_type_lacks_at(apparent, name, 0)
+    }
+
+    fn apparent_type_lacks_at(&mut self, apparent: TypeId, name: &str, depth: u32) -> Option<bool> {
         // A found property needs no certificate; the completeness walks are
         // the expensive half and only a miss pays for them.
         if self.get_property_of_type(apparent, name).is_some() {
@@ -633,16 +640,16 @@ impl Checker<'_, '_> {
         };
         let declarations = self.binder.symbols().get(owner).declarations.to_vec();
         let mut interfaces = 0usize;
+        let mut extends = false;
         for declaration in declarations {
             match self.node_map.get(declaration) {
                 Some(Node::InterfaceDeclaration(interface)) => {
                     // Instantiation never changes member names (§41's
                     // audit in `crate::member_completeness`).
-                    if !interface.heritage_clauses.is_empty()
-                        || !interface.members.iter().all(|member| member_name_is_bound(*member))
-                    {
+                    if !interface.members.iter().all(|member| member_name_is_bound(*member)) {
                         return None;
                     }
+                    extends |= !interface.heritage_clauses.is_empty();
                     interfaces += 1;
                 }
                 Some(Node::VariableDeclaration(_)) => {}
@@ -651,6 +658,23 @@ impl Checker<'_, '_> {
         }
         if interfaces == 0 {
             return None;
+        }
+        // `resolveObjectTypeMembers` layers each base's properties under the
+        // own ones; a base the member walk cannot follow is a gap
+        // (`base_symbols_of`). Each followed base must lack the name by the
+        // same certificate, or the lookup's miss is this port's.
+        // `docs/parity/notes/property.md` §4.
+        if extends {
+            const MAX_BASE_DEPTH: u32 = 32;
+            if depth >= MAX_BASE_DEPTH {
+                return None;
+            }
+            for base in self.base_symbols_of(owner)? {
+                let base = self.get_declared_type_of_symbol(base);
+                if self.apparent_type_lacks_at(base, name, depth + 1) != Some(true) {
+                    return None;
+                }
+            }
         }
         self.no_index_signature_admits(apparent, name)
     }
@@ -689,6 +713,49 @@ impl Checker<'_, '_> {
                 _ => false,
             }
         })
+    }
+
+    /// `getPropertyOfTypeEx` (checker.go:18899) on a function declaration's
+    /// `typeof`: `resolveAnonymousTypeMembers` gives it the symbol's exports,
+    /// then the miss falls to the global `Function` family and `Object`.
+    /// `Some(lacks)` once every table is certified, `None` for any other
+    /// receiver or an uncertified table. A function with exports (a merged
+    /// namespace, an expando assignment) declines: those members are
+    /// assembled from declarations this walk does not read.
+    fn function_declaration_lacks(&mut self, receiver: TypeId, name: &str) -> Option<bool> {
+        let crate::types::TypeData::Anonymous { symbol, .. } = self.store.get(receiver).data else {
+            return None;
+        };
+        let symbol = self.binder.merged_symbol(symbol);
+        let entry = self.binder.symbols().get(symbol);
+        if entry.flags != SymbolFlags::FUNCTION
+            || !entry.exports.is_empty()
+            || entry.declarations.is_empty()
+            || !entry.declarations.iter().all(|&declaration| {
+                self.nodes.kind(declaration) == SyntaxKind::FunctionDeclaration
+                    && !self.in_js_file(declaration)
+            })
+        {
+            return None;
+        }
+        if self.get_property_of_type(receiver, name).is_some() {
+            return Some(false);
+        }
+        let mut fallbacks = Vec::new();
+        if self.strict_bind_call_apply {
+            fallbacks.push("CallableFunction");
+        }
+        fallbacks.extend(["Function", "Object"]);
+        for global in fallbacks {
+            let Some(interface) = self.global_type_symbol_with_arity(global, 0) else {
+                continue;
+            };
+            let declared = self.get_declared_type_of_symbol(interface);
+            if !self.apparent_type_lacks(declared, name)? {
+                return Some(false);
+            }
+        }
+        Some(true)
     }
 
     /// `getApplicableIndexInfoForName(apparent, name) == nil`: a `string` key

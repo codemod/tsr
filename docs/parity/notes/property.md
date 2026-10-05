@@ -121,3 +121,33 @@ it and declined every `never` receiver.
 
 **Falsifier.** A false TS2339 on `never` reached by flow narrowing means a
 narrowing arm over-narrows; it is fixed in the flow walk, not declined here.
+
+## 4. TS2339 on a function declaration's `typeof`, and inherited lib interfaces
+
+**Forcing constraint.** `getPropertyOfTypeEx` (`checker.go:18899`) answers a
+function declaration's `typeof` from the symbol's exports, then falls to the
+global `CallableFunction`/`NewableFunction` (under `strictBindCallApply`),
+`Function` and `Object` interfaces. `declared_members_are_complete` certifies
+only module, enum and class `typeof` receivers, and the lib-interface
+certificate in `apparent_type_lacks` refused any interface with an `extends`
+clause — and `CallableFunction extends Function`.
+
+**Decision.**
+
+- `function_declaration_lacks`: a symbol that is exactly `FUNCTION`, declared
+  only by TS `FunctionDeclaration`s, with no exports (a merged namespace or an
+  expando assignment is bound there and declines), misses a name when each
+  fallback interface lacks it by `apparent_type_lacks`.
+- `apparent_type_lacks` follows an interface's `extends` bases through
+  `base_symbols_of` (a base it cannot follow is a gap, as for the lookup), each
+  base certified by the same rule, depth-bounded at 32 like the completeness
+  walk. A base that *has* the name while the derived lookup missed declines:
+  the miss is this port's.
+
+**Measured.** 5 baseline lines, 0 false, 0 losses;
+`contextualReturnTypeOfIIFE2` and
+`modularizeLibrary_ErrorFromUsingES6FeaturesWithOnlyES5Lib` convert.
+
+**Rejected.** Certifying arrow-function and function-expression `typeof`
+receivers the same way: their expando members are recorded on the variable,
+not the function symbol, so an empty `exports` does not prove absence.
