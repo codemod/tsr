@@ -1241,7 +1241,7 @@ impl<'a> Parser<'a> {
     }
 
     /// `<A, B>` after a type reference, if present.
-    fn parse_type_arguments(&mut self) -> Vec<TypeNode<'a>> {
+    pub(crate) fn parse_type_arguments(&mut self) -> Vec<TypeNode<'a>> {
         if self.at(SyntaxKind::LessThanLessThanToken) {
             self.rescan_less_than();
         }

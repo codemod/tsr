@@ -724,7 +724,24 @@ impl<'a> Parser<'a> {
         let used_brace = self.eat_jsdoc(SyntaxKind::OpenBraceToken);
         let start = self.pos();
         let expression = Some(self.parse_property_access_entity_name_expression()?);
-        let node = tsr_ast::ExpressionWithTypeArguments::new(expression, &[]);
+        // `parseTypeArguments` with leading asterisks skipped, handed to the
+        // ordinary type grammar the way `parse_jsdoc_type_expression` does.
+        let type_arguments: &'a [tsr_ast::TypeNode<'a>] =
+            if self.at_jsdoc(SyntaxKind::LessThanToken) {
+                let resume = self.token.span.start;
+                let limit = self.scanner.limit();
+                self.scanner.set_range(resume, limit);
+                self.scanner.set_skip_jsdoc_leading_asterisks(true);
+                self.next_token();
+                let arguments = self.parse_type_arguments();
+                self.scanner.set_skip_jsdoc_leading_asterisks(false);
+                self.scanner_reset_to_token_start();
+                self.next_jsdoc_token();
+                self.arena.alloc_slice(&arguments)
+            } else {
+                &[]
+            };
+        let node = tsr_ast::ExpressionWithTypeArguments::new(expression, type_arguments);
         let node = self.finish_jsdoc_node(node, SyntaxKind::ExpressionWithTypeArguments, start);
         if used_brace {
             self.expect_jsdoc(SyntaxKind::CloseBraceToken);

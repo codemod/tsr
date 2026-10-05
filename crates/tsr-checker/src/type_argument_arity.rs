@@ -22,7 +22,7 @@
 //!
 //! | decline | why |
 //! |---|---|
-//! | a `.js` file | upstream substitutes `Expected_0_type_arguments_provide_these_with_an_extends_tag` when a JSDoc `@augments` tag is missing (`checker.go:23181`), and with `noImplicitAny` off it reports nothing at all |
+//! | a `.js` class or interface reference | the JS leg: `noImplicitAny` off reports nothing, and a heritage reference asks for an `@extends` tag (TS8026/TS8027) — [`Checker::check_js_type_argument_arity`] |
 //! | a type **alias** | its arity error is TS2315 / TS2558 from a different function |
 //! | a name that resolves to more than one kind of declaration | a class merged with an interface or a namespace has type parameters upstream reads off the merged symbol, and this port's merge is not upstream's |
 //! | a name that does not resolve | TS2304 / TS2552 territory, already a row |
@@ -46,7 +46,11 @@ impl Checker<'_, '_> {
             ),
             Some(Node::ExpressionWithTypeArguments(reference)) => (
                 reference.expression.and_then(|expression| expression.node_id()),
-                reference.type_arguments.len(),
+                if reference.type_arguments.is_empty() {
+                    self.jsdoc_augments_type_arguments(node).map_or(0, <[_]>::len)
+                } else {
+                    reference.type_arguments.len()
+                },
             ),
             _ => return,
         };
@@ -75,7 +79,9 @@ impl Checker<'_, '_> {
         {
             return;
         }
-        let Some((minimum, maximum)) = self.declared_type_parameter_arity(name) else { return };
+        let Some((minimum, maximum, symbol)) = self.declared_type_parameter_arity(name) else {
+            return;
+        };
         // `maximum == 0` is an **answer**, not a failure to compute one: the
         // class or interface resolved and declares no type parameters. Upstream
         // does not treat it as an arity mismatch at all — `checkNoTypeArguments`
@@ -97,6 +103,17 @@ impl Checker<'_, '_> {
         if written >= minimum && written <= maximum {
             return;
         }
+        if self.in_js_file(node)
+            && self
+                .binder
+                .symbols()
+                .get(symbol)
+                .flags
+                .intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE)
+        {
+            self.check_js_type_argument_arity(node, symbol, minimum, maximum);
+            return;
+        }
         let message = if minimum < maximum {
             &messages::GENERIC_TYPE_0_REQUIRES_BETWEEN_1_AND_2_TYPE_ARGUMENTS
         } else {
@@ -105,6 +122,95 @@ impl Checker<'_, '_> {
         let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
         let span = self.error_span(node);
         let printed = self.written_type_name(name);
+        self.report(
+            file,
+            Diagnostic::with_args(
+                message,
+                span,
+                [printed, minimum.to_string(), maximum.to_string()],
+            ),
+        );
+    }
+}
+
+impl<'a> Checker<'a, '_> {
+    /// The type arguments `reparseHosted`'s `KindJSDocAugmentsTag` arm
+    /// (`parser/reparser.go`) copies onto a JS class's single `extends`
+    /// reference that writes none: the first `@augments`/`@extends` tag whose
+    /// class name has the same property-access name
+    /// (`ast.HasSamePropertyAccessName`) and writes type arguments.
+    ///
+    /// This port keeps JSDoc in a side table instead of mutating the tree, so
+    /// consumers of the heritage reference's arguments read them here.
+    pub(crate) fn jsdoc_augments_type_arguments(
+        &self,
+        reference: NodeId,
+    ) -> Option<&'a [tsr_ast::TypeNode<'a>]> {
+        if !self.in_js_file(reference) {
+            return None;
+        }
+        let Some(Node::ExpressionWithTypeArguments(target)) = self.node_map.get(reference) else {
+            return None;
+        };
+        let clause = self.nodes.parent(reference)?;
+        let Some(Node::HeritageClause(heritage)) = self.node_map.get(clause) else {
+            return None;
+        };
+        if heritage.token.kind != SyntaxKind::ExtendsKeyword || heritage.types.len() != 1 {
+            return None;
+        }
+        let class = self.nodes.parent(clause)?;
+        for doc in self.jsdoc_entries.get(&class).copied().unwrap_or_default() {
+            for tag in doc.tags {
+                if let tsr_ast::JSDocTag::JSDocAugmentsTag(tag) = tag
+                    && let Some(source) = tag.class_name
+                    && let (Some(left), Some(right)) = (target.expression, source.expression)
+                    && has_same_property_access_name(left, right)
+                    && !source.type_arguments.is_empty()
+                {
+                    return Some(source.type_arguments);
+                }
+            }
+        }
+        None
+    }
+}
+
+impl Checker<'_, '_> {
+    /// The JS leg of `getTypeFromClassOrInterfaceReference`'s arity arm
+    /// (`checker.go:23169`): `isJsImplicitAny` reports nothing, and a heritage
+    /// `ExpressionWithTypeArguments` outside an `@augments` tag asks for an
+    /// `@extends` tag (TS8026/TS8027) instead of TS2314/TS2707.
+    ///
+    /// Upstream passes `typeStr` — the declared type printed with
+    /// `TypeFormatFlagsWriteArrayAsGenericType` — as `{0}` and the counts as
+    /// `{1}`/`{2}`, so the message reads `Expected Foo<T> type arguments`; the
+    /// arguments are kept in that order.
+    fn check_js_type_argument_arity(
+        &mut self,
+        node: NodeId,
+        symbol: tsr_binder::SymbolId,
+        minimum: usize,
+        maximum: usize,
+    ) {
+        if !self.no_implicit_any {
+            return;
+        }
+        // Every heritage reference reaching here is an `ExpressionWithTypeArguments`
+        // under a `HeritageClause`; an `@augments` tag's own reference is not.
+        let missing_augments_tag = self.nodes.kind(node) == SyntaxKind::ExpressionWithTypeArguments;
+        let message = match (missing_augments_tag, minimum < maximum) {
+            (true, false) => &messages::EXPECTED_0_TYPE_ARGUMENTS_PROVIDE_THESE_WITH_AN_EXTENDS_TAG,
+            (true, true) => {
+                &messages::EXPECTED_0_1_TYPE_ARGUMENTS_PROVIDE_THESE_WITH_AN_EXTENDS_TAG
+            }
+            (false, false) => &messages::GENERIC_TYPE_0_REQUIRES_1_TYPE_ARGUMENT_S,
+            (false, true) => &messages::GENERIC_TYPE_0_REQUIRES_BETWEEN_1_AND_2_TYPE_ARGUMENTS,
+        };
+        let declared = self.get_declared_type_of_symbol(symbol);
+        let printed = self.type_to_string(declared);
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        let span = self.error_span(node);
         self.report(
             file,
             Diagnostic::with_args(
@@ -226,7 +332,10 @@ impl Checker<'_, '_> {
     /// `getMinTypeArgumentCount` (`checker.go`) counts the parameters up to the
     /// first one carrying a default: a parameter with a default may be omitted,
     /// and so may every parameter after it.
-    fn declared_type_parameter_arity(&mut self, name: NodeId) -> Option<(usize, usize)> {
+    fn declared_type_parameter_arity(
+        &mut self,
+        name: NodeId,
+    ) -> Option<(usize, usize, tsr_binder::SymbolId)> {
         // **`M.E` is a `QualifiedName`, not an `Identifier`.** §942 built this
         // file for call-site arity and every fixture it had used a bare name,
         // so a namespace-qualified generic type declined here — the comment
@@ -316,7 +425,7 @@ impl Checker<'_, '_> {
                 _ => arity = Some((minimum, maximum)),
             }
         }
-        arity
+        arity.map(|(minimum, maximum)| (minimum, maximum, symbol))
     }
 
     /// Is `node` an entry of a class declaration's or expression's `extends`
@@ -407,5 +516,35 @@ impl Checker<'_, '_> {
         let namespace = self.binder.merged_symbol(namespace);
         let exported = *self.binder.symbols().get(namespace).exports.get(member.as_str())?;
         Some(self.binder.merged_symbol(exported))
+    }
+}
+
+/// Ported from typescript-go's `ast.HasSamePropertyAccessName`
+/// (`internal/ast/utilities.go`).
+fn has_same_property_access_name(
+    left: tsr_ast::Expression<'_>,
+    right: tsr_ast::Expression<'_>,
+) -> bool {
+    use tsr_ast::{Expression, MemberName};
+    match (left, right) {
+        (Expression::Identifier(left), Expression::Identifier(right)) => left.text == right.text,
+        (
+            Expression::PropertyAccessExpression(left),
+            Expression::PropertyAccessExpression(right),
+        ) => {
+            let same_name = match (left.name, right.name) {
+                (Some(MemberName::Identifier(l)), Some(MemberName::Identifier(r))) => {
+                    l.text == r.text
+                }
+                (
+                    Some(MemberName::PrivateIdentifier(l)),
+                    Some(MemberName::PrivateIdentifier(r)),
+                ) => l.text == r.text,
+                _ => false,
+            };
+            same_name
+                && matches!((left.expression, right.expression), (Some(l), Some(r)) if has_same_property_access_name(l, r))
+        }
+        _ => false,
     }
 }
