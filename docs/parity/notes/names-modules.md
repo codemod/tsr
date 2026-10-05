@@ -140,3 +140,59 @@ at 9 samples). The walk is per alias *declaration*, never per reference.
 *then* global augmentations merge into them, so `export = N` meets the UMD
 alias. This binder keeps them apart, so the cycle never forms. That is a
 `tsr-binder/src/lib.rs` globals change.
+
+## §3. Synthetic default import target — built, measured, held back (cluster `tsr-2zk.16.6`)
+
+**Not merged.** The patch is
+`docs/parity/notes/names-modules-3-synthetic-default.diff`; it applies to
+`crates/tsr-checker/src/symbols.rs` at this lane's head.
+
+### What it ports
+
+`getTargetOfModuleDefault`'s synthetic arm (`checker.go:14578-14585`): when
+`canHaveSyntheticDefault` holds and the module has no `default`, the import
+resolves to `resolveExternalModuleSymbol(module)`. That is the `export =`
+target, or **the module itself** when there is none. It replaces
+`module_default_target`'s ambient-only, variable-target-only gate. The gate
+existed for naming (`tsr-4jk`); the old comment recorded 6 G→W on
+`importEquals1` and 10 R→W on `typeof z4`. Neither loss reproduces on the
+current tree.
+
+It also ports the usage-dependent half of `canHaveSyntheticDefault`
+(`:14823-14833`), so `.mts` importing `.d.mts`/`.mts` (both ESM) gets no
+synthetic default. That half reads emit formats the checker cannot see
+directly:
+
+- `GetImpliedNodeFormatForEmit` comes from the host's default resolution mode
+  under `node16`..`nodenext`, and otherwise from the extension. A `.ts`/`.js`
+  file's package.json `type` is not visible to the checker, so it answers
+  `None`. Upstream also answers `None` exactly when that `type` is absent.
+- The usage emit syntax for an import declaration is the importing file's
+  emit format.
+
+A host method answering both directly would remove the approximation. It
+needs a forwarding impl in `tsr-compiler/src/lib.rs`, outside this lane.
+
+The `true` branch (ESM importing CommonJS under node16+) is **not** taken. With
+it, `nodeNextCjsNamespaceImportDefault1` lost 3 lines: the default alias and
+`import * as ns` then share one module symbol, and `ns` printed as `typeof d`.
+Upstream keeps them apart with `cloneTypeAsModuleType` (`resolveESModuleSymbol`'s
+ESM→CJS arm, cluster `tsr-2zk.16.22`).
+
+### Measured (unfiltered, against the box baseline)
+
+`checker_types` +67 aligned RIGHT lines over this lane's head (most in the
+cluster's own cases), plus diagnostics `conformance/importEquals1` WRONG→RIGHT.
+**One RIGHT line lost**, `importEquals1:6:0`, so the patch is not merged:
+
+`import type types from './c'` wants `types : any`. Upstream's `getTypeOfNode`
+answers a type-only import clause's *name* through `IsTypeDeclarationName` →
+`getDeclaredTypeOfSymbol(alias)`, and a module has no declared type. The
+producer (`crates/tsr-conformance/src/types_producer.rs`, near its type-only
+specifier arm) ports that arm only for `ImportSpecifier`/`ExportSpecifier`, so
+it falls to `get_type_of_symbol` and prints the now-resolved `typeof types`.
+Before the patch, the line matched only because the alias did not resolve.
+
+**To land:** extend the producer's type-only arm to an `ImportClause` whose
+`phase_modifier` is `type`. Then apply the diff and re-measure. Perf was not
+measured; the arm runs once per default import.
