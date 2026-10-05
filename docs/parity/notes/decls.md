@@ -244,3 +244,22 @@ beside TS2699, since this port's binder never mints that symbol.
 
 Measured: `propertyNamedPrototype`, `staticPropertyNameConflictsInAmbientContext`
 converted, no loss.
+
+## §10 TS2423/TS2425/TS2426: methods in `checkKindsOfPropertyMemberOverrides`
+
+`check_override_kind` ported only the property/accessor pair (TS2610/TS2611)
+of `checkKindsOfPropertyMemberOverrides` (`checker.go:4626`), reading
+declaration kinds syntactically along the base chain. The method arms are now
+in the same walk: a base method overridden by an accessor (TS2423), a base
+accessor or property overridden by a method (TS2426, TS2425); a method
+overridden by a property stays the one legal mixed override. Methods now also
+count as the nearest base member, which is what `getPropertiesOfType(baseType)`
+answers — previously a method in an intermediate class was skipped and the
+search continued to its ancestors.
+
+Measured: +6 cases (`inheritance`, `inheritanceMemberFuncOverridingAccessor`,
+`inheritanceMemberFuncOverridingProperty`, `multipleInheritance`,
+`accessorsOverrideMethod`, `derivedClassFunctionOverridesBaseClassAccessor`),
+no loss. The arguments keep the existing rule's simplification of printing the
+class *names* (`TypeToString` of a generic class would print its type
+parameters).

@@ -8602,19 +8602,55 @@ impl Checker<'_, '_> {
             let Some(base_kind) = self.base_member_kind(declaration, derived_name) else {
                 continue;
             };
-            let message = match (base_kind, derived_kind) {
-                (MemberKind::Property, MemberKind::Accessor) => {
-                    &messages::_0_IS_DEFINED_AS_A_PROPERTY_IN_CLASS_1_BUT_IS_OVERRIDDEN_HERE_IN_2_AS_AN_ACCESSOR
-                }
-                (MemberKind::Accessor, MemberKind::Property) => {
-                    &messages::_0_IS_DEFINED_AS_AN_ACCESSOR_IN_CLASS_1_BUT_IS_OVERRIDDEN_HERE_IN_2_AS_AN_INSTANCE_PROPERTY
-                }
+            // The method arms (`checker.go:4728-4740`): a method overridden by
+            // an accessor, or a property or accessor overridden by a method.
+            // Their arguments are ordered base class, member, derived class.
+            // A method overridden by a property is the one correct mixed case.
+            let (message, method_arm) = match (base_kind, derived_kind) {
+                (MemberKind::Property, MemberKind::Accessor) => (
+                    &messages::_0_IS_DEFINED_AS_A_PROPERTY_IN_CLASS_1_BUT_IS_OVERRIDDEN_HERE_IN_2_AS_AN_ACCESSOR,
+                    false,
+                ),
+                (MemberKind::Accessor, MemberKind::Property) => (
+                    &messages::_0_IS_DEFINED_AS_AN_ACCESSOR_IN_CLASS_1_BUT_IS_OVERRIDDEN_HERE_IN_2_AS_AN_INSTANCE_PROPERTY,
+                    false,
+                ),
+                (MemberKind::Method, MemberKind::Accessor) => (
+                    &messages::CLASS_0_DEFINES_INSTANCE_MEMBER_FUNCTION_1_BUT_EXTENDED_CLASS_2_DEFINES_IT_AS_INSTANCE_MEMBER_ACCESSOR,
+                    true,
+                ),
+                (MemberKind::Accessor, MemberKind::Method) => (
+                    &messages::CLASS_0_DEFINES_INSTANCE_MEMBER_ACCESSOR_1_BUT_EXTENDED_CLASS_2_DEFINES_IT_AS_INSTANCE_MEMBER_FUNCTION,
+                    true,
+                ),
+                (MemberKind::Property, MemberKind::Method) => (
+                    &messages::CLASS_0_DEFINES_INSTANCE_MEMBER_PROPERTY_1_BUT_EXTENDED_CLASS_2_DEFINES_IT_AS_INSTANCE_MEMBER_FUNCTION,
+                    true,
+                ),
                 _ => continue,
             };
             if reported.contains(&derived_name) {
                 continue;
             }
             reported.push(derived_name);
+            if method_arm {
+                let Some(file) = self.source_file_of_for_diagnostics(derived_at) else { continue };
+                let span = self.nodes.span(derived_at);
+                let derived_text = match typed {
+                    Node::ClassDeclaration(class) => class.name.map(|name| name.text.to_string()),
+                    _ => None,
+                };
+                let Some(derived_text) = derived_text else { continue };
+                self.report(
+                    file,
+                    Diagnostic::with_args(
+                        message,
+                        span,
+                        [name.text.to_string(), derived_name.to_string(), derived_text],
+                    ),
+                );
+                continue;
+            }
             let Some(file) = self.source_file_of_for_diagnostics(derived_at) else { continue };
             let span = self.nodes.span(derived_at);
             let base_text = name.text.to_string();
@@ -13811,6 +13847,7 @@ const NODE_CORE_MODULES: &[&str] = &[
 enum MemberKind {
     Property,
     Accessor,
+    Method,
 }
 
 /// A class member's name, kind and name-node, skipping `static` and `private`
@@ -13827,6 +13864,7 @@ fn class_member_shape(member: tsr_ast::ClassElement<'_>) -> Option<(&str, Member
         tsr_ast::ClassElement::SetAccessorDeclaration(a) => {
             (a.name, MemberKind::Accessor, a.modifiers)
         }
+        tsr_ast::ClassElement::MethodDeclaration(m) => (m.name, MemberKind::Method, m.modifiers),
         _ => return None,
     };
     if modifiers.iter().any(|modifier| {
