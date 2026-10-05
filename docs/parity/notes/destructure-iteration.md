@@ -48,3 +48,13 @@ reference was written and removed: with no method symbol the arm's identity
 test never fires, so it was dead code. Falsifier: once `get_property_of_type`
 returns the base's symbol for generic heritage, that case should still gap
 here, and porting the arm is then the fix.
+
+## 2. `isLegalUsageOfSuperExpression`'s call arm (tsr-2zk.16.53, SUPER-CALL-CONSTRUCTOR-ONLY)
+
+A `super(...)` is legal only when `getSuperContainer(node, true)` is a
+constructor (`checker.go:7867`). `check_super_expression` accepted a super call
+in any member. Now the first member the container walk settles on decides: a
+call whose member is not a `Constructor` answers the deliberate error-any (the
+same convention as the existing arrow arm: upstream's `errorType` after
+TS2337, printed `any`). A container the walk does not model (a class static
+block, a plain function) keeps its existing answer.

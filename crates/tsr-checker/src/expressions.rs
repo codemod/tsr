@@ -2072,6 +2072,16 @@ impl Checker<'_, '_> {
                     if skip_named_member {
                         skip_named_member = false;
                     } else if is_static.is_none() {
+                        // `isLegalUsageOfSuperExpression`'s call arm
+                        // (`checker.go:7867`): a super CALL is legal only when
+                        // `getSuperContainer` found a constructor. Any other
+                        // member fails, and upstream answers `errorType` after
+                        // reporting TS2337 — the deliberate error-any, as in
+                        // the arrow arm above (`superCallOutsideConstructor`,
+                        // `errorSuperCalls`, `typeOfThisInStaticMembers6`).
+                        if is_call && self.nodes.kind(id) != SyntaxKind::Constructor {
+                            return self.intrinsics.any;
+                        }
                         is_static = Some(self.has_static_modifier(id));
                     }
                 }
