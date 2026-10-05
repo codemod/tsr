@@ -171,7 +171,43 @@ plain-JS diagnostic policy, project references, all forcing/input/worker budgets
 and comparable native median <=0.50 are not certified.
 [Qualified alignment evidence](docs/architecture/tsr-work-trace-producer.md#eligibility-alignment-after-the-producer).
 
-### Current checker checkpoint — explicit call targets and binding keywords
+### Current checker checkpoint — complete ordinary initializer owners
+
+Measured source revision **`6c7353f0`**, pinned native **`5b1047d`**:
+**464,069/478,855 RIGHT assertions**, **475,538 aligned positions**, 1,604 GAP
+and 9,865 WRONG. The fixed 99% target remains **474,067 RIGHT**;
+**9,998 additional matches remain**. This is a checkpoint, not completion.
+
+The function/block owner successor preserves every corpus type payload and all
+**10,570 duplicate/empty diagnostic bags byte-for-byte**: 30,874 expected,
+24,533 actual, 20,829 matched, 10,045 missing and 3,704 extras. It has no
+corpus-score gain. Twelve raw-source controls retain 98 native occurrences;
+matching occurrences increase **31 → 62**, with zero matched losses or new
+false occurrences. The two original `Context` positions were already correct
+on this cumulative baseline and are not new gains. Complete LF/CRLF and
+initializer-form bags now match native, including the published `var object`
+binding-token prerequisite. All remaining missing and false authored errors
+remain in the ledger; the rejected parser/printer is not included.
+
+Only positively written ordinary named SourceFile functions, their body or one
+plain nested block, and complete implemented-function parameter defaults gain
+owner admission. Header, child spans and the owner's own closing token must
+agree with the exact host/table source. Properties, missing/swallowed owners,
+unsupported parameter interiors and other frozen leaves still decline. The
+read-only header/direct-child scans repeat per malformed-file query. The
+certificate adds no cache or semantic publication; its consumers use existing
+suppliers and receiver/alias contexts.
+
+Release all-target plus doc tests pass **3,104 default / 3,116 full work-trace**,
+with zero failures and six existing ignores each. Fourteen focused root/owner
+tests, strict all-target Clippy in both modes, formatting/source whitespace,
+3,397 anchors and 16,596 section citations pass. All three final default scan
+binaries equal the captured measurement binaries. No speed claim follows.
+TYPE naming and cold keyword-owner experiments remain separate; inferred-call
+source completion and recursive original-reference ownership remain unresolved.
+Stage2 stays frozen, and the fixed 99% task continues.
+
+### Historical explicit checkpoint — call targets and binding keywords
 
 Measured source revision **`84edae3c`**, pinned native **`5b1047d`**:
 **464,069/478,855 RIGHT assertions**, **475,538 aligned positions**, 1,604 GAP
