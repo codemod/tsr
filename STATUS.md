@@ -173,7 +173,8 @@ and comparable native median <=0.50 are not certified.
 
 ### Current checker checkpoint — complete ordinary initializer owners
 
-Measured source revision **`6c7353f0`**, pinned native **`5b1047d`**:
+Measured source revision **`6113312b`** (rebased without Rust changes from
+`6c7353f0`), pinned native **`5b1047d`**:
 **464,069/478,855 RIGHT assertions**, **475,538 aligned positions**, 1,604 GAP
 and 9,865 WRONG. The fixed 99% target remains **474,067 RIGHT**;
 **9,998 additional matches remain**. This is a checkpoint, not completion.
