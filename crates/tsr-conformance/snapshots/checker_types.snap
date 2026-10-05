@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 7374/9538 (77.31%)
-Assertion lines: 464198/478855 (96.94%)  — a gradient, not a pass rate
-Failed         : 2164
+Passed         : 7464/9538 (78.26%)
+Assertion lines: 465469/478855 (97.20%)  — a gradient, not a pass rate
+Failed         : 2074
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -12,17 +12,13 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 2164 failures:
-compiler/ClassDeclaration26
-  ClassDeclaration26.ts: 5 assertion(s), expected 6
+First 100 of 2074 failures:
 compiler/abstractClassInLocalScopeIsAbstract
   abstractClassInLocalScopeIsAbstract.ts: >new A() : any — expected >new A() : A
 compiler/abstractClassUnionInstantiation
   abstractClassUnionInstantiation.ts: >[ConcreteA, ConcreteB].map(cls => new cls()) : (ConcreteA | ConcreteB)[] — expected >[ConcreteA, ConcreteB].map(cls => new cls()) : ConcreteA[]
 compiler/acceptSymbolAsWeakType
   acceptSymbolAsWeakType.ts: >[[s, false]] : [symbol, boolean][] — expected >[[s, false]] : [symbol, false][]
-compiler/accessorBodyInTypeContext
-  accessorBodyInTypeContext.ts: 12 assertion(s), expected 10
 compiler/accessorDeclarationEmitJs
   /a.js: >v : any — expected >v : string
 compiler/accessorInferredReturnTypeErrorInReturnStatement
@@ -94,7 +90,7 @@ compiler/arrowExpressionJs
 compiler/arrowFunctionJSDocAnnotation
   index.js: >param => param : (param: any) => any — expected >param => param : (param: number) => number | undefined
 compiler/arrowFunctionsMissingTokens
-  arrowFunctionsMissingTokens.ts: 133 assertion(s), expected 107
+  arrowFunctionsMissingTokens.ts: >c : any — expected >c : (x: any) => void
 compiler/assignmentToInstantiationExpression
   assignmentToInstantiationExpression.ts: >obj.fn<number> : any — expected >obj.fn<number> : (() => number) | undefined
 compiler/asyncFunctionContextuallyTypedReturns
@@ -140,7 +136,7 @@ compiler/bigintArbirtraryIdentifier
 compiler/bigintIndex
   a.ts: >key : any — expected >key : string | number | symbol
 compiler/bigintPropertyName
-  a.ts: 41 assertion(s), expected 36
+  a.ts: >({1n: 123}) : any — expected >({1n: 123}) : {}
 compiler/bindingPatternCannotBeOnlyInferenceSource
   bindingPatternCannotBeOnlyInferenceSource.ts: >useReduxDispatch1 : <T extends IDestructuring<{ funcA: (a: boolean) => void; funcB: (b: string, bb: string) => void; funcC: (c: number, cc: number, ccc: boolean) => void; }>>(destructuring: Destructuring<{ funcA: (a: boolean) => void; funcB: (b: string, bb: string) => void; funcC: (c: number, cc: number, ccc: boolean) => void; }, T>) => T — expected >useReduxDispatch1 : <T extends IDestructuring<TFuncs1>>(destructuring: Destructuring<TFuncs1, T>) => T
 compiler/bluebirdStaticThis
@@ -213,3 +209,7 @@ compiler/circularlyReferentialInterfaceAccessNoCrash
   circularlyReferentialInterfaceAccessNoCrash.ts: >Mxs : any — expected >Mxs : Mxs
 compiler/circularlySimplifyingConditionalTypesNoCrash
   circularlySimplifyingConditionalTypesNoCrash.ts: >function(    mapStateToProps?: any,    mapDispatchToProps?: any,    mergeProps?: any,    options: unknown = {},) {    return connect(        mapStateToProps,        mapDispatchToProps,        mergeProps,        options,    );} : (mapStateToProps?: any, mapDispatchToProps?: any, mergeProps?: any, options?: unknown) => InferableComponentEnhancerWithProps<unknown, unknown> — expected >function(    mapStateToProps?: any,    mapDispatchToProps?: any,    mergeProps?: any,    options: unknown = {},) {    return connect(        mapStateToProps,        mapDispatchToProps,        mergeProps,        options,    );} : (mapStateToProps?: any, mapDispatchToProps?: any, mergeProps?: any, options?: unknown) => InferableComponentEnhancerWithProps<TStateProps, Omit<P, Extract<keyof TStateProps, keyof P>> & TOwnProps>
+compiler/classAccessorInitializationInferenceWithElementAccess1
+  classAccessorInitializationInferenceWithElementAccess1.ts: >x : any — expected >x : number[]
+compiler/classBlockScoping
+  classBlockScoping.ts: >y : error — expected >y : Foo

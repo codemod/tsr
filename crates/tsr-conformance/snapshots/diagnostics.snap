@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics Summary:
 What a pass means: every diagnostic in upstream's .errors.txt reproduced exactly — same file, line, column and code, no more and no fewer — for cases that expect at least one; syntactic, bind-and-check and isolatedDeclarations diagnostics collected as upstream's test runner collects them
-Passed         : 3219/5488 (58.66%)
-Failed         : 2269
+Passed         : 3318/5488 (60.46%)
+Failed         : 2170
 Skipped        : 6956 (excluded from the denominator)
 
   793  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -11,17 +11,15 @@ Skipped        : 6956 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   464  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 2269 failures:
-compiler/ClassDeclaration26
-  2 unexpected (first TS1005 at ClassDeclaration26.ts(2,22)), 5 missing
+First 100 of 2170 failures:
 compiler/TransportStream
-  2 unexpected (first TS1005 at TransportStream.ts(1,2)), 2 missing
+  1 missing (first TS1434 at TransportStream.ts(1,1))
 compiler/abstractClassUnionInstantiation
   5 missing (first TS2511 at abstractClassUnionInstantiation.ts(14,1))
 compiler/abstractPropertyInConstructor
   11 missing (first TS2715 at abstractPropertyInConstructor.ts(4,24))
 compiler/accessorBodyInTypeContext
-  8 unexpected (first TS1131 at accessorBodyInTypeContext.ts(2,15)), 4 missing
+  4 missing (first TS1183 at accessorBodyInTypeContext.ts(2,15))
 compiler/accessorInferredReturnTypeErrorInReturnStatement
   1 missing (first TS2339 at accessorInferredReturnTypeErrorInReturnStatement.ts(4,18))
 compiler/aliasAssignments
@@ -38,10 +36,6 @@ compiler/ambientExternalModuleWithRelativeExternalImportDeclaration
   1 missing (first TS2439 at ambientExternalModuleWithRelativeExternalImportDeclaration.ts(2,5))
 compiler/ambientPropertyDeclarationInJs
   1 missing (first TS2339 at /test.js(9,19))
-compiler/ambiguousGenericAssertion1
-  4 unexpected (first TS2304 at ambiguousGenericAssertion1.ts(4,12)), 1 missing
-compiler/anonymousModules
-  3 unexpected (first TS1005 at anonymousModules.ts(1,8)), 3 missing
 compiler/anyIdenticalToItself
   1 missing (first TS2394 at anyIdenticalToItself.ts(1,10))
 compiler/anyIndexedAccessArrayNoException
@@ -81,7 +75,7 @@ compiler/arrowExpressionBodyJSDoc
 compiler/arrowFunctionErrorSpan
   1 missing (first TS1200 at arrowFunctionErrorSpan.ts(18,5))
 compiler/arrowFunctionsMissingTokens
-  53 unexpected (first TS1109 at arrowFunctionsMissingTokens.ts(2,14)), 14 missing
+  1 unexpected (first TS2304 at arrowFunctionsMissingTokens.ts(6,14)), 0 missing
 compiler/assigningFromObjectToAnythingElse
   2 missing (first TS2558 at assigningFromObjectToAnythingElse.ts(5,31))
 compiler/assigningFunctionToTupleIssuesError
@@ -159,11 +153,11 @@ compiler/betterErrorForUnionCall
 compiler/bigIntWithTargetLessThanES2016
   2 missing (first TS2791 at bigIntWithTargetLessThanES2016.ts(1,1))
 compiler/bigintArbirtraryIdentifier
-  7 unexpected (first TS1012 at badExport.ts(1,20)), 9 missing
+  1 unexpected (first TS2304 at badImport.ts(1,16)), 3 missing
 compiler/bigintIndex
   4 missing (first TS2538 at a.ts(8,11))
 compiler/bigintPropertyName
-  34 unexpected (first TS1003 at a.ts(2,5)), 26 missing
+  2 unexpected (first TS1005 at g.ts(35,4)), 23 missing
 compiler/bigintWithLib
   11 missing (first TS2350 at bigintWithLib.ts(4,1))
 compiler/bindingPatternCannotBeOnlyInferenceSource
@@ -197,7 +191,7 @@ compiler/capturedParametersInInitializers1
 compiler/castOfYield
   2 unexpected (first TS2304 at castOfYield.ts(4,14)), 1 missing
 compiler/catchClauseWithInitializer1
-  3 unexpected (first TS1005 at catchClauseWithInitializer1.ts(3,10)), 1 missing
+  2 unexpected (first TS1005 at catchClauseWithInitializer1.ts(3,10)), 1 missing
 compiler/chainedCallsWithTypeParameterConstrainedToOtherTypeParameter
   2 missing (first TS2741 at chainedCallsWithTypeParameterConstrainedToOtherTypeParameter.ts(19,64))
 compiler/chainedCallsWithTypeParameterConstrainedToOtherTypeParameter2
@@ -212,3 +206,9 @@ compiler/checkJsdocTypeTagOnExportAssignment2
   1 missing (first TS2353 at b.js(2,18))
 compiler/checkJsdocTypeTagOnExportAssignment4
   1 missing (first TS2322 at a.js(6,16))
+compiler/checkJsdocTypeTagOnExportAssignment6
+  1 missing (first TS2353 at a.js(8,30))
+compiler/checkJsxNotSetError
+  3 missing (first TS6142 at /bar.jsx(1,17))
+compiler/checkMergedGlobalUMDSymbol
+  2 missing (first TS2451 at global.d.ts(3,21))
