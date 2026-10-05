@@ -763,6 +763,7 @@ committed:
 | `std::env::var` debug probes on checker hot paths (`symbols.rs`, `flow.rs`, `declared.rs`, `members.rs`, `optionality.rs`) | checker | 0.6% of domain-model samples in `getenv`, which takes the process environment lock across the pooled checkers |
 | Allocator (mimalloc v3 tried as the global allocator) | — | 155 → 144 ms on domain-model, but peak RSS 47 → 117 MB; the gain is transparent huge pages (`no_thp` erases it: 155 ms) and with eager arena commit off it is slower than glibc (159 ms). Not adopted |
 | `dist` profile (thin LTO, one codegen unit) | — | within noise of `release` on both projects |
+| Leaving program, arena and checkers to process exit (native `os.Exit(runMain())`) | driver | 159.8 → 158.5 ms on domain-model, inside the ±1.1 ms run-to-run error; the kernel still unmaps the pages at exit. Not adopted |
 
 Native has the same `lib.dom.d.ts` floor: its reported parse time on
 generic-imports (40 ms) is that file on one goroutine. On these benchmarks
