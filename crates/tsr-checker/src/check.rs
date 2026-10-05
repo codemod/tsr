@@ -652,6 +652,10 @@ impl Checker<'_, '_> {
                 self.check_new_expression_diagnostics(node);
                 ambient
             }
+            Node::TaggedTemplateExpression(_) => {
+                self.check_tagged_template_diagnostics(node);
+                ambient
+            }
             Node::TypeReferenceNode(_) | Node::ExpressionWithTypeArguments(_) => {
                 self.check_type_argument_arity(node);
                 self.check_type_argument_constraints(node);

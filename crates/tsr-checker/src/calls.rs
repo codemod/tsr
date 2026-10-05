@@ -1066,6 +1066,55 @@ impl Checker<'_, '_> {
         }
     }
 
+    /// The head of `resolveTaggedTemplateExpression` (`checker.go:8719`): an
+    /// untyped tag reports nothing; a tag with no call signatures is
+    /// `invocationError` (TS2349) on the tag, or TS2796 when the tagged
+    /// template is an array element (a likely missing comma).
+    pub(crate) fn check_tagged_template_diagnostics(&mut self, node: tsr_ast::NodeId) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let Some(tsr_ast::Node::TaggedTemplateExpression(tagged)) = self.node_map.get(node) else {
+            return;
+        };
+        let Some(tag) = tagged.tag else { return };
+        let Some(tag_id) = tag.node_id() else { return };
+        let tag_type = self.check_expression(tag);
+        let apparent = self.apparent_type(tag_type);
+        if self.is_error(apparent)
+            || self.is_untyped_any_callee(tag_type, apparent)
+            || self.is_function_or_method_type(apparent)
+        {
+            return;
+        }
+        let (Some(call_count), Some(construct_count)) = (
+            self.head_signature_count(apparent, SignatureKind::Call),
+            self.head_signature_count(apparent, SignatureKind::Construct),
+        ) else {
+            return;
+        };
+        if call_count != 0
+            || self.is_untyped_signatureless_call(tag_type, apparent, call_count, construct_count)
+                != Some(false)
+            || self.head_could_contain_type_variables(tag_type, 3)
+        {
+            return;
+        }
+        if self.nodes.parent(node).is_some_and(|parent| {
+            self.nodes.kind(parent) == tsr_ast::SyntaxKind::ArrayLiteralExpression
+        }) {
+            self.report_at_node(
+                tag_id,
+                Diagnostic::new(
+                    &messages::IT_IS_LIKELY_THAT_YOU_ARE_MISSING_A_COMMA_TO_SEPARATE_THESE_TWO_TEMPLATE_EXPRESSIONS_THEY_FORM_A_TAGGED_TEMPLATE_EXPRESSION_WHICH_CANNOT_BE_INVOKED,
+                    self.error_span(tag_id),
+                ),
+            );
+            return;
+        }
+        self.invocation_error(tag_id, false, SignatureKind::Call);
+    }
+
     fn check_new_expression_head(&mut self, node: tsr_ast::NodeId) -> CallHead {
         let Some(tsr_ast::Node::NewExpression(new)) = self.node_map.get(node) else {
             return CallHead::Unknown;
