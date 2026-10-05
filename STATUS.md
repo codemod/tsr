@@ -22,6 +22,21 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
+Mapper pool attribution (`tsr-1yb.16.1.2`), frozen `9b494ca7` / native
+`5b1047d`, repairs archive-only owner accounting and object/signature active
+domains. Thirty project samples preserve 124 diagnostics, 14,050 loaded files
+and 1,397 direct full-file checks with actual default/single owners and peaks
+4/1. All 100 counters reconcile with private owners and repeat exactly.
+Signature workers execute 23,526/13,818 times; prelookup literal copying requests
+8.65MB/5.91MB across hits and misses. Hit-only copying is the next measurement.
+The 140 public children retain two known native mismatches; 30 pool controls
+and two rejected aborts qualify admission/completion. Twelve Python controls,
+1,492 release checker tests, strict Clippy and formatting pass. All temporary
+runtime files and the ordinary private CLI are restored; canonical runtime stays
+unchanged. Hash/reference-state qualification, ordinary saved-wall ceiling and
+comparable native <=0.50 remain unproved; the attribution task stays open.
+[Counters, overhead, limits and reproduction](docs/architecture/checker-mapper-pool.md).
+
 Mapper context controls (`tsr-1yb.4.1.2.3.1`), frozen `ed40c6c8` / native
 `5b1047d`, reproduce print-created object/signature answers leaking into later
 semantic requests. Two red/green tests and a rejected omitted-mode mutation
