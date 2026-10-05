@@ -261,6 +261,10 @@ pub struct LoadedFiles<'a> {
     /// [`LoadedFiles::file_names`]: it is upstream's `missingFiles`, which is a
     /// diagnostic rather than a member of the program.
     pub files: Vec<ProgramFile<'a>>,
+    /// Each file's module format, positionally matching
+    /// [`LoadedFiles::files`] (`Program.sourceFileMetaDatas`), so the program
+    /// can answer `GetModeForUsageLocation` for the checker.
+    pub(crate) meta_datas: Vec<SourceFileMetaData>,
     /// What the walk could not resolve. See [`LoaderDiagnostic`].
     pub loader_diagnostics: Vec<LoaderDiagnostic>,
     /// Kind, span and parent for every node of **every** file, in load order.
@@ -281,7 +285,7 @@ pub struct LoadedFiles<'a> {
 /// A file's module format and where that format came from
 /// (`ast.SourceFileMetaData`).
 #[derive(Debug, Clone, Default)]
-struct SourceFileMetaData {
+pub(crate) struct SourceFileMetaData {
     /// The `type` field of the nearest enclosing `package.json`, if it applies.
     package_json_type: String,
     /// The format the file is treated as.
@@ -500,6 +504,8 @@ impl<'host, 'a> FileLoader<'host, 'a> {
                 }
             }
         }
+        result.meta_datas =
+            order.iter().map(|&index| loader.tasks[index].metadata.clone()).collect();
         result.files = order
             .into_iter()
             .map(|index| loader.tasks[index].file.take().expect("only read files are collected"))
@@ -936,7 +942,7 @@ impl<'host, 'a> FileLoader<'host, 'a> {
                 tsr_parser::ResolutionMode::CommonJS => ResolutionMode::CommonJS,
                 tsr_parser::ResolutionMode::ESNext => ResolutionMode::ESNext,
                 tsr_parser::ResolutionMode::None => {
-                    self.default_resolution_mode_for_file(&file_name, &metadata)
+                    default_resolution_mode_for_file(&self.options, &file_name, &metadata)
                 }
             };
             let resolution_started = self.options.extended_diagnostics.is_true().then(Instant::now);
@@ -1217,20 +1223,7 @@ impl<'host, 'a> FileLoader<'host, 'a> {
         }
     }
 
-    /// `getDefaultResolutionModeForFile`.
-    fn default_resolution_mode_for_file(
-        &self,
-        file_name: &str,
-        metadata: &SourceFileMetaData,
-    ) -> ResolutionMode {
-        if self.import_syntax_affects_module_resolution() {
-            self.implied_node_format_for_emit(file_name, metadata)
-        } else {
-            ResolutionMode::None
-        }
-    }
-
-    /// `getModeForUsageLocation`.
+    /// `getModeForUsageLocation`, over the loader's collected specifier.
     fn mode_for_usage_location(
         &self,
         file_name: &str,
@@ -1245,75 +1238,15 @@ impl<'host, 'a> FileLoader<'host, 'a> {
             tsr_parser::ResolutionMode::ESNext => return ResolutionMode::ESNext,
             tsr_parser::ResolutionMode::None => {}
         }
-        if !self.import_syntax_affects_module_resolution() {
+        if !import_syntax_affects_module_resolution(&self.options) {
             return ResolutionMode::None;
         }
-
-        // `getEmitSyntaxForUsageLocationWorker`.
-        if matches!(
-            specifier.context,
-            SpecifierContext::RequireCall | SpecifierContext::ImportEquals
-        ) {
-            return ModuleKind::CommonJS;
-        }
-        let file_emit_mode = self.emit_module_format_of_file(file_name, metadata);
-        if specifier.context == SpecifierContext::ImportCall {
-            return if should_transform_import_call(&self.options, file_emit_mode) {
-                ModuleKind::CommonJS
-            } else {
-                ModuleKind::ESNext
-            };
-        }
-        if file_emit_mode == ModuleKind::CommonJS {
-            return ModuleKind::CommonJS;
-        }
-        if is_non_node_esm(file_emit_mode) || file_emit_mode == ModuleKind::Preserve {
-            return ModuleKind::ESNext;
-        }
-        ModuleKind::None
-    }
-
-    /// `importSyntaxAffectsModuleResolution`.
-    fn import_syntax_affects_module_resolution(&self) -> bool {
-        let kind = self.options.module_resolution_kind();
-        (ModuleResolutionKind::Node16 <= kind && kind <= ModuleResolutionKind::NodeNext)
-            || self.options.get_resolve_package_json_exports()
-            || self.options.get_resolve_package_json_imports()
-    }
-
-    /// `ast.GetImpliedNodeFormatForEmitWorker`.
-    fn implied_node_format_for_emit(
-        &self,
-        file_name: &str,
-        metadata: &SourceFileMetaData,
-    ) -> ResolutionMode {
-        let emit_module_kind = self.options.emit_module_kind();
-        if ModuleKind::Node16 <= emit_module_kind && emit_module_kind <= ModuleKind::NodeNext {
-            return metadata.implied_node_format;
-        }
-        if metadata.implied_node_format == ModuleKind::CommonJS
-            && (metadata.package_json_type == "commonjs"
-                || file_extension_is_one_of(file_name, &[EXTENSION_CJS, EXTENSION_CTS]))
-        {
-            return ModuleKind::CommonJS;
-        }
-        if metadata.implied_node_format == ModuleKind::ESNext
-            && (metadata.package_json_type == "module"
-                || file_extension_is_one_of(file_name, &[EXTENSION_MJS, EXTENSION_MTS]))
-        {
-            return ModuleKind::ESNext;
-        }
-        ModuleKind::None
-    }
-
-    /// `ast.GetEmitModuleFormatOfFileWorker`.
-    fn emit_module_format_of_file(
-        &self,
-        file_name: &str,
-        metadata: &SourceFileMetaData,
-    ) -> ModuleKind {
-        let result = self.implied_node_format_for_emit(file_name, metadata);
-        if result == ModuleKind::None { self.options.emit_module_kind() } else { result }
+        let syntax = match specifier.context {
+            SpecifierContext::RequireCall | SpecifierContext::ImportEquals => UsageSyntax::Require,
+            SpecifierContext::ImportCall => UsageSyntax::ImportCall,
+            _ => UsageSyntax::Other,
+        };
+        emit_syntax_for_usage_location(&self.options, file_name, metadata, syntax)
     }
 
     /// `ast.IsExternalModule`, for a file this loader parsed.
@@ -1337,7 +1270,7 @@ impl<'host, 'a> FileLoader<'host, 'a> {
             return true;
         }
         // `isFileForcedToBeModuleByFormat`.
-        self.implied_node_format_for_emit(file_name, metadata) == ModuleKind::ESNext
+        implied_node_format_for_emit(&self.options, file_name, metadata) == ModuleKind::ESNext
             || file_extension_is_one_of(
                 file_name,
                 &[EXTENSION_CJS, EXTENSION_CTS, EXTENSION_MJS, EXTENSION_MTS],
@@ -1496,6 +1429,103 @@ fn implied_node_format_for_file(path: &str, package_json_type: &str) -> Resoluti
     } else {
         ResolutionMode::None
     }
+}
+
+/// What syntax a module specifier is written in, as far as
+/// `getEmitSyntaxForUsageLocationWorker` (`fileloader.go:764`) distinguishes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum UsageSyntax {
+    /// `require("x")`, or `import x = require("x")`.
+    Require,
+    /// `import("x")`.
+    ImportCall,
+    /// Every other usage: declarations, `import` types, augmentations.
+    Other,
+}
+
+/// `getEmitSyntaxForUsageLocationWorker` (`fileloader.go:764`), after its
+/// caller `getModeForUsageLocation` has handled the `resolution-mode` override
+/// and `importSyntaxAffectsModuleResolution`.
+pub(crate) fn emit_syntax_for_usage_location(
+    options: &CompilerOptions,
+    file_name: &str,
+    metadata: &SourceFileMetaData,
+    syntax: UsageSyntax,
+) -> ResolutionMode {
+    if syntax == UsageSyntax::Require {
+        return ModuleKind::CommonJS;
+    }
+    let file_emit_mode = emit_module_format_of_file(options, file_name, metadata);
+    if syntax == UsageSyntax::ImportCall {
+        return if should_transform_import_call(options, file_emit_mode) {
+            ModuleKind::CommonJS
+        } else {
+            ModuleKind::ESNext
+        };
+    }
+    if file_emit_mode == ModuleKind::CommonJS {
+        return ModuleKind::CommonJS;
+    }
+    if is_non_node_esm(file_emit_mode) || file_emit_mode == ModuleKind::Preserve {
+        return ModuleKind::ESNext;
+    }
+    ModuleKind::None
+}
+
+/// `getDefaultResolutionModeForFile` (`fileloader.go`).
+pub(crate) fn default_resolution_mode_for_file(
+    options: &CompilerOptions,
+    file_name: &str,
+    metadata: &SourceFileMetaData,
+) -> ResolutionMode {
+    if import_syntax_affects_module_resolution(options) {
+        implied_node_format_for_emit(options, file_name, metadata)
+    } else {
+        ResolutionMode::None
+    }
+}
+
+/// `importSyntaxAffectsModuleResolution` (`fileloader.go:758`).
+pub(crate) fn import_syntax_affects_module_resolution(options: &CompilerOptions) -> bool {
+    let kind = options.module_resolution_kind();
+    (ModuleResolutionKind::Node16 <= kind && kind <= ModuleResolutionKind::NodeNext)
+        || options.get_resolve_package_json_exports()
+        || options.get_resolve_package_json_imports()
+}
+
+/// `ast.GetImpliedNodeFormatForEmitWorker`.
+fn implied_node_format_for_emit(
+    options: &CompilerOptions,
+    file_name: &str,
+    metadata: &SourceFileMetaData,
+) -> ResolutionMode {
+    let emit_module_kind = options.emit_module_kind();
+    if ModuleKind::Node16 <= emit_module_kind && emit_module_kind <= ModuleKind::NodeNext {
+        return metadata.implied_node_format;
+    }
+    if metadata.implied_node_format == ModuleKind::CommonJS
+        && (metadata.package_json_type == "commonjs"
+            || file_extension_is_one_of(file_name, &[EXTENSION_CJS, EXTENSION_CTS]))
+    {
+        return ModuleKind::CommonJS;
+    }
+    if metadata.implied_node_format == ModuleKind::ESNext
+        && (metadata.package_json_type == "module"
+            || file_extension_is_one_of(file_name, &[EXTENSION_MJS, EXTENSION_MTS]))
+    {
+        return ModuleKind::ESNext;
+    }
+    ModuleKind::None
+}
+
+/// `ast.GetEmitModuleFormatOfFileWorker`.
+fn emit_module_format_of_file(
+    options: &CompilerOptions,
+    file_name: &str,
+    metadata: &SourceFileMetaData,
+) -> ModuleKind {
+    let result = implied_node_format_for_emit(options, file_name, metadata);
+    if result == ModuleKind::None { options.emit_module_kind() } else { result }
 }
 
 /// `ast.ShouldTransformImportCall`.

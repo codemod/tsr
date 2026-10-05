@@ -3808,7 +3808,8 @@ impl Checker<'_, '_> {
         }
         let Some(importing) = self.source_file_of_for_diagnostics(specifier) else { return };
         let Some(host) = self.module_host else { return };
-        let Some(path) = host.resolved_module_path(importing, text) else { return };
+        let mode = self.module_resolution_mode(host, importing, declaration);
+        let Some(path) = host.resolved_module_path_in_mode(importing, text, mode) else { return };
         let lowered = path.to_ascii_lowercase();
         let extension = lowered.rsplit('.').next().unwrap_or_default().to_string();
         let span = self.error_span(specifier);
@@ -3895,7 +3896,8 @@ impl Checker<'_, '_> {
         // nothing" is why [`crate::resolution::ModuleHost`] grew a second
         // method; it was 15 of the 60 wrong lines the first counterfactual
         // measured.
-        !host.module_resolution_found(importing, text)
+        let mode = self.module_resolution_mode(host, importing, specifier);
+        !host.module_resolution_found_in_mode(importing, text, mode)
     }
 
     /// TS2564 — `Property '{0}' has no initializer and is not definitely

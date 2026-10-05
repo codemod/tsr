@@ -56,13 +56,12 @@ pub mod comment_directives;
 mod file;
 pub mod loader;
 
-use std::collections::hash_map::Entry;
 use std::time::{Duration, Instant};
 
 use rustc_hash::FxHashMap;
 use tsr_ast::{NodeId, NodeMap, NodeTable};
 use tsr_binder::{BindResult, FileInfo};
-use tsr_core::{Arena, CompilerOptions};
+use tsr_core::{Arena, CompilerOptions, ResolutionMode};
 use tsr_path::{Path, to_path};
 
 pub use file::ProgramFile;
@@ -111,40 +110,21 @@ impl Default for ProgramOptions {
     }
 }
 
-/// What one file's `import "x"` resolved to.
+/// One file's module resolutions: upstream's `p.resolvedModules[path]`
+/// (`internal/compiler/program.go:456`), a `module.ModeAwareCache` keyed by
+/// `{Name, Mode}`. The value is the resolved file's canonical path, or `None`
+/// for `!resolvedModule.IsResolved()`.
 ///
-/// The value side of upstream's `p.resolvedModules[path]`
-/// (`internal/compiler/program.go:456`), which is a
-/// `module.ModeAwareCache[*module.ResolvedModule]` — a map keyed by
-/// `{Name, Mode}`. **This port keys on the name alone**, for the reason recorded
-/// in [ADR-0041](../../../docs/adr/0041-the-checker-asks-its-program-for-a-module.md):
-/// the checker's side of the seam has no way to compute the mode of a usage
-/// location (upstream's `getModeForUsageLocation`,
-/// `internal/compiler/fileloader.go:726`, reads the specifier's parent syntax
-/// and the file's `SourceFileMetaData`, neither of which reaches the checker).
+/// The mode is part of the key because one file can ask for one specifier
+/// under two modes and get two answers: `import("foo", { with:
+/// { "resolution-mode": "require" } })` beside a plain `import("foo")`
+/// resolves `exports` under different conditions. The checker supplies the
+/// mode of its usage location through
+/// [`tsr_checker::resolution::ModuleHost::mode_for_usage_location`].
 ///
-/// Collapsing the key is only safe when the collapsed entries agree, so
-/// disagreement is represented rather than resolved by a tie-break. The mode
-/// itself is **not** dropped from the port: [`loader::ResolutionRequest`] keeps
-/// it, and this map is derived from those requests.
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum ModuleResolution {
-    /// Every request for this specifier text in this file resolved here.
-    To(Path),
-    /// Every request for it failed to resolve — upstream's
-    /// `!resolvedModule.IsResolved()`.
-    Unresolved,
-    /// Two requests for the same specifier text in the same file, under
-    /// different modes, answered differently.
-    ///
-    /// Real, not theoretical: under `module: node16` a file containing both
-    /// `import "./b"` and `import("./b")` resolves the first as `CommonJS` and
-    /// the second as `ESNext`, and only the first finds `/b.ts`. Since this port
-    /// cannot tell which usage is asking, it answers **nothing** — the same
-    /// discipline `errorType` encodes everywhere else here. Inventing the
-    /// majority answer would be a confidently wrong type rather than a gap.
-    Conflicting,
-}
+/// Stored as name → `(mode, answer)` pairs so a lookup borrows the specifier
+/// text instead of allocating a key; a name is asked in at most a few modes.
+type ModeAwareResolutions = FxHashMap<String, Vec<(ResolutionMode, Option<Path>)>>;
 
 /// A set of files compiled together.
 ///
@@ -216,7 +196,11 @@ pub struct Program<'a> {
     /// **Populated only by [`Program::from_root_files`].** A program built from
     /// a file list ([`Program::new`]) ran no resolver, so it has no resolutions
     /// and every lookup answers `None` — which is a gap, not a wrong answer.
-    resolved_modules: FxHashMap<Path, FxHashMap<String, ModuleResolution>>,
+    resolved_modules: FxHashMap<Path, ModeAwareResolutions>,
+    /// Each file's module format (`Program.sourceFileMetaDatas`), positionally
+    /// matching `files`. Empty for a program built from a file list, which ran
+    /// no loader and has no resolutions to key by mode.
+    meta_datas: Vec<loader::SourceFileMetaData>,
     /// One rather than one per file, which is the whole of the widening: a
     /// `SymbolId` names one symbol across the program, and its declarations
     /// index `nodes`, so a symbol from another file can be handed to the checker
@@ -315,6 +299,7 @@ impl<'a> Program<'a> {
             // A file list is not a resolution: nothing here asked a resolver
             // anything, so there is nothing to record. See `resolved_modules`.
             resolved_modules: FxHashMap::default(),
+            meta_datas: Vec::new(),
             current_directory,
             use_case_sensitive_file_names,
             lib_file_count: 0,
@@ -373,6 +358,7 @@ impl<'a> Program<'a> {
             files_by_path,
             files_by_source_file,
             resolved_modules,
+            meta_datas: loaded.meta_datas,
             // From the host, which is where the loader took them from too — so
             // a name looked up afterwards canonicalises exactly as the path it
             // is being compared against did.
@@ -543,7 +529,8 @@ impl<'a> Program<'a> {
         &self.loader_diagnostics
     }
 
-    /// The file `import "<specifier>"` in `importing_file` resolved to.
+    /// The file `import "<specifier>"` in `importing_file` resolved to under
+    /// `mode`.
     ///
     /// `Program.GetResolvedModule` (`internal/compiler/program.go:521`)
     /// composed with `Program.GetSourceFileForResolvedModule` (`:1839`), which
@@ -559,51 +546,197 @@ impl<'a> Program<'a> {
     /// unambiguously as upstream's `*ast.SourceFile` pointer. The [`Path`] the
     /// cache is keyed by never crosses the seam.
     ///
-    /// `None` covers four distinct situations, all of which must answer
-    /// `errorType` and none of which may answer a guess:
+    /// `None` covers three situations, all of which must answer `errorType`:
     ///
     /// | why | upstream |
     /// |---|---|
-    /// | this file never imported that specifier | key miss on `p.resolvedModules` |
+    /// | this file never imported that specifier in that mode | key miss on `p.resolvedModules` |
     /// | it did, and resolution failed | `!resolvedModule.IsResolved()` |
     /// | it resolved to a file the program does not hold | `GetSourceFileForResolvedModule` returns nil |
-    /// | two modes resolved it differently | *no counterpart* — see [`ModuleResolution::Conflicting`] |
-    ///
-    /// Only the last is a divergence, and it is a gap rather than a wrong
-    /// answer.
+    #[must_use]
+    pub fn resolved_module_in_mode(
+        &self,
+        importing_file: NodeId,
+        specifier: &str,
+        mode: ResolutionMode,
+    ) -> Option<NodeId> {
+        let target = self.resolution(importing_file, specifier, mode)?.as_ref()?;
+        self.source_file_for_resolved_path(target)
+    }
+
+    /// The file `import "<specifier>"` resolved to, for a caller that cannot
+    /// name its usage location's mode: answered only when every mode the file
+    /// asked in agrees, and `None` when two modes resolved it differently.
     #[must_use]
     pub fn resolved_module(&self, importing_file: NodeId, specifier: &str) -> Option<NodeId> {
-        let index = *self.files_by_source_file.get(&importing_file)?;
-        let resolution = self.resolved_modules.get(self.files[index].path())?.get(specifier)?;
-        let ModuleResolution::To(target) = resolution else { return None };
-        // `GetSourceFileForResolvedModule`: a resolution that named a file the
-        // program does not hold answers nothing. Membership is a lookup in
-        // `files_by_path`, and both sides of it were canonicalised by
-        // `to_path` under this program's own `current_directory` and case
-        // sensitivity — the target here at construction, the members when they
-        // were added — so a case-differing pair cannot alias. That is only true
-        // because `Program::source_file` stopped recovering case sensitivity by
-        // trying both conversions (`bd tsr-q89`); see its doc comment.
+        let target = self.agreed_resolution(importing_file, specifier)?;
+        self.source_file_for_resolved_path(target)
+    }
+
+    /// `GetSourceFileForResolvedModule`: a resolution that named a file the
+    /// program does not hold answers nothing. Membership is a lookup in
+    /// `files_by_path`, and both sides of it were canonicalised by `to_path`
+    /// under this program's own `current_directory` and case sensitivity — the
+    /// target here at construction, the members when they were added — so a
+    /// case-differing pair cannot alias. That is only true because
+    /// `Program::source_file` stopped recovering case sensitivity by trying both
+    /// conversions (`bd tsr-q89`); see its doc comment.
+    fn source_file_for_resolved_path(&self, target: &Path) -> Option<NodeId> {
         self.source_file_by_path(target)?.source_file().node_id
     }
 
-    /// Did the resolver name a file for this specifier, whether or not the
-    /// program holds it?
+    /// `p.resolvedModules[file.Path()].Get({Name, Mode})`.
+    fn resolution(
+        &self,
+        importing_file: NodeId,
+        specifier: &str,
+        mode: ResolutionMode,
+    ) -> Option<&Option<Path>> {
+        let index = *self.files_by_source_file.get(&importing_file)?;
+        let modes = self.resolved_modules.get(self.files[index].path())?.get(specifier)?;
+        modes.iter().find(|(asked, _)| *asked == mode).map(|(_, answer)| answer)
+    }
+
+    /// The file every mode resolved `specifier` to: `None` when the file never
+    /// asked for it, a mode failed to resolve it, or two modes disagree.
+    fn agreed_resolution(&self, importing_file: NodeId, specifier: &str) -> Option<&Path> {
+        let index = *self.files_by_source_file.get(&importing_file)?;
+        let modes = self.resolved_modules.get(self.files[index].path())?.get(specifier)?;
+        let (first, rest) = modes.split_first()?;
+        let target = first.1.as_ref()?;
+        rest.iter().all(|(_, answer)| answer.as_ref() == Some(target)).then_some(target)
+    }
+
+    /// Did the resolver name a file for this specifier in `mode`, whether or
+    /// not the program holds it?
     ///
     /// `Program.GetResolvedModule(...).IsResolved()`. The difference from
-    /// [`Program::resolved_module`] is the `GetSourceFileForResolvedModule`
-    /// membership hop that method ends with: an untyped `node_modules` package
-    /// under `allowJs: false`, or a `.tsx` reached without `--jsx`, resolves
-    /// here and is absent there. Upstream reports a different diagnostic code
-    /// for each, which is the only reason the distinction is exposed —
-    /// see [`tsr_checker::resolution::ModuleHost::module_resolution_found`].
+    /// [`Program::resolved_module_in_mode`] is the
+    /// `GetSourceFileForResolvedModule` membership hop that method ends with:
+    /// an untyped `node_modules` package under `allowJs: false`, or a `.tsx`
+    /// reached without `--jsx`, resolves here and is absent there. Upstream
+    /// reports a different diagnostic code for each, which is the only reason
+    /// the distinction is exposed — see
+    /// [`tsr_checker::resolution::ModuleHost::module_resolution_found`].
+    #[must_use]
+    pub fn module_resolution_found_in_mode(
+        &self,
+        importing_file: NodeId,
+        specifier: &str,
+        mode: ResolutionMode,
+    ) -> bool {
+        matches!(self.resolution(importing_file, specifier, mode), Some(Some(_)))
+    }
+
+    /// [`Program::module_resolution_found_in_mode`] for a caller that cannot
+    /// name its mode; see [`Program::resolved_module`].
     #[must_use]
     pub fn module_resolution_found(&self, importing_file: NodeId, specifier: &str) -> bool {
-        let Some(&index) = self.files_by_source_file.get(&importing_file) else { return false };
-        let Some(resolutions) = self.resolved_modules.get(self.files[index].path()) else {
-            return false;
+        self.agreed_resolution(importing_file, specifier).is_some()
+    }
+
+    /// `Program.GetModeForUsageLocation` (`program.go:1558`) →
+    /// `getModeForUsageLocation` (`fileloader.go:726`): the resolution mode of
+    /// the module specifier `usage` written in `importing_file`.
+    ///
+    /// Reads the specifier's parent syntax and the file's recorded
+    /// [`loader::SourceFileMetaData`]; the loader computed the same mode for
+    /// the same specifier when it resolved it, which is what makes the
+    /// `{Name, Mode}` key meet.
+    #[must_use]
+    pub fn mode_for_usage_location(&self, importing_file: NodeId, usage: NodeId) -> ResolutionMode {
+        use tsr_ast::Node;
+        let Some(&index) = self.files_by_source_file.get(&importing_file) else {
+            return ResolutionMode::None;
         };
-        matches!(resolutions.get(specifier), Some(ModuleResolution::To(_)))
+        let Some(metadata) = self.meta_datas.get(index) else { return ResolutionMode::None };
+        let Some(parent) = self.nodes.parent(usage) else { return ResolutionMode::None };
+        // `IsExclusivelyTypeOnlyImportOrExport` gates the declaration override.
+        let declaration_override = match self.node_map.get(parent) {
+            Some(Node::ImportDeclaration(import)) => import
+                .import_clause
+                .is_some_and(|clause| {
+                    clause
+                        .phase_modifier
+                        .is_some_and(|token| token.kind == tsr_ast::SyntaxKind::TypeKeyword)
+                })
+                .then(|| resolution_mode_override(import.attributes))
+                .flatten(),
+            Some(Node::ExportDeclaration(export)) => {
+                export.is_type_only.then(|| resolution_mode_override(export.attributes)).flatten()
+            }
+            _ => None,
+        };
+        if let Some(mode) = declaration_override {
+            return mode;
+        }
+        if self.nodes.kind(parent) == tsr_ast::SyntaxKind::LiteralType
+            && let Some(Node::ImportTypeNode(import_type)) =
+                self.nodes.parent(parent).and_then(|grandparent| self.node_map.get(grandparent))
+            && let Some(mode) = resolution_mode_override(import_type.attributes)
+        {
+            return mode;
+        }
+        if !loader::import_syntax_affects_module_resolution(&self.options) {
+            return ResolutionMode::None;
+        }
+        let file_name = self.files[index].file_name();
+        loader::emit_syntax_for_usage_location(
+            &self.options,
+            file_name,
+            metadata,
+            self.usage_syntax(usage, parent),
+        )
+    }
+
+    /// The syntax arms of `getEmitSyntaxForUsageLocationWorker`
+    /// (`fileloader.go:764`): `IsRequireCall(usage.Parent)`, an
+    /// `ExternalModuleReference` inside an `ImportEqualsDeclaration`, and
+    /// `IsImportCall(WalkUpParenthesizedExpressions(usage.Parent))`.
+    fn usage_syntax(&self, usage: NodeId, parent: NodeId) -> loader::UsageSyntax {
+        use tsr_ast::{Expression, Node, SyntaxKind};
+        if self.nodes.kind(parent) == SyntaxKind::ExternalModuleReference
+            && self
+                .nodes
+                .parent(parent)
+                .is_some_and(|owner| self.nodes.kind(owner) == SyntaxKind::ImportEqualsDeclaration)
+        {
+            return loader::UsageSyntax::Require;
+        }
+        if let Some(Node::CallExpression(call)) = self.node_map.get(parent)
+            && let Some(Expression::Identifier(callee)) = call.expression
+            && callee.text == "require"
+            && call.arguments.len() == 1
+            && call.arguments[0].node_id() == Some(usage)
+        {
+            return loader::UsageSyntax::Require;
+        }
+        let mut call = parent;
+        while self.nodes.kind(call) == SyntaxKind::ParenthesizedExpression {
+            let Some(outer) = self.nodes.parent(call) else { break };
+            call = outer;
+        }
+        if let Some(Node::CallExpression(import_call)) = self.node_map.get(call)
+            && let Some(Expression::KeywordExpression(keyword)) = import_call.expression
+            && keyword.node_id.is_some_and(|id| self.nodes.kind(id) == SyntaxKind::ImportKeyword)
+        {
+            return loader::UsageSyntax::ImportCall;
+        }
+        loader::UsageSyntax::Other
+    }
+
+    /// `Program.GetDefaultResolutionModeForFile` (`program.go:1562`).
+    #[must_use]
+    pub fn default_resolution_mode_for_file(&self, file: NodeId) -> ResolutionMode {
+        let Some(&index) = self.files_by_source_file.get(&file) else {
+            return ResolutionMode::None;
+        };
+        let Some(metadata) = self.meta_datas.get(index) else { return ResolutionMode::None };
+        loader::default_resolution_mode_for_file(
+            &self.options,
+            self.files[index].file_name(),
+            metadata,
+        )
     }
 
     /// A file name canonicalised the way this program canonicalises
@@ -651,18 +784,44 @@ impl tsr_checker::resolution::ModuleHost for Program<'_> {
     fn module_resolution_found(&self, importing_file: NodeId, specifier: &str) -> bool {
         Program::module_resolution_found(self, importing_file, specifier)
     }
+
+    fn resolved_module_in_mode(
+        &self,
+        importing_file: NodeId,
+        specifier: &str,
+        mode: ResolutionMode,
+    ) -> Option<NodeId> {
+        Program::resolved_module_in_mode(self, importing_file, specifier, mode)
+    }
+
+    fn module_resolution_found_in_mode(
+        &self,
+        importing_file: NodeId,
+        specifier: &str,
+        mode: ResolutionMode,
+    ) -> bool {
+        Program::module_resolution_found_in_mode(self, importing_file, specifier, mode)
+    }
+
+    fn mode_for_usage_location(&self, importing_file: NodeId, usage: NodeId) -> ResolutionMode {
+        Program::mode_for_usage_location(self, importing_file, usage)
+    }
+
+    fn default_resolution_mode_for_file(&self, file: NodeId) -> ResolutionMode {
+        Program::default_resolution_mode_for_file(self, file)
+    }
     fn file_path(&self, file: NodeId) -> Option<String> {
         let &index = self.files_by_source_file.get(&file)?;
         Some(self.files[index].file_name().to_string())
     }
 
-    fn resolved_module_path(&self, importing_file: NodeId, specifier: &str) -> Option<String> {
-        let &index = self.files_by_source_file.get(&importing_file)?;
-        let resolutions = self.resolved_modules.get(self.files[index].path())?;
-        match resolutions.get(specifier) {
-            Some(ModuleResolution::To(path)) => Some(path.to_string()),
-            _ => None,
-        }
+    fn resolved_module_path_in_mode(
+        &self,
+        importing_file: NodeId,
+        specifier: &str,
+        mode: ResolutionMode,
+    ) -> Option<String> {
+        self.resolution(importing_file, specifier, mode)?.as_ref().map(ToString::to_string)
     }
     fn jsdoc_template_parameters(&self, declaration: NodeId) -> Vec<NodeId> {
         // §110: linear over files, then over each file's (host, docs) rows —
@@ -745,36 +904,48 @@ fn resolved_modules(
     requests: &[loader::ResolutionRequest],
     current_directory: &str,
     use_case_sensitive_file_names: bool,
-) -> FxHashMap<Path, FxHashMap<String, ModuleResolution>> {
-    let mut by_file: FxHashMap<Path, FxHashMap<String, ModuleResolution>> = FxHashMap::default();
+) -> FxHashMap<Path, ModeAwareResolutions> {
+    let mut by_file: FxHashMap<Path, ModeAwareResolutions> = FxHashMap::default();
     for request in requests {
         if request.kind != loader::RequestKind::Module {
             continue;
         }
         let canonical =
             |name: &str| to_path(name, current_directory, use_case_sensitive_file_names);
-        let answer = request
-            .resolved
-            .as_deref()
-            .map_or(ModuleResolution::Unresolved, |name| ModuleResolution::To(canonical(name)));
+        let answer = request.resolved.as_deref().map(canonical);
         let containing = canonical(&request.containing_file);
-        match by_file.entry(containing).or_default().entry(request.name.clone()) {
-            Entry::Vacant(slot) => {
-                slot.insert(answer);
-            }
-            // The same specifier text, asked twice in one file. Upstream's key
-            // carries the mode and keeps both; this key does not, so agreement
-            // is the only case it can answer. Sticky: a third request that
-            // happens to agree with the first must not clear a conflict the
-            // second established.
-            Entry::Occupied(mut slot) => {
-                if *slot.get() != answer {
-                    slot.insert(ModuleResolution::Conflicting);
-                }
-            }
+        // The same `{Name, Mode}` asked twice in one file is one resolution
+        // upstream (`resolutionsInFile` is keyed by it); the first answer is
+        // the one kept.
+        let modes = by_file.entry(containing).or_default().entry(request.name.clone()).or_default();
+        if !modes.iter().any(|(asked, _)| *asked == request.mode) {
+            modes.push((request.mode, answer));
         }
     }
     by_file
+}
+
+/// `ImportAttributes.GetResolutionModeOverride` (`ast/ast.go`): exactly one
+/// attribute, named `resolution-mode`, valued `"import"` or `"require"`.
+fn resolution_mode_override(
+    attributes: Option<&tsr_ast::ImportAttributes<'_>>,
+) -> Option<ResolutionMode> {
+    let [attribute] = attributes?.attributes else { return None };
+    let Some(tsr_ast::ImportAttributeName::StringLiteral(name)) = attribute.name else {
+        return None;
+    };
+    if name.text != "resolution-mode" {
+        return None;
+    }
+    match attribute.value.map(tsr_ast::Node::from) {
+        Some(tsr_ast::Node::StringLiteral(literal)) if literal.text == "import" => {
+            Some(ResolutionMode::ESNext)
+        }
+        Some(tsr_ast::Node::StringLiteral(literal)) if literal.text == "require" => {
+            Some(ResolutionMode::CommonJS)
+        }
+        _ => None,
+    }
 }
 
 #[cfg(test)]
@@ -1326,18 +1497,12 @@ mod tests {
     }
 
     #[test]
-    fn two_modes_that_disagree_answer_nothing_rather_than_the_first() {
+    fn each_usage_location_reads_the_resolution_of_its_own_mode() {
         // Under `module: node16` a static `import "./b"` resolves as CommonJS
         // and a dynamic `import("./b")` as ESNext (`getModeForUsageLocation`,
         // `internal/compiler/fileloader.go:726`), and only the first finds
-        // `/b.ts`. Upstream keys its cache on the mode and keeps both answers;
-        // this port cannot compute a usage location's mode, so the two collapse
-        // onto one key — and when they disagree the honest answer is none.
-        let node16 = || CompilerOptions {
-            module: tsr_core::ModuleKind::Node16,
-            module_resolution: tsr_core::ModuleResolutionKind::Node16,
-            ..Default::default()
-        };
+        // `/b.ts`. Upstream keys `resolvedModules` on `{Name, Mode}`; each
+        // specifier must read its own answer.
         let both = [
             (
                 "/a.ts".to_string(),
@@ -1350,40 +1515,38 @@ mod tests {
             &arena,
             &host(&both),
             LoadOptions {
-                compiler_options: node16(),
+                compiler_options: CompilerOptions {
+                    module: tsr_core::ModuleKind::Node16,
+                    module_resolution: tsr_core::ModuleResolutionKind::Node16,
+                    ..Default::default()
+                },
                 root_file_names: vec!["/a.ts".to_string()],
                 ..Default::default()
             },
         );
-        assert_eq!(
-            program.resolved_module(file_id(&program, "/a.ts"), "./b"),
-            None,
-            "two modes, two answers, and no way to tell which usage is asking"
-        );
+        let a = file_id(&program, "/a.ts");
+        let b = file_id(&program, "/b.ts");
+        let [static_import, dynamic_import] = ["\"./b\";", "\"./b\")"].map(|written| {
+            let text = program.source_file("/a.ts").unwrap().text();
+            let start = u32::try_from(text.find(written).unwrap()).unwrap();
+            (0..u32::try_from(program.nodes().len()).unwrap())
+                .map(tsr_ast::NodeId::new)
+                .find(|&id| {
+                    program.nodes().kind(id) == tsr_ast::SyntaxKind::StringLiteral
+                        && program.nodes().span(id).start == start
+                })
+                .expect("the specifier literal is registered")
+        });
 
-        // The control, and it is the discriminating half: the *same specifier,
-        // the same options, the same files*, with only the dynamic import
-        // removed. If this also answered `None` the test above would be
-        // measuring node16 resolution rather than the collapse.
-        let static_only = [
-            ("/a.ts".to_string(), "import \"./b\";\n".to_string()),
-            ("/b.ts".to_string(), "export const b = 1;\n".to_string()),
-        ];
-        let arena = Arena::new();
-        let program = Program::from_root_files(
-            &arena,
-            &host(&static_only),
-            LoadOptions {
-                compiler_options: node16(),
-                root_file_names: vec!["/a.ts".to_string()],
-                ..Default::default()
-            },
-        );
-        assert_eq!(
-            program.resolved_module(file_id(&program, "/a.ts"), "./b"),
-            Some(file_id(&program, "/b.ts")),
-            "one mode, one answer"
-        );
+        let static_mode = program.mode_for_usage_location(a, static_import);
+        let dynamic_mode = program.mode_for_usage_location(a, dynamic_import);
+        assert_eq!(static_mode, ResolutionMode::CommonJS);
+        assert_eq!(dynamic_mode, ResolutionMode::ESNext);
+        assert_eq!(program.resolved_module_in_mode(a, "./b", static_mode), Some(b));
+        assert_eq!(program.resolved_module_in_mode(a, "./b", dynamic_mode), None);
+        // A caller that cannot name a mode gets an answer only when the modes
+        // agree, and these do not.
+        assert_eq!(program.resolved_module(a, "./b"), None);
     }
 
     #[test]

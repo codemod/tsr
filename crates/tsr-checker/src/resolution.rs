@@ -36,6 +36,7 @@
 
 use tsr_ast::{NodeId, NodeTable};
 use tsr_binder::SymbolId;
+use tsr_core::ResolutionMode;
 
 /// Native `TypeSystemEntity`: a symbol and its declaration-owned return slot
 /// are different entities even when the declaration belongs to that symbol.
@@ -159,10 +160,57 @@ pub trait ModuleHost {
     /// module is TS2306. [`ModuleHost::module_resolution_found`] separates that
     /// family from TS2307's; only the extension separates its members.
     ///
-    /// Defaulted to `None`, which reports nothing — a host that is not a real
-    /// program has no resolutions to describe. §357.
-    fn resolved_module_path(&self, _importing_file: NodeId, _specifier: &str) -> Option<String> {
+    /// Keyed by `{Name, Mode}` like the other `_in_mode` questions. Defaulted
+    /// to `None`, which reports nothing — a host that is not a real program
+    /// has no resolutions to describe. §357.
+    fn resolved_module_path_in_mode(
+        &self,
+        _importing_file: NodeId,
+        _specifier: &str,
+        _mode: ResolutionMode,
+    ) -> Option<String> {
         None
+    }
+
+    /// `Program.GetResolvedModule(file, moduleReference, mode)`
+    /// (`checker.go:558`) composed with `GetSourceFileForResolvedModule`: the
+    /// file the specifier resolved to **under the usage location's mode**.
+    ///
+    /// A file can ask for one specifier in two modes — `import("foo", { with:
+    /// { "resolution-mode": "require" } })` beside a plain `import("foo")` —
+    /// and get two answers. Defaulted to [`ModuleHost::resolved_module`] for
+    /// hosts whose resolutions are not mode-aware.
+    fn resolved_module_in_mode(
+        &self,
+        importing_file: NodeId,
+        specifier: &str,
+        _mode: ResolutionMode,
+    ) -> Option<NodeId> {
+        self.resolved_module(importing_file, specifier)
+    }
+
+    /// [`ModuleHost::module_resolution_found`] under the usage location's
+    /// mode; defaulted like [`ModuleHost::resolved_module_in_mode`].
+    fn module_resolution_found_in_mode(
+        &self,
+        importing_file: NodeId,
+        specifier: &str,
+        _mode: ResolutionMode,
+    ) -> bool {
+        self.module_resolution_found(importing_file, specifier)
+    }
+
+    /// `Program.GetModeForUsageLocation` (`checker.go:15202`): the resolution
+    /// mode of the string-literal module specifier `usage`. `None` for a host
+    /// without per-file module formats.
+    fn mode_for_usage_location(&self, _importing_file: NodeId, _usage: NodeId) -> ResolutionMode {
+        ResolutionMode::None
+    }
+
+    /// `Program.GetDefaultResolutionModeForFile` (`checker.go:15204`), for a
+    /// location with no specifier to read a mode from.
+    fn default_resolution_mode_for_file(&self, _file: NodeId) -> ResolutionMode {
+        ResolutionMode::None
     }
 
     /// §143: the file path of a `SourceFile` node, for the relative-specifier

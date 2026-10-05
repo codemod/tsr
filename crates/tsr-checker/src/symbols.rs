@@ -2530,13 +2530,141 @@ impl<'a> Checker<'a, '_> {
             return Some(ambient);
         }
         let importing_file = self.source_file_of(location)?;
-        let target = self.module_host?.resolved_module(importing_file, text)?;
+        let host = self.module_host?;
+        let mode = self.module_resolution_mode(host, importing_file, location);
+        let target = host.resolved_module_in_mode(importing_file, text, mode)?;
         // `sourceFile.Symbol != nil` (`checker.go:15321`). `None` here is a file
         // that is not an external module — upstream's `File_0_is_not_a_module` —
         // and it is the reason the host answers a *file* rather than a symbol:
         // resolving to a plain script is a successful resolution with no module
         // symbol at the end of it, and only the checker can tell those apart.
         self.binder.symbol_of(target)
+    }
+
+    /// The `contextSpecifier`/`mode` prelude of `resolveExternalModule`
+    /// (`checker.go:15149`): the string literal whose usage decides the
+    /// resolution mode, read from `location`, then
+    /// `GetModeForUsageLocation(file, contextSpecifier)` — or the file's
+    /// default mode when no specifier is found. No cache: two parent walks
+    /// and a host query per resolution.
+    pub(crate) fn module_resolution_mode(
+        &self,
+        host: &dyn crate::resolution::ModuleHost,
+        importing_file: NodeId,
+        location: NodeId,
+    ) -> tsr_core::ResolutionMode {
+        match self.context_specifier(location) {
+            Some(specifier)
+                if matches!(
+                    self.nodes.kind(specifier),
+                    SyntaxKind::StringLiteral | SyntaxKind::NoSubstitutionTemplateLiteral
+                ) =>
+            {
+                host.mode_for_usage_location(importing_file, specifier)
+            }
+            _ => host.default_resolution_mode_for_file(importing_file),
+        }
+    }
+
+    /// `contextSpecifier` in `resolveExternalModule` (`checker.go:15166`).
+    fn context_specifier(&self, location: NodeId) -> Option<NodeId> {
+        let is_string_literal_like = |node: NodeId| {
+            matches!(
+                self.nodes.kind(node),
+                SyntaxKind::StringLiteral | SyntaxKind::NoSubstitutionTemplateLiteral
+            )
+        };
+        let parent = self.nodes.parent(location);
+        if is_string_literal_like(location)
+            || parent.is_some_and(|parent| {
+                matches!(self.node_map.get(parent), Some(Node::ModuleDeclaration(module))
+                    if module.name.and_then(|name| name.node_id()) == Some(location))
+            })
+        {
+            return Some(location);
+        }
+        match self.node_map.get(location)? {
+            Node::ModuleDeclaration(module) => return module.name.and_then(|name| name.node_id()),
+            // `IsLiteralImportTypeNode`.
+            Node::ImportTypeNode(import_type) => {
+                if let Some(tsr_ast::TypeNode::LiteralTypeNode(literal_type)) = import_type.argument
+                    && let Some(literal) = literal_type.literal
+                    && let Some(id) = literal.node_id()
+                    && is_string_literal_like(id)
+                {
+                    return Some(id);
+                }
+            }
+            // `IsVariableDeclarationInitializedToBareOrAccessedRequire`.
+            Node::VariableDeclaration(variable) => {
+                let mut initializer = variable.initializer;
+                while let Some(
+                    Expression::PropertyAccessExpression(tsr_ast::PropertyAccessExpression {
+                        expression,
+                        ..
+                    })
+                    | Expression::ElementAccessExpression(tsr_ast::ElementAccessExpression {
+                        expression,
+                        ..
+                    }),
+                ) = initializer
+                {
+                    initializer = *expression;
+                }
+                if let Some(Expression::CallExpression(call)) = initializer
+                    && let Some(Expression::Identifier(callee)) = call.expression
+                    && callee.text == "require"
+                    && let [argument] = call.arguments
+                    && let Some(id) = argument.node_id()
+                    && is_string_literal_like(id)
+                {
+                    return Some(id);
+                }
+            }
+            _ => {}
+        }
+        // `FindAncestor` starts at `location` itself.
+        let ancestors = || std::iter::once(location).chain(self.nodes.ancestors(location));
+        // `FindAncestor(location, IsImportCall)`.
+        if let Some(call) = ancestors().find_map(|ancestor| match self.node_map.get(ancestor) {
+            Some(Node::CallExpression(call))
+                if matches!(call.expression, Some(Expression::KeywordExpression(keyword))
+                    if keyword.node_id.is_some_and(|id| self.nodes.kind(id) == SyntaxKind::ImportKeyword)) =>
+            {
+                Some(call)
+            }
+            _ => None,
+        }) {
+            return call.arguments.first().and_then(tsr_ast::Expression::node_id);
+        }
+        // `IsImportDeclarationOrJSImportDeclaration`: a JSDoc `@import` is
+        // upstream's reparsed `JSImportDeclaration`.
+        if let Some(specifier) =
+            ancestors().find_map(|ancestor| match self.node_map.get(ancestor) {
+                Some(Node::ImportDeclaration(import)) => Some(import.module_specifier),
+                Some(Node::JSDocImportTag(import)) => Some(import.module_specifier),
+                _ => None,
+            })
+        {
+            return specifier.and_then(|specifier| specifier.node_id());
+        }
+        if let Some(export) = ancestors().find_map(|ancestor| match self.node_map.get(ancestor) {
+            Some(Node::ExportDeclaration(export)) => Some(export),
+            _ => None,
+        }) {
+            return export.module_specifier.and_then(|specifier| specifier.node_id());
+        }
+        ancestors()
+            .find_map(|ancestor| match self.node_map.get(ancestor) {
+                Some(Node::ImportEqualsDeclaration(import)) => Some(import.module_reference),
+                _ => None,
+            })?
+            .and_then(|reference| match reference {
+                tsr_ast::ModuleReference::ExternalModuleReference(reference) => {
+                    reference.expression.and_then(|expression| expression.node_id())
+                }
+                _ => None,
+            })
     }
 
     /// `tryFindAmbientModule` (`checker.go:15533`): the `declare module "x"`

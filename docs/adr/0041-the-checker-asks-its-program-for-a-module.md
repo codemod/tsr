@@ -210,3 +210,26 @@ the id provably loses nothing, and it matches upstream, whose
   dependency.
 - `docs/architecture/checker-notes-modules.md` — the field notes, the
   measurements, and the corrections made along the way.
+
+## Amendment: the key regains its mode
+
+The falsifier above fired: `resolutionModeImportType1`,
+`resolutionModeTypeOnlyImport1`, `resolutionModeCache` and the
+`nodeModules*TypeModeDeclarationEmit*` cases ask for one specifier under two
+`resolution-mode`s, collapse to `Conflicting`, and report TS2307 where upstream
+resolves both.
+
+The rejected option won without a `NodeId` on the parser's `ModuleSpecifier`.
+The loader now hands each file's `SourceFileMetaData` to the `Program`, which
+ports `getModeForUsageLocation` (`fileloader.go:726`) over the AST it already
+holds: the specifier literal's parent syntax plus the recorded metadata gives
+the same mode the loader computed from the collected specifier, because both
+share `emit_syntax_for_usage_location`. `resolved_modules` is keyed by
+`{Name, Mode}`; the checker computes `contextSpecifier` as
+`resolveExternalModule` does (`checker.go:15149`) and asks
+`ModuleHost::mode_for_usage_location`, or `default_resolution_mode_for_file`
+when no specifier is found, then `resolved_module_in_mode`.
+
+The mode-less `ModuleHost::resolved_module` remains for callers that cannot
+name a usage location; it answers only when every mode the file asked in
+resolved to the same file.
