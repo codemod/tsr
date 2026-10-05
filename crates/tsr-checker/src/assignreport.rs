@@ -1165,23 +1165,33 @@ impl<'a> Checker<'a, '_> {
                 self.check_object_literal_member(literal, target, name);
                 continue;
             }
-            // A near miss is TS2561, a different code at the same position.
-            let candidates: Vec<&str> = known.iter().map(|(seen, _)| seen.as_str()).collect();
-            if crate::check::spelling_suggestion(name, &candidates).is_some() {
-                return;
-            }
             let Some(at) = self.excess_property_name_node(literal, name) else { return };
             let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
             let span = self.error_span(at);
             let printed = self.type_to_string(target);
-            self.report(
-                file,
+            // hasExcessProperties (relater.go:2714): an identifier name with a
+            // spelling suggestion among the target's properties
+            // (getSuggestionForNonexistentProperty) is TS2561; a string-literal
+            // name is never given a suggestion.
+            let candidates: Vec<&str> = known.iter().map(|(seen, _)| seen.as_str()).collect();
+            let suggestion = (self.nodes.kind(at) == SyntaxKind::Identifier)
+                .then(|| crate::check::spelling_suggestion(name, &candidates))
+                .flatten()
+                .map(str::to_string);
+            let diagnostic = if let Some(suggestion) = suggestion {
+                Diagnostic::with_args(
+                    &messages::OBJECT_LITERAL_MAY_ONLY_SPECIFY_KNOWN_PROPERTIES_BUT_0_DOES_NOT_EXIST_IN_TYPE_1_DID_YOU_MEAN_TO_WRITE_2,
+                    span,
+                    [name.to_string(), printed, suggestion],
+                )
+            } else {
                 Diagnostic::with_args(
                     &messages::OBJECT_LITERAL_MAY_ONLY_SPECIFY_KNOWN_PROPERTIES_AND_0_DOES_NOT_EXIST_IN_TYPE_1,
                     span,
                     [name.to_string(), printed],
-                ),
-            );
+                )
+            };
+            self.report(file, diagnostic);
             return;
         }
     }
