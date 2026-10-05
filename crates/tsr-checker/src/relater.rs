@@ -1118,6 +1118,104 @@ impl Relater<'_, '_, '_> {
         }
     }
 
+    /// `structuredTypeRelatedToWorker`'s generic-mapped-target arm
+    /// (`relater.go:3593`): is `source` related to `{ [P in Q]: T }` or
+    /// `{ [P in Q as R]: T }`?
+    ///
+    /// - `{ [P in Q]: S[P] }` relates `S` outright;
+    /// - otherwise, for a source that is not itself a generic mapped type, `Q`
+    ///   (or `R`) must relate to `keyof S` — for a `?` target some key must
+    ///   be common — and `S[P]` (or the fast path `S -> Obj` for a template
+    ///   `Obj[P]`) must relate to the template.
+    ///
+    /// `None` when the arm does not apply. A `NotRelated` answer is the arm
+    /// failing; the caller continues with the remaining arms, as upstream
+    /// restores its error state and falls through. `keyof S` here is
+    /// `resolved_keyof_type`, which (unlike `IndexFlagsNoIndexSignatures`)
+    /// would include index-signature keys, so a source carrying index
+    /// signatures is left to the remaining arms.
+    fn generic_mapped_target_related_to(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+    ) -> Option<RelationResult> {
+        if !self.is_generic_mapped_target(target) {
+            return None;
+        }
+        let info = self.checker.mapped_types.get(&target).cloned()?;
+        // MappedTypeModifiersExcludeOptional: a `-?` target skips the arm.
+        if info.optionality == Some(false) {
+            return None;
+        }
+        let keys_remapped = info.name_type.is_some();
+        let template = self.checker.mapped_template_type(&info);
+        if !keys_remapped
+            && let Some(&(object, index, _)) =
+                self.checker.deferred_indexed_access_types.get(&template)
+            && object == source
+            && index == info.parameter
+        {
+            return Some(RelationResult::Related);
+        }
+        if self.is_generic_mapped_target(source)
+            || self.checker.get_index_infos_of_type(source).is_none_or(|infos| !infos.is_empty())
+        {
+            return None;
+        }
+        let target_keys = info.name_type.unwrap_or(info.constraint);
+        let source_keys = self.checker.resolved_keyof_type(source)?;
+        let include_optional = info.optionality == Some(true);
+        let filtered = if include_optional {
+            let filtered = self.checker.get_intersection_type(&[target_keys, source_keys], None);
+            if self.checker.type_of(filtered).flags.intersects(TypeFlags::NEVER) {
+                return Some(RelationResult::NotRelated);
+            }
+            Some(filtered)
+        } else {
+            let keys = self.is_related_to(target_keys, source_keys);
+            if keys == RelationResult::NotRelated {
+                return Some(RelationResult::NotRelated);
+            }
+            if keys == RelationResult::Unknown {
+                return Some(RelationResult::Unknown);
+            }
+            None
+        };
+        // extractTypesOfKind(templateType, ^TypeFlagsNullable).
+        let non_null = match &self.checker.type_of(template).data {
+            TypeData::Union { types, .. } => {
+                let parts: Vec<TypeId> = types
+                    .iter()
+                    .copied()
+                    .filter(|&part| {
+                        !self.checker.type_of(part).flags.intersects(TypeFlags::NULLABLE)
+                    })
+                    .collect();
+                self.checker.get_union_type(&parts)
+            }
+            _ => template,
+        };
+        if !keys_remapped
+            && let Some(&(object, index, _)) =
+                self.checker.deferred_indexed_access_types.get(&non_null)
+            && index == info.parameter
+        {
+            return Some(self.is_related_to_with_flags(source, object, RecursionFlags::TARGET));
+        }
+        let indexing = if keys_remapped {
+            filtered.unwrap_or(target_keys)
+        } else if let Some(filtered) = filtered {
+            self.checker.get_intersection_type(&[filtered, info.parameter], None)
+        } else {
+            info.parameter
+        };
+        let Some(indexed) = self.checker.resolved_indexed_access_type(source, indexing, false)
+        else {
+            return Some(RelationResult::Unknown);
+        };
+        Some(self.is_related_to(indexed, template))
+    }
+
     /// isGenericMappedType (checker.go) as far as this port can tell: a mapped
     /// type whose constraint (or key-remapping name type) may still be
     /// instantiable. Over-approximates, which only leaves pairs undecided.
@@ -2324,6 +2422,11 @@ impl Relater<'_, '_, '_> {
             if direct == Some(RelationResult::Unknown) {
                 return RelationResult::Unknown;
             }
+        }
+        if let Some(result) = self.generic_mapped_target_related_to(source, target)
+            && result != RelationResult::NotRelated
+        {
+            return result;
         }
         // The source-variable branch also explores an indexed access's
         // constraint, except when both operands are indexed accesses and the

@@ -79,3 +79,30 @@ corpus at this commit (zero-loss check empty).
   for a qualified name naming an enum is `declared.rs` (type-refs box).
   Unlocks the enum families of `enumAssignmentCompat3` (12 lines) and
   `enumAssignmentCompat6` (6 lines).
+
+## 4. Ported: the generic-mapped-target arm of `structuredTypeRelatedToWorker`
+
+`relater.go:3593`. A source `S` against `{ [P in Q]: T }` / `{ [P in Q as R]: T }`
+(a mapped type whose constraint or name type is still generic) had no arm, so
+`U -> { [P in keyof U]: U[keyof U] }` fell to the source type parameter's
+`unknown` constraint and answered a confident `NotRelated` — a false TS2322
+(`compiler/mappedTypeParameterConstraint`). `Relater::generic_mapped_target_related_to`
+mirrors the arm: the `{ [P in Q]: S[P] }` identity shortcut, then (for a
+non-generic-mapped source) `Q`/`R` related to `keyof S` (`?` targets need a
+non-empty key intersection), then the `Obj[P]` fast path or `S[P] -> T`.
+
+Deviations, each conservative (they leave a pair undecided rather than
+deciding it differently):
+
+- `keyof S` is `resolved_keyof_type`, which includes index-signature keys where
+  upstream asks `IndexFlagsNoIndexSignatures`; a source with index signatures
+  (or an unresolved index table) skips the arm.
+- An `Unknown` key relation or an indexed access the port cannot build answers
+  `Unknown`; upstream's arm would fall through to the remaining arms with a
+  definite answer. `V -> { [P in keyof W]: W[P] }` therefore stays undecided
+  (no report) where upstream reports TS2322.
+- `isGenericMappedType` is the existing over-approximating
+  `is_generic_mapped_target`, used for both sides.
+
+Would be wrong if: a pair decided `Related` by the arm is reported by upstream.
+Zero-loss check at this commit is empty on both suites.
