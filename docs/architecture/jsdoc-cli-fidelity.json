@@ -1,0 +1,2302 @@
+{
+  "schema": "tsr-jsdoc-cli-fidelity-v1",
+  "native_pin": "5b1047d10d32e7d5b446be4de56b126ff42f82bb",
+  "candidate": {
+    "base_sha": "85cf4c50f8504f7c28d551aacbcd7365e367fb2e",
+    "native_pin": "5b1047d10d32e7d5b446be4de56b126ff42f82bb",
+    "archive_sha256": "c388007933d3d2ae9dd686a09677e8c2d90c793c2ab67d1172323294b83ff211",
+    "candidate_files": {
+      "crates/tsr-execute/src/compile.rs": "e209f8e6d739d6fd8c3a5358a05101e91ce44d3dde309423864c41ed38a03f50",
+      "crates/tsr-execute/examples/checker_workers.rs": "22d2768c0026617c3a5a248f4ef4ba02e5f8d1b9a3a5398590667f4e37e9f4a1",
+      "crates/tsr-checker/src/assignreport.rs": "8570f2b09ebae4cdfdcbfe521cc7173773e44168fa07d94b979fcaf124beb8ea",
+      "crates/tsr-checker/src/symbols.rs": "feea144f242ba63b3060bc1d696cbe70c5f4e3a3634d0d0861f5b3529676a93d",
+      "crates/tsr-checker/src/contextual.rs": "a9fd5c4c7282370bf66c9469454a079e4e043e34031416c934df2367300f4e9b",
+      "crates/tsr-checker/src/declared.rs": "1b6d7ac2b99c2558164150ce0664af3d417d73ce968c7d294c6411cac948d51b"
+    }
+  },
+  "candidate_patch_sha256": "38e5589d310605b4721c7635e72cfba3907944b3c88189f8297c57cf8d9494be",
+  "speed_qualified": false,
+  "full_input_and_forcing_equivalence": false,
+  "independent_reviewers": 0,
+  "review": "Targeted manual review and three simplification lenses inline under AGENTS; no independent agent/model review.",
+  "component_gates": {
+    "init-only": {
+      "identity": {
+        "base_sha": "d4906082bc4d5e044b6c8ee6469665830f18f51f",
+        "archive_sha256": "f6ff1778f85d4ca357e27c2043327351de72350dad348aba346e552952e52aa6",
+        "candidate_files": {
+          "crates/tsr-execute/src/compile.rs": "91f4baba8f2a4de0f8584a3874a0578ce5cee1b148d7f5cbc69d0709fa279bb3",
+          "crates/tsr-execute/examples/checker_workers.rs": "5a4da93b84f3909e950ba254ee558da9b10a60a464c026ad9e4b701abc655d24",
+          "crates/tsr-checker/src/assignreport.rs": "660fbb01310606cd25201d1954a0b234fc20f579188de941b67b66af45ebed15",
+          "crates/tsr-checker/src/symbols.rs": "a0bddbfa1a2e459993b1b892265f86ab668ba0cfaf3f6431a97201694e47c449"
+        },
+        "native_pin": "5b1047d10d32e7d5b446be4de56b126ff42f82bb",
+        "isolated_component": "init-only"
+      },
+      "receipt": "init-only-corpus/results.json",
+      "children": [
+        {
+          "kind": "types",
+          "mode": "normal",
+          "pid": 75736,
+          "started_at_unix_ns": 1791184116709445000,
+          "binary": "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-eligible-8swxo4a4/current-normal-target/release/examples/verdictdump",
+          "binary_sha256": "7373b13066687fbfa31139b077a9539fece0d515b726084469b226764d6b9b97",
+          "status": "complete",
+          "exit_code": 0,
+          "stdout_sha256": "cda5bd6f8fdc9b49ad8996e49a6e687a761a218f9fcd97326fb202311b7e7aa1",
+          "stderr_sha256": "56fe11baf2adc9962b6d2346bccdcb59cdd93e6dc993e52b922ef670adff8427"
+        },
+        {
+          "kind": "diagnostics",
+          "mode": "normal",
+          "pid": 78597,
+          "started_at_unix_ns": 1791184341120271000,
+          "binary": "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-eligible-8swxo4a4/current-normal-target/release/examples/diagverdictdump",
+          "binary_sha256": "a7f8a812dc71ccf90bbb59f9ff1f6fa6f90dd36378f95bc6ff16cae649a0554b",
+          "status": "complete",
+          "exit_code": 0,
+          "stdout_sha256": "a1af17413235d1ab5d99fcb95218b211565ef782bd3ea444176903fceb5a5e92",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "kind": "types",
+          "mode": "candidate",
+          "pid": 81013,
+          "started_at_unix_ns": 1791184854768053000,
+          "binary": "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-eligible-8swxo4a4/init-only-target/release/examples/verdictdump",
+          "binary_sha256": "5097b705670845c446811dbaf17c39a9eef1e655be5d7635354f5efd5278bdb5",
+          "status": "complete",
+          "exit_code": 0,
+          "stdout_sha256": "cda5bd6f8fdc9b49ad8996e49a6e687a761a218f9fcd97326fb202311b7e7aa1",
+          "stderr_sha256": "56fe11baf2adc9962b6d2346bccdcb59cdd93e6dc993e52b922ef670adff8427"
+        },
+        {
+          "kind": "diagnostics",
+          "mode": "candidate",
+          "pid": 81221,
+          "started_at_unix_ns": 1791184902887580000,
+          "binary": "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-eligible-8swxo4a4/init-only-target/release/examples/diagverdictdump",
+          "binary_sha256": "cecdb6eda79f1c254a78fb9dcc5884d02e281f83ffaff4648b915080c7282809",
+          "status": "complete",
+          "exit_code": 0,
+          "stdout_sha256": "b64e18953222ded6d52073e83af77700a099e2c12ea0b5040621e695338dd268",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ],
+      "types": {
+        "rows": 475538,
+        "before_counts": {
+          "RIGHT": 464069,
+          "WRONG": 9865,
+          "GAP": 1604
+        },
+        "after_counts": {
+          "RIGHT": 464069,
+          "WRONG": 9865,
+          "GAP": 1604
+        },
+        "transitions": {},
+        "prior_right_losses": [],
+        "changes_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+      },
+      "diagnostics": {
+        "rows": 10570,
+        "before_counts": {
+          "EMPTY_RIGHT": 4821,
+          "RIGHT": 2880,
+          "WRONG": 2608,
+          "EMPTY_WRONG": 261
+        },
+        "after_counts": {
+          "EMPTY_RIGHT": 4820,
+          "RIGHT": 2881,
+          "WRONG": 2607,
+          "EMPTY_WRONG": 262
+        },
+        "transitions": {
+          "WRONG->WRONG": 2,
+          "WRONG->RIGHT": 1,
+          "EMPTY_RIGHT->EMPTY_WRONG": 1
+        },
+        "prior_right_losses": [
+          {
+            "key": "conformance/contextualTypeFromJSDoc",
+            "before": [
+              "EMPTY_RIGHT",
+              [
+                "[]",
+                "[]"
+              ]
+            ],
+            "after": [
+              "EMPTY_WRONG",
+              [
+                "[]",
+                "[BaselineDiagnostic { file: \"index.js\", line: 2, column: 7, code: 2322 }]"
+              ]
+            ]
+          }
+        ],
+        "changes_sha256": "1cc27d42f42c28a80c26f276dd84eb0f114f56eebadaaa3c76e98eb4343d2fed"
+      }
+    },
+    "host-only": {
+      "identity": {
+        "base_sha": "d4906082bc4d5e044b6c8ee6469665830f18f51f",
+        "archive_sha256": "f6ff1778f85d4ca357e27c2043327351de72350dad348aba346e552952e52aa6",
+        "candidate_files": {
+          "crates/tsr-execute/src/compile.rs": "91f4baba8f2a4de0f8584a3874a0578ce5cee1b148d7f5cbc69d0709fa279bb3",
+          "crates/tsr-execute/examples/checker_workers.rs": "5a4da93b84f3909e950ba254ee558da9b10a60a464c026ad9e4b701abc655d24",
+          "crates/tsr-checker/src/assignreport.rs": "c381992f03a0c461117d2aaffe233834b4eae730a678b28c87d16fb7d85056f4",
+          "crates/tsr-checker/src/symbols.rs": "21a5b96c1f442057165c3f8d1e3fb3064cfef3df78ed90bc1ac9bd1bc1a30f94"
+        },
+        "native_pin": "5b1047d10d32e7d5b446be4de56b126ff42f82bb",
+        "isolated_component": "host-only"
+      },
+      "receipt": "host-only-corpus/results.json",
+      "children": [
+        {
+          "kind": "types",
+          "mode": "normal",
+          "pid": 75736,
+          "started_at_unix_ns": 1791184116709445000,
+          "binary": "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-eligible-8swxo4a4/current-normal-target/release/examples/verdictdump",
+          "binary_sha256": "7373b13066687fbfa31139b077a9539fece0d515b726084469b226764d6b9b97",
+          "status": "complete",
+          "exit_code": 0,
+          "stdout_sha256": "cda5bd6f8fdc9b49ad8996e49a6e687a761a218f9fcd97326fb202311b7e7aa1",
+          "stderr_sha256": "56fe11baf2adc9962b6d2346bccdcb59cdd93e6dc993e52b922ef670adff8427"
+        },
+        {
+          "kind": "diagnostics",
+          "mode": "normal",
+          "pid": 78597,
+          "started_at_unix_ns": 1791184341120271000,
+          "binary": "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-eligible-8swxo4a4/current-normal-target/release/examples/diagverdictdump",
+          "binary_sha256": "a7f8a812dc71ccf90bbb59f9ff1f6fa6f90dd36378f95bc6ff16cae649a0554b",
+          "status": "complete",
+          "exit_code": 0,
+          "stdout_sha256": "a1af17413235d1ab5d99fcb95218b211565ef782bd3ea444176903fceb5a5e92",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "kind": "types",
+          "mode": "candidate",
+          "pid": 81012,
+          "started_at_unix_ns": 1791184854768035000,
+          "binary": "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-eligible-8swxo4a4/host-only-target/release/examples/verdictdump",
+          "binary_sha256": "b7373258b952ac3ac14bf5ebc9b2275c9bb0e3223b7478a8b7bc4d5773979e82",
+          "status": "complete",
+          "exit_code": 0,
+          "stdout_sha256": "dade2fb5e6d26b1eb1fc25acfe7559eafe9261136070da5904ac3d96925266d0",
+          "stderr_sha256": "79c85bd8436e6d846c31e05914571784f806b0385142ff499fdaaec8275e8b01"
+        },
+        {
+          "kind": "diagnostics",
+          "mode": "candidate",
+          "pid": 81238,
+          "started_at_unix_ns": 1791184902993214000,
+          "binary": "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-eligible-8swxo4a4/host-only-target/release/examples/diagverdictdump",
+          "binary_sha256": "4395e892e91e74e2dbe2b7ac2e730546fd9ee1e345a924a6f6ef4b4a67ee2b58",
+          "status": "complete",
+          "exit_code": 0,
+          "stdout_sha256": "3325615c04f51363dd2e0922e5ce254a964dd68398ef5be8b18179fc509e3e5b",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ],
+      "types": {
+        "rows": 475538,
+        "before_counts": {
+          "RIGHT": 464069,
+          "WRONG": 9865,
+          "GAP": 1604
+        },
+        "after_counts": {
+          "RIGHT": 464066,
+          "WRONG": 9869,
+          "GAP": 1603
+        },
+        "transitions": {
+          "RIGHT->WRONG": 15,
+          "WRONG->RIGHT": 12,
+          "WRONG->WRONG": 2,
+          "GAP->WRONG": 1
+        },
+        "prior_right_losses": [
+          {
+            "key": "compiler/checkJsTypeDefNoUnusedLocalMarked:1:0",
+            "before": [
+              "RIGHT",
+              "module.exports = /** @type {FooFun} */(void 0) : FooFun\tmodule.exports = /** @type {FooFun} */(void 0) : FooFun"
+            ],
+            "after": [
+              "WRONG",
+              "FooFun\tundefined"
+            ]
+          },
+          {
+            "key": "compiler/checkJsTypeDefNoUnusedLocalMarked:1:1",
+            "before": [
+              "RIGHT",
+              "module.exports : FooFun\tmodule.exports : FooFun"
+            ],
+            "after": [
+              "WRONG",
+              "FooFun\tany"
+            ]
+          },
+          {
+            "key": "compiler/checkJsTypeDefNoUnusedLocalMarked:1:2",
+            "before": [
+              "RIGHT",
+              "module : { exports: FooFun; }\tmodule : { exports: FooFun; }"
+            ],
+            "after": [
+              "WRONG",
+              "{ exports: FooFun; }\t{ exports: any; }"
+            ]
+          },
+          {
+            "key": "compiler/checkJsTypeDefNoUnusedLocalMarked:1:3",
+            "before": [
+              "RIGHT",
+              "exports : FooFun\texports : FooFun"
+            ],
+            "after": [
+              "WRONG",
+              "FooFun\tany"
+            ]
+          },
+          {
+            "key": "compiler/checkJsTypeDefNoUnusedLocalMarked:1:4",
+            "before": [
+              "RIGHT",
+              "(void 0) : FooFun\t(void 0) : FooFun"
+            ],
+            "after": [
+              "WRONG",
+              "FooFun\tundefined"
+            ]
+          },
+          {
+            "key": "compiler/exportDefaultWithJSDoc2:0:0",
+            "before": [
+              "RIGHT",
+              "([ ]) : NumberLike[]\t([ ]) : NumberLike[]"
+            ],
+            "after": [
+              "WRONG",
+              "NumberLike[]\tnever[]"
+            ]
+          },
+          {
+            "key": "compiler/jsDeclarationEmitExportAssignedFunctionWithExtraTypedefsMembers:0:5",
+            "before": [
+              "RIGHT",
+              "loader : (options: Options) => void\tloader : (options: Options) => void"
+            ],
+            "after": [
+              "WRONG",
+              "(options: Options) => void\t(options: any) => void"
+            ]
+          },
+          {
+            "key": "compiler/jsDeclarationEmitExportAssignedFunctionWithExtraTypedefsMembers:0:6",
+            "before": [
+              "RIGHT",
+              "options : Options\toptions : Options"
+            ],
+            "after": [
+              "WRONG",
+              "Options\tany"
+            ]
+          },
+          {
+            "key": "conformance/assertionTypePredicates2:0:5",
+            "before": [
+              "RIGHT",
+              "(a) : B\t(a) : B"
+            ],
+            "after": [
+              "WRONG",
+              "B\tA"
+            ]
+          },
+          {
+            "key": "conformance/importTag24:1:18",
+            "before": [
+              "RIGHT",
+              "f4 : () => Foo\tf4 : () => Foo"
+            ],
+            "after": [
+              "WRONG",
+              "() => Foo\t() => string"
+            ]
+          },
+          {
+            "key": "conformance/jsdocImportType:0:8",
+            "before": [
+              "RIGHT",
+              "d : D\td : D"
+            ],
+            "after": [
+              "WRONG",
+              "D\tany"
+            ]
+          },
+          {
+            "key": "conformance/overloadTag3:0:3",
+            "before": [
+              "RIGHT",
+              "foo : Foo<number>\tfoo : Foo<number>"
+            ],
+            "after": [
+              "WRONG",
+              "Foo<number>\tany"
+            ]
+          },
+          {
+            "key": "conformance/overloadTag3:0:5",
+            "before": [
+              "RIGHT",
+              "foo : Foo<number>\tfoo : Foo<number>"
+            ],
+            "after": [
+              "WRONG",
+              "Foo<number>\tany"
+            ]
+          },
+          {
+            "key": "conformance/typeTagOnFunctionReferencesGeneric:0:11",
+            "before": [
+              "RIGHT",
+              "inJsArrow : IFn\tinJsArrow : IFn"
+            ],
+            "after": [
+              "WRONG",
+              "IFn\t(j: any) => any"
+            ]
+          },
+          {
+            "key": "conformance/typeTagOnFunctionReferencesGeneric:0:6",
+            "before": [
+              "RIGHT",
+              "inJsArrow : IFn\tinJsArrow : IFn"
+            ],
+            "after": [
+              "WRONG",
+              "IFn\t(j: any) => any"
+            ]
+          }
+        ],
+        "changes_sha256": "04d404f6e43b4697ff021bb06a45f89a96833b59255dd7eb931c38164677f75d"
+      },
+      "diagnostics": {
+        "rows": 10570,
+        "before_counts": {
+          "EMPTY_RIGHT": 4821,
+          "RIGHT": 2880,
+          "WRONG": 2608,
+          "EMPTY_WRONG": 261
+        },
+        "after_counts": {
+          "EMPTY_RIGHT": 4820,
+          "RIGHT": 2880,
+          "WRONG": 2608,
+          "EMPTY_WRONG": 262
+        },
+        "transitions": {
+          "EMPTY_RIGHT->EMPTY_WRONG": 1,
+          "WRONG->WRONG": 1
+        },
+        "prior_right_losses": [
+          {
+            "key": "compiler/expandoFunctionContextualTypesJs",
+            "before": [
+              "EMPTY_RIGHT",
+              [
+                "[]",
+                "[]"
+              ]
+            ],
+            "after": [
+              "EMPTY_WRONG",
+              [
+                "[]",
+                "[BaselineDiagnostic { file: \"input.js\", line: 13, column: 5, code: 2322 }, BaselineDiagnostic { file: \"input.js\", line: 22, column: 5, code: 2322 }, BaselineDiagnostic { file: \"input.js\", line: 49, column: 5, code: 2322 }]"
+              ]
+            ]
+          }
+        ],
+        "changes_sha256": "ecaedf075f6140b258d87caf02409597cf6aa5befca0f10b171fa1ac6a05da6d"
+      }
+    },
+    "init-context": {
+      "identity": {
+        "base_sha": "d4906082bc4d5e044b6c8ee6469665830f18f51f",
+        "archive_sha256": "f6ff1778f85d4ca357e27c2043327351de72350dad348aba346e552952e52aa6",
+        "candidate_files": {
+          "crates/tsr-execute/src/compile.rs": "91f4baba8f2a4de0f8584a3874a0578ce5cee1b148d7f5cbc69d0709fa279bb3",
+          "crates/tsr-execute/examples/checker_workers.rs": "5a4da93b84f3909e950ba254ee558da9b10a60a464c026ad9e4b701abc655d24",
+          "crates/tsr-checker/src/assignreport.rs": "660fbb01310606cd25201d1954a0b234fc20f579188de941b67b66af45ebed15",
+          "crates/tsr-checker/src/symbols.rs": "a0bddbfa1a2e459993b1b892265f86ab668ba0cfaf3f6431a97201694e47c449",
+          "crates/tsr-checker/src/contextual.rs": "719aebc43cb0a3fd3c013a54dcd2be54009daa73e3e7a599febb307046b3c9dc"
+        },
+        "native_pin": "5b1047d10d32e7d5b446be4de56b126ff42f82bb",
+        "isolated_component": "init-context"
+      },
+      "receipt": "init-context-corpus/results.json",
+      "children": [
+        {
+          "kind": "types",
+          "mode": "normal",
+          "pid": 75736,
+          "started_at_unix_ns": 1791184116709445000,
+          "binary": "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-eligible-8swxo4a4/current-normal-target/release/examples/verdictdump",
+          "binary_sha256": "7373b13066687fbfa31139b077a9539fece0d515b726084469b226764d6b9b97",
+          "status": "complete",
+          "exit_code": 0,
+          "stdout_sha256": "cda5bd6f8fdc9b49ad8996e49a6e687a761a218f9fcd97326fb202311b7e7aa1",
+          "stderr_sha256": "56fe11baf2adc9962b6d2346bccdcb59cdd93e6dc993e52b922ef670adff8427"
+        },
+        {
+          "kind": "diagnostics",
+          "mode": "normal",
+          "pid": 78597,
+          "started_at_unix_ns": 1791184341120271000,
+          "binary": "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-eligible-8swxo4a4/current-normal-target/release/examples/diagverdictdump",
+          "binary_sha256": "a7f8a812dc71ccf90bbb59f9ff1f6fa6f90dd36378f95bc6ff16cae649a0554b",
+          "status": "complete",
+          "exit_code": 0,
+          "stdout_sha256": "a1af17413235d1ab5d99fcb95218b211565ef782bd3ea444176903fceb5a5e92",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "kind": "types",
+          "mode": "candidate",
+          "pid": 82106,
+          "started_at_unix_ns": 1791185072234303000,
+          "binary": "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-eligible-8swxo4a4/init-context-target/release/examples/verdictdump",
+          "binary_sha256": "8033248658da5b4b6939315d0b26100fa447eea22dbf066704b2cef66893b486",
+          "status": "complete",
+          "exit_code": 0,
+          "stdout_sha256": "ff0925ed0723e6367087e6bdd586a51805ed3933a09e3dacb1e93ee5489b60bc",
+          "stderr_sha256": "a41fd74ddb4f0f2d2fc9484f5e523857747840b8fe1126dc1226ade2521cf20b"
+        },
+        {
+          "kind": "diagnostics",
+          "mode": "candidate",
+          "pid": 82472,
+          "started_at_unix_ns": 1791185110091129000,
+          "binary": "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-eligible-8swxo4a4/init-context-target/release/examples/diagverdictdump",
+          "binary_sha256": "4874d32c4297733f8994b4d04145ca99a7aea6235865f442c9bdda5b20be14b9",
+          "status": "complete",
+          "exit_code": 0,
+          "stdout_sha256": "147fe6db390757e6154fdcf0375b5511e6a1760f4ee5ca36ee5d2247c7651d4f",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ],
+      "types": {
+        "rows": 475538,
+        "before_counts": {
+          "RIGHT": 464069,
+          "WRONG": 9865,
+          "GAP": 1604
+        },
+        "after_counts": {
+          "RIGHT": 464090,
+          "WRONG": 9844,
+          "GAP": 1604
+        },
+        "transitions": {
+          "WRONG->RIGHT": 21
+        },
+        "prior_right_losses": [],
+        "changes_sha256": "828e406118f799f50fe07943005cc5e5c634562d7f028e733a528830b952617d"
+      },
+      "diagnostics": {
+        "rows": 10570,
+        "before_counts": {
+          "EMPTY_RIGHT": 4821,
+          "RIGHT": 2880,
+          "WRONG": 2608,
+          "EMPTY_WRONG": 261
+        },
+        "after_counts": {
+          "EMPTY_RIGHT": 4821,
+          "RIGHT": 2881,
+          "WRONG": 2607,
+          "EMPTY_WRONG": 261
+        },
+        "transitions": {
+          "WRONG->WRONG": 2,
+          "WRONG->RIGHT": 1
+        },
+        "prior_right_losses": [],
+        "changes_sha256": "63f87c835ba593cc2626e822cb8d7a5fa549f55fd5006cbf90ac0870173c0ca5"
+      }
+    }
+  },
+  "d74_guard_preservation": {
+    "identity": {
+      "base_sha": "d74b5402d01076e6c51bccafeb9b6963acba99e9",
+      "archive_sha256": "30eae81cb0b7b684c604e7dd50cf44e7d9848993af59ca3e8d0ecd078c97beae",
+      "native_pin": "5b1047d10d32e7d5b446be4de56b126ff42f82bb",
+      "candidate_files": {
+        "crates/tsr-execute/src/compile.rs": "e209f8e6d739d6fd8c3a5358a05101e91ce44d3dde309423864c41ed38a03f50",
+        "crates/tsr-execute/examples/checker_workers.rs": "22d2768c0026617c3a5a248f4ef4ba02e5f8d1b9a3a5398590667f4e37e9f4a1",
+        "crates/tsr-checker/src/assignreport.rs": "8570f2b09ebae4cdfdcbfe521cc7173773e44168fa07d94b979fcaf124beb8ea",
+        "crates/tsr-checker/src/symbols.rs": "a0bddbfa1a2e459993b1b892265f86ab668ba0cfaf3f6431a97201694e47c449",
+        "crates/tsr-checker/src/contextual.rs": "a9fd5c4c7282370bf66c9469454a079e4e043e34031416c934df2367300f4e9b",
+        "crates/tsr-checker/src/declared.rs": "1b6d7ac2b99c2558164150ce0664af3d417d73ce968c7d294c6411cac948d51b"
+      },
+      "variant": "init-context-with-typedef-kind-guard"
+    },
+    "receipt": "refresh-d74b5402/guard-corpus/results.json",
+    "children": [
+      {
+        "kind": "types",
+        "mode": "normal",
+        "pid": 94077,
+        "started_at_unix_ns": 1791186628055836000,
+        "binary": "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-eligible-8swxo4a4/refresh-d74b5402/normal-target/release/examples/verdictdump",
+        "binary_sha256": "be7fa7b2906b3017f209b23aef1dc6b0ce1ac8858ed990f4a5ce5695a50ea337",
+        "status": "complete",
+        "exit_code": 0,
+        "stdout_sha256": "cda5bd6f8fdc9b49ad8996e49a6e687a761a218f9fcd97326fb202311b7e7aa1",
+        "stderr_sha256": "56fe11baf2adc9962b6d2346bccdcb59cdd93e6dc993e52b922ef670adff8427"
+      },
+      {
+        "kind": "diagnostics",
+        "mode": "normal",
+        "pid": 95520,
+        "started_at_unix_ns": 1791186728385495000,
+        "binary": "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-eligible-8swxo4a4/refresh-d74b5402/normal-target/release/examples/diagverdictdump",
+        "binary_sha256": "3b6099308a2aae21d096364355d94c7a141680d8db8218f4fe66f8cd2ff0d3b6",
+        "status": "complete",
+        "exit_code": 0,
+        "stdout_sha256": "a1af17413235d1ab5d99fcb95218b211565ef782bd3ea444176903fceb5a5e92",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "kind": "types",
+        "mode": "candidate",
+        "pid": 6672,
+        "started_at_unix_ns": 1791187442861238000,
+        "binary": "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-eligible-8swxo4a4/refresh-d74b5402/guard-target/release/examples/verdictdump",
+        "binary_sha256": "36dc5c28748e00111bca13cb37b35fe19fb78e748998fec95c3322466deb0344",
+        "status": "complete",
+        "exit_code": 0,
+        "stdout_sha256": "ff0925ed0723e6367087e6bdd586a51805ed3933a09e3dacb1e93ee5489b60bc",
+        "stderr_sha256": "a41fd74ddb4f0f2d2fc9484f5e523857747840b8fe1126dc1226ade2521cf20b"
+      },
+      {
+        "kind": "diagnostics",
+        "mode": "candidate",
+        "pid": 8433,
+        "started_at_unix_ns": 1791187574736359000,
+        "binary": "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-eligible-8swxo4a4/refresh-d74b5402/guard-target/release/examples/diagverdictdump",
+        "binary_sha256": "32243615d18d24abe4d509b885a8e3d95ead6c1cff09731ae667ba5275e373d8",
+        "status": "complete",
+        "exit_code": 0,
+        "stdout_sha256": "147fe6db390757e6154fdcf0375b5511e6a1760f4ee5ca36ee5d2247c7651d4f",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    ],
+    "types": {
+      "rows": 475538,
+      "before_counts": {
+        "RIGHT": 464069,
+        "WRONG": 9865,
+        "GAP": 1604
+      },
+      "after_counts": {
+        "RIGHT": 464090,
+        "WRONG": 9844,
+        "GAP": 1604
+      },
+      "transitions": {
+        "WRONG->RIGHT": 21
+      },
+      "prior_right_losses": [],
+      "changes_sha256": "828e406118f799f50fe07943005cc5e5c634562d7f028e733a528830b952617d"
+    },
+    "diagnostics": {
+      "rows": 10570,
+      "before_counts": {
+        "EMPTY_RIGHT": 4821,
+        "RIGHT": 2880,
+        "WRONG": 2608,
+        "EMPTY_WRONG": 261
+      },
+      "after_counts": {
+        "EMPTY_RIGHT": 4821,
+        "RIGHT": 2881,
+        "WRONG": 2607,
+        "EMPTY_WRONG": 261
+      },
+      "transitions": {
+        "WRONG->WRONG": 2,
+        "WRONG->RIGHT": 1
+      },
+      "prior_right_losses": [],
+      "changes_sha256": "63f87c835ba593cc2626e822cb8d7a5fa549f55fd5006cbf90ac0870173c0ca5"
+    }
+  },
+  "integration_preservation": {
+    "identity": {
+      "base_sha": "85cf4c50f8504f7c28d551aacbcd7365e367fb2e",
+      "native_pin": "5b1047d10d32e7d5b446be4de56b126ff42f82bb",
+      "archive_sha256": "c388007933d3d2ae9dd686a09677e8c2d90c793c2ab67d1172323294b83ff211",
+      "candidate_files": {
+        "crates/tsr-execute/src/compile.rs": "e209f8e6d739d6fd8c3a5358a05101e91ce44d3dde309423864c41ed38a03f50",
+        "crates/tsr-execute/examples/checker_workers.rs": "22d2768c0026617c3a5a248f4ef4ba02e5f8d1b9a3a5398590667f4e37e9f4a1",
+        "crates/tsr-checker/src/assignreport.rs": "8570f2b09ebae4cdfdcbfe521cc7173773e44168fa07d94b979fcaf124beb8ea",
+        "crates/tsr-checker/src/symbols.rs": "feea144f242ba63b3060bc1d696cbe70c5f4e3a3634d0d0861f5b3529676a93d",
+        "crates/tsr-checker/src/contextual.rs": "a9fd5c4c7282370bf66c9469454a079e4e043e34031416c934df2367300f4e9b",
+        "crates/tsr-checker/src/declared.rs": "1b6d7ac2b99c2558164150ce0664af3d417d73ce968c7d294c6411cac948d51b"
+      }
+    },
+    "receipt": "refresh-d74b5402/integration-85cf4c50/qualified-corpus/results.json",
+    "children": [
+      {
+        "kind": "types",
+        "mode": "normal",
+        "pid": 14524,
+        "started_at_unix_ns": 1791187974999036000,
+        "binary": "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-eligible-8swxo4a4/refresh-d74b5402/integration-85cf4c50/normal-target/release/examples/verdictdump",
+        "binary_sha256": "17e46090b0c50a9b8b2ced32f99acb372a5614e5bb822d1eab5985458956f226",
+        "status": "complete",
+        "exit_code": 0,
+        "stdout_sha256": "cda5bd6f8fdc9b49ad8996e49a6e687a761a218f9fcd97326fb202311b7e7aa1",
+        "stderr_sha256": "56fe11baf2adc9962b6d2346bccdcb59cdd93e6dc993e52b922ef670adff8427"
+      },
+      {
+        "kind": "types",
+        "mode": "candidate",
+        "pid": 14992,
+        "started_at_unix_ns": 1791188015968467000,
+        "binary": "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-eligible-8swxo4a4/refresh-d74b5402/integration-85cf4c50/candidate-target/release/examples/verdictdump",
+        "binary_sha256": "24b62ba1d49ab9f1fb34e2497f33a4a6c50ba8d068ce0adbeb264b0cfa6c2f78",
+        "status": "complete",
+        "exit_code": 0,
+        "stdout_sha256": "ff0925ed0723e6367087e6bdd586a51805ed3933a09e3dacb1e93ee5489b60bc",
+        "stderr_sha256": "a41fd74ddb4f0f2d2fc9484f5e523857747840b8fe1126dc1226ade2521cf20b"
+      },
+      {
+        "kind": "diagnostics",
+        "mode": "normal",
+        "pid": 16075,
+        "started_at_unix_ns": 1791188064917938000,
+        "binary": "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-eligible-8swxo4a4/refresh-d74b5402/integration-85cf4c50/normal-target/release/examples/diagverdictdump",
+        "binary_sha256": "effadaee69739b0b63806e0d6b66d577361c01c796d3594989a5bf3790cc998b",
+        "status": "complete",
+        "exit_code": 0,
+        "stdout_sha256": "a1af17413235d1ab5d99fcb95218b211565ef782bd3ea444176903fceb5a5e92",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "kind": "diagnostics",
+        "mode": "candidate",
+        "pid": 17615,
+        "started_at_unix_ns": 1791188152161009000,
+        "binary": "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-eligible-8swxo4a4/refresh-d74b5402/integration-85cf4c50/candidate-target/release/examples/diagverdictdump",
+        "binary_sha256": "567604cf6e2df5ffde3c50ebbfff1eade33cc8cabc19472f4c122fd9eff08001",
+        "status": "complete",
+        "exit_code": 0,
+        "stdout_sha256": "147fe6db390757e6154fdcf0375b5511e6a1760f4ee5ca36ee5d2247c7651d4f",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    ],
+    "types": {
+      "rows": 475538,
+      "before_counts": {
+        "RIGHT": 464069,
+        "WRONG": 9865,
+        "GAP": 1604
+      },
+      "after_counts": {
+        "RIGHT": 464090,
+        "WRONG": 9844,
+        "GAP": 1604
+      },
+      "transitions": {
+        "WRONG->RIGHT": 21
+      },
+      "prior_right_losses": [],
+      "changes_sha256": "828e406118f799f50fe07943005cc5e5c634562d7f028e733a528830b952617d"
+    },
+    "diagnostics": {
+      "rows": 10570,
+      "before_counts": {
+        "EMPTY_RIGHT": 4821,
+        "RIGHT": 2880,
+        "WRONG": 2608,
+        "EMPTY_WRONG": 261
+      },
+      "after_counts": {
+        "EMPTY_RIGHT": 4821,
+        "RIGHT": 2881,
+        "WRONG": 2607,
+        "EMPTY_WRONG": 261
+      },
+      "transitions": {
+        "WRONG->WRONG": 2,
+        "WRONG->RIGHT": 1
+      },
+      "prior_right_losses": [],
+      "changes_sha256": "63f87c835ba593cc2626e822cb8d7a5fa549f55fd5006cbf90ac0870173c0ca5"
+    }
+  },
+  "rejected_real_project_candidate": {
+    "base_sha": "d74b5402d01076e6c51bccafeb9b6963acba99e9",
+    "original_preflight": "Failed before receipt persistence; exact outcome/duration unavailable; supervisor limit180s. Not speed-qualified.",
+    "supervised_child": {
+      "pid": 2744,
+      "started_at_unix_ns": 1791187051871175000,
+      "exit_code": -9,
+      "timed_out": true,
+      "wall_seconds": 60.05870329099707,
+      "user_seconds": 39.605036,
+      "system_seconds": 1.669275,
+      "peak_rss_bytes": 957595648
+    },
+    "binary_sha256": "0a2672efbd9bc591f00727a79044f8e1f45856edd740bc4c8993c0048b82029c",
+    "receipt": "refresh-d74b5402/app/failure-control.json"
+  },
+  "rejected_partial_locating_trace": {
+    "child": {
+      "pid": 3840,
+      "started_at_unix_ns": 1791187152801788000,
+      "exit_code": -9,
+      "timed_out": true,
+      "wall_seconds": 45.04334916599328,
+      "user_seconds": 38.628219,
+      "system_seconds": 1.454083,
+      "peak_rss_bytes": 928153600
+    },
+    "trace_sha256": "3f9c44f33f91b59cd745fd21d833dbea6eaffaf11367a45f61d3ef33c50ac6c6",
+    "receipt": "refresh-d74b5402/app/locating-trace-receipt.json",
+    "complete": false,
+    "partial_last_record": true,
+    "returned_source_workers_in_complete_prefix": 53,
+    "speed_qualified": false
+  },
+  "public_physical_controls": {
+    "receipt": "refresh-d74b5402/integration-85cf4c50/physical-controls/results.json",
+    "cases": {
+      "checked": {
+        "diagnostics_match": true,
+        "cli_and_helper_checked_count": 1,
+        "results": [
+          {
+            "mode": "baseline",
+            "binary_sha256": "40e09fb81ef257214fce2656a1ec75b8c97263be717d312b94e585328f6b44ed",
+            "child": {
+              "pid": 15848,
+              "started_at_unix_ns": 1791188052074568000,
+              "exit_code": 0,
+              "timed_out": false,
+              "wall_seconds": 0.04177120799431577,
+              "user_seconds": 0.029279,
+              "system_seconds": 0.006499,
+              "peak_rss_bytes": 37191680
+            },
+            "diagnostics": {
+              "count": 0,
+              "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "entries": []
+            }
+          },
+          {
+            "mode": "candidate",
+            "binary_sha256": "5bdd1bf72b73fed4b4981916cebc718b02f45dad5a77ba6f512abf226eaf3d09",
+            "child": {
+              "pid": 15849,
+              "started_at_unix_ns": 1791188052124804000,
+              "exit_code": 1,
+              "timed_out": false,
+              "wall_seconds": 0.25286141596734524,
+              "user_seconds": 0.034069999999999996,
+              "system_seconds": 0.011602,
+              "peak_rss_bytes": 40353792
+            },
+            "diagnostics": {
+              "count": 2,
+              "fingerprint": "f8d3272f5d3438c5b579a33cb8a6dca171a0a76d9566024fe798c61ced99ed50",
+              "entries": [
+                "a.js(2,14): error TS2322: Type 'string' is not assignable to type 'number'.",
+                "a.js(4,14): error TS2322: Type 'number' is not assignable to type 'string'."
+              ]
+            }
+          },
+          {
+            "mode": "candidateSingle",
+            "binary_sha256": "5bdd1bf72b73fed4b4981916cebc718b02f45dad5a77ba6f512abf226eaf3d09",
+            "child": {
+              "pid": 15866,
+              "started_at_unix_ns": 1791188052386819000,
+              "exit_code": 1,
+              "timed_out": false,
+              "wall_seconds": 0.042216000030748546,
+              "user_seconds": 0.030493,
+              "system_seconds": 0.0072239999999999995,
+              "peak_rss_bytes": 34979840
+            },
+            "diagnostics": {
+              "count": 2,
+              "fingerprint": "f8d3272f5d3438c5b579a33cb8a6dca171a0a76d9566024fe798c61ced99ed50",
+              "entries": [
+                "a.js(2,14): error TS2322: Type 'string' is not assignable to type 'number'.",
+                "a.js(4,14): error TS2322: Type 'number' is not assignable to type 'string'."
+              ]
+            }
+          },
+          {
+            "mode": "native",
+            "binary_sha256": "b3cd1909b5dbc6582681e0a9d2641c7eefd9b7b6c3401cfad82b5e8b935b8033",
+            "child": {
+              "pid": 15867,
+              "started_at_unix_ns": 1791188052454084000,
+              "exit_code": 1,
+              "timed_out": false,
+              "wall_seconds": 0.04816624999511987,
+              "user_seconds": 0.040194,
+              "system_seconds": 0.020253999999999998,
+              "peak_rss_bytes": 46727168
+            },
+            "diagnostics": {
+              "count": 2,
+              "fingerprint": "f8d3272f5d3438c5b579a33cb8a6dca171a0a76d9566024fe798c61ced99ed50",
+              "entries": [
+                "a.js(2,14): error TS2322: Type 'string' is not assignable to type 'number'.",
+                "a.js(4,14): error TS2322: Type 'number' is not assignable to type 'string'."
+              ]
+            }
+          },
+          {
+            "mode": "nativeSingle",
+            "binary_sha256": "b3cd1909b5dbc6582681e0a9d2641c7eefd9b7b6c3401cfad82b5e8b935b8033",
+            "child": {
+              "pid": 15869,
+              "started_at_unix_ns": 1791188052548874000,
+              "exit_code": 1,
+              "timed_out": false,
+              "wall_seconds": 0.046817958005703986,
+              "user_seconds": 0.033426,
+              "system_seconds": 0.011018,
+              "peak_rss_bytes": 42844160
+            },
+            "diagnostics": {
+              "count": 2,
+              "fingerprint": "f8d3272f5d3438c5b579a33cb8a6dca171a0a76d9566024fe798c61ced99ed50",
+              "entries": [
+                "a.js(2,14): error TS2322: Type 'string' is not assignable to type 'number'.",
+                "a.js(4,14): error TS2322: Type 'number' is not assignable to type 'string'."
+              ]
+            }
+          },
+          {
+            "mode": "native2",
+            "binary_sha256": "b3cd1909b5dbc6582681e0a9d2641c7eefd9b7b6c3401cfad82b5e8b935b8033",
+            "child": {
+              "pid": 15870,
+              "started_at_unix_ns": 1791188052769177000,
+              "exit_code": 1,
+              "timed_out": false,
+              "wall_seconds": 0.035217333992477506,
+              "user_seconds": 0.038747,
+              "system_seconds": 0.012039,
+              "peak_rss_bytes": 45498368
+            },
+            "diagnostics": {
+              "count": 2,
+              "fingerprint": "f8d3272f5d3438c5b579a33cb8a6dca171a0a76d9566024fe798c61ced99ed50",
+              "entries": [
+                "a.js(2,14): error TS2322: Type 'string' is not assignable to type 'number'.",
+                "a.js(4,14): error TS2322: Type 'number' is not assignable to type 'string'."
+              ]
+            }
+          },
+          {
+            "mode": "native4",
+            "binary_sha256": "b3cd1909b5dbc6582681e0a9d2641c7eefd9b7b6c3401cfad82b5e8b935b8033",
+            "child": {
+              "pid": 15872,
+              "started_at_unix_ns": 1791188052856269000,
+              "exit_code": 1,
+              "timed_out": false,
+              "wall_seconds": 0.03247312497114763,
+              "user_seconds": 0.03806,
+              "system_seconds": 0.010749,
+              "peak_rss_bytes": 46546944
+            },
+            "diagnostics": {
+              "count": 2,
+              "fingerprint": "f8d3272f5d3438c5b579a33cb8a6dca171a0a76d9566024fe798c61ced99ed50",
+              "entries": [
+                "a.js(2,14): error TS2322: Type 'string' is not assignable to type 'number'.",
+                "a.js(4,14): error TS2322: Type 'number' is not assignable to type 'string'."
+              ]
+            }
+          },
+          {
+            "mode": "worker1",
+            "binary_sha256": "07cec013f190859503e9b5e59eb0df6cd3aad42e2e9a9bf141e35eb3e18e328d",
+            "child": {
+              "pid": 15873,
+              "started_at_unix_ns": 1791188052929172000,
+              "exit_code": 1,
+              "timed_out": false,
+              "wall_seconds": 0.23300604202086106,
+              "user_seconds": 0.030128,
+              "system_seconds": 0.0077729999999999995,
+              "peak_rss_bytes": 41877504
+            },
+            "diagnostics": {
+              "count": 2,
+              "fingerprint": "f8d3272f5d3438c5b579a33cb8a6dca171a0a76d9566024fe798c61ced99ed50",
+              "entries": [
+                "a.js(2,14): error TS2322: Type 'string' is not assignable to type 'number'.",
+                "a.js(4,14): error TS2322: Type 'number' is not assignable to type 'string'."
+              ]
+            }
+          },
+          {
+            "mode": "worker2",
+            "binary_sha256": "07cec013f190859503e9b5e59eb0df6cd3aad42e2e9a9bf141e35eb3e18e328d",
+            "child": {
+              "pid": 15885,
+              "started_at_unix_ns": 1791188053170062000,
+              "exit_code": 1,
+              "timed_out": false,
+              "wall_seconds": 0.054529375047422945,
+              "user_seconds": 0.03617,
+              "system_seconds": 0.006965,
+              "peak_rss_bytes": 40632320
+            },
+            "diagnostics": {
+              "count": 2,
+              "fingerprint": "f8d3272f5d3438c5b579a33cb8a6dca171a0a76d9566024fe798c61ced99ed50",
+              "entries": [
+                "a.js(2,14): error TS2322: Type 'string' is not assignable to type 'number'.",
+                "a.js(4,14): error TS2322: Type 'number' is not assignable to type 'string'."
+              ]
+            }
+          },
+          {
+            "mode": "worker4",
+            "binary_sha256": "07cec013f190859503e9b5e59eb0df6cd3aad42e2e9a9bf141e35eb3e18e328d",
+            "child": {
+              "pid": 15887,
+              "started_at_unix_ns": 1791188053231400000,
+              "exit_code": 1,
+              "timed_out": false,
+              "wall_seconds": 0.04714358295314014,
+              "user_seconds": 0.033235,
+              "system_seconds": 0.007913,
+              "peak_rss_bytes": 39731200
+            },
+            "diagnostics": {
+              "count": 2,
+              "fingerprint": "f8d3272f5d3438c5b579a33cb8a6dca171a0a76d9566024fe798c61ced99ed50",
+              "entries": [
+                "a.js(2,14): error TS2322: Type 'string' is not assignable to type 'number'.",
+                "a.js(4,14): error TS2322: Type 'number' is not assignable to type 'string'."
+              ]
+            }
+          }
+        ]
+      },
+      "unchecked": {
+        "diagnostics_match": true,
+        "cli_and_helper_checked_count": 0,
+        "results": [
+          {
+            "mode": "baseline",
+            "binary_sha256": "40e09fb81ef257214fce2656a1ec75b8c97263be717d312b94e585328f6b44ed",
+            "child": {
+              "pid": 15889,
+              "started_at_unix_ns": 1791188053288384000,
+              "exit_code": 0,
+              "timed_out": false,
+              "wall_seconds": 0.03980729100294411,
+              "user_seconds": 0.029407,
+              "system_seconds": 0.00563,
+              "peak_rss_bytes": 38518784
+            },
+            "diagnostics": {
+              "count": 0,
+              "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "entries": []
+            }
+          },
+          {
+            "mode": "candidate",
+            "binary_sha256": "5bdd1bf72b73fed4b4981916cebc718b02f45dad5a77ba6f512abf226eaf3d09",
+            "child": {
+              "pid": 15891,
+              "started_at_unix_ns": 1791188053334803000,
+              "exit_code": 0,
+              "timed_out": false,
+              "wall_seconds": 0.04086637496948242,
+              "user_seconds": 0.031466,
+              "system_seconds": 0.0051069999999999996,
+              "peak_rss_bytes": 35635200
+            },
+            "diagnostics": {
+              "count": 0,
+              "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "entries": []
+            }
+          },
+          {
+            "mode": "candidateSingle",
+            "binary_sha256": "5bdd1bf72b73fed4b4981916cebc718b02f45dad5a77ba6f512abf226eaf3d09",
+            "child": {
+              "pid": 15892,
+              "started_at_unix_ns": 1791188053382442000,
+              "exit_code": 0,
+              "timed_out": false,
+              "wall_seconds": 0.037627374986186624,
+              "user_seconds": 0.028225999999999998,
+              "system_seconds": 0.0053159999999999995,
+              "peak_rss_bytes": 31440896
+            },
+            "diagnostics": {
+              "count": 0,
+              "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "entries": []
+            }
+          },
+          {
+            "mode": "native",
+            "binary_sha256": "b3cd1909b5dbc6582681e0a9d2641c7eefd9b7b6c3401cfad82b5e8b935b8033",
+            "child": {
+              "pid": 15894,
+              "started_at_unix_ns": 1791188053447983000,
+              "exit_code": 0,
+              "timed_out": false,
+              "wall_seconds": 0.03144933300791308,
+              "user_seconds": 0.036718,
+              "system_seconds": 0.009137,
+              "peak_rss_bytes": 44777472
+            },
+            "diagnostics": {
+              "count": 0,
+              "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "entries": []
+            }
+          },
+          {
+            "mode": "nativeSingle",
+            "binary_sha256": "b3cd1909b5dbc6582681e0a9d2641c7eefd9b7b6c3401cfad82b5e8b935b8033",
+            "child": {
+              "pid": 15895,
+              "started_at_unix_ns": 1791188053518131000,
+              "exit_code": 0,
+              "timed_out": false,
+              "wall_seconds": 0.036293124954681844,
+              "user_seconds": 0.029914999999999997,
+              "system_seconds": 0.007679,
+              "peak_rss_bytes": 41893888
+            },
+            "diagnostics": {
+              "count": 0,
+              "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "entries": []
+            }
+          },
+          {
+            "mode": "native2",
+            "binary_sha256": "b3cd1909b5dbc6582681e0a9d2641c7eefd9b7b6c3401cfad82b5e8b935b8033",
+            "child": {
+              "pid": 15896,
+              "started_at_unix_ns": 1791188053592092000,
+              "exit_code": 0,
+              "timed_out": false,
+              "wall_seconds": 0.040378957986831665,
+              "user_seconds": 0.045176,
+              "system_seconds": 0.010615999999999999,
+              "peak_rss_bytes": 43597824
+            },
+            "diagnostics": {
+              "count": 0,
+              "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "entries": []
+            }
+          },
+          {
+            "mode": "native4",
+            "binary_sha256": "b3cd1909b5dbc6582681e0a9d2641c7eefd9b7b6c3401cfad82b5e8b935b8033",
+            "child": {
+              "pid": 15898,
+              "started_at_unix_ns": 1791188053677330000,
+              "exit_code": 0,
+              "timed_out": false,
+              "wall_seconds": 0.03489691601134837,
+              "user_seconds": 0.037277,
+              "system_seconds": 0.008935,
+              "peak_rss_bytes": 44482560
+            },
+            "diagnostics": {
+              "count": 0,
+              "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "entries": []
+            }
+          },
+          {
+            "mode": "worker1",
+            "binary_sha256": "07cec013f190859503e9b5e59eb0df6cd3aad42e2e9a9bf141e35eb3e18e328d",
+            "child": {
+              "pid": 15899,
+              "started_at_unix_ns": 1791188053734702000,
+              "exit_code": 0,
+              "timed_out": false,
+              "wall_seconds": 0.04285520903067663,
+              "user_seconds": 0.032473,
+              "system_seconds": 0.006175,
+              "peak_rss_bytes": 39387136
+            },
+            "diagnostics": {
+              "count": 0,
+              "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "entries": []
+            }
+          },
+          {
+            "mode": "worker2",
+            "binary_sha256": "07cec013f190859503e9b5e59eb0df6cd3aad42e2e9a9bf141e35eb3e18e328d",
+            "child": {
+              "pid": 15900,
+              "started_at_unix_ns": 1791188053789315000,
+              "exit_code": 0,
+              "timed_out": false,
+              "wall_seconds": 0.03717950003920123,
+              "user_seconds": 0.028534999999999998,
+              "system_seconds": 0.00515,
+              "peak_rss_bytes": 34586624
+            },
+            "diagnostics": {
+              "count": 0,
+              "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "entries": []
+            }
+          },
+          {
+            "mode": "worker4",
+            "binary_sha256": "07cec013f190859503e9b5e59eb0df6cd3aad42e2e9a9bf141e35eb3e18e328d",
+            "child": {
+              "pid": 15901,
+              "started_at_unix_ns": 1791188053836468000,
+              "exit_code": 0,
+              "timed_out": false,
+              "wall_seconds": 0.052667458017822355,
+              "user_seconds": 0.038282,
+              "system_seconds": 0.009496,
+              "peak_rss_bytes": 36634624
+            },
+            "diagnostics": {
+              "count": 0,
+              "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "entries": []
+            }
+          }
+        ]
+      },
+      "noCheck": {
+        "diagnostics_match": true,
+        "cli_and_helper_checked_count": 0,
+        "results": [
+          {
+            "mode": "baseline",
+            "binary_sha256": "40e09fb81ef257214fce2656a1ec75b8c97263be717d312b94e585328f6b44ed",
+            "child": {
+              "pid": 15902,
+              "started_at_unix_ns": 1791188053898648000,
+              "exit_code": 0,
+              "timed_out": false,
+              "wall_seconds": 0.04469862504629418,
+              "user_seconds": 0.033539,
+              "system_seconds": 0.005872,
+              "peak_rss_bytes": 37994496
+            },
+            "diagnostics": {
+              "count": 0,
+              "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "entries": []
+            }
+          },
+          {
+            "mode": "candidate",
+            "binary_sha256": "5bdd1bf72b73fed4b4981916cebc718b02f45dad5a77ba6f512abf226eaf3d09",
+            "child": {
+              "pid": 15903,
+              "started_at_unix_ns": 1791188053950614000,
+              "exit_code": 0,
+              "timed_out": false,
+              "wall_seconds": 0.04517016600584611,
+              "user_seconds": 0.031969,
+              "system_seconds": 0.0071319999999999995,
+              "peak_rss_bytes": 42614784
+            },
+            "diagnostics": {
+              "count": 0,
+              "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "entries": []
+            }
+          },
+          {
+            "mode": "candidateSingle",
+            "binary_sha256": "5bdd1bf72b73fed4b4981916cebc718b02f45dad5a77ba6f512abf226eaf3d09",
+            "child": {
+              "pid": 15904,
+              "started_at_unix_ns": 1791188054002623000,
+              "exit_code": 0,
+              "timed_out": false,
+              "wall_seconds": 0.044907125004101545,
+              "user_seconds": 0.032961,
+              "system_seconds": 0.007264,
+              "peak_rss_bytes": 40779776
+            },
+            "diagnostics": {
+              "count": 0,
+              "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "entries": []
+            }
+          },
+          {
+            "mode": "native",
+            "binary_sha256": "b3cd1909b5dbc6582681e0a9d2641c7eefd9b7b6c3401cfad82b5e8b935b8033",
+            "child": {
+              "pid": 15905,
+              "started_at_unix_ns": 1791188054070163000,
+              "exit_code": 0,
+              "timed_out": false,
+              "wall_seconds": 0.03141479101032019,
+              "user_seconds": 0.036435999999999996,
+              "system_seconds": 0.011061,
+              "peak_rss_bytes": 44695552
+            },
+            "diagnostics": {
+              "count": 0,
+              "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "entries": []
+            }
+          },
+          {
+            "mode": "nativeSingle",
+            "binary_sha256": "b3cd1909b5dbc6582681e0a9d2641c7eefd9b7b6c3401cfad82b5e8b935b8033",
+            "child": {
+              "pid": 15906,
+              "started_at_unix_ns": 1791188054136218000,
+              "exit_code": 0,
+              "timed_out": false,
+              "wall_seconds": 0.03465579199837521,
+              "user_seconds": 0.028532,
+              "system_seconds": 0.009278,
+              "peak_rss_bytes": 41828352
+            },
+            "diagnostics": {
+              "count": 0,
+              "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "entries": []
+            }
+          },
+          {
+            "mode": "native2",
+            "binary_sha256": "b3cd1909b5dbc6582681e0a9d2641c7eefd9b7b6c3401cfad82b5e8b935b8033",
+            "child": {
+              "pid": 15907,
+              "started_at_unix_ns": 1791188054211428000,
+              "exit_code": 0,
+              "timed_out": false,
+              "wall_seconds": 0.03286466695135459,
+              "user_seconds": 0.040985,
+              "system_seconds": 0.012086999999999999,
+              "peak_rss_bytes": 44482560
+            },
+            "diagnostics": {
+              "count": 0,
+              "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "entries": []
+            }
+          },
+          {
+            "mode": "native4",
+            "binary_sha256": "b3cd1909b5dbc6582681e0a9d2641c7eefd9b7b6c3401cfad82b5e8b935b8033",
+            "child": {
+              "pid": 15908,
+              "started_at_unix_ns": 1791188054292556000,
+              "exit_code": 0,
+              "timed_out": false,
+              "wall_seconds": 0.031297666020691395,
+              "user_seconds": 0.040908,
+              "system_seconds": 0.009396,
+              "peak_rss_bytes": 44630016
+            },
+            "diagnostics": {
+              "count": 0,
+              "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "entries": []
+            }
+          },
+          {
+            "mode": "worker1",
+            "binary_sha256": "07cec013f190859503e9b5e59eb0df6cd3aad42e2e9a9bf141e35eb3e18e328d",
+            "child": {
+              "pid": 15909,
+              "started_at_unix_ns": 1791188054362268000,
+              "exit_code": 0,
+              "timed_out": false,
+              "wall_seconds": 0.0405852499534376,
+              "user_seconds": 0.031376,
+              "system_seconds": 0.005575999999999999,
+              "peak_rss_bytes": 34209792
+            },
+            "diagnostics": {
+              "count": 0,
+              "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "entries": []
+            }
+          },
+          {
+            "mode": "worker2",
+            "binary_sha256": "07cec013f190859503e9b5e59eb0df6cd3aad42e2e9a9bf141e35eb3e18e328d",
+            "child": {
+              "pid": 15910,
+              "started_at_unix_ns": 1791188054412666000,
+              "exit_code": 0,
+              "timed_out": false,
+              "wall_seconds": 0.050094707985408604,
+              "user_seconds": 0.038529,
+              "system_seconds": 0.0071319999999999995,
+              "peak_rss_bytes": 33292288
+            },
+            "diagnostics": {
+              "count": 0,
+              "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "entries": []
+            }
+          },
+          {
+            "mode": "worker4",
+            "binary_sha256": "07cec013f190859503e9b5e59eb0df6cd3aad42e2e9a9bf141e35eb3e18e328d",
+            "child": {
+              "pid": 15911,
+              "started_at_unix_ns": 1791188054471029000,
+              "exit_code": 0,
+              "timed_out": false,
+              "wall_seconds": 0.043853582988958806,
+              "user_seconds": 0.03349,
+              "system_seconds": 0.007292,
+              "peak_rss_bytes": 35913728
+            },
+            "diagnostics": {
+              "count": 0,
+              "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "entries": []
+            }
+          }
+        ]
+      },
+      "fileNoCheck": {
+        "diagnostics_match": true,
+        "cli_and_helper_checked_count": 0,
+        "results": [
+          {
+            "mode": "baseline",
+            "binary_sha256": "40e09fb81ef257214fce2656a1ec75b8c97263be717d312b94e585328f6b44ed",
+            "child": {
+              "pid": 15912,
+              "started_at_unix_ns": 1791188054529157000,
+              "exit_code": 0,
+              "timed_out": false,
+              "wall_seconds": 0.04361670900834724,
+              "user_seconds": 0.031976,
+              "system_seconds": 0.00601,
+              "peak_rss_bytes": 40566784
+            },
+            "diagnostics": {
+              "count": 0,
+              "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "entries": []
+            }
+          },
+          {
+            "mode": "candidate",
+            "binary_sha256": "5bdd1bf72b73fed4b4981916cebc718b02f45dad5a77ba6f512abf226eaf3d09",
+            "child": {
+              "pid": 15913,
+              "started_at_unix_ns": 1791188054582047000,
+              "exit_code": 0,
+              "timed_out": false,
+              "wall_seconds": 0.03629520902177319,
+              "user_seconds": 0.027746,
+              "system_seconds": 0.005039,
+              "peak_rss_bytes": 37421056
+            },
+            "diagnostics": {
+              "count": 0,
+              "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "entries": []
+            }
+          },
+          {
+            "mode": "candidateSingle",
+            "binary_sha256": "5bdd1bf72b73fed4b4981916cebc718b02f45dad5a77ba6f512abf226eaf3d09",
+            "child": {
+              "pid": 15914,
+              "started_at_unix_ns": 1791188054625835000,
+              "exit_code": 0,
+              "timed_out": false,
+              "wall_seconds": 0.039204665983561426,
+              "user_seconds": 0.029667,
+              "system_seconds": 0.005647,
+              "peak_rss_bytes": 39747584
+            },
+            "diagnostics": {
+              "count": 0,
+              "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "entries": []
+            }
+          },
+          {
+            "mode": "native",
+            "binary_sha256": "b3cd1909b5dbc6582681e0a9d2641c7eefd9b7b6c3401cfad82b5e8b935b8033",
+            "child": {
+              "pid": 15915,
+              "started_at_unix_ns": 1791188054687956000,
+              "exit_code": 0,
+              "timed_out": false,
+              "wall_seconds": 0.03185537504032254,
+              "user_seconds": 0.036534,
+              "system_seconds": 0.009044,
+              "peak_rss_bytes": 44843008
+            },
+            "diagnostics": {
+              "count": 0,
+              "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "entries": []
+            }
+          },
+          {
+            "mode": "nativeSingle",
+            "binary_sha256": "b3cd1909b5dbc6582681e0a9d2641c7eefd9b7b6c3401cfad82b5e8b935b8033",
+            "child": {
+              "pid": 15916,
+              "started_at_unix_ns": 1791188054758960000,
+              "exit_code": 0,
+              "timed_out": false,
+              "wall_seconds": 0.029947540955618024,
+              "user_seconds": 0.026289,
+              "system_seconds": 0.006494,
+              "peak_rss_bytes": 41549824
+            },
+            "diagnostics": {
+              "count": 0,
+              "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "entries": []
+            }
+          },
+          {
+            "mode": "native2",
+            "binary_sha256": "b3cd1909b5dbc6582681e0a9d2641c7eefd9b7b6c3401cfad82b5e8b935b8033",
+            "child": {
+              "pid": 15917,
+              "started_at_unix_ns": 1791188054828630000,
+              "exit_code": 0,
+              "timed_out": false,
+              "wall_seconds": 0.057419750024564564,
+              "user_seconds": 0.054452999999999994,
+              "system_seconds": 0.016271,
+              "peak_rss_bytes": 44908544
+            },
+            "diagnostics": {
+              "count": 0,
+              "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "entries": []
+            }
+          },
+          {
+            "mode": "native4",
+            "binary_sha256": "b3cd1909b5dbc6582681e0a9d2641c7eefd9b7b6c3401cfad82b5e8b935b8033",
+            "child": {
+              "pid": 15918,
+              "started_at_unix_ns": 1791188054940702000,
+              "exit_code": 0,
+              "timed_out": false,
+              "wall_seconds": 0.045683416014071554,
+              "user_seconds": 0.050244,
+              "system_seconds": 0.013522,
+              "peak_rss_bytes": 46219264
+            },
+            "diagnostics": {
+              "count": 0,
+              "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "entries": []
+            }
+          },
+          {
+            "mode": "worker1",
+            "binary_sha256": "07cec013f190859503e9b5e59eb0df6cd3aad42e2e9a9bf141e35eb3e18e328d",
+            "child": {
+              "pid": 15919,
+              "started_at_unix_ns": 1791188055008962000,
+              "exit_code": 0,
+              "timed_out": false,
+              "wall_seconds": 0.042631874966900796,
+              "user_seconds": 0.030976999999999998,
+              "system_seconds": 0.008172,
+              "peak_rss_bytes": 41009152
+            },
+            "diagnostics": {
+              "count": 0,
+              "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "entries": []
+            }
+          },
+          {
+            "mode": "worker2",
+            "binary_sha256": "07cec013f190859503e9b5e59eb0df6cd3aad42e2e9a9bf141e35eb3e18e328d",
+            "child": {
+              "pid": 15920,
+              "started_at_unix_ns": 1791188055060640000,
+              "exit_code": 0,
+              "timed_out": false,
+              "wall_seconds": 0.042552291008178145,
+              "user_seconds": 0.030593,
+              "system_seconds": 0.0055119999999999995,
+              "peak_rss_bytes": 34750464
+            },
+            "diagnostics": {
+              "count": 0,
+              "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "entries": []
+            }
+          },
+          {
+            "mode": "worker4",
+            "binary_sha256": "07cec013f190859503e9b5e59eb0df6cd3aad42e2e9a9bf141e35eb3e18e328d",
+            "child": {
+              "pid": 15921,
+              "started_at_unix_ns": 1791188055111959000,
+              "exit_code": 0,
+              "timed_out": false,
+              "wall_seconds": 0.04252966697094962,
+              "user_seconds": 0.029809,
+              "system_seconds": 0.008241,
+              "peak_rss_bytes": 32440320
+            },
+            "diagnostics": {
+              "count": 0,
+              "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "entries": []
+            }
+          }
+        ]
+      },
+      "libraries": {
+        "diagnostics_match": true,
+        "cli_and_helper_checked_count": 64,
+        "results": [
+          {
+            "mode": "baseline",
+            "binary_sha256": "40e09fb81ef257214fce2656a1ec75b8c97263be717d312b94e585328f6b44ed",
+            "child": {
+              "pid": 15922,
+              "started_at_unix_ns": 1791188055166382000,
+              "exit_code": 0,
+              "timed_out": false,
+              "wall_seconds": 0.07950383296702057,
+              "user_seconds": 0.066976,
+              "system_seconds": 0.006403,
+              "peak_rss_bytes": 34406400
+            },
+            "diagnostics": {
+              "count": 0,
+              "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "entries": []
+            }
+          },
+          {
+            "mode": "candidate",
+            "binary_sha256": "5bdd1bf72b73fed4b4981916cebc718b02f45dad5a77ba6f512abf226eaf3d09",
+            "child": {
+              "pid": 15923,
+              "started_at_unix_ns": 1791188055253886000,
+              "exit_code": 1,
+              "timed_out": false,
+              "wall_seconds": 0.07721195800695568,
+              "user_seconds": 0.065813,
+              "system_seconds": 0.006869999999999999,
+              "peak_rss_bytes": 42565632
+            },
+            "diagnostics": {
+              "count": 2,
+              "fingerprint": "f8d3272f5d3438c5b579a33cb8a6dca171a0a76d9566024fe798c61ced99ed50",
+              "entries": [
+                "a.js(2,14): error TS2322: Type 'string' is not assignable to type 'number'.",
+                "a.js(4,14): error TS2322: Type 'number' is not assignable to type 'string'."
+              ]
+            }
+          },
+          {
+            "mode": "candidateSingle",
+            "binary_sha256": "5bdd1bf72b73fed4b4981916cebc718b02f45dad5a77ba6f512abf226eaf3d09",
+            "child": {
+              "pid": 15924,
+              "started_at_unix_ns": 1791188055338367000,
+              "exit_code": 1,
+              "timed_out": false,
+              "wall_seconds": 0.0805387920117937,
+              "user_seconds": 0.068048,
+              "system_seconds": 0.007936,
+              "peak_rss_bytes": 39813120
+            },
+            "diagnostics": {
+              "count": 2,
+              "fingerprint": "f8d3272f5d3438c5b579a33cb8a6dca171a0a76d9566024fe798c61ced99ed50",
+              "entries": [
+                "a.js(2,14): error TS2322: Type 'string' is not assignable to type 'number'.",
+                "a.js(4,14): error TS2322: Type 'number' is not assignable to type 'string'."
+              ]
+            }
+          },
+          {
+            "mode": "native",
+            "binary_sha256": "b3cd1909b5dbc6582681e0a9d2641c7eefd9b7b6c3401cfad82b5e8b935b8033",
+            "child": {
+              "pid": 15925,
+              "started_at_unix_ns": 1791188055441627000,
+              "exit_code": 1,
+              "timed_out": false,
+              "wall_seconds": 0.16506154095986858,
+              "user_seconds": 0.222823,
+              "system_seconds": 0.020735999999999997,
+              "peak_rss_bytes": 96337920
+            },
+            "diagnostics": {
+              "count": 2,
+              "fingerprint": "f8d3272f5d3438c5b579a33cb8a6dca171a0a76d9566024fe798c61ced99ed50",
+              "entries": [
+                "a.js(2,14): error TS2322: Type 'string' is not assignable to type 'number'.",
+                "a.js(4,14): error TS2322: Type 'number' is not assignable to type 'string'."
+              ]
+            }
+          },
+          {
+            "mode": "nativeSingle",
+            "binary_sha256": "b3cd1909b5dbc6582681e0a9d2641c7eefd9b7b6c3401cfad82b5e8b935b8033",
+            "child": {
+              "pid": 15926,
+              "started_at_unix_ns": 1791188055648957000,
+              "exit_code": 1,
+              "timed_out": false,
+              "wall_seconds": 0.15108833403792232,
+              "user_seconds": 0.167645,
+              "system_seconds": 0.016937,
+              "peak_rss_bytes": 91799552
+            },
+            "diagnostics": {
+              "count": 2,
+              "fingerprint": "f8d3272f5d3438c5b579a33cb8a6dca171a0a76d9566024fe798c61ced99ed50",
+              "entries": [
+                "a.js(2,14): error TS2322: Type 'string' is not assignable to type 'number'.",
+                "a.js(4,14): error TS2322: Type 'number' is not assignable to type 'string'."
+              ]
+            }
+          },
+          {
+            "mode": "native2",
+            "binary_sha256": "b3cd1909b5dbc6582681e0a9d2641c7eefd9b7b6c3401cfad82b5e8b935b8033",
+            "child": {
+              "pid": 15927,
+              "started_at_unix_ns": 1791188055855198000,
+              "exit_code": 1,
+              "timed_out": false,
+              "wall_seconds": 0.17153229197720066,
+              "user_seconds": 0.21429299999999998,
+              "system_seconds": 0.024246999999999998,
+              "peak_rss_bytes": 88113152
+            },
+            "diagnostics": {
+              "count": 2,
+              "fingerprint": "f8d3272f5d3438c5b579a33cb8a6dca171a0a76d9566024fe798c61ced99ed50",
+              "entries": [
+                "a.js(2,14): error TS2322: Type 'string' is not assignable to type 'number'.",
+                "a.js(4,14): error TS2322: Type 'number' is not assignable to type 'string'."
+              ]
+            }
+          },
+          {
+            "mode": "native4",
+            "binary_sha256": "b3cd1909b5dbc6582681e0a9d2641c7eefd9b7b6c3401cfad82b5e8b935b8033",
+            "child": {
+              "pid": 15928,
+              "started_at_unix_ns": 1791188056091733000,
+              "exit_code": 1,
+              "timed_out": false,
+              "wall_seconds": 0.17753416701452807,
+              "user_seconds": 0.210942,
+              "system_seconds": 0.024717,
+              "peak_rss_bytes": 93470720
+            },
+            "diagnostics": {
+              "count": 2,
+              "fingerprint": "f8d3272f5d3438c5b579a33cb8a6dca171a0a76d9566024fe798c61ced99ed50",
+              "entries": [
+                "a.js(2,14): error TS2322: Type 'string' is not assignable to type 'number'.",
+                "a.js(4,14): error TS2322: Type 'number' is not assignable to type 'string'."
+              ]
+            }
+          },
+          {
+            "mode": "worker1",
+            "binary_sha256": "07cec013f190859503e9b5e59eb0df6cd3aad42e2e9a9bf141e35eb3e18e328d",
+            "child": {
+              "pid": 15929,
+              "started_at_unix_ns": 1791188056292179000,
+              "exit_code": 1,
+              "timed_out": false,
+              "wall_seconds": 0.08367124997312203,
+              "user_seconds": 0.07112199999999999,
+              "system_seconds": 0.007947,
+              "peak_rss_bytes": 41975808
+            },
+            "diagnostics": {
+              "count": 2,
+              "fingerprint": "f8d3272f5d3438c5b579a33cb8a6dca171a0a76d9566024fe798c61ced99ed50",
+              "entries": [
+                "a.js(2,14): error TS2322: Type 'string' is not assignable to type 'number'.",
+                "a.js(4,14): error TS2322: Type 'number' is not assignable to type 'string'."
+              ]
+            }
+          },
+          {
+            "mode": "worker2",
+            "binary_sha256": "07cec013f190859503e9b5e59eb0df6cd3aad42e2e9a9bf141e35eb3e18e328d",
+            "child": {
+              "pid": 15930,
+              "started_at_unix_ns": 1791188056386128000,
+              "exit_code": 1,
+              "timed_out": false,
+              "wall_seconds": 0.08590420801192522,
+              "user_seconds": 0.07643,
+              "system_seconds": 0.008983999999999999,
+              "peak_rss_bytes": 36962304
+            },
+            "diagnostics": {
+              "count": 2,
+              "fingerprint": "f8d3272f5d3438c5b579a33cb8a6dca171a0a76d9566024fe798c61ced99ed50",
+              "entries": [
+                "a.js(2,14): error TS2322: Type 'string' is not assignable to type 'number'.",
+                "a.js(4,14): error TS2322: Type 'number' is not assignable to type 'string'."
+              ]
+            }
+          },
+          {
+            "mode": "worker4",
+            "binary_sha256": "07cec013f190859503e9b5e59eb0df6cd3aad42e2e9a9bf141e35eb3e18e328d",
+            "child": {
+              "pid": 15931,
+              "started_at_unix_ns": 1791188056480805000,
+              "exit_code": 1,
+              "timed_out": false,
+              "wall_seconds": 0.08641091699246317,
+              "user_seconds": 0.074719,
+              "system_seconds": 0.009032,
+              "peak_rss_bytes": 40845312
+            },
+            "diagnostics": {
+              "count": 2,
+              "fingerprint": "f8d3272f5d3438c5b579a33cb8a6dca171a0a76d9566024fe798c61ced99ed50",
+              "entries": [
+                "a.js(2,14): error TS2322: Type 'string' is not assignable to type 'number'.",
+                "a.js(4,14): error TS2322: Type 'number' is not assignable to type 'string'."
+              ]
+            }
+          }
+        ]
+      }
+    }
+  },
+  "real_project_correctness_control": {
+    "comparison": {
+      "identity": {
+        "base_sha": "85cf4c50f8504f7c28d551aacbcd7365e367fb2e",
+        "native_pin": "5b1047d10d32e7d5b446be4de56b126ff42f82bb",
+        "archive_sha256": "c388007933d3d2ae9dd686a09677e8c2d90c793c2ab67d1172323294b83ff211",
+        "candidate_files": {
+          "crates/tsr-execute/src/compile.rs": "e209f8e6d739d6fd8c3a5358a05101e91ce44d3dde309423864c41ed38a03f50",
+          "crates/tsr-execute/examples/checker_workers.rs": "22d2768c0026617c3a5a248f4ef4ba02e5f8d1b9a3a5398590667f4e37e9f4a1",
+          "crates/tsr-checker/src/assignreport.rs": "8570f2b09ebae4cdfdcbfe521cc7173773e44168fa07d94b979fcaf124beb8ea",
+          "crates/tsr-checker/src/symbols.rs": "feea144f242ba63b3060bc1d696cbe70c5f4e3a3634d0d0861f5b3529676a93d",
+          "crates/tsr-checker/src/contextual.rs": "a9fd5c4c7282370bf66c9469454a079e4e043e34031416c934df2367300f4e9b",
+          "crates/tsr-checker/src/declared.rs": "1b6d7ac2b99c2558164150ce0664af3d417d73ce968c7d294c6411cac948d51b"
+        }
+      },
+      "dimensions": {
+        "config_fingerprint": true,
+        "ordered_physical_source_identity": true,
+        "loaded_input_snapshot_before": true,
+        "loaded_input_snapshot_after": true,
+        "diagnostics": true,
+        "counts": true,
+        "exit_code": true,
+        "loaded_order": true
+      },
+      "normalization": "Only known archive vendor source prefixes; physical realpaths, symlink targets, content hashes, project paths and ordering must remain equal.",
+      "raw_loaded_order_equal": false,
+      "raw_artifacts": {
+        "app/normal.json": "31f22192f55d4170ea4e2afa3b5db39845b8506fe22af1736aeeb96e603afcdb",
+        "app/candidate.json": "a9eb82055d1e955fa59f4c3e7d0b5023dc79e3bd52ac05e7d92130930813788e"
+      },
+      "speed_qualified": false,
+      "full_input_and_forcing_equivalence": false
+    },
+    "comparison_receipt": "refresh-d74b5402/integration-85cf4c50/app/qualified-comparison.json",
+    "modes": {
+      "normal": {
+        "receipt": "refresh-d74b5402/integration-85cf4c50/app/normal.json",
+        "binary_sha256": "40e09fb81ef257214fce2656a1ec75b8c97263be717d312b94e585328f6b44ed",
+        "config_fingerprint": "33014c4d45ccc885c15f802270b5397a3b8b21dcdfb82086d0df631974dd9b72",
+        "diagnostic_fingerprint": "6f26792182d5cd2f50b7771444ebd2c736a2c394ac47efc3637c92f106705e9c",
+        "diagnostic_count": 117,
+        "counts": {
+          "Files": 14050,
+          "Checked files": 1397,
+          "Parsed files": 14746
+        },
+        "child": {
+          "pid": 16052,
+          "started_at_unix_ns": 1791188062328226000,
+          "exit_code": 1,
+          "timed_out": false,
+          "wall_seconds": 7.613050459010992,
+          "user_seconds": 4.981317,
+          "system_seconds": 0.94168,
+          "peak_rss_bytes": 1209942016
+        }
+      },
+      "candidate": {
+        "receipt": "refresh-d74b5402/integration-85cf4c50/app/candidate.json",
+        "binary_sha256": "5bdd1bf72b73fed4b4981916cebc718b02f45dad5a77ba6f512abf226eaf3d09",
+        "config_fingerprint": "33014c4d45ccc885c15f802270b5397a3b8b21dcdfb82086d0df631974dd9b72",
+        "diagnostic_fingerprint": "6f26792182d5cd2f50b7771444ebd2c736a2c394ac47efc3637c92f106705e9c",
+        "diagnostic_count": 117,
+        "counts": {
+          "Files": 14050,
+          "Checked files": 1397,
+          "Parsed files": 14746
+        },
+        "child": {
+          "pid": 16429,
+          "started_at_unix_ns": 1791188084470206000,
+          "exit_code": 1,
+          "timed_out": false,
+          "wall_seconds": 10.433753082994372,
+          "user_seconds": 5.280702,
+          "system_seconds": 1.08343,
+          "peak_rss_bytes": 1222868992
+        }
+      }
+    }
+  },
+  "remaining_mixed_fidelity_gap": {
+    "receipt": "refresh-d74b5402/integration-85cf4c50/guard-mixed/results.json",
+    "results": [
+      {
+        "mode": "normal",
+        "binary_sha256": "40e09fb81ef257214fce2656a1ec75b8c97263be717d312b94e585328f6b44ed",
+        "child": {
+          "pid": 15886,
+          "started_at_unix_ns": 1791188053210351000,
+          "exit_code": 0,
+          "timed_out": false,
+          "wall_seconds": 0.046625624992884696,
+          "user_seconds": 0.035092,
+          "system_seconds": 0.005938,
+          "peak_rss_bytes": 39354368
+        },
+        "diagnostics": {
+          "count": 0,
+          "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "entries": []
+        }
+      },
+      {
+        "mode": "guard",
+        "binary_sha256": "5bdd1bf72b73fed4b4981916cebc718b02f45dad5a77ba6f512abf226eaf3d09",
+        "child": {
+          "pid": 15888,
+          "started_at_unix_ns": 1791188053263516000,
+          "exit_code": 0,
+          "timed_out": false,
+          "wall_seconds": 0.04481537500396371,
+          "user_seconds": 0.032242,
+          "system_seconds": 0.006731999999999999,
+          "peak_rss_bytes": 42582016
+        },
+        "diagnostics": {
+          "count": 0,
+          "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "entries": []
+        }
+      },
+      {
+        "mode": "native",
+        "binary_sha256": "b3cd1909b5dbc6582681e0a9d2641c7eefd9b7b6c3401cfad82b5e8b935b8033",
+        "child": {
+          "pid": 15890,
+          "started_at_unix_ns": 1791188053329668000,
+          "exit_code": 1,
+          "timed_out": false,
+          "wall_seconds": 0.04219512501731515,
+          "user_seconds": 0.05167,
+          "system_seconds": 0.012418,
+          "peak_rss_bytes": 47398912
+        },
+        "diagnostics": {
+          "count": 4,
+          "fingerprint": "d2ee8fbc2944029add17ee06fbe2c62b68b60681b8913a780e64e6907eb7f959",
+          "entries": [
+            "checked.js(18,14): error TS2322: Type 'string' is not assignable to type 'number'.",
+            "checked.js(20,29): error TS2322: Type 'string' is not assignable to type 'number'.",
+            "checked.js(21,41): error TS2769: No overload matches this call.\n  The last overload gave the following error.\n    Argument of type 'boolean' is not assignable to parameter of type 'number'.",
+            "imports.js(6,27): error TS2322: Type 'string' is not assignable to type 'number'."
+          ]
+        }
+      }
+    ]
+  },
+  "quality_gates": {
+    "receipt": "refresh-d74b5402/integration-85cf4c50/gates/results.json",
+    "results": [
+      {
+        "command": [
+          "cargo",
+          "fmt",
+          "--all",
+          "--check"
+        ],
+        "exit_code": 0
+      },
+      {
+        "command": [
+          "cargo",
+          "test",
+          "--release",
+          "--offline",
+          "--target-dir",
+          "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-eligible-8swxo4a4/refresh-d74b5402/integration-85cf4c50/candidate-target",
+          "-p",
+          "tsr-checker",
+          "-p",
+          "tsr-execute"
+        ],
+        "exit_code": 0
+      },
+      {
+        "command": [
+          "cargo",
+          "test",
+          "--release",
+          "--offline",
+          "--target-dir",
+          "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-eligible-8swxo4a4/refresh-d74b5402/integration-85cf4c50/candidate-target",
+          "-p",
+          "tsr-execute",
+          "--features",
+          "work-trace"
+        ],
+        "exit_code": 0
+      },
+      {
+        "command": [
+          "cargo",
+          "clippy",
+          "--release",
+          "--offline",
+          "--target-dir",
+          "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-eligible-8swxo4a4/refresh-d74b5402/integration-85cf4c50/candidate-target",
+          "--workspace",
+          "--all-targets",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit_code": 0
+      },
+      {
+        "command": [
+          "cargo",
+          "clippy",
+          "--release",
+          "--offline",
+          "--target-dir",
+          "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-eligible-8swxo4a4/refresh-d74b5402/integration-85cf4c50/candidate-target",
+          "-p",
+          "tsr-execute",
+          "--features",
+          "work-trace",
+          "--all-targets",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit_code": 0
+      },
+      {
+        "command": [
+          "cargo",
+          "run",
+          "--release",
+          "--offline",
+          "--target-dir",
+          "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-eligible-8swxo4a4/refresh-d74b5402/integration-85cf4c50/candidate-target",
+          "-p",
+          "tsr-conformance",
+          "--bin",
+          "coverage",
+          "--",
+          "checker_types",
+          "diagnostics"
+        ],
+        "exit_code": 0
+      }
+    ],
+    "rust_test_summaries": {
+      "1": [
+        "test result: ok. 179 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s",
+        "test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 25 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s",
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 96 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 36 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 41 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 6 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s",
+        "test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s",
+        "test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s",
+        "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s",
+        "test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 71 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 47 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 54 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 85 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s",
+        "test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 5 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 32 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s",
+        "test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 127 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 28 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 8 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 28 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 39 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 12 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.01s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+      ],
+      "2": [
+        "test result: ok. 41 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 12 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.01s",
+        "test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+      ]
+    },
+    "python_tests": {
+      "count": 19,
+      "failures": 0,
+      "failure_phase_controls": [
+        "show_config_child",
+        "preflight",
+        "sample"
+      ]
+    }
+  },
+  "coverage": {
+    "checker_types": {
+      "sha256": "b414c94b1fb697fb4416952f68c22b6ceda764f6f7665a5cdbec28aca0d1bc02",
+      "header": [
+        "commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb",
+        "",
+        "checker_types Summary:",
+        "What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk",
+        "Passed         : 7365/9538 (77.22%)",
+        "Assertion lines: 464090/478855 (96.92%)  \u2014 a gradient, not a pass rate",
+        "Failed         : 2173",
+        "Skipped        : 2906 (excluded from the denominator)",
+        ""
+      ]
+    },
+    "diagnostics": {
+      "sha256": "0aefede72b955aa94d66a4ce58ed864cfc5e6b278b79f7fb684ede7623f770d1",
+      "header": [
+        "commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb",
+        "",
+        "diagnostics Summary:",
+        "What a pass means: every diagnostic in upstream's .errors.txt reproduced exactly \u2014 same file, line, column and code, no more and no fewer \u2014 for cases that expect at least one; scanner, parser and binder only, with no checker (bd tsr-4sc)",
+        "Passed         : 2881/5488 (52.50%)",
+        "Failed         : 2607",
+        "Skipped        : 6956 (excluded from the denominator)",
+        "",
+        "  793  skipped: configuration-varied baseline (bd tsr-bb4.1)"
+      ]
+    }
+  },
+  "local_artifacts": {
+    "root": "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-eligible-8swxo4a4",
+    "sha256": {
+      "init-only-corpus/types-normal.tsv": "cda5bd6f8fdc9b49ad8996e49a6e687a761a218f9fcd97326fb202311b7e7aa1",
+      "init-only-corpus/types-normal.stderr": "56fe11baf2adc9962b6d2346bccdcb59cdd93e6dc993e52b922ef670adff8427",
+      "init-only-corpus/diagnostics-normal.tsv": "a1af17413235d1ab5d99fcb95218b211565ef782bd3ea444176903fceb5a5e92",
+      "init-only-corpus/diagnostics-normal.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "init-only-corpus/types-candidate.tsv": "cda5bd6f8fdc9b49ad8996e49a6e687a761a218f9fcd97326fb202311b7e7aa1",
+      "init-only-corpus/types-candidate.stderr": "56fe11baf2adc9962b6d2346bccdcb59cdd93e6dc993e52b922ef670adff8427",
+      "init-only-corpus/diagnostics-candidate.tsv": "b64e18953222ded6d52073e83af77700a099e2c12ea0b5040621e695338dd268",
+      "init-only-corpus/diagnostics-candidate.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "init-only-corpus/results.json": "32cc913f8754bbfc5febb02b6857206d2521200998864f8e34223a090c9aaed2",
+      "host-only-corpus/types-normal.tsv": "cda5bd6f8fdc9b49ad8996e49a6e687a761a218f9fcd97326fb202311b7e7aa1",
+      "host-only-corpus/types-normal.stderr": "56fe11baf2adc9962b6d2346bccdcb59cdd93e6dc993e52b922ef670adff8427",
+      "host-only-corpus/diagnostics-normal.tsv": "a1af17413235d1ab5d99fcb95218b211565ef782bd3ea444176903fceb5a5e92",
+      "host-only-corpus/diagnostics-normal.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "host-only-corpus/types-candidate.tsv": "dade2fb5e6d26b1eb1fc25acfe7559eafe9261136070da5904ac3d96925266d0",
+      "host-only-corpus/types-candidate.stderr": "79c85bd8436e6d846c31e05914571784f806b0385142ff499fdaaec8275e8b01",
+      "host-only-corpus/diagnostics-candidate.tsv": "3325615c04f51363dd2e0922e5ce254a964dd68398ef5be8b18179fc509e3e5b",
+      "host-only-corpus/diagnostics-candidate.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "host-only-corpus/results.json": "bee0af8dcc4c19a10fe0b95e31640a4c695360fc69513977d3b4951dff5428e3",
+      "init-context-corpus/types-normal.tsv": "cda5bd6f8fdc9b49ad8996e49a6e687a761a218f9fcd97326fb202311b7e7aa1",
+      "init-context-corpus/types-normal.stderr": "56fe11baf2adc9962b6d2346bccdcb59cdd93e6dc993e52b922ef670adff8427",
+      "init-context-corpus/diagnostics-normal.tsv": "a1af17413235d1ab5d99fcb95218b211565ef782bd3ea444176903fceb5a5e92",
+      "init-context-corpus/diagnostics-normal.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "init-context-corpus/types-candidate.tsv": "ff0925ed0723e6367087e6bdd586a51805ed3933a09e3dacb1e93ee5489b60bc",
+      "init-context-corpus/types-candidate.stderr": "a41fd74ddb4f0f2d2fc9484f5e523857747840b8fe1126dc1226ade2521cf20b",
+      "init-context-corpus/diagnostics-candidate.tsv": "147fe6db390757e6154fdcf0375b5511e6a1760f4ee5ca36ee5d2247c7651d4f",
+      "init-context-corpus/diagnostics-candidate.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "init-context-corpus/results.json": "09f2f8bc6552cb820654cf6941b2e21822bcd5441d61d4a65ff3c3d06b9fa10c",
+      "refresh-d74b5402/guard-corpus/types-normal.tsv": "cda5bd6f8fdc9b49ad8996e49a6e687a761a218f9fcd97326fb202311b7e7aa1",
+      "refresh-d74b5402/guard-corpus/types-normal.stderr": "56fe11baf2adc9962b6d2346bccdcb59cdd93e6dc993e52b922ef670adff8427",
+      "refresh-d74b5402/guard-corpus/diagnostics-normal.tsv": "a1af17413235d1ab5d99fcb95218b211565ef782bd3ea444176903fceb5a5e92",
+      "refresh-d74b5402/guard-corpus/diagnostics-normal.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "refresh-d74b5402/guard-corpus/types-candidate.tsv": "ff0925ed0723e6367087e6bdd586a51805ed3933a09e3dacb1e93ee5489b60bc",
+      "refresh-d74b5402/guard-corpus/types-candidate.stderr": "a41fd74ddb4f0f2d2fc9484f5e523857747840b8fe1126dc1226ade2521cf20b",
+      "refresh-d74b5402/guard-corpus/diagnostics-candidate.tsv": "147fe6db390757e6154fdcf0375b5511e6a1760f4ee5ca36ee5d2247c7651d4f",
+      "refresh-d74b5402/guard-corpus/diagnostics-candidate.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "refresh-d74b5402/guard-corpus/results.json": "8add84348da0836cec7866a6cc41d56df8ae2aa33d61dfa845654ec9c5d078df",
+      "refresh-d74b5402/integration-85cf4c50/qualified-corpus/types-normal.tsv": "cda5bd6f8fdc9b49ad8996e49a6e687a761a218f9fcd97326fb202311b7e7aa1",
+      "refresh-d74b5402/integration-85cf4c50/qualified-corpus/types-normal.stderr": "56fe11baf2adc9962b6d2346bccdcb59cdd93e6dc993e52b922ef670adff8427",
+      "refresh-d74b5402/integration-85cf4c50/qualified-corpus/types-candidate.tsv": "ff0925ed0723e6367087e6bdd586a51805ed3933a09e3dacb1e93ee5489b60bc",
+      "refresh-d74b5402/integration-85cf4c50/qualified-corpus/types-candidate.stderr": "a41fd74ddb4f0f2d2fc9484f5e523857747840b8fe1126dc1226ade2521cf20b",
+      "refresh-d74b5402/integration-85cf4c50/qualified-corpus/diagnostics-normal.tsv": "a1af17413235d1ab5d99fcb95218b211565ef782bd3ea444176903fceb5a5e92",
+      "refresh-d74b5402/integration-85cf4c50/qualified-corpus/diagnostics-normal.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "refresh-d74b5402/integration-85cf4c50/qualified-corpus/diagnostics-candidate.tsv": "147fe6db390757e6154fdcf0375b5511e6a1760f4ee5ca36ee5d2247c7651d4f",
+      "refresh-d74b5402/integration-85cf4c50/qualified-corpus/diagnostics-candidate.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "refresh-d74b5402/integration-85cf4c50/qualified-corpus/results.json": "da2f104509f1d979066f54e8007af21addad69b7f341baaf1878fc3a4c924bf1",
+      "refresh-d74b5402/app/failure-control.json": "1ec88026e1ff2c613ca811829a59068771a98e3b4aa672afb3f1bc79f4a34e51",
+      "refresh-d74b5402/app/locating-trace-receipt.json": "9bb21b2edaccbd40f7dd85dd7a413d16c74a0e841ae99054aa68ab35fce7b94c",
+      "refresh-d74b5402/integration-85cf4c50/physical-controls/results.json": "975841160fe79e3222d34112f5ad767ac786947321c7bb863319ae287e7e11e8",
+      "refresh-d74b5402/integration-85cf4c50/app/qualified-comparison.json": "3728f16dfd23674af90a667394547bf29afb8149ef08d7493c6f6363cb27c205",
+      "refresh-d74b5402/integration-85cf4c50/app/normal.json": "31f22192f55d4170ea4e2afa3b5db39845b8506fe22af1736aeeb96e603afcdb",
+      "refresh-d74b5402/integration-85cf4c50/app/candidate.json": "a9eb82055d1e955fa59f4c3e7d0b5023dc79e3bd52ac05e7d92130930813788e",
+      "refresh-d74b5402/integration-85cf4c50/guard-mixed/results.json": "1feee6c8f1e292cb170ab101013f719c6cf7e825a30da7f67557040adbe80b73",
+      "refresh-d74b5402/integration-85cf4c50/gates/results.json": "aebe5621b4911dc9be25bba4a56f381e54ecd470666191d975103ec7601d5f15",
+      "refresh-d74b5402/integration-85cf4c50/gates/0.stdout": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "refresh-d74b5402/integration-85cf4c50/gates/0.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "refresh-d74b5402/integration-85cf4c50/gates/1.stdout": "0c4e725fbcaec43b56c95e576ae6c73294c2b6c878a330b394a567178f02f7fd",
+      "refresh-d74b5402/integration-85cf4c50/gates/1.stderr": "19be3a865345fea0f717f0d82edd8206a5e8c0b97fe95758424e49d2c5a4698b",
+      "refresh-d74b5402/integration-85cf4c50/gates/2.stdout": "0cb25b1336924a1142b23d93fb832469bb635aef8cfbdc9fbc33299fb0b75767",
+      "refresh-d74b5402/integration-85cf4c50/gates/2.stderr": "a08e58884ed198c0f488cc02b1247d675a52ae71e481b889415feb2731efda45",
+      "refresh-d74b5402/integration-85cf4c50/gates/3.stdout": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "refresh-d74b5402/integration-85cf4c50/gates/3.stderr": "260faf64d944dc3ac93cf147514c5cca4f1f90eb19b9322f273bced39f5d130e",
+      "refresh-d74b5402/integration-85cf4c50/gates/4.stdout": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "refresh-d74b5402/integration-85cf4c50/gates/4.stderr": "94a0784401eeaa5187a7a8963b3e5e66737b01aa5548bae05e4cdb6376089400",
+      "refresh-d74b5402/integration-85cf4c50/gates/5.stdout": "412fa9934fcfc530c618158ac52480196f26115a412abd29332b341900034a88",
+      "refresh-d74b5402/integration-85cf4c50/gates/5.stderr": "7b68568049701c10e0dab1b2cd0f955d649d212c729dfad6eea79263dd517581"
+    }
+  },
+  "archived_candidate_patch_sha256": "369ddc885e7244d7f25f085ea743b89cba8e85ac98f93ca33cd657b211ea3ce2",
+  "published_patch_replay": {
+    "fuzz": 0,
+    "all_source_hashes_match": true,
+    "git_apply_check": true
+  }
+}

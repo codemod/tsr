@@ -53,8 +53,18 @@ fn check_group(program: &Program<'_>, options: &CompilerOptions, group: &[usize]
         Some(program),
     );
     checker.apply_compiler_options(options);
+    for file in program.root_and_referenced_files() {
+        checker.set_jsdoc(file.jsdoc().iter());
+    }
     checker.set_checked_files(
-        program.root_and_referenced_files().iter().filter_map(|file| file.source_file().node_id),
+        program
+            .source_files()
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| {
+                tsr_execute::compile::full_check_exclusion(program, *index).is_none()
+            })
+            .filter_map(|(_, file)| file.source_file().node_id),
     );
     let initial_types = checker.type_count();
     let initialized = Instant::now();
@@ -136,20 +146,11 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
         requested.map_or_else(|| "default".into(), |n| n.to_string()),
         options.single_threaded.is_true()
     );
-    let lib_count = program.lib_files().len();
     let eligible: Vec<_> = program
         .source_files()
         .iter()
         .enumerate()
-        .filter(|(index, file)| {
-            *index >= lib_count
-                && file.source_file().node_id.is_some()
-                && !options.no_check.is_true()
-                && !(options.skip_lib_check.is_true()
-                    && tsr_path::is_declaration_file_name(file.file_name()))
-                && !(options.skip_default_lib_check.is_true()
-                    && program.lib_files().iter().any(|lib| lib.file_name() == file.file_name()))
-        })
+        .filter(|(index, _)| tsr_execute::compile::full_check_exclusion(&program, *index).is_none())
         .map(|(index, _)| index)
         .collect();
     // Native checkerpool.go associates every file before selecting checked
@@ -179,13 +180,13 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
     worker_diagnostics::normalize(&mut raw, |id| file_names[&id]);
     let mut diagnostics = Vec::new();
     let files: Vec<_> = program
-        .root_and_referenced_files()
+        .source_files()
         .iter()
         .map(|file| DiagnosticFile::new(file.file_name(), file.text()))
         .collect();
     for &index in &eligible {
         let source = &program.source_files()[index];
-        let file = &files[index - lib_count];
+        let file = &files[index];
         let id = source.source_file().node_id.unwrap().as_u32();
         let entries: Vec<_> = raw
             .iter()

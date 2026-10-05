@@ -1,0 +1,187 @@
+--- a/crates/tsr-execute/src/compile.rs
++++ b/crates/tsr-execute/src/compile.rs
+@@ -312,6 +312,9 @@
+         trace.checker_created(&options);
+     }
+     checker.apply_compiler_options(&options);
++    for file in program.root_and_referenced_files() {
++        checker.set_jsdoc(file.jsdoc().iter());
++    }
+     #[cfg(feature = "work-trace")]
+     if let Some(trace) = work_trace {
+         checker.set_work_observer(trace);
+@@ -558,7 +561,12 @@
+ /// ordered files preserves default-library membership without a name heuristic
+ /// or a per-file library scan. Project-reference redirects are not implemented
+ /// in this driver, so their native exclusion is not claimed here.
+-pub(crate) fn full_check_exclusion(
++///
++/// # Panics
++///
++/// Panics if `file_index` is outside `program.source_files()`.
++#[must_use]
++pub fn full_check_exclusion(
+     program: &tsr_compiler::Program<'_>,
+     file_index: usize,
+ ) -> Option<&'static str> {
+@@ -803,6 +811,44 @@
+                 "{preamble:?} {flags:?}: {output}"
+             );
+         }
++    }
++
++    #[test]
++    fn cli_checker_reads_jsdoc_annotations_from_program_files() {
++        for (flags, expects_error) in [
++            (vec!["--checkJs"], true),
++            (vec!["--checkJs", "false"], false),
++            (vec!["--checkJs", "--noCheck"], false),
++        ] {
++            let mut flags = flags;
++            flags.extend(["--noLib", "--allowJs", "--strict"]);
++            let output = compile_files(
++                vec![("/project/a.js".into(),
++                    "/** @type {number} */\nexport const bad = 'wrong';\n/** @type {number} */\nexport const good = 1;".into())],
++                &["a.js"], &flags,
++            );
++            let errors: Vec<_> = output.lines().filter(|line| line.contains("error TS")).collect();
++            assert_eq!(errors.len(), usize::from(expects_error), "{flags:?}: {output}");
++            if expects_error {
++                assert_eq!(
++                    errors,
++                    ["a.js(2,14): error TS2322: Type 'string' is not assignable to type 'number'."]
++                );
++            }
++        }
++    }
++
++    #[test]
++    fn jsdoc_tuple_annotation_supplies_initializer_context() {
++        let output = compile_files(
++            vec![(
++                "/project/a.js".into(),
++                "/** @type {[number, string]} */\nexport const pair = [1, 'ok'];".into(),
++            )],
++            &["a.js"],
++            &["--noLib", "--allowJs", "--checkJs", "--strict"],
++        );
++        assert!(!output.contains("error TS"), "{output}");
+     }
+
+     #[test]
+--- a/crates/tsr-execute/examples/checker_workers.rs
++++ b/crates/tsr-execute/examples/checker_workers.rs
+@@ -53,8 +53,18 @@
+         Some(program),
+     );
+     checker.apply_compiler_options(options);
++    for file in program.root_and_referenced_files() {
++        checker.set_jsdoc(file.jsdoc().iter());
++    }
+     checker.set_checked_files(
+-        program.root_and_referenced_files().iter().filter_map(|file| file.source_file().node_id),
++        program
++            .source_files()
++            .iter()
++            .enumerate()
++            .filter(|(index, _)| {
++                tsr_execute::compile::full_check_exclusion(program, *index).is_none()
++            })
++            .filter_map(|(_, file)| file.source_file().node_id),
+     );
+     let initial_types = checker.type_count();
+     let initialized = Instant::now();
+@@ -136,20 +146,11 @@
+         requested.map_or_else(|| "default".into(), |n| n.to_string()),
+         options.single_threaded.is_true()
+     );
+-    let lib_count = program.lib_files().len();
+     let eligible: Vec<_> = program
+         .source_files()
+         .iter()
+         .enumerate()
+-        .filter(|(index, file)| {
+-            *index >= lib_count
+-                && file.source_file().node_id.is_some()
+-                && !options.no_check.is_true()
+-                && !(options.skip_lib_check.is_true()
+-                    && tsr_path::is_declaration_file_name(file.file_name()))
+-                && !(options.skip_default_lib_check.is_true()
+-                    && program.lib_files().iter().any(|lib| lib.file_name() == file.file_name()))
+-        })
++        .filter(|(index, _)| tsr_execute::compile::full_check_exclusion(&program, *index).is_none())
+         .map(|(index, _)| index)
+         .collect();
+     // Native checkerpool.go associates every file before selecting checked
+@@ -179,13 +180,13 @@
+     worker_diagnostics::normalize(&mut raw, |id| file_names[&id]);
+     let mut diagnostics = Vec::new();
+     let files: Vec<_> = program
+-        .root_and_referenced_files()
++        .source_files()
+         .iter()
+         .map(|file| DiagnosticFile::new(file.file_name(), file.text()))
+         .collect();
+     for &index in &eligible {
+         let source = &program.source_files()[index];
+-        let file = &files[index - lib_count];
++        let file = &files[index];
+         let id = source.source_file().node_id.unwrap().as_u32();
+         let entries: Vec<_> = raw
+             .iter()
+--- a/crates/tsr-checker/src/assignreport.rs
++++ b/crates/tsr-checker/src/assignreport.rs
+@@ -132,13 +132,12 @@
+         ambient: bool,
+     ) {
+         if ambient
+-            || self.in_js_file(node)
+             || (self.file_has_parse_errors && !self.has_complete_source_variable_initializer(node))
+         {
+             return;
+         }
+-        let (Some(annotation), Some(initializer)) = (declaration.r#type, declaration.initializer)
+-        else {
++        let annotation = declaration.r#type.or_else(|| self.jsdoc_type_annotation(node));
++        let (Some(annotation), Some(initializer)) = (annotation, declaration.initializer) else {
+             return;
+         };
+         let target = self.get_type_from_type_node(annotation);
+--- a/crates/tsr-checker/src/symbols.rs
++++ b/crates/tsr-checker/src/symbols.rs
+@@ -5869,7 +5869,7 @@
+     /// `getEffectiveTypeAnnotationNode`'s JSDoc arm again, the same door the
+     /// `@param` road above went through. Direct hosted tags precede statement
+     /// tags; statement tags each select the first still-untyped declaration.
+-    fn jsdoc_type_annotation(&self, declaration: NodeId) -> Option<TypeNode<'a>> {
++    pub(crate) fn jsdoc_type_annotation(&self, declaration: NodeId) -> Option<TypeNode<'a>> {
+         if !self.in_js_file(declaration) {
+             return None;
+         }
+--- a/crates/tsr-checker/src/contextual.rs
++++ b/crates/tsr-checker/src/contextual.rs
+@@ -1082,7 +1082,8 @@
+             // which is the call `crate::members` records making for the same
+             // reason.
+             Node::VariableDeclaration(declaration) => {
+-                let annotation = declaration.r#type?;
++                let annotation =
++                    declaration.r#type.or_else(|| self.jsdoc_type_annotation(parent))?;
+                 Some(self.get_type_from_type_node(annotation))
+             }
+             Node::ParameterDeclaration(declaration) => {
+--- a/crates/tsr-checker/src/declared.rs
++++ b/crates/tsr-checker/src/declared.rs
+@@ -7955,6 +7955,12 @@
+     /// sparse host table, requiring the alias declaration's exact node id.
+     fn jsdoc_alias_doc(&self, symbol: SymbolId) -> Option<&'a tsr_ast::JSDoc<'a>> {
+         let declaration = self.binder.symbols().get(symbol).declarations.first().copied()?;
++        // Only a typedef declaration can match a typedef tag's exact node id.
++        // Native narrows this visibility branch by declaration kind before
++        // following its structural JSDoc parents (emitresolver.go:128-135).
++        if !matches!(self.node_map.get(declaration), Some(Node::JSDocTypedefTag(_))) {
++            return None;
++        }
+         self.jsdoc_entries.values().flat_map(|docs| docs.iter().copied()).find(|doc| {
+             doc.tags.iter().any(|tag| match tag {
+                 tsr_ast::JSDocTag::JSDocTypedefTag(tag) => tag.node_id == Some(declaration),

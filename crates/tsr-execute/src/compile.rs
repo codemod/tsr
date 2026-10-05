@@ -312,6 +312,9 @@ pub fn run_compilation(
         trace.checker_created(&options);
     }
     checker.apply_compiler_options(&options);
+    for file in program.root_and_referenced_files() {
+        checker.set_jsdoc(file.jsdoc().iter());
+    }
     #[cfg(feature = "work-trace")]
     if let Some(trace) = work_trace {
         checker.set_work_observer(trace);
@@ -558,7 +561,12 @@ fn copy_option(into: &mut CompilerOptions, from: &CompilerOptions, name: &str) {
 /// ordered files preserves default-library membership without a name heuristic
 /// or a per-file library scan. Project-reference redirects are not implemented
 /// in this driver, so their native exclusion is not claimed here.
-pub(crate) fn full_check_exclusion(
+///
+/// # Panics
+///
+/// Panics if `file_index` is outside `program.source_files()`.
+#[must_use]
+pub fn full_check_exclusion(
     program: &tsr_compiler::Program<'_>,
     file_index: usize,
 ) -> Option<&'static str> {
@@ -803,6 +811,44 @@ mod directive_tests {
                 "{preamble:?} {flags:?}: {output}"
             );
         }
+    }
+
+    #[test]
+    fn cli_checker_reads_jsdoc_annotations_from_program_files() {
+        for (flags, expects_error) in [
+            (vec!["--checkJs"], true),
+            (vec!["--checkJs", "false"], false),
+            (vec!["--checkJs", "--noCheck"], false),
+        ] {
+            let mut flags = flags;
+            flags.extend(["--noLib", "--allowJs", "--strict"]);
+            let output = compile_files(
+                vec![("/project/a.js".into(),
+                    "/** @type {number} */\nexport const bad = 'wrong';\n/** @type {number} */\nexport const good = 1;".into())],
+                &["a.js"], &flags,
+            );
+            let errors: Vec<_> = output.lines().filter(|line| line.contains("error TS")).collect();
+            assert_eq!(errors.len(), usize::from(expects_error), "{flags:?}: {output}");
+            if expects_error {
+                assert_eq!(
+                    errors,
+                    ["a.js(2,14): error TS2322: Type 'string' is not assignable to type 'number'."]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn jsdoc_tuple_annotation_supplies_initializer_context() {
+        let output = compile_files(
+            vec![(
+                "/project/a.js".into(),
+                "/** @type {[number, string]} */\nexport const pair = [1, 'ok'];".into(),
+            )],
+            &["a.js"],
+            &["--noLib", "--allowJs", "--checkJs", "--strict"],
+        );
+        assert!(!output.contains("error TS"), "{output}");
     }
 
     #[test]

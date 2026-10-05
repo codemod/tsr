@@ -36,9 +36,15 @@ preserve 117 diagnostics and loaded payloads; separate traces preserve all
 1,397 actual full-file checks. Observer overhead/noise prevents a speed claim.
 A drop-plain mutant fails documented-node lookup. Borrowed lazy-result ownership
 and attachment/private transport costs remain P1 `.9.2.1` / `.9.2.2` before
-deferral. A minimal isolated CLI annotation candidate passes but still misses
-the stronger four-error native JS negative (`tsr-6.65`); canonical runtime is
-unchanged. [Eligible-body evidence](docs/architecture/jsdoc-eligible.md).
+deferral. Subsequent CLI transport/initializer work, frozen base `85cf4c50` plus
+the [hashed JSDoc candidate](docs/architecture/jsdoc-cli-fidelity.json), supplies
+effective annotations to both checking and context. It gains 21 RIGHT assertions
+and one diagnostic case with no previous pass losses. A native typedef-kind
+boundary prevents a whole-project document scan exposed by registration;
+Next.js still completes with 117 diagnostics and matching physical inputs.
+The stronger four-error native JS negative (`tsr-6.65`) remains missing.
+[Eligible-body evidence](docs/architecture/jsdoc-eligible.md) and
+[CLI fidelity, rejected candidates and limits](docs/architecture/jsdoc-cli-fidelity.md).
 Equivalent full-work TSR/native median <=0.50 remains unmet and unverified.
 
 Private checker storage (`tsr-1yb.3.1.1.3`), frozen Rust `4faf1cbd` and native
@@ -3092,8 +3098,10 @@ rendering `any` for `errorType` (ADR-0038).
 JSDoc `.9.2` now has a measured conservative plain-body slice. Settle private
 lazy query/arena/borrowed-result ownership in `.9.2.1` and measure attachment,
 table transport and retained owner costs in `.9.2.2` before implementing
-deferral. `tsr-6.65.1` / `.2` retain the localized CLI transport and initializer
-gaps; a primitive-case pass does not satisfy the parent's mixed native negative.
+deferral. CLI transport, effective initializer/context annotations and a bounded
+typedef ownership lookup are the current `tsr-6.65.1` / `.2` / `.4` checkpoint;
+the parent's mixed native negative and `.3` hosted lexical ownership remain
+open. Two already-WRONG diagnostic cases still need native reporting behavior.
 CI `.8.2` connects existing qualified work/worker receipts to already-shipped
 reports, without certifying incomplete inputs/forcing or activating `.13`.
 Existing mapper/key/admission owners and production gates remain intact.
@@ -6559,8 +6567,18 @@ costs and is not a full-deferral ceiling. Observer wall overhead is 0.852217 s
 paired median with broad spread; neither instrumented timing nor 24.1 MB of
 cumulative arena requests proves a retained win. A transport-plus-effective
 initializer candidate passes a minimal primitive JS test but still emits zero
-of the four mixed native errors; it is not accepted as faithful checking.
+of the four mixed native errors; it is not accepted as complete faithful checking.
 [Evidence and limits](docs/architecture/jsdoc-eligible.md).
+
+At `d4906082`, a blanket JSDoc lexical-host fallback loses 15 previous RIGHT
+type assertions and a previously clean diagnostic case; reject it. Initializer
+reporting without context introduces another false clean-case diagnostic.
+At `d74b5402`, registration plus effective checking/context passes both corpora
+but fails the real Next.js preflight; an independent 60-second control is killed
+after 39.605s user CPU. The document-ownership lookup scans all supplied tags
+for non-typedef type references. An exact typedef-kind boundary restores
+completion; failed/partial traces are locating evidence, never speed samples.
+[Source-qualified controls](docs/architecture/jsdoc-cli-fidelity.md).
 
 Refused at frozen `4faf1cbd`: treating a post-file private-memory check as an
 admission bound. Growth budget20,000B passes initialized14,804B, completes7/21
@@ -13174,6 +13192,20 @@ cargo run -p xtask -- issue-ids    # every `bd <id>` cited in docs/ exists
 ---
 
 ## 7. Session log
+
+2026-10-05 — `tsr-6.65.1/.2/.4`, frozen base85cf4c50/native5b1047d plus
+hashed six-file candidate: Program JSDoc transport, shared helper eligibility,
+effective JS initializer/context annotations and exact typedef lookup boundary.
+Full type and diagnostic preservation gates, release checker/execute/ownership
+and work-trace tests, strict workspace/trace Clippy and formatting cover the
+candidate. Public default/single/native2/4 and private1/2/4 complete controls
+agree. Real Next.js preserves117diagnostics/14050loaded/1397reportedchecks and
+ordered physical source bytes. Archive vendor spellings are qualified by
+unchanged realpaths/symlink targets/hashes. Reject blanket host-resolution
+RIGHT losses and the unguarded real-project timeout. Mixed native4/TSR0 remains
+open; no complete input/forcing or <=0.50 speed proof. Independent review0.
+[Receipts and residuals](docs/architecture/jsdoc-cli-fidelity.md); main delivery
+is recorded in Beads after terminal push.
 
 2026-10-05 — `tsr-1yb.9.2`, immutable Rust a24cacb2/native5b1047d:
 qualified conservative plain-document attribution, public/Next.js off/on work

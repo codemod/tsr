@@ -5,6 +5,8 @@ import tempfile
 import unittest
 import sys
 import os
+import json
+from unittest.mock import patch
 
 sys.dont_write_bytecode = True
 
@@ -74,6 +76,32 @@ class ProbeReaderTests(unittest.TestCase):
         first = probe.fixtures(Path(self.directory.name) / "first")
         second = probe.fixtures(Path(self.directory.name) / "second")
         self.assertEqual(first, second)
+
+    def test_failed_process_evidence_is_saved_before_rejection(self):
+        project = Path(self.directory.name)
+        binary = project / "compiler"
+        binary.write_bytes(b"control")
+        source = project / "a.ts"
+        source.write_text("export const x = 1;\n")
+        (project / "tsconfig.json").write_text('{"files":["a.ts"]}')
+        show = {"pid": 1, "exit_code": 0, "timed_out": False, "stdout": "{}", "stderr": ""}
+        preflight = {"pid": 2, "exit_code": 0, "timed_out": False,
+                     "stdout": f"{source}\nChecked files: 1\n", "stderr": ""}
+        failed = {"pid": 3, "exit_code": -9, "timed_out": True,
+                  "stdout": "partial output", "stderr": "failure details"}
+        for phase, preceding, reason in (
+            ("show_config_child", [], "showConfig failed"),
+            ("preflight", [show], "scope preflight failed"),
+            ("sample", [show, preflight], "compiler process failed"),
+        ):
+            with self.subTest(phase=phase), patch.object(probe, "process", side_effect=preceding + [failed]):
+                output = project / (phase + ".json")
+                with self.assertRaisesRegex(ValueError, reason):
+                    probe.measure(binary, project, output, repeats=1)
+                receipt = json.loads(output.read_text())
+                saved = receipt["children"][0] if phase == "sample" else receipt[phase]
+                self.assertEqual(saved, failed)
+                self.assertNotIn("summary", receipt)
 
 
 if __name__ == "__main__":

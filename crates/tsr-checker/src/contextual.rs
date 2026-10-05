@@ -1082,7 +1082,8 @@ impl<'a> Checker<'a, '_> {
             // which is the call `crate::members` records making for the same
             // reason.
             Node::VariableDeclaration(declaration) => {
-                let annotation = declaration.r#type?;
+                let annotation =
+                    declaration.r#type.or_else(|| self.jsdoc_type_annotation(parent))?;
                 Some(self.get_type_from_type_node(annotation))
             }
             Node::ParameterDeclaration(declaration) => {

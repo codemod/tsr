@@ -7955,6 +7955,12 @@ impl<'a> Checker<'a, '_> {
     /// sparse host table, requiring the alias declaration's exact node id.
     fn jsdoc_alias_doc(&self, symbol: SymbolId) -> Option<&'a tsr_ast::JSDoc<'a>> {
         let declaration = self.binder.symbols().get(symbol).declarations.first().copied()?;
+        // Only a typedef declaration can match a typedef tag's exact node id.
+        // Native narrows this visibility branch by declaration kind before
+        // following its structural JSDoc parents (emitresolver.go:128-135).
+        if !matches!(self.node_map.get(declaration), Some(Node::JSDocTypedefTag(_))) {
+            return None;
+        }
         self.jsdoc_entries.values().flat_map(|docs| docs.iter().copied()).find(|doc| {
             doc.tags.iter().any(|tag| match tag {
                 tsr_ast::JSDocTag::JSDocTypedefTag(tag) => tag.node_id == Some(declaration),

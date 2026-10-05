@@ -94,18 +94,22 @@ def measure(binary, project, output, probe=False, repeats=3):
         os.environ.pop(key, None)
     command = [str(binary.resolve()), "--project", "tsconfig.json", "--noEmit", "--incremental", "false",
                "--composite", "false", "--pretty", "false", "--extendedDiagnostics", "--listFiles"]
+    children = []
+    result = {"binary_sha256": file_hash(binary), "project": str(project.resolve()),
+              "command": command, "children": children}
     show = process([str(binary.resolve()), "--project", "tsconfig.json", "--showConfig", "--incremental", "false",
                     "--composite", "false", "--noEmit"], project, 180)
+    result["show_config_child"] = show
+    write(output, result)
     require(show["exit_code"] == 0 and not show["timed_out"], "showConfig failed")
     config = json.loads(show["stdout"])
-    children = []
-    result = {"binary_sha256": file_hash(binary), "project": str(project.resolve()), "config": config,
-              "config_fingerprint": fingerprint(config), "command": command, "children": children}
+    result.update(config=config, config_fingerprint=fingerprint(config))
     preflight = process(command, project, 180)
+    result["preflight"] = preflight
+    write(output, result)
     require(not preflight["timed_out"] and preflight["exit_code"] in (0, 1), "scope preflight failed")
     names = files(preflight)
     observed_paths = [name for name in names if name.startswith("/")] + [str(project / "tsconfig.json")]
-    result["preflight"] = preflight
     result["loaded_input_snapshot_before"] = snapshot(observed_paths)
     require(valid_snapshot(result["loaded_input_snapshot_before"]) and
             all(row["kind"] == "file" for row in result["loaded_input_snapshot_before"]),
@@ -116,6 +120,8 @@ def measure(binary, project, output, probe=False, repeats=3):
         if trace:
             os.environ["TSR_JSDOC_COST_PROBE"] = str(trace)
         child = process(command, project, 180)
+        children.append(child)
+        write(output, result)
         require(not child["timed_out"] and child["exit_code"] in (0, 1), "compiler process failed")
         child["diagnostics"] = diagnostics(child["stdout"] + child["stderr"], project)
         child["loaded"] = files(child)
@@ -128,7 +134,6 @@ def measure(binary, project, output, probe=False, repeats=3):
         require(signature == expected, "repeat changes complete output or reported scope")
         if trace:
             child["probe"] = read_probe(trace, child)
-        children.append(child)
         # Raw process evidence is persisted before another sample starts.
         write(output, result)
     os.environ.pop("TSR_JSDOC_COST_PROBE", None)

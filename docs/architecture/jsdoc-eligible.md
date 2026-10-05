@@ -110,6 +110,13 @@ complete native errors. The overload error remains missing. `tsr-6.65.3` owns
 the lexical-owner contract and current-main corpus validation; this locating
 observation is not a retained fix or a speed receipt.
 
+The subsequent [CLI fidelity checkpoint](jsdoc-cli-fidelity.md) records full
+corpus component isolation, rejection of the blanket host fallback, effective
+initializer/context transport and the real-project document-scan failure.
+Its exact source and runtime gates are separate from this frozen observer
+experiment; the original attribution samples are not relabeled as current
+compiler performance or complete checking.
+
 Next steps within `.9.2` are attachment/consumer attribution and an executable
 private lazy-document ownership/query contract before an actual deferral
 candidate. Preserve JS/tags/link/import/deprecated behavior, supported queries

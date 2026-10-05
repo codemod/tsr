@@ -5869,7 +5869,7 @@ impl<'a> Checker<'a, '_> {
     /// `getEffectiveTypeAnnotationNode`'s JSDoc arm again, the same door the
     /// `@param` road above went through. Direct hosted tags precede statement
     /// tags; statement tags each select the first still-untyped declaration.
-    fn jsdoc_type_annotation(&self, declaration: NodeId) -> Option<TypeNode<'a>> {
+    pub(crate) fn jsdoc_type_annotation(&self, declaration: NodeId) -> Option<TypeNode<'a>> {
         if !self.in_js_file(declaration) {
             return None;
         }

@@ -132,13 +132,12 @@ impl<'a> Checker<'a, '_> {
         ambient: bool,
     ) {
         if ambient
-            || self.in_js_file(node)
             || (self.file_has_parse_errors && !self.has_complete_source_variable_initializer(node))
         {
             return;
         }
-        let (Some(annotation), Some(initializer)) = (declaration.r#type, declaration.initializer)
-        else {
+        let annotation = declaration.r#type.or_else(|| self.jsdoc_type_annotation(node));
+        let (Some(annotation), Some(initializer)) = (annotation, declaration.initializer) else {
             return;
         };
         let target = self.get_type_from_type_node(annotation);
