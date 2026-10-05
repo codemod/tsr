@@ -1469,7 +1469,7 @@ impl<'a> Checker<'a, '_> {
         // report and, when it speaks, `checkTypeRelatedToEx` stays silent. The
         // hand-off is exclusive by construction here because both live in this
         // one function: elaborating returns, it does not fall through. §176.
-        if self.elaborate_object_literal(source_node, source, target) {
+        if self.elaborate_error(source_node, source, target) {
             probe!(PROBE_REPORTED);
             return true;
         }
@@ -1741,15 +1741,94 @@ impl<'a> Checker<'a, '_> {
                 .is_some_and(|table| table.iter().any(|(_, optional)| !optional))
     }
 
-    /// `elaborateObjectLiteral` (`relater.go:498`) — report on the offending
-    /// **property** rather than on the literal.
+    /// `elaborateError` (`relater.go:440`): descend into the source expression
+    /// to report on the innermost node that explains the failure. Answers
+    /// whether it reported; the caller then stays silent. A generic conditional
+    /// target is not elaborated. `elaborateDidYouMeanToCallOrConstruct` is not
+    /// ported here, so those failures keep the caller's outer report.
+    fn elaborate_error(&mut self, node: NodeId, source: TypeId, target: TypeId) -> bool {
+        if self.is_or_has_generic_conditional(target) {
+            return false;
+        }
+        let inner = match self.node_map.get(node) {
+            Some(Node::ParenthesizedExpression(parenthesized)) => parenthesized.expression,
+            Some(Node::AsExpression(assertion))
+                if assertion.r#type.is_some_and(crate::assertions::is_const_type_reference) =>
+            {
+                assertion.expression
+            }
+            Some(Node::BinaryExpression(binary))
+                if binary.operator_token.is_some_and(|token| {
+                    matches!(token.kind, SyntaxKind::EqualsToken | SyntaxKind::CommaToken)
+                }) =>
+            {
+                binary.right
+            }
+            Some(Node::ObjectLiteralExpression(_)) => {
+                return self.elaborate_object_literal(node, source, target);
+            }
+            // checkTypeRelatedToAndOptionallyElaborate elaborates only a failed
+            // relation. A member mismatch need not fail the whole (a `void`
+            // target return accepts any source return), so these arms ask.
+            Some(Node::ArrayLiteralExpression(_)) => {
+                return self.relate_ternary(source, target, crate::relater::Relation::Assignable)
+                    == crate::relater::Ternary::NotRelated
+                    && self.elaborate_array_literal(node, source, target);
+            }
+            Some(Node::ArrowFunction(_)) => {
+                return self.relate_ternary(source, target, crate::relater::Relation::Assignable)
+                    == crate::relater::Ternary::NotRelated
+                    && self.elaborate_arrow_function(node, source, target);
+            }
+            _ => return false,
+        };
+        inner
+            .and_then(|inner| inner.node_id())
+            .is_some_and(|inner| self.elaborate_error(inner, source, target))
+    }
+
+    /// `isOrHasGenericConditional` (`relater.go:474`).
+    fn is_or_has_generic_conditional(&self, t: TypeId) -> bool {
+        let ty = self.type_of(t);
+        ty.flags.contains(TypeFlags::CONDITIONAL)
+            || matches!(&ty.data, TypeData::Intersection { types, .. }
+                if types.iter().any(|&part| self.is_or_has_generic_conditional(part)))
+    }
+
+    /// `elaborateElement` (`relater.go:546`) once its member types are known:
+    /// a related pair is not elaborated; otherwise `next` elaborates first and
+    /// the failure is reported on `prop` (excess properties of a fresh `next`
+    /// first, as `checkTypeRelatedToEx` would meet them).
+    fn elaborate_element(
+        &mut self,
+        prop: NodeId,
+        next: Option<NodeId>,
+        source: TypeId,
+        target: TypeId,
+    ) -> bool {
+        // getBestMatchIndexedAccessTypeOrUndefined: no elaboration into an
+        // index on a generic variable.
+        if self.type_of(target).flags.contains(TypeFlags::INDEXED_ACCESS)
+            || self.relate_ternary(source, target, crate::relater::Relation::Assignable)
+                != crate::relater::Ternary::NotRelated
+        {
+            return false;
+        }
+        let source_node = next.unwrap_or(prop);
+        let before = self.diagnostics.len();
+        self.check_excess_properties(target, source_node);
+        if self.diagnostics.len() != before {
+            return true;
+        }
+        self.report_assignability_failure(prop, source_node, source, target)
+    }
+
+    /// `elaborateObjectLiteral` (`relater.go:498`): each named member is an
+    /// element — a property assignment elaborates into its initializer, and
+    /// shorthand, method and accessor members report at their name.
     ///
     /// Returns whether it reported, which is upstream's contract: a `true` here
     /// is what stops the whole-expression diagnostic being issued at all.
-    ///
-    /// §175 ranked this anchor first on the board — 19 of the 132 TS2322 cases
-    /// that are gated on a reporting anchor and nothing else, and 101 of the
-    /// 691 never-reached lines.
     fn elaborate_object_literal(
         &mut self,
         source_node: NodeId,
@@ -1765,10 +1844,9 @@ impl<'a> Checker<'a, '_> {
         if self.type_of(target).flags.intersects(TypeFlags::PRIMITIVE | TypeFlags::NEVER) {
             return false;
         }
-        // `getBestMatchIndexedAccessTypeOrUndefined` picks a union constituent;
-        // this port has only the non-union lookup, and a union target is
-        // already declined by the caller's own object-literal arm, so the two
-        // agree on every input that reaches here. §176.
+        // `getBestMatchIndexedAccessTypeOrUndefined` picks a union constituent
+        // (`getBestMatchingType`), which this port does not have; the caller's
+        // own object-literal arm declines a union target for the same reason.
         if self.type_of(target).flags.contains(TypeFlags::UNION) {
             return false;
         }
@@ -1781,72 +1859,155 @@ impl<'a> Checker<'a, '_> {
         }
         let mut reported = false;
         for property in literal.properties {
-            // `ast.KindPropertyAssignment` — the arm that carries an
-            // initialiser. The accessor and shorthand arms elaborate through a
-            // different path (`elaborateElement` with `next == nil`) and are in
-            // §175's tail, not its head.
-            let tsr_ast::ObjectLiteralElementLike::PropertyAssignment(assignment) = property else {
-                continue;
+            let (name, next) = match property {
+                tsr_ast::ObjectLiteralElementLike::PropertyAssignment(assignment) => {
+                    let Some(next) = assignment.initializer.and_then(|e| e.node_id()) else {
+                        continue;
+                    };
+                    (assignment.name.node_id(), Some(next))
+                }
+                tsr_ast::ObjectLiteralElementLike::ShorthandPropertyAssignment(shorthand) => {
+                    (shorthand.name.node_id(), None)
+                }
+                tsr_ast::ObjectLiteralElementLike::MethodDeclaration(method) => {
+                    (method.name.node_id(), None)
+                }
+                tsr_ast::ObjectLiteralElementLike::GetAccessorDeclaration(accessor) => {
+                    (accessor.name.node_id(), None)
+                }
+                tsr_ast::ObjectLiteralElementLike::SetAccessorDeclaration(accessor) => {
+                    (accessor.name.node_id(), None)
+                }
+                tsr_ast::ObjectLiteralElementLike::SpreadAssignment(_) => continue,
             };
-            let Some(name_id) = assignment.name.node_id() else { continue };
+            let Some(name_id) = name else { continue };
             // `getLiteralTypeFromProperty(…, StringOrNumberLiteralOrUnique)` —
             // a computed non-literal name yields no usable name type and
             // upstream `continue`s.
             let Some(name) = self.identifier_text(name_id).map(str::to_string) else { continue };
-            if assignment.initializer.and_then(|e| e.node_id()).is_none() {
-                continue;
-            }
-            // `getBestMatchIndexedAccessTypeOrUndefined(source, target, nameType)`
-            // — absent from the target means excess, which is TS2353's row and
-            // not this one.
             // The indexed-access result uses the concrete target receiver.
             // Reading the declaration symbol alone loses its mapper, so a
             // member declared as T on C<number> would be compared against T.
+            // Absent from the target means excess, TS2353's row.
             let Some(target_property_type) = self.get_type_of_property_of_type(target, &name)
             else {
                 continue;
             };
             // `getIndexedAccessTypeOrUndefined(source, nameType, …)` reads the
             // completed source member, including mutable-location widening.
-            // A fresh initializer alone still has its literal type here.
             let Some(source_property_type) = self.get_type_of_property_of_type(source, &name)
             else {
                 continue;
             };
-            // `checkTypeRelatedTo(sourcePropType, targetPropType, …)` — the
-            // three-valued form, and reporting only on a **confident**
-            // `NotRelated`, which is §25's rule for a rule acting on a negative.
-            if self.relate_ternary(
-                source_property_type,
-                target_property_type,
-                crate::relater::Relation::Assignable,
-            ) != crate::relater::Ternary::NotRelated
-            {
-                continue;
-            }
-            if !self.assignability_pair_is_reportable(source_property_type, target_property_type) {
-                continue;
-            }
-            let Some(file) = self.source_file_of_for_diagnostics(name_id) else { continue };
-            // `createDiagnosticForNode(prop, …)` — the property **name**, which
-            // is the anchor §175 measured and the one `check_excess_properties`
-            // already uses.
-            let span = self.nodes.span(name_id);
-            let displayed_source = self
-                .assignability_source_for_error_display(source_property_type, target_property_type);
-            let source_text = self.type_to_string(displayed_source);
-            let target_text = self.type_to_string(target_property_type);
-            self.report(
-                file,
-                Diagnostic::with_args(
-                    &messages::TYPE_0_IS_NOT_ASSIGNABLE_TO_TYPE_1,
-                    span,
-                    [source_text, target_text],
-                ),
-            );
-            reported = true;
+            reported |=
+                self.elaborate_element(name_id, next, source_property_type, target_property_type);
         }
         reported
+    }
+
+    /// `elaborateArrayLiteral` (`relater.go:522`): each element is an element
+    /// of the tuple-like source, keyed by its index, reported at
+    /// `getEffectiveCheckNode` of the element. A non-tuple source is re-read
+    /// upstream as a contextually typed tuple; each element's checked type is
+    /// that tuple's member here. Spreads (whose index does not name one
+    /// element) and union targets (`getBestMatchingType`) are declined.
+    fn elaborate_array_literal(&mut self, node: NodeId, source: TypeId, target: TypeId) -> bool {
+        let Some(Node::ArrayLiteralExpression(literal)) = self.node_map.get(node) else {
+            return false;
+        };
+        let target_flags = self.type_of(target).flags;
+        if target_flags.intersects(TypeFlags::PRIMITIVE | TypeFlags::NEVER | TypeFlags::UNION)
+            || literal.elements.iter().any(|element| {
+                element.node_id().is_some_and(|id| self.nodes.kind(id) == SyntaxKind::SpreadElement)
+            })
+        {
+            return false;
+        }
+        let tuple_target = self.tuple_element_lists.contains_key(&target);
+        if !tuple_target
+            && (self.variadic_tuple_elements.contains_key(&target)
+                || self.tuple_spread_array_element(target).is_none())
+        {
+            return false;
+        }
+        let source_tuple = self.tuple_element_lists.contains_key(&source);
+        let elements: Vec<NodeId> =
+            literal.elements.iter().filter_map(tsr_ast::Expression::node_id).collect();
+        let mut reported = false;
+        for (index, element) in elements.into_iter().enumerate() {
+            if self.nodes.kind(element) == SyntaxKind::OmittedExpression {
+                continue;
+            }
+            let target_element = if tuple_target {
+                // isTupleLikeType(target) && no property `index`: skipped.
+                if self.tuple_element_lists.get(&target).is_none_or(|(list, _)| index >= list.len())
+                {
+                    continue;
+                }
+                let Some(member) = self.get_type_of_property_of_type(target, &index.to_string())
+                else {
+                    continue;
+                };
+                member
+            } else {
+                let Some(element_type) = self.tuple_spread_array_element(target) else {
+                    return reported;
+                };
+                element_type
+            };
+            let check_node = self.effective_check_node(element);
+            let source_element = if source_tuple {
+                let Some(member) = self.get_type_of_property_of_type(source, &index.to_string())
+                else {
+                    continue;
+                };
+                member
+            } else {
+                self.check_expression_at_node(check_node)
+            };
+            reported |= self.elaborate_element(
+                check_node,
+                Some(check_node),
+                source_element,
+                target_element,
+            );
+        }
+        reported
+    }
+
+    /// `elaborateArrowFunction` (`relater.go:641`): an expression-bodied arrow
+    /// with no annotated parameter relates its single call signature's return
+    /// type to the union of the target's call signature returns, elaborating
+    /// into the body and otherwise reporting at it.
+    fn elaborate_arrow_function(&mut self, node: NodeId, source: TypeId, target: TypeId) -> bool {
+        let Some(Node::ArrowFunction(arrow)) = self.node_map.get(node) else { return false };
+        let Some(body) = arrow.body.and_then(|body| body.node_id()) else { return false };
+        if self.nodes.kind(body) == SyntaxKind::Block
+            || arrow.parameters.iter().any(|parameter| parameter.r#type.is_some())
+        {
+            return false;
+        }
+        let Some(signature) = self.single_call_signature(source) else { return false };
+        let Some(targets) =
+            self.signatures_of_type_kind(target, crate::signatures::SignatureKind::Call)
+        else {
+            return false;
+        };
+        if targets.is_empty() {
+            return false;
+        }
+        let Some(source_return) = self.get_return_type_of_signature(&signature) else {
+            return false;
+        };
+        let mut returns = Vec::with_capacity(targets.len());
+        for target_signature in &targets {
+            let Some(target_return) = self.get_return_type_of_signature(target_signature) else {
+                return false;
+            };
+            returns.push(target_return);
+        }
+        let target_return = self.get_union_type(&returns);
+        self.elaborate_element(body, Some(body), source_return, target_return)
     }
 }
 
