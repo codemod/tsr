@@ -85,3 +85,39 @@ climbs array literals, spreads, parentheses and object-literal positions — so
 asks it. TS2454 extras in the lane 23 → 1; twelve cases converted, no losses.
 `is_write_only_access` (the `crate::unused` access-kind reuse) stays: it was the
 earlier partial cover for the same gap and removing it is a separate question.
+
+## 5. TS2774 / TS2801 / TS2845: `checkTestingKnownTruthyType` ported whole
+
+`truthiness.rs` had a narrow stand-in for TS2774: an identifier condition of an
+`if`, declared as a function or with a function-type annotation, whose `then`
+branch does not mention the name. Ported instead as written
+(`checker.go:3814`–`3953`): the three call sites (`if` → `then`, `?:` →
+`whenTrue`, the left of `&&` always and of `||`/`??` inside an `if` chain), the
+`||`/`??` left-operand walk, the enum-member arm (TS2845), call signatures *or*
+a promised type (TS2801), `isSymbolUsedInBinaryExpressionChain` and
+`isSymbolUsedInConditionBody` with its receiver-chain comparison.
+
+**Declines (this port's, all toward silence).** A type whose call signatures
+cannot be read, a promised-type lookup that hits an unported step (a `then`
+with a non-`void` `this` parameter, whose subtype filter is not reproduced),
+and a generic (`INSTANTIABLE`) type in that lookup all answer nothing.
+`getSymbolAtLocation` is reduced to the two positions the rule compares
+(property-access name → property of the receiver's apparent type; anything
+else → its value resolution).
+
+**Duplicate reports.** `if (a || b)` reaches `a` from both the `if` arm and the
+`||` arm; upstream's diagnostic collection drops the identical second report.
+`report` here does not deduplicate, so the rule checks for an identical
+(file, span, code) before reporting.
+
+**Perf (§5's ordering).** Every `if`, `?:` and `&&` reaches the rule. The first
+version resolved call signatures and `then` before asking anything cheap and
+read ~1.04 new/old on `domain-model` (swapped slots 0.96–0.965 old/new, i.e. a
+real ~3–4%). An exact early-out — every constituent primitive ⇒ no signatures
+and no promised type — moved ahead of those lookups brought four alternating
+21-sample runs to 0.996 / 0.984 / 1.015 / 1.058 (mean ≈ 1.008).
+
+**Measured.** TS2774/TS2801/TS2845 lines missing 92 → 18, extra 0 → 0; eight
+cases converted. Left: `nanEquality`'s TS2845 is `checkNaNEquality` (operators
+lane), and `truthinessCallExpressionCoercion2` line 116 reads
+`window.console.error` through the DOM lib's `Window & typeof globalThis`.
