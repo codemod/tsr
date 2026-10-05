@@ -18,16 +18,17 @@ step() {
 }
 
 install_rust() {
-  if ! command -v rustup >/dev/null 2>&1 && [ ! -x "$HOME/.cargo/bin/rustup" ]; then
-    curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs |
-      sh -s -- -y --profile minimal --default-toolchain none --no-modify-path
-  fi
-  # rustup's installer cannot update this running script's environment.
-  export PATH="$HOME/.cargo/bin:$PATH"
   # Box images ship a root-owned system rustup (RUSTUP_HOME=/usr/local/rustup)
-  # without the pinned channel; keep toolchains in a user-owned RUSTUP_HOME.
-  if [ -n "${RUSTUP_HOME:-}" ] && [ -d "$RUSTUP_HOME" ] && [ ! -w "$RUSTUP_HOME" ]; then
-    export RUSTUP_HOME="$HOME/.rustup"
+  # without the pinned channel. Its proxies refuse to run once RUSTUP_HOME or
+  # CARGO_HOME point elsewhere ("rustup is not installed at ~/.cargo"), so use
+  # a user-owned rustup with user-owned homes instead of reusing it.
+  export CARGO_HOME="$HOME/.cargo"
+  export RUSTUP_HOME="$HOME/.rustup"
+  # rustup's installer cannot update this running script's environment.
+  export PATH="$CARGO_HOME/bin:$PATH"
+  if [ ! -x "$CARGO_HOME/bin/rustup" ]; then
+    curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs |
+      RUSTUP_INIT_SKIP_PATH_CHECK=yes sh -s -- -y --profile minimal --default-toolchain none --no-modify-path
   fi
   # Installs the channel and components pinned in rust-toolchain.toml; a no-op
   # when they are already present.
@@ -46,15 +47,14 @@ case ":$PATH:" in *":$HOME/.cargo/bin:"*) ;; *) export PATH="$HOME/.cargo/bin:$P
 case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) export PATH="$HOME/.local/bin:$PATH" ;; esac
 EOF
   fi
-  if [ "${RUSTUP_HOME:-}" = "$HOME/.rustup" ]; then
-    local rustup_marker="# tsr orb rustup home"
-    if ! grep -Fqx "$rustup_marker" "$HOME/.bash_profile" 2>/dev/null; then
-      cat >>"$HOME/.bash_profile" <<'EOF'
+  local homes_marker="# tsr orb rust homes"
+  if ! grep -Fqx "$homes_marker" "$HOME/.bash_profile" 2>/dev/null; then
+    cat >>"$HOME/.bash_profile" <<'EOF'
 
-# tsr orb rustup home
+# tsr orb rust homes
+export CARGO_HOME="$HOME/.cargo"
 export RUSTUP_HOME="$HOME/.rustup"
 EOF
-    fi
   fi
 }
 
