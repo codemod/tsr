@@ -22,6 +22,16 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
+JSDoc setup (`tsr-1yb.9.2.2`), frozen `a0fa106e`/native `5b1047d`,
+attributes 13.431ms median combined attachment/binder-copy/registration on
+Next.js; plain bodies81.088ms. Private map requested peaks at actual1/2/4
+checkers are12,189,720/24,379,440/48,758,880B, excluding other stores and RSS.
+Complete117normalized diagnostics and1397ordered actual full checks are
+preserved; sixty public controls qualify both archived observer snapshots.
+Mixed native4/TSR0 still rejects equivalent-work throughput. Setup caching/API
+churn is not retained; lazy query ownership9.2.1 and deferral parent remainopen.
+[Disjoint costs, ownership and source-qualified limits](docs/architecture/jsdoc-setup.md).
+
 Parity epic (`tsr-2zk`), measured at `586c2ec0` against native `5b1047d`:
 `checker_types` 7,365/9,538 (77.22%, lines 464,069/478,855 = 96.91%),
 `diagnostics` 2,880/5,488 (52.48%); about 3,994 distinct failing cases. Target is
@@ -3096,9 +3106,11 @@ rendering `any` for `errorType` (ADR-0038).
 ## 4. What is next — the scored board
 
 JSDoc `.9.2` now has a measured conservative plain-body slice. Settle private
-lazy query/arena/borrowed-result ownership in `.9.2.1` and measure attachment,
-table transport and retained owner costs in `.9.2.2` before implementing
-deferral. CLI transport, effective initializer/context annotations and a bounded
+lazy query/arena/borrowed-result ownership in `.9.2.1`. Current-source `.9.2.2`
+now measures attachment, table transport and private map origins: combined
+setup13.431ms is insufficient evidence for new caching/API churn. Its81.088ms
+plain-body component is not a complete deferral ceiling. Consume the explicit
+[handoff](docs/architecture/jsdoc-setup.md) before implementing deferral. CLI transport, effective initializer/context annotations and a bounded
 typedef ownership lookup are the current `tsr-6.65.1` / `.2` / `.4` checkpoint;
 the parent's mixed native negative and `.3` hosted lexical ownership remain
 open. Two already-WRONG diagnostic cases still need native reporting behavior.
@@ -6559,6 +6571,14 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+At frozen `a0fa106e`, JSDoc observer off/on wall differences range from
+-0.905 to+0.665s; do not score them as a production speed win. The observed
+13.431ms setup component does not justify new caching/API changes on this
+workload. Requested private-map peaks include growth transients, not steady
+retained bytes or RSS. Complete117diagnostic payloads and1397actual checks
+do not close the native4/TSR0 JS gap or all-forcing/input obligations.
+[Separate cost and capture qualifications](docs/architecture/jsdoc-setup.md).
 
 Plain documentation omission is rejected at frozen `a24cacb2`: returning no
 document for an untagged comment breaks `a_documented_node_can_be_found_from_its_id`.
@@ -13192,6 +13212,17 @@ cargo run -p xtask -- issue-ids    # every `bd <id>` cited in docs/ exists
 ---
 
 ## 7. Session log
+
+2026-10-05 — `tsr-1yb.9.2.2`, frozen a0fa106e/native5b1047d: archive-only
+JSDoc parse/attachment/binder/private-map attribution and1/2/4owner overlap.
+Three normal samples and three probe pairs preserve complete app output/inputs;
+a corrected independently captured trace qualifies1397ordered full checks.
+Thirty timed and thirty lint-corrected public children match native primitive
+JS diagnostics/eligibility; strongmixednative4/TSR0 remains. Four allocator
+tests,24parserJSDoc tests,8reader tests, repeated eager-query control, exact
+18file replay for both snapshots and selected-target strictClippy pass.
+Global allocator conflicts with unrelated alloc_profile; no all-example claim.
+No production code/corpus/timing win. [Evidence](docs/architecture/jsdoc-setup.md).
 
 2026-10-05 — `tsr-6.65.1/.2/.4`, frozen base85cf4c50/native5b1047d plus
 hashed six-file candidate: Program JSDoc transport, shared helper eligibility,

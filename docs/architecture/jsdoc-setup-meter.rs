@@ -1,0 +1,316 @@
+//! Archived executable allocator observer; never a production memory ceiling.
+//!
+//! The prefix attributes live Rust global-allocation *requested* bytes to their
+//! original private owner, including deallocation/reallocation on another thread.
+//! System usable sizes, retained pages, stacks and non-Rust allocation are excluded.
+
+#![allow(
+    unsafe_code,
+    reason = "archived GlobalAlloc observer requires System allocation and prefix access; canonical production allocator is unchanged"
+)]
+
+use std::alloc::{GlobalAlloc, Layout, System};
+use std::cell::Cell;
+use std::marker::PhantomData;
+use std::ptr;
+use std::rc::Rc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+/// Fixed allocation-origin owner slots.
+pub const MAX_OWNERS: usize = 256;
+
+struct Counts {
+    live: AtomicUsize,
+    peak: AtomicUsize,
+    allocations: AtomicUsize,
+    padded_live: AtomicUsize,
+    requested: AtomicUsize,
+}
+
+impl Counts {
+    const fn new() -> Self {
+        Self {
+            live: AtomicUsize::new(0),
+            peak: AtomicUsize::new(0),
+            allocations: AtomicUsize::new(0),
+            padded_live: AtomicUsize::new(0),
+            requested: AtomicUsize::new(0),
+        }
+    }
+
+    fn add(&self, size: usize, padded: usize) {
+        let live = self.live.fetch_add(size, Ordering::SeqCst) + size;
+        self.peak.fetch_max(live, Ordering::SeqCst);
+        self.allocations.fetch_add(1, Ordering::SeqCst);
+        self.requested.fetch_add(size, Ordering::SeqCst);
+        self.padded_live.fetch_add(padded, Ordering::SeqCst);
+    }
+
+    fn subtract(&self, size: usize, padded: usize) {
+        self.live.fetch_sub(size, Ordering::SeqCst);
+        self.padded_live.fetch_sub(padded, Ordering::SeqCst);
+    }
+
+    fn resize(&self, old: usize, next: usize, old_padded: usize, next_padded: usize) {
+        let live = if next >= old {
+            self.live.fetch_add(next - old, Ordering::SeqCst) + next - old
+        } else {
+            self.live.fetch_sub(old - next, Ordering::SeqCst) - (old - next)
+        };
+        self.peak.fetch_max(live, Ordering::SeqCst);
+        self.allocations.fetch_add(1, Ordering::SeqCst);
+        self.requested.fetch_add(next, Ordering::SeqCst);
+        if next_padded >= old_padded {
+            self.padded_live.fetch_add(next_padded - old_padded, Ordering::SeqCst);
+        } else {
+            self.padded_live.fetch_sub(old_padded - next_padded, Ordering::SeqCst);
+        }
+    }
+}
+
+static OWNERS: [Counts; MAX_OWNERS] = [const { Counts::new() }; MAX_OWNERS];
+static TOTAL: Counts = Counts::new();
+
+thread_local! {
+    static OWNER: Cell<usize> = const { Cell::new(0) };
+}
+
+/// Construct the guard inside the private worker; zero is unclassified/shared.
+pub struct OwnerGuard(usize, PhantomData<Rc<()>>);
+
+impl OwnerGuard {
+    /// Enter one allocation owner until this guard is dropped.
+    ///
+    /// # Panics
+    /// Panics for an invalid owner index.
+    #[must_use]
+    pub fn enter(owner: usize) -> Self {
+        assert!(owner <= MAX_OWNERS);
+        Self(OWNER.with(|slot| slot.replace(owner)), PhantomData)
+    }
+}
+
+impl Drop for OwnerGuard {
+    fn drop(&mut self) {
+        OWNER.with(|slot| slot.set(self.0));
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+/// Allocation-origin requested layouts at a quiescent boundary.
+pub struct Snapshot {
+    /// live requested bytes.
+    pub live_requested_bytes: usize,
+    /// peak requested bytes.
+    pub peak_requested_bytes: usize,
+    /// allocation requests.
+    pub allocation_requests: usize,
+    /// live padded layout bytes.
+    pub live_padded_layout_bytes: usize,
+    /// cumulative requested bytes.
+    pub cumulative_requested_bytes: usize,
+}
+
+fn read(counts: &Counts) -> Snapshot {
+    Snapshot {
+        live_requested_bytes: counts.live.load(Ordering::SeqCst),
+        peak_requested_bytes: counts.peak.load(Ordering::SeqCst),
+        allocation_requests: counts.allocations.load(Ordering::SeqCst),
+        live_padded_layout_bytes: counts.padded_live.load(Ordering::SeqCst),
+        cumulative_requested_bytes: counts.requested.load(Ordering::SeqCst),
+    }
+}
+
+/// Boundary snapshots are coherent only after all private owners are quiescent.
+#[must_use]
+pub fn snapshot(owner: usize) -> Snapshot {
+    if owner == 0 { read(&TOTAL) } else { read(&OWNERS[owner - 1]) }
+}
+
+fn prefixed(layout: Layout) -> Option<(Layout, usize)> {
+    Layout::new::<usize>()
+        .extend(layout)
+        .ok()
+        .map(|(layout, offset)| (layout.pad_to_align(), offset))
+}
+
+unsafe fn allocation_owner(base: *const u8) -> usize {
+    let mut bytes = [0u8; std::mem::size_of::<usize>()];
+    // SAFETY: the allocation prefix contains one owner word; byte copies have
+    // no additional pointer-alignment requirement.
+    unsafe { ptr::copy_nonoverlapping(base, bytes.as_mut_ptr(), bytes.len()) };
+    usize::from_ne_bytes(bytes)
+}
+
+/// Prefix-preserving System allocator used only in archived probe binaries.
+pub struct Meter;
+
+impl Meter {
+    unsafe fn allocate(layout: Layout, owner: usize, zeroed: bool) -> *mut u8 {
+        let Some((padded, offset)) = prefixed(layout) else { return ptr::null_mut() };
+        // SAFETY: padded is a valid allocation Layout. System owns this base.
+        let base =
+            unsafe { if zeroed { System.alloc_zeroed(padded) } else { System.alloc(padded) } };
+        if base.is_null() {
+            return base;
+        }
+        let bytes = owner.to_ne_bytes();
+        // SAFETY: the prefix has owner-word space, before the aligned payload.
+        unsafe { ptr::copy_nonoverlapping(bytes.as_ptr(), base, bytes.len()) };
+        if owner != 0 {
+            OWNERS[owner - 1].add(layout.size(), padded.size());
+            if owner <= 127 {
+                TOTAL.add(layout.size(), padded.size());
+            }
+        }
+        // SAFETY: extend guarantees offset addresses the original aligned payload.
+        unsafe { base.add(offset) }
+    }
+}
+
+// SAFETY: each returned payload has the requested alignment and size, with a
+// disjoint valid prefix. The corresponding Layout reconstructs its System base.
+// Counters are static atomics; allocator hooks neither allocate nor unwind.
+unsafe impl GlobalAlloc for Meter {
+    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        let owner = OWNER.try_with(Cell::get).unwrap_or(0);
+        unsafe { Self::allocate(layout, owner, false) }
+    }
+
+    unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
+        let owner = OWNER.try_with(Cell::get).unwrap_or(0);
+        unsafe { Self::allocate(layout, owner, true) }
+    }
+
+    unsafe fn dealloc(&self, pointer: *mut u8, layout: Layout) {
+        // SAFETY: the caller supplies the same Layout used by this allocator.
+        let (padded, offset) = unsafe { prefixed(layout).unwrap_unchecked() };
+        let base = unsafe { pointer.sub(offset) };
+        let owner = unsafe { allocation_owner(base) };
+        if owner != 0 {
+            OWNERS[owner - 1].subtract(layout.size(), padded.size());
+            if owner <= 127 {
+                TOTAL.subtract(layout.size(), padded.size());
+            }
+        }
+        unsafe { System.dealloc(base, padded) };
+    }
+
+    unsafe fn realloc(&self, pointer: *mut u8, layout: Layout, size: usize) -> *mut u8 {
+        let Some((padded, offset)) = prefixed(layout) else { return ptr::null_mut() };
+        let base = unsafe { pointer.sub(offset) };
+        let owner = unsafe { allocation_owner(base) };
+        let Ok(next_layout) = Layout::from_size_align(size, layout.align()) else {
+            return ptr::null_mut();
+        };
+        let Some((next_padded, next_offset)) = prefixed(next_layout) else {
+            return ptr::null_mut();
+        };
+        // Alignment is unchanged, so the prefix/payload offset is unchanged.
+        // Retain System's realloc behavior rather than forcing a copying resize.
+        let next_base = unsafe { System.realloc(base, padded, next_padded.size()) };
+        if next_base.is_null() {
+            return next_base;
+        }
+        if owner != 0 {
+            OWNERS[owner - 1].resize(layout.size(), size, padded.size(), next_padded.size());
+            if owner <= 127 {
+                TOTAL.resize(layout.size(), size, padded.size(), next_padded.size());
+            }
+        }
+        unsafe { next_base.add(next_offset) }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Mutex;
+
+    static TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    #[cfg(not(feature = "jsdoc-setup-probe"))]
+    #[global_allocator]
+    static TEST_ALLOCATOR: Meter = Meter;
+
+    #[test]
+    fn aligned_zeroed_payload_and_owner_survive_cross_thread_free() {
+        let _lock = TEST_LOCK.lock().unwrap();
+        let layout = Layout::from_size_align(1003, 4096).unwrap();
+        let owner = OwnerGuard::enter(250);
+        let pointer = unsafe { Meter.alloc_zeroed(layout) };
+        assert!(!pointer.is_null());
+        assert_eq!(pointer as usize % 4096, 0);
+        assert!(
+            unsafe { std::slice::from_raw_parts(pointer, layout.size()) }
+                .iter()
+                .all(|byte| *byte == 0)
+        );
+        assert_eq!(snapshot(250).live_requested_bytes, 1003);
+        assert!(snapshot(250).live_padded_layout_bytes > 1003);
+        drop(owner);
+        let address = pointer as usize;
+        std::thread::spawn(move || unsafe { Meter.dealloc(address as *mut u8, layout) })
+            .join()
+            .unwrap();
+        assert_eq!(snapshot(250).live_requested_bytes, 0);
+        assert_eq!(snapshot(250).live_padded_layout_bytes, 0);
+    }
+
+    #[test]
+    fn reallocation_preserves_payload_and_original_owner() {
+        let _lock = TEST_LOCK.lock().unwrap();
+        let layout = Layout::from_size_align(32, 64).unwrap();
+        let owner = OwnerGuard::enter(251);
+        let pointer = unsafe { Meter.alloc(layout) };
+        assert!(!pointer.is_null());
+        unsafe { pointer.write_bytes(17, 32) };
+        drop(owner);
+        let _other = OwnerGuard::enter(252);
+        let resized = unsafe { Meter.realloc(pointer, layout, 103) };
+        assert!(!resized.is_null());
+        assert_eq!(resized as usize % 64, 0);
+        assert!(unsafe { std::slice::from_raw_parts(resized, 32) }.iter().all(|byte| *byte == 17));
+        assert_eq!(snapshot(251).live_requested_bytes, 103);
+        assert_eq!(snapshot(252).live_requested_bytes, 0);
+        unsafe { Meter.dealloc(resized, Layout::from_size_align(103, 64).unwrap()) };
+        assert_eq!(snapshot(251).live_requested_bytes, 0);
+    }
+
+    #[test]
+    fn rejected_layout_keeps_old_payload_and_accounting() {
+        let _lock = TEST_LOCK.lock().unwrap();
+        let layout = Layout::from_size_align(32, 1).unwrap();
+        let _owner = OwnerGuard::enter(253);
+        let pointer = unsafe { Meter.alloc_zeroed(layout) };
+        assert!(!pointer.is_null());
+        let failed = unsafe { Meter.realloc(pointer, layout, isize::MAX as usize) };
+        assert!(failed.is_null());
+        assert_eq!(snapshot(253).live_requested_bytes, 32);
+        assert!(unsafe { std::slice::from_raw_parts(pointer, 32) }.iter().all(|byte| *byte == 0));
+        unsafe { Meter.dealloc(pointer, layout) };
+        assert_eq!(snapshot(253).live_requested_bytes, 0);
+    }
+
+    #[test]
+    fn actual_vector_nested_owners_and_shrink_release_all_requests() {
+        let _lock = TEST_LOCK.lock().unwrap();
+        let outer = OwnerGuard::enter(254);
+        let mut buffer: Vec<u8> = Vec::with_capacity(512);
+        buffer.extend_from_slice(&[7; 16]);
+        assert_eq!(snapshot(254).live_requested_bytes, buffer.capacity());
+        {
+            let _inner = OwnerGuard::enter(255);
+            let other = vec![2u8; 100];
+            buffer.shrink_to_fit();
+            assert_eq!(snapshot(254).live_requested_bytes, buffer.capacity());
+            assert_eq!(snapshot(255).live_requested_bytes, other.capacity());
+            drop(other);
+        }
+        assert_eq!(snapshot(255).live_requested_bytes, 0);
+        drop(buffer);
+        drop(outer);
+        assert_eq!(snapshot(254).live_requested_bytes, 0);
+        assert_eq!(snapshot(254).live_padded_layout_bytes, 0);
+    }
+}

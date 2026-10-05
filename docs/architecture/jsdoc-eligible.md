@@ -158,3 +158,8 @@ The reader rejects stale/wrong PID/version, partial/signaled outcomes, missing
 parse coverage, non-TS eligibility and counters exceeding enclosing work.
 No full-corpus runtime gate or retained-speed confirmation is claimed for this
 observer-only checkpoint. Independent review coverage is zero.
+
+A later [setup and attachment checkpoint](jsdoc-setup.md) freezes a0fa106e,
+separates outer bodies from inclusive leading work and measures private map
+allocation origins. It preserves these original source identities and samples;
+its component costs are not a deferral or native speed win.

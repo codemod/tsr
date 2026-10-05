@@ -1,0 +1,3327 @@
+{
+  "schema": "tsr-jsdoc-setup-attribution-v1",
+  "rust_source": "a0fa106e3f8ac60551292e98d1f0f47f34a55296",
+  "native_pin": "5b1047d10d32e7d5b446be4de56b126ff42f82bb",
+  "timed_identity": {
+    "rust_source": "a0fa106e3f8ac60551292e98d1f0f47f34a55296",
+    "archive_sha256": "892bb4de606218310f5ef99397f7ebb2c38d3afdd9b07652cbcd9a7c99dd591b",
+    "native_pin": "5b1047d10d32e7d5b446be4de56b126ff42f82bb",
+    "root": "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_",
+    "run": "/Users/mohebifar/dev/tsr/.context/compound-engineering/ce-optimize/tsr-jsdoc-setup-a0fa106e",
+    "patch_sha256": "a517195000e00aa4206886288c6cab933c9678e1d8ae9ad7b8808a307954f455",
+    "changed_sources": [
+      {
+        "path": "crates/tsr/Cargo.toml",
+        "sha256": "53a31ebdc163d42f6f2f9a307c2148613be6f88df2d63c1e865274a4857546a2"
+      },
+      {
+        "path": "crates/tsr/src/main.rs",
+        "sha256": "0a6326350925f8777cb6e00f5eee36e8758e5e9146b2af1ead3edb6766f27548"
+      },
+      {
+        "path": "crates/tsr-checker/Cargo.toml",
+        "sha256": "9d0dc79839d24b54090a974bc4d9c6f5dadf6a6242ee3e7b286c6c75db1c053f"
+      },
+      {
+        "path": "crates/tsr-checker/src/checker.rs",
+        "sha256": "c6b680bb73796ebf0169b4b3b752a22a5c520885f6e811c0c2a304f20de699dd"
+      },
+      {
+        "path": "crates/tsr-checker/src/declared.rs",
+        "sha256": "0ecc3901eb61f3f88558ad3a673cdde3a8d3f14d42f818bea48ef05a12bbcfab"
+      },
+      {
+        "path": "crates/tsr-compiler/Cargo.toml",
+        "sha256": "a852db6f14990b2ef084f0e59d9aa335a16301211725f159658c236b1550ab1f"
+      },
+      {
+        "path": "crates/tsr-compiler/src/lib.rs",
+        "sha256": "bac19bc464f8156ef061ff84bf8db9e087085eeb1de1c25cd42aac25ca47527a"
+      },
+      {
+        "path": "crates/tsr-compiler/src/loader.rs",
+        "sha256": "cf434305eda47324dcf6d0a991667bd6e436db8640aa1f03ace86dec0d5e6ca1"
+      },
+      {
+        "path": "crates/tsr-core/Cargo.toml",
+        "sha256": "c11598fe8ca87ef429f1d3452ce334299617984c09da1e07b1e0d9f0b31ddf13"
+      },
+      {
+        "path": "crates/tsr-core/src/jsdoc_setup/meter.rs",
+        "sha256": "522bbd8e88bcce895ac8f73cefcc055b71427dcb12d7f147d083ba3402f4e238"
+      },
+      {
+        "path": "crates/tsr-core/src/jsdoc_setup.rs",
+        "sha256": "1de111d368caf1c466dfdfb287c9cb6686629a26b8ab5c8d66ae28e0f87d4322"
+      },
+      {
+        "path": "crates/tsr-core/src/lib.rs",
+        "sha256": "4cfc9df4dbd034a7f5ca83772b99503472dae672705d1296251d81b8ac8daaad"
+      },
+      {
+        "path": "crates/tsr-execute/Cargo.toml",
+        "sha256": "93dfc4e256ea8c290e2171ed9602828c0ea5313d1cc6a58f9e7df5552d18c479"
+      },
+      {
+        "path": "crates/tsr-execute/examples/checker_workers.rs",
+        "sha256": "663b063a5850bfa5ade2700ac73362729254e224585ac9fc4ac354d02e025538"
+      },
+      {
+        "path": "crates/tsr-execute/src/compile.rs",
+        "sha256": "6aece4b8552a9b90d8c60037401987a2e66541819e2078e528adc83188de7369"
+      },
+      {
+        "path": "crates/tsr-execute/src/lib.rs",
+        "sha256": "79f1f029bb23ae1221b41614f3e277c9420c120b9d996d62f8bf1494258a0d77"
+      },
+      {
+        "path": "crates/tsr-parser/Cargo.toml",
+        "sha256": "3949626b62ee764b9396129a5ef08d79057e485e7730a24e67f4688d6de83b44"
+      },
+      {
+        "path": "crates/tsr-parser/src/jsdoc.rs",
+        "sha256": "584c05105043e5596ca5b1e585d7a633966423700c29685f3514a25b2ece258e"
+      }
+    ],
+    "binaries": {
+      "normal": "7c8072a767a6787eeed9182444306421c7598fa6ed7670969e94db77dca036db",
+      "probe": "e9a03df582cd233e21e40f9523ae00e04259526a0d71a033f475d419df7f2997",
+      "normal_helper": "3781efd3282ec3bad25a959a992e00db3a8216576cb3be9d9a08188e679f1381",
+      "probe_helper": "f25b8bf2cfdb0238e778174de56662a167488c80d250092ad473d97fd6f93deb",
+      "native": "b3cd1909b5dbc6582681e0a9d2641c7eefd9b7b6c3401cfad82b5e8b935b8033"
+    },
+    "published_patch_sha256": "42f1dac915ebfaddc62120f79e302b5c03a4b36d56b69e012b3c390b2315ddf3",
+    "published_patch_note": "Final blank context line removed and last hunk counts reduced; no source change. Original generated patch SHA preserved."
+  },
+  "quality_identity": {
+    "rust_source": "a0fa106e3f8ac60551292e98d1f0f47f34a55296",
+    "patch_sha256": "bae6175840db82c642ede011717bb3c3bd4120b1c182a0e36b05046531c91681",
+    "changed_sources": [
+      {
+        "path": "crates/tsr/Cargo.toml",
+        "sha256": "53a31ebdc163d42f6f2f9a307c2148613be6f88df2d63c1e865274a4857546a2"
+      },
+      {
+        "path": "crates/tsr/src/main.rs",
+        "sha256": "0a6326350925f8777cb6e00f5eee36e8758e5e9146b2af1ead3edb6766f27548"
+      },
+      {
+        "path": "crates/tsr-checker/Cargo.toml",
+        "sha256": "9d0dc79839d24b54090a974bc4d9c6f5dadf6a6242ee3e7b286c6c75db1c053f"
+      },
+      {
+        "path": "crates/tsr-checker/src/checker.rs",
+        "sha256": "c6b680bb73796ebf0169b4b3b752a22a5c520885f6e811c0c2a304f20de699dd"
+      },
+      {
+        "path": "crates/tsr-checker/src/declared.rs",
+        "sha256": "0ecc3901eb61f3f88558ad3a673cdde3a8d3f14d42f818bea48ef05a12bbcfab"
+      },
+      {
+        "path": "crates/tsr-compiler/Cargo.toml",
+        "sha256": "a852db6f14990b2ef084f0e59d9aa335a16301211725f159658c236b1550ab1f"
+      },
+      {
+        "path": "crates/tsr-compiler/src/lib.rs",
+        "sha256": "bac19bc464f8156ef061ff84bf8db9e087085eeb1de1c25cd42aac25ca47527a"
+      },
+      {
+        "path": "crates/tsr-compiler/src/loader.rs",
+        "sha256": "cf434305eda47324dcf6d0a991667bd6e436db8640aa1f03ace86dec0d5e6ca1"
+      },
+      {
+        "path": "crates/tsr-core/Cargo.toml",
+        "sha256": "c11598fe8ca87ef429f1d3452ce334299617984c09da1e07b1e0d9f0b31ddf13"
+      },
+      {
+        "path": "crates/tsr-core/src/jsdoc_setup/meter.rs",
+        "sha256": "b295236018cb9a2f9bb64fc433a21c2390eeaec9e65c7a26f6224fd22e5531a5"
+      },
+      {
+        "path": "crates/tsr-core/src/jsdoc_setup.rs",
+        "sha256": "4c86b43c7219cd9ddb177e138894e9104d7008ed3aea60b5ad3339c5cdcca1d0"
+      },
+      {
+        "path": "crates/tsr-core/src/lib.rs",
+        "sha256": "4cfc9df4dbd034a7f5ca83772b99503472dae672705d1296251d81b8ac8daaad"
+      },
+      {
+        "path": "crates/tsr-execute/Cargo.toml",
+        "sha256": "93dfc4e256ea8c290e2171ed9602828c0ea5313d1cc6a58f9e7df5552d18c479"
+      },
+      {
+        "path": "crates/tsr-execute/examples/checker_workers.rs",
+        "sha256": "663b063a5850bfa5ade2700ac73362729254e224585ac9fc4ac354d02e025538"
+      },
+      {
+        "path": "crates/tsr-execute/src/compile.rs",
+        "sha256": "6aece4b8552a9b90d8c60037401987a2e66541819e2078e528adc83188de7369"
+      },
+      {
+        "path": "crates/tsr-execute/src/lib.rs",
+        "sha256": "79f1f029bb23ae1221b41614f3e277c9420c120b9d996d62f8bf1494258a0d77"
+      },
+      {
+        "path": "crates/tsr-parser/Cargo.toml",
+        "sha256": "3949626b62ee764b9396129a5ef08d79057e485e7730a24e67f4688d6de83b44"
+      },
+      {
+        "path": "crates/tsr-parser/src/jsdoc.rs",
+        "sha256": "584c05105043e5596ca5b1e585d7a633966423700c29685f3514a25b2ece258e"
+      }
+    ],
+    "difference_from_timed": "Four must_use annotations and a private tuple type alias only; timing identities remain separate.",
+    "checks": {
+      "strict_release_libs_bins_clippy": true,
+      "strict_release_worker_example_clippy": true,
+      "parser_jsdoc_tests": 24,
+      "allocator_tests": 4,
+      "reader_tests": 8,
+      "first_repeat_eager_query": true,
+      "all_examples_supported": false,
+      "all_examples_reason": "Existing parser alloc_profile owns another global allocator; archive setup feature cannot be combined with it."
+    },
+    "binaries": {
+      "probe": "7dd105b16e1beec71a9cbbfe8b0235610ffb897bc42693bf9ee6d2fe2f4be70a",
+      "probe_helper": "452facd9ec52a844100a46496daad49a10218730062759435da322b6cae7eef5"
+    },
+    "published_patch_sha256": "504399ac6490e62ad719d4a3c49b84dd8bed90b6f5eb16800b63d19f8e90ea4e",
+    "published_patch_note": "Final blank context line removed and last hunk counts reduced; no source change. Original generated patch SHA preserved."
+  },
+  "baseline": {
+    "summary": {
+      "wall_seconds": 4.730421624961309,
+      "user_seconds": 4.205841,
+      "system_seconds": 0.506997,
+      "peak_rss_bytes": 1251295232,
+      "complete_process": true,
+      "outputs_preserved": true
+    },
+    "wall_range": [
+      4.710262375010643,
+      4.758052250021137
+    ],
+    "children": [
+      {
+        "command": [
+          "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/normal-target/release/tsr",
+          "--project",
+          "tsconfig.json",
+          "--noEmit",
+          "--incremental",
+          "false",
+          "--composite",
+          "false",
+          "--pretty",
+          "false",
+          "--extendedDiagnostics",
+          "--listFiles"
+        ],
+        "pid": 36046,
+        "started_at_unix_ns": 1791190092040870000,
+        "timed_out": false,
+        "exit_code": 1,
+        "wall_seconds": 4.730421624961309,
+        "user_seconds": 4.205841,
+        "system_seconds": 0.506997,
+        "peak_rss_bytes": 1258995712
+      },
+      {
+        "command": [
+          "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/normal-target/release/tsr",
+          "--project",
+          "tsconfig.json",
+          "--noEmit",
+          "--incremental",
+          "false",
+          "--composite",
+          "false",
+          "--pretty",
+          "false",
+          "--extendedDiagnostics",
+          "--listFiles"
+        ],
+        "pid": 36065,
+        "started_at_unix_ns": 1791190096873547000,
+        "timed_out": false,
+        "exit_code": 1,
+        "wall_seconds": 4.758052250021137,
+        "user_seconds": 4.230635,
+        "system_seconds": 0.5098039999999999,
+        "peak_rss_bytes": 1251295232
+      },
+      {
+        "command": [
+          "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/normal-target/release/tsr",
+          "--project",
+          "tsconfig.json",
+          "--noEmit",
+          "--incremental",
+          "false",
+          "--composite",
+          "false",
+          "--pretty",
+          "false",
+          "--extendedDiagnostics",
+          "--listFiles"
+        ],
+        "pid": 36080,
+        "started_at_unix_ns": 1791190101778321000,
+        "timed_out": false,
+        "exit_code": 1,
+        "wall_seconds": 4.710262375010643,
+        "user_seconds": 4.181513,
+        "system_seconds": 0.487932,
+        "peak_rss_bytes": 1221230592
+      }
+    ],
+    "config_fingerprint": "33014c4d45ccc885c15f802270b5397a3b8b21dcdfb82086d0df631974dd9b72",
+    "loaded_input_fingerprint": "5450ccd5f267014415a93027ae550eda762747f75bb3ba9659728eb0ac9858ae",
+    "complete_diagnostic_fingerprint": "6f26792182d5cd2f50b7771444ebd2c736a2c394ac47efc3637c92f106705e9c",
+    "counts": {
+      "Files": 14050,
+      "Checked files": 1397,
+      "Parsed files": 14746
+    }
+  },
+  "timers": {
+    "parse": {
+      "median_ms": 661.296228,
+      "range_ms": [
+        648.158795,
+        680.273116
+      ],
+      "calls": [
+        14746,
+        14746,
+        14746
+      ],
+      "arena_requested_bytes": [
+        0,
+        0,
+        0
+      ]
+    },
+    "leading": {
+      "median_ms": 252.400701,
+      "range_ms": [
+        249.035725,
+        256.199627
+      ],
+      "calls": [
+        202572,
+        202572,
+        202572
+      ],
+      "arena_requested_bytes": [
+        0,
+        0,
+        0
+      ]
+    },
+    "range": {
+      "median_ms": 29.953721,
+      "range_ms": [
+        29.919314,
+        31.079338
+      ],
+      "calls": [
+        202572,
+        202572,
+        202572
+      ],
+      "arena_requested_bytes": [
+        0,
+        0,
+        0
+      ]
+    },
+    "body": {
+      "median_ms": 191.650972,
+      "range_ms": [
+        188.438786,
+        195.669077
+      ],
+      "calls": [
+        202954,
+        202954,
+        202954
+      ],
+      "arena_requested_bytes": [
+        59482207,
+        59482207,
+        59482207
+      ]
+    },
+    "plain": {
+      "median_ms": 81.088413,
+      "range_ms": [
+        80.530064,
+        83.453646
+      ],
+      "calls": [
+        135767,
+        135767,
+        135767
+      ],
+      "arena_requested_bytes": [
+        24126296,
+        24126296,
+        24126296
+      ]
+    },
+    "list": {
+      "median_ms": 3.363106,
+      "range_ms": [
+        3.28998,
+        3.433965
+      ],
+      "calls": [
+        202572,
+        202572,
+        202572
+      ],
+      "arena_requested_bytes": [
+        0,
+        0,
+        0
+      ]
+    },
+    "attach": {
+      "median_ms": 4.564712,
+      "range_ms": [
+        4.422058,
+        4.67593
+      ],
+      "calls": [
+        202572,
+        202572,
+        202572
+      ],
+      "arena_requested_bytes": [
+        0,
+        0,
+        0
+      ]
+    },
+    "nested_attach": {
+      "median_ms": 0.0,
+      "range_ms": [
+        0.0,
+        0.0
+      ],
+      "calls": [
+        0,
+        0,
+        0
+      ],
+      "arena_requested_bytes": [
+        0,
+        0,
+        0
+      ]
+    },
+    "bind_copy": {
+      "median_ms": 1.263419,
+      "range_ms": [
+        1.202101,
+        1.399185
+      ],
+      "calls": [
+        14050,
+        14050,
+        14050
+      ],
+      "arena_requested_bytes": [
+        0,
+        0,
+        0
+      ]
+    },
+    "set_jsdoc": {
+      "median_ms": 7.80636,
+      "range_ms": [
+        7.493171,
+        8.025213
+      ],
+      "calls": [
+        13991,
+        13991,
+        13991
+      ],
+      "arena_requested_bytes": [
+        0,
+        0,
+        0
+      ]
+    },
+    "constructor": {
+      "median_ms": 0.048417,
+      "range_ms": [
+        0.044792,
+        0.121292
+      ],
+      "calls": [
+        1,
+        1,
+        1
+      ],
+      "arena_requested_bytes": [
+        0,
+        0,
+        0
+      ]
+    },
+    "typedef_scan": {
+      "median_ms": 0.0,
+      "range_ms": [
+        0.0,
+        0.0
+      ],
+      "calls": [
+        0,
+        0,
+        0
+      ],
+      "arena_requested_bytes": [
+        0,
+        0,
+        0
+      ]
+    }
+  },
+  "setup_components_per_sample_ms": [
+    14.100328,
+    13.430519,
+    13.321302
+  ],
+  "setup_components_median_ms": 13.430519,
+  "timing_samples": [
+    {
+      "pair": 0,
+      "mode": "off",
+      "child": {
+        "command": [
+          "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/probe-target/release/tsr",
+          "--project",
+          "tsconfig.json",
+          "--noEmit",
+          "--incremental",
+          "false",
+          "--composite",
+          "false",
+          "--pretty",
+          "false",
+          "--extendedDiagnostics",
+          "--listFiles"
+        ],
+        "pid": 36711,
+        "started_at_unix_ns": 1791190268212515000,
+        "timed_out": false,
+        "exit_code": 1,
+        "wall_seconds": 5.849044541013427,
+        "user_seconds": 4.386183,
+        "system_seconds": 0.645932,
+        "peak_rss_bytes": 1223770112
+      }
+    },
+    {
+      "pair": 0,
+      "mode": "on",
+      "child": {
+        "command": [
+          "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/probe-target/release/tsr",
+          "--project",
+          "tsconfig.json",
+          "--noEmit",
+          "--incremental",
+          "false",
+          "--composite",
+          "false",
+          "--pretty",
+          "false",
+          "--extendedDiagnostics",
+          "--listFiles"
+        ],
+        "pid": 36733,
+        "started_at_unix_ns": 1791190275544272000,
+        "timed_out": false,
+        "exit_code": 1,
+        "wall_seconds": 4.94425354100531,
+        "user_seconds": 4.411871,
+        "system_seconds": 0.520069,
+        "peak_rss_bytes": 1242873856
+      }
+    },
+    {
+      "pair": 1,
+      "mode": "on",
+      "child": {
+        "command": [
+          "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/probe-target/release/tsr",
+          "--project",
+          "tsconfig.json",
+          "--noEmit",
+          "--incremental",
+          "false",
+          "--composite",
+          "false",
+          "--pretty",
+          "false",
+          "--extendedDiagnostics",
+          "--listFiles"
+        ],
+        "pid": 37105,
+        "started_at_unix_ns": 1791190376913727000,
+        "timed_out": false,
+        "exit_code": 1,
+        "wall_seconds": 5.331703459029086,
+        "user_seconds": 4.450026,
+        "system_seconds": 0.486392,
+        "peak_rss_bytes": 1203994624
+      }
+    },
+    {
+      "pair": 1,
+      "mode": "off",
+      "child": {
+        "command": [
+          "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/probe-target/release/tsr",
+          "--project",
+          "tsconfig.json",
+          "--noEmit",
+          "--incremental",
+          "false",
+          "--composite",
+          "false",
+          "--pretty",
+          "false",
+          "--extendedDiagnostics",
+          "--listFiles"
+        ],
+        "pid": 37139,
+        "started_at_unix_ns": 1791190383777600000,
+        "timed_out": false,
+        "exit_code": 1,
+        "wall_seconds": 4.6669520839932375,
+        "user_seconds": 4.205099,
+        "system_seconds": 0.44213399999999997,
+        "peak_rss_bytes": 1189511168
+      }
+    },
+    {
+      "pair": 2,
+      "mode": "off",
+      "child": {
+        "command": [
+          "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/probe-target/release/tsr",
+          "--project",
+          "tsconfig.json",
+          "--noEmit",
+          "--incremental",
+          "false",
+          "--composite",
+          "false",
+          "--pretty",
+          "false",
+          "--extendedDiagnostics",
+          "--listFiles"
+        ],
+        "pid": 37144,
+        "started_at_unix_ns": 1791190390143519000,
+        "timed_out": false,
+        "exit_code": 1,
+        "wall_seconds": 5.1456665840232745,
+        "user_seconds": 4.45711,
+        "system_seconds": 0.482342,
+        "peak_rss_bytes": 1220739072
+      }
+    },
+    {
+      "pair": 2,
+      "mode": "on",
+      "child": {
+        "command": [
+          "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/probe-target/release/tsr",
+          "--project",
+          "tsconfig.json",
+          "--noEmit",
+          "--incremental",
+          "false",
+          "--composite",
+          "false",
+          "--pretty",
+          "false",
+          "--extendedDiagnostics",
+          "--listFiles"
+        ],
+        "pid": 37181,
+        "started_at_unix_ns": 1791190397004102000,
+        "timed_out": false,
+        "exit_code": 1,
+        "wall_seconds": 4.923566208046395,
+        "user_seconds": 4.270784,
+        "system_seconds": 0.474898,
+        "peak_rss_bytes": 1244954624
+      }
+    }
+  ],
+  "probe_summary": {
+    "off": {
+      "wall_seconds": 5.1456665840232745,
+      "user_seconds": 4.386183,
+      "system_seconds": 0.482342,
+      "peak_rss_bytes": 1220739072
+    },
+    "on": {
+      "wall_seconds": 4.94425354100531,
+      "user_seconds": 4.411871,
+      "system_seconds": 0.486392,
+      "peak_rss_bytes": 1242873856
+    }
+  },
+  "paired_on_minus_off_seconds": [
+    -0.9047910000081174,
+    0.6647513750358485,
+    -0.22210037597687915
+  ],
+  "maps": {
+    "1": {
+      "entries": 191568,
+      "entry_capacity": 229376,
+      "hosts": 191930,
+      "host_capacity": 229376
+    }
+  },
+  "map_memory": {
+    "0": {
+      "live": 0,
+      "peak": 12189720,
+      "requests": 34,
+      "padded_live": 0,
+      "cumulative_requested": 17825928
+    },
+    "1": {
+      "live": 0,
+      "peak": 12189720,
+      "requests": 34,
+      "padded_live": 0,
+      "cumulative_requested": 17825928
+    },
+    "2": {
+      "live": 0,
+      "peak": 0,
+      "requests": 0,
+      "padded_live": 0,
+      "cumulative_requested": 0
+    },
+    "3": {
+      "live": 0,
+      "peak": 0,
+      "requests": 0,
+      "padded_live": 0,
+      "cumulative_requested": 0
+    },
+    "4": {
+      "live": 0,
+      "peak": 0,
+      "requests": 0,
+      "padded_live": 0,
+      "cumulative_requested": 0
+    },
+    "128": {
+      "live": 0,
+      "peak": 7211424,
+      "requests": 17220,
+      "padded_live": 0,
+      "cumulative_requested": 13513632
+    },
+    "129": {
+      "live": 0,
+      "peak": 590424,
+      "requests": 9237,
+      "padded_live": 0,
+      "cumulative_requested": 4774248
+    }
+  },
+  "declined_typedef_lookups": [
+    685949,
+    685949,
+    685949
+  ],
+  "worker_runs": [
+    {
+      "requested": 1,
+      "actual_private_instances": 1,
+      "actual_checked_count": 1397,
+      "actual_checked_fingerprint": "0f685b13974b1d760c0aa72bbe358ef7643776fb2154a720648f3be996e05ea7",
+      "normalized_diagnostics_match_cli": true,
+      "ordered_diagnostics_match_cli": false,
+      "complete_diagnostic_fingerprint": "6f26792182d5cd2f50b7771444ebd2c736a2c394ac47efc3637c92f106705e9c",
+      "child": {
+        "command": [
+          "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/probe-target/release/examples/checker_workers",
+          "/Users/mohebifar/dev/codemod/app/apps/nextjs/tsconfig.json",
+          "1"
+        ],
+        "pid": 38290,
+        "started_at_unix_ns": 1791190510735990000,
+        "timed_out": false,
+        "exit_code": 1,
+        "wall_seconds": 7.900469042011537,
+        "user_seconds": 4.352087,
+        "system_seconds": 1.188717,
+        "peak_rss_bytes": 1139310592
+      },
+      "probe": {
+        "sha256": "1f3c2ab3d684eabf9af6a5f8a87267dffc4f5a9919e277feb42a69edc624158b",
+        "timers": {
+          "parse": {
+            "calls": 14746,
+            "ns": 698963052,
+            "arena_requested_bytes": 0
+          },
+          "leading": {
+            "calls": 202572,
+            "ns": 266427540,
+            "arena_requested_bytes": 0
+          },
+          "range": {
+            "calls": 202572,
+            "ns": 30838671,
+            "arena_requested_bytes": 0
+          },
+          "body": {
+            "calls": 202954,
+            "ns": 204021626,
+            "arena_requested_bytes": 59482207
+          },
+          "plain": {
+            "calls": 135767,
+            "ns": 85116421,
+            "arena_requested_bytes": 24126296
+          },
+          "list": {
+            "calls": 202572,
+            "ns": 3433268,
+            "arena_requested_bytes": 0
+          },
+          "attach": {
+            "calls": 202572,
+            "ns": 4991840,
+            "arena_requested_bytes": 0
+          },
+          "nested_attach": {
+            "calls": 0,
+            "ns": 0,
+            "arena_requested_bytes": 0
+          },
+          "bind_copy": {
+            "calls": 14050,
+            "ns": 1226226,
+            "arena_requested_bytes": 0
+          },
+          "set_jsdoc": {
+            "calls": 13991,
+            "ns": 7772148,
+            "arena_requested_bytes": 0
+          },
+          "constructor": {
+            "calls": 1,
+            "ns": 1267250,
+            "arena_requested_bytes": 0
+          },
+          "typedef_scan": {
+            "calls": 0,
+            "ns": 0,
+            "arena_requested_bytes": 0
+          }
+        },
+        "memory": {
+          "0": {
+            "live": 0,
+            "peak": 12189720,
+            "requests": 34,
+            "padded_live": 0,
+            "cumulative_requested": 17825928
+          },
+          "1": {
+            "live": 0,
+            "peak": 12189720,
+            "requests": 34,
+            "padded_live": 0,
+            "cumulative_requested": 17825928
+          },
+          "2": {
+            "live": 0,
+            "peak": 0,
+            "requests": 0,
+            "padded_live": 0,
+            "cumulative_requested": 0
+          },
+          "3": {
+            "live": 0,
+            "peak": 0,
+            "requests": 0,
+            "padded_live": 0,
+            "cumulative_requested": 0
+          },
+          "4": {
+            "live": 0,
+            "peak": 0,
+            "requests": 0,
+            "padded_live": 0,
+            "cumulative_requested": 0
+          },
+          "128": {
+            "live": 0,
+            "peak": 7211424,
+            "requests": 17220,
+            "padded_live": 0,
+            "cumulative_requested": 13513632
+          },
+          "129": {
+            "live": 0,
+            "peak": 590424,
+            "requests": 9237,
+            "padded_live": 0,
+            "cumulative_requested": 4774248
+          }
+        },
+        "maps": {
+          "1": {
+            "entries": 191568,
+            "entry_capacity": 229376,
+            "hosts": 191930,
+            "host_capacity": 229376
+          }
+        },
+        "declined": 685949,
+        "speed_qualified": false,
+        "lazy_first_repeat_materialization": "not implemented; eager bodies only"
+      }
+    },
+    {
+      "requested": 2,
+      "actual_private_instances": 2,
+      "actual_checked_count": 1397,
+      "actual_checked_fingerprint": "0f685b13974b1d760c0aa72bbe358ef7643776fb2154a720648f3be996e05ea7",
+      "normalized_diagnostics_match_cli": true,
+      "ordered_diagnostics_match_cli": false,
+      "complete_diagnostic_fingerprint": "6f26792182d5cd2f50b7771444ebd2c736a2c394ac47efc3637c92f106705e9c",
+      "child": {
+        "command": [
+          "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/probe-target/release/examples/checker_workers",
+          "/Users/mohebifar/dev/codemod/app/apps/nextjs/tsconfig.json",
+          "2"
+        ],
+        "pid": 38393,
+        "started_at_unix_ns": 1791190519357434000,
+        "timed_out": false,
+        "exit_code": 1,
+        "wall_seconds": 3.6636835830286145,
+        "user_seconds": 4.541679,
+        "system_seconds": 0.513017,
+        "peak_rss_bytes": 1150255104
+      },
+      "probe": {
+        "sha256": "a00a4a0d89edd34344aa70a999513cc47e4b42f9147d4b0350be8c40d86a7037",
+        "timers": {
+          "parse": {
+            "calls": 14746,
+            "ns": 659455080,
+            "arena_requested_bytes": 0
+          },
+          "leading": {
+            "calls": 202572,
+            "ns": 249560266,
+            "arena_requested_bytes": 0
+          },
+          "range": {
+            "calls": 202572,
+            "ns": 28875958,
+            "arena_requested_bytes": 0
+          },
+          "body": {
+            "calls": 202954,
+            "ns": 190478814,
+            "arena_requested_bytes": 59482207
+          },
+          "plain": {
+            "calls": 135767,
+            "ns": 81255528,
+            "arena_requested_bytes": 24126296
+          },
+          "list": {
+            "calls": 202572,
+            "ns": 3335418,
+            "arena_requested_bytes": 0
+          },
+          "attach": {
+            "calls": 202572,
+            "ns": 4577937,
+            "arena_requested_bytes": 0
+          },
+          "nested_attach": {
+            "calls": 0,
+            "ns": 0,
+            "arena_requested_bytes": 0
+          },
+          "bind_copy": {
+            "calls": 14050,
+            "ns": 1234882,
+            "arena_requested_bytes": 0
+          },
+          "set_jsdoc": {
+            "calls": 27982,
+            "ns": 15777179,
+            "arena_requested_bytes": 0
+          },
+          "constructor": {
+            "calls": 2,
+            "ns": 131375,
+            "arena_requested_bytes": 0
+          },
+          "typedef_scan": {
+            "calls": 0,
+            "ns": 0,
+            "arena_requested_bytes": 0
+          }
+        },
+        "memory": {
+          "0": {
+            "live": 0,
+            "peak": 24379440,
+            "requests": 68,
+            "padded_live": 0,
+            "cumulative_requested": 35651856
+          },
+          "1": {
+            "live": 0,
+            "peak": 12189720,
+            "requests": 34,
+            "padded_live": 0,
+            "cumulative_requested": 17825928
+          },
+          "2": {
+            "live": 0,
+            "peak": 12189720,
+            "requests": 34,
+            "padded_live": 0,
+            "cumulative_requested": 17825928
+          },
+          "3": {
+            "live": 0,
+            "peak": 0,
+            "requests": 0,
+            "padded_live": 0,
+            "cumulative_requested": 0
+          },
+          "4": {
+            "live": 0,
+            "peak": 0,
+            "requests": 0,
+            "padded_live": 0,
+            "cumulative_requested": 0
+          },
+          "128": {
+            "live": 0,
+            "peak": 7211424,
+            "requests": 17220,
+            "padded_live": 0,
+            "cumulative_requested": 13513632
+          },
+          "129": {
+            "live": 0,
+            "peak": 590424,
+            "requests": 9237,
+            "padded_live": 0,
+            "cumulative_requested": 4774248
+          }
+        },
+        "maps": {
+          "1": {
+            "entries": 191568,
+            "entry_capacity": 229376,
+            "hosts": 191930,
+            "host_capacity": 229376
+          },
+          "2": {
+            "entries": 191568,
+            "entry_capacity": 229376,
+            "hosts": 191930,
+            "host_capacity": 229376
+          }
+        },
+        "declined": 714094,
+        "speed_qualified": false,
+        "lazy_first_repeat_materialization": "not implemented; eager bodies only"
+      }
+    },
+    {
+      "requested": 4,
+      "actual_private_instances": 4,
+      "actual_checked_count": 1397,
+      "actual_checked_fingerprint": "0f685b13974b1d760c0aa72bbe358ef7643776fb2154a720648f3be996e05ea7",
+      "normalized_diagnostics_match_cli": true,
+      "ordered_diagnostics_match_cli": false,
+      "complete_diagnostic_fingerprint": "6f26792182d5cd2f50b7771444ebd2c736a2c394ac47efc3637c92f106705e9c",
+      "child": {
+        "command": [
+          "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/probe-target/release/examples/checker_workers",
+          "/Users/mohebifar/dev/codemod/app/apps/nextjs/tsconfig.json",
+          "4"
+        ],
+        "pid": 38490,
+        "started_at_unix_ns": 1791190524724455000,
+        "timed_out": false,
+        "exit_code": 1,
+        "wall_seconds": 3.4222951250267215,
+        "user_seconds": 5.043183,
+        "system_seconds": 0.666184,
+        "peak_rss_bytes": 1229307904
+      },
+      "probe": {
+        "sha256": "2464828b11469bac26790f12f19b8ae13e5439f38d21ec21def8292582e56b0c",
+        "timers": {
+          "parse": {
+            "calls": 14746,
+            "ns": 674839957,
+            "arena_requested_bytes": 0
+          },
+          "leading": {
+            "calls": 202572,
+            "ns": 256184960,
+            "arena_requested_bytes": 0
+          },
+          "range": {
+            "calls": 202572,
+            "ns": 29848426,
+            "arena_requested_bytes": 0
+          },
+          "body": {
+            "calls": 202954,
+            "ns": 195409544,
+            "arena_requested_bytes": 59482207
+          },
+          "plain": {
+            "calls": 135767,
+            "ns": 83442125,
+            "arena_requested_bytes": 24126296
+          },
+          "list": {
+            "calls": 202572,
+            "ns": 3463125,
+            "arena_requested_bytes": 0
+          },
+          "attach": {
+            "calls": 202572,
+            "ns": 4663954,
+            "arena_requested_bytes": 0
+          },
+          "nested_attach": {
+            "calls": 0,
+            "ns": 0,
+            "arena_requested_bytes": 0
+          },
+          "bind_copy": {
+            "calls": 14050,
+            "ns": 1370402,
+            "arena_requested_bytes": 0
+          },
+          "set_jsdoc": {
+            "calls": 55964,
+            "ns": 34773452,
+            "arena_requested_bytes": 0
+          },
+          "constructor": {
+            "calls": 4,
+            "ns": 186541,
+            "arena_requested_bytes": 0
+          },
+          "typedef_scan": {
+            "calls": 0,
+            "ns": 0,
+            "arena_requested_bytes": 0
+          }
+        },
+        "memory": {
+          "0": {
+            "live": 0,
+            "peak": 48758880,
+            "requests": 136,
+            "padded_live": 0,
+            "cumulative_requested": 71303712
+          },
+          "1": {
+            "live": 0,
+            "peak": 12189720,
+            "requests": 34,
+            "padded_live": 0,
+            "cumulative_requested": 17825928
+          },
+          "2": {
+            "live": 0,
+            "peak": 12189720,
+            "requests": 34,
+            "padded_live": 0,
+            "cumulative_requested": 17825928
+          },
+          "3": {
+            "live": 0,
+            "peak": 12189720,
+            "requests": 34,
+            "padded_live": 0,
+            "cumulative_requested": 17825928
+          },
+          "4": {
+            "live": 0,
+            "peak": 12189720,
+            "requests": 34,
+            "padded_live": 0,
+            "cumulative_requested": 17825928
+          },
+          "128": {
+            "live": 0,
+            "peak": 7211424,
+            "requests": 17220,
+            "padded_live": 0,
+            "cumulative_requested": 13513632
+          },
+          "129": {
+            "live": 0,
+            "peak": 590424,
+            "requests": 9237,
+            "padded_live": 0,
+            "cumulative_requested": 4774248
+          }
+        },
+        "maps": {
+          "3": {
+            "entries": 191568,
+            "entry_capacity": 229376,
+            "hosts": 191930,
+            "host_capacity": 229376
+          },
+          "4": {
+            "entries": 191568,
+            "entry_capacity": 229376,
+            "hosts": 191930,
+            "host_capacity": 229376
+          },
+          "2": {
+            "entries": 191568,
+            "entry_capacity": 229376,
+            "hosts": 191930,
+            "host_capacity": 229376
+          },
+          "1": {
+            "entries": 191568,
+            "entry_capacity": 229376,
+            "hosts": 191930,
+            "host_capacity": 229376
+          }
+        },
+        "declined": 746828,
+        "speed_qualified": false,
+        "lazy_first_repeat_materialization": "not implemented; eager bodies only"
+      }
+    }
+  ],
+  "actual_cli_checked": {
+    "count": 1397,
+    "fingerprint": "0f685b13974b1d760c0aa72bbe358ef7643776fb2154a720648f3be996e05ea7",
+    "artifact_integrity_valid": true,
+    "all_helper_ordered_paths_match": true,
+    "complete_input_equivalence": false,
+    "all_forcing_equivalence": false,
+    "raw_receipt": "trace-receipt-2.json",
+    "raw_trace": "app-work-2.ndjson"
+  },
+  "timed_controls": {
+    "checked": {
+      "complete_diagnostics_match": true,
+      "inputs_fingerprint": "beae88e194f26bbded61ae2303270d1c3d0296c40d10eabdc79c4a5b05d9c08b",
+      "children": [
+        {
+          "mode": "normal",
+          "binary_sha256": "7c8072a767a6787eeed9182444306421c7598fa6ed7670969e94db77dca036db",
+          "child": {
+            "command": [
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/normal-target/release/tsr",
+              "--project",
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/controls/checked/tsconfig.json",
+              "--noEmit",
+              "--incremental",
+              "false",
+              "--composite",
+              "false",
+              "--pretty",
+              "false",
+              "--listFiles",
+              "--extendedDiagnostics"
+            ],
+            "pid": 37878,
+            "started_at_unix_ns": 1791190455341600000,
+            "timed_out": false,
+            "exit_code": 1,
+            "wall_seconds": 0.07006375002674758,
+            "user_seconds": 0.025802,
+            "system_seconds": 0.007515999999999999,
+            "peak_rss_bytes": 34603008
+          },
+          "diagnostic_count": 2,
+          "complete_diagnostic_fingerprint": "3924c461486079663a6c0c77bdfa76cf06a75877a46dd6aa534712bb654a1356",
+          "actual_checked_count": null,
+          "map_owners": []
+        },
+        {
+          "mode": "probe",
+          "binary_sha256": "e9a03df582cd233e21e40f9523ae00e04259526a0d71a033f475d419df7f2997",
+          "child": {
+            "command": [
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/probe-target/release/tsr",
+              "--project",
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/controls/checked/tsconfig.json",
+              "--noEmit",
+              "--incremental",
+              "false",
+              "--composite",
+              "false",
+              "--pretty",
+              "false",
+              "--listFiles",
+              "--extendedDiagnostics"
+            ],
+            "pid": 37889,
+            "started_at_unix_ns": 1791190455416942000,
+            "timed_out": false,
+            "exit_code": 1,
+            "wall_seconds": 0.0519462910015136,
+            "user_seconds": 0.026872999999999998,
+            "system_seconds": 0.007633999999999999,
+            "peak_rss_bytes": 39403520
+          },
+          "diagnostic_count": 2,
+          "complete_diagnostic_fingerprint": "3924c461486079663a6c0c77bdfa76cf06a75877a46dd6aa534712bb654a1356",
+          "actual_checked_count": null,
+          "map_owners": [
+            "1"
+          ]
+        },
+        {
+          "mode": "native",
+          "binary_sha256": "b3cd1909b5dbc6582681e0a9d2641c7eefd9b7b6c3401cfad82b5e8b935b8033",
+          "child": {
+            "command": [
+              "/tmp/tsr-native-worker-activity-_vxx_snw/native-off",
+              "--project",
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/controls/checked/tsconfig.json",
+              "--noEmit",
+              "--incremental",
+              "false",
+              "--composite",
+              "false",
+              "--pretty",
+              "false",
+              "--listFiles",
+              "--extendedDiagnostics"
+            ],
+            "pid": 37890,
+            "started_at_unix_ns": 1791190455473696000,
+            "timed_out": false,
+            "exit_code": 1,
+            "wall_seconds": 0.07507062499644235,
+            "user_seconds": 0.053251,
+            "system_seconds": 0.023906999999999998,
+            "peak_rss_bytes": 48300032
+          },
+          "diagnostic_count": 2,
+          "complete_diagnostic_fingerprint": "3924c461486079663a6c0c77bdfa76cf06a75877a46dd6aa534712bb654a1356",
+          "actual_checked_count": null,
+          "map_owners": []
+        },
+        {
+          "mode": "worker1",
+          "binary_sha256": "f25b8bf2cfdb0238e778174de56662a167488c80d250092ad473d97fd6f93deb",
+          "child": {
+            "command": [
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/probe-target/release/examples/checker_workers",
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/controls/checked/tsconfig.json",
+              "1"
+            ],
+            "pid": 37891,
+            "started_at_unix_ns": 1791190455566177000,
+            "timed_out": false,
+            "exit_code": 1,
+            "wall_seconds": 0.20389516704017296,
+            "user_seconds": 0.040230999999999996,
+            "system_seconds": 0.008159999999999999,
+            "peak_rss_bytes": 33079296
+          },
+          "diagnostic_count": 2,
+          "complete_diagnostic_fingerprint": "3924c461486079663a6c0c77bdfa76cf06a75877a46dd6aa534712bb654a1356",
+          "actual_checked_count": 1,
+          "map_owners": [
+            "1"
+          ]
+        },
+        {
+          "mode": "worker2",
+          "binary_sha256": "f25b8bf2cfdb0238e778174de56662a167488c80d250092ad473d97fd6f93deb",
+          "child": {
+            "command": [
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/probe-target/release/examples/checker_workers",
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/controls/checked/tsconfig.json",
+              "2"
+            ],
+            "pid": 37892,
+            "started_at_unix_ns": 1791190455774297000,
+            "timed_out": false,
+            "exit_code": 1,
+            "wall_seconds": 0.03438887500669807,
+            "user_seconds": 0.02812,
+            "system_seconds": 0.005156,
+            "peak_rss_bytes": 33144832
+          },
+          "diagnostic_count": 2,
+          "complete_diagnostic_fingerprint": "3924c461486079663a6c0c77bdfa76cf06a75877a46dd6aa534712bb654a1356",
+          "actual_checked_count": 1,
+          "map_owners": [
+            "1",
+            "2"
+          ]
+        },
+        {
+          "mode": "worker4",
+          "binary_sha256": "f25b8bf2cfdb0238e778174de56662a167488c80d250092ad473d97fd6f93deb",
+          "child": {
+            "command": [
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/probe-target/release/examples/checker_workers",
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/controls/checked/tsconfig.json",
+              "4"
+            ],
+            "pid": 37893,
+            "started_at_unix_ns": 1791190455812746000,
+            "timed_out": false,
+            "exit_code": 1,
+            "wall_seconds": 0.03188741597114131,
+            "user_seconds": 0.026076,
+            "system_seconds": 0.0048649999999999995,
+            "peak_rss_bytes": 33275904
+          },
+          "diagnostic_count": 2,
+          "complete_diagnostic_fingerprint": "3924c461486079663a6c0c77bdfa76cf06a75877a46dd6aa534712bb654a1356",
+          "actual_checked_count": 1,
+          "map_owners": [
+            "1",
+            "2",
+            "3",
+            "4"
+          ]
+        }
+      ]
+    },
+    "unchecked": {
+      "complete_diagnostics_match": true,
+      "inputs_fingerprint": "f6408a7c4c31be065d0237ae302b45d926f84f3da6f1edcdf5ac53da0beb1a01",
+      "children": [
+        {
+          "mode": "normal",
+          "binary_sha256": "7c8072a767a6787eeed9182444306421c7598fa6ed7670969e94db77dca036db",
+          "child": {
+            "command": [
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/normal-target/release/tsr",
+              "--project",
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/controls/unchecked/tsconfig.json",
+              "--noEmit",
+              "--incremental",
+              "false",
+              "--composite",
+              "false",
+              "--pretty",
+              "false",
+              "--listFiles",
+              "--extendedDiagnostics"
+            ],
+            "pid": 37894,
+            "started_at_unix_ns": 1791190455849392000,
+            "timed_out": false,
+            "exit_code": 0,
+            "wall_seconds": 0.03153358300914988,
+            "user_seconds": 0.026244,
+            "system_seconds": 0.0039959999999999996,
+            "peak_rss_bytes": 35045376
+          },
+          "diagnostic_count": 0,
+          "complete_diagnostic_fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "actual_checked_count": null,
+          "map_owners": []
+        },
+        {
+          "mode": "probe",
+          "binary_sha256": "e9a03df582cd233e21e40f9523ae00e04259526a0d71a033f475d419df7f2997",
+          "child": {
+            "command": [
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/probe-target/release/tsr",
+              "--project",
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/controls/unchecked/tsconfig.json",
+              "--noEmit",
+              "--incremental",
+              "false",
+              "--composite",
+              "false",
+              "--pretty",
+              "false",
+              "--listFiles",
+              "--extendedDiagnostics"
+            ],
+            "pid": 37897,
+            "started_at_unix_ns": 1791190455885046000,
+            "timed_out": false,
+            "exit_code": 0,
+            "wall_seconds": 0.03311245801160112,
+            "user_seconds": 0.027711,
+            "system_seconds": 0.004162,
+            "peak_rss_bytes": 31555584
+          },
+          "diagnostic_count": 0,
+          "complete_diagnostic_fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "actual_checked_count": null,
+          "map_owners": [
+            "1"
+          ]
+        },
+        {
+          "mode": "native",
+          "binary_sha256": "b3cd1909b5dbc6582681e0a9d2641c7eefd9b7b6c3401cfad82b5e8b935b8033",
+          "child": {
+            "command": [
+              "/tmp/tsr-native-worker-activity-_vxx_snw/native-off",
+              "--project",
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/controls/unchecked/tsconfig.json",
+              "--noEmit",
+              "--incremental",
+              "false",
+              "--composite",
+              "false",
+              "--pretty",
+              "false",
+              "--listFiles",
+              "--extendedDiagnostics"
+            ],
+            "pid": 37898,
+            "started_at_unix_ns": 1791190455921948000,
+            "timed_out": false,
+            "exit_code": 0,
+            "wall_seconds": 0.027281625021714717,
+            "user_seconds": 0.052978,
+            "system_seconds": 0.011224999999999999,
+            "peak_rss_bytes": 45842432
+          },
+          "diagnostic_count": 0,
+          "complete_diagnostic_fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "actual_checked_count": null,
+          "map_owners": []
+        },
+        {
+          "mode": "worker1",
+          "binary_sha256": "f25b8bf2cfdb0238e778174de56662a167488c80d250092ad473d97fd6f93deb",
+          "child": {
+            "command": [
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/probe-target/release/examples/checker_workers",
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/controls/unchecked/tsconfig.json",
+              "1"
+            ],
+            "pid": 37899,
+            "started_at_unix_ns": 1791190455964664000,
+            "timed_out": false,
+            "exit_code": 0,
+            "wall_seconds": 0.03258579201065004,
+            "user_seconds": 0.026732,
+            "system_seconds": 0.004495,
+            "peak_rss_bytes": 32063488
+          },
+          "diagnostic_count": 0,
+          "complete_diagnostic_fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "actual_checked_count": 0,
+          "map_owners": [
+            "1"
+          ]
+        },
+        {
+          "mode": "worker2",
+          "binary_sha256": "f25b8bf2cfdb0238e778174de56662a167488c80d250092ad473d97fd6f93deb",
+          "child": {
+            "command": [
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/probe-target/release/examples/checker_workers",
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/controls/unchecked/tsconfig.json",
+              "2"
+            ],
+            "pid": 37900,
+            "started_at_unix_ns": 1791190456001435000,
+            "timed_out": false,
+            "exit_code": 0,
+            "wall_seconds": 0.032448749989271164,
+            "user_seconds": 0.026622,
+            "system_seconds": 0.0045839999999999995,
+            "peak_rss_bytes": 32129024
+          },
+          "diagnostic_count": 0,
+          "complete_diagnostic_fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "actual_checked_count": 0,
+          "map_owners": [
+            "1",
+            "2"
+          ]
+        },
+        {
+          "mode": "worker4",
+          "binary_sha256": "f25b8bf2cfdb0238e778174de56662a167488c80d250092ad473d97fd6f93deb",
+          "child": {
+            "command": [
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/probe-target/release/examples/checker_workers",
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/controls/unchecked/tsconfig.json",
+              "4"
+            ],
+            "pid": 37901,
+            "started_at_unix_ns": 1791190456037880000,
+            "timed_out": false,
+            "exit_code": 0,
+            "wall_seconds": 0.031662375025916845,
+            "user_seconds": 0.026251999999999998,
+            "system_seconds": 0.0045119999999999995,
+            "peak_rss_bytes": 32260096
+          },
+          "diagnostic_count": 0,
+          "complete_diagnostic_fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "actual_checked_count": 0,
+          "map_owners": [
+            "1",
+            "2",
+            "3",
+            "4"
+          ]
+        }
+      ]
+    },
+    "noCheck": {
+      "complete_diagnostics_match": true,
+      "inputs_fingerprint": "1ccfa31d18672d8eebd9cd69c9a001dc99512519982d268c388d50b51063bd01",
+      "children": [
+        {
+          "mode": "normal",
+          "binary_sha256": "7c8072a767a6787eeed9182444306421c7598fa6ed7670969e94db77dca036db",
+          "child": {
+            "command": [
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/normal-target/release/tsr",
+              "--project",
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/controls/noCheck/tsconfig.json",
+              "--noEmit",
+              "--incremental",
+              "false",
+              "--composite",
+              "false",
+              "--pretty",
+              "false",
+              "--listFiles",
+              "--extendedDiagnostics"
+            ],
+            "pid": 37902,
+            "started_at_unix_ns": 1791190456074831000,
+            "timed_out": false,
+            "exit_code": 0,
+            "wall_seconds": 0.029174541996326298,
+            "user_seconds": 0.024502,
+            "system_seconds": 0.0034019999999999996,
+            "peak_rss_bytes": 31408128
+          },
+          "diagnostic_count": 0,
+          "complete_diagnostic_fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "actual_checked_count": null,
+          "map_owners": []
+        },
+        {
+          "mode": "probe",
+          "binary_sha256": "e9a03df582cd233e21e40f9523ae00e04259526a0d71a033f475d419df7f2997",
+          "child": {
+            "command": [
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/probe-target/release/tsr",
+              "--project",
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/controls/noCheck/tsconfig.json",
+              "--noEmit",
+              "--incremental",
+              "false",
+              "--composite",
+              "false",
+              "--pretty",
+              "false",
+              "--listFiles",
+              "--extendedDiagnostics"
+            ],
+            "pid": 37903,
+            "started_at_unix_ns": 1791190456108510000,
+            "timed_out": false,
+            "exit_code": 0,
+            "wall_seconds": 0.03178124997066334,
+            "user_seconds": 0.026396,
+            "system_seconds": 0.004033999999999999,
+            "peak_rss_bytes": 31555584
+          },
+          "diagnostic_count": 0,
+          "complete_diagnostic_fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "actual_checked_count": null,
+          "map_owners": [
+            "1"
+          ]
+        },
+        {
+          "mode": "native",
+          "binary_sha256": "b3cd1909b5dbc6582681e0a9d2641c7eefd9b7b6c3401cfad82b5e8b935b8033",
+          "child": {
+            "command": [
+              "/tmp/tsr-native-worker-activity-_vxx_snw/native-off",
+              "--project",
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/controls/noCheck/tsconfig.json",
+              "--noEmit",
+              "--incremental",
+              "false",
+              "--composite",
+              "false",
+              "--pretty",
+              "false",
+              "--listFiles",
+              "--extendedDiagnostics"
+            ],
+            "pid": 37904,
+            "started_at_unix_ns": 1791190456144668000,
+            "timed_out": false,
+            "exit_code": 0,
+            "wall_seconds": 0.02717549999943003,
+            "user_seconds": 0.052844999999999996,
+            "system_seconds": 0.010574,
+            "peak_rss_bytes": 46268416
+          },
+          "diagnostic_count": 0,
+          "complete_diagnostic_fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "actual_checked_count": null,
+          "map_owners": []
+        },
+        {
+          "mode": "worker1",
+          "binary_sha256": "f25b8bf2cfdb0238e778174de56662a167488c80d250092ad473d97fd6f93deb",
+          "child": {
+            "command": [
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/probe-target/release/examples/checker_workers",
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/controls/noCheck/tsconfig.json",
+              "1"
+            ],
+            "pid": 37905,
+            "started_at_unix_ns": 1791190456188062000,
+            "timed_out": false,
+            "exit_code": 0,
+            "wall_seconds": 0.032558207982219756,
+            "user_seconds": 0.026487,
+            "system_seconds": 0.004953,
+            "peak_rss_bytes": 32063488
+          },
+          "diagnostic_count": 0,
+          "complete_diagnostic_fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "actual_checked_count": 0,
+          "map_owners": [
+            "1"
+          ]
+        },
+        {
+          "mode": "worker2",
+          "binary_sha256": "f25b8bf2cfdb0238e778174de56662a167488c80d250092ad473d97fd6f93deb",
+          "child": {
+            "command": [
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/probe-target/release/examples/checker_workers",
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/controls/noCheck/tsconfig.json",
+              "2"
+            ],
+            "pid": 37906,
+            "started_at_unix_ns": 1791190456224906000,
+            "timed_out": false,
+            "exit_code": 0,
+            "wall_seconds": 0.0315246659447439,
+            "user_seconds": 0.026055,
+            "system_seconds": 0.004294,
+            "peak_rss_bytes": 31522816
+          },
+          "diagnostic_count": 0,
+          "complete_diagnostic_fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "actual_checked_count": 0,
+          "map_owners": [
+            "1",
+            "2"
+          ]
+        },
+        {
+          "mode": "worker4",
+          "binary_sha256": "f25b8bf2cfdb0238e778174de56662a167488c80d250092ad473d97fd6f93deb",
+          "child": {
+            "command": [
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/probe-target/release/examples/checker_workers",
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/controls/noCheck/tsconfig.json",
+              "4"
+            ],
+            "pid": 37907,
+            "started_at_unix_ns": 1791190456261029000,
+            "timed_out": false,
+            "exit_code": 0,
+            "wall_seconds": 0.032876000041142106,
+            "user_seconds": 0.026660999999999997,
+            "system_seconds": 0.005124999999999999,
+            "peak_rss_bytes": 32194560
+          },
+          "diagnostic_count": 0,
+          "complete_diagnostic_fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "actual_checked_count": 0,
+          "map_owners": [
+            "1",
+            "2",
+            "3",
+            "4"
+          ]
+        }
+      ]
+    },
+    "fileNoCheck": {
+      "complete_diagnostics_match": true,
+      "inputs_fingerprint": "33940db3652eaeb4528affd723fefa8d072fcff17d0b4dbb9f67a3e4fbe0e0d3",
+      "children": [
+        {
+          "mode": "normal",
+          "binary_sha256": "7c8072a767a6787eeed9182444306421c7598fa6ed7670969e94db77dca036db",
+          "child": {
+            "command": [
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/normal-target/release/tsr",
+              "--project",
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/controls/fileNoCheck/tsconfig.json",
+              "--noEmit",
+              "--incremental",
+              "false",
+              "--composite",
+              "false",
+              "--pretty",
+              "false",
+              "--listFiles",
+              "--extendedDiagnostics"
+            ],
+            "pid": 37908,
+            "started_at_unix_ns": 1791190456299922000,
+            "timed_out": false,
+            "exit_code": 0,
+            "wall_seconds": 0.02972474996931851,
+            "user_seconds": 0.0249,
+            "system_seconds": 0.003503,
+            "peak_rss_bytes": 31408128
+          },
+          "diagnostic_count": 0,
+          "complete_diagnostic_fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "actual_checked_count": null,
+          "map_owners": []
+        },
+        {
+          "mode": "probe",
+          "binary_sha256": "e9a03df582cd233e21e40f9523ae00e04259526a0d71a033f475d419df7f2997",
+          "child": {
+            "command": [
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/probe-target/release/tsr",
+              "--project",
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/controls/fileNoCheck/tsconfig.json",
+              "--noEmit",
+              "--incremental",
+              "false",
+              "--composite",
+              "false",
+              "--pretty",
+              "false",
+              "--listFiles",
+              "--extendedDiagnostics"
+            ],
+            "pid": 37909,
+            "started_at_unix_ns": 1791190456334290000,
+            "timed_out": false,
+            "exit_code": 0,
+            "wall_seconds": 0.03242954099550843,
+            "user_seconds": 0.026479,
+            "system_seconds": 0.004432,
+            "peak_rss_bytes": 32178176
+          },
+          "diagnostic_count": 0,
+          "complete_diagnostic_fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "actual_checked_count": null,
+          "map_owners": [
+            "1"
+          ]
+        },
+        {
+          "mode": "native",
+          "binary_sha256": "b3cd1909b5dbc6582681e0a9d2641c7eefd9b7b6c3401cfad82b5e8b935b8033",
+          "child": {
+            "command": [
+              "/tmp/tsr-native-worker-activity-_vxx_snw/native-off",
+              "--project",
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/controls/fileNoCheck/tsconfig.json",
+              "--noEmit",
+              "--incremental",
+              "false",
+              "--composite",
+              "false",
+              "--pretty",
+              "false",
+              "--listFiles",
+              "--extendedDiagnostics"
+            ],
+            "pid": 37910,
+            "started_at_unix_ns": 1791190456371450000,
+            "timed_out": false,
+            "exit_code": 0,
+            "wall_seconds": 0.02674087497871369,
+            "user_seconds": 0.052385999999999995,
+            "system_seconds": 0.010109,
+            "peak_rss_bytes": 46022656
+          },
+          "diagnostic_count": 0,
+          "complete_diagnostic_fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "actual_checked_count": null,
+          "map_owners": []
+        },
+        {
+          "mode": "worker1",
+          "binary_sha256": "f25b8bf2cfdb0238e778174de56662a167488c80d250092ad473d97fd6f93deb",
+          "child": {
+            "command": [
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/probe-target/release/examples/checker_workers",
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/controls/fileNoCheck/tsconfig.json",
+              "1"
+            ],
+            "pid": 37911,
+            "started_at_unix_ns": 1791190456415177000,
+            "timed_out": false,
+            "exit_code": 0,
+            "wall_seconds": 0.032959749980363995,
+            "user_seconds": 0.026824999999999998,
+            "system_seconds": 0.004565,
+            "peak_rss_bytes": 32129024
+          },
+          "diagnostic_count": 0,
+          "complete_diagnostic_fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "actual_checked_count": 0,
+          "map_owners": [
+            "1"
+          ]
+        },
+        {
+          "mode": "worker2",
+          "binary_sha256": "f25b8bf2cfdb0238e778174de56662a167488c80d250092ad473d97fd6f93deb",
+          "child": {
+            "command": [
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/probe-target/release/examples/checker_workers",
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/controls/fileNoCheck/tsconfig.json",
+              "2"
+            ],
+            "pid": 37923,
+            "started_at_unix_ns": 1791190456453237000,
+            "timed_out": false,
+            "exit_code": 0,
+            "wall_seconds": 0.032370250031817704,
+            "user_seconds": 0.026650999999999998,
+            "system_seconds": 0.004514,
+            "peak_rss_bytes": 32129024
+          },
+          "diagnostic_count": 0,
+          "complete_diagnostic_fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "actual_checked_count": 0,
+          "map_owners": [
+            "1",
+            "2"
+          ]
+        },
+        {
+          "mode": "worker4",
+          "binary_sha256": "f25b8bf2cfdb0238e778174de56662a167488c80d250092ad473d97fd6f93deb",
+          "child": {
+            "command": [
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/probe-target/release/examples/checker_workers",
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/controls/fileNoCheck/tsconfig.json",
+              "4"
+            ],
+            "pid": 37926,
+            "started_at_unix_ns": 1791190456491005000,
+            "timed_out": false,
+            "exit_code": 0,
+            "wall_seconds": 0.033818625030107796,
+            "user_seconds": 0.027488,
+            "system_seconds": 0.005029,
+            "peak_rss_bytes": 32194560
+          },
+          "diagnostic_count": 0,
+          "complete_diagnostic_fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "actual_checked_count": 0,
+          "map_owners": [
+            "1",
+            "2",
+            "3",
+            "4"
+          ]
+        }
+      ]
+    },
+    "libraries": {
+      "complete_diagnostics_match": true,
+      "inputs_fingerprint": "36a90679805bea35bc54a7ae67d0c7639391284ccc48a00075811a6359d1fd0c",
+      "children": [
+        {
+          "mode": "normal",
+          "binary_sha256": "7c8072a767a6787eeed9182444306421c7598fa6ed7670969e94db77dca036db",
+          "child": {
+            "command": [
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/normal-target/release/tsr",
+              "--project",
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/controls/libraries/tsconfig.json",
+              "--noEmit",
+              "--incremental",
+              "false",
+              "--composite",
+              "false",
+              "--pretty",
+              "false",
+              "--listFiles",
+              "--extendedDiagnostics"
+            ],
+            "pid": 37928,
+            "started_at_unix_ns": 1791190456531959000,
+            "timed_out": false,
+            "exit_code": 1,
+            "wall_seconds": 0.06517795904073864,
+            "user_seconds": 0.05815,
+            "system_seconds": 0.0058839999999999995,
+            "peak_rss_bytes": 39092224
+          },
+          "diagnostic_count": 2,
+          "complete_diagnostic_fingerprint": "3924c461486079663a6c0c77bdfa76cf06a75877a46dd6aa534712bb654a1356",
+          "actual_checked_count": null,
+          "map_owners": []
+        },
+        {
+          "mode": "probe",
+          "binary_sha256": "e9a03df582cd233e21e40f9523ae00e04259526a0d71a033f475d419df7f2997",
+          "child": {
+            "command": [
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/probe-target/release/tsr",
+              "--project",
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/controls/libraries/tsconfig.json",
+              "--noEmit",
+              "--incremental",
+              "false",
+              "--composite",
+              "false",
+              "--pretty",
+              "false",
+              "--listFiles",
+              "--extendedDiagnostics"
+            ],
+            "pid": 37930,
+            "started_at_unix_ns": 1791190456602980000,
+            "timed_out": false,
+            "exit_code": 1,
+            "wall_seconds": 0.0648757090093568,
+            "user_seconds": 0.057846999999999996,
+            "system_seconds": 0.005422,
+            "peak_rss_bytes": 33390592
+          },
+          "diagnostic_count": 2,
+          "complete_diagnostic_fingerprint": "3924c461486079663a6c0c77bdfa76cf06a75877a46dd6aa534712bb654a1356",
+          "actual_checked_count": null,
+          "map_owners": [
+            "1"
+          ]
+        },
+        {
+          "mode": "native",
+          "binary_sha256": "b3cd1909b5dbc6582681e0a9d2641c7eefd9b7b6c3401cfad82b5e8b935b8033",
+          "child": {
+            "command": [
+              "/tmp/tsr-native-worker-activity-_vxx_snw/native-off",
+              "--project",
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/controls/libraries/tsconfig.json",
+              "--noEmit",
+              "--incremental",
+              "false",
+              "--composite",
+              "false",
+              "--pretty",
+              "false",
+              "--listFiles",
+              "--extendedDiagnostics"
+            ],
+            "pid": 37931,
+            "started_at_unix_ns": 1791190456673767000,
+            "timed_out": false,
+            "exit_code": 1,
+            "wall_seconds": 0.11905416700756177,
+            "user_seconds": 0.206225,
+            "system_seconds": 0.018736,
+            "peak_rss_bytes": 97337344
+          },
+          "diagnostic_count": 2,
+          "complete_diagnostic_fingerprint": "3924c461486079663a6c0c77bdfa76cf06a75877a46dd6aa534712bb654a1356",
+          "actual_checked_count": null,
+          "map_owners": []
+        },
+        {
+          "mode": "worker1",
+          "binary_sha256": "f25b8bf2cfdb0238e778174de56662a167488c80d250092ad473d97fd6f93deb",
+          "child": {
+            "command": [
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/probe-target/release/examples/checker_workers",
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/controls/libraries/tsconfig.json",
+              "1"
+            ],
+            "pid": 37933,
+            "started_at_unix_ns": 1791190456811224000,
+            "timed_out": false,
+            "exit_code": 1,
+            "wall_seconds": 0.06696333299623802,
+            "user_seconds": 0.059579999999999994,
+            "system_seconds": 0.005902999999999999,
+            "peak_rss_bytes": 33734656
+          },
+          "diagnostic_count": 2,
+          "complete_diagnostic_fingerprint": "3924c461486079663a6c0c77bdfa76cf06a75877a46dd6aa534712bb654a1356",
+          "actual_checked_count": 64,
+          "map_owners": [
+            "1"
+          ]
+        },
+        {
+          "mode": "worker2",
+          "binary_sha256": "f25b8bf2cfdb0238e778174de56662a167488c80d250092ad473d97fd6f93deb",
+          "child": {
+            "command": [
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/probe-target/release/examples/checker_workers",
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/controls/libraries/tsconfig.json",
+              "2"
+            ],
+            "pid": 37937,
+            "started_at_unix_ns": 1791190456884433000,
+            "timed_out": false,
+            "exit_code": 1,
+            "wall_seconds": 0.09175637504085898,
+            "user_seconds": 0.060711999999999995,
+            "system_seconds": 0.006738999999999999,
+            "peak_rss_bytes": 35094528
+          },
+          "diagnostic_count": 2,
+          "complete_diagnostic_fingerprint": "3924c461486079663a6c0c77bdfa76cf06a75877a46dd6aa534712bb654a1356",
+          "actual_checked_count": 64,
+          "map_owners": [
+            "1",
+            "2"
+          ]
+        },
+        {
+          "mode": "worker4",
+          "binary_sha256": "f25b8bf2cfdb0238e778174de56662a167488c80d250092ad473d97fd6f93deb",
+          "child": {
+            "command": [
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/probe-target/release/examples/checker_workers",
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/controls/libraries/tsconfig.json",
+              "4"
+            ],
+            "pid": 37951,
+            "started_at_unix_ns": 1791190457005152000,
+            "timed_out": false,
+            "exit_code": 1,
+            "wall_seconds": 0.06637025001691654,
+            "user_seconds": 0.06163,
+            "system_seconds": 0.006298,
+            "peak_rss_bytes": 37978112
+          },
+          "diagnostic_count": 2,
+          "complete_diagnostic_fingerprint": "3924c461486079663a6c0c77bdfa76cf06a75877a46dd6aa534712bb654a1356",
+          "actual_checked_count": 64,
+          "map_owners": [
+            "1",
+            "2",
+            "3",
+            "4"
+          ]
+        }
+      ]
+    }
+  },
+  "quality_controls": {
+    "checked": {
+      "complete_diagnostics_match": true,
+      "inputs_fingerprint": "4025331589db007ccf177098f3424798ab4dd93493ed12ce34dfc4691551cdcf",
+      "children": [
+        {
+          "mode": "normal",
+          "binary_sha256": "7c8072a767a6787eeed9182444306421c7598fa6ed7670969e94db77dca036db",
+          "child": {
+            "command": [
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/normal-target/release/tsr",
+              "--project",
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/quality-controls/checked/tsconfig.json",
+              "--noEmit",
+              "--incremental",
+              "false",
+              "--composite",
+              "false",
+              "--pretty",
+              "false",
+              "--listFiles",
+              "--extendedDiagnostics"
+            ],
+            "pid": 43001,
+            "started_at_unix_ns": 1791191211954816000,
+            "timed_out": false,
+            "exit_code": 1,
+            "wall_seconds": 0.07152491598390043,
+            "user_seconds": 0.024791,
+            "system_seconds": 0.007908,
+            "peak_rss_bytes": 37404672
+          },
+          "diagnostic_count": 2,
+          "complete_diagnostic_fingerprint": "3924c461486079663a6c0c77bdfa76cf06a75877a46dd6aa534712bb654a1356",
+          "actual_checked_count": null,
+          "map_owners": []
+        },
+        {
+          "mode": "probe",
+          "binary_sha256": "7dd105b16e1beec71a9cbbfe8b0235610ffb897bc42693bf9ee6d2fe2f4be70a",
+          "child": {
+            "command": [
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/quality-target/release/tsr",
+              "--project",
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/quality-controls/checked/tsconfig.json",
+              "--noEmit",
+              "--incremental",
+              "false",
+              "--composite",
+              "false",
+              "--pretty",
+              "false",
+              "--listFiles",
+              "--extendedDiagnostics"
+            ],
+            "pid": 43002,
+            "started_at_unix_ns": 1791191212031287000,
+            "timed_out": false,
+            "exit_code": 1,
+            "wall_seconds": 0.19696066697360948,
+            "user_seconds": 0.036994,
+            "system_seconds": 0.007418999999999999,
+            "peak_rss_bytes": 32702464
+          },
+          "diagnostic_count": 2,
+          "complete_diagnostic_fingerprint": "3924c461486079663a6c0c77bdfa76cf06a75877a46dd6aa534712bb654a1356",
+          "actual_checked_count": null,
+          "map_owners": [
+            "1"
+          ]
+        },
+        {
+          "mode": "native",
+          "binary_sha256": "b3cd1909b5dbc6582681e0a9d2641c7eefd9b7b6c3401cfad82b5e8b935b8033",
+          "child": {
+            "command": [
+              "/tmp/tsr-native-worker-activity-_vxx_snw/native-off",
+              "--project",
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/quality-controls/checked/tsconfig.json",
+              "--noEmit",
+              "--incremental",
+              "false",
+              "--composite",
+              "false",
+              "--pretty",
+              "false",
+              "--listFiles",
+              "--extendedDiagnostics"
+            ],
+            "pid": 43003,
+            "started_at_unix_ns": 1791191212232225000,
+            "timed_out": false,
+            "exit_code": 1,
+            "wall_seconds": 0.07447645801585168,
+            "user_seconds": 0.054046,
+            "system_seconds": 0.026462,
+            "peak_rss_bytes": 48152576
+          },
+          "diagnostic_count": 2,
+          "complete_diagnostic_fingerprint": "3924c461486079663a6c0c77bdfa76cf06a75877a46dd6aa534712bb654a1356",
+          "actual_checked_count": null,
+          "map_owners": []
+        },
+        {
+          "mode": "worker1",
+          "binary_sha256": "452facd9ec52a844100a46496daad49a10218730062759435da322b6cae7eef5",
+          "child": {
+            "command": [
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/quality-target/release/examples/checker_workers",
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/quality-controls/checked/tsconfig.json",
+              "1"
+            ],
+            "pid": 43004,
+            "started_at_unix_ns": 1791191212323553000,
+            "timed_out": false,
+            "exit_code": 1,
+            "wall_seconds": 0.16506804199889302,
+            "user_seconds": 0.036357,
+            "system_seconds": 0.007818,
+            "peak_rss_bytes": 33079296
+          },
+          "diagnostic_count": 2,
+          "complete_diagnostic_fingerprint": "3924c461486079663a6c0c77bdfa76cf06a75877a46dd6aa534712bb654a1356",
+          "actual_checked_count": 1,
+          "map_owners": [
+            "1"
+          ]
+        },
+        {
+          "mode": "worker2",
+          "binary_sha256": "452facd9ec52a844100a46496daad49a10218730062759435da322b6cae7eef5",
+          "child": {
+            "command": [
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/quality-target/release/examples/checker_workers",
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/quality-controls/checked/tsconfig.json",
+              "2"
+            ],
+            "pid": 43005,
+            "started_at_unix_ns": 1791191212493132000,
+            "timed_out": false,
+            "exit_code": 1,
+            "wall_seconds": 0.03538800001842901,
+            "user_seconds": 0.027767999999999998,
+            "system_seconds": 0.005807,
+            "peak_rss_bytes": 33144832
+          },
+          "diagnostic_count": 2,
+          "complete_diagnostic_fingerprint": "3924c461486079663a6c0c77bdfa76cf06a75877a46dd6aa534712bb654a1356",
+          "actual_checked_count": 1,
+          "map_owners": [
+            "1",
+            "2"
+          ]
+        },
+        {
+          "mode": "worker4",
+          "binary_sha256": "452facd9ec52a844100a46496daad49a10218730062759435da322b6cae7eef5",
+          "child": {
+            "command": [
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/quality-target/release/examples/checker_workers",
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/quality-controls/checked/tsconfig.json",
+              "4"
+            ],
+            "pid": 43006,
+            "started_at_unix_ns": 1791191212532822000,
+            "timed_out": false,
+            "exit_code": 1,
+            "wall_seconds": 0.03358245803974569,
+            "user_seconds": 0.027222999999999997,
+            "system_seconds": 0.005345,
+            "peak_rss_bytes": 33210368
+          },
+          "diagnostic_count": 2,
+          "complete_diagnostic_fingerprint": "3924c461486079663a6c0c77bdfa76cf06a75877a46dd6aa534712bb654a1356",
+          "actual_checked_count": 1,
+          "map_owners": [
+            "1",
+            "2",
+            "3",
+            "4"
+          ]
+        }
+      ]
+    },
+    "unchecked": {
+      "complete_diagnostics_match": true,
+      "inputs_fingerprint": "52b9564c5bbed1b689ba7d749aa3af0b0a83838a92568333e959ba9061f118c5",
+      "children": [
+        {
+          "mode": "normal",
+          "binary_sha256": "7c8072a767a6787eeed9182444306421c7598fa6ed7670969e94db77dca036db",
+          "child": {
+            "command": [
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/normal-target/release/tsr",
+              "--project",
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/quality-controls/unchecked/tsconfig.json",
+              "--noEmit",
+              "--incremental",
+              "false",
+              "--composite",
+              "false",
+              "--pretty",
+              "false",
+              "--listFiles",
+              "--extendedDiagnostics"
+            ],
+            "pid": 43007,
+            "started_at_unix_ns": 1791191212571323000,
+            "timed_out": false,
+            "exit_code": 0,
+            "wall_seconds": 0.032735041982959956,
+            "user_seconds": 0.026674,
+            "system_seconds": 0.00445,
+            "peak_rss_bytes": 37240832
+          },
+          "diagnostic_count": 0,
+          "complete_diagnostic_fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "actual_checked_count": null,
+          "map_owners": []
+        },
+        {
+          "mode": "probe",
+          "binary_sha256": "7dd105b16e1beec71a9cbbfe8b0235610ffb897bc42693bf9ee6d2fe2f4be70a",
+          "child": {
+            "command": [
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/quality-target/release/tsr",
+              "--project",
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/quality-controls/unchecked/tsconfig.json",
+              "--noEmit",
+              "--incremental",
+              "false",
+              "--composite",
+              "false",
+              "--pretty",
+              "false",
+              "--listFiles",
+              "--extendedDiagnostics"
+            ],
+            "pid": 43010,
+            "started_at_unix_ns": 1791191212608138000,
+            "timed_out": false,
+            "exit_code": 0,
+            "wall_seconds": 0.03298191702924669,
+            "user_seconds": 0.027249,
+            "system_seconds": 0.0043939999999999995,
+            "peak_rss_bytes": 31555584
+          },
+          "diagnostic_count": 0,
+          "complete_diagnostic_fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "actual_checked_count": null,
+          "map_owners": [
+            "1"
+          ]
+        },
+        {
+          "mode": "native",
+          "binary_sha256": "b3cd1909b5dbc6582681e0a9d2641c7eefd9b7b6c3401cfad82b5e8b935b8033",
+          "child": {
+            "command": [
+              "/tmp/tsr-native-worker-activity-_vxx_snw/native-off",
+              "--project",
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/quality-controls/unchecked/tsconfig.json",
+              "--noEmit",
+              "--incremental",
+              "false",
+              "--composite",
+              "false",
+              "--pretty",
+              "false",
+              "--listFiles",
+              "--extendedDiagnostics"
+            ],
+            "pid": 43011,
+            "started_at_unix_ns": 1791191212645387000,
+            "timed_out": false,
+            "exit_code": 0,
+            "wall_seconds": 0.027774874994065613,
+            "user_seconds": 0.054211999999999996,
+            "system_seconds": 0.012594,
+            "peak_rss_bytes": 46366720
+          },
+          "diagnostic_count": 0,
+          "complete_diagnostic_fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "actual_checked_count": null,
+          "map_owners": []
+        },
+        {
+          "mode": "worker1",
+          "binary_sha256": "452facd9ec52a844100a46496daad49a10218730062759435da322b6cae7eef5",
+          "child": {
+            "command": [
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/quality-target/release/examples/checker_workers",
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/quality-controls/unchecked/tsconfig.json",
+              "1"
+            ],
+            "pid": 43012,
+            "started_at_unix_ns": 1791191212690098000,
+            "timed_out": false,
+            "exit_code": 0,
+            "wall_seconds": 0.03367258398793638,
+            "user_seconds": 0.027066,
+            "system_seconds": 0.005194,
+            "peak_rss_bytes": 32063488
+          },
+          "diagnostic_count": 0,
+          "complete_diagnostic_fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "actual_checked_count": 0,
+          "map_owners": [
+            "1"
+          ]
+        },
+        {
+          "mode": "worker2",
+          "binary_sha256": "452facd9ec52a844100a46496daad49a10218730062759435da322b6cae7eef5",
+          "child": {
+            "command": [
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/quality-target/release/examples/checker_workers",
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/quality-controls/unchecked/tsconfig.json",
+              "2"
+            ],
+            "pid": 43013,
+            "started_at_unix_ns": 1791191212728137000,
+            "timed_out": false,
+            "exit_code": 0,
+            "wall_seconds": 0.03338270902168006,
+            "user_seconds": 0.027260999999999997,
+            "system_seconds": 0.004797,
+            "peak_rss_bytes": 32129024
+          },
+          "diagnostic_count": 0,
+          "complete_diagnostic_fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "actual_checked_count": 0,
+          "map_owners": [
+            "1",
+            "2"
+          ]
+        },
+        {
+          "mode": "worker4",
+          "binary_sha256": "452facd9ec52a844100a46496daad49a10218730062759435da322b6cae7eef5",
+          "child": {
+            "command": [
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/quality-target/release/examples/checker_workers",
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/quality-controls/unchecked/tsconfig.json",
+              "4"
+            ],
+            "pid": 43014,
+            "started_at_unix_ns": 1791191212765806000,
+            "timed_out": false,
+            "exit_code": 0,
+            "wall_seconds": 0.033410833042580634,
+            "user_seconds": 0.027149,
+            "system_seconds": 0.005235,
+            "peak_rss_bytes": 31653888
+          },
+          "diagnostic_count": 0,
+          "complete_diagnostic_fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "actual_checked_count": 0,
+          "map_owners": [
+            "1",
+            "2",
+            "3",
+            "4"
+          ]
+        }
+      ]
+    },
+    "noCheck": {
+      "complete_diagnostics_match": true,
+      "inputs_fingerprint": "4ab720464523161304fc68d45f33633becf6bf3547c7da90f63d9062151104c4",
+      "children": [
+        {
+          "mode": "normal",
+          "binary_sha256": "7c8072a767a6787eeed9182444306421c7598fa6ed7670969e94db77dca036db",
+          "child": {
+            "command": [
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/normal-target/release/tsr",
+              "--project",
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/quality-controls/noCheck/tsconfig.json",
+              "--noEmit",
+              "--incremental",
+              "false",
+              "--composite",
+              "false",
+              "--pretty",
+              "false",
+              "--listFiles",
+              "--extendedDiagnostics"
+            ],
+            "pid": 43015,
+            "started_at_unix_ns": 1791191212804753000,
+            "timed_out": false,
+            "exit_code": 0,
+            "wall_seconds": 0.030991457984782755,
+            "user_seconds": 0.025897,
+            "system_seconds": 0.003699,
+            "peak_rss_bytes": 31408128
+          },
+          "diagnostic_count": 0,
+          "complete_diagnostic_fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "actual_checked_count": null,
+          "map_owners": []
+        },
+        {
+          "mode": "probe",
+          "binary_sha256": "7dd105b16e1beec71a9cbbfe8b0235610ffb897bc42693bf9ee6d2fe2f4be70a",
+          "child": {
+            "command": [
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/quality-target/release/tsr",
+              "--project",
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/quality-controls/noCheck/tsconfig.json",
+              "--noEmit",
+              "--incremental",
+              "false",
+              "--composite",
+              "false",
+              "--pretty",
+              "false",
+              "--listFiles",
+              "--extendedDiagnostics"
+            ],
+            "pid": 43016,
+            "started_at_unix_ns": 1791191212840821000,
+            "timed_out": false,
+            "exit_code": 0,
+            "wall_seconds": 0.03359816700685769,
+            "user_seconds": 0.027202,
+            "system_seconds": 0.004765,
+            "peak_rss_bytes": 31555584
+          },
+          "diagnostic_count": 0,
+          "complete_diagnostic_fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "actual_checked_count": null,
+          "map_owners": [
+            "1"
+          ]
+        },
+        {
+          "mode": "native",
+          "binary_sha256": "b3cd1909b5dbc6582681e0a9d2641c7eefd9b7b6c3401cfad82b5e8b935b8033",
+          "child": {
+            "command": [
+              "/tmp/tsr-native-worker-activity-_vxx_snw/native-off",
+              "--project",
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/quality-controls/noCheck/tsconfig.json",
+              "--noEmit",
+              "--incremental",
+              "false",
+              "--composite",
+              "false",
+              "--pretty",
+              "false",
+              "--listFiles",
+              "--extendedDiagnostics"
+            ],
+            "pid": 43017,
+            "started_at_unix_ns": 1791191212879002000,
+            "timed_out": false,
+            "exit_code": 0,
+            "wall_seconds": 0.028835542034357786,
+            "user_seconds": 0.052326,
+            "system_seconds": 0.010384,
+            "peak_rss_bytes": 45580288
+          },
+          "diagnostic_count": 0,
+          "complete_diagnostic_fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "actual_checked_count": null,
+          "map_owners": []
+        },
+        {
+          "mode": "worker1",
+          "binary_sha256": "452facd9ec52a844100a46496daad49a10218730062759435da322b6cae7eef5",
+          "child": {
+            "command": [
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/quality-target/release/examples/checker_workers",
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/quality-controls/noCheck/tsconfig.json",
+              "1"
+            ],
+            "pid": 43018,
+            "started_at_unix_ns": 1791191212924513000,
+            "timed_out": false,
+            "exit_code": 0,
+            "wall_seconds": 0.03342591703403741,
+            "user_seconds": 0.026896999999999997,
+            "system_seconds": 0.0047669999999999995,
+            "peak_rss_bytes": 36372480
+          },
+          "diagnostic_count": 0,
+          "complete_diagnostic_fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "actual_checked_count": 0,
+          "map_owners": [
+            "1"
+          ]
+        },
+        {
+          "mode": "worker2",
+          "binary_sha256": "452facd9ec52a844100a46496daad49a10218730062759435da322b6cae7eef5",
+          "child": {
+            "command": [
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/quality-target/release/examples/checker_workers",
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/quality-controls/noCheck/tsconfig.json",
+              "2"
+            ],
+            "pid": 43019,
+            "started_at_unix_ns": 1791191212962354000,
+            "timed_out": false,
+            "exit_code": 0,
+            "wall_seconds": 0.03286862501408905,
+            "user_seconds": 0.027017,
+            "system_seconds": 0.0046,
+            "peak_rss_bytes": 32129024
+          },
+          "diagnostic_count": 0,
+          "complete_diagnostic_fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "actual_checked_count": 0,
+          "map_owners": [
+            "1",
+            "2"
+          ]
+        },
+        {
+          "mode": "worker4",
+          "binary_sha256": "452facd9ec52a844100a46496daad49a10218730062759435da322b6cae7eef5",
+          "child": {
+            "command": [
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/quality-target/release/examples/checker_workers",
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/quality-controls/noCheck/tsconfig.json",
+              "4"
+            ],
+            "pid": 43020,
+            "started_at_unix_ns": 1791191213000329000,
+            "timed_out": false,
+            "exit_code": 0,
+            "wall_seconds": 0.03544416598742828,
+            "user_seconds": 0.027401,
+            "system_seconds": 0.006176999999999999,
+            "peak_rss_bytes": 31653888
+          },
+          "diagnostic_count": 0,
+          "complete_diagnostic_fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "actual_checked_count": 0,
+          "map_owners": [
+            "1",
+            "2",
+            "3",
+            "4"
+          ]
+        }
+      ]
+    },
+    "fileNoCheck": {
+      "complete_diagnostics_match": true,
+      "inputs_fingerprint": "dd93ae669242663e61c83937466707b37b9560c0c2bdc64d8ed31efbaf97a7cb",
+      "children": [
+        {
+          "mode": "normal",
+          "binary_sha256": "7c8072a767a6787eeed9182444306421c7598fa6ed7670969e94db77dca036db",
+          "child": {
+            "command": [
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/normal-target/release/tsr",
+              "--project",
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/quality-controls/fileNoCheck/tsconfig.json",
+              "--noEmit",
+              "--incremental",
+              "false",
+              "--composite",
+              "false",
+              "--pretty",
+              "false",
+              "--listFiles",
+              "--extendedDiagnostics"
+            ],
+            "pid": 43033,
+            "started_at_unix_ns": 1791191213044047000,
+            "timed_out": false,
+            "exit_code": 0,
+            "wall_seconds": 0.030603167018853128,
+            "user_seconds": 0.025457,
+            "system_seconds": 0.0038199999999999996,
+            "peak_rss_bytes": 31408128
+          },
+          "diagnostic_count": 0,
+          "complete_diagnostic_fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "actual_checked_count": null,
+          "map_owners": []
+        },
+        {
+          "mode": "probe",
+          "binary_sha256": "7dd105b16e1beec71a9cbbfe8b0235610ffb897bc42693bf9ee6d2fe2f4be70a",
+          "child": {
+            "command": [
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/quality-target/release/tsr",
+              "--project",
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/quality-controls/fileNoCheck/tsconfig.json",
+              "--noEmit",
+              "--incremental",
+              "false",
+              "--composite",
+              "false",
+              "--pretty",
+              "false",
+              "--listFiles",
+              "--extendedDiagnostics"
+            ],
+            "pid": 43035,
+            "started_at_unix_ns": 1791191213081919000,
+            "timed_out": false,
+            "exit_code": 0,
+            "wall_seconds": 0.03344175004167482,
+            "user_seconds": 0.027753999999999997,
+            "system_seconds": 0.004301,
+            "peak_rss_bytes": 31555584
+          },
+          "diagnostic_count": 0,
+          "complete_diagnostic_fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "actual_checked_count": null,
+          "map_owners": [
+            "1"
+          ]
+        },
+        {
+          "mode": "native",
+          "binary_sha256": "b3cd1909b5dbc6582681e0a9d2641c7eefd9b7b6c3401cfad82b5e8b935b8033",
+          "child": {
+            "command": [
+              "/tmp/tsr-native-worker-activity-_vxx_snw/native-off",
+              "--project",
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/quality-controls/fileNoCheck/tsconfig.json",
+              "--noEmit",
+              "--incremental",
+              "false",
+              "--composite",
+              "false",
+              "--pretty",
+              "false",
+              "--listFiles",
+              "--extendedDiagnostics"
+            ],
+            "pid": 43037,
+            "started_at_unix_ns": 1791191213120737000,
+            "timed_out": false,
+            "exit_code": 0,
+            "wall_seconds": 0.029785457998514175,
+            "user_seconds": 0.054953999999999996,
+            "system_seconds": 0.011118,
+            "peak_rss_bytes": 45498368
+          },
+          "diagnostic_count": 0,
+          "complete_diagnostic_fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "actual_checked_count": null,
+          "map_owners": []
+        },
+        {
+          "mode": "worker1",
+          "binary_sha256": "452facd9ec52a844100a46496daad49a10218730062759435da322b6cae7eef5",
+          "child": {
+            "command": [
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/quality-target/release/examples/checker_workers",
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/quality-controls/fileNoCheck/tsconfig.json",
+              "1"
+            ],
+            "pid": 43045,
+            "started_at_unix_ns": 1791191213168375000,
+            "timed_out": false,
+            "exit_code": 0,
+            "wall_seconds": 0.033687041024677455,
+            "user_seconds": 0.027377,
+            "system_seconds": 0.004709,
+            "peak_rss_bytes": 32063488
+          },
+          "diagnostic_count": 0,
+          "complete_diagnostic_fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "actual_checked_count": 0,
+          "map_owners": [
+            "1"
+          ]
+        },
+        {
+          "mode": "worker2",
+          "binary_sha256": "452facd9ec52a844100a46496daad49a10218730062759435da322b6cae7eef5",
+          "child": {
+            "command": [
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/quality-target/release/examples/checker_workers",
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/quality-controls/fileNoCheck/tsconfig.json",
+              "2"
+            ],
+            "pid": 43051,
+            "started_at_unix_ns": 1791191213207915000,
+            "timed_out": false,
+            "exit_code": 0,
+            "wall_seconds": 0.034508374985307455,
+            "user_seconds": 0.027802,
+            "system_seconds": 0.005122,
+            "peak_rss_bytes": 36159488
+          },
+          "diagnostic_count": 0,
+          "complete_diagnostic_fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "actual_checked_count": 0,
+          "map_owners": [
+            "1",
+            "2"
+          ]
+        },
+        {
+          "mode": "worker4",
+          "binary_sha256": "452facd9ec52a844100a46496daad49a10218730062759435da322b6cae7eef5",
+          "child": {
+            "command": [
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/quality-target/release/examples/checker_workers",
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/quality-controls/fileNoCheck/tsconfig.json",
+              "4"
+            ],
+            "pid": 43052,
+            "started_at_unix_ns": 1791191213248266000,
+            "timed_out": false,
+            "exit_code": 0,
+            "wall_seconds": 0.047440624970477074,
+            "user_seconds": 0.027829999999999997,
+            "system_seconds": 0.005848,
+            "peak_rss_bytes": 31719424
+          },
+          "diagnostic_count": 0,
+          "complete_diagnostic_fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "actual_checked_count": 0,
+          "map_owners": [
+            "1",
+            "2",
+            "3",
+            "4"
+          ]
+        }
+      ]
+    },
+    "libraries": {
+      "complete_diagnostics_match": true,
+      "inputs_fingerprint": "af6d31f18082462530882e83c8b63115164a53d8a7dc0c32cf2db7436ffafeab",
+      "children": [
+        {
+          "mode": "normal",
+          "binary_sha256": "7c8072a767a6787eeed9182444306421c7598fa6ed7670969e94db77dca036db",
+          "child": {
+            "command": [
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/normal-target/release/tsr",
+              "--project",
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/quality-controls/libraries/tsconfig.json",
+              "--noEmit",
+              "--incremental",
+              "false",
+              "--composite",
+              "false",
+              "--pretty",
+              "false",
+              "--listFiles",
+              "--extendedDiagnostics"
+            ],
+            "pid": 43053,
+            "started_at_unix_ns": 1791191213304833000,
+            "timed_out": false,
+            "exit_code": 1,
+            "wall_seconds": 0.06285387498792261,
+            "user_seconds": 0.057121,
+            "system_seconds": 0.0042639999999999996,
+            "peak_rss_bytes": 33144832
+          },
+          "diagnostic_count": 2,
+          "complete_diagnostic_fingerprint": "3924c461486079663a6c0c77bdfa76cf06a75877a46dd6aa534712bb654a1356",
+          "actual_checked_count": null,
+          "map_owners": []
+        },
+        {
+          "mode": "probe",
+          "binary_sha256": "7dd105b16e1beec71a9cbbfe8b0235610ffb897bc42693bf9ee6d2fe2f4be70a",
+          "child": {
+            "command": [
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/quality-target/release/tsr",
+              "--project",
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/quality-controls/libraries/tsconfig.json",
+              "--noEmit",
+              "--incremental",
+              "false",
+              "--composite",
+              "false",
+              "--pretty",
+              "false",
+              "--listFiles",
+              "--extendedDiagnostics"
+            ],
+            "pid": 43055,
+            "started_at_unix_ns": 1791191213373243000,
+            "timed_out": false,
+            "exit_code": 1,
+            "wall_seconds": 0.06557175004854798,
+            "user_seconds": 0.059133,
+            "system_seconds": 0.004932,
+            "peak_rss_bytes": 33390592
+          },
+          "diagnostic_count": 2,
+          "complete_diagnostic_fingerprint": "3924c461486079663a6c0c77bdfa76cf06a75877a46dd6aa534712bb654a1356",
+          "actual_checked_count": null,
+          "map_owners": [
+            "1"
+          ]
+        },
+        {
+          "mode": "native",
+          "binary_sha256": "b3cd1909b5dbc6582681e0a9d2641c7eefd9b7b6c3401cfad82b5e8b935b8033",
+          "child": {
+            "command": [
+              "/tmp/tsr-native-worker-activity-_vxx_snw/native-off",
+              "--project",
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/quality-controls/libraries/tsconfig.json",
+              "--noEmit",
+              "--incremental",
+              "false",
+              "--composite",
+              "false",
+              "--pretty",
+              "false",
+              "--listFiles",
+              "--extendedDiagnostics"
+            ],
+            "pid": 43056,
+            "started_at_unix_ns": 1791191213444869000,
+            "timed_out": false,
+            "exit_code": 1,
+            "wall_seconds": 0.12137200002325699,
+            "user_seconds": 0.23272299999999999,
+            "system_seconds": 0.019851,
+            "peak_rss_bytes": 97058816
+          },
+          "diagnostic_count": 2,
+          "complete_diagnostic_fingerprint": "3924c461486079663a6c0c77bdfa76cf06a75877a46dd6aa534712bb654a1356",
+          "actual_checked_count": null,
+          "map_owners": []
+        },
+        {
+          "mode": "worker1",
+          "binary_sha256": "452facd9ec52a844100a46496daad49a10218730062759435da322b6cae7eef5",
+          "child": {
+            "command": [
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/quality-target/release/examples/checker_workers",
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/quality-controls/libraries/tsconfig.json",
+              "1"
+            ],
+            "pid": 43057,
+            "started_at_unix_ns": 1791191213584738000,
+            "timed_out": false,
+            "exit_code": 1,
+            "wall_seconds": 0.0691055420320481,
+            "user_seconds": 0.06012,
+            "system_seconds": 0.007267,
+            "peak_rss_bytes": 39682048
+          },
+          "diagnostic_count": 2,
+          "complete_diagnostic_fingerprint": "3924c461486079663a6c0c77bdfa76cf06a75877a46dd6aa534712bb654a1356",
+          "actual_checked_count": 64,
+          "map_owners": [
+            "1"
+          ]
+        },
+        {
+          "mode": "worker2",
+          "binary_sha256": "452facd9ec52a844100a46496daad49a10218730062759435da322b6cae7eef5",
+          "child": {
+            "command": [
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/quality-target/release/examples/checker_workers",
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/quality-controls/libraries/tsconfig.json",
+              "2"
+            ],
+            "pid": 43059,
+            "started_at_unix_ns": 1791191213660206000,
+            "timed_out": false,
+            "exit_code": 1,
+            "wall_seconds": 0.06364087498513982,
+            "user_seconds": 0.058851999999999995,
+            "system_seconds": 0.005817999999999999,
+            "peak_rss_bytes": 34045952
+          },
+          "diagnostic_count": 2,
+          "complete_diagnostic_fingerprint": "3924c461486079663a6c0c77bdfa76cf06a75877a46dd6aa534712bb654a1356",
+          "actual_checked_count": 64,
+          "map_owners": [
+            "1",
+            "2"
+          ]
+        },
+        {
+          "mode": "worker4",
+          "binary_sha256": "452facd9ec52a844100a46496daad49a10218730062759435da322b6cae7eef5",
+          "child": {
+            "command": [
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/quality-target/release/examples/checker_workers",
+              "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_/quality-controls/libraries/tsconfig.json",
+              "4"
+            ],
+            "pid": 43060,
+            "started_at_unix_ns": 1791191213730912000,
+            "timed_out": false,
+            "exit_code": 1,
+            "wall_seconds": 0.06254620803520083,
+            "user_seconds": 0.058787,
+            "system_seconds": 0.005794,
+            "peak_rss_bytes": 33751040
+          },
+          "diagnostic_count": 2,
+          "complete_diagnostic_fingerprint": "3924c461486079663a6c0c77bdfa76cf06a75877a46dd6aa534712bb654a1356",
+          "actual_checked_count": 64,
+          "map_owners": [
+            "1",
+            "2",
+            "3",
+            "4"
+          ]
+        }
+      ]
+    }
+  },
+  "mixed_native_negative": {
+    "diagnostic_counts": {
+      "normal": 0,
+      "probe": 0,
+      "native": 4
+    },
+    "native_required_diagnostics_preserved": false
+  },
+  "quality_checks": {
+    "strict_release_libs_bins_clippy": true,
+    "strict_release_worker_example_clippy": true,
+    "parser_jsdoc_tests": 24,
+    "allocator_tests": 4,
+    "reader_tests": 8,
+    "first_repeat_eager_query": true,
+    "all_examples_supported": false,
+    "all_examples_reason": "Existing parser alloc_profile owns another global allocator; archive setup feature cannot be combined with it."
+  },
+  "measurement_failures_and_limits": [
+    "First enabled receipt serialization rejected numeric owner dictionary keys; raw child/trace preserved and recovered without rerunning the measured sample. Reader now returns string keys, with a JSON round-trip control.",
+    "First trace capture lacked its own before-child logical-input snapshot; excluded by trace-capture-qualification.json. Fresh trace2 captures both sides and passes the reader.",
+    "Initial timed observer has five lint-only Clippy complaints. Separate quality snapshot fixes four must_use annotations and one tuple type alias; its timings are not substituted for the frozen observer. Both patches replay to exact hashes.",
+    "All-example Clippy cannot combine the probe global allocator with existing parser alloc_profile allocator. Selected release libraries/binaries and worker example pass strict Clippy.",
+    "Bundled decision helper does not parse literal boolean thresholds. Frozen spec retained; explicit numeric threshold encoding preserves boolean meaning for overhead comparison. Observer is not a retained optimization."
+  ],
+  "native_full_work_speed_qualified": false,
+  "production_change_retained": false,
+  "full_corpus_rerun": false,
+  "independent_review_count": 0,
+  "raw_artifacts": [
+    {
+      "path": "actual-checked-2.json",
+      "sha256": "66f790a6d3708e9f0dc6beffdf3f6934773ad16187f3b0769005c240b3d75e0f",
+      "bytes": 143510
+    },
+    {
+      "path": "actual-checked.json",
+      "sha256": "66f790a6d3708e9f0dc6beffdf3f6934773ad16187f3b0769005c240b3d75e0f",
+      "bytes": 143510
+    },
+    {
+      "path": "app-work-2.ndjson",
+      "sha256": "d60981d315d980792aaf7b528973466d0718aa00c3e7d4860ac901a622a9f93d",
+      "bytes": 609778085
+    },
+    {
+      "path": "app-work.ndjson",
+      "sha256": "36c146c09a79af95835a496a62d931b8dd833517822bf0cbff2677461d530442",
+      "bytes": 609816918
+    },
+    {
+      "path": "app-worker-1.tsv",
+      "sha256": "1f3c2ab3d684eabf9af6a5f8a87267dffc4f5a9919e277feb42a69edc624158b",
+      "bytes": 673
+    },
+    {
+      "path": "app-worker-2.tsv",
+      "sha256": "a00a4a0d89edd34344aa70a999513cc47e4b42f9147d4b0350be8c40d86a7037",
+      "bytes": 723
+    },
+    {
+      "path": "app-worker-4.tsv",
+      "sha256": "2464828b11469bac26790f12f19b8ae13e5439f38d21ec21def8292582e56b0c",
+      "bytes": 824
+    },
+    {
+      "path": "attribution.json",
+      "sha256": "e2ce8d3677a238f8d321183937d8e6402539740a78583990ad0fd5ba8fa2cb1e",
+      "bytes": 8994107
+    },
+    {
+      "path": "baseline.json",
+      "sha256": "2a3d7fcb22b6e42ac2476b7a1101e8823dd7c6fd19fb1689b48710cc30df8b6b",
+      "bytes": 24346748
+    },
+    {
+      "path": "clippy.stderr",
+      "sha256": "ea56aa803ae078a5d055c56a61bbbc179a369f9d9cf3f2b0aab4d7793ebfcb02",
+      "bytes": 3279
+    },
+    {
+      "path": "clippy.stdout",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "path": "controls/results.json",
+      "sha256": "a4180daa2d90f6da51287fc40c51825e3667f54fb16feb6a1deda827d82aee5d",
+      "bytes": 479639
+    },
+    {
+      "path": "decision-input-numeric.json",
+      "sha256": "38baf46d7b6e566f1ba8092fbddf02da2d690ec241d375bb94fda1e306c3f124",
+      "bytes": 3413
+    },
+    {
+      "path": "decision-input.json",
+      "sha256": "604a63def249d4736c2aa114475927c94fb6a4102516479be42190a4cacea30b",
+      "bytes": 3243
+    },
+    {
+      "path": "decision-numeric.json",
+      "sha256": "0cdb80739a3e4c1ba443bf24c1590d4d5f9b9c1b830903463ac9546f2eb356f0",
+      "bytes": 483
+    },
+    {
+      "path": "decision.json",
+      "sha256": "2b0a3ef22f8bbf6f9caad81a96d8e19aa6a4aec5b16010b33668ed17438e6276",
+      "bytes": 358
+    },
+    {
+      "path": "identity.json",
+      "sha256": "be39531b16ad467f4d8dbe55dbb90f6b3b5845daee3e3586e2fc03e6f13709e7",
+      "bytes": 3809
+    },
+    {
+      "path": "libs-bins-clippy.stderr",
+      "sha256": "5074b78600681b422f4918a0a91a8638dce07d345c1067ad82c1e9eaf5a7fa4c",
+      "bytes": 474
+    },
+    {
+      "path": "libs-bins-clippy.stdout",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "path": "meter-tests.stderr",
+      "sha256": "77c66207e5f3a80260d20faf27704c634c0efb99cb22d0c9e0b9f09a29fcc31a",
+      "bytes": 664
+    },
+    {
+      "path": "meter-tests.stdout",
+      "sha256": "4e4c514ffc18f563b5b7f1b45d5a4860259a02b88935ec6ee5948f61fcf0b97b",
+      "bytes": 488
+    },
+    {
+      "path": "mixed-negative.json",
+      "sha256": "fbeeee49f3718849147b7ee3b8db033a77dde57109b9bf0dfdc28a18d83cc075",
+      "bytes": 17794
+    },
+    {
+      "path": "mixed-negative.tsv",
+      "sha256": "1160395f935f51a95739bdcd1299bef6635f3f313976210ce420046f5c89b173",
+      "bytes": 605
+    },
+    {
+      "path": "parser-jsdoc.stderr",
+      "sha256": "1874e99864c2fc5bc152642d94496f5be188e80508450da516f6c4261b0481ab",
+      "bytes": 979
+    },
+    {
+      "path": "parser-jsdoc.stdout",
+      "sha256": "ed52ebb08db627b8e0f5bc881fb8ededce34a7203d69a42316e892feff87d218",
+      "bytes": 1447
+    },
+    {
+      "path": "quality-clippy.stderr",
+      "sha256": "29b22205bb88eb1ecad341654a6a41a5475f90b99fa84ca6fc1bf6a225fdacb5",
+      "bytes": 2332
+    },
+    {
+      "path": "quality-clippy.stdout",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "path": "quality-controls/results.json",
+      "sha256": "3a83bc15367e4f8a7462ecfe2c3c42ee349198fbea969fdedc602bdbd1d8852d",
+      "bytes": 483759
+    },
+    {
+      "path": "quality-gates.json",
+      "sha256": "d917d7faa9d010ef84e90348e97e2d5fa51c1a60d4dc152ac41a0263cbf4ba72",
+      "bytes": 1825
+    },
+    {
+      "path": "quality-identity.json",
+      "sha256": "8196d02fddad62e9578234da9c1cfffccb3bbe45f59107f0a96e8904b2288fca",
+      "bytes": 3753
+    },
+    {
+      "path": "timing-0-on.tsv",
+      "sha256": "be16d8334d5cd2207049d7fe2bb84209d2746c571cd4e8ce608c4f865cf5e147",
+      "bytes": 671
+    },
+    {
+      "path": "timing-1-on.tsv",
+      "sha256": "465deed8a8cae374a157533a185ca35eed56763e39a0fe9558f8416d96e8c96c",
+      "bytes": 672
+    },
+    {
+      "path": "timing-2-on.tsv",
+      "sha256": "ee52dca48452f96dcb02674a98293490cda4c83e8ead1c0096bee4f66aa10b84",
+      "bytes": 671
+    },
+    {
+      "path": "trace-capture-qualification.json",
+      "sha256": "178bf95c43c21556508edccf3979a9fc5075749160ab2c5e4cd5c91e01abde55",
+      "bytes": 218
+    },
+    {
+      "path": "trace-child-2.json",
+      "sha256": "a0acac4d14469684f2fb1ea90264e506b2fc5a4b6a74e5289d04fe20b17610bf",
+      "bytes": 1471510
+    },
+    {
+      "path": "trace-child.json",
+      "sha256": "2229d5e1c5d1a0500363838838f65c839eb014d5a45f751cc94ac943ad5bf6a1",
+      "bytes": 1471510
+    },
+    {
+      "path": "trace-inputs-before-2.json",
+      "sha256": "75222c105ef41e268845c0efcbf426254e07fe3930df712c74ca5949cadb6c23",
+      "bytes": 5175058
+    },
+    {
+      "path": "trace-receipt-2.json",
+      "sha256": "8e963fb080a0ecb31815fd86ef3c332a3fe2ab90ed99f84d8fe5146dde9a6650",
+      "bytes": 13810115
+    },
+    {
+      "path": "trace-receipt.json",
+      "sha256": "31272c7523e4f07d7431f6937d0407243831fe1a5fbaa286ba3b941e0506a096",
+      "bytes": 13810115
+    },
+    {
+      "path": "trace-validation-2.json",
+      "sha256": "7edc95f9a9d6cfc30ca6d943489ab528343e6be074db009fe5bfab4b000d3d65",
+      "bytes": 15676
+    },
+    {
+      "path": "trace-validation.json",
+      "sha256": "7edc95f9a9d6cfc30ca6d943489ab528343e6be074db009fe5bfab4b000d3d65",
+      "bytes": 15676
+    },
+    {
+      "path": "worker-attribution.json",
+      "sha256": "2330a0901fc08c9370677853078498a0e4f0399c3a554c0771164faf40397e25",
+      "bytes": 5736005
+    },
+    {
+      "path": "worker-clippy.stderr",
+      "sha256": "3b02dea1977c9190ef68ebdb696f4cc6886ff2c5281ca58058182b42aad1b8fe",
+      "bytes": 204
+    },
+    {
+      "path": "worker-clippy.stdout",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    }
+  ],
+  "scratch_root": "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-jsdoc-setup-uaxdlmn_"
+}
