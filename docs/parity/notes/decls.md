@@ -176,3 +176,28 @@ class through `import type { Services }`, which this port fails to resolve, so
 its "error type" is a resolution gap rather than an upstream error. **Not
 shipped.** Unblocked by resolving namespace members through a type-only
 import (names lane); then the `computed_name` condition goes.
+
+## §7 TS2813/TS2814: a function merged with a non-ambient class
+
+`check_function_or_constructor_symbol` declined every symbol with a class
+declaration, because upstream's `hasNonAmbientClass` arm (`checker.go:3660`)
+was unported and running the rest of the walk without it gave wrong lines in
+the `ClassAndModuleThatMerge…` family (`checker-notes-diag2.md`). The arm is
+now ported: when a non-ambient class declaration is among the declarations of
+a `Function`-flagged symbol (and the symbol is not a constructor), every class
+declaration gets TS2813 and every function declaration TS2814, at its name.
+Class *expressions* still decline the symbol (they do not merge by name
+upstream, so their presence means the binder merged something upstream did
+not).
+
+The "all declarations share one parent" bound now admits one more shape: every
+declaration an `export`ed member of a block of the same merged namespace.
+Upstream's binder merges exactly those (`declareModuleMember` → the namespace's
+`exports`), so `namespace M { export function f() {} } namespace M { export
+class f {} }` is one symbol upstream too (`duplicateIdentifiersAcrossContainerBoundaries`).
+Locals of two blocks and a class body beside a namespace block stay declined.
+
+**Measured** (full run): +14 cases, no loss — `augmentedTypesClass2a`,
+`augmentedTypesFunction`, `callOverloads1`–`5`, `classOverloadForFunction{,2}`,
+`funClodule`, `nameCollisions`, `staticClassMemberError`,
+`multipleExportDefault5`, `duplicateIdentifiersAcrossContainerBoundaries`.

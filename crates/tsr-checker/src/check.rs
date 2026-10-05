@@ -12193,20 +12193,19 @@ impl Checker<'_, '_> {
             return;
         }
 
-        // `hasNonAmbientClass` (`checker.go:3660`): a symbol that merges a class
-        // with a function has its own arm upstream — TS2813
-        // `Class declaration cannot implement overload list for '{0}'` and
-        // TS2814 `Function with bodies can only merge with classes that are
-        // ambient` — reached *instead of* the duplicate-implementation report.
-        // Neither is ported, so the whole symbol is declined: it was 18 of the
-        // 34 wrong lines this rule's second measurement produced, all in the
-        // `ClassAndModuleThatMerge…` family.
-        if declarations.iter().any(|&declaration| {
-            matches!(
-                self.nodes.kind(declaration),
-                SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression
-            )
-        }) {
+        // `hasNonAmbientClass` (`checker.go:3606`): a class declaration outside
+        // an ambient context among the symbol's declarations. Class
+        // declarations are not function-like, so the walk below skips them;
+        // the arm after it reports TS2813/TS2814. `docs/parity/notes/decls.md`
+        // §7.
+        let has_non_ambient_class = declarations.iter().any(|&declaration| {
+            self.nodes.kind(declaration) == SyntaxKind::ClassDeclaration
+                && !self.is_in_ambient_context_for_overloads(declaration)
+        });
+        if declarations
+            .iter()
+            .any(|&declaration| self.nodes.kind(declaration) == SyntaxKind::ClassExpression)
+        {
             return;
         }
         // **All declarations must share one parent.** Upstream's overloads are
@@ -12222,7 +12221,7 @@ impl Checker<'_, '_> {
             let first = parents.next();
             parents.all(|parent| Some(parent) == first)
         };
-        if !parents_agree {
+        if !parents_agree && !self.declarations_are_merged_namespace_exports(&declarations) {
             return;
         }
         let is_constructor = self.nodes.kind(node) == SyntaxKind::Constructor;
@@ -12295,6 +12294,32 @@ impl Checker<'_, '_> {
                 );
             }
         }
+        // `checker.go:3660-3678`: a function merged with a non-ambient class
+        // reports on every class (TS2813) and every function declaration
+        // (TS2814), each at its name. The related "Consider adding a
+        // `declare` modifier" chain is not carried (`Diagnostic` has no
+        // related information).
+        if has_non_ambient_class
+            && !is_constructor
+            && let Some(symbol) = self.binder.symbol_of(node).map(|s| self.binder.merged_symbol(s))
+            && self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::FUNCTION)
+        {
+            let name = self.binder.symbols().get(symbol).name.to_string();
+            for &declaration in &declarations {
+                let message = match self.nodes.kind(declaration) {
+                    SyntaxKind::ClassDeclaration => {
+                        &messages::CLASS_DECLARATION_CANNOT_IMPLEMENT_OVERLOAD_LIST_FOR_0
+                    }
+                    SyntaxKind::FunctionDeclaration => {
+                        &messages::FUNCTION_WITH_BODIES_CAN_ONLY_MERGE_WITH_CLASSES_THAT_ARE_AMBIENT
+                    }
+                    _ => continue,
+                };
+                let at = self.declaration_name_of(declaration).unwrap_or(declaration);
+                let span = self.error_span(at);
+                self.report(file, Diagnostic::with_args(message, span, [name.clone()]));
+            }
+        }
         // "Abstract methods can't have an implementation -- in particular, they
         // don't need one." (`checker.go:3679`)
         if let Some(last) = last_non_ambient
@@ -12316,6 +12341,35 @@ impl Checker<'_, '_> {
                 self.check_overloads_compatible_with_implementation(file, body, &overloads);
             }
         }
+    }
+
+    /// Whether every declaration is an `export`ed member of a block of one
+    /// (merged) namespace — the one cross-container shape upstream's binder
+    /// also merges: `declareModuleMember` puts exported members into the
+    /// namespace symbol's `exports`, shared by all its blocks. Locals of two
+    /// blocks, or a class body beside a namespace block, stay apart upstream.
+    /// `docs/parity/notes/decls.md` §7.
+    fn declarations_are_merged_namespace_exports(&self, declarations: &[NodeId]) -> bool {
+        let mut namespace = None;
+        for &declaration in declarations {
+            let exported = self
+                .node_map
+                .get(declaration)
+                .and_then(modifiers_of)
+                .is_some_and(|modifiers| has_modifier(modifiers, SyntaxKind::ExportKeyword));
+            let Some(block) = self.nodes.parent(declaration) else { return false };
+            if !exported || self.nodes.kind(block) != SyntaxKind::ModuleBlock {
+                return false;
+            }
+            let Some(module) = self.nodes.parent(block) else { return false };
+            let Some(symbol) = self.binder.symbol_of(module) else { return false };
+            let symbol = self.binder.merged_symbol(symbol);
+            if namespace.is_some_and(|namespace| namespace != symbol) {
+                return false;
+            }
+            namespace = Some(symbol);
+        }
+        namespace.is_some()
     }
 
     /// TS2394 — `This overload signature is not compatible with its
