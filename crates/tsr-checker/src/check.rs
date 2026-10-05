@@ -928,7 +928,11 @@ impl Checker<'_, '_> {
         }
         match typed {
             Node::BindingPattern(_) => self.check_array_binding_pattern_iteration(node),
-            Node::BindingElement(_) => self.check_binding_element_tuple_bounds(node),
+            Node::BindingElement(_) => {
+                self.check_binding_element_tuple_bounds(node);
+                self.check_binding_element_computed_index(node);
+            }
+            Node::ObjectLiteralExpression(_) => self.check_object_assignment_computed_index(node),
             Node::ElementAccessExpression(_) => {
                 self.check_element_access_tuple_bounds(node);
                 self.check_element_access_index_type(node);

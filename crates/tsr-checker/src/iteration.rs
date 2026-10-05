@@ -718,22 +718,61 @@ impl Checker<'_, '_> {
         self.check_iterated_type_or_element_type(IterationUse::DESTRUCTURING, declared, holder);
     }
 
-    /// `checkArrayLiteralAssignment` (`checker.go:12648`) for the outermost
-    /// target of a `=` destructuring assignment, whose source is the right
-    /// operand's type (`checkDestructuringAssignment`).
+    /// The source type `checkDestructuringAssignment` (`checker.go:12569`)
+    /// hands an array or object literal target: the right operand of a `=`
+    /// assignment, or, for an element of an array target, the element type
+    /// `checkArrayLiteralDestructuringElementAssignment` (`checker.go:12663`)
+    /// computes (positional access on an array-like source, else the iterated
+    /// type). `None` for other positions and for undecided sources.
+    pub(crate) fn destructuring_assignment_source(&mut self, node: NodeId) -> Option<TypeId> {
+        let parent = self.nodes.parent(node)?;
+        match self.node_map.get(parent)? {
+            Node::BinaryExpression(binary) => {
+                if binary.operator_token.is_none_or(|token| token.kind != SyntaxKind::EqualsToken)
+                    || binary.left.and_then(|left| left.node_id()) != Some(node)
+                {
+                    return None;
+                }
+                // A `[x = d]` default is an element, not an assignment.
+                if self.nodes.parent(parent).is_some_and(|grand| {
+                    self.nodes.kind(grand) == SyntaxKind::ArrayLiteralExpression
+                }) {
+                    return None;
+                }
+                let right = binary.right?;
+                let source = self.check_expression(right);
+                (!self.is_error(source)).then_some(source)
+            }
+            Node::ArrayLiteralExpression(literal) => {
+                let index = literal.elements.iter().position(|e| e.node_id() == Some(node))?;
+                let source = self.destructuring_assignment_source(parent)?;
+                if source == self.intrinsics.any {
+                    return Some(source);
+                }
+                let element = if self.binding_parent_is_array_like(source)? {
+                    let index_type = self.store.intern_literal(
+                        TypeFlags::NUMBER_LITERAL,
+                        TypeData::NumberLiteral(index.to_string()),
+                        false,
+                    );
+                    let apparent = self.apparent_type(source);
+                    self.resolved_indexed_access_type(apparent, index_type, false)?
+                } else {
+                    self.iterated_element_type(source)?
+                };
+                (!self.is_error(element)).then_some(element)
+            }
+            _ => None,
+        }
+    }
+
+    /// `checkArrayLiteralAssignment` (`checker.go:12648`) for an array
+    /// literal destructuring target.
     pub(crate) fn check_array_destructuring_assignment_iteration(&mut self, node: NodeId) {
         if self.file_has_parse_errors || self.in_js_file(node) {
             return;
         }
-        let Some(parent) = self.nodes.parent(node) else { return };
-        let Some(Node::BinaryExpression(binary)) = self.node_map.get(parent) else { return };
-        if binary.operator_token.is_none_or(|token| token.kind != SyntaxKind::EqualsToken)
-            || binary.left.and_then(|left| left.node_id()) != Some(node)
-        {
-            return;
-        }
-        let Some(right) = binary.right else { return };
-        let source = self.check_expression(right);
+        let Some(source) = self.destructuring_assignment_source(node) else { return };
         self.check_iterated_type_or_element_type(
             IterationUse::DESTRUCTURING | IterationUse::POSSIBLY_OUT_OF_BOUNDS,
             source,

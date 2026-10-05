@@ -684,24 +684,16 @@ impl Checker<'_, '_> {
     }
 
     /// `checkArrayLiteralDestructuringElementAssignment` (`checker.go:12663`)
-    /// for the outermost `=` target: each non-spread, non-omitted element
+    /// for an array literal target: each non-spread, non-omitted element
     /// without a default indexes an array-like source at its position.
     pub(crate) fn check_array_assignment_tuple_bounds(&mut self, node: NodeId) {
         if self.file_has_parse_errors || self.in_js_file(node) {
             return;
         }
         let Some(Node::ArrayLiteralExpression(literal)) = self.node_map.get(node) else { return };
-        let Some(parent) = self.nodes.parent(node) else { return };
-        let Some(Node::BinaryExpression(binary)) = self.node_map.get(parent) else { return };
-        if binary.operator_token.is_none_or(|token| token.kind != SyntaxKind::EqualsToken)
-            || binary.left.and_then(|left| left.node_id()) != Some(node)
-        {
-            return;
-        }
-        let Some(right) = binary.right else { return };
         let elements: Vec<_> = literal.elements.iter().map(tsr_ast::Expression::node_id).collect();
-        let source = self.check_expression(right);
-        if source == self.intrinsics.any || self.is_error(source) {
+        let Some(source) = self.destructuring_assignment_source(node) else { return };
+        if source == self.intrinsics.any {
             return;
         }
         if self.binding_parent_is_array_like(source) != Some(true) {

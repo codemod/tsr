@@ -149,6 +149,158 @@ impl Checker<'_, '_> {
         self.report_invalid_index_types(object_type, index_type, index_id);
     }
 
+    /// TS2537 for a non-literal `string`/`number` key (`checker.go:27216`):
+    /// no applicable index signature and no string index fallback
+    /// (`checker.go:27085`). The access node is a computed property name, so
+    /// the report lands on its expression. A key with a default is
+    /// `AccessFlagsAllowMissing`, which answers `undefined` for an object
+    /// literal; it is declined here rather than classified.
+    fn report_missing_index_signature(
+        &mut self,
+        object_type: TypeId,
+        key_type: TypeId,
+        has_default: bool,
+        index_node: NodeId,
+    ) {
+        // A key that is `any` (including the errorType of an invalid computed
+        // name) is a valid key kind with no access expression to report
+        // through, so it reaches the final arm as TS2538 when no index
+        // signature applies.
+        let any_key = key_type == self.intrinsics.any || self.is_error(key_type);
+        let key_flags = self.store.get(key_type).flags;
+        let symbol_key = key_flags.intersects(TypeFlags::ES_SYMBOL_LIKE);
+        if has_default
+            || self.is_error(object_type)
+            || object_type == self.intrinsics.any
+            || self.has_instantiable_constituent(object_type)
+            || self.mentions_registered_type_parameter(object_type)
+            || !(any_key
+                || symbol_key
+                || key_type == self.intrinsics.string
+                || key_type == self.intrinsics.number)
+        {
+            return;
+        }
+        let object_type = self.apparent_type(object_type);
+        if self.store.get(object_type).flags.intersects(TypeFlags::ANY | TypeFlags::NEVER)
+            || matches!(self.store.get(object_type).data, TypeData::Named { members: None, .. })
+                && !self.type_reference_targets.contains_key(&object_type)
+                && !self.tuple_element_lists.contains_key(&object_type)
+        {
+            return;
+        }
+        // A unique symbol key names a property; only a complete table without
+        // symbol-keyed members proves it absent.
+        if key_flags.intersects(TypeFlags::UNIQUE_ES_SYMBOL)
+            && self
+                .declared_property_table(object_type)
+                .is_none_or(|table| table.iter().any(|(name, _)| name.starts_with('[')))
+        {
+            return;
+        }
+        let Some(infos) = self.get_index_infos_of_type(object_type) else { return };
+        let string_info = infos.iter().find(|info| info.key == self.intrinsics.string).copied();
+        let info = self.get_applicable_index_info(object_type, key_type).or(string_info);
+        let Some(file) = self.source_file_of_for_diagnostics(index_node) else { return };
+        let span = self.error_span(index_node);
+        let diagnostic = match info {
+            // `indexInfo.keyType == stringType && !isTypeAssignableToKind(
+            // indexType, String|Number)` (`checker.go:27095`).
+            Some(info) if info.key == self.intrinsics.string && symbol_key => {
+                Diagnostic::with_args(
+                    &messages::TYPE_0_CANNOT_BE_USED_AS_AN_INDEX_TYPE,
+                    span,
+                    [self.type_to_string(key_type)],
+                )
+            }
+            Some(_) => return,
+            None if any_key => Diagnostic::with_args(
+                &messages::TYPE_0_CANNOT_BE_USED_AS_AN_INDEX_TYPE,
+                span,
+                ["any".to_string()],
+            ),
+            None if symbol_key => Diagnostic::with_args(
+                &messages::TYPE_0_CANNOT_BE_USED_AS_AN_INDEX_TYPE,
+                span,
+                [self.type_to_string(key_type)],
+            ),
+            None => Diagnostic::with_args(
+                &messages::TYPE_0_HAS_NO_MATCHING_INDEX_SIGNATURE_FOR_TYPE_1,
+                span,
+                [self.type_to_string(object_type), self.type_to_string(key_type)],
+            ),
+        };
+        self.report(file, diagnostic);
+    }
+
+    /// `getBindingElementTypeFromParentType`'s object arm (`checker.go:17739`):
+    /// a computed property name indexes the parent with
+    /// `getLiteralTypeFromPropertyName(name)` and the name as access node.
+    pub(crate) fn check_binding_element_computed_index(&mut self, node: NodeId) {
+        if self.file_has_parse_errors || self.in_js_file(node) {
+            return;
+        }
+        let Some(Node::BindingElement(element)) = self.node_map.get(node) else { return };
+        if element.dot_dot_dot_token.is_some() {
+            return;
+        }
+        let Some(tsr_ast::PropertyName::ComputedPropertyName(computed)) = element.property_name
+        else {
+            return;
+        };
+        let Some(expression) = computed.expression else { return };
+        let Some(expression_id) = expression.node_id() else { return };
+        let has_default = element.initializer.is_some();
+        let Some(pattern_id) = self.nodes.parent(node) else { return };
+        if self.nodes.kind(pattern_id) != SyntaxKind::ObjectBindingPattern {
+            return;
+        }
+        let Some(holder) = self.nodes.parent(pattern_id) else { return };
+        let key_type = self.check_expression(expression);
+        let parent_type = self.get_type_for_binding_element_parent(holder);
+        if parent_type == self.intrinsics.any || self.is_error(parent_type) {
+            return;
+        }
+        let parent_type = self.destructuring_parent_adjusted(node, holder, parent_type);
+        self.report_missing_index_signature(parent_type, key_type, has_default, expression_id);
+    }
+
+    /// `checkObjectLiteralDestructuringPropertyAssignment` (`checker.go:12613`)
+    /// for an object literal target: a computed property name indexes the
+    /// target's source type.
+    pub(crate) fn check_object_assignment_computed_index(&mut self, node: NodeId) {
+        if self.file_has_parse_errors || self.in_js_file(node) {
+            return;
+        }
+        let Some(Node::ObjectLiteralExpression(literal)) = self.node_map.get(node) else { return };
+        let mut keys = Vec::new();
+        for property in literal.properties {
+            let Some(id) = property.node_id() else { continue };
+            let Some(Node::PropertyAssignment(assignment)) = self.node_map.get(id) else {
+                continue;
+            };
+            let tsr_ast::PropertyName::ComputedPropertyName(computed) = assignment.name else {
+                continue;
+            };
+            let Some(expression) = computed.expression else { continue };
+            let Some(expression_id) = expression.node_id() else { continue };
+            // hasDefaultValue: `{ [k]: x = 1 }`.
+            let has_default = assignment.initializer.is_some_and(|value| {
+                matches!(value, tsr_ast::Expression::BinaryExpression(binary)
+                    if binary.operator_token.is_some_and(|t| t.kind == SyntaxKind::EqualsToken))
+            });
+            keys.push((expression, expression_id, has_default));
+        }
+        if keys.is_empty() {
+            return;
+        }
+        let Some(source) = self.destructuring_assignment_source(node) else { return };
+        for (expression, expression_id, has_default) in keys {
+            let key_type = self.check_expression(expression);
+            self.report_missing_index_signature(source, key_type, has_default, expression_id);
+        }
+    }
+
     /// Whether `ty` or a union/intersection constituent is instantiable, or is
     /// an alias reference this port keeps unevaluated over type arguments.
     fn has_instantiable_constituent(&self, ty: TypeId) -> bool {
