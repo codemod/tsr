@@ -1,4 +1,4 @@
-# lane type-operators (tsr-2zk.13): failing cases at 586c2ec0; suites: T=checker_types, D=diagnostics
+# lane type-operators (tsr-2zk.13): failing cases at 06f25e0; suites: T=checker_types, D=diagnostics
 compiler/arrayFlatNoCrashInference	T
 compiler/arrayFlatNoCrashInferenceDeclarations	T
 compiler/declarationAssertionNodeNotReusedWhenTypeNotEquivalent1	T

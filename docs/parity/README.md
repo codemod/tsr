@@ -31,7 +31,8 @@ The smoke ratio is `perf-project` on `benches/projects/generic-imports`, 9
 samples, observed (not verified). `benches/projects/domain-model` reads 1.42 on
 macOS and 0.79 on the Linux box after perf-2; the 0.50 target is not met.
 
-`lanes/<lane>.txt` lists every failing case at that commit, assigned to exactly
+`lanes/<lane>.txt` lists every failing case at the commit named in its header
+(refreshed at `06f25e0`: 3,442 failing cases, all still inside the lanes below), assigned to exactly
 one lane (`T` = fails `checker_types`, `D` = fails `diagnostics`). Assignment:
 
 - A case failing `diagnostics` goes to the lane owning its dominant missing or

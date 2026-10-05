@@ -1,4 +1,4 @@
-# lane calls-inference (tsr-2zk.9): failing cases at 586c2ec0; suites: T=checker_types, D=diagnostics
+# lane calls-inference (tsr-2zk.9): failing cases at 06f25e0; suites: T=checker_types, D=diagnostics
 compiler/aliasInstantiationExpressionGenericIntersectionNoCrash1	T
 compiler/allowJscheckJsTypeParameterNoCrash	T
 compiler/argumentsAsPropertyName2	T

@@ -1,4 +1,4 @@
-# lane operators (tsr-2zk.12): failing cases at 586c2ec0; suites: T=checker_types, D=diagnostics
+# lane operators (tsr-2zk.12): failing cases at 06f25e0; suites: T=checker_types, D=diagnostics
 compiler/arithmeticOnInvalidTypes2	D
 compiler/bitwiseCompoundAssignmentOperators	D
 compiler/conditionalEqualityOnLiteralObjects	D
@@ -12,7 +12,6 @@ compiler/mixedTypeEnumComparison	D
 compiler/nanEquality	D
 compiler/narrowByEquality	D
 compiler/narrowingOfQualifiedNames	D
-compiler/narrowingTypeofUndefined1	TD
 compiler/narrowingWithNonNullExpression	TD
 compiler/noImplicitSymbolToString	D
 compiler/noUncheckedIndexedAccessCompoundAssignments	D
@@ -32,7 +31,6 @@ conformance/comparisonOperatorWithNoRelationshipObjectsOnOptionalProperty	D
 conformance/comparisonOperatorWithNoRelationshipTypeParameter	D
 conformance/comparisonOperatorWithSubtypeObjectOnInstantiatedCallSignature	D
 conformance/comparisonOperatorWithSubtypeObjectOnInstantiatedConstructorSignature	D
-conformance/comparisonOperatorWithSubtypeObjectOnProperty	D
 conformance/comparisonOperatorWithTypeParameter	D
 conformance/compoundAdditionAssignmentLHSCanBeAssigned	D
 conformance/compoundAdditionAssignmentWithInvalidOperands	D
@@ -49,7 +47,7 @@ conformance/exponentiationOperatorWithTemplateStringInvalidES6	D
 conformance/for-of58	TD
 conformance/incrementOperatorWithAnyOtherTypeInvalidOperations	TD
 conformance/logicalAssignment11	D
-conformance/negateOperatorInvalidOperations	TD
+conformance/negateOperatorInvalidOperations	D
 conformance/plusOperatorWithAnyOtherType	D
 conformance/stringLiteralTypesWithVariousOperators02	D
 conformance/symbolType12	D

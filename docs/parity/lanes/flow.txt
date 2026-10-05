@@ -1,4 +1,4 @@
-# lane flow (tsr-2zk.7): failing cases at 586c2ec0; suites: T=checker_types, D=diagnostics
+# lane flow (tsr-2zk.7): failing cases at 06f25e0; suites: T=checker_types, D=diagnostics
 compiler/arrayAssignmentTest5	D
 compiler/arrowExpressionJs	T
 compiler/augmentExportEquals5	TD
@@ -12,7 +12,6 @@ compiler/controlFlowDestructuringVariablesInTryCatch	TD
 compiler/controlFlowWithIncompleteTypes	T
 compiler/destructuringAssignmentWithStrictNullChecks	D
 compiler/destructuringWithConstraint	T
-compiler/discriminatingUnionWithUnionPropertyAgainstUndefinedWithoutStrictNullChecks	T
 compiler/emptyAnonymousObjectNarrowing	D
 compiler/enumPropertyAccessBeforeInitalisation	D
 compiler/errorWithSameNameType	D
