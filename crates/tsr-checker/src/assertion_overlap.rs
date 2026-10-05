@@ -64,7 +64,11 @@ impl Checker<'_, '_> {
         let source = self.get_base_type_of_literal_type(expression_type);
         let source = self.get_regular_type_of_object_literal(source);
         let widened = self.widen_object_literal_freshness(source);
-        if !self.pair_is_reportable(source, target) || self.either_is_composite(source, target) {
+        // Unions and intersections are the relater's own union/intersection arms
+        // under the comparable relation (`relater.go:181` tries each side's
+        // simple arms both ways); `fooOrBar as "baz"`
+        // (`stringLiteralsWithTypeAssertions01`) relates there.
+        if !self.pair_is_reportable(source, target) {
             return;
         }
         // Both directions, both confident. `Unknown` on either side is silence.
@@ -92,14 +96,10 @@ impl Checker<'_, '_> {
     ///
     /// `fooOrBar as "baz"` with `fooOrBar: "foo" | "bar"` is comparable
     /// upstream — the constituents and the target are one primitive family —
-    /// and this port's union carries `UNION` rather than its constituents'
-    /// flags, so no flag test can see through it.
-    /// `stringLiteralsWithTypeAssertions01` lines 7 and 8 are that, and they
-    /// were `check_assertion_overlap`'s last two wrong lines and its only loss.
-    ///
-    /// Shared with [`Checker::check_comparison_overlap`], which needs **this**
-    /// decline and not the literal-family one above —
-    /// `checker-notes-diag2.md` §45.
+    /// and a flag test on the union cannot see through it.
+    /// [`Checker::check_comparison_overlap`] keeps this decline
+    /// (`checker-notes-diag2.md` §45); the assertion check above now asks the
+    /// comparable relation itself.
     pub(crate) fn either_is_composite(&self, source: TypeId, target: TypeId) -> bool {
         let composite = crate::flags::TypeFlags::UNION.union(crate::flags::TypeFlags::INTERSECTION);
         self.type_of(source).flags.intersects(composite)
