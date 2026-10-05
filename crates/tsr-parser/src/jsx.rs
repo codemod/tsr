@@ -13,13 +13,45 @@ use tsr_diagnostics::messages;
 use crate::parser::Parser;
 
 impl<'a> Parser<'a> {
+    /// A JSX element in expression context, with the sibling recovery of
+    /// typescript-go's `Parser.parseJsxElementOrSelfClosingElementOrFragment`
+    /// (`parser.go`): `<div></div><div></div>` would otherwise read the second
+    /// `<` as a less-than operator and the rest as garbage, so a following `<`
+    /// is parsed as another element, joined by a synthetic comma, and reported
+    /// as TS2657 from the first element's start.
+    pub(crate) fn parse_jsx_element_in_expression(
+        &mut self,
+        top_invalid_node_position: Option<u32>,
+    ) -> Expression<'a> {
+        let start = self.pos();
+        let result = self.parse_jsx_element();
+        if !self.at(SyntaxKind::LessThanToken) {
+            return result;
+        }
+        let top_bad_pos = top_invalid_node_position.unwrap_or(start);
+        let invalid_element = self.parse_jsx_element_in_expression(Some(top_bad_pos));
+        let invalid_start =
+            invalid_element.node_id().map_or(self.pos(), |id| self.nodes.span(id).start);
+        let operator = self.alloc_token(SyntaxKind::CommaToken, tsr_core::Span::at(invalid_start));
+        let end = self.node_end();
+        self.error_at(
+            &messages::JSX_EXPRESSIONS_MUST_HAVE_ONE_PARENT_ELEMENT,
+            tsr_core::Span::new(top_bad_pos, end),
+        );
+        Expression::BinaryExpression(self.finish_node(
+            BinaryExpression::new(&[], Some(result), None, Some(operator), Some(invalid_element)),
+            SyntaxKind::BinaryExpression,
+            start,
+        ))
+    }
+
     /// Parse a JSX element or fragment, starting at `<`.
     pub(crate) fn parse_jsx_element(&mut self) -> Expression<'a> {
         let start = self.pos();
         self.expect(SyntaxKind::LessThanToken);
 
         // `<>…</>` is a fragment: no tag name.
-        if self.at(SyntaxKind::GreaterThanToken) {
+        if self.at_jsx_greater_than() {
             let opening =
                 self.finish_node(JsxOpeningFragment::new(), SyntaxKind::JsxOpeningFragment, start);
             // The `>` closes the opening fragment and the next token is a child,
@@ -29,6 +61,7 @@ impl<'a> Parser<'a> {
             let children = self.parse_jsx_children();
             let closing_start = self.pos();
             self.expect(SyntaxKind::LessThanSlashToken);
+            self.at_jsx_greater_than();
             self.expect(SyntaxKind::GreaterThanToken);
             let closing = self.finish_node(
                 JsxClosingFragment::new(),
@@ -55,6 +88,7 @@ impl<'a> Parser<'a> {
         // `<div />` — self-closing, no children.
         if self.at(SyntaxKind::SlashToken) {
             self.next_token();
+            self.at_jsx_greater_than();
             self.expect(SyntaxKind::GreaterThanToken);
             return Expression::JsxSelfClosingElement(self.finish_node(
                 JsxSelfClosingElement::new(Some(tag_name), type_arguments, Some(attributes)),
@@ -68,7 +102,7 @@ impl<'a> Parser<'a> {
             SyntaxKind::JsxOpeningElement,
             start,
         );
-        if !self.at(SyntaxKind::GreaterThanToken) {
+        if !self.at_jsx_greater_than() {
             self.error_at_current_with(&messages::_0_EXPECTED, &[">"]);
         }
         // Past the `>`, everything is child content until `</`.
@@ -78,6 +112,7 @@ impl<'a> Parser<'a> {
         let closing_start = self.pos();
         self.expect(SyntaxKind::LessThanSlashToken);
         let closing_name = self.parse_jsx_tag_name();
+        self.at_jsx_greater_than();
         self.expect(SyntaxKind::GreaterThanToken);
         let closing = self.finish_node(
             JsxClosingElement::new(Some(closing_name)),
@@ -91,6 +126,15 @@ impl<'a> Parser<'a> {
             SyntaxKind::JsxElement,
             start,
         ))
+    }
+
+    /// Whether the cursor is on a single `>`, splitting a compound `>>`/`>=`
+    /// first. typescript-go's scanner only ever scans a lone `>` (the
+    /// compounds come from `reScanGreaterToken`), so in `<div>></div>` the
+    /// second `>` is JSX text; this scanner joins them greedily.
+    fn at_jsx_greater_than(&mut self) -> bool {
+        self.rescan_greater_than();
+        self.at(SyntaxKind::GreaterThanToken)
     }
 
     /// `div`, `My.Component`, `svg:circle`, `this`.
@@ -167,10 +211,10 @@ impl<'a> Parser<'a> {
         let start = self.pos();
         let mut properties = Vec::new();
 
-        while !matches!(
-            self.token.kind,
-            SyntaxKind::GreaterThanToken | SyntaxKind::SlashToken | SyntaxKind::EndOfFile
-        ) {
+        while !self.at_jsx_greater_than()
+            && !self.at(SyntaxKind::SlashToken)
+            && !self.at(SyntaxKind::EndOfFile)
+        {
             let before = self.pos();
             let attribute_start = self.pos();
 

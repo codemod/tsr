@@ -7,7 +7,7 @@
 
 use tsr_ast::*;
 use tsr_core::Span;
-use tsr_diagnostics::messages;
+use tsr_diagnostics::{Diagnostic, messages};
 
 use crate::parser::Parser;
 
@@ -1147,7 +1147,7 @@ impl<'a> Parser<'a> {
             // them to the file extension rather than to a lookahead.
             SyntaxKind::LessThanToken => {
                 if self.script_kind.allows_jsx() {
-                    self.parse_jsx_element()
+                    self.parse_jsx_element_in_expression(None)
                 } else {
                     self.parse_type_assertion()
                 }
@@ -2473,8 +2473,7 @@ impl<'a> Parser<'a> {
             self.next_token();
             return self.finish_node(Identifier::new(text), SyntaxKind::Identifier, start);
         }
-        self.error_at_current(&messages::IDENTIFIER_EXPECTED);
-        self.missing_identifier()
+        self.report_missing_identifier()
     }
 
     /// Parse an identifier name: any keyword qualifies — `a.class` is legal.
@@ -2487,7 +2486,43 @@ impl<'a> Parser<'a> {
             self.next_token();
             return self.finish_node(Identifier::new(text), SyntaxKind::Identifier, start);
         }
-        self.error_at_current(&messages::IDENTIFIER_EXPECTED);
+        self.report_missing_identifier()
+    }
+
+    /// The no-message tail of typescript-go's
+    /// `Parser.createIdentifierWithDiagnostic` (`parser.go`): report why the
+    /// token is not an identifier and mint a missing one. A private name is
+    /// reported and consumed as the identifier; at end of file the report sits
+    /// zero-width at the token's full start.
+    fn report_missing_identifier(&mut self) -> &'a Identifier<'a> {
+        if self.at(SyntaxKind::PrivateIdentifier) {
+            self.error_at_current(
+                &messages::PRIVATE_IDENTIFIERS_ARE_NOT_ALLOWED_OUTSIDE_CLASS_BODIES,
+            );
+            let start = self.pos();
+            let text = self.token_value();
+            self.next_token();
+            return self.finish_node(Identifier::new(text), SyntaxKind::Identifier, start);
+        }
+        // Only for end of file because the error gets reported incorrectly on
+        // embedded script tags.
+        let span = if self.at(SyntaxKind::EndOfFile) {
+            Span::at(self.node_end())
+        } else {
+            self.token.span
+        };
+        if crate::statement::is_reserved_word(self.token.kind) {
+            let text = self.token_text();
+            if !self.would_repeat_last_error(span) {
+                self.diagnostics.push(Diagnostic::with_args(
+                    &messages::IDENTIFIER_EXPECTED_0_IS_A_RESERVED_WORD_THAT_CANNOT_BE_USED_HERE,
+                    span,
+                    [text.to_string()],
+                ));
+            }
+        } else {
+            self.error_at(&messages::IDENTIFIER_EXPECTED, span);
+        }
         self.missing_identifier()
     }
 

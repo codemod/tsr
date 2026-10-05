@@ -704,68 +704,15 @@ impl<'a> Parser<'a> {
             );
         }
 
-        let mut declarations = Vec::new();
-        let mut trailing_comma = false;
-        loop {
-            // **An invalid character is skipped, and the list goes on.**
-            // `parseDelimitedList` (`parser.go:649`) hands a token that is
-            // neither a list element nor a terminator to
-            // `abortParsingListOrMoveToNextToken` (`parser.go:728`), which
-            // aborts only if some *enclosing* context would take the token.
-            // `SyntaxKind::Unknown` — what the scanner returns for `\` without
-            // a valid escape — is an element or terminator of no context at
-            // all, so upstream always reports it (at the scanner's own TS1127
-            // position, where the sink's same-position guard swallows it) and
-            // skips it. `var arg\u003` is therefore `var arg, u003` upstream
-            // (its `.js` emit says so); this loop used to end at the `\` and
-            // leave `u003` to become an expression statement and an extra
-            // TS2304. Restricted to `Unknown` because every other token's
-            // abort decision needs `isInSomeParsingContext`, which this parser
-            // does not track. `checker-notes-diag2.md` §1045.
-            let mut recovered_unknown = false;
-            while self.at(SyntaxKind::Unknown) {
-                recovered_unknown = true;
-                self.error_at_current(&messages::VARIABLE_DECLARATION_EXPECTED);
-                self.next_token();
-            }
-            if (recovered_unknown || !declarations.is_empty())
-                && !self.is_binding_identifier_or_private_identifier_or_pattern()
-            {
-                break;
-            }
-            declarations.push(self.parse_variable_declaration());
-            if self.at(SyntaxKind::Unknown) {
-                // `parseExpected(KindCommaToken)` (`parser.go:676`): the list
-                // was not terminated, so a separator is reported missing and
-                // the loop retries at the top, where the token is skipped.
-                self.error_at_current_with(&messages::_0_EXPECTED, &[","]);
-                continue;
-            }
-            if !self.eat(SyntaxKind::CommaToken) {
-                break;
-            }
-            // **Re-test after the separator.** Upstream's `parseDelimitedList`
-            // (`parser.go:664-667`) does not fall into `parseElement` after a
-            // comma — it `continue`s to the top of the loop and asks
-            // `isListElement` again, which for `PCVariableDeclarations` is
-            // `isBindingIdentifierOrPrivateIdentifierOrPattern` (`:871`). So
-            // `var a,` at end of file produces ONE declaration upstream, and
-            // this loop used to produce two: the second with a missing
-            // identifier that nothing in the source spells.
-            //
-            // The consequence was not a wrong type but an extra `.types` line
-            // with empty source text, which fails the case on its assertion
-            // COUNT while every line it does render is right — see
-            // `docs/architecture/checker-notes-nearmiss.md` §191.
-            // Unknown tokens must reach the recovery arm above even when a
-            // comma preceded them (`parser.go:664` continues unconditionally).
-            if !self.at(SyntaxKind::Unknown)
-                && !self.is_binding_identifier_or_private_identifier_or_pattern()
-            {
-                trailing_comma = true;
-                break;
-            }
-        }
+        // `parseDelimitedList(PCVariableDeclarations, …)`. An invalid token
+        // is reported and skipped unless an enclosing list wants it
+        // (`var arg\u003` is `var arg, u003` upstream, §1045), and a list
+        // that ends at once — `const;` — is empty, for the checker's TS1123.
+        let allow_exclamation = self.no_in == 0;
+        let (declarations, trailing_comma) = self
+            .parse_delimited_list(ParsingContext::VariableDeclarations, |parser| {
+                parser.parse_variable_declaration(allow_exclamation)
+            });
         let declarations = self.arena.alloc_slice(&declarations);
         let end = self.node_end();
         // Upstream derives this from the list's span outrunning its last node
@@ -784,12 +731,24 @@ impl<'a> Parser<'a> {
         )
     }
 
-    fn parse_variable_declaration(&mut self) -> &'a VariableDeclaration<'a> {
+    /// typescript-go's `Parser.parseVariableDeclarationWorker` (`parser.go`).
+    /// `allow_exclamation` is false in a `for` initializer.
+    fn parse_variable_declaration(
+        &mut self,
+        allow_exclamation: bool,
+    ) -> &'a VariableDeclaration<'a> {
         let docs = self.parse_leading_jsdoc();
         let start = self.pos();
         let name = self.parse_binding_name();
-        let exclamation =
-            if self.at(SyntaxKind::ExclamationToken) { Some(self.take_token()) } else { None };
+        let exclamation = if allow_exclamation
+            && matches!(name, BindingName::Identifier(_))
+            && self.at(SyntaxKind::ExclamationToken)
+            && !self.token.has_preceding_line_break()
+        {
+            Some(self.take_token())
+        } else {
+            None
+        };
         let type_node = self.parse_type_annotation();
         let initializer = if self.eat(SyntaxKind::EqualsToken) {
             Some(self.parse_assignment_expression())

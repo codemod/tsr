@@ -241,7 +241,9 @@ fn a_missing_semicolon_is_reported_but_parsing_continues() {
 #[test]
 fn unexpected_tokens_do_not_hang_the_parser() {
     // The parser must always consume something; a stall here would spin forever.
-    for source in ["@@@", ")", "}", "const", "if (", "function", "]]]", ": :"] {
+    // (A bare `const` is not among them: upstream parses it as an empty
+    // declaration list without a parse error and leaves TS1123 to the checker.)
+    for source in ["@@@", ")", "}", "if (", "function", "]]]", ": :"] {
         let arena = Arena::new();
         let result = parse(&arena, source);
         assert!(!result.diagnostics.is_empty(), "{source:?} should report something");

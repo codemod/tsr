@@ -42,12 +42,14 @@ pub(crate) enum ParsingContext {
     ClassMembers = 5,
     /// `PCEnumMembers`: members of an enum body.
     EnumMembers = 6,
+    /// `PCVariableDeclarations`: declarations of a variable statement.
+    VariableDeclarations = 8,
 }
 
 impl ParsingContext {
     /// Every context, in upstream's order — `isInSomeParsingContext` walks
     /// them lowest bit first.
-    const ALL: [Self; 7] = [
+    const ALL: [Self; 8] = [
         Self::SourceElements,
         Self::BlockStatements,
         Self::SwitchClauses,
@@ -55,6 +57,7 @@ impl ParsingContext {
         Self::TypeMembers,
         Self::ClassMembers,
         Self::EnumMembers,
+        Self::VariableDeclarations,
     ];
 
     const fn bit(self) -> u32 {
@@ -177,6 +180,9 @@ impl Parser<'_> {
             // reporting.
             ParsingContext::EnumMembers => {
                 self.at(SyntaxKind::OpenBracketToken) || self.is_literal_property_name()
+            }
+            ParsingContext::VariableDeclarations => {
+                self.is_binding_identifier_or_private_identifier_or_pattern()
             }
         }
     }
@@ -303,6 +309,18 @@ impl Parser<'_> {
             | ParsingContext::TypeMembers
             | ParsingContext::ClassMembers
             | ParsingContext::EnumMembers => self.at(SyntaxKind::CloseBraceToken),
+            // If we can consume a semicolon (either explicitly, or with ASI),
+            // then consider us done. A for-in/of declaration ends at its
+            // keyword, and for error recovery a `=>` stops the list at once.
+            ParsingContext::VariableDeclarations => {
+                self.can_parse_semicolon()
+                    || matches!(
+                        self.token.kind,
+                        SyntaxKind::InKeyword
+                            | SyntaxKind::OfKeyword
+                            | SyntaxKind::EqualsGreaterThanToken
+                    )
+            }
             ParsingContext::SwitchClauseStatements => matches!(
                 self.token.kind,
                 SyntaxKind::CloseBraceToken | SyntaxKind::CaseKeyword | SyntaxKind::DefaultKeyword
@@ -364,6 +382,16 @@ impl Parser<'_> {
                 );
             }
             ParsingContext::EnumMembers => self.error_at_current(&messages::ENUM_MEMBER_EXPECTED),
+            ParsingContext::VariableDeclarations if self.token.kind.is_keyword() => {
+                let text = self.token_text();
+                self.error_at_current_with(
+                    &messages::_0_IS_NOT_ALLOWED_AS_A_VARIABLE_DECLARATION_NAME,
+                    &[text],
+                );
+            }
+            ParsingContext::VariableDeclarations => {
+                self.error_at_current(&messages::VARIABLE_DECLARATION_EXPECTED);
+            }
         }
     }
 }

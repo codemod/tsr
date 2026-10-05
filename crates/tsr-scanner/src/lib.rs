@@ -1436,6 +1436,19 @@ impl<'a> Scanner<'a> {
             if ch == '<' || ch == '{' {
                 break;
             }
+            // `scanJsxTokenEx` (`scanner.go`): a bare `>` or `}` in JSX text
+            // is reported and kept as text.
+            if ch == '>' {
+                self.error(
+                    &tsr_diagnostics::messages::UNEXPECTED_TOKEN_DID_YOU_MEAN_OR_GT,
+                    Span::new(self.pos, self.pos + 1),
+                );
+            } else if ch == '}' {
+                self.error(
+                    &tsr_diagnostics::messages::UNEXPECTED_TOKEN_DID_YOU_MEAN_OR_RBRACE,
+                    Span::new(self.pos, self.pos + 1),
+                );
+            }
             if is_line_break(ch) && !saw_content {
                 leading_line_break = true;
             } else if !is_whitespace_single_line(ch) && !is_line_break(ch) {
