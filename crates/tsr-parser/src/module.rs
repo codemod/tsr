@@ -6,12 +6,6 @@ use tsr_diagnostics::messages;
 use crate::parser::Parser;
 
 impl<'a> Parser<'a> {
-    /// Whether `import` begins a declaration rather than `import(…)` or
-    /// `import.meta`, both of which are expressions.
-    pub(crate) fn import_starts_declaration(&mut self) -> bool {
-        self.peek_kind(|kind| !matches!(kind, SyntaxKind::OpenParenToken | SyntaxKind::DotToken))
-    }
-
     /// `import …` in all its forms.
     pub(crate) fn parse_import_declaration(
         &mut self,
@@ -224,38 +218,13 @@ impl<'a> Parser<'a> {
             return Statement::ExportAssignment(node);
         }
 
-        // `export default …` — a declaration if one follows, otherwise an
-        // expression.
+        // `export default <expression>` — `parseExportAssignment`
+        // (`parser.go`). `export default class`/`function`/`interface` never
+        // reach here: there `export` and `default` are modifiers
+        // (`nextTokenCanFollowDefaultKeyword`) and the declaration is parsed
+        // by `parse_declaration_after_modifiers`.
         if self.at(SyntaxKind::DefaultKeyword) {
-            let default_start = self.pos();
             self.next_token();
-            // `default` is a *modifier* of the declaration it introduces, not
-            // punctuation the parser can drop: it is the only thing that
-            // distinguishes `export default function foo` from `export function
-            // foo`, and the binder needs it to file the export under `default`.
-            let default_token = self.alloc_token(
-                SyntaxKind::DefaultKeyword,
-                tsr_core::Span::new(default_start, self.pos()),
-            );
-            // `export default @dec class {}` and `export default async
-            // function`: decorators and contextual modifiers sit between the
-            // default modifier and the declaration keyword.
-            if matches!(
-                self.token.kind,
-                SyntaxKind::AtToken
-                    | SyntaxKind::ClassKeyword
-                    | SyntaxKind::FunctionKeyword
-                    | SyntaxKind::AbstractKeyword
-                    | SyntaxKind::InterfaceKeyword
-                    | SyntaxKind::EnumKeyword
-                    | SyntaxKind::AsyncKeyword
-            ) {
-                let mut modifiers =
-                    vec![ModifierLike::Token(export_token), ModifierLike::Token(default_token)];
-                modifiers.extend(self.parse_modifiers());
-                let modifiers = self.arena.alloc_slice(&modifiers);
-                return self.parse_declaration_after_modifiers(start, modifiers);
-            }
             let expression = self.parse_assignment_expression();
             self.parse_semicolon();
             let node = self.finish_node(
@@ -399,7 +368,8 @@ impl<'a> Parser<'a> {
             ));
             let block_start = self.pos();
             self.expect(SyntaxKind::OpenBraceToken);
-            let statements = self.parse_statement_list(SyntaxKind::CloseBraceToken);
+            let statements =
+                self.parse_statement_list(crate::list::ParsingContext::BlockStatements);
             self.expect(SyntaxKind::CloseBraceToken);
             let statements = self.arena.alloc_slice(&statements);
             let body = ModuleBody::ModuleBlock(self.finish_node(
@@ -493,7 +463,7 @@ impl<'a> Parser<'a> {
         }
         let block_start = self.pos();
         self.expect(SyntaxKind::OpenBraceToken);
-        let statements = self.parse_statement_list(SyntaxKind::CloseBraceToken);
+        let statements = self.parse_statement_list(crate::list::ParsingContext::BlockStatements);
         self.expect(SyntaxKind::CloseBraceToken);
         let statements = self.arena.alloc_slice(&statements);
         Some(ModuleBody::ModuleBlock(self.finish_node(

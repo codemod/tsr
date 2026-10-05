@@ -3,51 +3,31 @@
 use tsr_ast::*;
 use tsr_diagnostics::messages;
 
+use crate::list::ParsingContext;
 use crate::parser::Parser;
 
 impl<'a> Parser<'a> {
-    /// Parse statements until `terminator` or end of file.
-    ///
-    /// The loop is the parser's main recovery point: if a statement makes no
-    /// progress, the offending token is discarded so the file cannot hang.
-    pub(crate) fn parse_statement_list(&mut self, terminator: SyntaxKind) -> Vec<Statement<'a>> {
-        let mut statements = Vec::new();
-        while !self.at(terminator) && !self.at(SyntaxKind::EndOfFile) {
-            let before = self.pos();
-            let parsed = self.parse_statement();
-
-            // Termination is enforced here rather than assumed. A statement parser
-            // can legitimately produce a node while consuming nothing — an
-            // expression statement whose expression was synthesised from a token
-            // it could not use — and that node covers no text, so keeping it would
-            // add a zero-width statement *and* spin the loop forever.
-            if self.pos() == before {
-                if parsed.is_none() {
-                    self.error_at_current(&messages::UNEXPECTED_TOKEN);
-                }
-                self.next_token();
-                continue;
-            }
-
-            if let Some(statement) = parsed {
-                statements.push(statement);
-            }
-        }
-        statements
+    /// Parse a statement list — typescript-go's
+    /// `parseList(PCSourceElements | PCBlockStatements, parseStatement)`
+    /// (`parser.go`). The list machinery in `list.rs` owns recovery: a token
+    /// that cannot start a statement is reported (`TS1128`) and skipped,
+    /// unless an enclosing list can use it.
+    pub(crate) fn parse_statement_list(&mut self, context: ParsingContext) -> Vec<Statement<'a>> {
+        self.parse_list(context, Self::parse_statement)
     }
 
-    /// Parse one statement, or `None` if the cursor is not on one.
-    #[allow(clippy::too_many_lines)]
-    pub(crate) fn parse_statement(&mut self) -> Option<Statement<'a>> {
+    /// Parse one statement — typescript-go's `Parser.parseStatement`
+    /// (`parser.go`). Like upstream it always produces a statement: a token
+    /// that starts nothing falls through to an expression statement over a
+    /// missing identifier.
+    pub(crate) fn parse_statement(&mut self) -> Statement<'a> {
         let docs = self.parse_leading_jsdoc();
         let statement = self.parse_statement_worker();
-        if let Some(statement) = statement {
-            self.attach_jsdoc(statement.into(), docs);
-        }
+        self.attach_jsdoc(statement.into(), docs);
         statement
     }
 
-    fn parse_statement_worker(&mut self) -> Option<Statement<'a>> {
+    fn parse_statement_worker(&mut self) -> Statement<'a> {
         let start = self.pos();
 
         // Bound before matching: the guards below need `&mut self` for lookahead,
@@ -58,77 +38,36 @@ impl<'a> Parser<'a> {
                 self.next_token();
                 let node =
                     self.finish_node(EmptyStatement::new(), SyntaxKind::EmptyStatement, start);
-                Some(Statement::EmptyStatement(node))
+                return Statement::EmptyStatement(node);
             }
-            SyntaxKind::OpenBraceToken => Some(Statement::Block(self.parse_block())),
-            SyntaxKind::VarKeyword | SyntaxKind::LetKeyword | SyntaxKind::ConstKeyword => {
-                // `const enum` is an enum declaration, not a variable named `enum`.
-                if self.at(SyntaxKind::ConstKeyword) && self.next_is_enum() {
-                    let modifiers = self.parse_modifiers();
-                    return Some(self.parse_enum_declaration(start, &modifiers));
-                }
-                // `let` is contextual: `let` alone is an identifier.
-                if self.at(SyntaxKind::LetKeyword) && !self.next_starts_binding() {
-                    return self.parse_expression_statement();
-                }
-                Some(self.parse_variable_statement(start, &[]))
+            SyntaxKind::OpenBraceToken => return Statement::Block(self.parse_block()),
+            SyntaxKind::VarKeyword => return self.parse_variable_statement(start, &[]),
+            SyntaxKind::LetKeyword if self.is_let_declaration() => {
+                return self.parse_variable_statement(start, &[]);
             }
-            // `using x = r;` and `await using x = r;` — explicit resource
-            // management. `using` is contextual, so a binding name must follow.
-            SyntaxKind::UsingKeyword if self.next_starts_binding() => {
-                Some(self.parse_variable_statement(start, &[]))
-            }
-            SyntaxKind::AwaitKeyword if self.next_starts_using_declaration() => {
+            SyntaxKind::AwaitKeyword if self.is_await_using_declaration() => {
                 self.next_token();
-                Some(self.parse_variable_statement(start, &[]))
+                return self.parse_variable_statement(start, &[]);
             }
-            SyntaxKind::FunctionKeyword => Some(self.parse_function_declaration(start, &[])),
-            SyntaxKind::ClassKeyword => Some(self.parse_class_declaration(start, &[])),
-            SyntaxKind::ImportKeyword if self.import_starts_declaration() => {
-                Some(self.parse_import_declaration(start, &[]))
+            SyntaxKind::UsingKeyword if self.is_using_declaration() => {
+                return self.parse_variable_statement(start, &[]);
             }
-            SyntaxKind::ExportKeyword => {
-                // Keep the `export` token rather than discarding it. It is a
-                // modifier on whatever declaration follows, and the binder reads
-                // it to route a namespace member into the namespace's exports
-                // instead of its locals — without it, `namespace M { export const
-                // X = 1 }` declares `X` rather than `M.X`.
-                let modifier_start = self.pos();
-                self.next_token();
-                let token = self.alloc_token(
-                    SyntaxKind::ExportKeyword,
-                    tsr_core::Span::new(modifier_start, self.pos()),
-                );
-                Some(self.parse_export(start, token, &[]))
-            }
-            SyntaxKind::NamespaceKeyword | SyntaxKind::ModuleKeyword
-                if self.next_starts_module_name() =>
-            {
-                Some(self.parse_module_declaration(start, &[]))
-            }
-            // `global { … }` augments the global scope from inside a module body.
-            SyntaxKind::GlobalKeyword if self.next_is_open_brace_token() => {
-                Some(self.parse_module_declaration(start, &[]))
-            }
-            SyntaxKind::EnumKeyword => Some(self.parse_enum_declaration(start, &[])),
-            SyntaxKind::InterfaceKeyword if self.next_is_identifier() => {
-                Some(self.parse_interface_declaration(start, &[]))
-            }
-            SyntaxKind::TypeKeyword if self.next_is_identifier() => {
-                Some(self.parse_type_alias_declaration(start, &[]))
-            }
-            SyntaxKind::IfKeyword => Some(self.parse_if_statement()),
-            SyntaxKind::DoKeyword => Some(self.parse_do_statement()),
-            SyntaxKind::WhileKeyword => Some(self.parse_while_statement()),
-            SyntaxKind::ForKeyword => Some(self.parse_for_statement()),
+            SyntaxKind::FunctionKeyword => return self.parse_function_declaration(start, &[]),
+            SyntaxKind::ClassKeyword => return self.parse_class_declaration(start, &[]),
+            SyntaxKind::IfKeyword => return self.parse_if_statement(),
+            SyntaxKind::DoKeyword => return self.parse_do_statement(),
+            SyntaxKind::WhileKeyword => return self.parse_while_statement(),
+            SyntaxKind::ForKeyword => return self.parse_for_statement(),
             SyntaxKind::ContinueKeyword | SyntaxKind::BreakKeyword => {
-                Some(self.parse_break_or_continue())
+                return self.parse_break_or_continue();
             }
-            SyntaxKind::ReturnKeyword => Some(self.parse_return_statement()),
-            SyntaxKind::WithKeyword => Some(self.parse_with_statement()),
-            SyntaxKind::SwitchKeyword => Some(self.parse_switch_statement()),
-            SyntaxKind::ThrowKeyword => Some(self.parse_throw_statement()),
-            SyntaxKind::TryKeyword => Some(self.parse_try_statement()),
+            SyntaxKind::ReturnKeyword => return self.parse_return_statement(),
+            SyntaxKind::WithKeyword => return self.parse_with_statement(),
+            SyntaxKind::SwitchKeyword => return self.parse_switch_statement(),
+            SyntaxKind::ThrowKeyword => return self.parse_throw_statement(),
+            SyntaxKind::TryKeyword | SyntaxKind::CatchKeyword | SyntaxKind::FinallyKeyword => {
+                return self.parse_try_statement();
+            }
             SyntaxKind::DebuggerKeyword => {
                 self.next_token();
                 self.parse_semicolon();
@@ -137,43 +76,257 @@ impl<'a> Parser<'a> {
                     SyntaxKind::DebuggerStatement,
                     start,
                 );
-                Some(Statement::DebuggerStatement(node))
+                return Statement::DebuggerStatement(node);
             }
-            SyntaxKind::AtToken => {
-                let modifiers = self.parse_modifiers();
-                let modifiers = self.arena.alloc_slice(&modifiers);
-                Some(self.parse_declaration_after_modifiers(start, modifiers))
+            SyntaxKind::AtToken => return self.parse_declaration(),
+            SyntaxKind::AsyncKeyword
+            | SyntaxKind::InterfaceKeyword
+            | SyntaxKind::TypeKeyword
+            | SyntaxKind::ModuleKeyword
+            | SyntaxKind::NamespaceKeyword
+            | SyntaxKind::DeclareKeyword
+            | SyntaxKind::ConstKeyword
+            | SyntaxKind::EnumKeyword
+            | SyntaxKind::ExportKeyword
+            | SyntaxKind::ImportKeyword
+            | SyntaxKind::PrivateKeyword
+            | SyntaxKind::ProtectedKeyword
+            | SyntaxKind::PublicKeyword
+            | SyntaxKind::AbstractKeyword
+            | SyntaxKind::AccessorKeyword
+            | SyntaxKind::StaticKeyword
+            | SyntaxKind::ReadonlyKeyword
+            | SyntaxKind::GlobalKeyword
+                if self.is_start_of_declaration() =>
+            {
+                return self.parse_declaration();
             }
-            _ if self.at_modifier_starting_declaration() && self.next_starts_declaration() => {
-                let modifiers = self.parse_modifiers();
-                let modifiers = self.arena.alloc_slice(&modifiers);
-                Some(self.parse_declaration_after_modifiers(start, modifiers))
+            _ => {}
+        }
+        self.parse_expression_or_labeled_statement()
+    }
+
+    /// typescript-go's `Parser.parseDeclaration` (`parser.go`): modifiers,
+    /// then the declaration they precede.
+    fn parse_declaration(&mut self) -> Statement<'a> {
+        let start = self.pos();
+        let modifiers = self.parse_modifiers();
+        let modifiers = self.arena.alloc_slice(&modifiers);
+        self.parse_declaration_after_modifiers(start, modifiers)
+    }
+
+    /// Whether the cursor starts a statement — typescript-go's
+    /// `Parser.isStartOfStatement` (`parser.go`), the element test of every
+    /// statement list.
+    pub(crate) fn is_start_of_statement(&mut self) -> bool {
+        match self.token.kind {
+            // 'catch' and 'finally' do not actually indicate that the code is
+            // part of a statement; they are accepted so they can be parsed
+            // gracefully and reported later.
+            SyntaxKind::AtToken
+            | SyntaxKind::SemicolonToken
+            | SyntaxKind::OpenBraceToken
+            | SyntaxKind::VarKeyword
+            | SyntaxKind::LetKeyword
+            | SyntaxKind::UsingKeyword
+            | SyntaxKind::FunctionKeyword
+            | SyntaxKind::ClassKeyword
+            | SyntaxKind::EnumKeyword
+            | SyntaxKind::IfKeyword
+            | SyntaxKind::DoKeyword
+            | SyntaxKind::WhileKeyword
+            | SyntaxKind::ForKeyword
+            | SyntaxKind::ContinueKeyword
+            | SyntaxKind::BreakKeyword
+            | SyntaxKind::ReturnKeyword
+            | SyntaxKind::WithKeyword
+            | SyntaxKind::SwitchKeyword
+            | SyntaxKind::ThrowKeyword
+            | SyntaxKind::TryKeyword
+            | SyntaxKind::DebuggerKeyword
+            | SyntaxKind::CatchKeyword
+            | SyntaxKind::FinallyKeyword
+            // When these don't start a declaration, they're an identifier in
+            // an expression statement.
+            | SyntaxKind::AsyncKeyword
+            | SyntaxKind::DeclareKeyword
+            | SyntaxKind::InterfaceKeyword
+            | SyntaxKind::ModuleKeyword
+            | SyntaxKind::NamespaceKeyword
+            | SyntaxKind::TypeKeyword
+            | SyntaxKind::GlobalKeyword
+            | SyntaxKind::DeferKeyword => true,
+            SyntaxKind::ImportKeyword => {
+                self.is_start_of_declaration()
+                    || self.is_next_token_open_paren_or_less_than_or_dot()
             }
-            _ => self.parse_expression_statement(),
+            SyntaxKind::ConstKeyword | SyntaxKind::ExportKeyword => self.is_start_of_declaration(),
+            // When these don't start a declaration, they may be the start of a
+            // class member if an identifier immediately follows. Otherwise
+            // they're an identifier in an expression statement.
+            SyntaxKind::AccessorKeyword
+            | SyntaxKind::PublicKeyword
+            | SyntaxKind::PrivateKeyword
+            | SyntaxKind::ProtectedKeyword
+            | SyntaxKind::StaticKeyword
+            | SyntaxKind::ReadonlyKeyword => {
+                self.is_start_of_declaration()
+                    || !self.look_ahead(Self::next_token_is_identifier_or_keyword_on_same_line)
+            }
+            _ => self.is_start_of_expression(),
         }
     }
 
-    /// Whether the token after `let` can begin a binding.
-    fn next_starts_binding(&mut self) -> bool {
+    /// typescript-go's `Parser.isNextTokenOpenParenOrLessThanOrDot`
+    /// (`parser.go`).
+    pub(crate) fn is_next_token_open_paren_or_less_than_or_dot(&mut self) -> bool {
         self.peek_kind(|kind| {
             matches!(
                 kind,
-                SyntaxKind::Identifier | SyntaxKind::OpenBracketToken | SyntaxKind::OpenBraceToken
-            ) || is_contextual_keyword(kind)
+                SyntaxKind::OpenParenToken | SyntaxKind::LessThanToken | SyntaxKind::DotToken
+            )
         })
     }
 
-    /// Look at the next token without committing.
-    /// Look at the next token through a predicate that may read more than its
-    /// kind — the preceding-line-break flag, in particular.
-    pub(crate) fn peek_token(&mut self, predicate: impl Fn(&Self) -> bool) -> bool {
-        let mut matched = false;
-        self.try_parse(|p| {
+    /// typescript-go's `Parser.isStartOfDeclaration` (`parser.go`).
+    pub(crate) fn is_start_of_declaration(&mut self) -> bool {
+        self.look_ahead(Self::scan_start_of_declaration)
+    }
+
+    /// typescript-go's `Parser.scanStartOfDeclaration` (`parser.go`): skip
+    /// modifiers and decide whether a declaration keyword follows.
+    fn scan_start_of_declaration(&mut self) -> bool {
+        loop {
+            match self.token.kind {
+                SyntaxKind::VarKeyword
+                | SyntaxKind::LetKeyword
+                | SyntaxKind::ConstKeyword
+                | SyntaxKind::FunctionKeyword
+                | SyntaxKind::ClassKeyword
+                | SyntaxKind::EnumKeyword => return true,
+                SyntaxKind::UsingKeyword => return self.is_using_declaration(),
+                SyntaxKind::AwaitKeyword => return self.is_await_using_declaration(),
+                // 'declare', 'module', 'namespace', 'interface' and 'type' are
+                // legal identifiers, but an identifier cannot be followed by
+                // another identifier on the same line.
+                SyntaxKind::InterfaceKeyword
+                | SyntaxKind::TypeKeyword
+                | SyntaxKind::DeferKeyword => {
+                    return self.next_token_is_identifier_on_same_line();
+                }
+                SyntaxKind::ModuleKeyword | SyntaxKind::NamespaceKeyword => {
+                    self.next_token();
+                    return (self.is_identifier() || self.at(SyntaxKind::StringLiteral))
+                        && !self.token.has_preceding_line_break();
+                }
+                SyntaxKind::AbstractKeyword
+                | SyntaxKind::AccessorKeyword
+                | SyntaxKind::AsyncKeyword
+                | SyntaxKind::DeclareKeyword
+                | SyntaxKind::PrivateKeyword
+                | SyntaxKind::ProtectedKeyword
+                | SyntaxKind::PublicKeyword
+                | SyntaxKind::ReadonlyKeyword => {
+                    let previous = self.token.kind;
+                    self.next_token();
+                    // ASI takes effect for this modifier.
+                    if self.token.has_preceding_line_break() {
+                        return false;
+                    }
+                    if previous == SyntaxKind::DeclareKeyword && self.at(SyntaxKind::TypeKeyword) {
+                        // `declare type` commits to a type alias;
+                        // `parseTypeAliasDeclaration` reports a line break.
+                        return true;
+                    }
+                }
+                SyntaxKind::GlobalKeyword => {
+                    self.next_token();
+                    return matches!(
+                        self.token.kind,
+                        SyntaxKind::OpenBraceToken
+                            | SyntaxKind::Identifier
+                            | SyntaxKind::ExportKeyword
+                    );
+                }
+                SyntaxKind::ImportKeyword => {
+                    self.next_token();
+                    return matches!(
+                        self.token.kind,
+                        SyntaxKind::DeferKeyword
+                            | SyntaxKind::StringLiteral
+                            | SyntaxKind::AsteriskToken
+                            | SyntaxKind::OpenBraceToken
+                            | SyntaxKind::Identifier
+                    ) || self.token.kind.is_keyword();
+                }
+                SyntaxKind::ExportKeyword => {
+                    self.next_token();
+                    if matches!(
+                        self.token.kind,
+                        SyntaxKind::EqualsToken
+                            | SyntaxKind::AsteriskToken
+                            | SyntaxKind::OpenBraceToken
+                            | SyntaxKind::DefaultKeyword
+                            | SyntaxKind::AsKeyword
+                            | SyntaxKind::AtToken
+                    ) {
+                        return true;
+                    }
+                    if self.at(SyntaxKind::TypeKeyword) {
+                        self.next_token();
+                        return self.at(SyntaxKind::AsteriskToken)
+                            || self.at(SyntaxKind::OpenBraceToken)
+                            || (self.is_identifier() && !self.token.has_preceding_line_break());
+                    }
+                }
+                SyntaxKind::StaticKeyword => {
+                    self.next_token();
+                }
+                _ => return false,
+            }
+        }
+    }
+
+    /// typescript-go's `Parser.nextTokenIsIdentifierOnSameLine` (`parser.go`).
+    fn next_token_is_identifier_on_same_line(&mut self) -> bool {
+        self.next_token();
+        self.is_identifier() && !self.token.has_preceding_line_break()
+    }
+
+    /// typescript-go's `Parser.isLetDeclaration` (`parser.go`): `let`
+    /// followed by a binding identifier, `{` or `[`.
+    fn is_let_declaration(&mut self) -> bool {
+        self.look_ahead(|p| {
             p.next_token();
-            matched = predicate(p);
-            None::<()>
-        });
-        matched
+            p.is_binding_identifier()
+                || p.at(SyntaxKind::OpenBraceToken)
+                || p.at(SyntaxKind::OpenBracketToken)
+        })
+    }
+
+    /// typescript-go's `Parser.isUsingDeclaration` (`parser.go`).
+    pub(crate) fn is_using_declaration(&mut self) -> bool {
+        self.look_ahead(|p| {
+            p.next_token_is_binding_identifier_or_start_of_destructuring_on_same_line()
+        })
+    }
+
+    /// typescript-go's `Parser.isAwaitUsingDeclaration` (`parser.go`).
+    pub(crate) fn is_await_using_declaration(&mut self) -> bool {
+        self.look_ahead(|p| {
+            p.next_token();
+            p.at(SyntaxKind::UsingKeyword)
+                && p.next_token_is_binding_identifier_or_start_of_destructuring_on_same_line()
+        })
+    }
+
+    /// typescript-go's
+    /// `Parser.nextTokenIsBindingIdentifierOrStartOfDestructuringOnSameLine`
+    /// (`parser.go`) with `disallowOf` false.
+    fn next_token_is_binding_identifier_or_start_of_destructuring_on_same_line(&mut self) -> bool {
+        self.next_token();
+        (self.is_binding_identifier() || self.at(SyntaxKind::OpenBraceToken))
+            && !self.token.has_preceding_line_break()
     }
 
     pub(crate) fn peek_kind(&mut self, predicate: impl Fn(SyntaxKind) -> bool) -> bool {
@@ -188,112 +341,27 @@ impl<'a> Parser<'a> {
         matched
     }
 
-    /// Whether `namespace`/`module` is followed by a name rather than used as one.
+    /// Whether a `for` header opens with a variable declaration list.
     ///
-    /// The name may itself be a contextual keyword: `namespace require { … }` is
-    /// legal, and rejecting it leaves the whole namespace body unparsed.
-    ///
-    /// §361: **on the same line** —
-    /// `nextTokenIsIdentifierOrStringLiteralOnSameLine` (parser.go:6103).
-    /// These keywords are legal identifiers, and an identifier cannot be
-    /// followed by another identifier across a line break: ASI makes
-    /// `module⏎"my external module"⏎x = 1;` an expression statement naming
-    /// `module` followed by a string statement
-    /// (`asiPreventsParsingAsAmbientExternalModule01`).
-    fn next_starts_module_name(&mut self) -> bool {
-        self.peek_token(|p| {
-            !p.token.has_preceding_line_break()
-                && (p.token.kind == SyntaxKind::Identifier
-                    || p.token.kind == SyntaxKind::StringLiteral
-                    || is_contextual_keyword(p.token.kind))
-        })
-    }
-
-    /// Whether the next token is an identifier **on the same line**, for the
-    /// contextual keywords `interface` and `type`.
-    ///
-    /// §361: upstream's `nextTokenIsIdentifierOnSameLine` (parser.go:6101),
-    /// the arm scanStartOfDeclaration documents with `namespace⏎n`: a line
-    /// break after the keyword makes it a plain identifier expression
-    /// (`asiPreventsParsingAsInterface01`).
-    fn next_is_identifier(&mut self) -> bool {
-        self.peek_token(|p| {
-            !p.token.has_preceding_line_break()
-                && (p.token.kind == SyntaxKind::Identifier || is_contextual_keyword(p.token.kind))
-        })
-    }
-
-    /// Whether `await` here begins an `await using` declaration.
-    fn next_starts_using_declaration(&mut self) -> bool {
-        self.peek_kind(|kind| kind == SyntaxKind::UsingKeyword)
-    }
-
-    /// Whether the cursor opens a variable declaration list.
+    /// Not yet upstream's test (`parseForOrForInOrForOfStatement` requires
+    /// `using` to be followed on the same line by a binding, with `of`
+    /// disallowed): `await using` lists are not flagged `AwaitUsing` here, so
+    /// the printer cannot write the `await` back, and the stricter test turns
+    /// that into a round-trip difference.
     fn at_variable_declaration_list(&mut self) -> bool {
         match self.token.kind {
             SyntaxKind::VarKeyword | SyntaxKind::LetKeyword | SyntaxKind::ConstKeyword => true,
-            SyntaxKind::UsingKeyword => self.next_starts_binding(),
-            SyntaxKind::AwaitKeyword => self.next_starts_using_declaration(),
+            SyntaxKind::UsingKeyword => self.peek_kind(|kind| {
+                matches!(
+                    kind,
+                    SyntaxKind::Identifier
+                        | SyntaxKind::OpenBracketToken
+                        | SyntaxKind::OpenBraceToken
+                ) || is_contextual_keyword(kind)
+            }),
+            SyntaxKind::AwaitKeyword => self.peek_kind(|kind| kind == SyntaxKind::UsingKeyword),
             _ => false,
         }
-    }
-
-    /// Whether `global` here opens an augmentation block.
-    fn next_is_open_brace_token(&mut self) -> bool {
-        self.peek_kind(|kind| kind == SyntaxKind::OpenBraceToken)
-    }
-
-    /// Whether what follows a modifier keyword actually begins a declaration.
-    ///
-    /// `declare` and friends are contextual: `var declare: any; declare
-    /// instanceof C;` uses one as a plain identifier, and treating it as a
-    /// modifier there swallows the expression statement.
-    fn next_starts_declaration(&mut self) -> bool {
-        self.peek_kind(|kind| {
-            matches!(
-                kind,
-                SyntaxKind::VarKeyword
-                    | SyntaxKind::LetKeyword
-                    | SyntaxKind::ConstKeyword
-                    | SyntaxKind::FunctionKeyword
-                    | SyntaxKind::ClassKeyword
-                    | SyntaxKind::InterfaceKeyword
-                    | SyntaxKind::TypeKeyword
-                    | SyntaxKind::EnumKeyword
-                    | SyntaxKind::ImportKeyword
-                    | SyntaxKind::ExportKeyword
-                    | SyntaxKind::NamespaceKeyword
-                    | SyntaxKind::ModuleKeyword
-                    | SyntaxKind::GlobalKeyword
-                    | SyntaxKind::AtToken
-                    | SyntaxKind::AbstractKeyword
-                    | SyntaxKind::AsyncKeyword
-                    | SyntaxKind::DeclareKeyword
-                    | SyntaxKind::ReadonlyKeyword
-                    | SyntaxKind::StaticKeyword
-                    | SyntaxKind::PublicKeyword
-                    | SyntaxKind::PrivateKeyword
-                    | SyntaxKind::ProtectedKeyword
-                    | SyntaxKind::AccessorKeyword
-                    | SyntaxKind::OverrideKeyword
-                    | SyntaxKind::DefaultKeyword
-            )
-        })
-    }
-
-    /// Whether the cursor is on a modifier that introduces a declaration.
-    fn at_modifier_starting_declaration(&self) -> bool {
-        matches!(
-            self.token.kind,
-            SyntaxKind::DeclareKeyword
-                | SyntaxKind::AbstractKeyword
-                | SyntaxKind::AsyncKeyword
-                | SyntaxKind::ReadonlyKeyword
-                | SyntaxKind::PublicKeyword
-                | SyntaxKind::PrivateKeyword
-                | SyntaxKind::ProtectedKeyword
-                | SyntaxKind::StaticKeyword
-        )
     }
 
     /// Parse a run of modifiers, including decorators.
@@ -415,38 +483,62 @@ impl<'a> Parser<'a> {
         if seen_static && kind == SyntaxKind::StaticKeyword {
             return true;
         }
-        !self.peek_token(|p| match kind {
-            // `export` may be followed by a decorator — `@dec export @dec class`
-            // — and not by the tokens that make it an export *declaration*
-            // rather than a modifier (`canFollowExportModifier`).
+        // `nextTokenCanFollowModifier` (`parser.go`).
+        !self.look_ahead(|p| match kind {
             SyntaxKind::ExportKeyword => {
-                p.token.kind == SyntaxKind::AtToken
-                    || !matches!(
-                        p.token.kind,
-                        SyntaxKind::AsteriskToken
-                            | SyntaxKind::AsKeyword
-                            | SyntaxKind::OpenBraceToken
-                    ) && can_follow_modifier(p.token.kind)
+                p.next_token();
+                if p.at(SyntaxKind::DefaultKeyword) {
+                    return p.look_ahead(Self::next_token_can_follow_default_keyword);
+                }
+                if p.at(SyntaxKind::TypeKeyword) {
+                    return p.look_ahead(|p| {
+                        p.next_token();
+                        p.can_follow_export_modifier()
+                    });
+                }
+                p.can_follow_export_modifier()
             }
-            // `export default` is followed by the declaration it exports
-            // (`nextTokenCanFollowDefaultKeyword`).
-            SyntaxKind::DefaultKeyword => matches!(
-                p.token.kind,
-                SyntaxKind::ClassKeyword
-                    | SyntaxKind::FunctionKeyword
-                    | SyntaxKind::InterfaceKeyword
-                    | SyntaxKind::AbstractKeyword
-                    | SyntaxKind::AsyncKeyword
-                    | SyntaxKind::AtToken
-            ),
+            SyntaxKind::DefaultKeyword => p.next_token_can_follow_default_keyword(),
             // `static` alone is exempt from the same-line rule: `static` on its
             // own line still modifies what comes next.
-            SyntaxKind::StaticKeyword => can_follow_modifier(p.token.kind),
+            SyntaxKind::StaticKeyword => {
+                p.next_token();
+                can_follow_modifier(p.token.kind)
+            }
             _ => {
-                !p.token.flags.contains(tsr_scanner::TokenFlags::PRECEDING_LINE_BREAK)
-                    && can_follow_modifier(p.token.kind)
+                p.next_token();
+                !p.token.has_preceding_line_break() && can_follow_modifier(p.token.kind)
             }
         })
+    }
+
+    /// typescript-go's `Parser.canFollowExportModifier` (`parser.go`).
+    fn can_follow_export_modifier(&self) -> bool {
+        self.at(SyntaxKind::AtToken)
+            || !matches!(
+                self.token.kind,
+                SyntaxKind::AsteriskToken | SyntaxKind::AsKeyword | SyntaxKind::OpenBraceToken
+            ) && can_follow_modifier(self.token.kind)
+    }
+
+    /// typescript-go's `Parser.nextTokenCanFollowDefaultKeyword` (`parser.go`).
+    fn next_token_can_follow_default_keyword(&mut self) -> bool {
+        self.next_token();
+        match self.token.kind {
+            SyntaxKind::ClassKeyword
+            | SyntaxKind::FunctionKeyword
+            | SyntaxKind::InterfaceKeyword
+            | SyntaxKind::AtToken => true,
+            SyntaxKind::AbstractKeyword => self.look_ahead(|p| {
+                p.next_token();
+                p.at(SyntaxKind::ClassKeyword) && !p.token.has_preceding_line_break()
+            }),
+            SyntaxKind::AsyncKeyword => self.look_ahead(|p| {
+                p.next_token();
+                p.at(SyntaxKind::FunctionKeyword) && !p.token.has_preceding_line_break()
+            }),
+            _ => false,
+        }
     }
 
     /// Whether the token after `const` is `enum`.
@@ -454,61 +546,94 @@ impl<'a> Parser<'a> {
         self.peek_kind(|kind| kind == SyntaxKind::EnumKeyword)
     }
 
-    /// Dispatch to the declaration a modifier list precedes.
+    /// Dispatch to the declaration a modifier list precedes — typescript-go's
+    /// `Parser.parseDeclarationWorker` (`parser.go`).
     pub(crate) fn parse_declaration_after_modifiers(
         &mut self,
         start: u32,
         modifiers: &'a [ModifierLike<'a>],
     ) -> Statement<'a> {
-        match self.token.kind {
-            SyntaxKind::VarKeyword | SyntaxKind::LetKeyword | SyntaxKind::ConstKeyword => {
-                self.parse_variable_statement(start, modifiers)
+        let kind = self.token.kind;
+        match kind {
+            SyntaxKind::VarKeyword
+            | SyntaxKind::LetKeyword
+            | SyntaxKind::ConstKeyword
+            | SyntaxKind::UsingKeyword => {
+                return self.parse_variable_statement(start, modifiers);
             }
-            SyntaxKind::FunctionKeyword => self.parse_function_declaration(start, modifiers),
-            SyntaxKind::ClassKeyword => self.parse_class_declaration(start, modifiers),
-            SyntaxKind::InterfaceKeyword => self.parse_interface_declaration(start, modifiers),
-            SyntaxKind::TypeKeyword => self.parse_type_alias_declaration(start, modifiers),
-            SyntaxKind::EnumKeyword => self.parse_enum_declaration(start, modifiers),
-            SyntaxKind::ImportKeyword => self.parse_import_declaration(start, modifiers),
-            // Recovery for misplaced modifiers before a second `export`, such
-            // as `declare export = value` and `export declare export = value`.
-            // Upstream still builds the export-assignment node after reporting
-            // the modifier error; keeping it as an expression statement makes
-            // the recovery tree unstable under printing.
+            SyntaxKind::AwaitKeyword if self.is_await_using_declaration() => {
+                self.next_token();
+                return self.parse_variable_statement(start, modifiers);
+            }
+            SyntaxKind::FunctionKeyword => {
+                return self.parse_function_declaration(start, modifiers);
+            }
+            SyntaxKind::ClassKeyword => return self.parse_class_declaration(start, modifiers),
+            SyntaxKind::InterfaceKeyword => {
+                return self.parse_interface_declaration(start, modifiers);
+            }
+            SyntaxKind::TypeKeyword => return self.parse_type_alias_declaration(start, modifiers),
+            SyntaxKind::EnumKeyword => return self.parse_enum_declaration(start, modifiers),
+            SyntaxKind::GlobalKeyword
+            | SyntaxKind::ModuleKeyword
+            | SyntaxKind::NamespaceKeyword => {
+                return self.parse_module_declaration(start, modifiers);
+            }
+            SyntaxKind::ImportKeyword => return self.parse_import_declaration(start, modifiers),
             SyntaxKind::ExportKeyword => {
                 let export_token = self.take_token();
-                self.parse_export(start, export_token, modifiers)
+                return self.parse_export(start, export_token, modifiers);
             }
-            // `declare global { … }` augments the global scope; `global` is a
-            // contextual keyword standing in for the module name.
-            SyntaxKind::NamespaceKeyword
-            | SyntaxKind::ModuleKeyword
-            | SyntaxKind::GlobalKeyword => self.parse_module_declaration(start, modifiers),
-            _ => {
-                // The modifiers were a false start; treat what follows as an
-                // expression so the tree still covers the text.
-                self.parse_expression_statement().unwrap_or_else(|| {
-                    let expression = self.missing_identifier();
-                    let node = self.finish_node(
-                        ExpressionStatement::new(Some(Expression::Identifier(expression))),
-                        SyntaxKind::ExpressionStatement,
-                        start,
-                    );
-                    Statement::ExpressionStatement(node)
-                })
-            }
+            _ => {}
         }
+        // Decorators and/or modifiers promised a declaration that did not
+        // follow. For recovery, an incomplete declaration.
+        let at = self.node_end();
+        self.error_at(&messages::DECLARATION_EXPECTED, tsr_core::Span::at(at));
+        let node = self.finish_node(
+            MissingDeclaration::new(modifiers),
+            SyntaxKind::MissingDeclaration,
+            start,
+        );
+        Statement::MissingDeclaration(node)
     }
 
     // ---- individual statements ------------------------------------------
 
+    /// typescript-go's `Parser.parseBlock` (`parser.go`) without a custom
+    /// missing-`{` message.
     pub(crate) fn parse_block(&mut self) -> &'a Block<'a> {
+        self.parse_block_with(None)
+    }
+
+    /// typescript-go's `Parser.parseBlock` (`parser.go`). A block whose `{`
+    /// is missing has no statements: upstream parses none rather than reading
+    /// what follows as its body.
+    pub(crate) fn parse_block_with(
+        &mut self,
+        missing_open_brace: Option<&'static tsr_diagnostics::Message>,
+    ) -> &'a Block<'a> {
         let start = self.pos();
-        self.expect(SyntaxKind::OpenBraceToken);
-        let statements = self.parse_statement_list(SyntaxKind::CloseBraceToken);
+        let open_brace_parsed = match missing_open_brace {
+            Some(message) if !self.at(SyntaxKind::OpenBraceToken) => {
+                self.error_at_current(message);
+                false
+            }
+            _ => self.expect(SyntaxKind::OpenBraceToken),
+        };
+        if !open_brace_parsed {
+            return self.finish_node(Block::new(&[], true), SyntaxKind::Block, start);
+        }
+        let statements = self.parse_statement_list(ParsingContext::BlockStatements);
+        // `parseExpectedMatchingBrackets`.
         self.expect(SyntaxKind::CloseBraceToken);
         let statements = self.arena.alloc_slice(&statements);
-        self.finish_node(Block::new(statements, true), SyntaxKind::Block, start)
+        let block = self.finish_node(Block::new(statements, true), SyntaxKind::Block, start);
+        if self.at(SyntaxKind::EqualsToken) {
+            self.error_at_current(&messages::DECLARATION_OR_STATEMENT_EXPECTED_THIS_FOLLOWS_A_BLOCK_OF_STATEMENTS_SO_IF_YOU_INTENDED_TO_WRITE_A_DESTRUCTURING_ASSIGNMENT_YOU_MIGHT_NEED_TO_WRAP_THE_WHOLE_ASSIGNMENT_IN_PARENTHESES);
+            self.next_token();
+        }
+        block
     }
 
     fn parse_variable_statement(
@@ -686,12 +811,9 @@ impl<'a> Parser<'a> {
         self.expect(SyntaxKind::OpenParenToken);
         let condition = self.parse_expression();
         self.expect(SyntaxKind::CloseParenToken);
-        let then_branch = self.parse_statement_or_missing();
-        let else_branch = if self.eat(SyntaxKind::ElseKeyword) {
-            Some(self.parse_statement_or_missing())
-        } else {
-            None
-        };
+        let then_branch = self.parse_statement();
+        let else_branch =
+            if self.eat(SyntaxKind::ElseKeyword) { Some(self.parse_statement()) } else { None };
         let node = self.finish_node(
             IfStatement::new(Some(condition), Some(then_branch), else_branch),
             SyntaxKind::IfStatement,
@@ -703,7 +825,7 @@ impl<'a> Parser<'a> {
     fn parse_do_statement(&mut self) -> Statement<'a> {
         let start = self.pos();
         self.next_token();
-        let body = self.parse_statement_or_missing();
+        let body = self.parse_statement();
         self.expect(SyntaxKind::WhileKeyword);
         self.expect(SyntaxKind::OpenParenToken);
         let condition = self.parse_expression();
@@ -724,7 +846,7 @@ impl<'a> Parser<'a> {
         self.expect(SyntaxKind::OpenParenToken);
         let condition = self.parse_expression();
         self.expect(SyntaxKind::CloseParenToken);
-        let body = self.parse_statement_or_missing();
+        let body = self.parse_statement();
         let node = self.finish_node(
             WhileStatement::new(Some(condition), body),
             SyntaxKind::WhileStatement,
@@ -770,7 +892,7 @@ impl<'a> Parser<'a> {
             let expression =
                 if is_of { self.parse_assignment_expression() } else { self.parse_expression() };
             self.expect(SyntaxKind::CloseParenToken);
-            let body = self.parse_statement_or_missing();
+            let body = self.parse_statement();
             let kind = if is_of { SyntaxKind::ForOfStatement } else { SyntaxKind::ForInStatement };
             let await_token = if is_await {
                 Some(self.alloc_token(SyntaxKind::AwaitKeyword, await_span))
@@ -819,7 +941,7 @@ impl<'a> Parser<'a> {
         let incrementor =
             if self.at(SyntaxKind::CloseParenToken) { None } else { Some(self.parse_expression()) };
         self.expect(SyntaxKind::CloseParenToken);
-        let body = self.parse_statement_or_missing();
+        let body = self.parse_statement();
         let node = self.finish_node(
             ForStatement::new(initializer, condition, incrementor, body),
             SyntaxKind::ForStatement,
@@ -873,7 +995,7 @@ impl<'a> Parser<'a> {
         self.expect(SyntaxKind::OpenParenToken);
         let expression = self.parse_expression();
         self.expect(SyntaxKind::CloseParenToken);
-        let statement = self.parse_statement_or_missing();
+        let statement = self.parse_statement();
         let node = self.finish_node(
             WithStatement::new(Some(expression), Some(statement)),
             SyntaxKind::WithStatement,
@@ -920,37 +1042,11 @@ impl<'a> Parser<'a> {
         let expression = self.parse_expression();
         self.expect(SyntaxKind::CloseParenToken);
 
+        // `parseCaseBlock`.
         let block_start = self.pos();
         self.expect(SyntaxKind::OpenBraceToken);
-        let mut clauses = Vec::new();
-        while !self.at(SyntaxKind::CloseBraceToken) && !self.at(SyntaxKind::EndOfFile) {
-            let clause_start = self.pos();
-            if self.at(SyntaxKind::CaseKeyword) {
-                let kind_token = self.take_token();
-                let test = self.parse_expression();
-                self.expect(SyntaxKind::ColonToken);
-                let statements = self.parse_clause_statements();
-                let statements = self.arena.alloc_slice(&statements);
-                clauses.push(self.finish_node(
-                    CaseOrDefaultClause::new(kind_token, Some(test), statements),
-                    SyntaxKind::CaseClause,
-                    clause_start,
-                ));
-            } else if self.at(SyntaxKind::DefaultKeyword) {
-                let kind_token = self.take_token();
-                self.expect(SyntaxKind::ColonToken);
-                let statements = self.parse_clause_statements();
-                let statements = self.arena.alloc_slice(&statements);
-                clauses.push(self.finish_node(
-                    CaseOrDefaultClause::new(kind_token, None, statements),
-                    SyntaxKind::DefaultClause,
-                    clause_start,
-                ));
-            } else {
-                self.error_at_current(&messages::UNEXPECTED_TOKEN);
-                self.next_token();
-            }
-        }
+        let clauses =
+            self.parse_list(ParsingContext::SwitchClauses, Self::parse_case_or_default_clause);
         self.expect(SyntaxKind::CloseBraceToken);
         let clauses = self.arena.alloc_slice(&clauses);
         let case_block =
@@ -963,38 +1059,39 @@ impl<'a> Parser<'a> {
         Statement::SwitchStatement(node)
     }
 
-    /// Statements inside a `case`/`default`, up to the next clause.
-    fn parse_clause_statements(&mut self) -> Vec<Statement<'a>> {
-        let mut statements = Vec::new();
-        while !matches!(
-            self.token.kind,
-            SyntaxKind::CaseKeyword
-                | SyntaxKind::DefaultKeyword
-                | SyntaxKind::CloseBraceToken
-                | SyntaxKind::EndOfFile
-        ) {
-            let before = self.pos();
-            match self.parse_statement() {
-                Some(statement) => statements.push(statement),
-                None if self.pos() == before => {
-                    self.error_at_current(&messages::UNEXPECTED_TOKEN);
-                    self.next_token();
-                }
-                None => {}
-            }
-        }
-        statements
+    /// typescript-go's `Parser.parseCaseOrDefaultClause` (`parser.go`).
+    fn parse_case_or_default_clause(&mut self) -> &'a CaseOrDefaultClause<'a> {
+        let clause_start = self.pos();
+        let is_case = self.at(SyntaxKind::CaseKeyword);
+        let kind_token = self.take_token();
+        let test = if is_case { Some(self.parse_expression()) } else { None };
+        self.expect(SyntaxKind::ColonToken);
+        let statements =
+            self.parse_list(ParsingContext::SwitchClauseStatements, Self::parse_statement);
+        let statements = self.arena.alloc_slice(&statements);
+        let kind = if is_case { SyntaxKind::CaseClause } else { SyntaxKind::DefaultClause };
+        self.finish_node(CaseOrDefaultClause::new(kind_token, test, statements), kind, clause_start)
     }
 
+    /// typescript-go's `Parser.parseTryStatement` (`parser.go`). Also the
+    /// statement a stray `catch` or `finally` starts, which then reports
+    /// `'try' expected`.
     fn parse_try_statement(&mut self) -> Statement<'a> {
         let start = self.pos();
-        self.next_token();
+        self.expect(SyntaxKind::TryKeyword);
         let block = self.parse_block();
 
+        // `parseCatchClause`.
         let catch = if self.at(SyntaxKind::CatchKeyword) {
             let catch_start = self.pos();
             self.next_token();
             // `catch {}` without a binding is legal since ES2019.
+            //
+            // Upstream parses a full variable declaration here, initializer
+            // included, and the checker rejects the initializer (TS1197). This
+            // port stops at the type annotation until the printer emits a
+            // catch variable's initializer: a parsed one would not survive
+            // the round trip.
             let variable = if self.eat(SyntaxKind::OpenParenToken) {
                 let decl_start = self.pos();
                 let name = self.parse_binding_name();
@@ -1018,12 +1115,16 @@ impl<'a> Parser<'a> {
             None
         };
 
-        let finally =
-            if self.eat(SyntaxKind::FinallyKeyword) { Some(self.parse_block()) } else { None };
-
-        if catch.is_none() && finally.is_none() {
-            self.error_at_current(&messages::CATCH_OR_FINALLY_EXPECTED);
-        }
+        // If we don't have a catch clause, then we must have a finally clause.
+        // Try to parse one out no matter what.
+        let finally = if catch.is_none() || self.at(SyntaxKind::FinallyKeyword) {
+            if !self.eat(SyntaxKind::FinallyKeyword) {
+                self.error_at_current(&messages::CATCH_OR_FINALLY_EXPECTED);
+            }
+            Some(self.parse_block())
+        } else {
+            None
+        };
 
         let node = self.finish_node(
             TryStatement::new(Some(block), catch, finally),
@@ -1033,60 +1134,34 @@ impl<'a> Parser<'a> {
         Statement::TryStatement(node)
     }
 
-    fn parse_expression_statement(&mut self) -> Option<Statement<'a>> {
+    /// typescript-go's `Parser.parseExpressionOrLabeledStatement`
+    /// (`parser.go`).
+    fn parse_expression_or_labeled_statement(&mut self) -> Statement<'a> {
         let start = self.pos();
-        if !self.at_expression_start() {
-            return None;
-        }
         let expression = self.parse_expression();
 
         // `label:` looks like an expression statement until the colon.
         if let Expression::Identifier(label) = expression {
             if self.eat(SyntaxKind::ColonToken) {
-                let statement = self.parse_statement_or_missing();
+                let statement = self.parse_statement();
                 let node = self.finish_node(
                     LabeledStatement::new(Some(label), Some(statement)),
                     SyntaxKind::LabeledStatement,
                     start,
                 );
-                return Some(Statement::LabeledStatement(node));
+                return Statement::LabeledStatement(node);
             }
         }
 
-        self.parse_semicolon();
+        if !self.try_parse_semicolon() {
+            self.parse_error_for_missing_semicolon_after(expression);
+        }
         let node = self.finish_node(
             ExpressionStatement::new(Some(expression)),
             SyntaxKind::ExpressionStatement,
             start,
         );
-        Some(Statement::ExpressionStatement(node))
-    }
-
-    /// A statement, or a synthesised empty one so the tree stays complete.
-    fn parse_statement_or_missing(&mut self) -> Statement<'a> {
-        let start = self.pos();
-        self.parse_statement().unwrap_or_else(|| {
-            // §698: upstream's `parseStatement` has no "no statement" answer —
-            // a token that cannot start one falls through to
-            // `parseExpressionOrLabeledStatement`, whose `parseExpression`
-            // mints a MISSING IDENTIFIER. So `if (a` (with no body) yields an
-            // `ExpressionStatement` over that identifier, and the `.types`
-            // baseline records an empty-text `> : any` line for it
-            // (`parserErrorRecoveryIfStatement1`–`4`,
-            // `parserErrorRecovery_ObjectLiteral2`/`4`/`5`, and 8 more files
-            // short by exactly that line).
-            //
-            // An `EmptyStatement` carries no expression, so it emitted nothing
-            // and every one of those files came up one assertion short.
-            self.error_at_current(&messages::STATEMENT_EXPECTED);
-            let identifier = self.missing_identifier();
-            let node = self.finish_node(
-                ExpressionStatement::new(Some(Expression::Identifier(identifier))),
-                SyntaxKind::ExpressionStatement,
-                start,
-            );
-            Statement::ExpressionStatement(node)
-        })
+        Statement::ExpressionStatement(node)
     }
 
     /// Parse `function f<T>(a: T): R { … }`.
@@ -1165,6 +1240,226 @@ impl<'a> Parser<'a> {
             self.error_at_current_with(&messages::_0_EXPECTED, &[";"]);
         }
     }
+
+    /// typescript-go's `Parser.tryParseSemicolon` (`parser.go`).
+    pub(crate) fn try_parse_semicolon(&mut self) -> bool {
+        if !self.can_parse_semicolon() {
+            return false;
+        }
+        self.eat(SyntaxKind::SemicolonToken);
+        true
+    }
+
+    /// typescript-go's `Parser.parseErrorForMissingSemicolonAfter`
+    /// (`parser.go`): a missing `;` after an expression statement is often a
+    /// misused or misspelled keyword, and the message says so.
+    pub(crate) fn parse_error_for_missing_semicolon_after(&mut self, node: Expression<'a>) {
+        // Tagged template literals are sometimes used in places where only
+        // simple strings are allowed: `module `M1` {` parses as module`M1`.
+        if let Expression::TaggedTemplateExpression(tagged) = node {
+            if let Some(template) = tagged.template.and_then(|t| t.node_id()) {
+                let span = self.nodes.span(template);
+                self.error_at(
+                    &messages::MODULE_DECLARATION_NAMES_MAY_ONLY_USE_OR_QUOTED_STRINGS,
+                    span,
+                );
+                return;
+            }
+        }
+        // Otherwise, if this isn't a well-known keyword-like identifier, give
+        // the generic fallback message.
+        let expression_text = match node {
+            Expression::Identifier(identifier) => identifier.text,
+            _ => "",
+        };
+        if expression_text.is_empty() {
+            self.error_at_current_with(&messages::_0_EXPECTED, &[";"]);
+            return;
+        }
+        let span = node.node_id().map_or(self.token.span, |id| self.nodes.span(id));
+        match expression_text {
+            "const" | "let" | "var" => {
+                self.error_at(&messages::VARIABLE_DECLARATION_NOT_ALLOWED_AT_THIS_LOCATION, span);
+                return;
+            }
+            // If a declared node failed to parse, it would have emitted a
+            // diagnostic already.
+            "declare" => return,
+            "interface" => {
+                self.parse_error_for_invalid_name(
+                    &messages::INTERFACE_NAME_CANNOT_BE_0,
+                    &messages::INTERFACE_MUST_BE_GIVEN_A_NAME,
+                    SyntaxKind::OpenBraceToken,
+                );
+                return;
+            }
+            "is" => {
+                let to = self.pos();
+                self.error_at(
+                    &messages::A_TYPE_PREDICATE_IS_ONLY_ALLOWED_IN_RETURN_TYPE_POSITION_FOR_FUNCTIONS_AND_METHODS,
+                    tsr_core::Span::new(span.start, to),
+                );
+                return;
+            }
+            "module" | "namespace" => {
+                self.parse_error_for_invalid_name(
+                    &messages::NAMESPACE_NAME_CANNOT_BE_0,
+                    &messages::NAMESPACE_MUST_BE_GIVEN_A_NAME,
+                    SyntaxKind::OpenBraceToken,
+                );
+                return;
+            }
+            "type" => {
+                self.parse_error_for_invalid_name(
+                    &messages::TYPE_ALIAS_NAME_CANNOT_BE_0,
+                    &messages::TYPE_ALIAS_MUST_BE_GIVEN_A_NAME,
+                    SyntaxKind::EqualsToken,
+                );
+                return;
+            }
+            _ => {}
+        }
+        // The user alternatively might have misspelled or forgotten to add a
+        // space after a common keyword.
+        let suggestion = tsr_core::spelling::get_spelling_suggestion(
+            expression_text,
+            VIABLE_KEYWORD_SUGGESTIONS.iter(),
+            |candidate| candidate,
+            Ord::cmp,
+        )
+        .map(|keyword| (*keyword).to_string())
+        .or_else(|| space_suggestion(expression_text));
+        if let Some(suggestion) = suggestion {
+            if self.would_repeat_last_error(span) {
+                return;
+            }
+            self.diagnostics.push(tsr_diagnostics::Diagnostic::with_args(
+                &messages::UNKNOWN_KEYWORD_OR_IDENTIFIER_DID_YOU_MEAN_0,
+                span,
+                [suggestion],
+            ));
+            return;
+        }
+        // Unknown tokens are handled with their own errors in the scanner.
+        if self.at(SyntaxKind::Unknown) {
+            return;
+        }
+        // Otherwise, we know this some kind of unknown word, not just a
+        // missing expected semicolon.
+        self.error_at(&messages::UNEXPECTED_KEYWORD_OR_IDENTIFIER, span);
+    }
+
+    /// typescript-go's `Parser.parseErrorForInvalidName` (`parser.go`).
+    fn parse_error_for_invalid_name(
+        &mut self,
+        name_diagnostic: &'static tsr_diagnostics::Message,
+        blank_diagnostic: &'static tsr_diagnostics::Message,
+        token_if_blank_name: SyntaxKind,
+    ) {
+        if self.at(token_if_blank_name) {
+            self.error_at_current(blank_diagnostic);
+        } else {
+            let value = self.token_value();
+            self.error_at_current_with(name_diagnostic, &[value]);
+        }
+    }
+}
+
+/// typescript-go's `viableKeywordSuggestions` (`parser.go`), which is
+/// `scanner.GetViableKeywordSuggestions`: every keyword of `textToKeyword`
+/// longer than two characters.
+const VIABLE_KEYWORD_SUGGESTIONS: &[&str] = &[
+    "abstract",
+    "accessor",
+    "any",
+    "asserts",
+    "assert",
+    "bigint",
+    "boolean",
+    "break",
+    "case",
+    "catch",
+    "class",
+    "continue",
+    "const",
+    "constructor",
+    "debugger",
+    "declare",
+    "default",
+    "defer",
+    "delete",
+    "else",
+    "enum",
+    "export",
+    "extends",
+    "false",
+    "finally",
+    "for",
+    "from",
+    "function",
+    "get",
+    "immediate",
+    "implements",
+    "import",
+    "infer",
+    "instanceof",
+    "interface",
+    "intrinsic",
+    "keyof",
+    "let",
+    "module",
+    "namespace",
+    "never",
+    "new",
+    "null",
+    "number",
+    "object",
+    "package",
+    "private",
+    "protected",
+    "public",
+    "override",
+    "out",
+    "readonly",
+    "require",
+    "global",
+    "return",
+    "satisfies",
+    "set",
+    "static",
+    "string",
+    "super",
+    "switch",
+    "symbol",
+    "this",
+    "throw",
+    "true",
+    "try",
+    "type",
+    "typeof",
+    "undefined",
+    "unique",
+    "unknown",
+    "using",
+    "var",
+    "void",
+    "while",
+    "with",
+    "yield",
+    "async",
+    "await",
+];
+
+/// typescript-go's `getSpaceSuggestion` (`parser.go`): `functionfoo` reads
+/// as `function foo`.
+///
+/// Upstream walks a slice built from a Go map, so when two keywords are
+/// prefixes of one word its pick is unordered; this walks the list above.
+fn space_suggestion(expression_text: &str) -> Option<String> {
+    VIABLE_KEYWORD_SUGGESTIONS.iter().find_map(|keyword| {
+        (expression_text.len() > keyword.len() + 2 && expression_text.starts_with(keyword))
+            .then(|| format!("{keyword} {}", &expression_text[keyword.len()..]))
+    })
 }
 
 /// Whether `kind` is a modifier keyword.

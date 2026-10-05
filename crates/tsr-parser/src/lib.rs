@@ -36,6 +36,7 @@ mod expression;
 mod jsdoc;
 mod json;
 mod jsx;
+mod list;
 mod module;
 mod parsed_file;
 mod parser;
@@ -228,7 +229,7 @@ pub fn parse_standalone_statement<'a>(
     let first_node = nodes.len();
     let mut parser =
         Parser::with_tables(arena, source, options, std::mem::take(nodes), tsr_ast::NodeMap::new());
-    let statement = parser.parse_statement();
+    let statement = Some(parser.parse_statement());
     let consumed = parser.at(tsr_ast::SyntaxKind::EndOfFile);
     let (diagnostics, mut node_table, _, _) = parser.finish();
     for index in first_node..node_table.len() {

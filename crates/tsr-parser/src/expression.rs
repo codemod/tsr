@@ -192,35 +192,6 @@ fn is_assignment_operator(kind: SyntaxKind) -> bool {
 }
 
 impl<'a> Parser<'a> {
-    /// Whether the cursor could begin an expression.
-    pub(crate) fn at_expression_start(&self) -> bool {
-        match self.token.kind {
-            SyntaxKind::Identifier
-            | SyntaxKind::NumericLiteral
-            | SyntaxKind::BigIntLiteral
-            | SyntaxKind::StringLiteral
-            | SyntaxKind::NoSubstitutionTemplateLiteral
-            | SyntaxKind::PrivateIdentifier
-            | SyntaxKind::TemplateHead
-            | SyntaxKind::OpenParenToken
-            | SyntaxKind::OpenBracketToken
-            | SyntaxKind::OpenBraceToken
-            | SyntaxKind::PlusToken
-            | SyntaxKind::MinusToken
-            | SyntaxKind::TildeToken
-            | SyntaxKind::ExclamationToken
-            | SyntaxKind::PlusPlusToken
-            | SyntaxKind::MinusMinusToken
-            | SyntaxKind::SlashToken
-            | SyntaxKind::SlashEqualsToken
-            | SyntaxKind::LessThanToken
-            | SyntaxKind::DotDotDotToken => true,
-            // `@` is parsed only where decorators are legal. Claiming it as an
-            // expression start would produce a node covering no text.
-            kind => kind.is_keyword(),
-        }
-    }
-
     /// Parse a comma expression.
     pub(crate) fn parse_expression(&mut self) -> Expression<'a> {
         let start = self.pos();
@@ -2308,6 +2279,20 @@ impl<'a> Parser<'a> {
                 && (self.token.kind as u16) > (SyntaxKind::LAST_RESERVED_WORD as u16))
     }
 
+    /// typescript-go's `Parser.isIdentifier` (`parser.go`): an identifier or
+    /// a contextual keyword, except `await` inside an await context. The
+    /// `yield`-in-generator half is unported with the yield context (§193).
+    pub(crate) fn is_identifier(&self) -> bool {
+        if self.at(SyntaxKind::Identifier) {
+            return true;
+        }
+        if self.at(SyntaxKind::AwaitKeyword) && self.in_await_context {
+            return false;
+        }
+        self.token.kind.is_keyword()
+            && (self.token.kind as u16) > (SyntaxKind::LAST_RESERVED_WORD as u16)
+    }
+
     /// Whether the `await` under the cursor opens an await *expression* rather
     /// than naming an identifier.
     ///
@@ -2386,21 +2371,13 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// Whether an expression can start at the cursor.
-    ///
-    /// Upstream's `isStartOfExpression` (`parser.go:6144`). The one deviation is
-    /// upstream's error-tolerance arm, which treats the start of *any* binary
-    /// operator as the start of an expression so it can parse out a missing
-    /// identifier and give a good message. This port has no `isBinaryOperator`;
-    /// every operator that also begins a **unary** expression (`+`, `-`, `~`,
-    /// `!`, `<`) is listed here on its own account, so only the genuinely binary
-    /// ones (`*`, `&&`, `instanceof`) are missed — and only in the direction of
-    /// answering `false` where upstream answers `true`.
+    /// Whether an expression can start at the cursor — typescript-go's
+    /// `Parser.isStartOfExpression` (`parser.go`).
     pub(crate) fn is_start_of_expression(&mut self) -> bool {
         if self.is_start_of_left_hand_side_expression() {
             return true;
         }
-        matches!(
+        if matches!(
             self.token.kind,
             SyntaxKind::PlusToken
                 | SyntaxKind::MinusToken
@@ -2416,7 +2393,25 @@ impl<'a> Parser<'a> {
                 | SyntaxKind::YieldKeyword
                 | SyntaxKind::PrivateIdentifier
                 | SyntaxKind::AtToken
-        )
+        ) {
+            return true;
+        }
+        // Error tolerance. If we see the start of some binary operator, we
+        // consider that the start of an expression. That way we'll parse out
+        // a missing identifier, give a good message about an identifier being
+        // missing, and then consume the rest of the binary expression.
+        if self.is_binary_operator() {
+            return true;
+        }
+        self.is_identifier()
+    }
+
+    /// typescript-go's `Parser.isBinaryOperator` (`parser.go`).
+    fn is_binary_operator(&self) -> bool {
+        if self.no_in > 0 && self.at(SyntaxKind::InKeyword) {
+            return false;
+        }
+        binary_precedence(self.token.kind).is_some()
     }
 
     /// Whether a *binding* can start here: a pattern, a private name, or a
@@ -2462,7 +2457,7 @@ impl<'a> Parser<'a> {
     }
 
     /// `nextTokenIsIdentifierOrKeywordOnSameLine` (`parser.go`). §701.
-    fn next_token_is_identifier_or_keyword_on_same_line(&mut self) -> bool {
+    pub(crate) fn next_token_is_identifier_or_keyword_on_same_line(&mut self) -> bool {
         // `Parser::next_token` returns the token it CONSUMED, not the one it
         // moved to (`parser.rs:348`) — reading its return value here tested the
         // wrong token and the whole arm measured as a no-op. §701.

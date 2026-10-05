@@ -92,10 +92,15 @@ fn missing_header_body_close_and_swallowed_owners_do_not_certify_leaves() {
         // A decline is not asserted to mean native semantic silence.
         assert!(diagnostics(source).iter().all(|(_, _, code)| *code != 2739 && *code != 2322));
     }
+    // A function expression whose `{` is missing has an empty body upstream
+    // (`parseBlock`), so the declarations after it are ordinary statements
+    // and native reports their initializers: (6,74) and (8,5). Native also
+    // reports TS2322 at (6,34) and (7,5) on the bodiless function
+    // expressions, which this port still misses.
     let recovered = diagnostics(include_str!("fixtures/function_initializer/Recovery.ts"));
     let relations: Vec<_> =
         recovered.into_iter().filter(|(_, _, code)| *code == 2739 || *code == 2322).collect();
-    assert_eq!(relations, [(4, 25, 2739), (5, 52, 2739)]);
+    assert_eq!(relations, [(4, 25, 2739), (5, 52, 2739), (6, 74, 2739), (8, 5, 2739)]);
 }
 
 #[test]

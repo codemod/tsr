@@ -193,6 +193,9 @@ pub struct Parser<'a> {
     /// `(infer U extends T ? X : Y)` it belongs to the parenthesized
     /// conditional type.
     pub(crate) disallow_conditional_types: u32,
+    /// One bit per list being parsed — upstream's `Parser.parsingContexts`,
+    /// read by `isInSomeParsingContext`. See `list.rs`.
+    pub(crate) parsing_contexts: u32,
     /// JSDoc comments, keyed by the node they document.
     ///
     /// A side table rather than a field on each node, per ADR-0003: JSDoc is
@@ -305,6 +308,7 @@ impl<'a> Parser<'a> {
             // still goes through `isAwaitExpression`'s lookahead half. §193.
             in_await_context: false,
             disallow_conditional_types: 0,
+            parsing_contexts: 0,
             jsdoc: Vec::new(),
             parse_jsdoc: options.jsdoc,
             assign_parents: options.parents,
@@ -583,7 +587,7 @@ impl<'a> Parser<'a> {
     /// It compares the **start** and not the whole span, which is upstream's
     /// `Pos()`: a longer or shorter range at the same start is still the same
     /// location. See `checker-notes-diag2.md` §192.
-    fn would_repeat_last_error(&self, span: Span) -> bool {
+    pub(crate) fn would_repeat_last_error(&self, span: Span) -> bool {
         self.diagnostics.last().is_some_and(|last| last.span.start == span.start)
     }
 
@@ -717,7 +721,7 @@ impl<'a> Parser<'a> {
     /// Parse a whole file.
     pub fn parse_source_file(&mut self) -> &'a SourceFile<'a> {
         let start = self.pos();
-        let statements = self.parse_statement_list(SyntaxKind::EndOfFile);
+        let statements = self.parse_statement_list(crate::list::ParsingContext::SourceElements);
         let eof = self.alloc_token(SyntaxKind::EndOfFile, self.token.span);
         self.finish_node(
             SourceFile::new(self.arena.alloc_slice(&statements), eof),

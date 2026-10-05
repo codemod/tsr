@@ -148,16 +148,18 @@ fn packed_repeated_declarations_keep_each_occurrence() {
 
 #[test]
 fn swallowed_body_is_not_a_source_file_owned_positive() {
-    // Native still reports at the two later declarations; this certificate does
-    // not admit their recovered TSR function owner. The pending parity gap is
-    // retained in the complete authored-control bags, not called native silence.
+    // Native reports at the two later declarations. The bodiless function
+    // expression's body is empty (`parseBlock` without its `{`), so `swallowed`
+    // is an ordinary declaration and its TS2739 is native's; the TS2322 at
+    // (4,5) on the recovered function owner is still a pending parity gap, not
+    // native silence.
     let source = "export {};\ninterface Required { tag: string; count: number }\nvar before: Required = {};\nvar recovered: Required = function () ;\nvar swallowed: Required = {};";
     let actual: Vec<_> = reported_for(&case(source))
         .into_iter()
         .filter(|d| d.code == 2322 || d.code == 2739)
         .map(|d| (d.line, d.column, d.code))
         .collect();
-    assert_eq!(actual, [(3, 5, 2739)]);
+    assert_eq!(actual, [(3, 5, 2739), (5, 5, 2739)]);
 }
 
 #[test]
