@@ -606,6 +606,9 @@ pub struct Checker<'a, 'n> {
     /// `compilerOptions.NoImplicitOverride.IsTrue()`, read by
     /// `checkMemberForOverrideModifier` (`checker.go:4729`).
     pub(crate) no_implicit_override: bool,
+    /// `compilerOptions.NoImplicitReturns == TSTrue`, read by
+    /// `checkAllCodePathsInNonVoidFunctionReturnOrThrow` (`checker.go:3728`).
+    pub(crate) no_implicit_returns: bool,
     /// Did the parser report a diagnostic in the file currently being walked?
     ///
     /// Set by [`Checker::check_source_file`] and read by the rules that cannot
@@ -1398,6 +1401,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             use_unknown_in_catch_variables: false,
             strict_property_initialization: true,
             no_implicit_override: false,
+            no_implicit_returns: false,
             file_has_parse_errors: false,
             merge_conflicts_reported: false,
             assignability_probe: Vec::new(),
@@ -1618,6 +1622,7 @@ impl<'a, 'n> Checker<'a, 'n> {
         self.strict_property_initialization =
             options.strict_option_value(options.strict_property_initialization);
         self.no_implicit_override = options.no_implicit_override.is_true();
+        self.no_implicit_returns = options.no_implicit_returns.is_true();
         self.use_unknown_in_catch_variables =
             options.strict_option_value(options.use_unknown_in_catch_variables);
         self.no_implicit_any = options.strict_option_value(options.no_implicit_any);

@@ -484,6 +484,11 @@ impl Checker<'_, '_> {
                 self.check_grammar_statement_in_ambient_context(node, ambient);
                 self.check_return_container(node, ambient);
                 self.check_return_statement(node, ambient);
+                self.check_return_statement_implicit_returns(
+                    node,
+                    statement.expression.is_some(),
+                    ambient,
+                );
                 ambient
             }
             Node::BinaryExpression(binary)
@@ -1580,6 +1585,57 @@ impl Checker<'_, '_> {
                 [printed],
             ),
         );
+    }
+
+    /// `checkReturnStatement`'s `noImplicitReturns` arm (`checker.go:4123`):
+    /// outside `strictNullChecks`, a bare `return;` in a function other than a
+    /// constructor whose return type (`getReturnTypeOfSignature`, annotated or
+    /// inferred) is not `never` and does not unwrap to `undefined`, `void` or
+    /// `any` (`isUnwrappedReturnTypeUndefinedVoidOrAny`, `checker.go:3780`) is
+    /// TS7030 at the statement. A static block or a missing container is
+    /// reported by `check_return_container` and ends upstream's check; a
+    /// return type this port cannot compute ends this one.
+    fn check_return_statement_implicit_returns(
+        &mut self,
+        node: NodeId,
+        has_expression: bool,
+        ambient: bool,
+    ) {
+        if !self.no_implicit_returns
+            || self.strict_null_checks
+            || has_expression
+            || ambient
+            || self.file_has_parse_errors
+        {
+            return;
+        }
+        let Some(container) =
+            self.nodes.ancestors(node).find(|&a| self.is_function_like_or_static_block(a))
+        else {
+            return;
+        };
+        let (generator, modifiers) = match self.node_map.get(container) {
+            Some(Node::FunctionDeclaration(f)) => (f.asterisk_token.is_some(), f.modifiers),
+            Some(Node::FunctionExpression(f)) => (f.asterisk_token.is_some(), f.modifiers),
+            Some(Node::MethodDeclaration(m)) => (m.asterisk_token.is_some(), m.modifiers),
+            Some(Node::ArrowFunction(f)) => (false, f.modifiers),
+            Some(Node::GetAccessorDeclaration(g)) => (false, g.modifiers),
+            Some(Node::SetAccessorDeclaration(s)) => (false, s.modifiers),
+            _ => return,
+        };
+        let Some(signature) = self.get_signature_from_declaration(container) else { return };
+        let Some(return_type) = self.get_return_type_of_signature(&signature) else { return };
+        if self.type_of(return_type).flags.contains(TypeFlags::NEVER) {
+            return;
+        }
+        let is_async = has_modifier(modifiers, SyntaxKind::AsyncKeyword);
+        let unwrapped = self.unwrap_return_type_for_code_paths(return_type, generator, is_async);
+        if self.is_unwrapped_return_type_undefined_void_or_any(unwrapped) {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        let span = self.error_span(node);
+        self.report(file, Diagnostic::new(&messages::NOT_ALL_CODE_PATHS_RETURN_A_VALUE, span));
     }
 
     /// TS2397 — `Declaration name conflicts with built-in global identifier '{0}'.`
