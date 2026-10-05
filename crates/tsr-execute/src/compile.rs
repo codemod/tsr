@@ -58,14 +58,25 @@ pub fn formatting_options(sys: &dyn System) -> FormattingOptions {
     )
 }
 
-/// Whether this run should use the pretty formatter.
+/// Whether this run should use the pretty formatter (`shouldBePretty`,
+/// `internal/execute/tsc/diagnostics.go:56`).
 ///
-/// The default is the terminal's answer, which is what makes `tsc` colourful
-/// interactively and machine-readable when redirected. An explicit `--pretty` or
-/// `--pretty false` overrides it.
+/// The default is `defaultIsPretty` (`:46`): `NO_COLOR` disables it,
+/// `FORCE_COLOR` enables it, and otherwise the terminal answers, which is what
+/// makes `tsc` colourful interactively and machine-readable when redirected.
+/// An explicit `--pretty` or `--pretty false` overrides it.
 #[must_use]
 pub fn should_use_pretty(sys: &dyn System, options: &CompilerOptions) -> bool {
-    if options.pretty.is_unknown() { sys.write_output_is_tty() } else { options.pretty.is_true() }
+    if !options.pretty.is_unknown() {
+        return options.pretty.is_true();
+    }
+    if !sys.environment_variable("NO_COLOR").is_empty() {
+        return false;
+    }
+    if !sys.environment_variable("FORCE_COLOR").is_empty() {
+        return true;
+    }
+    sys.write_output_is_tty()
 }
 
 /// Render diagnostics through whichever formatter this run selected.
@@ -77,7 +88,8 @@ fn render(
 ) -> String {
     let formatting = formatting_options(sys);
     let mut text = String::new();
-    if should_use_pretty(sys, options) {
+    let pretty = should_use_pretty(sys, options);
+    if pretty {
         tsr_diagnostics::format::write_format_diagnostics_with_color_and_context(
             &mut text,
             located,
@@ -95,7 +107,9 @@ fn render(
     } else {
         tsr_diagnostics::format::write_format_diagnostics(&mut text, located, &formatting);
     }
-    if summary && !options.quiet.is_true() {
+    // `CreateReportErrorSummary` (`diagnostics.go:134`) reports a summary only
+    // in pretty mode; plain output is the diagnostics alone.
+    if summary && pretty && !options.quiet.is_true() {
         tsr_diagnostics::format::write_error_summary_text(&mut text, located, &formatting);
     }
     text
@@ -815,6 +829,38 @@ mod directive_tests {
         assert_eq!(errors.len(), 2, "{output}");
         assert!(errors[0].starts_with("a.ts("), "{output}");
         assert!(errors[1].starts_with("z.ts("), "{output}");
+    }
+
+    #[test]
+    fn plain_output_has_no_summary_and_color_variables_choose_the_default() {
+        let run = |args: &[&str], environment: &[(&str, &str)]| {
+            let mut baseline = Baseline {
+                name: "pretty".to_string(),
+                current_directory: "/project".to_string(),
+                use_case_sensitive_file_names: true,
+                files: vec![("/project/a.ts".to_string(), "const a: number = '';".to_string())],
+                args: args.iter().map(|arg| (*arg).to_string()).collect(),
+                expected_status: String::new(),
+                expected_output: String::new(),
+                expects_emit: false,
+                environment: environment
+                    .iter()
+                    .map(|(name, value)| ((*name).to_string(), (*value).to_string()))
+                    .collect(),
+            };
+            baseline.args.extend(["--noLib", "a.ts"].map(str::to_string));
+            let mut system = BaselineSystem::new(&baseline);
+            crate::command_line(&mut system, &baseline.args);
+            system.output().to_string()
+        };
+        let plain = "a.ts(1,7): error TS2322: Type 'string' is not assignable to type 'number'.\n";
+        // The replay host is a terminal, so only `NO_COLOR` or `--pretty false`
+        // selects plain output; `--pretty` wins over the environment.
+        assert_eq!(run(&["--pretty", "false"], &[("FORCE_COLOR", "1")]), plain);
+        assert_eq!(run(&[], &[("NO_COLOR", "1"), ("FORCE_COLOR", "1")]), plain);
+        let pretty = run(&["--pretty"], &[("NO_COLOR", "1")]);
+        assert!(pretty.contains("Found 1 error"), "{pretty}");
+        assert_eq!(run(&[], &[]), pretty);
     }
 
     #[test]
