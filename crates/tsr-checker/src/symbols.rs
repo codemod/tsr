@@ -2067,6 +2067,12 @@ impl<'a> Checker<'a, '_> {
         if self.get_export_of_module(module_symbol, text).is_some() {
             return None;
         }
+        // `getExternalModuleMember` (`checker.go`): a missing `default` is
+        // answered by the module itself when `canHaveSyntheticDefault` holds,
+        // and is then not a missing member.
+        if text == "default" && self.can_have_synthetic_default(module_symbol) {
+            return None;
+        }
         let entry = self.binder.symbols().get(module_symbol);
         // §186 — an empty table cannot be asked which member is missing. A
         // module this port never filled would answer "no member" for every
