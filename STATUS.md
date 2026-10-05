@@ -22,6 +22,17 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
+Mapper lifetime audit (`tsr-1yb.4.1.2.2`), frozen `b466d030` /
+native `5b1047d`, inventories 102 lexical method sites in 17 Rust files.
+Eight private controls and three rejected mutations distinguish ordered source
+identity, fixing, fresh signature parameters and recursive composition. A print
+mode result survives into a later semantic object request (`.4.1.2.3`); this
+blocks broader vector-key reuse until the context is qualified. All 64 ordinary
+public children finish; 15/16 variants match complete native diagnostics, with
+missing private-brand detail tracked in `tsr-6.68`. Private source is restored
+exactly; canonical checker/vendor are unchanged. No runtime win or corpus update.
+[Current mapper handoff](docs/architecture/rust-mapper-lifetimes.md).
+
 Reference-retention prototype (`tsr-1yb.16.3.3.1`), frozen `a49a171a` /
 private candidate `2fd26c80` / native `5b1047d`, preserves byte-identical full
 type and diagnostic outputs: 475,538 assertions, 464,093 RIGHT, zero RIGHT
