@@ -156,6 +156,15 @@ TS1359's message instead. Five lane cases converted on this alone
   (`checkCatchClause` calls `checkVariableLikeDeclaration` alone), so
   `catch ({ a })` has no TS1182.
 
+## JSON values are validated
+
+`parseJSONText` ends with `validateJsonValue` (`parser.go:232`), which this
+port's `parse_json_text` did not have: a single-quoted string or a non-string
+property name is TS1327, a property that is not an assignment TS1136, any other
+non-JSON value TS1328. They are appended to the parser's diagnostics directly,
+as upstream does, so `parseErrorAtRange`'s same-position dedup does not apply.
+The quote style comes from the string literal's `token_flags`.
+
 ## Grammar reports that were not gated on parse errors
 
 `check_illegal_decorator` (`reportObviousDecoratorErrors`) reported in files
