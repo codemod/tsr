@@ -4804,6 +4804,9 @@ impl Checker<'_, '_> {
             if let Some(exported) = self.declaration_is_type_only(declaration) {
                 return Some(exported);
             }
+            if self.specifier_type_only_export_star(declaration).is_some() {
+                return Some(true);
+            }
             current = self.binder.merged_symbol(self.resolve_alias(current)?);
         }
         None

@@ -2368,8 +2368,9 @@ impl<'a> Checker<'a, '_> {
     /// a case that is already an error, rather than a missing answer in every
     /// case that is not.
     ///
-    /// Also not ported: `export type *`, whose type-onlyness upstream tracks in
-    /// a parallel map. Nothing here reads it.
+    /// `export type *`'s type-onlyness, which upstream tracks in a parallel
+    /// map, is answered separately by
+    /// [`Checker::specifier_type_only_export_star`].
     pub(crate) fn get_export_from_star(
         &mut self,
         module: SymbolId,
@@ -2421,6 +2422,111 @@ impl<'a> Checker<'a, '_> {
             }
         }
         None
+    }
+
+    /// The `export type *` declaration that makes a named import or
+    /// re-export type-only: `typeOnlyExportStarMap[name]` of
+    /// `getExportsOfModuleWorker` (`checker.go:16148`), which
+    /// `getExportOfModule` (`checker.go:14793`) hands to
+    /// `markSymbolOfAliasDeclarationIfTypeOnly` for the specifier.
+    ///
+    /// `declaration` is an `ImportSpecifier`, or an `ExportSpecifier` of a
+    /// declaration with a module specifier. No cache: asked only when a name
+    /// is not an own export of a module that has `export *` declarations, and
+    /// the walk is bounded by the star graph.
+    pub(crate) fn specifier_type_only_export_star(
+        &mut self,
+        declaration: NodeId,
+    ) -> Option<NodeId> {
+        let name = match self.node_map.get(declaration)? {
+            Node::ImportSpecifier(specifier) => specifier
+                .property_name
+                .or(specifier.name.map(tsr_ast::ModuleExportName::Identifier))?,
+            Node::ExportSpecifier(specifier) => specifier.property_name.or(specifier.name)?,
+            _ => return None,
+        };
+        let name = match name {
+            tsr_ast::ModuleExportName::Identifier(identifier) => identifier.text,
+            tsr_ast::ModuleExportName::StringLiteral(literal) => literal.text,
+        };
+        let owner = self.import_or_export_declaration_of(declaration)?;
+        let module_specifier = match self.node_map.get(owner)? {
+            Node::ImportDeclaration(import) => import.module_specifier,
+            Node::ExportDeclaration(export) => export.module_specifier,
+            _ => None,
+        }?
+        .node_id()?;
+        let module = self.resolve_external_module_name(owner, module_specifier)?;
+        let module = self.resolve_external_module_symbol(module);
+        // A name the module exports itself is in `nonTypeOnlyNames`, and a
+        // module without `export *` records nothing.
+        let entry = self.binder.symbols().get(module);
+        if entry.exports.contains_key(name) || !entry.exports.contains_key(INTERNAL_EXPORT_STAR) {
+            return None;
+        }
+        let mut walk = TypeOnlyStarWalk::default();
+        self.visit_type_only_export_star(Some(module), None, false, name, &mut walk);
+        if walk.non_type_only { None } else { walk.type_only_star }
+    }
+
+    /// `visit` inside `getExportsOfModuleWorker` (`checker.go:16154`),
+    /// projected onto one name: answers whether the name is in the visited
+    /// module's export table, and records the type-only star that would be
+    /// written last into `typeOnlyExportStarMap[name]`. Every star is visited,
+    /// as upstream does, because the shared visited set makes later answers
+    /// depend on earlier walks.
+    fn visit_type_only_export_star(
+        &mut self,
+        module: Option<SymbolId>,
+        export_star: Option<NodeId>,
+        is_type_only: bool,
+        name: &str,
+        walk: &mut TypeOnlyStarWalk,
+    ) -> bool {
+        let Some(module) = module else { return false };
+        let (own, stars) = {
+            let entry = self.binder.symbols().get(module);
+            let own = entry.exports.contains_key(name);
+            let stars = entry
+                .exports
+                .get(INTERNAL_EXPORT_STAR)
+                .map(|&star| self.binder.symbols().get(star).declarations.to_vec());
+            (own, stars)
+        };
+        if !is_type_only && own {
+            walk.non_type_only = true;
+        }
+        if walk.visited.contains(&module) {
+            return false;
+        }
+        walk.visited.push(module);
+        let mut contains = own;
+        for declaration in stars.unwrap_or_default() {
+            let Some(Node::ExportDeclaration(export)) = self.node_map.get(declaration) else {
+                continue;
+            };
+            let star_is_type_only = export.is_type_only;
+            let target = export
+                .module_specifier
+                .and_then(|specifier| specifier.node_id())
+                .and_then(|specifier| self.resolve_external_module_name(declaration, specifier));
+            let nested = self.visit_type_only_export_star(
+                target,
+                Some(declaration),
+                is_type_only || star_is_type_only,
+                name,
+                walk,
+            );
+            // `extendExportSymbols` never re-exports `default` through a star.
+            contains |= nested && name != "default";
+        }
+        if contains
+            && let Some(star) = export_star
+            && matches!(self.node_map.get(star), Some(Node::ExportDeclaration(export)) if export.is_type_only)
+        {
+            walk.type_only_star = Some(star);
+        }
+        contains
     }
 
     /// §501: `resolve_alias` iterated to a fixpoint — the terminal non-alias
@@ -6663,4 +6769,15 @@ mod tests {
             );
         });
     }
+}
+
+/// The state `getExportsOfModuleWorker` (`checker.go:16148`) shares across
+/// its recursive `visit`, for one name.
+#[derive(Default)]
+struct TypeOnlyStarWalk {
+    visited: Vec<SymbolId>,
+    /// The name is an own export of a module reached without `export type`.
+    non_type_only: bool,
+    /// The last `export type *` that wrote the name.
+    type_only_star: Option<NodeId>,
 }
