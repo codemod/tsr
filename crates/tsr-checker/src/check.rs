@@ -13713,8 +13713,29 @@ impl Checker<'_, '_> {
         if let Some(typed) = self.node_map.get(node) {
             tsr_ast::for_each_child_id(typed, |child| children.push(child));
         }
+        // Name positions are declarations, not references: a binding
+        // element's property name and bound name, and a type member's name
+        // (`({ a: b }, { b: a })` references neither `a` nor `b`).
+        let declared_names: Vec<NodeId> = match self.node_map.get(node) {
+            Some(Node::BindingElement(element)) => [
+                element.property_name.and_then(|name| name.node_id()),
+                element.name.and_then(|name| name.node_id()),
+            ]
+            .into_iter()
+            .flatten()
+            .filter(|&name| self.nodes.kind(name) == SyntaxKind::Identifier)
+            .collect(),
+            Some(Node::PropertySignatureDeclaration(signature)) => {
+                signature.name.node_id().into_iter().collect()
+            }
+            Some(Node::MethodSignatureDeclaration(signature)) => {
+                signature.name.node_id().into_iter().collect()
+            }
+            _ => Vec::new(),
+        };
         children
             .into_iter()
+            .filter(|child| !declared_names.contains(child))
             .any(|child| self.subtree_mentions_identifier(child, text, except, depth + 1))
     }
 

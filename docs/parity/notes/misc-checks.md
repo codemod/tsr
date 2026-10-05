@@ -140,3 +140,16 @@ but runs `checkUnusedRenamedBindingElements` only
 in `.d.ts` files too (`renamingDestructuredPropertyInFunctionType2`, 13 extra
 lines). The gate is `file_is_ambient` (set from the declaration-file name) or
 the module host's `is_declaration_file`.
+
+## §8 TS2842's reference scan skips declaration names
+
+§805 of `checker-notes-diag2.md` replaced upstream's `referenceKinds == 0`
+with a syntactic scan of the containing signature for the renamed identifier.
+The scan counted *name positions* as references: in
+`([{ a: b }, { b: a }]) => void` the property name `b` of the second element
+suppressed the first element's report (`destructuringInFunctionType`). A
+binding element's identifier property name and bound name, and a property or
+method signature's name, are declarations, so the scan skips them. Computed
+property names and nested patterns are still scanned (they can hold real
+references). Remaining approximation: any other same-text identifier in the
+signature (e.g. a type reference named like the binding) still suppresses.
