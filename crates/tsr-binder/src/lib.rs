@@ -762,6 +762,50 @@ impl<'a> BindResult<'a> {
                 }
                 return Some(self.merged_symbol(found));
             }
+            // The **export-default local name** (`nameresolver.go:109`–`:119`):
+            // in an external module, or an ambient module declaration that is
+            // not `declare global`, `export default class Foo {}` exports
+            // `default` and leaves only an `EXPORT_VALUE` marker named `Foo`
+            // in `locals`, which no value/type/namespace meaning matches. So
+            // upstream first reads `moduleExports["default"]` and answers it
+            // when its local symbol (`GetLocalSymbolForExportDefault`,
+            // `nameresolver.go:442`) carries the written name and the export
+            // matches the meaning — before the `moduleExports[name]` arm below.
+            //
+            // `isExportDefaultSymbol` is the first declaration's syntactic
+            // `default`. This binder keeps no node-to-local link, so "its local
+            // symbol is named `name`" is read from the other end: the marker
+            // `locals[name]` in this container (class/function markers and
+            // the rest are declared into the container's own table) whose
+            // `export_symbol` is that `default`.
+            if (match node_map.get(node) {
+                Some(tsr_ast::Node::SourceFile(_)) => true,
+                Some(tsr_ast::Node::ModuleDeclaration(module)) => {
+                    nodes.flags(node).contains(tsr_ast::NodeFlags::AMBIENT)
+                        && module.keyword.kind != SyntaxKind::GlobalKeyword
+                }
+                _ => false,
+            }) && let Some(module) = self.symbol_of(node)
+                && let Some(&default) = self
+                    .symbols
+                    .get(self.merged_symbol(module))
+                    .exports
+                    .get(binder::INTERNAL_DEFAULT)
+                && self.symbols.get(default).declarations.first().is_some_and(|&declaration| {
+                    node_map.get(declaration).and_then(binder::modifiers_of).is_some_and(
+                        |modifiers| binder::has_modifier(modifiers, SyntaxKind::DefaultKeyword),
+                    )
+                })
+                && self
+                    .locals
+                    .get(&node)
+                    .and_then(|locals| locals.get(name))
+                    .is_some_and(|&local| self.symbols.get(local).export_symbol == Some(default))
+                && self.symbols.get(self.merged_symbol(default)).flags.intersects(meaning)
+                && !self.symbol_is_declared_within(default, exclude, nodes)
+            {
+                return Some(self.merged_symbol(default));
+            }
             // A **namespace's exports** (`nameresolver.go:104`–`:146`).
             //
             // `namespace N { export class C {} }` puts `C` in `N`'s *symbol's*

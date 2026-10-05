@@ -6515,13 +6515,18 @@ impl<'a> Checker<'a, '_> {
         // enums, type parameters and aliases, whose symbol name IS their
         // declaration name in every case reached today, and each is its own
         // question rather than this one repeated.
+        //
+        // The FIRST NAMED declaration, not the first declaration:
+        // `getNameOfSymbolAsWritten` (`nodebuilderimpl.go:973`) takes
+        // `core.FirstNonNil(symbol.Declarations, ast.GetNameOfDeclaration)`.
+        // `export default function() {}` beside `export default interface A
+        // {}` merges into one `default` whose first declaration is nameless.
         let symbols = self.binder.symbols();
         let declared_name = symbols
             .get(symbol)
             .declarations
-            .first()
-            .and_then(|&declaration| self.node_map.get(declaration))
-            .and_then(|node| node.name_id())
+            .iter()
+            .find_map(|&declaration| self.node_map.get(declaration)?.name_id())
             .and_then(|id| self.node_map.get(id))
             .and_then(|node| match node {
                 tsr_ast::Node::Identifier(identifier) => Some(identifier.text.to_string()),

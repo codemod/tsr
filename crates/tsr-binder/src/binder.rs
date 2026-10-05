@@ -4459,7 +4459,7 @@ pub(crate) const GLOBAL_THIS: &str = "globalThis";
 pub(crate) const INTERNAL_EXPORT_STAR: &str = "__export";
 
 /// The modifier list of a declaration that can carry `export`.
-fn modifiers_of(node: Node<'_>) -> Option<&[tsr_ast::ModifierLike<'_>]> {
+pub(crate) fn modifiers_of(node: Node<'_>) -> Option<&[tsr_ast::ModifierLike<'_>]> {
     Some(match node {
         Node::FunctionDeclaration(n) => n.modifiers,
         Node::ClassDeclaration(n) => n.modifiers,
@@ -4505,7 +4505,7 @@ fn has_declare(modifiers: &[tsr_ast::ModifierLike<'_>]) -> bool {
     has_modifier(modifiers, SyntaxKind::DeclareKeyword)
 }
 
-fn has_modifier(modifiers: &[tsr_ast::ModifierLike<'_>], kind: SyntaxKind) -> bool {
+pub(crate) fn has_modifier(modifiers: &[tsr_ast::ModifierLike<'_>], kind: SyntaxKind) -> bool {
     modifiers.iter().any(
         |modifier| matches!(modifier, tsr_ast::ModifierLike::Token(token) if token.kind == kind),
     )
