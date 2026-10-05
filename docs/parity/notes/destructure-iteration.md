@@ -93,3 +93,34 @@ that excludes bodyless signatures (`FunctionType`, `ConstructorType`,
 `MethodSignature`, call/construct signatures — `renamingDestructuredPropertyInFunctionType`).
 The parameter gate in `destructure.rs` mirrors that gate and must move with it,
 or the element and the declaration would disagree.
+
+## 5. Computed binding names through `getIndexedAccessTypeEx` (tsr-2zk.16.43, BINDING-ELEMENT-COMPUTED-NAME-INDEXED-ACCESS)
+
+Upstream indexes every non-rest object element with
+`getIndexedAccessTypeEx(parent, getLiteralTypeFromPropertyName(name), ExpressionPosition | AllowMissing?)`
+(`checker.go:17741`); a computed name's literal type is its checked regular
+type. TSR read a computed key only against the parent's applicable index
+signature. Now:
+
+- a literal key (`["a"]`, `[2]`) names a property exactly as `{ a: x }` does
+  (`destructuring_property_lookup`, defaults or not);
+- a generic key defers through `resolved_indexed_access_type` (`T[K1]`,
+  `{ [_ in T]: number }[T]`). Only the INDEX decides deferral: in expression
+  position a generic object with a concrete key reads its apparent type, which
+  is why a generic parent with a literal key does not go this way;
+- any other key reads the applicable index signature, and under
+  AllowMissing an object-literal parent misses to `undefined`.
+  The index-signature result no longer returns early: it takes the same default
+  strip/union as every other element, as upstream does.
+
+`getRestType` (`checker.go:17792`) collects the same key types for the
+`Omit` road: a generic computed key (`isGenericIndexType(omitKeyType)`) mints
+`Omit<source, K1 | K2>` even over a concrete source, and unique-symbol keys
+enter the omitted union as themselves (`Omit<T, unique symbol | unique symbol>`).
+
+**Boundary — unique-symbol keys against a concrete parent.** TSR names a
+late-bound member by its source text (`[Key]`, `indexed.rs`'s element-access
+arm), not by the unique symbol's identity (`__@Key@id`). Matching a binding
+key to that name by text would be a syntactic guess, so a unique-symbol key
+against a concrete parent, and a concrete rest beside one, still gap
+(`genericObjectRest` 0:42/0:44, `declarationEmitComputedNameCausesImportToBePainted`).
