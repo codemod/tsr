@@ -293,27 +293,9 @@ impl Checker<'_, '_> {
     }
 }
 
-/// The operators whose operands must be numeric — `+` excluded, see the module
-/// header. The relational operators report through
-/// [`Checker::check_non_null_type_reporting`] from their own arm.
+/// The binary operators this rule still reports for: `+` alone. The
+/// relational and arithmetic arms report through
+/// [`Checker::check_non_null_type_reporting`] from their own ports.
 fn is_numeric_operator(kind: SyntaxKind) -> bool {
-    matches!(
-        kind,
-        SyntaxKind::MinusToken
-            | SyntaxKind::AsteriskToken
-            | SyntaxKind::AsteriskAsteriskToken
-            | SyntaxKind::SlashToken
-            | SyntaxKind::PercentToken
-            | SyntaxKind::LessThanLessThanToken
-            | SyntaxKind::GreaterThanGreaterThanToken
-            | SyntaxKind::GreaterThanGreaterThanGreaterThanToken
-            | SyntaxKind::AmpersandToken
-            | SyntaxKind::BarToken
-            | SyntaxKind::CaretToken
-            | SyntaxKind::PlusToken
-            | SyntaxKind::MinusEqualsToken
-            | SyntaxKind::AsteriskEqualsToken
-            | SyntaxKind::SlashEqualsToken
-            | SyntaxKind::PercentEqualsToken
-    )
+    kind == SyntaxKind::PlusToken
 }

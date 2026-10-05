@@ -502,6 +502,9 @@ impl Checker<'_, '_> {
                 {
                     self.check_reference_expression(node);
                 }
+                // The assignment arm's other rule, for the compound forms this
+                // arm takes from it.
+                self.check_private_accessor_is_writable(node);
                 ambient
             }
             Node::BinaryExpression(binary)
@@ -13682,6 +13685,16 @@ fn is_numeric_binary_operator(kind: SyntaxKind) -> bool {
             | SyntaxKind::AsteriskEqualsToken
             | SyntaxKind::SlashEqualsToken
             | SyntaxKind::PercentEqualsToken
+            // The rest of `checkBinaryLikeExpressionWorker`'s arithmetic arm
+            // (`checker.go:12358`): every compound form reaches
+            // `checkArithmeticOperandType` before `checkAssignmentOperator`.
+            | SyntaxKind::AsteriskAsteriskEqualsToken
+            | SyntaxKind::LessThanLessThanEqualsToken
+            | SyntaxKind::GreaterThanGreaterThanEqualsToken
+            | SyntaxKind::GreaterThanGreaterThanGreaterThanEqualsToken
+            | SyntaxKind::AmpersandEqualsToken
+            | SyntaxKind::BarEqualsToken
+            | SyntaxKind::CaretEqualsToken
     )
 }
 

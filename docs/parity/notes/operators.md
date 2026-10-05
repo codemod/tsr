@@ -74,3 +74,43 @@ upstream's *type* answer, and silences TS2365 as upstream's `IsTypeAny` does)
 and reports nothing. **Falsifier / reopening condition:** when the calls /
 inference owner stops publishing the speculative parameter type, wiring the
 report should convert the lane's TS18046 lines (17 missing) with no loss.
+
+## 3. The arithmetic arm is a port (TS2362, TS2363, TS2447, TS2365, TS18050)
+
+**Forcing constraint.** At `590ac64` the lane missed 83 TS2362 and 48 TS2363.
+Two causes, neither a logic gap in the rule: the walk's numeric dispatch
+(`is_numeric_binary_operator`, `check.rs`) admitted only four of the eleven
+compound arithmetic operators, so `**=`, `<<=`, `>>=`, `>>>=`, `&=`, `|=`, `^=`
+never reached `checkArithmeticOperandType`; and the rule replaced
+`!isTypeAssignableTo(t, numberOrBigIntType)` with a hand-built
+"definitely not numeric" predicate (flag tests, a syntactic "declared as an
+unconstrained type parameter" lookup, composite/enum declines).
+
+**What changed.** `check_arithmetic_operand_types` is now
+`checker.go:12358` in order: `checkNonNullType` with its reporter on each side,
+TS2447 on the operator token for two boolean-like operands (`return`, so no
+operand check and no `checkAssignmentOperator`), `checkArithmeticOperandType`
+per operand against `numberOrBigIntType`, then the result cascade —
+`number` when both are any/unknown or neither may be bigint-like; `bigint`
+when `bothAreBigIntLike` (`>>>` is TS2365 with no related closure); otherwise
+`reportOperatorError(…, bothAreBigIntLike)`. `leftOk && rightOk` gates
+`checkAssignmentOperator` (TS2364) as before. `checkIdentifier`'s
+`errorType` for a non-variable assignment target is modelled as an error
+*left type* — the right operand is still checked, which the old early return
+skipped. The dispatch now takes all eleven compound forms, and the numeric arm
+also runs the assignment arm's `check_private_accessor_is_writable` for them.
+
+Not ported: TS2791 (`**` on bigint below ES2016) — the checker does not hold
+`target`, and adding a field is outside this lane's files; the `>= 32` shift
+suggestion (an error only inside an enum member).
+
+**Perf.** The operand relation is preceded by `isSimpleTypeRelatedTo`'s own
+first answer (number/bigint/literal/any source → related) so a plain numeric
+operand does not build `number | bigint`. The harness self-ratio on
+domain-model read 1.039–1.05 at 9/21 samples, but identical binaries read
+0.975–1.016 and the unchanged binary 0.994–1.05 in the same hour; 25
+alternating direct runs gave base median 0.1654 s, new 0.1631 s.
+
+**Measured** (against `590ac64`): diagnostics +8 cases (WRONG→RIGHT), zero
+losses; lane MISSING TS2362 83 → 0, TS2363 48 → 0, TS18050 39 → 19, TS2447
+6 → 0; EXTRA TS2364 18 → 0.
