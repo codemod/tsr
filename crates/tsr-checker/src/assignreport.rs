@@ -1888,8 +1888,12 @@ impl<'a> Checker<'a, '_> {
             // The indexed-access result uses the concrete target receiver.
             // Reading the declaration symbol alone loses its mapper, so a
             // member declared as T on C<number> would be compared against T.
-            // Absent from the target means excess, TS2353's row.
-            let Some(target_property_type) = self.get_type_of_property_of_type(target, &name)
+            // `getIndexedAccessTypeOrUndefined` falls back to the target's
+            // applicable index signature; absent from both means excess,
+            // TS2353's row.
+            let Some(target_property_type) = self
+                .get_type_of_property_of_type(target, &name)
+                .or_else(|| self.elaboration_index_value(target, name_id, &name))
             else {
                 continue;
             };
@@ -1903,6 +1907,30 @@ impl<'a> Checker<'a, '_> {
                 self.elaborate_element(name_id, next, source_property_type, target_property_type);
         }
         reported
+    }
+
+    /// `getIndexedAccessTypeOrUndefined(target, nameType)`'s index-signature
+    /// arm (`getPropertyTypeForIndexType`, `checker.go`) for a member name the
+    /// target has no property for: the value of `getApplicableIndexInfo` for
+    /// the name's literal type (`getLiteralTypeFromPropertyName` — a numeric
+    /// name is a number literal, any other a string literal).
+    fn elaboration_index_value(
+        &mut self,
+        target: TypeId,
+        name_id: NodeId,
+        name: &str,
+    ) -> Option<TypeId> {
+        let name_type = if self.nodes.kind(name_id) == SyntaxKind::NumericLiteral {
+            let literal = self.check_expression_at_node(name_id);
+            self.get_regular_type_of_literal_type(literal)
+        } else {
+            self.store.intern_literal(
+                TypeFlags::STRING_LITERAL,
+                TypeData::StringLiteral(name.to_owned()),
+                false,
+            )
+        };
+        self.get_applicable_index_info(target, name_type).map(|info| info.value)
     }
 
     /// `elaborateArrayLiteral` (`relater.go:522`): each element is an element
