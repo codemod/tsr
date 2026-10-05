@@ -159,7 +159,46 @@ plain-JS diagnostic policy, project references, all forcing/input/worker budgets
 and comparable native median <=0.50 are not certified.
 [Qualified alignment evidence](docs/architecture/tsr-work-trace-producer.md#eligibility-alignment-after-the-producer).
 
-### Current checker checkpoint — original recursive-array length ownership
+### Current checker checkpoint — exported alias meaning and keyword publication
+
+Measured source revision **`67033d75`**, pinned native **`5b1047d`**:
+**464,069/478,855 RIGHT assertions**, **475,538 aligned positions**, 1,604 GAP
+and 9,865 WRONG. The fixed 99% target remains **474,067 RIGHT**;
+**9,998 additional matches remain**. This is a checkpoint, not completion.
+
+The cumulative privacy target-meaning/name, original generic keyword-alias
+producer and independent root-simple variable consumer add **72 RIGHT** over
+the length checkpoint below: 65 WRONG-to-RIGHT and seven GAP-to-RIGHT. Every
+prior RIGHT payload byte and key survives; no other payload changes, new WRONG
+rows or assertion additions/removals occur. Exported external import-equals
+resolution preserves the original ancestor walk and native target meanings;
+module naming visits bounded exports after locals. Direct generic keyword
+aliases publish their existing intrinsic body under the existing DeclaredType
+owner without tagging shared primitives or changing explicit-union identity.
+
+The borrowed-source variable consumer admits only positively written complete
+root-simple token/child/parent/span shapes and keeps its original semantic
+suppliers. It has no standalone corpus gain and includes no parser change.
+All **10,570 duplicate/empty diagnostic bags remain byte-identical**: 30,874
+expected, 24,533 actual, 20,829 matched, 10,045 missing and 3,704 extras.
+
+Release all-target plus doc tests pass **3,093 default / 3,105 full work-trace**,
+with zero failures and six existing ignores each. Strict all-target Clippy in
+both modes, formatting/source whitespace, 3,397 anchors and 16,596 section
+citations pass. Final default scan binaries equal the captured full-scan
+binaries after preserving upstream JSDoc documentation and orb-setup commits.
+Native CRLF/final-empty-row goldens retain their exact bytes. No speed claim
+follows from these correctness prerequisites or all-target benchmark execution.
+
+The constructor/parser combination remains rejected for nine authored matched
+losses; the nested variable/default successor is separate, not integrated.
+General inferred call publication remains rejected for contextual-source
+recovery, and the explicit-only trial additionally awaits correction of its
+original target's generic parameter vector. React TYPE completion still has
+naming/relation losses, recursive alias identity needs an ownership contract,
+and cold `Inputs<string>` written-slot completion remains separate work.
+
+### Historical length checkpoint — original recursive-array ownership
 
 Measured production/test revision **`738dea54`**, pinned native **`5b1047d`**:
 **463,997/478,855 RIGHT assertions**, **475,538 aligned positions**, 1,611 GAP
