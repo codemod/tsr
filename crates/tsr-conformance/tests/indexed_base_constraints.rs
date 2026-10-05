@@ -83,9 +83,9 @@ export function noInfer<T>(value: NoInfer<T>) { return value; }
     assert_types(
         source,
         &[
-            "erased : (value: any) => any",
-            "text : (value: string) => string",
-            "empty : (value: never) => never",
+            "erased : (value: Erased<number>) => any",
+            "text : (value: Text<number>) => string",
+            "empty : (value: Empty<number>) => never",
             "optional : (value: [string, number?], index: number) => string | number | undefined",
             "required : (value: [string, number], index: number) => string | number",
             "concreteNever : (value: { a: string; }, key: never) => never",

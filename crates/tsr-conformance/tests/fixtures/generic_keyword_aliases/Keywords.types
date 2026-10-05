@@ -1,0 +1,68 @@
+//// [tests/cases/compiler/genericKeywordAliasOwner.ts] ////
+
+=== aliases.ts ===
+type Inputs<First, Second = First> = boolean;
+>Inputs : boolean
+
+type StringBody<F> = ((string));
+>StringBody : string
+
+type NumberBody<F> = number;
+>NumberBody : number
+
+type BigIntBody<F> = bigint;
+>BigIntBody : bigint
+
+type SymbolBody<F> = symbol;
+>SymbolBody : symbol
+
+type VoidBody<F> = void;
+>VoidBody : void
+
+type UndefinedBody<F> = undefined;
+>UndefinedBody : undefined
+
+type AnyBody<F> = any;
+>AnyBody : any
+
+type UnknownBody<F> = unknown;
+>UnknownBody : unknown
+
+type NeverBody<F> = never;
+>NeverBody : never
+
+type ObjectKeyword<F> = object;
+>ObjectKeyword : object
+
+type BooleanUnion<F> = true | false;
+>BooleanUnion : BooleanUnion<F>
+>true : true
+>false : false
+
+declare let left: Inputs<string, number>;
+>left : boolean
+
+declare let right: Inputs<number, string>;
+>right : boolean
+
+declare let defaulted: Inputs<symbol>;
+>defaulted : boolean
+
+declare let namedUnion: BooleanUnion<string>;
+>namedUnion : BooleanUnion<string>
+
+function consumeBool(value: Inputs<string>): Inputs<string> { return value; }
+>consumeBool : (value: Inputs<string>) => Inputs<string>
+>value : boolean
+>value : boolean
+
+function owner<Outer>() {
+>owner : <Outer>() => number
+
+    type Uncaptured<Inner> = ((number));
+>Uncaptured : number
+
+    return 17;
+>17 : 17
+}
+

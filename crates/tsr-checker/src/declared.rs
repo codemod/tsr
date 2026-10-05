@@ -5959,6 +5959,20 @@ impl<'a> Checker<'a, '_> {
         // rather than needing the guard below.
         let parameters = self.local_type_parameter_names_of(symbol);
         if !parameters.is_empty() {
+            // Native 5b1047d1 getDeclaredTypeOfTypeAlias (checker.go:23837)
+            // publishes the body before recording its own ordered parameters.
+            // Keywords reuse Checker-owned intrinsics, never an alias-tagged
+            // type. The existing declared_types owner and resolution frame
+            // supply completion; local parameter/default syntax and the
+            // existing (SymbolId, ordered arguments) instantiation keys remain
+            // authoritative. No body evaluator or TypeId side-table tag runs.
+            if let Some(body) = self.original_generic_keyword_alias_body(symbol) {
+                if !self.resolutions.push(symbol, PropertyName::DeclaredType) {
+                    return error;
+                }
+                let resolved = self.get_type_from_type_node(body);
+                return if self.resolutions.pop() { resolved } else { error };
+            }
             // §282: a generic alias whose body IS one of its own type
             // parameters answers that parameter — upstream attaches an alias
             // symbol only to types CREATED during the resolution, and a
@@ -6118,6 +6132,61 @@ impl<'a> Checker<'a, '_> {
             return error;
         }
         resolved
+    }
+
+    /// The original, unmapped keyword body of one uniquely bound TS alias.
+    /// This read-only preflight never resolves annotations, captures, references
+    /// or cycles. Parentheses are the only transparent syntax admitted here;
+    /// explicit unions keep the alias identity of their own construction.
+    fn original_generic_keyword_alias_body(&self, symbol: SymbolId) -> Option<TypeNode<'a>> {
+        if !self.alias_evaluation_bindings.is_empty()
+            || self.mapped_template_depth != 0
+            || self.resolutions.on_stack(symbol, PropertyName::DeclaredType)
+        {
+            return None;
+        }
+        let entry = self.binder.symbols().get(symbol);
+        let [declaration] = entry.declarations.as_slice() else { return None };
+        if !entry.flags.contains(SymbolFlags::TYPE_ALIAS)
+            || self.binder.symbol_of(*declaration) != Some(symbol)
+        {
+            return None;
+        }
+        let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(*declaration) else {
+            return None;
+        };
+        if alias.type_parameters.is_empty()
+            || !alias.type_parameters.iter().all(|parameter| {
+                let Some(node) = parameter.node_id else { return false };
+                let Some(owner) = self.binder.symbol_of(node) else { return false };
+                let parameter = self.binder.symbols().get(owner);
+                parameter.flags.contains(SymbolFlags::TYPE_PARAMETER)
+                    && parameter.declarations.as_slice() == [node]
+                    && self.nodes.parent(node) == Some(*declaration)
+            })
+        {
+            return None;
+        }
+        let mut body = alias.r#type?;
+        while let TypeNode::ParenthesizedTypeNode(parenthesized) = body {
+            body = parenthesized.r#type?;
+        }
+        let TypeNode::KeywordTypeNode(keyword) = body else { return None };
+        matches!(
+            keyword.kind,
+            SyntaxKind::AnyKeyword
+                | SyntaxKind::UnknownKeyword
+                | SyntaxKind::StringKeyword
+                | SyntaxKind::NumberKeyword
+                | SyntaxKind::BigIntKeyword
+                | SyntaxKind::BooleanKeyword
+                | SyntaxKind::SymbolKeyword
+                | SyntaxKind::VoidKeyword
+                | SyntaxKind::UndefinedKeyword
+                | SyntaxKind::NeverKeyword
+                | SyntaxKind::ObjectKeyword
+        )
+        .then_some(body)
     }
 
     /// The body of a written or JSDoc type alias.
@@ -8574,5 +8643,191 @@ mod literal_union_alias_tests {
             ),
             before
         );
+    }
+}
+
+#[cfg(test)]
+mod generic_keyword_alias_tests {
+    use super::*;
+
+    #[test]
+    fn original_keyword_aliases_publish_body_identity_in_cold_reverse_and_warm_order() {
+        let source = "type A<First, Second = First> = boolean; type B<X> = ((number)); type C<T> = string; type D<T> = any; type E<T> = unknown; type F<T> = never; type G<T> = object; type H<T> = bigint; type I<T> = symbol; type J<T> = void; type K<T> = undefined;";
+        let arena = tsr_core::Arena::new();
+        let parsed = tsr_parser::parse(&arena, source);
+        assert!(parsed.diagnostics.is_empty());
+        let bound = tsr_binder::bind(
+            &arena,
+            parsed.source_file,
+            &parsed.nodes,
+            tsr_binder::FileInfo { name: "keyword-alias.ts", text: source },
+        );
+        for reverse in [false, true] {
+            let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+            let mut controls = vec![
+                ("A", checker.intrinsics.boolean, "boolean"),
+                ("B", checker.intrinsics.number, "number"),
+                ("C", checker.intrinsics.string, "string"),
+                ("D", checker.intrinsics.any, "any"),
+                ("E", checker.intrinsics.unknown, "unknown"),
+                ("F", checker.intrinsics.never, "never"),
+                ("G", checker.intrinsics.non_primitive, "object"),
+                ("H", checker.intrinsics.bigint, "bigint"),
+                ("I", checker.intrinsics.es_symbol, "symbol"),
+                ("J", checker.intrinsics.void, "void"),
+                ("K", checker.intrinsics.undefined, "undefined"),
+            ];
+            if reverse {
+                controls.reverse();
+            }
+            let count = checker.store.len();
+            for phase in 0..3 {
+                if phase != 0 {
+                    controls.reverse();
+                }
+                for &(name, expected, text) in &controls {
+                    let owner =
+                        bound.symbols().iter().find(|(_, symbol)| symbol.name == name).unwrap().0;
+                    let actual = checker.get_declared_type_of_symbol(owner);
+                    assert_eq!(actual, expected, "{name}, reverse={reverse}, phase={phase}");
+                    let declaration = bound.symbols().get(owner).declarations[0];
+                    assert_eq!(
+                        checker.type_to_string_at(actual, declaration).as_deref(),
+                        Some(text)
+                    );
+                    assert_eq!(checker.declared_types.get(&owner), Some(&expected));
+                    assert_eq!(checker.resolutions.depth(), 0);
+                    assert!(!checker.alias_evaluated_types.contains(&actual));
+                    assert!(!checker.type_reference_targets.contains_key(&actual));
+                }
+                assert_eq!(checker.store.len(), count, "keywords reuse existing intrinsics");
+            }
+            let owner = bound.symbols().iter().find(|(_, symbol)| symbol.name == "A").unwrap().0;
+            let parameters = checker.local_type_parameters_of(owner);
+            assert_eq!(parameters.len(), 2);
+            assert_eq!(parameters[0].name.unwrap().text, "First");
+            assert_eq!(parameters[1].name.unwrap().text, "Second");
+            assert!(parameters[1].default_type.is_some());
+            let left = vec![checker.intrinsics.string, checker.intrinsics.number];
+            let right = vec![checker.intrinsics.number, checker.intrinsics.string];
+            assert_eq!(
+                checker.create_type_reference(owner, left.clone()),
+                checker.intrinsics.boolean
+            );
+            assert_eq!(
+                checker.create_type_reference(owner, right.clone()),
+                checker.intrinsics.boolean
+            );
+            assert_eq!(
+                checker.instantiations.get(&(owner, left)),
+                Some(&checker.intrinsics.boolean)
+            );
+            assert_eq!(
+                checker.instantiations.get(&(owner, right)),
+                Some(&checker.intrinsics.boolean)
+            );
+            assert!(!checker.alias_evaluated_types.contains(&checker.intrinsics.boolean));
+        }
+    }
+
+    #[test]
+    fn keyword_preflight_declines_foreign_active_captured_and_nonkeyword_owners_without_work() {
+        let source = r"
+            type Good<A, B = A> = ((boolean));
+            type BooleanUnion<F> = true | false;
+            type Intersection<F> = number & {};
+            type Ref<F> = Good<F>;
+            type Literal<F> = true;
+            type ObjectBody<F> = { value: F };
+            type Conditional<F> = F extends string ? true : false;
+            type Recursive<F> = Recursive<F>;
+            type Marker<F> = intrinsic;
+            type Nongeneric = boolean;
+            function enclosing<Outer>() {
+                type Captured<Inner> = Outer;
+                type Uncaptured<Inner> = number;
+            }
+        ";
+        let arena = tsr_core::Arena::new();
+        let parsed = tsr_parser::parse(&arena, source);
+        assert!(parsed.diagnostics.is_empty());
+        let bound = tsr_binder::bind(
+            &arena,
+            parsed.source_file,
+            &parsed.nodes,
+            tsr_binder::FileInfo { name: "keyword-refusals.ts", text: source },
+        );
+        let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+        let owner = |name| bound.symbols().iter().find(|(_, entry)| entry.name == name).unwrap().0;
+        let good = owner("Good");
+        let snapshot = |checker: &Checker<'_, '_>| {
+            format!(
+                "{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}",
+                checker.store,
+                checker.declared_types,
+                checker.instantiations,
+                checker.alias_body_evaluations,
+                checker.alias_evaluated_types,
+                checker.type_reference_targets,
+                checker.alias_evaluation_bindings,
+                checker.type_parameter_symbols,
+                checker.resolutions,
+                checker.diagnostics,
+                checker.mapped_template_depth
+            )
+        };
+        let before = snapshot(&checker);
+        assert!(checker.original_generic_keyword_alias_body(good).is_some());
+        assert!(checker.original_generic_keyword_alias_body(owner("Uncaptured")).is_some());
+        for name in [
+            "BooleanUnion",
+            "Intersection",
+            "Ref",
+            "Literal",
+            "ObjectBody",
+            "Conditional",
+            "Recursive",
+            "Marker",
+            "Nongeneric",
+            "Captured",
+            "Outer",
+            "enclosing",
+        ] {
+            assert!(checker.original_generic_keyword_alias_body(owner(name)).is_none(), "{name}");
+        }
+        assert_eq!(snapshot(&checker), before);
+
+        assert!(checker.resolutions.push(good, PropertyName::DeclaredType));
+        let active = snapshot(&checker);
+        assert!(checker.original_generic_keyword_alias_body(good).is_none());
+        assert_eq!(snapshot(&checker), active);
+        assert!(checker.resolutions.pop(), "read-only refusal must not poison the frame");
+        assert_eq!(snapshot(&checker), before);
+
+        checker
+            .alias_evaluation_bindings
+            .push([(owner("Outer"), checker.intrinsics.string)].into_iter().collect());
+        let mapped = snapshot(&checker);
+        assert!(checker.original_generic_keyword_alias_body(good).is_none());
+        assert_eq!(snapshot(&checker), mapped);
+        checker.alias_evaluation_bindings.pop();
+        checker.mapped_template_depth = 1;
+        let template = snapshot(&checker);
+        assert!(checker.original_generic_keyword_alias_body(good).is_none());
+        assert_eq!(snapshot(&checker), template);
+        checker.mapped_template_depth = 0;
+
+        let resolved = checker.get_declared_type_of_symbol(good);
+        assert_eq!(resolved, checker.intrinsics.boolean);
+        let completed = snapshot(&checker);
+        assert_eq!(checker.get_declared_type_of_symbol(good), resolved);
+        assert_eq!(
+            snapshot(&checker),
+            completed,
+            "completed publication is an unchanged cache hit"
+        );
+        let captured = checker.get_declared_type_of_symbol(owner("Captured"));
+        assert_ne!(captured, checker.intrinsics.number);
+        assert_ne!(captured, checker.intrinsics.boolean);
     }
 }

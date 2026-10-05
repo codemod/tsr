@@ -1,0 +1,20 @@
+genericAliasArityBoundary.ts(3,24): error TS2314: Generic type 'Inputs' requires 1 type argument(s).
+genericAliasArityBoundary.ts(4,26): error TS2314: Generic type 'Inputs' requires 1 type argument(s).
+genericAliasArityBoundary.ts(7,33): error TS2707: Generic type 'DefaultInputs' requires between 0 and 1 type arguments.
+
+
+==== genericAliasArityBoundary.ts (3 errors) ====
+    type Inputs<F> = boolean;
+    type DefaultInputs<F = string> = boolean;
+    declare const missing: Inputs;
+                           ~~~~~~
+!!! error TS2314: Generic type 'Inputs' requires 1 type argument(s).
+    declare const excessive: Inputs<string, number>;
+                             ~~~~~~~~~~~~~~~~~~~~~~
+!!! error TS2314: Generic type 'Inputs' requires 1 type argument(s).
+    declare const valid: Inputs<string>;
+    declare const defaulted: DefaultInputs;
+    declare const defaultExcessive: DefaultInputs<string, number>;
+                                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+!!! error TS2707: Generic type 'DefaultInputs' requires between 0 and 1 type arguments.
+    
