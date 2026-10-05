@@ -25,6 +25,111 @@ declare namespace JSX {
 }
 "#;
 
+// Native jsxMixedSignatureSupplierProbe on pinned 5b1047d. In particular,
+// DifferentClass and DifferentMixed deliberately have different instance props
+// and constructor parameters: the overall tag's reference kind owns selection.
+const MIXED_SIGNATURE_SOURCE: &str = r#"// @strict: true
+// @target: es2015
+// @jsx: preserve
+declare namespace JSX {
+    interface Element { readonly brand: "element" }
+    interface ElementAttributesProperty { props: {} }
+    interface ElementChildrenAttribute { content: {} }
+}
+interface TextProps { mode: "west"; onValue: (value: string) => number; content?: (value: string) => number }
+interface NumberProps { mode: "east"; onValue: (value: number) => string; content?: (value: number) => string }
+interface TextInstance { props: TextProps }
+interface NumberInstance { props: NumberProps }
+type TextFunction = (props: TextProps) => JSX.Element;
+type TextClass = new (props: TextProps) => TextInstance;
+type NumberFunction = (props: NumberProps) => JSX.Element;
+type NumberClass = new (props: NumberProps) => NumberInstance;
+declare const Mixed: TextClass | TextFunction;
+declare const Reverse: TextFunction | TextClass;
+declare const Numeric: NumberClass | NumberFunction;
+const attributes = <Mixed mode="west" onValue={word => word.length} content={attributeChild => attributeChild.length} />;
+const body = <Mixed onValue={bodyWord => bodyWord.length} mode="west">{bodyChild => bodyChild.length}</Mixed>;
+const reverse = <Reverse mode="west" onValue={reverseWord => reverseWord.length}>{reverseChild => reverseChild.length}</Reverse>;
+const numeric = <Numeric onValue={count => count.toFixed()} mode="east">{countChild => countChild.toFixed()}</Numeric>;
+interface BothKinds { (props: TextProps): JSX.Element; new (props: NumberProps): NumberInstance }
+declare const Preferred: BothKinds;
+const preferred = <Preferred mode="east" onValue={preferredCount => preferredCount.toFixed()} />;
+interface DifferentInstance { props: NumberProps }
+declare const DifferentClass: new (props: TextProps) => DifferentInstance;
+declare const DifferentMixed: TextFunction | (new (props: TextProps) => DifferentInstance);
+const differentClass = <DifferentClass mode="east" onValue={differentCount => differentCount.toFixed()} />;
+const differentMixed = <DifferentMixed mode="west" onValue={differentWord => differentWord.length}>{differentChild => differentChild.length}</DifferentMixed>;
+declare const UniformCallBeforeFallback: BothKinds | TextFunction;
+const uniform = <UniformCallBeforeFallback mode="west" onValue={uniformWord => uniformWord.length}>{uniformChild => uniformChild.length}</UniformCallBeforeFallback>;
+"#;
+
+#[test]
+fn jsx_mixed_signature_context_preserves_reference_kind_and_precedence() {
+    assert_types(
+        MIXED_SIGNATURE_SOURCE,
+        &[
+            "word => word.length : (word: string) => number",
+            "attributeChild => attributeChild.length : (attributeChild: string) => number",
+            "bodyWord => bodyWord.length : (bodyWord: string) => number",
+            "bodyChild => bodyChild.length : (bodyChild: string) => number",
+            "reverseWord => reverseWord.length : (reverseWord: string) => number",
+            "reverseChild => reverseChild.length : (reverseChild: string) => number",
+            "count => count.toFixed() : (count: number) => string",
+            "countChild => countChild.toFixed() : (countChild: number) => string",
+            "preferredCount => preferredCount.toFixed() : (preferredCount: number) => string",
+            "differentCount => differentCount.toFixed() : (differentCount: number) => string",
+            "differentWord => differentWord.length : (differentWord: string) => number",
+            "differentChild => differentChild.length : (differentChild: string) => number",
+            "uniformWord => uniformWord.length : (uniformWord: string) => number",
+            "uniformChild => uniformChild.length : (uniformChild: string) => number",
+        ],
+    );
+}
+
+#[test]
+fn jsx_mixed_signature_context_matches_cold_reverse_and_warm_program_queries() {
+    use tsr_ast::{BindingName, Expression, Node};
+    let case = TestCase::parse("probe/jsx-mixed", "jsx-mixed.tsx", MIXED_SIGNATURE_SOURCE);
+    let arena = tsr_core::Arena::new();
+    let program = types_producer::program_for_case(&arena, &case);
+    let file = program
+        .source_files()
+        .iter()
+        .find(|file| file.file_name().ends_with("jsx-mixed.tsx"))
+        .expect("configured source");
+    let mut callbacks = Vec::new();
+    let mut stack = vec![Node::SourceFile(file.source_file())];
+    while let Some(node) = stack.pop() {
+        if let Node::ArrowFunction(arrow) = node {
+            let Some(BindingName::Identifier(name)) = arrow.parameters[0].name else {
+                unreachable!()
+            };
+            let parameter = match name.text {
+                "count" | "countChild" | "preferredCount" | "differentCount" => "number",
+                _ => "string",
+            };
+            let result = if parameter == "number" { "string" } else { "number" };
+            callbacks.push((arrow, format!("({}: {parameter}) => {result}", name.text)));
+        }
+        tsr_ast::push_children(node, &mut stack);
+    }
+    assert_eq!(callbacks.len(), 14);
+    callbacks.sort_by_key(|(arrow, _)| program.nodes().span(arrow.node_id.unwrap()).start);
+    for reversed in [false, true] {
+        let mut checker = types_producer::configured_checker(&program);
+        let mut order: Vec<_> = callbacks.iter().collect();
+        if reversed {
+            order.reverse();
+        }
+        for _ in 0..2 {
+            for (arrow, expected) in &order {
+                let ty = checker.check_expression(Expression::ArrowFunction(arrow));
+                assert_eq!(checker.type_to_string(ty), *expected, "reverse={reversed}");
+            }
+        }
+    }
+}
+
 #[test]
 fn jsx_composite_own_members_keep_optional_discriminant_metadata() {
     let source = format!(

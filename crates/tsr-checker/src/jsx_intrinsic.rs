@@ -88,7 +88,7 @@ impl Checker<'_, '_> {
     /// those sites before fixing an input. The context is removed on every exit.
     /// Existing resolved signatures avoid repeating those walks. No new cache,
     /// cross-Checker reuse, or performance claim; work attribution is tsr-1yb.11.
-    /// Overload/union selection and implicit runtime namespaces remain declined.
+    /// Overload selection and implicit runtime namespaces remain declined.
     pub(crate) fn jsx_attributes_context(
         &mut self,
         opening: NodeId,
@@ -150,14 +150,60 @@ impl Checker<'_, '_> {
         let expression = Expression::try_from(Node::from(tag)).ok()?;
         let ty = self.check_expression(expression);
         let mut signatures = self.signatures_of_type_kind(ty, SignatureKind::Construct)?;
+        let class_reference =
+            signatures.first().is_some_and(|signature| signature.kind == SignatureKind::Construct);
         if signatures.is_empty() {
             signatures = self.call_signatures_of_type(ty)?;
+        }
+        if signatures.is_empty() {
+            // getUninstantiatedJsxSignaturesOfType (5b1047d jsx.go:898):
+            // only completed empty WHOLE-tag construct/call sets permit the
+            // mixed union fallback. Retain the original tag/alias for managed
+            // attributes. Constituents supply completed, nongeneric singleton
+            // vectors; their declaration/argument vectors are never rewritten.
+            let apparent = self.apparent_type(ty);
+            let body = self.binding_type_alias_body(apparent);
+            let crate::types::TypeData::Union { types, .. } = self.store.get(body).data.clone()
+            else {
+                return None;
+            };
+            let mut lists = Vec::with_capacity(types.len());
+            for part in types {
+                if self.store.get(part).flags.intersects(crate::flags::TypeFlags::ANY_OR_UNKNOWN)
+                    || self.is_error(part)
+                {
+                    return None;
+                }
+                let mut preferred = self.signatures_of_type_kind(part, SignatureKind::Construct)?;
+                if preferred.is_empty() {
+                    preferred = self.call_signatures_of_type(part)?;
+                }
+                let [signature] = preferred.as_mut_slice() else { return None };
+                if !signature.type_parameters.is_empty()
+                    || signature.kind == SignatureKind::AbstractConstruct
+                    || signature.union_contains_abstract
+                    || self.is_error(signature.r#type)
+                    || signature.parameters.iter().any(|parameter| self.is_error(parameter.r#type))
+                {
+                    return None;
+                }
+                // Native signature lists have no call/construct kind. Project
+                // only these ephemeral JSX clones for the canonical combiner.
+                // Overall getJsxReferenceKind (jsx.go:1159) is Mixed here, so
+                // effective props use the first parameter, not instance props.
+                signature.kind = SignatureKind::Call;
+                lists.push(preferred);
+            }
+            signatures = self.union_signatures_of_lists(&lists)?;
+            // This result belongs only to the opening NodeId below, never to
+            // composite_signature_types[(tag TypeId, Call/Construct)]. Existing
+            // resolver guards distinguish active, declined and completed work.
         }
         if signatures.len() != 1 {
             return None;
         }
         let mut signature = signatures.remove(0);
-        let mut props = if matches!(signature.kind, SignatureKind::Construct) {
+        let mut props = if class_reference {
             match self.jsx_container_property(opening, "ElementAttributesProperty") {
                 None => signature.parameters.first().map(|p| p.r#type),
                 Some(name) if name.is_empty() => Some(signature.r#type),
@@ -170,7 +216,7 @@ impl Checker<'_, '_> {
         if let Some(managed) = self.jsx_type_symbol(opening, "LibraryManagedAttributes") {
             props = self.evaluate_alias_body(managed, &[ty, props])?;
         }
-        if matches!(signature.kind, SignatureKind::Construct)
+        if class_reference
             && let Some(intrinsic) = self.jsx_type_symbol(opening, "IntrinsicClassAttributes")
         {
             let intrinsic = match self.local_type_parameters_of(intrinsic).len() {
@@ -1127,5 +1173,111 @@ fn possibly_jsx_discriminant_value(expression: tsr_ast::Expression<'_>) -> bool 
             node.expression.is_none_or(possibly_jsx_discriminant_value)
         }
         _ => false,
+    }
+}
+
+#[cfg(test)]
+mod mixed_signature_tests {
+    use crate::{Checker, signatures::SignatureKind};
+    use tsr_ast::{Node, NodeId, SyntaxKind};
+
+    #[test]
+    fn jsx_mixed_signatures_publish_per_opening_without_changing_ordinary_vectors() {
+        let source = r#"declare namespace JSX {
+    interface Element {}
+    interface ElementAttributesProperty { props: {} }
+}
+interface Props { a: string }
+type Constructor = new (props: Props) => { props: { a: number } };
+type Function = (props: Props) => JSX.Element;
+declare const Mixed: Constructor | Function;
+declare const Generic: Constructor | (<T>(props: Props) => JSX.Element);
+declare const Overloaded: Constructor | { (props: Props): JSX.Element; (props: Props, second: number): JSX.Element };
+declare const Opaque: any;
+const first = <Mixed a="one" />;
+const second = <Mixed a="two" />;
+const generic = <Generic a="three" />;
+const overloaded = <Overloaded a="four" />;
+const opaque = <Opaque a="five" />;
+"#;
+        let arena = tsr_core::Arena::new();
+        let parsed =
+            tsr_parser::parse_with_script_kind(&arena, source, tsr_parser::ScriptKind::Tsx);
+        assert!(parsed.diagnostics.is_empty());
+        let root = parsed.source_file.node_id.unwrap();
+        let bound = tsr_binder::bind(
+            &arena,
+            parsed.source_file,
+            &parsed.nodes,
+            tsr_binder::FileInfo { name: "mixed.tsx", text: source },
+        );
+        for reversed in [false, true] {
+            let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+            let mixed = bound.lookup_local(root, "Mixed").unwrap();
+            let ty = checker.get_type_of_symbol(mixed);
+            assert!(checker.call_signatures_of_type(ty).unwrap().is_empty());
+            assert!(
+                checker.signatures_of_type_kind(ty, SignatureKind::Construct).unwrap().is_empty()
+            );
+            let constructor = bound.lookup_local(root, "Constructor").unwrap();
+            let constructor = checker.get_declared_type_of_symbol(constructor);
+            let original =
+                checker.signatures_of_type_kind(constructor, SignatureKind::Construct).unwrap();
+            let original_image = format!("{original:?}");
+            let mut openings: Vec<_> = (0..parsed.nodes.len())
+                .map(|index| NodeId::new(u32::try_from(index).unwrap()))
+                .filter(|&id| parsed.nodes.kind(id) == SyntaxKind::JsxSelfClosingElement)
+                .collect();
+            assert_eq!(openings.len(), 5);
+            if reversed {
+                openings.reverse();
+            }
+            for _ in 0..2 {
+                for &opening in &openings {
+                    let Some(Node::JsxSelfClosingElement(element)) = parsed.node_map.get(opening)
+                    else {
+                        unreachable!()
+                    };
+                    let tag = element.tag_name.unwrap();
+                    let context = checker.jsx_attributes_context(opening);
+                    if matches!(tag, tsr_ast::JsxTagNameExpression::Identifier(name) if name.text == "Mixed")
+                    {
+                        let context = context.expect("completed mixed context");
+                        assert_eq!(
+                            checker.get_type_of_property_of_type(context, "a"),
+                            Some(checker.intrinsics.string)
+                        );
+                        assert!(checker.resolved_call_signatures.contains_key(&opening));
+                    } else {
+                        assert_eq!(context, None);
+                        assert!(!checker.resolved_call_signatures.contains_key(&opening));
+                    }
+                }
+                assert!(checker.call_signatures_of_type(ty).unwrap().is_empty());
+                assert!(
+                    checker
+                        .signatures_of_type_kind(ty, SignatureKind::Construct)
+                        .unwrap()
+                        .is_empty()
+                );
+                for kind in [false, true] {
+                    assert!(
+                        checker
+                            .composite_signature_types
+                            .get(&(ty, kind))
+                            .unwrap()
+                            .as_ref()
+                            .unwrap()
+                            .is_empty()
+                    );
+                }
+                let after =
+                    checker.signatures_of_type_kind(constructor, SignatureKind::Construct).unwrap();
+                assert_eq!(format!("{after:?}"), original_image);
+                assert!(checker.resolving_signature_calls.is_empty());
+                assert!(checker.active_inference_contexts.is_empty());
+            }
+            assert_eq!(checker.resolved_call_signatures.len(), 2);
+        }
     }
 }

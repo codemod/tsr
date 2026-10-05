@@ -252,6 +252,19 @@ impl Checker<'_, '_> {
             }
             lists.push(list);
         }
+        self.union_signatures_of_lists(&lists)
+    }
+
+    /// getUnionSignatures (pinned 5b1047d checker.go:21112). The type-based
+    /// wrapper owns ordinary call/construct collection; JSX may instead supply
+    /// completed preferred-signature lists without publishing a callable type.
+    pub(crate) fn union_signatures_of_lists(
+        &mut self,
+        lists: &[Vec<Signature>],
+    ) -> Option<Vec<Signature>> {
+        if lists.iter().any(Vec::is_empty) {
+            return Some(Vec::new());
+        }
         let mut result = Vec::new();
         for (index, list) in lists.iter().enumerate() {
             for signature in list {
