@@ -1482,10 +1482,20 @@ impl<'a> Checker<'a, '_> {
                 }
             };
         }
-        if source_node
-            .is_some_and(|node| self.nodes.kind(node) == SyntaxKind::ObjectLiteralExpression)
+        if let Some(node) = source_node
+            && self.nodes.kind(node) == SyntaxKind::ObjectLiteralExpression
             && self.type_of(target).flags.contains(TypeFlags::UNION)
         {
+            // elaborateObjectLiteral against a union reads each member through
+            // getBestMatchingType; where that choice is certain, elaborate.
+            if let Some(best) = self.best_matching_object_constituent(source, target)
+                && self.relate_ternary(source, target, crate::relater::Relation::Assignable)
+                    == crate::relater::Ternary::NotRelated
+                && self.elaborate_object_literal(node, source, best)
+            {
+                probe!(PROBE_REPORTED);
+                return true;
+            }
             probe!(PROBE_OBJECT_LITERAL_UNION);
             return false;
         }
@@ -1856,6 +1866,46 @@ impl<'a> Checker<'a, '_> {
         callable && self.report_assignability_failure_with(node, None, source, target)
     }
 
+    /// `getBestMatchingType` (`relater.go`) for an object-literal source, in
+    /// the one domain where its answer is certain without the discriminant
+    /// machinery: the union has exactly one constituent that is not primitive,
+    /// it is a plain object type and not array-like, and it shares a property
+    /// name with the source. There `findMatchingDiscriminantType` can only
+    /// pick that constituent or nothing, `findMatchingTypeReferenceOrTypeAliasReference`
+    /// and `findBestTypeForInvokable` do not apply to a signature-less literal,
+    /// `findBestTypeForObjectLiteral` needs an array-like constituent, and
+    /// `findMostOverlappyType` picks it on any key overlap. Every other union
+    /// answers `None` (the caller keeps its decline).
+    fn best_matching_object_constituent(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+    ) -> Option<TypeId> {
+        let TypeData::Union { types, .. } = self.type_of(target).data.clone() else { return None };
+        let mut objects = types.iter().copied().filter(|&part| {
+            !self.type_of(part).flags.intersects(
+                TypeFlags::PRIMITIVE | TypeFlags::TEMPLATE_LITERAL | TypeFlags::STRING_MAPPING,
+            )
+        });
+        let best = objects.next()?;
+        if objects.next().is_some() {
+            return None;
+        }
+        let flags = self.type_of(best).flags;
+        if !flags.contains(TypeFlags::OBJECT)
+            || flags
+                .intersects(TypeFlags::UNION | TypeFlags::INTERSECTION | TypeFlags::INSTANTIABLE)
+            || self.tuple_element_lists.contains_key(&best)
+            || self.variadic_tuple_elements.contains_key(&best)
+            || self.tuple_spread_array_element(best).is_some()
+        {
+            return None;
+        }
+        let source_names = self.get_property_names_of_type(source)?;
+        let target_names = self.get_property_names_of_type(best)?;
+        source_names.iter().any(|name| target_names.contains(name)).then_some(best)
+    }
+
     /// `isOrHasGenericConditional` (`relater.go:474`).
     fn is_or_has_generic_conditional(&self, t: TypeId) -> bool {
         let ty = self.type_of(t);
@@ -2021,12 +2071,11 @@ impl<'a> Checker<'a, '_> {
             return false;
         }
         let tuple_target = self.tuple_element_lists.contains_key(&target);
-        if !tuple_target
-            && (self.variadic_tuple_elements.contains_key(&target)
-                || self.tuple_spread_array_element(target).is_none())
-        {
+        if !tuple_target && self.variadic_tuple_elements.contains_key(&target) {
             return false;
         }
+        let array_element =
+            if tuple_target { None } else { self.tuple_spread_array_element(target) };
         let source_tuple = self.tuple_element_lists.contains_key(&source);
         let elements: Vec<NodeId> =
             literal.elements.iter().filter_map(tsr_ast::Expression::node_id).collect();
@@ -2046,11 +2095,24 @@ impl<'a> Checker<'a, '_> {
                     continue;
                 };
                 member
-            } else {
-                let Some(element_type) = self.tuple_spread_array_element(target) else {
-                    return reported;
-                };
+            } else if let Some(element_type) = array_element {
                 element_type
+            } else {
+                // getIndexedAccessTypeOrUndefined(target, i) on a non-array
+                // object target: a property named `i`, else the applicable
+                // (numeric or string) index signature; neither skips it.
+                let name = index.to_string();
+                let index_type = self.store.intern_literal(
+                    TypeFlags::NUMBER_LITERAL,
+                    TypeData::NumberLiteral(name.clone()),
+                    false,
+                );
+                let Some(member) = self.get_type_of_property_of_type(target, &name).or_else(|| {
+                    self.get_applicable_index_info(target, index_type).map(|info| info.value)
+                }) else {
+                    continue;
+                };
+                member
             };
             let check_node = self.effective_check_node(element);
             let source_element = if source_tuple {

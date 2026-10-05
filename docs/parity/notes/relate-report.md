@@ -217,3 +217,94 @@ Converted: `compiler/avoidListingPropertiesForTypesWithOnlyCallOrConstructSignat
 `compiler/staticMemberOfClassAndPublicMemberOfAnotherClassAssignment`,
 `compiler/typeMatch1`, `conformance/invalidAssignmentsToVoid`,
 `conformance/invalidVoidValues`.
+
+## 10. Refused for now: primitive source against an index-signature target
+
+`is_related_to_with_excess` answers `Unknown` for a primitive source (through
+its apparent type) against a target with index signatures under the
+assignable relation, taking the `propertiesRelatedTo` rejection only for the
+subtype relations. Upstream's `structuredTypeRelatedTo` runs
+`propertiesRelatedTo` before the index-signature comparison under **every**
+relation, so `number -> string[]` (no `length`, …) is a definite negative.
+
+Lifting the relation restriction measured **+12 diagnostics cases** in this
+lane (the eight `assignmentCompatability16/18/20/22/29/30/31/32`, plus
+`arraySigChecking`, `typeParameterConstrainedToOuterTypeParameter`,
+`enumAssignability`, `recursiveConditionalEvaluationNonInfinite`) and **+16
+`checker_types` lines**, against **two losses**, both downstream of a
+now-correct `NotRelated` in files this lane does not own:
+
+- `compiler/couldNotSelectGenericOverload` (diagnostics): `makeArray2(1, "")`
+  against `(items: any[])` gains a TS2345 because
+  `call_arity.rs::check_call_arity` runs `check_argument_types` *before* the
+  arity test; upstream's `chooseOverload` only checks argument types for a
+  candidate that passed `hasCorrectArity`.
+- `compiler/destructuringTuple:0:13` (types): `number -> ConcatArray<never>` now
+  fails both `concat` overloads, as upstream (TS2769), and the port's overload
+  fallback in `calls.rs` then types `reduce`'s result differently from
+  upstream's.
+
+Kept out until those two are fixed by their owners; the integrator has the
+one-hunk change (delete `matches!(self.relation, Relation::Subtype |
+Relation::StrictSubtype) &&` in the primitive-apparent arm).
+
+## 11. Ported (narrow slice): `getBestMatchingType` for an object literal against `Object | primitives`
+
+`report_assignability_failure` declined every object literal against a union
+target (the discriminant/excess machinery is unported), so
+`function foo(): Stuff | string { return { b: () => "hello", … } }` reported
+nothing where upstream elaborates each member against `Stuff`
+(`elaborateObjectLiteral` → `getBestMatchIndexedAccessTypeOrUndefined` →
+`getBestMatchingType`). `best_matching_object_constituent` answers only where
+that choice is certain without the unported parts: exactly one non-primitive
+constituent, a plain object type that is not array-like, sharing a property
+name with the literal. In that domain `findMatchingDiscriminantType` can only
+return that constituent or nil, the type-reference and invokable steps do not
+apply to a signature-less literal, `findBestTypeForObjectLiteral` needs an
+array-like constituent, and `findMostOverlappyType` picks it on any key
+overlap. The literal is elaborated against it only when the whole relation is
+`NotRelated`; otherwise the old decline stands.
+
+Converted: `compiler/errorOnUnionVsObjectShouldDeeplyDisambiguate`. Its
+sibling `…Disambiguate2` (`Stuff | Date`, two object constituents) needs the
+full `findMostOverlappyType` key-overlap count and the discriminant step.
+
+## 12. Ported: `elaborateArrayLiteral` against non-array object targets
+
+`elaborateArrayLiteral` (`relater.go:522`) reads each element's target through
+`getBestMatchIndexedAccessTypeOrUndefined(source, target, i)`, which for any
+object target is a property named `i` or the applicable index signature. The
+port elaborated only tuple and array targets, so `var x3: I = [new Date(), 1]`
+with `interface I { [x: number]: Date }` reported at `x3` rather than at `1`.
+A non-array, non-tuple target now resolves each element through the property
+or `get_applicable_index_info` with the index's number-literal type; an index
+with neither is skipped, as upstream skips a `nil` target member. Variadic
+tuple and union targets keep their declines.
+
+Converted: `compiler/contextualTypingOfArrayLiterals1`, `conformance/arrayLiterals`.
+
+## 13. State at the end of the first box session, and what is outside this lane
+
+Lane diagnostics at `919ac31`: 25 RIGHT + 1 EMPTY_RIGHT of 568 (was 8 + 0
+at `0d996e8`); whole-suite `diagnostics` 3444/5488 (was 3427). Missing TS2322
+lines in the lane by gate: NEVER 326, DECLINED 185, NOTREPORTABLE 32,
+OLUNION 16.
+
+Needed outside this lane's files (each verified on a minimized probe):
+
+- `call_arity.rs::check_call_arity` / `check_argument_types` — TS2345 and
+  argument-position elaboration are checked only for one sole, non-generic,
+  fully annotated signature, and *before* the arity test. Parameters typed
+  from initializers or binding patterns (`destructuringParameterDeclaration1ES5`,
+  10 lines), overload sets (`functionOverloads`) and method calls on generic
+  instances (`genericOfACloduleType2`) are never checked; most of the lane's
+  531 missing TS2345 lines sit here. Reordering arity before argument types
+  also unblocks §10.
+- `calls.rs` overload fallback — §10's `destructuringTuple:0:13`.
+- `declared.rs` — qualified enum type references (§3).
+- `nonexistent_property.rs` — union property lookup over object-literal
+  constituents (§5).
+- binder/symbol merging — a script file's `interface Number { … }`
+  augmentation is not merged into lib's `Number` for `declare var a: Number`
+  (`assignFromNumberInterface2`, `assignFromBooleanInterface2`: false TS2322 on
+  `b = a`).
