@@ -4499,6 +4499,16 @@ impl<'a> Checker<'a, '_> {
                     }
                 }
                 Some(Node::ObjectLiteralExpression(_)) => {}
+                // `getContextualType`'s `KindExportAssignment` arm
+                // (`checker.go:29398`) is `tryGetTypeFromTypeNode(parent)`:
+                // without a type node there is no context. A JS file's type
+                // node comes from a reparsed JSDoc `@type`, which this AST may
+                // not carry, so absence is shown only in a TS file.
+                Some(Node::ExportAssignment(assignment)) => {
+                    return assignment.expression.and_then(|e| e.node_id()) == Some(position)
+                        && assignment.r#type.is_none()
+                        && !self.in_js_file(parent);
+                }
                 // §869: a call's CALLEE, and a tagged template's TAG, have no
                 // contextual type — upstream says so in a comment on the line
                 // that returns nil (`getContextualTypeForArgument`,
