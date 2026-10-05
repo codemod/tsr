@@ -5548,56 +5548,50 @@ impl Checker<'_, '_> {
     /// TS2405 — `The left-hand side of a 'for...in' statement must be of type
     /// 'string' or 'any'.`
     ///
-    /// `checkForInStatement` (`checker.go:4010`) asks the relation; the written
-    /// annotation answers it for the corpus's shape. A keyword type that is
-    /// neither `string` nor `any` can never be a `for…in` variable. §1005.
+    /// `checkForInStatement`'s expression arm (`checker.go:4009`): for an
+    /// initializer that is an expression rather than a declaration list and
+    /// not an array/object literal (TS2491's arm),
+    /// `isTypeAssignableTo(getIndexTypeOrString(rightType), leftType)`.
+    /// `getIndexTypeOrString` (`checker.go:4027`) is the string part of the
+    /// right operand's keys, or `string` when that is `never`; this port asks
+    /// with `string`, which is exact whenever the left type accepts no
+    /// narrower string, so a left type that could accept only some keys
+    /// (string literals, templates, mappings, type variables) declines.
     fn check_for_in_variable_type(&mut self, node: NodeId) {
-        if self.file_has_parse_errors || self.in_js_file(node) {
+        if self.in_js_file(node) {
             return;
         }
         let Some(Node::ForInOrOfStatement(statement)) = self.node_map.get(node) else { return };
         // **`ForInOrOfStatement::kind` is the node's own kind**, not the `in`
-        // or `of` keyword — the same shape as §973's `BindingPattern::kind`,
-        // and found the same way: the rule read `**SILENT**` on `diagemit` and one
-        // probe at the entry said `kind=ForInStatement`. §1006.
+        // or `of` keyword. §1006.
         if statement.kind.kind != SyntaxKind::ForInStatement {
             return;
         }
-        let Some(initializer) = statement.initializer.and_then(|i| i.node_id()) else { return };
-        if self.nodes.kind(initializer) != SyntaxKind::Identifier {
-            return;
-        }
-        let Some(text) = self.identifier_text(initializer).map(str::to_string) else { return };
-        let Some(symbol) = self.binder.resolve_name(
-            self.nodes,
-            self.node_map,
-            initializer,
-            &text,
-            SymbolFlags::VALUE,
-        ) else {
-            return;
-        };
-        let declarations =
-            self.binder.symbols().get(self.binder.merged_symbol(symbol)).declarations.clone();
-        let [declaration] = declarations.as_slice() else { return };
-        let Some(Node::VariableDeclaration(variable)) = self.node_map.get(*declaration) else {
-            return;
-        };
-        let Some(annotation) = variable.r#type.and_then(|t| t.node_id()) else { return };
-        if !matches!(
-            self.nodes.kind(annotation),
-            SyntaxKind::NumberKeyword
-                | SyntaxKind::BooleanKeyword
-                | SyntaxKind::SymbolKeyword
-                | SyntaxKind::BigIntKeyword
-                | SyntaxKind::VoidKeyword
-                | SyntaxKind::NeverKeyword
-                | SyntaxKind::ObjectKeyword
+        let Some(initializer) = statement.initializer else { return };
+        let Some(at) = initializer.node_id() else { return };
+        if matches!(
+            self.nodes.kind(at),
+            SyntaxKind::VariableDeclarationList
+                | SyntaxKind::ArrayLiteralExpression
+                | SyntaxKind::ObjectLiteralExpression
         ) {
             return;
         }
-        let Some(file) = self.source_file_of_for_diagnostics(initializer) else { return };
-        let span = self.nodes.span(initializer);
+        let Ok(expression) = tsr_ast::Expression::try_from(Node::from(initializer)) else {
+            return;
+        };
+        let left = self.check_expression(expression);
+        if self.is_error(left) || self.accepts_some_narrower_string(left) {
+            return;
+        }
+        let string = self.intrinsics.string;
+        if self.relate_ternary(string, left, crate::relater::Relation::Assignable)
+            != crate::relater::Ternary::NotRelated
+        {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
+        let span = self.error_span(at);
         self.report(
             file,
             Diagnostic::new(
@@ -5605,6 +5599,28 @@ impl Checker<'_, '_> {
                 span,
             ),
         );
+    }
+
+    /// Could `ty` accept a string narrower than `string` — a string literal,
+    /// template literal, string mapping or type variable, alone or as a union
+    /// or intersection constituent?
+    fn accepts_some_narrower_string(&self, ty: crate::types::TypeId) -> bool {
+        let flags = self.store.get(ty).flags;
+        if flags.intersects(
+            crate::flags::TypeFlags::STRING_LITERAL
+                | crate::flags::TypeFlags::TEMPLATE_LITERAL
+                | crate::flags::TypeFlags::STRING_MAPPING
+                | crate::flags::TypeFlags::INSTANTIABLE,
+        ) {
+            return true;
+        }
+        match &self.store.get(ty).data {
+            crate::types::TypeData::Union { types, .. }
+            | crate::types::TypeData::Intersection { types, .. } => {
+                types.iter().any(|&member| self.accepts_some_narrower_string(member))
+            }
+            _ => false,
+        }
     }
 
     /// TS2407 — `The right-hand side of a 'for...in' statement must be of type
