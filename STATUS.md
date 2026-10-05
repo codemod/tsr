@@ -87,7 +87,41 @@ plain-JS diagnostic policy, project references, all forcing/input/worker budgets
 and comparable native median <=0.50 are not certified.
 [Qualified alignment evidence](docs/architecture/tsr-work-trace-producer.md#eligibility-alignment-after-the-producer).
 
-### Current checker checkpoint — original publication and source-owned views
+### Current checker checkpoint — canonical JavaScript loop flow
+
+Measured production/test revision **`a072b4d7`**, pinned native **`5b1047d`**:
+**463,862/478,855 RIGHT assertions (96.87%)**, **475,538 aligned positions**,
+1,611 GAP and 10,065 WRONG. The fixed 99% goal remains **474,067 RIGHT**;
+**10,205 additional matches remain**. This is a checkpoint, not completion.
+
+Relative to v14, all **131 changes are WRONG-to-RIGHT**: 130 in
+`parsingDeepParenthensizedExpression` and one in `narrowingPlainJsNoCrash1`.
+No previous RIGHT payload byte, key, GAP row or already-WRONG payload changes.
+The JS loop-label dispatch now uses the existing canonical worker; its captured
+initial-type key, active accumulator, transient-write guard and completion cache
+remain unchanged. All **10,570 diagnostic bags are byte-identical**: 30,874
+expected occurrences, 24,533 actual, 20,829 matched, 10,045 missing and 3,704
+extras. The v14 adverse ledger and omitted positions remain explicit below.
+
+Fresh native controls retain 281 complete rows: 264 exact before, 275 after,
+zero previous match losses, six unrelated IIFE parameter-context gaps retained.
+Validation: **3,027 default and 3,037 full work-trace workspace release passes**,
+zero failures and six existing ignores each; strict release all-target Clippy
+in both modes, formatting/whitespace, 3,395 anchors and 16,596 section citations
+pass. The full feature command is `--features work-trace`; intermediate
+checker-only/execution-only feature runs pass 3,027/3,035, not the full count.
+Final rebuilt scan binaries equal the captured binaries byte-for-byte. Complete
+evidence is `.amp/in/artifacts/tsr-native-js-loop-v15-evidence.tar.gz`.
+
+The separate unknown-indexed successor `0f436740` is rejected: its corpus gates
+lose no rows or occurrences, but the unchanged negative control loses two native
+TS2322 assignment diagnostics. No expectation or diagnostic-policy relaxation
+is accepted. A contextual candidate-completion prerequisite and completed
+recursive-array index-body view are separate experiments, not integrated gains.
+Closed literal-union alias production remains a separate red TDD boundary;
+general captured/recursive union-body expansion is not certified.
+
+### Historical v14 checkpoint — original publication and source-owned views
 
 Measured production/test revision **`fc1c865f`**, pinned native **`5b1047d`**:
 **463,731/478,855 RIGHT assertions (96.84%)**, **475,538 aligned positions**,
