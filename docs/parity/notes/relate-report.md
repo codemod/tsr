@@ -168,3 +168,30 @@ keeps its existing path. A lib target such as `Date` has no certified table
 and stays undecided.
 
 Converted: `conformance/nonPrimitiveAssignError`.
+
+## 8. Ported: `mappedTypeRelatedTo`'s modifier gate, and lazily captured mapped types
+
+Two generic mapped types relate only if
+`getCombinedMappedTypeOptionality(source) <= getCombinedMappedTypeOptionality(target)`
+(`relater.go:3972`, reached from the default branch at `relater.go:3805` after
+the generic-mapped-target arm fails), so `Partial<T> -> Readonly<T>` and
+`Readonly<Partial<T>> -> Readonly<T>` are TS2322. `Relater::mapped_modifiers_reject`
+ports that gate as a definite negative; the remainder of `mappedTypeRelatedTo`
+(constraint `T' -> S'` and template comparison under the parameter mapper)
+is **not** ported — pairs passing the gate keep their previous answer.
+Narrowed to mapped types with a type-variable constraint and no `as` clause on
+both sides, since `is_generic_mapped_target` over-approximates genericity.
+`combined_mapped_optionality` follows `modifiers_source` (the homomorphic
+operand) as upstream follows `getModifiersTypeFromMappedType`.
+
+A reference such as `Partial<T>` reaches the relater as a member-less `Named`
+image whose mapped info is captured on first use (`ensure_mapped_type_info`),
+so the structural gate never routed it to `structured_type_related_to_worker`
+and both mapped arms (this one and §4's) were unreachable for it. They now
+also run just before the undecided fallthrough of `is_related_to_with_excess`,
+after ensuring the info.
+
+Converted: `conformance/mappedTypes5`. `mappedTypes6` and
+`mappedTypeRelationships` need the unported remainder (template comparison,
+type-parameter targets, and the default branch's "non-mapped source against a
+generic mapped target is false").
