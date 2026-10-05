@@ -41,3 +41,12 @@ turns each checkout into a cargo *directory source* under
   authority for the lint gate (see `rust-toolchain.toml`).
 - Adding or bumping a dependency requires a matching `list.txt` row.
 - This changes nothing that is built for CI or release; it is local tooling.
+
+## Native tsgo for the perf comparison
+
+`scripts/offline-cargo/build-tsgo.sh [TSR_ROOT] [WORK_DIR]` builds Go 1.26 from
+its GitHub source (bootstrapped by the image's Go 1.24) and every module of the
+pinned `vendor/typescript-go/go.mod` from GitHub clones, then builds
+`./cmd/tsgo` with a copied `-modfile` plus `replace` block. Nothing tracked is
+modified. The result (`$WORK_DIR/tsgo`) goes in the `--tsgo` slot of
+`cargo run -p xtask -- perf-project`. Toolchain build takes a few minutes.
