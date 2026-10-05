@@ -1062,6 +1062,14 @@ impl Checker<'_, '_> {
         ))
     }
 
+    /// `getDeclarationModifierFlagsFromSymbol(prop) & NonPublicAccessibilityModifier`.
+    pub(crate) fn property_is_non_public(&self, property: SymbolId) -> bool {
+        self.modifier_declaration_of(property, false).is_some_and(|declaration| {
+            self.member_declaration_has(declaration, SyntaxKind::PrivateKeyword)
+                || self.member_declaration_has(declaration, SyntaxKind::ProtectedKeyword)
+        })
+    }
+
     /// `getDeclarationModifierFlagsFromSymbolEx`'s declaration choice: a write
     /// reads the setter, any other access the getter, else the value
     /// declaration. A symbol without one is public.

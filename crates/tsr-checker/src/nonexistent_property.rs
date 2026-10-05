@@ -155,11 +155,16 @@ impl Checker<'_, '_> {
                 }
                 receiver_type
             } else {
+                let Some(apparent) = self.property_is_known_absent(node, receiver_type, name_text)
+                else {
+                    return;
+                };
                 // A union receiver that is a narrowable reference is the one
                 // shape whose flow type this port cannot certify: the narrowing
                 // arms decline to the declared union silently, and a declined
                 // narrowing reads exactly like no narrowing (the flowed == declared
-                // test above). `boolean` is a union only by representation.
+                // test above), unless no narrowing can reach the reference.
+                // `boolean` is a union only by representation.
                 if matches!(
                     self.store.get(receiver_type).data,
                     crate::types::TypeData::Union { .. }
@@ -176,13 +181,10 @@ impl Checker<'_, '_> {
                             | SyntaxKind::ElementAccessExpression
                             | SyntaxKind::ParenthesizedExpression
                     )
+                    && !self.flow_cannot_narrow_identifier(receiver_id)
                 {
                     return;
                 }
-                let Some(apparent) = self.property_is_known_absent(node, receiver_type, name_text)
-                else {
-                    return;
-                };
                 apparent
             };
         if let crate::types::TypeData::Anonymous { symbol, .. } =
@@ -392,6 +394,7 @@ impl Checker<'_, '_> {
         if let crate::types::TypeData::Union { types, .. } = &self.store.get(receiver).data {
             let types = types.clone();
             let mut missing = false;
+            let mut properties = Vec::new();
             for constituent in types {
                 let constituent_flags = self.store.get(constituent).flags;
                 if constituent_flags.intersects(TypeFlags::NEVER) {
@@ -407,7 +410,26 @@ impl Checker<'_, '_> {
                 if apparent == self.intrinsics.error {
                     return None;
                 }
-                missing |= self.apparent_type_lacks(apparent, name)?;
+                let lacks = self.apparent_type_lacks(apparent, name)?;
+                missing |= lacks;
+                if !lacks && let Some(property) = self.get_property_of_type(apparent, name) {
+                    properties.push(property);
+                }
+            }
+            // createUnionOrIntersectionProperty's last refusal: different
+            // declarations across constituents, one of them private or
+            // protected, and no declaration common to all of them.
+            if !missing && properties.iter().any(|&p| p != properties[0]) {
+                let non_public =
+                    properties.iter().any(|&property| self.property_is_non_public(property));
+                let common = self.binder.symbols().get(properties[0]).declarations.iter().any(
+                    |declaration| {
+                        properties.iter().all(|&property| {
+                            self.binder.symbols().get(property).declarations.contains(declaration)
+                        })
+                    },
+                );
+                missing = non_public && !common;
             }
             return missing.then_some(receiver);
         }
@@ -714,6 +736,89 @@ impl Checker<'_, '_> {
             }
             _ => true,
         }
+    }
+
+    /// Can no narrowing reach this identifier reference?
+    ///
+    /// `getFlowTypeOfReference` (`flow.go`) changes a reference's declared
+    /// type only at a condition, a `switch` clause, an assertion call, an
+    /// array mutation, an assignment to the reference, or through the
+    /// enclosing function's start into an outer flow. A walk of the
+    /// reference's antecedents that meets none of those proves the declared
+    /// type is the flow type without trusting this port's narrowing arms
+    /// (which decline to the declared type silently). Bounded: a graph larger
+    /// than the budget is not certified. No cache: run once per reported miss
+    /// on a union receiver.
+    fn flow_cannot_narrow_identifier(&self, reference: NodeId) -> bool {
+        const BUDGET: usize = 256;
+        let Some(Node::Identifier(identifier)) = self.node_map.get(reference) else {
+            return false;
+        };
+        let Some(symbol) = self.binder.resolve_name(
+            self.nodes,
+            self.node_map,
+            reference,
+            identifier.text,
+            SymbolFlags::VALUE,
+        ) else {
+            return false;
+        };
+        let declarations = &self.binder.symbols().get(symbol).declarations;
+        let Some(start) = self.binder.flow_of(reference) else { return false };
+        let flow = self.binder.flow();
+        let mut stack = vec![start];
+        let mut seen = rustc_hash::FxHashSet::default();
+        while let Some(id) = stack.pop() {
+            if !seen.insert(id) {
+                continue;
+            }
+            if seen.len() > BUDGET {
+                return false;
+            }
+            let flags = flow.flags(id);
+            if flags.intersects(
+                tsr_binder::FlowFlags::CONDITION
+                    | tsr_binder::FlowFlags::SWITCH_CLAUSE
+                    | tsr_binder::FlowFlags::CALL
+                    | tsr_binder::FlowFlags::ARRAY_MUTATION
+                    | tsr_binder::FlowFlags::REDUCE_LABEL,
+            ) {
+                return false;
+            }
+            if flags.contains(tsr_binder::FlowFlags::START) {
+                // A function's start continues into the outer flow for a
+                // reference declared outside it.
+                if let Some(container) = flow.node(id)
+                    && !declarations.iter().all(|&declaration| {
+                        self.nodes.ancestors(declaration).any(|node| node == container)
+                    })
+                {
+                    return false;
+                }
+                continue;
+            }
+            if flags.contains(tsr_binder::FlowFlags::ASSIGNMENT) {
+                let Some(target) = flow.node(id) else { return false };
+                let assigns_reference = declarations.contains(&target)
+                    || self.identifier_text(target).is_some_and(|text| text == identifier.text)
+                    || !matches!(
+                        self.nodes.kind(target),
+                        SyntaxKind::Identifier
+                            | SyntaxKind::VariableDeclaration
+                            | SyntaxKind::Parameter
+                            | SyntaxKind::BindingElement
+                    );
+                if assigns_reference {
+                    return false;
+                }
+            }
+            if flags.intersects(tsr_binder::FlowFlags::LABEL) {
+                stack.extend(flow.antecedents(id));
+            } else if let Some(antecedent) = flow.antecedent(id) {
+                stack.push(antecedent);
+            }
+        }
+        true
     }
 
     /// Does the receiver's dotted chain start at a default or namespace import
