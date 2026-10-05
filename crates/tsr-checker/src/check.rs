@@ -254,6 +254,7 @@ impl Checker<'_, '_> {
             }
             Node::ClassDeclaration(declaration) => {
                 self.check_exports_on_merged_declarations(node);
+                self.check_class_function_merge(node);
                 self.check_super_call_is_first(node);
                 self.check_derived_constructor_calls_super(node);
                 self.check_static_side_assignability(node);
@@ -321,6 +322,7 @@ impl Checker<'_, '_> {
             }
             Node::FunctionDeclaration(declaration) => {
                 self.check_overload_implementation_return(node);
+                self.check_class_function_merge(node);
                 self.check_function_or_constructor_symbol(node, ambient);
                 self.check_overload_ambient_agreement(node);
                 let ambient =
@@ -344,6 +346,7 @@ impl Checker<'_, '_> {
                 for member in declaration.members {
                     if let Some(at) = member.node_id {
                         self.check_enum_member_name(at);
+                        self.check_computed_enum_member_initializer(at, ambient);
                     }
                 }
                 ambient || has_modifier(declaration.modifiers, SyntaxKind::DeclareKeyword)
@@ -451,6 +454,7 @@ impl Checker<'_, '_> {
                 );
                 self.check_subsequent_declaration_type(node, declaration);
                 self.check_variable_like_declaration(node, declaration, ambient);
+                self.check_using_declaration_initializer(node);
                 self.check_jsdoc_annotated_initializer(node, ambient);
                 self.check_empty_binding_pattern_source(node, declaration, ambient);
                 self.check_const_is_initialized(node, declaration, ambient);
@@ -591,6 +595,7 @@ impl Checker<'_, '_> {
                 self.check_comparison_overlap(node, ambient);
                 self.check_operator_operands(node, ambient);
                 self.check_in_expression(node, ambient);
+                self.check_nullish_coalesce_operands(node);
                 ambient
             }
             Node::ComputedPropertyName(_) => {
