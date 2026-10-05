@@ -888,10 +888,23 @@ impl Relater<'_, '_, '_> {
         {
             return RelationResult::NotRelated;
         }
+        // structuredTypeRelatedToWorker (relater.go:3261): under strict null
+        // checks `null`/`undefined`/`void` fail isSimpleTypeRelatedTo against
+        // an object target, their apparent type stays primitive, and no
+        // object-target arm accepts a non-object source. A generic mapped
+        // target keeps its own keyof-based arm (relater.go:3593), which this
+        // port leaves undecided under the assignable/comparable relations.
+        //
+        // A `Named` image whose symbol is a type alias is not an object type
+        // upstream: it is `declared.rs`'s print-only mint for a qualified alias
+        // reference (`N.Alias`), which may stand for a primitive such as
+        // `undefined`. Its flags are not evidence, so it stays undecided.
         if self.checker.strict_null_checks
-            && s.intersects(TypeFlags::NULLABLE)
+            && s.intersects(TypeFlags::NULLABLE | TypeFlags::VOID)
             && t.contains(TypeFlags::OBJECT)
-            && matches!(self.relation, Relation::Subtype | Relation::StrictSubtype)
+            && (matches!(self.relation, Relation::Subtype | Relation::StrictSubtype)
+                || (!self.is_generic_mapped_target(target)
+                    && !self.is_qualified_alias_mint(target)))
         {
             return RelationResult::NotRelated;
         }
@@ -938,6 +951,25 @@ impl Relater<'_, '_, '_> {
             }
             RelationResult::Unknown
         }
+    }
+
+    /// isGenericMappedType (checker.go) as far as this port can tell: a mapped
+    /// type whose constraint (or key-remapping name type) may still be
+    /// instantiable. Over-approximates, which only leaves pairs undecided.
+    fn is_generic_mapped_target(&self, id: TypeId) -> bool {
+        self.checker.mapped_types.get(&id).is_some_and(|info| {
+            self.checker.maybe_type_of_kind(info.constraint, TypeFlags::INSTANTIABLE)
+                || info.name_type.is_some()
+        })
+    }
+
+    /// `declared.rs`'s `qualified_type_reference` mints an OBJECT-flagged
+    /// `Named` image for every argument-less qualified reference, including a
+    /// type alias whose declared type is not an object.
+    fn is_qualified_alias_mint(&self, id: TypeId) -> bool {
+        matches!(self.checker.type_of(id).data, TypeData::Named { members: Some(symbol), .. }
+            if self.checker.binder.symbols().get(symbol).flags
+                .intersects(tsr_binder::SymbolFlags::TYPE_ALIAS))
     }
 
     fn has_members(&self, id: TypeId) -> bool {
