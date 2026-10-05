@@ -2989,52 +2989,18 @@ impl<'a, 'n> Binder<'a, 'n> {
         use tsr_ast::JSDocTag;
         for (host, docs) in jsdoc {
             for doc in *docs {
-                // Native reparents the gathered template/property nodes under
-                // a JSTypeAliasDeclaration (reparser.go::reparseUnhosted).
-                // Keep the immutable tree and use its comment as the lexical
-                // locals owner instead: every nested annotation climbs here.
-                let typedef = doc.tags.iter().find_map(|tag| match tag {
-                    JSDocTag::JSDocTypedefTag(tag) => Some(*tag),
-                    _ => None,
+                // Native reparents the gathered template nodes under a
+                // JSTypeAliasDeclaration (reparser.go::reparseUnhosted's
+                // typedef/callback arms, `gatherTypeParameters` with
+                // typedefOrCallback). Keep the immutable tree and use its
+                // comment as the lexical locals owner instead: every nested
+                // annotation climbs here. The nested `@property`/`@param`
+                // children are already inside the tag's reparsed body, which
+                // binds like any written type literal or function type.
+                let declares_alias = doc.tags.iter().any(|tag| {
+                    matches!(tag, JSDocTag::JSDocTypedefTag(_) | JSDocTag::JSDocCallbackTag(_))
                 });
-                let template_scope = if typedef.is_some() { doc.node_id } else { None };
-                let property_owner = typedef.and_then(|typedef| {
-                    // Qualified sibling names need nested-property synthesis;
-                    // a stray @type can replace the typedef body upstream
-                    // (typedefTagNested). Do not expose a partial member table.
-                    if doc.tags.iter().any(|tag| match tag {
-                        JSDocTag::JSDocTypeTag(_) => true,
-                        JSDocTag::JSDocParameterOrPropertyTag(property) => {
-                            property.kind.kind == SyntaxKind::JSDocPropertyTag
-                                && matches!(property.name,
-                                    Some(tsr_ast::EntityName::QualifiedName(_)))
-                        }
-                        _ => false,
-                    }) {
-                        return None;
-                    }
-                    let Some(tsr_ast::Node::JSDocTypeExpression(expression)) =
-                        typedef.type_expression
-                    else {
-                        return None;
-                    };
-                    if !matches!(expression.r#type,
-                        Some(tsr_ast::TypeNode::TypeReferenceNode(reference))
-                            if matches!(reference.type_name,
-                                Some(tsr_ast::EntityName::Identifier(name)) if name.text == "Object"))
-                        && !matches!(expression.r#type,
-                            Some(tsr_ast::TypeNode::KeywordTypeNode(keyword))
-                                if keyword.kind == SyntaxKind::ObjectKeyword)
-                    {
-                        return None;
-                    }
-                    let Some(tsr_ast::JSDocFullName::Identifier(name)) = typedef.name else {
-                        return None;
-                    };
-                    let id = typedef.node_id?;
-                    self.declare_jsdoc_symbol(root, name.text, SymbolFlags::TYPE_ALIAS, id);
-                    self.node_symbols[id.index()]
-                });
+                let template_scope = if declares_alias { doc.node_id } else { None };
                 for tag in doc.tags {
                     match tag {
                         JSDocTag::JSDocTypedefTag(typedef) => {
@@ -3045,9 +3011,7 @@ impl<'a, 'n> Binder<'a, 'n> {
                                 _ => continue,
                             };
                             let Some(id) = typedef.node_id else { continue };
-                            if self.node_symbols[id.index()].is_none() {
-                                self.declare_jsdoc_symbol(root, name, SymbolFlags::TYPE_ALIAS, id);
-                            }
+                            self.declare_jsdoc_symbol(root, name, SymbolFlags::TYPE_ALIAS, id);
                             // The tag's type expression is parsed syntax — a
                             // `{{a: string}}` object carries members upstream
                             // binds like any written type literal.
@@ -3122,34 +3086,6 @@ impl<'a, 'n> Binder<'a, 'n> {
                                     SymbolFlags::TYPE_PARAMETER,
                                     id,
                                 );
-                            }
-                        }
-                        // `@property {T} name` on a `@typedef {Object}` block
-                        // declares the member at the tag's own line
-                        // (`typedefTagNested`); its kind token separates it
-                        // from `@param`, which declares nothing new.
-                        JSDocTag::JSDocParameterOrPropertyTag(property)
-                            if self.nodes.kind(property.node_id.unwrap_or(NodeId::ZERO))
-                                == SyntaxKind::JSDocPropertyTag =>
-                        {
-                            if let Some(expression) = property.type_expression {
-                                self.bind(tsr_ast::Node::from(expression));
-                            }
-                            let name = match property.name {
-                                Some(tsr_ast::EntityName::Identifier(identifier)) => {
-                                    identifier.text
-                                }
-                                _ => continue,
-                            };
-                            let Some(id) = property.node_id else { continue };
-                            let symbol = self.symbols.create(name, SymbolFlags::PROPERTY);
-                            self.symbols.get_mut(symbol).declarations.push(id);
-                            self.node_symbols[id.index()] = Some(symbol);
-                            if let Some(owner) = property_owner {
-                                let entry = self.symbols.get_mut(symbol);
-                                entry.parent = Some(owner);
-                                entry.value_declaration = Some(id);
-                                self.symbols.get_mut(owner).members.insert(name, symbol);
                             }
                         }
                         JSDocTag::JSDocParameterOrPropertyTag(property) => {

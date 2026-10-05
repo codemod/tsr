@@ -148,7 +148,7 @@ impl Checker<'_, '_> {
             .enumerate()
             .map(|(i, (parameter, _))| if i == index { marker } else { *parameter })
             .collect();
-        let result = if alias && self.jsdoc_sibling_property_doc(symbol).is_none() {
+        let result = if alias {
             let body = self.type_alias_body(symbol)?;
             if matches!(body, TypeNode::TypeLiteralNode(_)) {
                 self.create_type_reference(symbol, arguments)
@@ -366,14 +366,16 @@ mod tests {
     }
 
     #[test]
-    fn jsdoc_unsupported_unannotated_alias_stays_unmeasured() {
+    fn jsdoc_function_alias_measures_through_its_reparsed_body() {
+        // reparseUnhosted gives the alias its written function type, so the
+        // marker instantiation measures it like `type Op<T> = (value: T) => void`.
         assert_eq!(
             measured_in_file(
                 "/** @template T @typedef {(value: T) => void} Op */ ;",
                 "Op",
                 "variance.js"
             ),
-            None
+            Some(vec![Variance::Contravariant])
         );
     }
 

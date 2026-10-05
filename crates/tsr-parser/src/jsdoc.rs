@@ -16,7 +16,7 @@ use tsr_ast::{
     JSDocOverrideTag, JSDocParameterOrPropertyTag, JSDocPrivateTag, JSDocProtectedTag,
     JSDocPublicTag, JSDocReadonlyTag, JSDocReturnTag, JSDocSatisfiesTag, JSDocSeeTag,
     JSDocTemplateTag, JSDocText, JSDocThisTag, JSDocThrowsTag, JSDocTypeExpression, JSDocTypeTag,
-    JSDocTypedefTag, JSDocUnknownTag, Node, PropertyAccessExpression, SyntaxKind,
+    JSDocTypedefTag, JSDocUnknownTag, Node, PropertyAccessExpression, SyntaxKind, TypeNode,
     TypeParameterDeclaration,
 };
 use tsr_core::Span;
@@ -42,11 +42,20 @@ enum State {
     SavingBackticks,
 }
 
-/// Which of the two shapes `parse_parameter_or_property_tag` is parsing.
+/// `propertyLikeParse` (`parser/jsdoc.go`): which tag shapes a
+/// `@param`/`@property` parse — or a child-tag scan — admits. A bit set,
+/// because `tryParseChildTag` tests membership with `target & t`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum PropertyLike {
-    Parameter,
-    Property,
+struct PropertyLike(u8);
+
+impl PropertyLike {
+    const PROPERTY: Self = Self(1);
+    const PARAMETER: Self = Self(2);
+    const CALLBACK_PARAMETER: Self = Self(4);
+
+    const fn intersects(self, other: Self) -> bool {
+        self.0 & other.0 != 0
+    }
 }
 
 impl<'a> Parser<'a> {
@@ -381,26 +390,17 @@ impl<'a> Parser<'a> {
                     start,
                 ))
             }
-            "this" => {
-                let type_expression = Some(self.parse_jsdoc_type_expression(false));
-                self.skip_whitespace();
-                let comment = self.parse_trailing_tag_comments(start, margin, indent_text);
-                tsr_ast::JSDocTag::JSDocThisTag(self.finish_jsdoc_node(
-                    JSDocThisTag::new(tag_name, type_expression, comment),
-                    SyntaxKind::JSDocThisTag,
-                    start,
-                ))
-            }
+            "this" => self.parse_this_tag(start, tag_name, margin, indent_text),
             "arg" | "argument" | "param" => self.parse_parameter_or_property_tag(
                 start,
                 tag_name,
-                PropertyLike::Parameter,
+                PropertyLike::PARAMETER,
                 margin,
             ),
             "prop" | "property" => self.parse_parameter_or_property_tag(
                 start,
                 tag_name,
-                PropertyLike::Property,
+                PropertyLike::PROPERTY,
                 margin,
             ),
             "return" | "returns" => {
@@ -413,18 +413,7 @@ impl<'a> Parser<'a> {
                 ))
             }
             "template" => self.parse_template_tag(start, tag_name, margin, indent_text),
-            "type" => {
-                // `parseTypeTag` (`parser/jsdoc.go:894`) parses with
-                // `mayOmitBraces`: `@type object` is a type expression too.
-                self.skip_whitespace_or_asterisk();
-                let type_expression = Some(Node::from(self.parse_jsdoc_type_expression(true)));
-                let comment = self.parse_trailing_tag_comments(start, margin, indent_text);
-                tsr_ast::JSDocTag::JSDocTypeTag(self.finish_jsdoc_node(
-                    JSDocTypeTag::new(tag_name, type_expression, comment),
-                    SyntaxKind::JSDocTypeTag,
-                    start,
-                ))
-            }
+            "type" => self.parse_type_tag(start, tag_name, Some((margin, indent_text))),
             "satisfies" => {
                 let type_expression = self.try_parse_type_expression();
                 let comment = self.parse_trailing_tag_comments(start, margin, indent_text);
@@ -445,6 +434,7 @@ impl<'a> Parser<'a> {
             // commit with its binder and checker halves.
             "import" => self.parse_import_tag(start, tag_name, margin, indent_text),
             "typedef" => self.parse_typedef_tag(start, tag_name, margin, indent_text),
+            "callback" => self.parse_callback_tag(start, tag_name, margin, indent_text),
             "overload" => {
                 let type_expression = self.try_parse_type_expression();
                 let comment = self.parse_trailing_tag_comments(start, margin, indent_text);
@@ -487,11 +477,13 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// `@param {T} name description` and `@property` in one shape.
+    /// `@param {T} name description` and `@property` in one shape —
+    /// `parseParameterOrPropertyTag` (`parser/jsdoc.go:833`).
     ///
     /// Either the type or the name may come first — `@param {T} x` and
     /// `@param x {T}` are both accepted — and a bracketed name marks the
-    /// parameter optional: `@param [x]`.
+    /// parameter optional: `@param [x]`. An `Object`-typed tag takes the
+    /// following `x.y` tags as its nested type literal.
     fn parse_parameter_or_property_tag(
         &mut self,
         start: u32,
@@ -500,19 +492,35 @@ impl<'a> Parser<'a> {
         margin: u32,
     ) -> tsr_ast::JSDocTag<'a> {
         let mut type_expression = self.try_parse_type_expression();
-        let is_name_first = type_expression.is_none();
+        let mut is_name_first = type_expression.is_none();
         self.skip_whitespace_or_asterisk();
 
         let (name, is_bracketed) = self.parse_bracket_name_in_property_and_param_tag();
         let indent_text = self.skip_whitespace_or_asterisk();
-        if is_name_first {
+        // `@param x {@link Y}` puts a link in the comment, not a type.
+        if is_name_first
+            && !self.look_ahead(|parser| {
+                parser.skip_whitespace_or_asterisk();
+                if !parser.at_jsdoc(SyntaxKind::OpenBraceToken) {
+                    return false;
+                }
+                parser.next_jsdoc_token();
+                parser.jsdoc_link_prefix().is_some()
+            })
+        {
             type_expression = self.try_parse_type_expression();
         }
         let comment = self.parse_trailing_tag_comments(start, margin, indent_text);
+        if let Some(nested) = self.parse_nested_type_literal(type_expression, name, target, margin)
+        {
+            type_expression = Some(nested);
+            is_name_first = true;
+        }
 
-        let kind = match target {
-            PropertyLike::Parameter => SyntaxKind::JSDocParameterTag,
-            PropertyLike::Property => SyntaxKind::JSDocPropertyTag,
+        let kind = if target == PropertyLike::PROPERTY {
+            SyntaxKind::JSDocPropertyTag
+        } else {
+            SyntaxKind::JSDocParameterTag
         };
         // The node is shared between the two kinds, so it carries the kind it was
         // built as — upstream models this the same way.
@@ -664,11 +672,17 @@ impl<'a> Parser<'a> {
         ))
     }
 
-    /// `@typedef {T} Name`.
+    /// `@typedef {T} Name`, and the nested form whose following `@property`
+    /// tags (or one `@type` tag) supply the body — `parseTypedefTag`
+    /// (`parser/jsdoc.go:1017`).
     ///
-    /// Only the simple form is built: the nested-property form, where following
-    /// `@property` tags become a synthesised type literal, needs the reparser and
-    /// is not ported. See docs/architecture/jsdoc.md.
+    /// Upstream keeps the children in a `JSDocTypeLiteral` and its reparser
+    /// (`reparseJSDocTypeLiteral`, `parser/reparser.go:240`) turns that into
+    /// the `TypeLiteralNode` its synthetic `JSTypeAliasDeclaration` carries.
+    /// This port has no reparse list and binds the tag directly, so the
+    /// parse stores the reparsed body as the tag's type expression: the
+    /// property tags are consumed here and never reach the comment's flat
+    /// tag list, exactly as upstream's `JSDoc.Tags` omits them.
     fn parse_typedef_tag(
         &mut self,
         start: u32,
@@ -676,29 +690,572 @@ impl<'a> Parser<'a> {
         margin: u32,
         indent_text: &'a str,
     ) -> tsr_ast::JSDocTag<'a> {
-        let type_expression = self.try_parse_type_expression().map(Node::from);
+        let mut type_expression = self.try_parse_type_expression().map(Node::from);
         self.skip_whitespace_or_asterisk();
         let name = if self.at_jsdoc_identifier() {
             Some(tsr_ast::JSDocFullName::Identifier(self.parse_jsdoc_identifier_name()))
         } else {
             None
         };
-        let comment = self.parse_trailing_tag_comments(start, margin, indent_text);
-        tsr_ast::JSDocTag::JSDocTypedefTag(self.finish_jsdoc_node(
+        self.skip_whitespace();
+        let mut comment = self.parse_tag_comments(margin);
+
+        let mut end = None;
+        let mut has_children = false;
+        let written = type_expression.and_then(jsdoc_type_expression_type);
+        if type_expression.is_none()
+            || written.is_some_and(is_object_or_object_array_type_reference)
+        {
+            let mut child_type_tag: Option<&'a JSDocTypeTag<'a>> = None;
+            let mut property_tags: Vec<&'a JSDocParameterOrPropertyTag<'a>> = Vec::new();
+            while let Some(child) = self.try_parse(|parser| {
+                parser.parse_child_parameter_or_property_tag(PropertyLike::PROPERTY, margin, None)
+            }) {
+                has_children = true;
+                match child {
+                    tsr_ast::JSDocTag::JSDocTemplateTag(template) => self.error_at(
+                        &messages::A_JSDOC_TEMPLATE_TAG_MAY_NOT_FOLLOW_A_TYPEDEF_CALLBACK_OR_OVERLOAD_TAG,
+                        self.span_of(template.tag_name.node_id),
+                    ),
+                    tsr_ast::JSDocTag::JSDocTypeTag(type_tag) => {
+                        if child_type_tag.is_none() {
+                            child_type_tag = Some(type_tag);
+                        } else {
+                            self.error_at_current(
+                                &messages::A_JSDOC_TYPEDEF_COMMENT_MAY_NOT_CONTAIN_MULTIPLE_TYPE_TAGS,
+                            );
+                        }
+                    }
+                    tsr_ast::JSDocTag::JSDocParameterOrPropertyTag(property) => {
+                        property_tags.push(property);
+                    }
+                    _ => {}
+                }
+            }
+            if has_children {
+                let is_array_type = matches!(written, Some(TypeNode::ArrayTypeNode(_)));
+                let child_type =
+                    child_type_tag.and_then(|tag| tag.type_expression).filter(|expression| {
+                        jsdoc_type_expression_type(*expression)
+                            .is_some_and(|ty| !is_object_or_object_array_type_reference(ty))
+                    });
+                let body = if let Some(child_type) = child_type {
+                    child_type
+                } else {
+                    // `!!! This differs from Strada but prevents a crash`:
+                    // the literal starts at its first property, or at the tag.
+                    let position =
+                        property_tags.first().map_or(start, |tag| self.span_of(tag.node_id).start);
+                    let end = self.pos();
+                    Node::from(self.reparse_jsdoc_type_literal(
+                        &property_tags,
+                        is_array_type,
+                        position,
+                        end,
+                    ))
+                };
+                end = body.node_id().map(|id| self.nodes.span(id).end);
+                type_expression = Some(body);
+            }
+        }
+
+        // Only the characters between the name and the next token count when a
+        // comment was actually parsed out; otherwise they are just whitespace.
+        let end = end.unwrap_or_else(|| {
+            if !comment.is_empty() {
+                self.pos()
+            } else if let Some(name) = name {
+                self.span_of(name.node_id()).end
+            } else if let Some(expression) = type_expression {
+                self.span_of(expression.node_id()).end
+            } else {
+                self.span_of(tag_name.node_id).end
+            }
+        });
+        if comment.is_empty() {
+            comment = self.parse_trailing_tag_comments_ending(start, end, margin, indent_text);
+        }
+        tsr_ast::JSDocTag::JSDocTypedefTag(self.finish_node_with_end(
             JSDocTypedefTag::new(tag_name, type_expression, name, comment),
             SyntaxKind::JSDocTypedefTag,
+            start,
+            end,
+        ))
+    }
+
+    /// `@callback Name` and its following `@param`/`@return` tags —
+    /// `parseCallbackTag` (`parser/jsdoc.go:1137`).
+    ///
+    /// The signature is stored as the function type upstream's reparser
+    /// builds from it (`reparseJSDocSignature`'s `KindJSDocCallbackTag` arm,
+    /// `parser/reparser.go:142`), which its `JSTypeAliasDeclaration` carries
+    /// as `Type` — see [`Parser::parse_typedef_tag`] for why the parse holds
+    /// the reparsed form. Template parameters stay on the comment: upstream
+    /// gathers them onto the alias (`gatherTypeParameters`), not onto the
+    /// function type.
+    fn parse_callback_tag(
+        &mut self,
+        start: u32,
+        tag_name: &'a Identifier<'a>,
+        margin: u32,
+        indent_text: &'a str,
+    ) -> tsr_ast::JSDocTag<'a> {
+        let name = if self.at_jsdoc_identifier() {
+            Some(tsr_ast::JSDocFullName::Identifier(self.parse_jsdoc_identifier_name()))
+        } else {
+            self.error_at_current(&messages::IDENTIFIER_EXPECTED);
+            None
+        };
+        self.skip_whitespace();
+        let mut comment = self.parse_tag_comments(margin);
+        let signature_start = self.pos();
+        let signature = self.parse_jsdoc_signature(signature_start, margin);
+        if comment.is_empty() {
+            comment = self.parse_trailing_tag_comments(start, margin, indent_text);
+        }
+        let end = if comment.is_empty() { self.span_of(signature.node_id).end } else { self.pos() };
+        tsr_ast::JSDocTag::JSDocCallbackTag(self.finish_node_with_end(
+            tsr_ast::JSDocCallbackTag::new(
+                tag_name,
+                Some(TypeNode::FunctionTypeNode(signature)),
+                name,
+                comment,
+            ),
+            SyntaxKind::JSDocCallbackTag,
+            start,
+            end,
+        ))
+    }
+
+    /// `parseJSDocSignature` (`parser/jsdoc.go:1121`) followed by
+    /// `reparseJSDocSignature`'s `KindJSDocCallbackTag` arm
+    /// (`parser/reparser.go:142`): the callback parameters, then one
+    /// optional `@return`, as a function type.
+    ///
+    /// `@overload` still parses flat: its reparse is an overload declaration
+    /// of the host function, which needs the checker's overload-signature arm
+    /// before the children can move.
+    fn parse_jsdoc_signature(
+        &mut self,
+        start: u32,
+        indent: u32,
+    ) -> &'a tsr_ast::FunctionTypeNode<'a> {
+        // parseCallbackTagParameters (`parser/jsdoc.go:1101`).
+        let mut parameters: Vec<tsr_ast::JSDocTag<'a>> = Vec::new();
+        while let Some(child) = self.try_parse(|parser| {
+            parser.parse_child_parameter_or_property_tag(
+                PropertyLike::CALLBACK_PARAMETER,
+                indent,
+                None,
+            )
+        }) {
+            if let tsr_ast::JSDocTag::JSDocTemplateTag(template) = child {
+                self.error_at(
+                    &messages::A_JSDOC_TEMPLATE_TAG_MAY_NOT_FOLLOW_A_TYPEDEF_CALLBACK_OR_OVERLOAD_TAG,
+                    self.span_of(template.tag_name.node_id),
+                );
+            } else {
+                parameters.push(child);
+            }
+        }
+        let return_tag = self.try_parse(|parser| {
+            if !parser.at_jsdoc(SyntaxKind::AtToken) {
+                return None;
+            }
+            match parser.parse_tag(indent) {
+                tsr_ast::JSDocTag::JSDocReturnTag(tag) => Some(tag),
+                _ => None,
+            }
+        });
+        let end = self.pos();
+
+        let mut reparsed: Vec<&'a tsr_ast::ParameterDeclaration<'a>> = Vec::new();
+        for (index, parameter) in parameters.iter().enumerate() {
+            match parameter {
+                tsr_ast::JSDocTag::JSDocThisTag(this_tag) => {
+                    let span = self.span_of(this_tag.node_id);
+                    let this = self.finish_node_with_end(
+                        Identifier::new("this"),
+                        SyntaxKind::Identifier,
+                        span.start,
+                        span.end,
+                    );
+                    let ty = this_tag
+                        .type_expression
+                        .and_then(|expression| jsdoc_type_expression_type(Node::from(expression)));
+                    reparsed.push(self.finish_node_with_end(
+                        tsr_ast::ParameterDeclaration::new(
+                            &[],
+                            None,
+                            Some(tsr_ast::BindingName::Identifier(this)),
+                            None,
+                            ty,
+                            None,
+                        ),
+                        SyntaxKind::Parameter,
+                        span.start,
+                        span.end,
+                    ));
+                }
+                tsr_ast::JSDocTag::JSDocParameterOrPropertyTag(tag) => {
+                    // Sub-property parameters (`@param x.y`) describe a parent
+                    // parameter, not a standalone one.
+                    let Some(EntityName::Identifier(name)) = tag.name else { continue };
+                    let span = self.span_of(tag.node_id);
+                    let mut dot_dot_dot = None;
+                    let mut ty = tag
+                        .type_expression
+                        .and_then(|expression| jsdoc_type_expression_type(Node::from(expression)));
+                    if let Some(TypeNode::JSDocVariadicType(variadic)) = ty {
+                        dot_dot_dot = Some(self.alloc_token(SyntaxKind::DotDotDotToken, span));
+                        ty = variadic.r#type;
+                    }
+                    let name = self.reparsed_parameter_name(name, index);
+                    let question = self.question_if_optional(tag);
+                    reparsed.push(self.finish_node_with_end(
+                        tsr_ast::ParameterDeclaration::new(
+                            &[],
+                            dot_dot_dot,
+                            Some(tsr_ast::BindingName::Identifier(name)),
+                            question,
+                            ty,
+                            None,
+                        ),
+                        SyntaxKind::Parameter,
+                        span.start,
+                        span.end,
+                    ));
+                }
+                _ => {}
+            }
+        }
+        let parameters = self.arena.alloc_slice(&reparsed);
+        let return_type = return_tag
+            .and_then(|tag| tag.type_expression)
+            .and_then(|expression| jsdoc_type_expression_type(Node::from(expression)));
+        // A callback's reparse starts from `NewFunctionTypeNode(nil, nil,
+        // NewKeywordTypeNode(AnyKeyword))`.
+        let return_type = return_type.unwrap_or_else(|| {
+            TypeNode::KeywordTypeNode(self.finish_node_with_end(
+                tsr_ast::KeywordTypeNode::new(SyntaxKind::AnyKeyword),
+                SyntaxKind::AnyKeyword,
+                end,
+                end,
+            ))
+        });
+        self.finish_node_with_end(
+            tsr_ast::FunctionTypeNode::new(&[], parameters, Some(return_type), &[], None),
+            SyntaxKind::FunctionType,
+            start,
+            end,
+        )
+    }
+
+    /// `parseChildParameterOrPropertyTag` (`parser/jsdoc.go:1189`): scan to
+    /// the next tag that may start a line, and parse it if it is a child of
+    /// `name` (or of the enclosing typedef/callback when `name` is `None`).
+    ///
+    /// Callers wrap this in [`Parser::try_parse`], upstream's `mark`/`rewind`.
+    fn parse_child_parameter_or_property_tag(
+        &mut self,
+        target: PropertyLike,
+        indent: u32,
+        name: Option<EntityName<'a>>,
+    ) -> Option<tsr_ast::JSDocTag<'a>> {
+        // Upstream's `parseTagComments` rewinds the scanner onto the `@` that
+        // ended a tag, so the first `nextTokenJSDoc` here rescans it; this
+        // port's leaves the scanner past it.
+        if self.at_jsdoc(SyntaxKind::AtToken) {
+            self.scanner_reset_to_token_start();
+        }
+        let mut can_parse_tag = true;
+        let mut seen_asterisk = false;
+        loop {
+            self.next_jsdoc_token();
+            match self.token.kind {
+                SyntaxKind::AtToken => {
+                    if can_parse_tag && self.scanner.can_follow_jsdoc_at() {
+                        let child = self.try_parse_child_tag(target, indent);
+                        if let (
+                            Some(name),
+                            Some(tsr_ast::JSDocTag::JSDocParameterOrPropertyTag(child)),
+                        ) = (name, child)
+                        {
+                            let nested = match child.name {
+                                Some(EntityName::QualifiedName(qualified)) => {
+                                    qualified.left.is_some_and(|left| texts_equal(name, left))
+                                }
+                                _ => false,
+                            };
+                            if !nested {
+                                return None;
+                            }
+                        }
+                        return child;
+                    }
+                    seen_asterisk = false;
+                }
+                SyntaxKind::NewLineTrivia => {
+                    can_parse_tag = true;
+                    seen_asterisk = false;
+                }
+                SyntaxKind::AsteriskToken => {
+                    if seen_asterisk {
+                        can_parse_tag = false;
+                    }
+                    seen_asterisk = true;
+                }
+                SyntaxKind::Identifier => can_parse_tag = false,
+                SyntaxKind::EndOfFile => return None,
+                _ => {}
+            }
+        }
+    }
+
+    /// `tryParseChildTag` (`parser/jsdoc.go:1221`), positioned on the `@`.
+    fn try_parse_child_tag(
+        &mut self,
+        target: PropertyLike,
+        indent: u32,
+    ) -> Option<tsr_ast::JSDocTag<'a>> {
+        debug_assert_eq!(self.token.kind, SyntaxKind::AtToken);
+        let start = self.pos();
+        self.next_jsdoc_token();
+        let tag_name = self.parse_jsdoc_identifier_name();
+        let indent_text = self.skip_whitespace_or_asterisk();
+        let kind = match tag_name.text {
+            "type" if target == PropertyLike::PROPERTY => {
+                return Some(self.parse_type_tag(start, tag_name, None));
+            }
+            "prop" | "property" => PropertyLike::PROPERTY,
+            "arg" | "argument" | "param" => {
+                PropertyLike(PropertyLike::PARAMETER.0 | PropertyLike::CALLBACK_PARAMETER.0)
+            }
+            "template" => {
+                return Some(self.parse_template_tag(start, tag_name, indent, indent_text));
+            }
+            "this" => return Some(self.parse_this_tag(start, tag_name, indent, indent_text)),
+            _ => return None,
+        };
+        if !target.intersects(kind) {
+            return None;
+        }
+        Some(self.parse_parameter_or_property_tag(start, tag_name, target, indent))
+    }
+
+    /// `parseNestedTypeLiteral` (`parser/jsdoc.go:858`): the `@param x.y` /
+    /// `@property x.y` children of an `Object`-typed tag, as the reparsed
+    /// type literal `reparseJSDocTypeLiteral` builds from them.
+    fn parse_nested_type_literal(
+        &mut self,
+        type_expression: Option<TypeNode<'a>>,
+        name: Option<EntityName<'a>>,
+        target: PropertyLike,
+        indent: u32,
+    ) -> Option<TypeNode<'a>> {
+        let written = type_expression.and_then(|ty| jsdoc_type_expression_type(Node::from(ty)))?;
+        if !is_object_or_object_array_type_reference(written) {
+            return None;
+        }
+        let position = self.pos();
+        let mut children: Vec<&'a JSDocParameterOrPropertyTag<'a>> = Vec::new();
+        while let Some(child) = self
+            .try_parse(|parser| parser.parse_child_parameter_or_property_tag(target, indent, name))
+        {
+            match child {
+                tsr_ast::JSDocTag::JSDocParameterOrPropertyTag(child) => children.push(child),
+                tsr_ast::JSDocTag::JSDocTemplateTag(template) => self.error_at(
+                    &messages::A_JSDOC_TEMPLATE_TAG_MAY_NOT_FOLLOW_A_TYPEDEF_CALLBACK_OR_OVERLOAD_TAG,
+                    self.span_of(template.tag_name.node_id),
+                ),
+                _ => {}
+            }
+        }
+        if children.is_empty() {
+            return None;
+        }
+        let end = self.pos();
+        let is_array_type = matches!(written, TypeNode::ArrayTypeNode(_));
+        let literal = self.reparse_jsdoc_type_literal(&children, is_array_type, position, end);
+        let expression = self.finish_node_with_end(
+            JSDocTypeExpression::new(Some(literal)),
+            SyntaxKind::JSDocTypeExpression,
+            position,
+            end,
+        );
+        Some(TypeNode::JSDocTypeExpression(expression))
+    }
+
+    /// `reparseJSDocTypeLiteral` (`parser/reparser.go:240`): property tags as
+    /// a `TypeLiteralNode`, wrapped in an array type for `Object[]`.
+    fn reparse_jsdoc_type_literal(
+        &mut self,
+        tags: &[&'a JSDocParameterOrPropertyTag<'a>],
+        is_array_type: bool,
+        start: u32,
+        end: u32,
+    ) -> TypeNode<'a> {
+        let mut members: Vec<tsr_ast::TypeElement<'a>> = Vec::with_capacity(tags.len());
+        for tag in tags {
+            let name = match tag.name {
+                Some(EntityName::Identifier(name)) => name,
+                Some(EntityName::QualifiedName(qualified)) => match qualified.right {
+                    Some(right) => right,
+                    None => continue,
+                },
+                None => continue,
+            };
+            let name = if is_valid_identifier(name.text) {
+                tsr_ast::PropertyName::Identifier(name)
+            } else {
+                let span = self.span_of(name.node_id);
+                tsr_ast::PropertyName::StringLiteral(self.finish_node_with_end(
+                    tsr_ast::StringLiteral::new(name.text, tsr_ast::TokenFlags::empty()),
+                    SyntaxKind::StringLiteral,
+                    span.start,
+                    span.end,
+                ))
+            };
+            let question = self.question_if_optional(tag);
+            let ty = tag
+                .type_expression
+                .and_then(|expression| jsdoc_type_expression_type(Node::from(expression)));
+            let span = self.span_of(tag.node_id);
+            let property = self.finish_node_with_end(
+                tsr_ast::PropertySignatureDeclaration::new(&[], name, question, ty, None),
+                SyntaxKind::PropertySignature,
+                span.start,
+                span.end,
+            );
+            members.push(tsr_ast::TypeElement::PropertySignatureDeclaration(property));
+        }
+        let members = self.arena.alloc_slice(&members);
+        let literal = TypeNode::TypeLiteralNode(self.finish_node_with_end(
+            tsr_ast::TypeLiteralNode::new(members),
+            SyntaxKind::TypeLiteral,
+            start,
+            end,
+        ));
+        if !is_array_type {
+            return literal;
+        }
+        TypeNode::ArrayTypeNode(self.finish_node_with_end(
+            tsr_ast::ArrayTypeNode::new(Some(literal)),
+            SyntaxKind::ArrayType,
+            start,
+            end,
+        ))
+    }
+
+    /// `makeQuestionIfOptional` (`parser/reparser.go:611`): a bracketed name
+    /// or a postfix `=` type makes the reparsed member optional.
+    fn question_if_optional(
+        &mut self,
+        tag: &JSDocParameterOrPropertyTag<'a>,
+    ) -> Option<&'a tsr_ast::Token<'a>> {
+        let postfix_optional = tag.type_expression.is_some_and(|expression| {
+            matches!(
+                jsdoc_type_expression_type(Node::from(expression)),
+                Some(TypeNode::JSDocOptionalType(_))
+            )
+        });
+        (tag.is_bracketed || postfix_optional)
+            .then(|| self.alloc_token(SyntaxKind::QuestionToken, self.span_of(tag.node_id)))
+    }
+
+    /// The parameter name `reparseJSDocSignature` writes: invalid identifier
+    /// characters become `_`, and an empty result becomes `_<index>`.
+    fn reparsed_parameter_name(
+        &mut self,
+        name: &'a Identifier<'a>,
+        index: usize,
+    ) -> &'a Identifier<'a> {
+        if is_valid_identifier(name.text) {
+            return name;
+        }
+        let mut text = String::with_capacity(name.text.len());
+        for (position, ch) in name.text.chars().enumerate() {
+            let valid = if position == 0 {
+                tsr_scanner::is_identifier_start(ch)
+            } else {
+                tsr_scanner::is_identifier_part(ch)
+            };
+            text.push(if valid { ch } else { '_' });
+        }
+        if text.is_empty() {
+            text.push('_');
+            text.push_str(&index.to_string());
+        }
+        let text: &'a str = self.arena.alloc_str(&text);
+        let span = self.span_of(name.node_id);
+        self.finish_node_with_end(
+            Identifier::new(text),
+            SyntaxKind::Identifier,
+            span.start,
+            span.end,
+        )
+    }
+
+    /// `parseTypeTag` (`parser/jsdoc.go:894`). `comments` is `None` for a
+    /// `@type` nested in a typedef, which upstream signals with `indent = -1`.
+    fn parse_type_tag(
+        &mut self,
+        start: u32,
+        tag_name: &'a Identifier<'a>,
+        comments: Option<(u32, &'a str)>,
+    ) -> tsr_ast::JSDocTag<'a> {
+        // `mayOmitBraces`: `@type object` is a type expression too.
+        self.skip_whitespace_or_asterisk();
+        let type_expression = Some(Node::from(self.parse_jsdoc_type_expression(true)));
+        let comment = match comments {
+            Some((margin, indent_text)) => {
+                self.parse_trailing_tag_comments(start, margin, indent_text)
+            }
+            None => &[],
+        };
+        tsr_ast::JSDocTag::JSDocTypeTag(self.finish_jsdoc_node(
+            JSDocTypeTag::new(tag_name, type_expression, comment),
+            SyntaxKind::JSDocTypeTag,
             start,
         ))
     }
 
-    /// The `[name]` / `name` of a `@param` or `@property`.
+    /// `parseThisTag` (`parser/jsdoc.go:985`).
+    fn parse_this_tag(
+        &mut self,
+        start: u32,
+        tag_name: &'a Identifier<'a>,
+        margin: u32,
+        indent_text: &'a str,
+    ) -> tsr_ast::JSDocTag<'a> {
+        let type_expression = Some(self.parse_jsdoc_type_expression(false));
+        self.skip_whitespace();
+        let comment = self.parse_trailing_tag_comments(start, margin, indent_text);
+        tsr_ast::JSDocTag::JSDocThisTag(self.finish_jsdoc_node(
+            JSDocThisTag::new(tag_name, type_expression, comment),
+            SyntaxKind::JSDocThisTag,
+            start,
+        ))
+    }
+
+    fn span_of(&self, id: Option<tsr_ast::NodeId>) -> Span {
+        id.map_or_else(|| Span::at(self.pos()), |id| self.nodes.span(id))
+    }
+
+    /// The `[name]` / `name` of a `@param` or `@property` —
+    /// `parseBracketNameInPropertyAndParamTag` (`parser/jsdoc.go:793`).
     fn parse_bracket_name_in_property_and_param_tag(&mut self) -> (Option<EntityName<'a>>, bool) {
         let is_bracketed = self.at_jsdoc(SyntaxKind::OpenBracketToken);
         if is_bracketed {
             self.next_jsdoc_token();
             self.skip_whitespace();
         }
+        // A markdown-quoted name: `arg` is not legal JSDoc, but occurs in the wild.
+        let is_backquoted = self.eat_jsdoc(SyntaxKind::BacktickToken);
         let name = self.parse_jsdoc_entity_name();
+        if is_backquoted {
+            self.expect_jsdoc(SyntaxKind::BacktickToken);
+        }
         if is_bracketed {
             self.skip_whitespace();
             // A default value: `@param [x=1]`. The initialiser is not modelled —
@@ -1062,6 +1619,18 @@ impl<'a> Parser<'a> {
         indent_text: &'a str,
     ) -> &'a [JSDocComment<'a>] {
         let end = self.pos();
+        self.parse_trailing_tag_comments_ending(start, end, margin, indent_text)
+    }
+
+    /// `parseTrailingTagComments` with the tag's end supplied: a typedef
+    /// measures from its name or body rather than from the cursor.
+    fn parse_trailing_tag_comments_ending(
+        &mut self,
+        start: u32,
+        end: u32,
+        margin: u32,
+        indent_text: &'a str,
+    ) -> &'a [JSDocComment<'a>] {
         // With no indentation of its own, a continuation line's margin is measured
         // from where the tag itself ended.
         let margin =
@@ -1182,6 +1751,54 @@ enum LinkKind {
     Link,
     Code,
     Plain,
+}
+
+/// The written type inside a `{…}` type expression — upstream's
+/// `typeExpression.Type()`. A bare type node (a reparsed body) is itself.
+fn jsdoc_type_expression_type(node: Node<'_>) -> Option<TypeNode<'_>> {
+    match node {
+        Node::JSDocTypeExpression(expression) => expression.r#type,
+        node => TypeNode::try_from(node).ok(),
+    }
+}
+
+/// `isObjectOrObjectArrayTypeReference` (`parser/jsdoc.go:818`).
+fn is_object_or_object_array_type_reference(node: TypeNode<'_>) -> bool {
+    match node {
+        TypeNode::KeywordTypeNode(keyword) => keyword.kind == SyntaxKind::ObjectKeyword,
+        TypeNode::ArrayTypeNode(array) => {
+            array.element_type.is_some_and(is_object_or_object_array_type_reference)
+        }
+        TypeNode::TypeReferenceNode(reference) => {
+            matches!(reference.type_name, Some(EntityName::Identifier(name)) if name.text == "Object")
+                && reference.type_arguments.is_empty()
+        }
+        _ => false,
+    }
+}
+
+/// `textsEqual` (`parser/jsdoc.go:1173`): two entity names spell the same path.
+fn texts_equal(mut a: EntityName<'_>, mut b: EntityName<'_>) -> bool {
+    loop {
+        match (a, b) {
+            (EntityName::Identifier(a), EntityName::Identifier(b)) => return a.text == b.text,
+            (EntityName::QualifiedName(qa), EntityName::QualifiedName(qb))
+                if qa.right.map(|r| r.text) == qb.right.map(|r| r.text) =>
+            {
+                let (Some(left_a), Some(left_b)) = (qa.left, qb.left) else { return false };
+                a = left_a;
+                b = left_b;
+            }
+            _ => return false,
+        }
+    }
+}
+
+/// `scanner.IsValidIdentifier`: every character may appear in an identifier.
+fn is_valid_identifier(text: &str) -> bool {
+    let mut chars = text.chars();
+    chars.next().is_some_and(tsr_scanner::is_identifier_start)
+        && chars.all(tsr_scanner::is_identifier_part)
 }
 
 /// Record a piece of prose, and start the margin at the current indent if this is

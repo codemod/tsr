@@ -595,9 +595,16 @@ impl<'a> Checker<'a, '_> {
             TypeNode::JSDocNonNullableType(node) => node
                 .r#type
                 .map_or(self.intrinsics.error, |inner| self.get_type_from_type_node(inner)),
-            TypeNode::JSDocOptionalType(node) => node
-                .r#type
-                .map_or(self.intrinsics.error, |inner| self.get_type_from_type_node(inner)),
+            // `getTypeFromTypeNode`'s `KindJSDocOptionalType` arm
+            // (`checker.go:22826`): `addOptionality` of the inner type.
+            TypeNode::JSDocOptionalType(node) => {
+                let Some(inner) = node.r#type else { return self.intrinsics.error };
+                let inner = self.get_type_from_type_node(inner);
+                if inner == self.intrinsics.error || !self.strict_null_checks {
+                    return inner;
+                }
+                self.get_optional_type(inner, false)
+            }
             TypeNode::JSDocVariadicType(node) => {
                 let Some(inner) = node.r#type else { return self.intrinsics.error };
                 let element = self.get_type_from_type_node(inner);
@@ -3623,7 +3630,19 @@ impl<'a> Checker<'a, '_> {
         // (`labeledStatementWithLabel{,_es2015,_strict}`,
         // `nonGenericTypeReferenceWithTypeArguments`).
         let mut current = host;
-        while let Some(parent) = self.nodes.parent(current) {
+        loop {
+            let Some(parent) = self.nodes.parent(current) else {
+                // JSDoc arm: the comment keeps no parent edge, and native's
+                // reparsed alias sits beside the comment's host
+                // (`reparseUnhosted`), so the walk continues from that host.
+                match self.jsdoc_hosts.get(&current) {
+                    Some(&jsdoc_host) if self.nodes.kind(current) == SyntaxKind::JSDoc => {
+                        current = jsdoc_host;
+                        continue;
+                    }
+                    _ => break,
+                }
+            };
             match self.nodes.kind(parent) {
                 SyntaxKind::LabeledStatement
                 | SyntaxKind::FunctionDeclaration
@@ -3664,7 +3683,19 @@ impl<'a> Checker<'a, '_> {
             }
             host = self.nodes.parent(host)?;
         }
-        (self.nodes.kind(host) == SyntaxKind::TypeAliasDeclaration).then_some(host)
+        match self.nodes.kind(host) {
+            // `isTypeAlias` admits native's reparsed `JSTypeAliasDeclaration`,
+            // whose `Type` is the typedef's `typeExpression.Type()` (the `{…}`
+            // wrapper dropped) or the callback's reparsed signature.
+            SyntaxKind::TypeAliasDeclaration
+            | SyntaxKind::JSDocTypedefTag
+            | SyntaxKind::JSDocCallbackTag => Some(host),
+            SyntaxKind::JSDocTypeExpression => self
+                .nodes
+                .parent(host)
+                .filter(|&tag| self.nodes.kind(tag) == SyntaxKind::JSDocTypedefTag),
+            _ => None,
+        }
     }
 
     /// A reference to a generic type: `C<number>`, `Tree<T>`.
@@ -5024,9 +5055,6 @@ impl<'a> Checker<'a, '_> {
         if !self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_ALIAS) {
             return None;
         }
-        if self.jsdoc_sibling_property_doc(symbol).is_some() {
-            return Some(symbol);
-        }
         let TypeNode::TypeLiteralNode(literal) = self.type_alias_body(symbol)? else { return None };
         self.binder.symbol_of(literal.node_id?)
     }
@@ -6065,47 +6093,7 @@ impl<'a> Checker<'a, '_> {
             return self.store.new_named(
                 TypeFlags::OBJECT,
                 format!("{name}<{}>", parameters.join(", ")),
-                self.jsdoc_sibling_property_doc(symbol).map(|_| symbol),
-            );
-        }
-        if let Some(doc) = self.jsdoc_sibling_property_doc(symbol) {
-            if self.resolutions.on_stack(symbol, PropertyName::DeclaredType) {
-                let name = self.binder.symbols().get(symbol).name.to_string();
-                return self.store.new_named(TypeFlags::OBJECT, name, Some(symbol));
-            }
-            if !self.resolutions.push(symbol, PropertyName::DeclaredType) {
-                return error;
-            }
-            let mut members = Vec::new();
-            for tag in doc.tags {
-                let tsr_ast::JSDocTag::JSDocParameterOrPropertyTag(property) = tag else {
-                    continue;
-                };
-                let Some(id) = property.node_id else { continue };
-                if self.nodes.kind(id) != SyntaxKind::JSDocPropertyTag {
-                    continue;
-                }
-                let Some(member) = self.binder.symbol_of(id) else { continue };
-                if self.binder.symbols().get(member).parent != Some(symbol) {
-                    continue;
-                }
-                let optional = self.is_optional_declaration(id);
-                let ty = self.get_type_of_symbol(member);
-                let displayed = if optional { self.remove_missing_type(ty) } else { ty };
-                members.push(crate::objects::Member::Property {
-                    name: self.binder.symbols().get(member).name.to_string(),
-                    optional,
-                    readonly: false,
-                    printed: self.type_to_string(displayed),
-                });
-            }
-            if !self.resolutions.pop() {
-                return error;
-            }
-            return self.store.new_named(
-                TypeFlags::OBJECT,
-                crate::objects::render_object_type(&members),
-                Some(symbol),
+                None,
             );
         }
         let Some(type_node) = self.type_alias_body(symbol) else { return error };
@@ -6219,12 +6207,14 @@ impl<'a> Checker<'a, '_> {
 
     /// The body of a written or JSDoc type alias.
     ///
-    /// Native reparses `@typedef {T} Name` as a `JSTypeAliasDeclaration`
-    /// before binding (`parser/reparser.go:62`), so
-    /// `getDeclaredTypeOfTypeAlias` reads its body through the same `Type()`
-    /// field as an ordinary alias. This port keeps the parsed JSDoc tag instead
-    /// of synthesising an AST declaration; this is the equivalent projection
-    /// at the checker boundary.
+    /// Native reparses `@typedef {T} Name` and `@callback Name` as a
+    /// `JSTypeAliasDeclaration` before binding (`reparseUnhosted`,
+    /// `parser/reparser.go:70`), whose `Type` is the typedef's written type,
+    /// its reparsed `@property` literal, or the callback's reparsed function
+    /// type; `getDeclaredTypeOfTypeAlias` reads it through the same `Type()`
+    /// field as an ordinary alias. This port's JSDoc parser already stores
+    /// that reparsed body on the tag, so this is the equivalent projection at
+    /// the checker boundary.
     pub(crate) fn type_alias_body(&self, symbol: SymbolId) -> Option<TypeNode<'a>> {
         let declarations = &self.binder.symbols().get(symbol).declarations;
         // A written alias wins in a merged symbol. Native's reparser creates a
@@ -6239,34 +6229,14 @@ impl<'a> Checker<'a, '_> {
         // merged in file locals by the direct binder. Do not pick one body for
         // all of them; their existing initializer fallback is scope-correct.
         let [declaration] = declarations.as_slice() else { return None };
-        let Some(Node::JSDocTypedefTag(typedef)) = self.node_map.get(*declaration) else {
-            return None;
-        };
-        let body = match typedef.type_expression? {
-            Node::JSDocTypeExpression(expression) => expression.r#type?,
-            node => TypeNode::try_from(node).ok()?,
-        };
-        // Complete inline bodies use ordinary type-literal evaluation. Sibling
-        // Object properties have a bound member owner instead, projected by
-        // jsdoc_sibling_property_doc; other primitive/function bodies keep
-        // declining rather than replacing stronger initializer inference.
-        matches!(body, TypeNode::TypeLiteralNode(_)).then_some(body)
-    }
-
-    /// The sibling object properties that the binder attached to this alias.
-    /// Merged written/local typedefs keep declining rather than mixing bodies.
-    pub(crate) fn jsdoc_sibling_property_doc(
-        &self,
-        symbol: SymbolId,
-    ) -> Option<&'a tsr_ast::JSDoc<'a>> {
-        let entry = self.binder.symbols().get(symbol);
-        let [declaration] = entry.declarations.as_slice() else { return None };
-        if !matches!(self.node_map.get(*declaration), Some(Node::JSDocTypedefTag(_)))
-            || entry.members.is_empty()
-        {
-            return None;
+        match self.node_map.get(*declaration)? {
+            Node::JSDocTypedefTag(typedef) => match typedef.type_expression? {
+                Node::JSDocTypeExpression(expression) => expression.r#type,
+                node => TypeNode::try_from(node).ok(),
+            },
+            Node::JSDocCallbackTag(callback) => callback.type_expression,
+            _ => None,
         }
-        self.jsdoc_alias_doc(symbol)
     }
 
     /// §33: whether an alias body is a function type, constructor type, or
@@ -7948,7 +7918,9 @@ impl<'a> Checker<'a, '_> {
             Some(Node::ClassExpression(node)) => node.type_parameters,
             Some(Node::InterfaceDeclaration(node)) => node.type_parameters,
             Some(Node::TypeAliasDeclaration(node)) => node.type_parameters,
-            Some(Node::JSDocTypedefTag(_)) => self
+            // `gatherTypeParameters(jsDoc, typedefOrCallback=true)`
+            // (`parser/reparser.go:293`): the comment's `@template` tags.
+            Some(Node::JSDocTypedefTag(_) | Node::JSDocCallbackTag(_)) => self
                 .jsdoc_alias_doc(symbol)
                 .and_then(|doc| {
                     doc.tags.iter().find_map(|tag| match tag {
@@ -7963,26 +7935,23 @@ impl<'a> Checker<'a, '_> {
         }
     }
 
-    /// The original JSDoc block whose typedef tag declares `symbol`.
-    ///
-    /// Native's reparser makes this association structural by parenting the
-    /// gathered template/property nodes under a synthetic alias. The immutable
-    /// source AST keeps tags flat, so recover the same association from the
-    /// sparse host table, requiring the alias declaration's exact node id.
+    /// The JSDoc comment whose `@typedef`/`@callback` tag declares `symbol` —
+    /// the tag's parent, as in native's tree, where the reparsed alias also
+    /// gathers that comment's `@template` tags.
     fn jsdoc_alias_doc(&self, symbol: SymbolId) -> Option<&'a tsr_ast::JSDoc<'a>> {
         let declaration = self.binder.symbols().get(symbol).declarations.first().copied()?;
-        // Only a typedef declaration can match a typedef tag's exact node id.
         // Native narrows this visibility branch by declaration kind before
         // following its structural JSDoc parents (emitresolver.go:128-135).
-        if !matches!(self.node_map.get(declaration), Some(Node::JSDocTypedefTag(_))) {
+        if !matches!(
+            self.node_map.get(declaration),
+            Some(Node::JSDocTypedefTag(_) | Node::JSDocCallbackTag(_))
+        ) {
             return None;
         }
-        self.jsdoc_entries.values().flat_map(|docs| docs.iter().copied()).find(|doc| {
-            doc.tags.iter().any(|tag| match tag {
-                tsr_ast::JSDocTag::JSDocTypedefTag(tag) => tag.node_id == Some(declaration),
-                _ => false,
-            })
-        })
+        match self.node_map.get(self.nodes.parent(declaration)?) {
+            Some(Node::JSDoc(doc)) => Some(doc),
+            _ => None,
+        }
     }
 
     /// `EmitResolver.determineIfDeclarationIsVisible`'s JSDoc typedef arm

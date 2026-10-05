@@ -143,20 +143,19 @@ be asserting documentation rather than behaviour. The test says so explicitly.
   the checker sees an ordinary typed program. That is the whole of JSDoc's
   semantics for JavaScript and belongs with the checker; parsing is a prerequisite,
   not a substitute. Filed as a `bd` issue under the parser epic.
-- **`@typedef {Object}` with nested `@property` tags.** Complete inline type
-  literals now enter the normal alias-body checker seam, and sibling `@template`
-  tags supply that alias's type parameters; inline `T` and `T[]` members are
-  consequently instantiated by the ordinary alias mapper. Alias names are
-  retained only for top-level JSDoc typedefs, matching
-  `determineIfDeclarationIsVisible`'s JSDoc arm — this is lexical host
-  visibility, not ordering by source offsets. Upstream instead gathers the
-  property tags under a synthetic `JSTypeAliasDeclaration`; in this immutable
-  AST they remain flat siblings with no lexical parent. A correct direct-port
-  replacement must resolve every property annotation under the alias mapper so
-  `T`, `T[]`, nested object types, and alias references all see the same scope.
-  A member-lookup adapter for bare `T` would only conceal that missing ownership.
-  Optional properties also need both exact and non-exact optional controls when
-  this is built.
+- ~~**`@typedef {Object}` with nested `@property` tags.**~~ **BUILT (lane js-2).**
+  The parser ports `parseTypedefTag`'s child loop, `parseNestedTypeLiteral`,
+  `parseChildParameterOrPropertyTag` and `tryParseChildTag`: the `@property`
+  (or one `@type`) tags after a bare or `Object`-typed typedef, and the
+  `@param x.y` tags after an `Object`-typed `@param x`, are consumed into
+  their parent and leave the comment's flat tag list, as upstream's
+  `JSDoc.Tags` omits them. Because this port binds the tag directly rather
+  than through a reparse list, the parser stores the *reparsed* body —
+  `reparseJSDocTypeLiteral`'s `TypeLiteralNode` of `PropertySignature`s — on
+  the tag, and the binder binds it like any written type literal. The
+  former flat-sibling member owner is gone. `type_alias_body` answers every
+  typedef body, as `getDeclaredTypeOfTypeAlias` reads the reparsed
+  `JSTypeAliasDeclaration.Type`.
 - **JSDoc template modifiers are parsed, not enforced as variance.** The parser
   follows `parseTemplateTagTypeParameter`/`parseModifiersEx`: `in`, `out`,
   `in out`, and `const` precede the actual parameter name. The checker currently
@@ -181,10 +180,15 @@ be asserting documentation rather than behaviour. The test says so explicitly.
   tree moved unrelated lines in three fixtures. `@import { Foo as F }`
   (renames) and `@import * as ns` remain declined — both are the alias-name
   printing wall (`bd tsr-e2u`).
-- **`@callback` and `@overload` signatures** — `@callback` remains an unknown tag
-  rather than being consumed through the typedef path, and `JSDocSignature` is
-  not built. Callback parser/signature work therefore stays independent of the
-  typedef alias-body bridge.
+- **`@callback`** — BUILT (lane js-2): `parseCallbackTag`/`parseJSDocSignature`
+  consume the following `@param`/`@this`/`@return` run, stored as the
+  function type `reparseJSDocSignature` builds (no `JSDocSignature` node: its
+  generated `Parameters` field is typed `ParameterDeclaration`, which cannot
+  hold the parameter tags). The callback is a type alias whose body is that
+  function type, named like a written alias (`getAliasSymbolForTypeNode`).
+  **`@overload`** still parses flat — its reparse is an overload declaration
+  of the host function, which needs the checker's overload-signature arm
+  before its children can move into it.
 - **JSDoc-only type syntax**: `*` (`JSDocAllType`), `?T`, `!T`, `T=`, `...T`. These
   are `.js` conveniences; the nodes are generated and unused.
 

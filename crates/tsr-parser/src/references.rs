@@ -147,12 +147,20 @@ pub fn collect_external_module_references(
 /// statement by the time `collectExternalModuleReferences` walks, so the
 /// statement walk above sees it. This port keeps JSDoc in a side table, and
 /// the side table is where the specifier must be read from.
+///
+/// The literal `import("x")` types written inside JSDoc join them:
+/// `ForEachDynamicImportOrRequireCall` (`ast/utilities.go:2715`) finds each
+/// `import` by text and resolves the node at that position with
+/// `includeJSDoc` set for a JavaScript file, so `@type {import("./m").T}`
+/// is a module reference upstream. Callers pass a JavaScript file's table.
 #[must_use]
 pub fn collect_jsdoc_import_references(
     jsdoc: &crate::JSDocTable<'_>,
     nodes: &NodeTable,
 ) -> Vec<ModuleSpecifier> {
     let mut result = Vec::new();
+    let mut stack: Vec<Node<'_>> = Vec::new();
+    let mut children: Vec<Node<'_>> = Vec::new();
     for (_, docs) in jsdoc.iter() {
         for doc in docs {
             for tag in doc.tags {
@@ -168,6 +176,24 @@ pub fn collect_jsdoc_import_references(
                     context: SpecifierContext::ImportDeclaration,
                     resolution_mode_override: ResolutionMode::None,
                 });
+            }
+            stack.push(Node::JSDoc(doc));
+            while let Some(node) = stack.pop() {
+                if let Node::ImportTypeNode(import_type) = node
+                    && let Some(tsr_ast::TypeNode::LiteralTypeNode(literal_type)) =
+                        import_type.argument
+                    && let Some(Node::StringLiteral(literal)) = literal_type.literal
+                {
+                    result.push(ModuleSpecifier {
+                        text: literal.text.to_string(),
+                        pos: node_pos(nodes, node),
+                        context: SpecifierContext::ImportType,
+                        resolution_mode_override: resolution_mode_override(import_type.attributes),
+                    });
+                }
+                children.clear();
+                push_children(node, &mut children);
+                stack.extend(children.iter().copied());
             }
         }
     }

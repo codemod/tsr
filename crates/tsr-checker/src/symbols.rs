@@ -5849,6 +5849,13 @@ impl<'a> Checker<'a, '_> {
                 return Some(self.add_optionality_for_declaration(declared, declaration));
             }
         }
+        // `getParameterTypeOfFullSignature` (`checker.go:16732`), before the
+        // contextual type: a JS function's `@type` tag types its parameters.
+        if self.nodes.kind(declaration) == SyntaxKind::Parameter
+            && let Some(full) = self.jsdoc_full_signature_parameter_type(declaration)
+        {
+            return Some(full);
+        }
         // "Use contextual parameter type if one is available" (`checker.go:16735`),
         // which upstream places inside the `isParameter` block **before** the
         // initialiser path below — a contextually typed parameter takes its type
@@ -6284,13 +6291,11 @@ impl<'a> Checker<'a, '_> {
                 return None;
             }
             for doc in *self.jsdoc_entries.get(&current)? {
-                if doc.tags.iter().any(|tag| {
-                    matches!(
-                        tag,
-                        tsr_ast::JSDocTag::JSDocTypedefTag(_)
-                            | tsr_ast::JSDocTag::JSDocCallbackTag(_)
-                    )
-                }) {
+                // Native's `reparseHosted` types the declaration whatever
+                // else the comment declares; only the typedef exclusion is
+                // retained here (a parsed `@callback` used to be an unknown
+                // tag this reader never skipped).
+                if doc.tags.iter().any(|tag| matches!(tag, tsr_ast::JSDocTag::JSDocTypedefTag(_))) {
                     continue;
                 }
                 for tag in doc.tags {

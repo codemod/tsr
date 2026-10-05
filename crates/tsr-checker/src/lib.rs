@@ -138,6 +138,7 @@ pub mod intrinsics;
 mod iteration;
 mod js_case_data;
 mod jsdoc_annotations;
+mod jsdoc_full_signature;
 mod jsdoc_links;
 mod jsdoc_params;
 pub mod jsx_intrinsic;
