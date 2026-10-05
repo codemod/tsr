@@ -22,6 +22,18 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
+
+Cross-tool lifecycle qualification (`tsr-1yb.1.2.3.2.3`), frozen TSR `c30db42a`
+and native `5b1047d` plus archived patch, independently validates constructor,
+private-owner, affinity, lease and distinct-activity mechanics. 135 normal
+children preserve complete per-tool output/order; 60 traces qualify. Six real
+stale/write/SIGKILL children and eight corruption artifacts are rejected. TSR
+stays serial; native clamps to 256 on the 262-file fixture and performs 261 full
+workers. Initialization/all forcing, complete inputs/work, memory admission and
+comparable median <=0.50 remain unverified. Observer overhead is separate.
+[Reader contract and receipts](docs/architecture/worker-lifecycle-qualification.md).
+
+
 Pinned native worker activity (`tsr-1yb.1.2.3.2.1`), native `5b1047d` plus
 archived probe patch, now records actual selected pools, constructor intervals,
 private slot/native checker mapping, complete-Program affinity, exclusive leases
@@ -31,8 +43,8 @@ Three failure children preserve stale files, warn on write failure and reject li
 SIGKILL. noCheck constructs four but performs zero full checks; listFilesOnly
 constructs none. Affected Go package tests, focused race tests and vet pass;
 fresh patch application reproduces all six tested source files. Canonical vendor
-and production Rust remain unchanged. Native admission, full forcing, independent
-worker qualification and comparable native median <=0.50 remain unverified.
+and production Rust remain unchanged. Native admission, full forcing and
+comparable native median <=0.50 remain unverified.
 [Contract, source anchors and qualified hashes](docs/architecture/native-worker-activity.md).
 
 Direct TSR worker intervals (`tsr-1yb.1.2.3.2.2`), integrated at `50905e4b` plus
@@ -48,7 +60,7 @@ children ignore the trace environment and preserve complete output. Unfinished
 construction and unwinding remain incomplete. Strict release all-target Clippy
 passes for the CLI/execute packages in both modes; format, anchors and sections
 pass. The issue-ID gate retains the 190 historical missing IDs (`tsr-10`). Ordinary
-execution remains serial; the bounded native producer is archived below, while cross-tool qualification, full
+execution remains serial; both bounded lifecycle schemas are qualified below. Full
 forcing, memory admission and comparable native median <=0.50 remain open.
 [Interval contract and receipts](docs/architecture/tsr-work-trace-producer.md#direct-activity-intervals).
 
@@ -2790,9 +2802,15 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
+Worker qualifier `.1.2.3.2.3` now independently validates both named lifecycle
+schemas. Parent admission `.1.2.3.2` stays open for unobserved ownership/admission;
+forcing `.1.2.3.1`, complete inputs `.1.2.2`, semantic comparison `.1.2.4.2` and
+private-store memory `.3.1.1.3` retain their separate gates.
+
+
 TSR interval child `.1.2.3.2.2` has verified direct construction/covered activity.
 Native worker producer `.1.2.3.2.1` now has source-qualified archived mechanics;
-independent cross-tool qualification `.1.2.3.2.3` remains open. The parent
+bounded cross-tool qualification `.1.2.3.2.3` is now verified above. The parent
 admission task cannot close from serial peaks or created native instances. Lazy forcing `.1.2.3.1` and private-store admission `.3.1.1.3` retain
 their independent obligations before semantic comparison or production workers.
 
@@ -6205,6 +6223,16 @@ version of bare `any`.
 
 ## 5. Refused, with the number that refused it
 
+### Qualified worker fixtures as throughput or memory admission — TSR `c30db42a` / native `5b1047d` plus patch
+
+60 accepted traces and 141 supervised children qualify bounded lifecycle
+mechanics only. The 262-file public cap creates 256 native versus one TSR
+checker while each completes 261 full-file workers. Those counts do not prove
+complete lazy forcing, cross-tool diagnostics/work equivalence, safe memory or a
+TSR/native <=0.50 ratio. Buffered TSR prefix visibility also cannot prove the
+exact physical checking state at signal delivery; failed children never qualify.
+
+
 ### Native instance counts as equivalent work or safe admission — pin `5b1047d` plus archived activity patch
 
 The 16 current native traces distinguish four constructed/zero full-check workers
@@ -6212,7 +6240,7 @@ under noCheck from zero constructed/zero full workers under listFilesOnly.
 Default/single/two/eight modes perform the same three full checks while creating
 4/1/2/8 instances. Neither counts nor nested query spans establish complete lazy
 forcing or a memory bound. Synchronous probe overhead remains outside throughput
-acceptance; native/TSR schemas still require independent qualification. No
+acceptance; their bounded mechanics are now independently qualified above. No
 comparable median <=0.50 or production-concurrency claim follows.
 
 ### Observed activity as safe parallel admission — patch on `a91643a7`
@@ -12777,6 +12805,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
+| 2026-10-04 | frozen TSR `c30db42a`; native `5b1047d` plus archived patch | not remeasured | not remeasured | Independent worker mechanics; no speed claim | `tsr-1yb.1.2.3.2.3`: 135 normal children/60 accepted traces, six actual failure children and eight corrupt artifacts. Distinct interval unions, constructor order, private ownership, native affinity/leases/clamps; noCheck/list-only remain distinct. Production Rust/vendor unchanged; initialization/all forcing, complete inputs/work, memory admission and comparable median <=0.50 remain open. |
 | 2026-10-04 | native `5b1047d` plus archived activity patch; TSR prework `1dfcdb93` | not remeasured | not remeasured | Native lifecycle producer; no speed claim | `tsr-1yb.1.2.3.2.1`: selected pools, direct constructor return, private slots, published file affinity, exclusive leases and bounded full/query spans. 32 fresh children preserve output/order; 16 traces recompute distinct peaks, plus three stale/write/kill controls. Affected Go package tests, focused race tests, vet and six-file exact patch replay pass. Canonical vendor and production Rust unchanged. Independent cross-tool qualification, full forcing, memory admission and comparable native median <=0.50 stay open. |
 | 2026-10-04 | `50905e4b` plus activity patch (initial proof `a91643a7`) | not remeasured | not remeasured | Direct serial worker intervals; no speed claim | `tsr-1yb.1.2.3.2.2`: constructor start/return and monotonic covered-span timestamps, distinct checker activity peaks, unfinished construction/unwinding controls. 52 fresh public children preserve output/options/loaded identities; 26 traces pass artifact integrity and recomputed peaks. Integrated feature workspace 3,039 pass/six existing ignores; 49 ordinary CLI tests/one existing ignore, 15 reader tests, 13 ordinary environment-ignore children, strict release CLI/execute Clippy both modes and format/anchors/sections pass. Initial source proofs remain archived; concurrent main ports are preserved. Issue-ID gate retains the 190 historical missing IDs (`tsr-10`). Native producer, independent worker qualification, all forcing, memory admission and comparable median <=0.50 remain open. |
 | 2026-10-04 | `e3acf869` plus qualified producer/reader patch | not remeasured | not remeasured | Trace artifact integrity; no speed claim | `tsr-1yb.1.2.4.1`: strict process/start-time/file/options/eligibility/span validation; 52 fresh public children preserve output and 26 artifacts pass. Fifteen reader controls/60 script tests, 2,933 feature-workspace tests/six existing ignores, 49 ordinary CLI tests/one existing ignore, strict Clippy both modes and format/anchors/sections pass. Inline review found and fixed same-PID replay; no independent model coverage claimed. Ordinary build ignores tracing. Receipt authenticity, compiled provenance, complete inputs, lazy forcing/native admission and comparable median <=0.50 remain unverified. |

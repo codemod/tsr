@@ -1,0 +1,3348 @@
+{
+  "tsr_source_sha": "c30db42abe7cc87d921b7487f50c74ac6eacd3e3",
+  "native_source_sha": "5b1047d10d32e7d5b446be4de56b126ff42f82bb",
+  "native_patch_sha256": "0e614ad0b9c2beed464298538f1d9ed9f371ca50e93f2dec8e238f1fefe851b9",
+  "binary_sha256": {
+    "tsr": "c8c3b67fdd54bdce00c7d141678dd7bf907fd5463646286254da6c7109fd5428",
+    "native": "4199141cf395e81208deb975256f163aefbd0a7e9ed97ea362a65fceb5915ba5"
+  },
+  "native_baseline_sha256": "b3cd1909b5dbc6582681e0a9d2641c7eefd9b7b6c3401cfad82b5e8b935b8033",
+  "helper_sha256": "e8c3ddf9bd7564256e653623339d1f57472aba1999740af46ae5b2356ad14335",
+  "reader_sha256": "b5102e3f852be3e87241e9bc03918c6b4dd7029417582384676e8a5bff7b7d8a",
+  "raw_receipt_sha256": "f8b57e61f30dd255bb301ac50caad3bef5d413cdfbd0ea95d968a57a89497ff1",
+  "normal_child_count": 135,
+  "failure_child_count": 6,
+  "accepted_trace_count": 60,
+  "corruption_rejections": 8,
+  "actual_checked_work_verified": false,
+  "safe_memory_admission_verified": false,
+  "complete_input_equivalence_verified": false,
+  "target_verified": false,
+  "cases": [
+    {
+      "name": "cycle-default-tsr",
+      "instances": 1,
+      "idle_instances": 0,
+      "full_file_count": 3,
+      "preflight": {
+        "pid": 19871,
+        "started_at_unix_ns": 1791168791372033000,
+        "exit_code": 0,
+        "wall_seconds": 0.004010624950751662,
+        "user_seconds": 0.0008799999999999999,
+        "system_seconds": 0.0010479999999999999,
+        "peak_rss_bytes": 2260992
+      },
+      "off": {
+        "pid": 19873,
+        "started_at_unix_ns": 1791168791376445000,
+        "exit_code": 1,
+        "wall_seconds": 0.05571383301867172,
+        "user_seconds": 0.037632,
+        "system_seconds": 0.006947999999999999,
+        "peak_rss_bytes": 42795008
+      },
+      "original": null,
+      "samples": [
+        {
+          "child": {
+            "pid": 19875,
+            "started_at_unix_ns": 1791168791460430000,
+            "exit_code": 1,
+            "wall_seconds": 0.04486795898992568,
+            "user_seconds": 0.03155,
+            "system_seconds": 0.009047,
+            "peak_rss_bytes": 40353792
+          },
+          "activity": {
+            "constructing": {
+              "peak": 1,
+              "wall_ns": 59791,
+              "checker_ns": 59791
+            },
+            "semantic": {
+              "peak": 1,
+              "wall_ns": 456292,
+              "checker_ns": 456292
+            },
+            "full": {
+              "peak": 1,
+              "wall_ns": 456292,
+              "checker_ns": 456292
+            },
+            "leased": null,
+            "observed": {
+              "peak": 1,
+              "wall_ns": 516083,
+              "checker_ns": 516083
+            }
+          },
+          "trace_sha256": "13d592d8068a316becbce685b95c914e2c3c77ef1ead7d3f7c09c3b99c6c6043"
+        },
+        {
+          "child": {
+            "pid": 19876,
+            "started_at_unix_ns": 1791168791559272000,
+            "exit_code": 1,
+            "wall_seconds": 0.033812500012572855,
+            "user_seconds": 0.027809,
+            "system_seconds": 0.004441,
+            "peak_rss_bytes": 33669120
+          },
+          "activity": {
+            "constructing": {
+              "peak": 1,
+              "wall_ns": 42000,
+              "checker_ns": 42000
+            },
+            "semantic": {
+              "peak": 1,
+              "wall_ns": 438334,
+              "checker_ns": 438334
+            },
+            "full": {
+              "peak": 1,
+              "wall_ns": 438334,
+              "checker_ns": 438334
+            },
+            "leased": null,
+            "observed": {
+              "peak": 1,
+              "wall_ns": 480334,
+              "checker_ns": 480334
+            }
+          },
+          "trace_sha256": "37f8fee96607ab7e738cab36a81075eb239275c1f34198b1310a92dca113e208"
+        }
+      ],
+      "diagnostics_stdout_sha256": "61d18a2e490e390aec2d3503efef13ea280340fbdecd9271e30d53116870812e"
+    },
+    {
+      "name": "cycle-default-native",
+      "instances": 4,
+      "idle_instances": 1,
+      "full_file_count": 3,
+      "preflight": {
+        "pid": 19877,
+        "started_at_unix_ns": 1791168791626776000,
+        "exit_code": 0,
+        "wall_seconds": 0.007663625001441687,
+        "user_seconds": 0.003106,
+        "system_seconds": 0.0029,
+        "peak_rss_bytes": 14598144
+      },
+      "off": {
+        "pid": 19878,
+        "started_at_unix_ns": 1791168791635001000,
+        "exit_code": 1,
+        "wall_seconds": 0.023357708007097244,
+        "user_seconds": 0.040836,
+        "system_seconds": 0.012875,
+        "peak_rss_bytes": 48807936
+      },
+      "original": {
+        "pid": 19879,
+        "started_at_unix_ns": 1791168791659085000,
+        "exit_code": 1,
+        "wall_seconds": 0.024205083027482033,
+        "user_seconds": 0.03924,
+        "system_seconds": 0.012624999999999999,
+        "peak_rss_bytes": 48529408
+      },
+      "samples": [
+        {
+          "child": {
+            "pid": 19880,
+            "started_at_unix_ns": 1791168791708862000,
+            "exit_code": 1,
+            "wall_seconds": 0.024700250010937452,
+            "user_seconds": 0.04287,
+            "system_seconds": 0.012672,
+            "peak_rss_bytes": 49315840
+          },
+          "activity": {
+            "constructing": {
+              "peak": 4,
+              "wall_ns": 423375,
+              "checker_ns": 1442208
+            },
+            "semantic": {
+              "peak": 3,
+              "wall_ns": 450708,
+              "checker_ns": 700834
+            },
+            "full": {
+              "peak": 3,
+              "wall_ns": 450708,
+              "checker_ns": 700834
+            },
+            "leased": {
+              "peak": 3,
+              "wall_ns": 513417,
+              "checker_ns": 813460
+            },
+            "observed": {
+              "peak": 4,
+              "wall_ns": 874083,
+              "checker_ns": 2143042
+            }
+          },
+          "trace_sha256": "2319fd8e78e08df2d69134a2ca7402ed6dd16fdaf423d94dae6a578a9659c739"
+        },
+        {
+          "child": {
+            "pid": 19881,
+            "started_at_unix_ns": 1791168791830640000,
+            "exit_code": 1,
+            "wall_seconds": 0.024877707997802645,
+            "user_seconds": 0.039768,
+            "system_seconds": 0.012027999999999999,
+            "peak_rss_bytes": 48775168
+          },
+          "activity": {
+            "constructing": {
+              "peak": 4,
+              "wall_ns": 422875,
+              "checker_ns": 1468501
+            },
+            "semantic": {
+              "peak": 3,
+              "wall_ns": 430750,
+              "checker_ns": 689666
+            },
+            "full": {
+              "peak": 3,
+              "wall_ns": 430750,
+              "checker_ns": 689666
+            },
+            "leased": {
+              "peak": 3,
+              "wall_ns": 489915,
+              "checker_ns": 777332
+            },
+            "observed": {
+              "peak": 4,
+              "wall_ns": 853625,
+              "checker_ns": 2158167
+            }
+          },
+          "trace_sha256": "74de18ed56b9792cc88ea2d20cc05c72388902f1ce4fdc9d780fb56f69862457"
+        }
+      ],
+      "diagnostics_stdout_sha256": "e54b61e63652cd4e2f13765a1b62c28c680c6fcc4e8f2bafc42ba193f7ded017"
+    },
+    {
+      "name": "cycle-single-tsr",
+      "instances": 1,
+      "idle_instances": 0,
+      "full_file_count": 3,
+      "preflight": {
+        "pid": 19882,
+        "started_at_unix_ns": 1791168791934135000,
+        "exit_code": 0,
+        "wall_seconds": 0.0032423329539597034,
+        "user_seconds": 0.0009509999999999999,
+        "system_seconds": 0.000975,
+        "peak_rss_bytes": 2260992
+      },
+      "off": {
+        "pid": 19883,
+        "started_at_unix_ns": 1791168791937824000,
+        "exit_code": 1,
+        "wall_seconds": 0.032679750001989305,
+        "user_seconds": 0.027656,
+        "system_seconds": 0.003708,
+        "peak_rss_bytes": 33587200
+      },
+      "original": null,
+      "samples": [
+        {
+          "child": {
+            "pid": 19884,
+            "started_at_unix_ns": 1791168791982542000,
+            "exit_code": 1,
+            "wall_seconds": 0.03430337499594316,
+            "user_seconds": 0.028371,
+            "system_seconds": 0.004058,
+            "peak_rss_bytes": 39649280
+          },
+          "activity": {
+            "constructing": {
+              "peak": 1,
+              "wall_ns": 36208,
+              "checker_ns": 36208
+            },
+            "semantic": {
+              "peak": 1,
+              "wall_ns": 360583,
+              "checker_ns": 360583
+            },
+            "full": {
+              "peak": 1,
+              "wall_ns": 360583,
+              "checker_ns": 360583
+            },
+            "leased": null,
+            "observed": {
+              "peak": 1,
+              "wall_ns": 396791,
+              "checker_ns": 396791
+            }
+          },
+          "trace_sha256": "42051669648536185e9e5854a7f46737855daaca60a3721d1e37495c4282d019"
+        },
+        {
+          "child": {
+            "pid": 19885,
+            "started_at_unix_ns": 1791168792055960000,
+            "exit_code": 1,
+            "wall_seconds": 0.03330729098524898,
+            "user_seconds": 0.027868999999999998,
+            "system_seconds": 0.0038929999999999998,
+            "peak_rss_bytes": 33669120
+          },
+          "activity": {
+            "constructing": {
+              "peak": 1,
+              "wall_ns": 36875,
+              "checker_ns": 36875
+            },
+            "semantic": {
+              "peak": 1,
+              "wall_ns": 365584,
+              "checker_ns": 365584
+            },
+            "full": {
+              "peak": 1,
+              "wall_ns": 365584,
+              "checker_ns": 365584
+            },
+            "leased": null,
+            "observed": {
+              "peak": 1,
+              "wall_ns": 402459,
+              "checker_ns": 402459
+            }
+          },
+          "trace_sha256": "c9d16213a4aea5cb6993efe5746a89acc86e6317b5eddd203da64dee5dfb5d6f"
+        }
+      ],
+      "diagnostics_stdout_sha256": "61d18a2e490e390aec2d3503efef13ea280340fbdecd9271e30d53116870812e"
+    },
+    {
+      "name": "cycle-single-native",
+      "instances": 1,
+      "idle_instances": 0,
+      "full_file_count": 3,
+      "preflight": {
+        "pid": 19886,
+        "started_at_unix_ns": 1791168792121798000,
+        "exit_code": 0,
+        "wall_seconds": 0.007075249974150211,
+        "user_seconds": 0.003061,
+        "system_seconds": 0.0024709999999999997,
+        "peak_rss_bytes": 14483456
+      },
+      "off": {
+        "pid": 19887,
+        "started_at_unix_ns": 1791168792129647000,
+        "exit_code": 1,
+        "wall_seconds": 0.024756999977398664,
+        "user_seconds": 0.032312,
+        "system_seconds": 0.005761,
+        "peak_rss_bytes": 44498944
+      },
+      "original": {
+        "pid": 19888,
+        "started_at_unix_ns": 1791168792154882000,
+        "exit_code": 1,
+        "wall_seconds": 0.02562162501271814,
+        "user_seconds": 0.031999,
+        "system_seconds": 0.0058969999999999995,
+        "peak_rss_bytes": 44040192
+      },
+      "samples": [
+        {
+          "child": {
+            "pid": 19889,
+            "started_at_unix_ns": 1791168792206412000,
+            "exit_code": 1,
+            "wall_seconds": 0.02635800000280142,
+            "user_seconds": 0.033053,
+            "system_seconds": 0.007193,
+            "peak_rss_bytes": 45301760
+          },
+          "activity": {
+            "constructing": {
+              "peak": 1,
+              "wall_ns": 782125,
+              "checker_ns": 782125
+            },
+            "semantic": {
+              "peak": 1,
+              "wall_ns": 338626,
+              "checker_ns": 338626
+            },
+            "full": {
+              "peak": 1,
+              "wall_ns": 338626,
+              "checker_ns": 338626
+            },
+            "leased": {
+              "peak": 1,
+              "wall_ns": 360167,
+              "checker_ns": 360167
+            },
+            "observed": {
+              "peak": 1,
+              "wall_ns": 1120751,
+              "checker_ns": 1120751
+            }
+          },
+          "trace_sha256": "98ea70e1e76ad765d81581829a5182249d0b7c2e5c0817193a61e936d3a6ff57"
+        },
+        {
+          "child": {
+            "pid": 19890,
+            "started_at_unix_ns": 1791168792332395000,
+            "exit_code": 1,
+            "wall_seconds": 0.027799750037956983,
+            "user_seconds": 0.032366,
+            "system_seconds": 0.007880999999999999,
+            "peak_rss_bytes": 45662208
+          },
+          "activity": {
+            "constructing": {
+              "peak": 1,
+              "wall_ns": 580292,
+              "checker_ns": 580292
+            },
+            "semantic": {
+              "peak": 1,
+              "wall_ns": 365459,
+              "checker_ns": 365459
+            },
+            "full": {
+              "peak": 1,
+              "wall_ns": 365459,
+              "checker_ns": 365459
+            },
+            "leased": {
+              "peak": 1,
+              "wall_ns": 392584,
+              "checker_ns": 392584
+            },
+            "observed": {
+              "peak": 1,
+              "wall_ns": 945751,
+              "checker_ns": 945751
+            }
+          },
+          "trace_sha256": "124fbd312e3e8f7cfb8a12b379fdc67302fbb98cc100637339332050c62c1440"
+        }
+      ],
+      "diagnostics_stdout_sha256": "e54b61e63652cd4e2f13765a1b62c28c680c6fcc4e8f2bafc42ba193f7ded017"
+    },
+    {
+      "name": "cycle-two-tsr",
+      "instances": 1,
+      "idle_instances": 0,
+      "full_file_count": 3,
+      "preflight": {
+        "pid": 19902,
+        "started_at_unix_ns": 1791168792435752000,
+        "exit_code": 0,
+        "wall_seconds": 0.003247625019866973,
+        "user_seconds": 0.0008089999999999999,
+        "system_seconds": 0.00091,
+        "peak_rss_bytes": 2260992
+      },
+      "off": {
+        "pid": 19903,
+        "started_at_unix_ns": 1791168792439828000,
+        "exit_code": 1,
+        "wall_seconds": 0.034050291986204684,
+        "user_seconds": 0.028062,
+        "system_seconds": 0.0044659999999999995,
+        "peak_rss_bytes": 39567360
+      },
+      "original": null,
+      "samples": [
+        {
+          "child": {
+            "pid": 19904,
+            "started_at_unix_ns": 1791168792486138000,
+            "exit_code": 1,
+            "wall_seconds": 0.03450800001155585,
+            "user_seconds": 0.028425,
+            "system_seconds": 0.004019,
+            "peak_rss_bytes": 39829504
+          },
+          "activity": {
+            "constructing": {
+              "peak": 1,
+              "wall_ns": 35041,
+              "checker_ns": 35041
+            },
+            "semantic": {
+              "peak": 1,
+              "wall_ns": 347042,
+              "checker_ns": 347042
+            },
+            "full": {
+              "peak": 1,
+              "wall_ns": 347042,
+              "checker_ns": 347042
+            },
+            "leased": null,
+            "observed": {
+              "peak": 1,
+              "wall_ns": 382083,
+              "checker_ns": 382083
+            }
+          },
+          "trace_sha256": "44f9e1c149d809d0668ce3edd5b8ad372a5093b539396b0d72d05816ac2977a1"
+        },
+        {
+          "child": {
+            "pid": 19906,
+            "started_at_unix_ns": 1791168792561140000,
+            "exit_code": 1,
+            "wall_seconds": 0.035025958030018955,
+            "user_seconds": 0.028217,
+            "system_seconds": 0.005076,
+            "peak_rss_bytes": 33669120
+          },
+          "activity": {
+            "constructing": {
+              "peak": 1,
+              "wall_ns": 39416,
+              "checker_ns": 39416
+            },
+            "semantic": {
+              "peak": 1,
+              "wall_ns": 370583,
+              "checker_ns": 370583
+            },
+            "full": {
+              "peak": 1,
+              "wall_ns": 370583,
+              "checker_ns": 370583
+            },
+            "leased": null,
+            "observed": {
+              "peak": 1,
+              "wall_ns": 409999,
+              "checker_ns": 409999
+            }
+          },
+          "trace_sha256": "63f24057a5e0b2df17ca3e8939c67a11d701612799480772c515d9bc75d974db"
+        }
+      ],
+      "diagnostics_stdout_sha256": "61d18a2e490e390aec2d3503efef13ea280340fbdecd9271e30d53116870812e"
+    },
+    {
+      "name": "cycle-two-native",
+      "instances": 2,
+      "idle_instances": 0,
+      "full_file_count": 3,
+      "preflight": {
+        "pid": 19909,
+        "started_at_unix_ns": 1791168792631625000,
+        "exit_code": 0,
+        "wall_seconds": 0.0067360419780015945,
+        "user_seconds": 0.002862,
+        "system_seconds": 0.002316,
+        "peak_rss_bytes": 14581760
+      },
+      "off": {
+        "pid": 19910,
+        "started_at_unix_ns": 1791168792638727000,
+        "exit_code": 1,
+        "wall_seconds": 0.022935375047381967,
+        "user_seconds": 0.040365,
+        "system_seconds": 0.010569,
+        "peak_rss_bytes": 47890432
+      },
+      "original": {
+        "pid": 19911,
+        "started_at_unix_ns": 1791168792662113000,
+        "exit_code": 1,
+        "wall_seconds": 0.02307583298534155,
+        "user_seconds": 0.039522999999999996,
+        "system_seconds": 0.010586,
+        "peak_rss_bytes": 47169536
+      },
+      "samples": [
+        {
+          "child": {
+            "pid": 19915,
+            "started_at_unix_ns": 1791168792711400000,
+            "exit_code": 1,
+            "wall_seconds": 0.02509774995269254,
+            "user_seconds": 0.0397,
+            "system_seconds": 0.011996999999999999,
+            "peak_rss_bytes": 48234496
+          },
+          "activity": {
+            "constructing": {
+              "peak": 2,
+              "wall_ns": 406417,
+              "checker_ns": 766042
+            },
+            "semantic": {
+              "peak": 2,
+              "wall_ns": 483084,
+              "checker_ns": 606209
+            },
+            "full": {
+              "peak": 2,
+              "wall_ns": 483084,
+              "checker_ns": 606209
+            },
+            "leased": {
+              "peak": 2,
+              "wall_ns": 523167,
+              "checker_ns": 671292
+            },
+            "observed": {
+              "peak": 2,
+              "wall_ns": 889501,
+              "checker_ns": 1372251
+            }
+          },
+          "trace_sha256": "98097da8cbc096b34d65e2c633b03494c21ebc46a96b99fbdb9c8087d9d9a9cc"
+        },
+        {
+          "child": {
+            "pid": 19922,
+            "started_at_unix_ns": 1791168792831898000,
+            "exit_code": 1,
+            "wall_seconds": 0.0249588749720715,
+            "user_seconds": 0.039283,
+            "system_seconds": 0.011179,
+            "peak_rss_bytes": 47857664
+          },
+          "activity": {
+            "constructing": {
+              "peak": 2,
+              "wall_ns": 392833,
+              "checker_ns": 741499
+            },
+            "semantic": {
+              "peak": 2,
+              "wall_ns": 417792,
+              "checker_ns": 517167
+            },
+            "full": {
+              "peak": 2,
+              "wall_ns": 417792,
+              "checker_ns": 517167
+            },
+            "leased": {
+              "peak": 2,
+              "wall_ns": 452126,
+              "checker_ns": 579501
+            },
+            "observed": {
+              "peak": 2,
+              "wall_ns": 810625,
+              "checker_ns": 1258666
+            }
+          },
+          "trace_sha256": "014340f090ed51ed47e54dabc13a03e558ca83053fcfe99b6c9040c3aca1008d"
+        }
+      ],
+      "diagnostics_stdout_sha256": "e54b61e63652cd4e2f13765a1b62c28c680c6fcc4e8f2bafc42ba193f7ded017"
+    },
+    {
+      "name": "cycle-one-tsr",
+      "instances": 1,
+      "idle_instances": 0,
+      "full_file_count": 3,
+      "preflight": {
+        "pid": 19925,
+        "started_at_unix_ns": 1791168792932382000,
+        "exit_code": 0,
+        "wall_seconds": 0.0033270830172114074,
+        "user_seconds": 0.000878,
+        "system_seconds": 0.001081,
+        "peak_rss_bytes": 2260992
+      },
+      "off": {
+        "pid": 19926,
+        "started_at_unix_ns": 1791168792936058000,
+        "exit_code": 1,
+        "wall_seconds": 0.03313458402408287,
+        "user_seconds": 0.027999,
+        "system_seconds": 0.003838,
+        "peak_rss_bytes": 35176448
+      },
+      "original": null,
+      "samples": [
+        {
+          "child": {
+            "pid": 19927,
+            "started_at_unix_ns": 1791168792980707000,
+            "exit_code": 1,
+            "wall_seconds": 0.03382716700434685,
+            "user_seconds": 0.028017,
+            "system_seconds": 0.004127,
+            "peak_rss_bytes": 33882112
+          },
+          "activity": {
+            "constructing": {
+              "peak": 1,
+              "wall_ns": 49333,
+              "checker_ns": 49333
+            },
+            "semantic": {
+              "peak": 1,
+              "wall_ns": 427751,
+              "checker_ns": 427751
+            },
+            "full": {
+              "peak": 1,
+              "wall_ns": 427751,
+              "checker_ns": 427751
+            },
+            "leased": null,
+            "observed": {
+              "peak": 1,
+              "wall_ns": 477084,
+              "checker_ns": 477084
+            }
+          },
+          "trace_sha256": "fad676d96ef381009ed62924df7168a7b3a7c029e477b8e2f474ba521591c847"
+        },
+        {
+          "child": {
+            "pid": 19930,
+            "started_at_unix_ns": 1791168793053908000,
+            "exit_code": 1,
+            "wall_seconds": 0.03419924998888746,
+            "user_seconds": 0.028603,
+            "system_seconds": 0.004029,
+            "peak_rss_bytes": 39829504
+          },
+          "activity": {
+            "constructing": {
+              "peak": 1,
+              "wall_ns": 34375,
+              "checker_ns": 34375
+            },
+            "semantic": {
+              "peak": 1,
+              "wall_ns": 361750,
+              "checker_ns": 361750
+            },
+            "full": {
+              "peak": 1,
+              "wall_ns": 361750,
+              "checker_ns": 361750
+            },
+            "leased": null,
+            "observed": {
+              "peak": 1,
+              "wall_ns": 396125,
+              "checker_ns": 396125
+            }
+          },
+          "trace_sha256": "954f807add368c075fad705c618f233f272fc816143bcfe5c01d17c1d42f3611"
+        }
+      ],
+      "diagnostics_stdout_sha256": "61d18a2e490e390aec2d3503efef13ea280340fbdecd9271e30d53116870812e"
+    },
+    {
+      "name": "cycle-one-native",
+      "instances": 1,
+      "idle_instances": 0,
+      "full_file_count": 3,
+      "preflight": {
+        "pid": 19934,
+        "started_at_unix_ns": 1791168793121189000,
+        "exit_code": 0,
+        "wall_seconds": 0.006848832999821752,
+        "user_seconds": 0.002878,
+        "system_seconds": 0.002359,
+        "peak_rss_bytes": 14450688
+      },
+      "off": {
+        "pid": 19935,
+        "started_at_unix_ns": 1791168793128403000,
+        "exit_code": 1,
+        "wall_seconds": 0.023759332951158285,
+        "user_seconds": 0.038272,
+        "system_seconds": 0.010287,
+        "peak_rss_bytes": 46989312
+      },
+      "original": {
+        "pid": 19937,
+        "started_at_unix_ns": 1791168793152609000,
+        "exit_code": 1,
+        "wall_seconds": 0.023216709028929472,
+        "user_seconds": 0.040399,
+        "system_seconds": 0.010862,
+        "peak_rss_bytes": 47300608
+      },
+      "samples": [
+        {
+          "child": {
+            "pid": 19943,
+            "started_at_unix_ns": 1791168793201115000,
+            "exit_code": 1,
+            "wall_seconds": 0.023694792005699128,
+            "user_seconds": 0.036823,
+            "system_seconds": 0.011073,
+            "peak_rss_bytes": 48791552
+          },
+          "activity": {
+            "constructing": {
+              "peak": 1,
+              "wall_ns": 408459,
+              "checker_ns": 408459
+            },
+            "semantic": {
+              "peak": 1,
+              "wall_ns": 444834,
+              "checker_ns": 444834
+            },
+            "full": {
+              "peak": 1,
+              "wall_ns": 444834,
+              "checker_ns": 444834
+            },
+            "leased": {
+              "peak": 1,
+              "wall_ns": 468626,
+              "checker_ns": 468626
+            },
+            "observed": {
+              "peak": 1,
+              "wall_ns": 853293,
+              "checker_ns": 853293
+            }
+          },
+          "trace_sha256": "cac6200b6f38433daef18bf064dc215b3df114b9190e00ef370050aff1a96a32"
+        },
+        {
+          "child": {
+            "pid": 19950,
+            "started_at_unix_ns": 1791168793320922000,
+            "exit_code": 1,
+            "wall_seconds": 0.024264207982923836,
+            "user_seconds": 0.039333,
+            "system_seconds": 0.011417,
+            "peak_rss_bytes": 47857664
+          },
+          "activity": {
+            "constructing": {
+              "peak": 1,
+              "wall_ns": 400041,
+              "checker_ns": 400041
+            },
+            "semantic": {
+              "peak": 1,
+              "wall_ns": 411083,
+              "checker_ns": 411083
+            },
+            "full": {
+              "peak": 1,
+              "wall_ns": 411083,
+              "checker_ns": 411083
+            },
+            "leased": {
+              "peak": 1,
+              "wall_ns": 433042,
+              "checker_ns": 433042
+            },
+            "observed": {
+              "peak": 1,
+              "wall_ns": 811124,
+              "checker_ns": 811124
+            }
+          },
+          "trace_sha256": "06760c6779193a67325072ffe517388e6f37b6fd31b5c60c8ece78ff79b23847"
+        }
+      ],
+      "diagnostics_stdout_sha256": "e54b61e63652cd4e2f13765a1b62c28c680c6fcc4e8f2bafc42ba193f7ded017"
+    },
+    {
+      "name": "cycle-file-clamp-tsr",
+      "instances": 1,
+      "idle_instances": 0,
+      "full_file_count": 3,
+      "preflight": {
+        "pid": 19954,
+        "started_at_unix_ns": 1791168793422067000,
+        "exit_code": 0,
+        "wall_seconds": 0.003226917004212737,
+        "user_seconds": 0.000865,
+        "system_seconds": 0.000949,
+        "peak_rss_bytes": 2260992
+      },
+      "off": {
+        "pid": 19955,
+        "started_at_unix_ns": 1791168793425659000,
+        "exit_code": 1,
+        "wall_seconds": 0.033005042001605034,
+        "user_seconds": 0.027843999999999997,
+        "system_seconds": 0.003773,
+        "peak_rss_bytes": 33587200
+      },
+      "original": null,
+      "samples": [
+        {
+          "child": {
+            "pid": 19959,
+            "started_at_unix_ns": 1791168793470545000,
+            "exit_code": 1,
+            "wall_seconds": 0.0336668340023607,
+            "user_seconds": 0.028048,
+            "system_seconds": 0.003981,
+            "peak_rss_bytes": 33669120
+          },
+          "activity": {
+            "constructing": {
+              "peak": 1,
+              "wall_ns": 41875,
+              "checker_ns": 41875
+            },
+            "semantic": {
+              "peak": 1,
+              "wall_ns": 382000,
+              "checker_ns": 382000
+            },
+            "full": {
+              "peak": 1,
+              "wall_ns": 382000,
+              "checker_ns": 382000
+            },
+            "leased": null,
+            "observed": {
+              "peak": 1,
+              "wall_ns": 423875,
+              "checker_ns": 423875
+            }
+          },
+          "trace_sha256": "5ebe1368049d5d698760904fb0a7cf3288a475353344138a4d46a03c9a01de69"
+        },
+        {
+          "child": {
+            "pid": 19966,
+            "started_at_unix_ns": 1791168793542967000,
+            "exit_code": 1,
+            "wall_seconds": 0.035016832989640534,
+            "user_seconds": 0.028546,
+            "system_seconds": 0.004665,
+            "peak_rss_bytes": 41304064
+          },
+          "activity": {
+            "constructing": {
+              "peak": 1,
+              "wall_ns": 39042,
+              "checker_ns": 39042
+            },
+            "semantic": {
+              "peak": 1,
+              "wall_ns": 354625,
+              "checker_ns": 354625
+            },
+            "full": {
+              "peak": 1,
+              "wall_ns": 354625,
+              "checker_ns": 354625
+            },
+            "leased": null,
+            "observed": {
+              "peak": 1,
+              "wall_ns": 393667,
+              "checker_ns": 393667
+            }
+          },
+          "trace_sha256": "2c870e43e54e89519fe1190289cdd7b133cad96eea7ef6ee3134668becc76b6e"
+        }
+      ],
+      "diagnostics_stdout_sha256": "61d18a2e490e390aec2d3503efef13ea280340fbdecd9271e30d53116870812e"
+    },
+    {
+      "name": "cycle-file-clamp-native",
+      "instances": 87,
+      "idle_instances": 84,
+      "full_file_count": 3,
+      "preflight": {
+        "pid": 19967,
+        "started_at_unix_ns": 1791168793610781000,
+        "exit_code": 0,
+        "wall_seconds": 0.007610458007548004,
+        "user_seconds": 0.003057,
+        "system_seconds": 0.002862,
+        "peak_rss_bytes": 14893056
+      },
+      "off": {
+        "pid": 19969,
+        "started_at_unix_ns": 1791168793618747000,
+        "exit_code": 1,
+        "wall_seconds": 0.029090667027048767,
+        "user_seconds": 0.084163,
+        "system_seconds": 0.018147999999999997,
+        "peak_rss_bytes": 75923456
+      },
+      "original": {
+        "pid": 19971,
+        "started_at_unix_ns": 1791168793648328000,
+        "exit_code": 1,
+        "wall_seconds": 0.027798083028756082,
+        "user_seconds": 0.080065,
+        "system_seconds": 0.019044,
+        "peak_rss_bytes": 75972608
+      },
+      "samples": [
+        {
+          "child": {
+            "pid": 19972,
+            "started_at_unix_ns": 1791168793700407000,
+            "exit_code": 1,
+            "wall_seconds": 0.03359316702699289,
+            "user_seconds": 0.101987,
+            "system_seconds": 0.024055999999999998,
+            "peak_rss_bytes": 78839808
+          },
+          "activity": {
+            "constructing": {
+              "peak": 83,
+              "wall_ns": 5644250,
+              "checker_ns": 151859751
+            },
+            "semantic": {
+              "peak": 3,
+              "wall_ns": 598834,
+              "checker_ns": 1114918
+            },
+            "full": {
+              "peak": 3,
+              "wall_ns": 598834,
+              "checker_ns": 1114918
+            },
+            "leased": {
+              "peak": 5,
+              "wall_ns": 2812835,
+              "checker_ns": 7520586
+            },
+            "observed": {
+              "peak": 83,
+              "wall_ns": 6243084,
+              "checker_ns": 152974669
+            }
+          },
+          "trace_sha256": "1fbe6d32ba06e4808561ee4a5e474f53048d28c94d944a7b9dffa92eb6e82088"
+        },
+        {
+          "child": {
+            "pid": 19977,
+            "started_at_unix_ns": 1791168793833868000,
+            "exit_code": 1,
+            "wall_seconds": 0.03159120900090784,
+            "user_seconds": 0.08767,
+            "system_seconds": 0.023267,
+            "peak_rss_bytes": 77955072
+          },
+          "activity": {
+            "constructing": {
+              "peak": 60,
+              "wall_ns": 4731958,
+              "checker_ns": 105256964
+            },
+            "semantic": {
+              "peak": 2,
+              "wall_ns": 563167,
+              "checker_ns": 671375
+            },
+            "full": {
+              "peak": 2,
+              "wall_ns": 563167,
+              "checker_ns": 671375
+            },
+            "leased": {
+              "peak": 7,
+              "wall_ns": 2390418,
+              "checker_ns": 6233290
+            },
+            "observed": {
+              "peak": 60,
+              "wall_ns": 5295125,
+              "checker_ns": 105928339
+            }
+          },
+          "trace_sha256": "4721126ffc56a45388516311d5fb6e77f80bf144c90e956be98cdd457d7d4453"
+        }
+      ],
+      "diagnostics_stdout_sha256": "e54b61e63652cd4e2f13765a1b62c28c680c6fcc4e8f2bafc42ba193f7ded017"
+    },
+    {
+      "name": "cycle-single-precedence-tsr",
+      "instances": 1,
+      "idle_instances": 0,
+      "full_file_count": 3,
+      "preflight": {
+        "pid": 19986,
+        "started_at_unix_ns": 1791168793945188000,
+        "exit_code": 0,
+        "wall_seconds": 0.0034202089882455766,
+        "user_seconds": 0.000897,
+        "system_seconds": 0.0009649999999999999,
+        "peak_rss_bytes": 2277376
+      },
+      "off": {
+        "pid": 19988,
+        "started_at_unix_ns": 1791168793948935000,
+        "exit_code": 1,
+        "wall_seconds": 0.03266512497793883,
+        "user_seconds": 0.027392,
+        "system_seconds": 0.003958,
+        "peak_rss_bytes": 33587200
+      },
+      "original": null,
+      "samples": [
+        {
+          "child": {
+            "pid": 19991,
+            "started_at_unix_ns": 1791168793992871000,
+            "exit_code": 1,
+            "wall_seconds": 0.03384808299597353,
+            "user_seconds": 0.028197,
+            "system_seconds": 0.004085,
+            "peak_rss_bytes": 33669120
+          },
+          "activity": {
+            "constructing": {
+              "peak": 1,
+              "wall_ns": 35167,
+              "checker_ns": 35167
+            },
+            "semantic": {
+              "peak": 1,
+              "wall_ns": 376709,
+              "checker_ns": 376709
+            },
+            "full": {
+              "peak": 1,
+              "wall_ns": 376709,
+              "checker_ns": 376709
+            },
+            "leased": null,
+            "observed": {
+              "peak": 1,
+              "wall_ns": 411876,
+              "checker_ns": 411876
+            }
+          },
+          "trace_sha256": "2071487a8abbdc1fbf2241b8d2476c49eb9eef19aef306a545e570badfcb87ac"
+        },
+        {
+          "child": {
+            "pid": 19995,
+            "started_at_unix_ns": 1791168794067756000,
+            "exit_code": 1,
+            "wall_seconds": 0.034376249997876585,
+            "user_seconds": 0.027516,
+            "system_seconds": 0.005066,
+            "peak_rss_bytes": 33669120
+          },
+          "activity": {
+            "constructing": {
+              "peak": 1,
+              "wall_ns": 40917,
+              "checker_ns": 40917
+            },
+            "semantic": {
+              "peak": 1,
+              "wall_ns": 412958,
+              "checker_ns": 412958
+            },
+            "full": {
+              "peak": 1,
+              "wall_ns": 412958,
+              "checker_ns": 412958
+            },
+            "leased": null,
+            "observed": {
+              "peak": 1,
+              "wall_ns": 453875,
+              "checker_ns": 453875
+            }
+          },
+          "trace_sha256": "e8f1a1d2ed3e5a027843aaada3f44938df02b32aa743a8be587eee1c24cf444f"
+        }
+      ],
+      "diagnostics_stdout_sha256": "61d18a2e490e390aec2d3503efef13ea280340fbdecd9271e30d53116870812e"
+    },
+    {
+      "name": "cycle-single-precedence-native",
+      "instances": 1,
+      "idle_instances": 0,
+      "full_file_count": 3,
+      "preflight": {
+        "pid": 19998,
+        "started_at_unix_ns": 1791168794133243000,
+        "exit_code": 0,
+        "wall_seconds": 0.007802874955814332,
+        "user_seconds": 0.0030399999999999997,
+        "system_seconds": 0.002895,
+        "peak_rss_bytes": 14532608
+      },
+      "off": {
+        "pid": 19999,
+        "started_at_unix_ns": 1791168794141472000,
+        "exit_code": 1,
+        "wall_seconds": 0.025372167001478374,
+        "user_seconds": 0.025525,
+        "system_seconds": 0.00582,
+        "peak_rss_bytes": 44007424
+      },
+      "original": {
+        "pid": 20003,
+        "started_at_unix_ns": 1791168794167276000,
+        "exit_code": 1,
+        "wall_seconds": 0.027618833992164582,
+        "user_seconds": 0.032466,
+        "system_seconds": 0.006567,
+        "peak_rss_bytes": 44482560
+      },
+      "samples": [
+        {
+          "child": {
+            "pid": 20009,
+            "started_at_unix_ns": 1791168794228125000,
+            "exit_code": 1,
+            "wall_seconds": 0.02836579200811684,
+            "user_seconds": 0.032358,
+            "system_seconds": 0.006379,
+            "peak_rss_bytes": 45137920
+          },
+          "activity": {
+            "constructing": {
+              "peak": 1,
+              "wall_ns": 606083,
+              "checker_ns": 606083
+            },
+            "semantic": {
+              "peak": 1,
+              "wall_ns": 579501,
+              "checker_ns": 579501
+            },
+            "full": {
+              "peak": 1,
+              "wall_ns": 579501,
+              "checker_ns": 579501
+            },
+            "leased": {
+              "peak": 1,
+              "wall_ns": 610208,
+              "checker_ns": 610208
+            },
+            "observed": {
+              "peak": 1,
+              "wall_ns": 1185584,
+              "checker_ns": 1185584
+            }
+          },
+          "trace_sha256": "02a189ae53cff343deb50f6e71267f84aae50755cfc8567a49e6e437aa213c1d"
+        },
+        {
+          "child": {
+            "pid": 20011,
+            "started_at_unix_ns": 1791168794355885000,
+            "exit_code": 1,
+            "wall_seconds": 0.02623479103203863,
+            "user_seconds": 0.025546,
+            "system_seconds": 0.006816999999999999,
+            "peak_rss_bytes": 44646400
+          },
+          "activity": {
+            "constructing": {
+              "peak": 1,
+              "wall_ns": 350541,
+              "checker_ns": 350541
+            },
+            "semantic": {
+              "peak": 1,
+              "wall_ns": 374249,
+              "checker_ns": 374249
+            },
+            "full": {
+              "peak": 1,
+              "wall_ns": 374249,
+              "checker_ns": 374249
+            },
+            "leased": {
+              "peak": 1,
+              "wall_ns": 397626,
+              "checker_ns": 397626
+            },
+            "observed": {
+              "peak": 1,
+              "wall_ns": 724790,
+              "checker_ns": 724790
+            }
+          },
+          "trace_sha256": "ff0f10fe1925d162713cbbd1d2f02883c2ee995a66d208d4fa3af7c3988915d5"
+        }
+      ],
+      "diagnostics_stdout_sha256": "e54b61e63652cd4e2f13765a1b62c28c680c6fcc4e8f2bafc42ba193f7ded017"
+    },
+    {
+      "name": "cycle-no-check-tsr",
+      "instances": 1,
+      "idle_instances": 1,
+      "full_file_count": 0,
+      "preflight": {
+        "pid": 20014,
+        "started_at_unix_ns": 1791168794457564000,
+        "exit_code": 0,
+        "wall_seconds": 0.003395750012714416,
+        "user_seconds": 0.0009289999999999999,
+        "system_seconds": 0.001001,
+        "peak_rss_bytes": 2260992
+      },
+      "off": {
+        "pid": 20015,
+        "started_at_unix_ns": 1791168794461314000,
+        "exit_code": 0,
+        "wall_seconds": 0.03268366598058492,
+        "user_seconds": 0.027533,
+        "system_seconds": 0.003767,
+        "peak_rss_bytes": 32292864
+      },
+      "original": null,
+      "samples": [
+        {
+          "child": {
+            "pid": 20017,
+            "started_at_unix_ns": 1791168794506199000,
+            "exit_code": 0,
+            "wall_seconds": 0.03362954099429771,
+            "user_seconds": 0.028100999999999998,
+            "system_seconds": 0.003845,
+            "peak_rss_bytes": 33865728
+          },
+          "activity": {
+            "constructing": {
+              "peak": 1,
+              "wall_ns": 41250,
+              "checker_ns": 41250
+            },
+            "semantic": {
+              "peak": 0,
+              "wall_ns": 0,
+              "checker_ns": 0
+            },
+            "full": {
+              "peak": 0,
+              "wall_ns": 0,
+              "checker_ns": 0
+            },
+            "leased": null,
+            "observed": {
+              "peak": 1,
+              "wall_ns": 41250,
+              "checker_ns": 41250
+            }
+          },
+          "trace_sha256": "67c29201bef847942b64ac3d054bba302b36ce5f27be0e654799d3eaa6801e25"
+        },
+        {
+          "child": {
+            "pid": 20021,
+            "started_at_unix_ns": 1791168794576481000,
+            "exit_code": 0,
+            "wall_seconds": 0.03409349999856204,
+            "user_seconds": 0.028294999999999997,
+            "system_seconds": 0.004020999999999999,
+            "peak_rss_bytes": 38584320
+          },
+          "activity": {
+            "constructing": {
+              "peak": 1,
+              "wall_ns": 38750,
+              "checker_ns": 38750
+            },
+            "semantic": {
+              "peak": 0,
+              "wall_ns": 0,
+              "checker_ns": 0
+            },
+            "full": {
+              "peak": 0,
+              "wall_ns": 0,
+              "checker_ns": 0
+            },
+            "leased": null,
+            "observed": {
+              "peak": 1,
+              "wall_ns": 38750,
+              "checker_ns": 38750
+            }
+          },
+          "trace_sha256": "3d6cba7ae1e7def713768b01b11675cff70167e2fe4f2c4194846af38f85f135"
+        }
+      ],
+      "diagnostics_stdout_sha256": "5e2b1e766d93be5275f3d28a0f410c6ee9b274b16167d98b3ea0d9738a056701"
+    },
+    {
+      "name": "cycle-no-check-native",
+      "instances": 4,
+      "idle_instances": 4,
+      "full_file_count": 0,
+      "preflight": {
+        "pid": 20029,
+        "started_at_unix_ns": 1791168794644204000,
+        "exit_code": 0,
+        "wall_seconds": 0.007360166986472905,
+        "user_seconds": 0.003039,
+        "system_seconds": 0.00266,
+        "peak_rss_bytes": 15024128
+      },
+      "off": {
+        "pid": 20030,
+        "started_at_unix_ns": 1791168794651923000,
+        "exit_code": 0,
+        "wall_seconds": 0.022871124965604395,
+        "user_seconds": 0.037774999999999996,
+        "system_seconds": 0.010381999999999999,
+        "peak_rss_bytes": 46678016
+      },
+      "original": {
+        "pid": 20032,
+        "started_at_unix_ns": 1791168794675259000,
+        "exit_code": 0,
+        "wall_seconds": 0.024505667039193213,
+        "user_seconds": 0.044726999999999996,
+        "system_seconds": 0.011417,
+        "peak_rss_bytes": 47726592
+      },
+      "samples": [
+        {
+          "child": {
+            "pid": 20035,
+            "started_at_unix_ns": 1791168794725750000,
+            "exit_code": 0,
+            "wall_seconds": 0.02458525000838563,
+            "user_seconds": 0.039903,
+            "system_seconds": 0.011809,
+            "peak_rss_bytes": 47595520
+          },
+          "activity": {
+            "constructing": {
+              "peak": 4,
+              "wall_ns": 425000,
+              "checker_ns": 1450583
+            },
+            "semantic": {
+              "peak": 0,
+              "wall_ns": 0,
+              "checker_ns": 0
+            },
+            "full": {
+              "peak": 0,
+              "wall_ns": 0,
+              "checker_ns": 0
+            },
+            "leased": {
+              "peak": 1,
+              "wall_ns": 56835,
+              "checker_ns": 56835
+            },
+            "observed": {
+              "peak": 4,
+              "wall_ns": 425000,
+              "checker_ns": 1450583
+            }
+          },
+          "trace_sha256": "dbe17cd723d77927888e0429e06c477057c9729dfb57f1f0b0a1a147e0c91f7d"
+        },
+        {
+          "child": {
+            "pid": 20045,
+            "started_at_unix_ns": 1791168794848183000,
+            "exit_code": 0,
+            "wall_seconds": 0.024880458018742502,
+            "user_seconds": 0.03995,
+            "system_seconds": 0.011084,
+            "peak_rss_bytes": 47546368
+          },
+          "activity": {
+            "constructing": {
+              "peak": 4,
+              "wall_ns": 439000,
+              "checker_ns": 1517374
+            },
+            "semantic": {
+              "peak": 0,
+              "wall_ns": 0,
+              "checker_ns": 0
+            },
+            "full": {
+              "peak": 0,
+              "wall_ns": 0,
+              "checker_ns": 0
+            },
+            "leased": {
+              "peak": 1,
+              "wall_ns": 63666,
+              "checker_ns": 63666
+            },
+            "observed": {
+              "peak": 4,
+              "wall_ns": 439000,
+              "checker_ns": 1517374
+            }
+          },
+          "trace_sha256": "cc80561f68cabb5a221527a5e322397882b943dcb0073975f98b21243f2df90e"
+        }
+      ],
+      "diagnostics_stdout_sha256": "5f90c6e21af26b483e3ac566d167de6ad4e382a914d4dbf868289a176f267d25"
+    },
+    {
+      "name": "cycle-libs-tsr",
+      "instances": 1,
+      "idle_instances": 0,
+      "full_file_count": 86,
+      "preflight": {
+        "pid": 20046,
+        "started_at_unix_ns": 1791168794948953000,
+        "exit_code": 0,
+        "wall_seconds": 0.0035331249819137156,
+        "user_seconds": 0.000892,
+        "system_seconds": 0.00108,
+        "peak_rss_bytes": 2260992
+      },
+      "off": {
+        "pid": 20048,
+        "started_at_unix_ns": 1791168794952828000,
+        "exit_code": 1,
+        "wall_seconds": 0.06397000001743436,
+        "user_seconds": 0.057358,
+        "system_seconds": 0.005075,
+        "peak_rss_bytes": 40140800
+      },
+      "original": null,
+      "samples": [
+        {
+          "child": {
+            "pid": 20050,
+            "started_at_unix_ns": 1791168795028124000,
+            "exit_code": 1,
+            "wall_seconds": 0.07064024999272078,
+            "user_seconds": 0.063673,
+            "system_seconds": 0.0048059999999999995,
+            "peak_rss_bytes": 40140800
+          },
+          "activity": {
+            "constructing": {
+              "peak": 1,
+              "wall_ns": 42667,
+              "checker_ns": 42667
+            },
+            "semantic": {
+              "peak": 1,
+              "wall_ns": 27594840,
+              "checker_ns": 27594840
+            },
+            "full": {
+              "peak": 1,
+              "wall_ns": 27594840,
+              "checker_ns": 27594840
+            },
+            "leased": null,
+            "observed": {
+              "peak": 1,
+              "wall_ns": 27637507,
+              "checker_ns": 27637507
+            }
+          },
+          "trace_sha256": "c2b720f7429c742f5231b063bb010eae9cc27915d32469832e34d464f80b3eed"
+        },
+        {
+          "child": {
+            "pid": 20057,
+            "started_at_unix_ns": 1791168795206554000,
+            "exit_code": 1,
+            "wall_seconds": 0.07068308303132653,
+            "user_seconds": 0.064135,
+            "system_seconds": 0.00451,
+            "peak_rss_bytes": 34144256
+          },
+          "activity": {
+            "constructing": {
+              "peak": 1,
+              "wall_ns": 51416,
+              "checker_ns": 51416
+            },
+            "semantic": {
+              "peak": 1,
+              "wall_ns": 28121883,
+              "checker_ns": 28121883
+            },
+            "full": {
+              "peak": 1,
+              "wall_ns": 28121883,
+              "checker_ns": 28121883
+            },
+            "leased": null,
+            "observed": {
+              "peak": 1,
+              "wall_ns": 28173299,
+              "checker_ns": 28173299
+            }
+          },
+          "trace_sha256": "94e610c70595e70ff4aaba82742ebdcee82c4f4e86886bd5e617898f3f22b8c7"
+        }
+      ],
+      "diagnostics_stdout_sha256": "61d18a2e490e390aec2d3503efef13ea280340fbdecd9271e30d53116870812e"
+    },
+    {
+      "name": "cycle-libs-native",
+      "instances": 4,
+      "idle_instances": 0,
+      "full_file_count": 86,
+      "preflight": {
+        "pid": 20070,
+        "started_at_unix_ns": 1791168795374689000,
+        "exit_code": 0,
+        "wall_seconds": 0.007136667030863464,
+        "user_seconds": 0.002882,
+        "system_seconds": 0.002343,
+        "peak_rss_bytes": 14532608
+      },
+      "off": {
+        "pid": 20071,
+        "started_at_unix_ns": 1791168795382236000,
+        "exit_code": 1,
+        "wall_seconds": 0.11543508403701708,
+        "user_seconds": 0.166408,
+        "system_seconds": 0.017273,
+        "peak_rss_bytes": 100810752
+      },
+      "original": {
+        "pid": 20077,
+        "started_at_unix_ns": 1791168795498174000,
+        "exit_code": 1,
+        "wall_seconds": 0.11685333296190947,
+        "user_seconds": 0.165134,
+        "system_seconds": 0.017699,
+        "peak_rss_bytes": 100401152
+      },
+      "samples": [
+        {
+          "child": {
+            "pid": 20084,
+            "started_at_unix_ns": 1791168795641633000,
+            "exit_code": 1,
+            "wall_seconds": 0.8702798330341466,
+            "user_seconds": 0.826819,
+            "system_seconds": 0.36486999999999997,
+            "peak_rss_bytes": 140230656
+          },
+          "activity": {
+            "constructing": {
+              "peak": 4,
+              "wall_ns": 458958,
+              "checker_ns": 1598333
+            },
+            "semantic": {
+              "peak": 4,
+              "wall_ns": 841070126,
+              "checker_ns": 1062204334
+            },
+            "full": {
+              "peak": 4,
+              "wall_ns": 841070126,
+              "checker_ns": 1062204334
+            },
+            "leased": {
+              "peak": 4,
+              "wall_ns": 841204874,
+              "checker_ns": 1063891917
+            },
+            "observed": {
+              "peak": 4,
+              "wall_ns": 841529084,
+              "checker_ns": 1063802667
+            }
+          },
+          "trace_sha256": "acd9afff869a8524633023f2aad92285f3211a4a56117bf06926b4fae81e35ab"
+        },
+        {
+          "child": {
+            "pid": 20188,
+            "started_at_unix_ns": 1791168798090347000,
+            "exit_code": 1,
+            "wall_seconds": 0.8072465829900466,
+            "user_seconds": 0.814395,
+            "system_seconds": 0.34739,
+            "peak_rss_bytes": 143212544
+          },
+          "activity": {
+            "constructing": {
+              "peak": 4,
+              "wall_ns": 427833,
+              "checker_ns": 1480333
+            },
+            "semantic": {
+              "peak": 4,
+              "wall_ns": 781761458,
+              "checker_ns": 986338087
+            },
+            "full": {
+              "peak": 4,
+              "wall_ns": 781761458,
+              "checker_ns": 986338087
+            },
+            "leased": {
+              "peak": 4,
+              "wall_ns": 781875294,
+              "checker_ns": 987350544
+            },
+            "observed": {
+              "peak": 4,
+              "wall_ns": 782189291,
+              "checker_ns": 987818420
+            }
+          },
+          "trace_sha256": "edd567b94a1e4feb9a9c334b4325d077c6d3ef8c2b65a954428ac48020a4b421"
+        }
+      ],
+      "diagnostics_stdout_sha256": "e54b61e63652cd4e2f13765a1b62c28c680c6fcc4e8f2bafc42ba193f7ded017"
+    },
+    {
+      "name": "cycle-skip-default-tsr",
+      "instances": 1,
+      "idle_instances": 0,
+      "full_file_count": 4,
+      "preflight": {
+        "pid": 20263,
+        "started_at_unix_ns": 1791168800395923000,
+        "exit_code": 0,
+        "wall_seconds": 0.004767458012793213,
+        "user_seconds": 0.000967,
+        "system_seconds": 0.001282,
+        "peak_rss_bytes": 2424832
+      },
+      "off": {
+        "pid": 20265,
+        "started_at_unix_ns": 1791168800401104000,
+        "exit_code": 1,
+        "wall_seconds": 0.035478291974868625,
+        "user_seconds": 0.028541,
+        "system_seconds": 0.005229999999999999,
+        "peak_rss_bytes": 39763968
+      },
+      "original": null,
+      "samples": [
+        {
+          "child": {
+            "pid": 20270,
+            "started_at_unix_ns": 1791168800449677000,
+            "exit_code": 1,
+            "wall_seconds": 0.03386625001439825,
+            "user_seconds": 0.02802,
+            "system_seconds": 0.004141,
+            "peak_rss_bytes": 33701888
+          },
+          "activity": {
+            "constructing": {
+              "peak": 1,
+              "wall_ns": 64750,
+              "checker_ns": 64750
+            },
+            "semantic": {
+              "peak": 1,
+              "wall_ns": 408834,
+              "checker_ns": 408834
+            },
+            "full": {
+              "peak": 1,
+              "wall_ns": 408834,
+              "checker_ns": 408834
+            },
+            "leased": null,
+            "observed": {
+              "peak": 1,
+              "wall_ns": 473584,
+              "checker_ns": 473584
+            }
+          },
+          "trace_sha256": "dc39cc3e51bca674d0d1b8657bdab865387453dd2572c3e9e6cddca0626b4771"
+        },
+        {
+          "child": {
+            "pid": 20273,
+            "started_at_unix_ns": 1791168800523019000,
+            "exit_code": 1,
+            "wall_seconds": 0.03515441599301994,
+            "user_seconds": 0.028354999999999998,
+            "system_seconds": 0.004856,
+            "peak_rss_bytes": 33734656
+          },
+          "activity": {
+            "constructing": {
+              "peak": 1,
+              "wall_ns": 77333,
+              "checker_ns": 77333
+            },
+            "semantic": {
+              "peak": 1,
+              "wall_ns": 432375,
+              "checker_ns": 432375
+            },
+            "full": {
+              "peak": 1,
+              "wall_ns": 432375,
+              "checker_ns": 432375
+            },
+            "leased": null,
+            "observed": {
+              "peak": 1,
+              "wall_ns": 509708,
+              "checker_ns": 509708
+            }
+          },
+          "trace_sha256": "a0d303aa2c2149e6fe557e05bb5e4fea1783619c2d53044a5b27ae0ed76d69e9"
+        }
+      ],
+      "diagnostics_stdout_sha256": "61d18a2e490e390aec2d3503efef13ea280340fbdecd9271e30d53116870812e"
+    },
+    {
+      "name": "cycle-skip-default-native",
+      "instances": 4,
+      "idle_instances": 1,
+      "full_file_count": 4,
+      "preflight": {
+        "pid": 20278,
+        "started_at_unix_ns": 1791168800590843000,
+        "exit_code": 0,
+        "wall_seconds": 0.0073492079973220825,
+        "user_seconds": 0.002993,
+        "system_seconds": 0.002611,
+        "peak_rss_bytes": 14598144
+      },
+      "off": {
+        "pid": 20280,
+        "started_at_unix_ns": 1791168800598559000,
+        "exit_code": 1,
+        "wall_seconds": 0.02351158403325826,
+        "user_seconds": 0.039132,
+        "system_seconds": 0.012799,
+        "peak_rss_bytes": 48660480
+      },
+      "original": {
+        "pid": 20281,
+        "started_at_unix_ns": 1791168800622676000,
+        "exit_code": 1,
+        "wall_seconds": 0.024627416976727545,
+        "user_seconds": 0.041199,
+        "system_seconds": 0.013562,
+        "peak_rss_bytes": 48578560
+      },
+      "samples": [
+        {
+          "child": {
+            "pid": 20282,
+            "started_at_unix_ns": 1791168800674198000,
+            "exit_code": 1,
+            "wall_seconds": 0.025693665957078338,
+            "user_seconds": 0.03882,
+            "system_seconds": 0.011748,
+            "peak_rss_bytes": 48578560
+          },
+          "activity": {
+            "constructing": {
+              "peak": 4,
+              "wall_ns": 548792,
+              "checker_ns": 1908709
+            },
+            "semantic": {
+              "peak": 3,
+              "wall_ns": 501125,
+              "checker_ns": 835167
+            },
+            "full": {
+              "peak": 3,
+              "wall_ns": 501125,
+              "checker_ns": 835167
+            },
+            "leased": {
+              "peak": 3,
+              "wall_ns": 577539,
+              "checker_ns": 952831
+            },
+            "observed": {
+              "peak": 4,
+              "wall_ns": 1049917,
+              "checker_ns": 2743876
+            }
+          },
+          "trace_sha256": "eeec48bc6f4b410acc27580875b24fb7ec8ff61979710ff8c773335b263f4b06"
+        },
+        {
+          "child": {
+            "pid": 20287,
+            "started_at_unix_ns": 1791168800800055000,
+            "exit_code": 1,
+            "wall_seconds": 0.024931500025559217,
+            "user_seconds": 0.041321,
+            "system_seconds": 0.013094999999999999,
+            "peak_rss_bytes": 49102848
+          },
+          "activity": {
+            "constructing": {
+              "peak": 4,
+              "wall_ns": 410958,
+              "checker_ns": 1425792
+            },
+            "semantic": {
+              "peak": 3,
+              "wall_ns": 464208,
+              "checker_ns": 790959
+            },
+            "full": {
+              "peak": 3,
+              "wall_ns": 464208,
+              "checker_ns": 790959
+            },
+            "leased": {
+              "peak": 3,
+              "wall_ns": 510418,
+              "checker_ns": 873251
+            },
+            "observed": {
+              "peak": 4,
+              "wall_ns": 875166,
+              "checker_ns": 2216751
+            }
+          },
+          "trace_sha256": "8ab5e8e679088f332e54f7f264ca17be1249893623c7bbf9064e8bab3f892517"
+        }
+      ],
+      "diagnostics_stdout_sha256": "e54b61e63652cd4e2f13765a1b62c28c680c6fcc4e8f2bafc42ba193f7ded017"
+    },
+    {
+      "name": "cycle-list-only-tsr",
+      "instances": 0,
+      "idle_instances": 0,
+      "full_file_count": 0,
+      "preflight": {
+        "pid": 20290,
+        "started_at_unix_ns": 1791168800905817000,
+        "exit_code": 0,
+        "wall_seconds": 0.003517833014484495,
+        "user_seconds": 0.0009069999999999999,
+        "system_seconds": 0.001034,
+        "peak_rss_bytes": 2260992
+      },
+      "off": {
+        "pid": 20291,
+        "started_at_unix_ns": 1791168800909696000,
+        "exit_code": 0,
+        "wall_seconds": 0.03174004203174263,
+        "user_seconds": 0.026274,
+        "system_seconds": 0.0039059999999999997,
+        "peak_rss_bytes": 35307520
+      },
+      "original": null,
+      "samples": [
+        {
+          "child": {
+            "pid": 20298,
+            "started_at_unix_ns": 1791168800953418000,
+            "exit_code": 0,
+            "wall_seconds": 0.031803624995518476,
+            "user_seconds": 0.026229,
+            "system_seconds": 0.003721,
+            "peak_rss_bytes": 35438592
+          },
+          "activity": {
+            "constructing": {
+              "peak": 0,
+              "wall_ns": 0,
+              "checker_ns": 0
+            },
+            "semantic": {
+              "peak": 0,
+              "wall_ns": 0,
+              "checker_ns": 0
+            },
+            "full": {
+              "peak": 0,
+              "wall_ns": 0,
+              "checker_ns": 0
+            },
+            "leased": null,
+            "observed": {
+              "peak": 0,
+              "wall_ns": 0,
+              "checker_ns": 0
+            }
+          },
+          "trace_sha256": "3fd55722f0381f0c3099df41a073ac6ea72709c419bb8ed29fcf710bca81677e"
+        },
+        {
+          "child": {
+            "pid": 20299,
+            "started_at_unix_ns": 1791168801026751000,
+            "exit_code": 0,
+            "wall_seconds": 0.03203266701893881,
+            "user_seconds": 0.025748,
+            "system_seconds": 0.004408,
+            "peak_rss_bytes": 29474816
+          },
+          "activity": {
+            "constructing": {
+              "peak": 0,
+              "wall_ns": 0,
+              "checker_ns": 0
+            },
+            "semantic": {
+              "peak": 0,
+              "wall_ns": 0,
+              "checker_ns": 0
+            },
+            "full": {
+              "peak": 0,
+              "wall_ns": 0,
+              "checker_ns": 0
+            },
+            "leased": null,
+            "observed": {
+              "peak": 0,
+              "wall_ns": 0,
+              "checker_ns": 0
+            }
+          },
+          "trace_sha256": "54500830d1d93e60c4aba9a05744d971333f05f879cb4c6d6a80923f1b3e9795"
+        }
+      ],
+      "diagnostics_stdout_sha256": "5e2b1e766d93be5275f3d28a0f410c6ee9b274b16167d98b3ea0d9738a056701"
+    },
+    {
+      "name": "cycle-list-only-native",
+      "instances": 0,
+      "idle_instances": 0,
+      "full_file_count": 0,
+      "preflight": {
+        "pid": 20302,
+        "started_at_unix_ns": 1791168801091545000,
+        "exit_code": 0,
+        "wall_seconds": 0.00842074997490272,
+        "user_seconds": 0.0030369999999999998,
+        "system_seconds": 0.0031709999999999998,
+        "peak_rss_bytes": 14516224
+      },
+      "off": {
+        "pid": 20304,
+        "started_at_unix_ns": 1791168801100281000,
+        "exit_code": 0,
+        "wall_seconds": 0.02198387501994148,
+        "user_seconds": 0.037954999999999996,
+        "system_seconds": 0.010100999999999999,
+        "peak_rss_bytes": 45989888
+      },
+      "original": {
+        "pid": 20306,
+        "started_at_unix_ns": 1791168801122706000,
+        "exit_code": 0,
+        "wall_seconds": 0.025653542019426823,
+        "user_seconds": 0.045873,
+        "system_seconds": 0.013297999999999999,
+        "peak_rss_bytes": 46120960
+      },
+      "samples": [
+        {
+          "child": {
+            "pid": 20309,
+            "started_at_unix_ns": 1791168801174459000,
+            "exit_code": 0,
+            "wall_seconds": 0.023690290981903672,
+            "user_seconds": 0.041765,
+            "system_seconds": 0.012366,
+            "peak_rss_bytes": 46284800
+          },
+          "activity": {
+            "constructing": {
+              "peak": 0,
+              "wall_ns": 0,
+              "checker_ns": 0
+            },
+            "semantic": {
+              "peak": 0,
+              "wall_ns": 0,
+              "checker_ns": 0
+            },
+            "full": {
+              "peak": 0,
+              "wall_ns": 0,
+              "checker_ns": 0
+            },
+            "leased": {
+              "peak": 0,
+              "wall_ns": 0,
+              "checker_ns": 0
+            },
+            "observed": {
+              "peak": 0,
+              "wall_ns": 0,
+              "checker_ns": 0
+            }
+          },
+          "trace_sha256": "dc633c500b0960548088bb55767cfc296a4705cfe6832ae26633211d59f90134"
+        },
+        {
+          "child": {
+            "pid": 20316,
+            "started_at_unix_ns": 1791168801294740000,
+            "exit_code": 0,
+            "wall_seconds": 0.024441624991595745,
+            "user_seconds": 0.038876,
+            "system_seconds": 0.012953,
+            "peak_rss_bytes": 46563328
+          },
+          "activity": {
+            "constructing": {
+              "peak": 0,
+              "wall_ns": 0,
+              "checker_ns": 0
+            },
+            "semantic": {
+              "peak": 0,
+              "wall_ns": 0,
+              "checker_ns": 0
+            },
+            "full": {
+              "peak": 0,
+              "wall_ns": 0,
+              "checker_ns": 0
+            },
+            "leased": {
+              "peak": 0,
+              "wall_ns": 0,
+              "checker_ns": 0
+            },
+            "observed": {
+              "peak": 0,
+              "wall_ns": 0,
+              "checker_ns": 0
+            }
+          },
+          "trace_sha256": "34f30fef99e8b50a6b3f162efb6723a8dbdcd1c200c71a6b51faf6c9d1bc7459"
+        }
+      ],
+      "diagnostics_stdout_sha256": "5f90c6e21af26b483e3ac566d167de6ad4e382a914d4dbf868289a176f267d25"
+    },
+    {
+      "name": "small-default-tsr",
+      "instances": 1,
+      "idle_instances": 0,
+      "full_file_count": 1,
+      "preflight": {
+        "pid": 20319,
+        "started_at_unix_ns": 1791168801396369000,
+        "exit_code": 0,
+        "wall_seconds": 0.003321583033539355,
+        "user_seconds": 0.000834,
+        "system_seconds": 0.001026,
+        "peak_rss_bytes": 2260992
+      },
+      "off": {
+        "pid": 20320,
+        "started_at_unix_ns": 1791168801400068000,
+        "exit_code": 1,
+        "wall_seconds": 0.003303916018921882,
+        "user_seconds": 0.000888,
+        "system_seconds": 0.001121,
+        "peak_rss_bytes": 3686400
+      },
+      "original": null,
+      "samples": [
+        {
+          "child": {
+            "pid": 20322,
+            "started_at_unix_ns": 1791168801414815000,
+            "exit_code": 1,
+            "wall_seconds": 0.003499166981782764,
+            "user_seconds": 0.000927,
+            "system_seconds": 0.00123,
+            "peak_rss_bytes": 3784704
+          },
+          "activity": {
+            "constructing": {
+              "peak": 1,
+              "wall_ns": 49750,
+              "checker_ns": 49750
+            },
+            "semantic": {
+              "peak": 1,
+              "wall_ns": 107625,
+              "checker_ns": 107625
+            },
+            "full": {
+              "peak": 1,
+              "wall_ns": 107625,
+              "checker_ns": 107625
+            },
+            "leased": null,
+            "observed": {
+              "peak": 1,
+              "wall_ns": 157375,
+              "checker_ns": 157375
+            }
+          },
+          "trace_sha256": "909d4b52e8a9292dcd320344530e4533aade2287136d09e33960d6a0a5a398d9"
+        },
+        {
+          "child": {
+            "pid": 20332,
+            "started_at_unix_ns": 1791168801527601000,
+            "exit_code": 1,
+            "wall_seconds": 0.0035462499945424497,
+            "user_seconds": 0.000967,
+            "system_seconds": 0.001163,
+            "peak_rss_bytes": 3784704
+          },
+          "activity": {
+            "constructing": {
+              "peak": 1,
+              "wall_ns": 30709,
+              "checker_ns": 30709
+            },
+            "semantic": {
+              "peak": 1,
+              "wall_ns": 89625,
+              "checker_ns": 89625
+            },
+            "full": {
+              "peak": 1,
+              "wall_ns": 89625,
+              "checker_ns": 89625
+            },
+            "leased": null,
+            "observed": {
+              "peak": 1,
+              "wall_ns": 120334,
+              "checker_ns": 120334
+            }
+          },
+          "trace_sha256": "518d17ec29dcb37072a51d37609380c4379713b5381468a06f1e402c2a385eaf"
+        }
+      ],
+      "diagnostics_stdout_sha256": "0d2c0ad27b2838ca1b787a3c898efc0bcf340bc283ba31101241a5a28d2762e9"
+    },
+    {
+      "name": "small-default-native",
+      "instances": 2,
+      "idle_instances": 1,
+      "full_file_count": 1,
+      "preflight": {
+        "pid": 20333,
+        "started_at_unix_ns": 1791168801561994000,
+        "exit_code": 0,
+        "wall_seconds": 0.007914834015537053,
+        "user_seconds": 0.003087,
+        "system_seconds": 0.0031899999999999997,
+        "peak_rss_bytes": 14745600
+      },
+      "off": {
+        "pid": 20334,
+        "started_at_unix_ns": 1791168801570332000,
+        "exit_code": 1,
+        "wall_seconds": 0.00787979201413691,
+        "user_seconds": 0.00313,
+        "system_seconds": 0.003841,
+        "peak_rss_bytes": 17874944
+      },
+      "original": {
+        "pid": 20335,
+        "started_at_unix_ns": 1791168801578639000,
+        "exit_code": 1,
+        "wall_seconds": 0.0074392499518580735,
+        "user_seconds": 0.003181,
+        "system_seconds": 0.0031249999999999997,
+        "peak_rss_bytes": 17285120
+      },
+      "samples": [
+        {
+          "child": {
+            "pid": 20336,
+            "started_at_unix_ns": 1791168801611810000,
+            "exit_code": 1,
+            "wall_seconds": 0.008608708973042667,
+            "user_seconds": 0.003535,
+            "system_seconds": 0.003694,
+            "peak_rss_bytes": 18022400
+          },
+          "activity": {
+            "constructing": {
+              "peak": 2,
+              "wall_ns": 125042,
+              "checker_ns": 218584
+            },
+            "semantic": {
+              "peak": 1,
+              "wall_ns": 170667,
+              "checker_ns": 170667
+            },
+            "full": {
+              "peak": 1,
+              "wall_ns": 170667,
+              "checker_ns": 170667
+            },
+            "leased": {
+              "peak": 2,
+              "wall_ns": 220875,
+              "checker_ns": 231750
+            },
+            "observed": {
+              "peak": 2,
+              "wall_ns": 295709,
+              "checker_ns": 389251
+            }
+          },
+          "trace_sha256": "45efb30bdfd56a64f5916a1d5460a4b07d8cd569c62acd5e370809f6ab25de4c"
+        },
+        {
+          "child": {
+            "pid": 20349,
+            "started_at_unix_ns": 1791168801867880000,
+            "exit_code": 1,
+            "wall_seconds": 0.008014999970328063,
+            "user_seconds": 0.003682,
+            "system_seconds": 0.003021,
+            "peak_rss_bytes": 17825792
+          },
+          "activity": {
+            "constructing": {
+              "peak": 2,
+              "wall_ns": 102167,
+              "checker_ns": 173542
+            },
+            "semantic": {
+              "peak": 1,
+              "wall_ns": 125292,
+              "checker_ns": 125292
+            },
+            "full": {
+              "peak": 1,
+              "wall_ns": 125292,
+              "checker_ns": 125292
+            },
+            "leased": {
+              "peak": 1,
+              "wall_ns": 164626,
+              "checker_ns": 164626
+            },
+            "observed": {
+              "peak": 2,
+              "wall_ns": 227459,
+              "checker_ns": 298834
+            }
+          },
+          "trace_sha256": "00069b7e5afac32e07a3eff99a7635f168614a4b91ff64cbeb453cd99588495b"
+        }
+      ],
+      "diagnostics_stdout_sha256": "97955a3f47ec789736baea77ed53ca72765863dab3a7515dadd1bd66b8c85fc0"
+    },
+    {
+      "name": "small-clamp-tsr",
+      "instances": 1,
+      "idle_instances": 0,
+      "full_file_count": 1,
+      "preflight": {
+        "pid": 20352,
+        "started_at_unix_ns": 1791168801949731000,
+        "exit_code": 0,
+        "wall_seconds": 0.003303375036921352,
+        "user_seconds": 0.000861,
+        "system_seconds": 0.0009599999999999999,
+        "peak_rss_bytes": 2260992
+      },
+      "off": {
+        "pid": 20354,
+        "started_at_unix_ns": 1791168801953587000,
+        "exit_code": 1,
+        "wall_seconds": 0.003058207978028804,
+        "user_seconds": 0.0009209999999999999,
+        "system_seconds": 0.001058,
+        "peak_rss_bytes": 3686400
+      },
+      "original": null,
+      "samples": [
+        {
+          "child": {
+            "pid": 20355,
+            "started_at_unix_ns": 1791168801969499000,
+            "exit_code": 1,
+            "wall_seconds": 0.0035145829897373915,
+            "user_seconds": 0.0009559999999999999,
+            "system_seconds": 0.001189,
+            "peak_rss_bytes": 3784704
+          },
+          "activity": {
+            "constructing": {
+              "peak": 1,
+              "wall_ns": 32917,
+              "checker_ns": 32917
+            },
+            "semantic": {
+              "peak": 1,
+              "wall_ns": 85792,
+              "checker_ns": 85792
+            },
+            "full": {
+              "peak": 1,
+              "wall_ns": 85792,
+              "checker_ns": 85792
+            },
+            "leased": null,
+            "observed": {
+              "peak": 1,
+              "wall_ns": 118709,
+              "checker_ns": 118709
+            }
+          },
+          "trace_sha256": "71934ca89166a8ba152e2adca744b611ee43c8c4371622da28ab2746f097f373"
+        },
+        {
+          "child": {
+            "pid": 20359,
+            "started_at_unix_ns": 1791168802011740000,
+            "exit_code": 1,
+            "wall_seconds": 0.00336141703883186,
+            "user_seconds": 0.000905,
+            "system_seconds": 0.0011099999999999999,
+            "peak_rss_bytes": 3784704
+          },
+          "activity": {
+            "constructing": {
+              "peak": 1,
+              "wall_ns": 26667,
+              "checker_ns": 26667
+            },
+            "semantic": {
+              "peak": 1,
+              "wall_ns": 77958,
+              "checker_ns": 77958
+            },
+            "full": {
+              "peak": 1,
+              "wall_ns": 77958,
+              "checker_ns": 77958
+            },
+            "leased": null,
+            "observed": {
+              "peak": 1,
+              "wall_ns": 104625,
+              "checker_ns": 104625
+            }
+          },
+          "trace_sha256": "3eba8951a46093da1739c0da3998e611f91901cbecfeede85f8383eff47ad698"
+        }
+      ],
+      "diagnostics_stdout_sha256": "0d2c0ad27b2838ca1b787a3c898efc0bcf340bc283ba31101241a5a28d2762e9"
+    },
+    {
+      "name": "small-clamp-native",
+      "instances": 2,
+      "idle_instances": 1,
+      "full_file_count": 1,
+      "preflight": {
+        "pid": 20360,
+        "started_at_unix_ns": 1791168802044935000,
+        "exit_code": 0,
+        "wall_seconds": 0.0068058339529670775,
+        "user_seconds": 0.002914,
+        "system_seconds": 0.002323,
+        "peak_rss_bytes": 14745600
+      },
+      "off": {
+        "pid": 20363,
+        "started_at_unix_ns": 1791168802052081000,
+        "exit_code": 1,
+        "wall_seconds": 0.006687125016469508,
+        "user_seconds": 0.0030559999999999997,
+        "system_seconds": 0.002636,
+        "peak_rss_bytes": 17448960
+      },
+      "original": {
+        "pid": 20366,
+        "started_at_unix_ns": 1791168802059184000,
+        "exit_code": 1,
+        "wall_seconds": 0.007001749996561557,
+        "user_seconds": 0.003147,
+        "system_seconds": 0.002803,
+        "peak_rss_bytes": 17514496
+      },
+      "samples": [
+        {
+          "child": {
+            "pid": 20369,
+            "started_at_unix_ns": 1791168802091481000,
+            "exit_code": 1,
+            "wall_seconds": 0.007561790989711881,
+            "user_seconds": 0.00341,
+            "system_seconds": 0.002959,
+            "peak_rss_bytes": 17842176
+          },
+          "activity": {
+            "constructing": {
+              "peak": 2,
+              "wall_ns": 103958,
+              "checker_ns": 176458
+            },
+            "semantic": {
+              "peak": 1,
+              "wall_ns": 131666,
+              "checker_ns": 131666
+            },
+            "full": {
+              "peak": 1,
+              "wall_ns": 131666,
+              "checker_ns": 131666
+            },
+            "leased": {
+              "peak": 1,
+              "wall_ns": 180084,
+              "checker_ns": 180084
+            },
+            "observed": {
+              "peak": 2,
+              "wall_ns": 235624,
+              "checker_ns": 308124
+            }
+          },
+          "trace_sha256": "e8a8bbf08a09aa81a485a563d2003ac7e5af776472b82dc04672f2d61ab4aea8"
+        },
+        {
+          "child": {
+            "pid": 20372,
+            "started_at_unix_ns": 1791168802194240000,
+            "exit_code": 1,
+            "wall_seconds": 0.007744250004179776,
+            "user_seconds": 0.003423,
+            "system_seconds": 0.003022,
+            "peak_rss_bytes": 17842176
+          },
+          "activity": {
+            "constructing": {
+              "peak": 2,
+              "wall_ns": 103750,
+              "checker_ns": 177833
+            },
+            "semantic": {
+              "peak": 1,
+              "wall_ns": 125791,
+              "checker_ns": 125791
+            },
+            "full": {
+              "peak": 1,
+              "wall_ns": 125791,
+              "checker_ns": 125791
+            },
+            "leased": {
+              "peak": 1,
+              "wall_ns": 169750,
+              "checker_ns": 169750
+            },
+            "observed": {
+              "peak": 2,
+              "wall_ns": 229541,
+              "checker_ns": 303624
+            }
+          },
+          "trace_sha256": "f3f348fd0d24719508e6f19e4e7be52eabcec731546e5bbe705204fcb7186c5d"
+        }
+      ],
+      "diagnostics_stdout_sha256": "97955a3f47ec789736baea77ed53ca72765863dab3a7515dadd1bd66b8c85fc0"
+    },
+    {
+      "name": "skewed-default-tsr",
+      "instances": 1,
+      "idle_instances": 0,
+      "full_file_count": 21,
+      "preflight": {
+        "pid": 20378,
+        "started_at_unix_ns": 1791168802275988000,
+        "exit_code": 0,
+        "wall_seconds": 0.003076624998357147,
+        "user_seconds": 0.00089,
+        "system_seconds": 0.00086,
+        "peak_rss_bytes": 2293760
+      },
+      "off": {
+        "pid": 20379,
+        "started_at_unix_ns": 1791168802279412000,
+        "exit_code": 1,
+        "wall_seconds": 0.006512375024612993,
+        "user_seconds": 0.004043,
+        "system_seconds": 0.001397,
+        "peak_rss_bytes": 6455296
+      },
+      "original": null,
+      "samples": [
+        {
+          "child": {
+            "pid": 20380,
+            "started_at_unix_ns": 1791168802299061000,
+            "exit_code": 1,
+            "wall_seconds": 0.007290000037755817,
+            "user_seconds": 0.004323,
+            "system_seconds": 0.001537,
+            "peak_rss_bytes": 6553600
+          },
+          "activity": {
+            "constructing": {
+              "peak": 1,
+              "wall_ns": 32167,
+              "checker_ns": 32167
+            },
+            "semantic": {
+              "peak": 1,
+              "wall_ns": 2120582,
+              "checker_ns": 2120582
+            },
+            "full": {
+              "peak": 1,
+              "wall_ns": 2120582,
+              "checker_ns": 2120582
+            },
+            "leased": null,
+            "observed": {
+              "peak": 1,
+              "wall_ns": 2152749,
+              "checker_ns": 2152749
+            }
+          },
+          "trace_sha256": "aa109422bd93e96d3f48c69a2096fca5b52c1dfdfd5a41dfa552ba7bcf523a84"
+        },
+        {
+          "child": {
+            "pid": 20387,
+            "started_at_unix_ns": 1791168802346497000,
+            "exit_code": 1,
+            "wall_seconds": 0.007279790996108204,
+            "user_seconds": 0.004213,
+            "system_seconds": 0.001598,
+            "peak_rss_bytes": 6553600
+          },
+          "activity": {
+            "constructing": {
+              "peak": 1,
+              "wall_ns": 28625,
+              "checker_ns": 28625
+            },
+            "semantic": {
+              "peak": 1,
+              "wall_ns": 2059504,
+              "checker_ns": 2059504
+            },
+            "full": {
+              "peak": 1,
+              "wall_ns": 2059504,
+              "checker_ns": 2059504
+            },
+            "leased": null,
+            "observed": {
+              "peak": 1,
+              "wall_ns": 2088129,
+              "checker_ns": 2088129
+            }
+          },
+          "trace_sha256": "2ec5139cec466f12c6c49d03484eef2d3de965319b2252d31a36148c009fc4d1"
+        }
+      ],
+      "diagnostics_stdout_sha256": "02de61948344bb9ecd4ce04cf4c94f56449fa3bbc5623ebcbc4f71918b4ce662"
+    },
+    {
+      "name": "skewed-default-native",
+      "instances": 4,
+      "idle_instances": 0,
+      "full_file_count": 21,
+      "preflight": {
+        "pid": 20388,
+        "started_at_unix_ns": 1791168802387604000,
+        "exit_code": 0,
+        "wall_seconds": 0.00794149999273941,
+        "user_seconds": 0.003162,
+        "system_seconds": 0.003153,
+        "peak_rss_bytes": 14778368
+      },
+      "off": {
+        "pid": 20389,
+        "started_at_unix_ns": 1791168802395941000,
+        "exit_code": 1,
+        "wall_seconds": 0.012814083020202816,
+        "user_seconds": 0.012494,
+        "system_seconds": 0.006356,
+        "peak_rss_bytes": 27525120
+      },
+      "original": {
+        "pid": 20390,
+        "started_at_unix_ns": 1791168802409244000,
+        "exit_code": 1,
+        "wall_seconds": 0.012813083012588322,
+        "user_seconds": 0.012921,
+        "system_seconds": 0.006425999999999999,
+        "peak_rss_bytes": 27574272
+      },
+      "samples": [
+        {
+          "child": {
+            "pid": 20392,
+            "started_at_unix_ns": 1791168802448828000,
+            "exit_code": 1,
+            "wall_seconds": 0.0393567499704659,
+            "user_seconds": 0.031959999999999995,
+            "system_seconds": 0.019579,
+            "peak_rss_bytes": 32997376
+          },
+          "activity": {
+            "constructing": {
+              "peak": 4,
+              "wall_ns": 135292,
+              "checker_ns": 327750
+            },
+            "semantic": {
+              "peak": 4,
+              "wall_ns": 28365540,
+              "checker_ns": 28891745
+            },
+            "full": {
+              "peak": 4,
+              "wall_ns": 28365540,
+              "checker_ns": 28891745
+            },
+            "leased": {
+              "peak": 4,
+              "wall_ns": 28459668,
+              "checker_ns": 29292918
+            },
+            "observed": {
+              "peak": 4,
+              "wall_ns": 28500832,
+              "checker_ns": 29219495
+            }
+          },
+          "trace_sha256": "29b9891e990a96679a85b6e9a0e3c4803b756413381f5b2cd67e86c2bdf75545"
+        },
+        {
+          "child": {
+            "pid": 20404,
+            "started_at_unix_ns": 1791168802634082000,
+            "exit_code": 1,
+            "wall_seconds": 0.03897399996640161,
+            "user_seconds": 0.032556999999999996,
+            "system_seconds": 0.019438999999999998,
+            "peak_rss_bytes": 31866880
+          },
+          "activity": {
+            "constructing": {
+              "peak": 4,
+              "wall_ns": 392500,
+              "checker_ns": 1064833
+            },
+            "semantic": {
+              "peak": 4,
+              "wall_ns": 27451083,
+              "checker_ns": 28263958
+            },
+            "full": {
+              "peak": 4,
+              "wall_ns": 27451083,
+              "checker_ns": 28263958
+            },
+            "leased": {
+              "peak": 4,
+              "wall_ns": 27509792,
+              "checker_ns": 28483583
+            },
+            "observed": {
+              "peak": 4,
+              "wall_ns": 27843583,
+              "checker_ns": 29328791
+            }
+          },
+          "trace_sha256": "38ff0d0ce2168c0a0f9d72b5533e48930e9b8bec6c286a840160cd0db2decd8c"
+        }
+      ],
+      "diagnostics_stdout_sha256": "e0a3695f06843ce1873328a957bf6aa110931c598f1800c20eb316144cd1b277"
+    },
+    {
+      "name": "skewed-two-tsr",
+      "instances": 1,
+      "idle_instances": 0,
+      "full_file_count": 21,
+      "preflight": {
+        "pid": 20409,
+        "started_at_unix_ns": 1791168802796474000,
+        "exit_code": 0,
+        "wall_seconds": 0.003332249994855374,
+        "user_seconds": 0.0009069999999999999,
+        "system_seconds": 0.000972,
+        "peak_rss_bytes": 2293760
+      },
+      "off": {
+        "pid": 20410,
+        "started_at_unix_ns": 1791168802800176000,
+        "exit_code": 1,
+        "wall_seconds": 0.006752500019501895,
+        "user_seconds": 0.0039369999999999995,
+        "system_seconds": 0.001519,
+        "peak_rss_bytes": 6455296
+      },
+      "original": null,
+      "samples": [
+        {
+          "child": {
+            "pid": 20413,
+            "started_at_unix_ns": 1791168802820249000,
+            "exit_code": 1,
+            "wall_seconds": 0.006864959024824202,
+            "user_seconds": 0.0039169999999999995,
+            "system_seconds": 0.001568,
+            "peak_rss_bytes": 6553600
+          },
+          "activity": {
+            "constructing": {
+              "peak": 1,
+              "wall_ns": 24959,
+              "checker_ns": 24959
+            },
+            "semantic": {
+              "peak": 1,
+              "wall_ns": 1883252,
+              "checker_ns": 1883252
+            },
+            "full": {
+              "peak": 1,
+              "wall_ns": 1883252,
+              "checker_ns": 1883252
+            },
+            "leased": null,
+            "observed": {
+              "peak": 1,
+              "wall_ns": 1908211,
+              "checker_ns": 1908211
+            }
+          },
+          "trace_sha256": "2f0b261c61ba27531eded0dca45fe12de952a2474c5fe9095cd74c20843f5758"
+        },
+        {
+          "child": {
+            "pid": 20419,
+            "started_at_unix_ns": 1791168802869835000,
+            "exit_code": 1,
+            "wall_seconds": 0.007118334004189819,
+            "user_seconds": 0.0040939999999999995,
+            "system_seconds": 0.001485,
+            "peak_rss_bytes": 6553600
+          },
+          "activity": {
+            "constructing": {
+              "peak": 1,
+              "wall_ns": 34833,
+              "checker_ns": 34833
+            },
+            "semantic": {
+              "peak": 1,
+              "wall_ns": 1970337,
+              "checker_ns": 1970337
+            },
+            "full": {
+              "peak": 1,
+              "wall_ns": 1970337,
+              "checker_ns": 1970337
+            },
+            "leased": null,
+            "observed": {
+              "peak": 1,
+              "wall_ns": 2005170,
+              "checker_ns": 2005170
+            }
+          },
+          "trace_sha256": "d042145a767e0a2c5219ef358afb460170cf6c9b430e2a132c7f4081025e9208"
+        }
+      ],
+      "diagnostics_stdout_sha256": "02de61948344bb9ecd4ce04cf4c94f56449fa3bbc5623ebcbc4f71918b4ce662"
+    },
+    {
+      "name": "skewed-two-native",
+      "instances": 2,
+      "idle_instances": 0,
+      "full_file_count": 21,
+      "preflight": {
+        "pid": 20421,
+        "started_at_unix_ns": 1791168802908957000,
+        "exit_code": 0,
+        "wall_seconds": 0.007358541013672948,
+        "user_seconds": 0.003136,
+        "system_seconds": 0.002582,
+        "peak_rss_bytes": 14581760
+      },
+      "off": {
+        "pid": 20422,
+        "started_at_unix_ns": 1791168802916676000,
+        "exit_code": 1,
+        "wall_seconds": 0.012662374996580184,
+        "user_seconds": 0.013406999999999999,
+        "system_seconds": 0.006213,
+        "peak_rss_bytes": 28033024
+      },
+      "original": {
+        "pid": 20423,
+        "started_at_unix_ns": 1791168802929754000,
+        "exit_code": 1,
+        "wall_seconds": 0.01310416602063924,
+        "user_seconds": 0.012589,
+        "system_seconds": 0.005781,
+        "peak_rss_bytes": 27000832
+      },
+      "samples": [
+        {
+          "child": {
+            "pid": 20424,
+            "started_at_unix_ns": 1791168802969198000,
+            "exit_code": 1,
+            "wall_seconds": 0.03828645800240338,
+            "user_seconds": 0.031807999999999996,
+            "system_seconds": 0.018323,
+            "peak_rss_bytes": 32456704
+          },
+          "activity": {
+            "constructing": {
+              "peak": 2,
+              "wall_ns": 110500,
+              "checker_ns": 184792
+            },
+            "semantic": {
+              "peak": 2,
+              "wall_ns": 27382416,
+              "checker_ns": 27609124
+            },
+            "full": {
+              "peak": 2,
+              "wall_ns": 27382416,
+              "checker_ns": 27609124
+            },
+            "leased": {
+              "peak": 2,
+              "wall_ns": 27498333,
+              "checker_ns": 27858458
+            },
+            "observed": {
+              "peak": 2,
+              "wall_ns": 27492916,
+              "checker_ns": 27793916
+            }
+          },
+          "trace_sha256": "b3a70540f1bc0e40a72c5a6a11d6c653eb80c731885e46f5f02b161ddc75a170"
+        },
+        {
+          "child": {
+            "pid": 20437,
+            "started_at_unix_ns": 1791168803152455000,
+            "exit_code": 1,
+            "wall_seconds": 0.03843025001697242,
+            "user_seconds": 0.0318,
+            "system_seconds": 0.018098,
+            "peak_rss_bytes": 32391168
+          },
+          "activity": {
+            "constructing": {
+              "peak": 2,
+              "wall_ns": 107916,
+              "checker_ns": 181333
+            },
+            "semantic": {
+              "peak": 2,
+              "wall_ns": 27213834,
+              "checker_ns": 27514752
+            },
+            "full": {
+              "peak": 2,
+              "wall_ns": 27213834,
+              "checker_ns": 27514752
+            },
+            "leased": {
+              "peak": 2,
+              "wall_ns": 27265624,
+              "checker_ns": 27775040
+            },
+            "observed": {
+              "peak": 2,
+              "wall_ns": 27321750,
+              "checker_ns": 27696085
+            }
+          },
+          "trace_sha256": "bea98ea36bb19adb0a326fbde5f500e5d385df983602d422e3192f8683fde1da"
+        }
+      ],
+      "diagnostics_stdout_sha256": "e0a3695f06843ce1873328a957bf6aa110931c598f1800c20eb316144cd1b277"
+    },
+    {
+      "name": "cap-upper-clamp-tsr",
+      "instances": 1,
+      "idle_instances": 0,
+      "full_file_count": 261,
+      "preflight": {
+        "pid": 20441,
+        "started_at_unix_ns": 1791168803312322000,
+        "exit_code": 0,
+        "wall_seconds": 0.003818458004388958,
+        "user_seconds": 0.001493,
+        "system_seconds": 0.000896,
+        "peak_rss_bytes": 2572288
+      },
+      "off": {
+        "pid": 20442,
+        "started_at_unix_ns": 1791168803316568000,
+        "exit_code": 1,
+        "wall_seconds": 0.01200079103000462,
+        "user_seconds": 0.0052239999999999995,
+        "system_seconds": 0.0053029999999999996,
+        "peak_rss_bytes": 7094272
+      },
+      "original": null,
+      "samples": [
+        {
+          "child": {
+            "pid": 20444,
+            "started_at_unix_ns": 1791168803351573000,
+            "exit_code": 1,
+            "wall_seconds": 0.013536208018194884,
+            "user_seconds": 0.006581999999999999,
+            "system_seconds": 0.005418,
+            "peak_rss_bytes": 7225344
+          },
+          "activity": {
+            "constructing": {
+              "peak": 1,
+              "wall_ns": 63875,
+              "checker_ns": 63875
+            },
+            "semantic": {
+              "peak": 1,
+              "wall_ns": 2309256,
+              "checker_ns": 2309256
+            },
+            "full": {
+              "peak": 1,
+              "wall_ns": 2309256,
+              "checker_ns": 2309256
+            },
+            "leased": null,
+            "observed": {
+              "peak": 1,
+              "wall_ns": 2373131,
+              "checker_ns": 2373131
+            }
+          },
+          "trace_sha256": "24ff5c9b2491712d6a3a8ec982685554bc181d98d6f3021e6cf776159431dca1"
+        },
+        {
+          "child": {
+            "pid": 20453,
+            "started_at_unix_ns": 1791168803441698000,
+            "exit_code": 1,
+            "wall_seconds": 0.011854125012177974,
+            "user_seconds": 0.006579,
+            "system_seconds": 0.003708,
+            "peak_rss_bytes": 7225344
+          },
+          "activity": {
+            "constructing": {
+              "peak": 1,
+              "wall_ns": 38292,
+              "checker_ns": 38292
+            },
+            "semantic": {
+              "peak": 1,
+              "wall_ns": 2220254,
+              "checker_ns": 2220254
+            },
+            "full": {
+              "peak": 1,
+              "wall_ns": 2220254,
+              "checker_ns": 2220254
+            },
+            "leased": null,
+            "observed": {
+              "peak": 1,
+              "wall_ns": 2258546,
+              "checker_ns": 2258546
+            }
+          },
+          "trace_sha256": "4b08189ba308331893bd9c48b4a679189c7c58c79aa3dc48237378cd8b1f4c30"
+        }
+      ],
+      "diagnostics_stdout_sha256": "b28de8ea5ad38ac909ee0a0845d0f7031a04836bc42beaa1589b3b2e906175b6"
+    },
+    {
+      "name": "cap-upper-clamp-native",
+      "instances": 256,
+      "idle_instances": 0,
+      "full_file_count": 261,
+      "preflight": {
+        "pid": 20454,
+        "started_at_unix_ns": 1791168803513221000,
+        "exit_code": 0,
+        "wall_seconds": 0.007544375024735928,
+        "user_seconds": 0.003096,
+        "system_seconds": 0.002692,
+        "peak_rss_bytes": 15073280
+      },
+      "off": {
+        "pid": 20455,
+        "started_at_unix_ns": 1791168803521210000,
+        "exit_code": 1,
+        "wall_seconds": 0.020887291990220547,
+        "user_seconds": 0.048341999999999996,
+        "system_seconds": 0.029599999999999998,
+        "peak_rss_bytes": 47431680
+      },
+      "original": {
+        "pid": 20457,
+        "started_at_unix_ns": 1791168803542611000,
+        "exit_code": 1,
+        "wall_seconds": 0.01905908394837752,
+        "user_seconds": 0.044545999999999995,
+        "system_seconds": 0.026796999999999998,
+        "peak_rss_bytes": 50266112
+      },
+      "samples": [
+        {
+          "child": {
+            "pid": 20460,
+            "started_at_unix_ns": 1791168803601289000,
+            "exit_code": 1,
+            "wall_seconds": 0.09176391694927588,
+            "user_seconds": 0.14868699999999999,
+            "system_seconds": 0.056874999999999995,
+            "peak_rss_bytes": 59047936
+          },
+          "activity": {
+            "constructing": {
+              "peak": 223,
+              "wall_ns": 7397542,
+              "checker_ns": 825346670
+            },
+            "semantic": {
+              "peak": 240,
+              "wall_ns": 61713834,
+              "checker_ns": 5435621418
+            },
+            "full": {
+              "peak": 240,
+              "wall_ns": 61713834,
+              "checker_ns": 5435621418
+            },
+            "leased": {
+              "peak": 250,
+              "wall_ns": 67039958,
+              "checker_ns": 7446382560
+            },
+            "observed": {
+              "peak": 240,
+              "wall_ns": 69111376,
+              "checker_ns": 6260968088
+            }
+          },
+          "trace_sha256": "88adf0fc097beb98f1c63258ac195928ed2c5400fb869c37f167d4c115acaabc"
+        },
+        {
+          "child": {
+            "pid": 20476,
+            "started_at_unix_ns": 1791168803898395000,
+            "exit_code": 1,
+            "wall_seconds": 0.09037525003077462,
+            "user_seconds": 0.14841,
+            "system_seconds": 0.055425999999999996,
+            "peak_rss_bytes": 60899328
+          },
+          "activity": {
+            "constructing": {
+              "peak": 236,
+              "wall_ns": 7963875,
+              "checker_ns": 956172833
+            },
+            "semantic": {
+              "peak": 237,
+              "wall_ns": 60509917,
+              "checker_ns": 5244767210
+            },
+            "full": {
+              "peak": 237,
+              "wall_ns": 60509917,
+              "checker_ns": 5244767210
+            },
+            "leased": {
+              "peak": 247,
+              "wall_ns": 65355459,
+              "checker_ns": 7083557349
+            },
+            "observed": {
+              "peak": 237,
+              "wall_ns": 68473792,
+              "checker_ns": 6200940043
+            }
+          },
+          "trace_sha256": "420f161128a50a05569f0b289a14a78d66b3cbf2140d6df186eb571ecde9d0b6"
+        }
+      ],
+      "diagnostics_stdout_sha256": "bb4752a91c5219f958afccbe744f6de1b59b79aa2445e99e62c4a27c714ad0a6"
+    }
+  ],
+  "failures": [
+    {
+      "producer": "tsr",
+      "case": "stale",
+      "child": {
+        "pid": 20487,
+        "started_at_unix_ns": 1791168804171462000,
+        "exit_code": 1,
+        "wall_seconds": 0.0037507499800994992,
+        "user_seconds": 0.0009379999999999999,
+        "system_seconds": 0.0011799999999999998,
+        "peak_rss_bytes": 3686400
+      },
+      "open_full_spans_at_stop": 0,
+      "reasons": [
+        "ValueError: producer reported trace failure"
+      ]
+    },
+    {
+      "producer": "tsr",
+      "case": "missing-parent",
+      "child": {
+        "pid": 20488,
+        "started_at_unix_ns": 1791168804191405000,
+        "exit_code": 1,
+        "wall_seconds": 0.0037244579871185124,
+        "user_seconds": 0.0009809999999999999,
+        "system_seconds": 0.001308,
+        "peak_rss_bytes": 3686400
+      },
+      "open_full_spans_at_stop": 0,
+      "reasons": [
+        "ValueError: producer reported trace failure"
+      ]
+    },
+    {
+      "producer": "tsr",
+      "case": "observed-prefix-SIGKILL",
+      "child": {
+        "pid": 20491,
+        "started_at_unix_ns": 1791168804207521000,
+        "exit_code": -9,
+        "wall_seconds": 0.040671082970220596,
+        "user_seconds": 0.027822999999999997,
+        "system_seconds": 0.007405999999999999,
+        "peak_rss_bytes": 66142208
+      },
+      "open_full_spans_at_stop": 1,
+      "reasons": [
+        "ValueError: child failed or was signaled"
+      ]
+    },
+    {
+      "producer": "native",
+      "case": "stale",
+      "child": {
+        "pid": 20499,
+        "started_at_unix_ns": 1791168804276188000,
+        "exit_code": 1,
+        "wall_seconds": 0.0078121249680407345,
+        "user_seconds": 0.0031999999999999997,
+        "system_seconds": 0.0031669999999999997,
+        "peak_rss_bytes": 17661952
+      },
+      "open_full_spans_at_stop": 0,
+      "reasons": [
+        "ValueError: producer reported trace failure"
+      ]
+    },
+    {
+      "producer": "native",
+      "case": "missing-parent",
+      "child": {
+        "pid": 20504,
+        "started_at_unix_ns": 1791168804328770000,
+        "exit_code": 1,
+        "wall_seconds": 0.007700374990236014,
+        "user_seconds": 0.003205,
+        "system_seconds": 0.003041,
+        "peak_rss_bytes": 17465344
+      },
+      "open_full_spans_at_stop": 0,
+      "reasons": [
+        "ValueError: producer reported trace failure"
+      ]
+    },
+    {
+      "producer": "native",
+      "case": "observed-prefix-SIGKILL",
+      "child": {
+        "pid": 20507,
+        "started_at_unix_ns": 1791168804374864000,
+        "exit_code": -9,
+        "wall_seconds": 0.05078991601476446,
+        "user_seconds": 0.068664,
+        "system_seconds": 0.009965,
+        "peak_rss_bytes": 74891264
+      },
+      "open_full_spans_at_stop": 1,
+      "reasons": [
+        "ValueError: child failed or was signaled"
+      ]
+    }
+  ],
+  "captured_unique_child_pids": 141,
+  "limitations": [
+    "Trusted supervisor receipt authenticity and binary build provenance remain outside the reader.",
+    "Buffered TSR prefix cannot establish the exact physical checking state at signal delivery.",
+    "Covered intervals include observer/scheduling cost and exclude unobserved initialization/lazy paths.",
+    "Native eligibility and complete cross-tool input/work equivalence remain unqualified.",
+    "No memory admission or throughput acceptance follows from counts or public fixture agreement."
+  ],
+  "source_files_sha256": {
+    "tsr": {
+      "crates/tsr-execute/src/work_trace.rs": "a14c823981348e151ff88fd3c5ac70bb4bc6255fdb26566474eb44cece87bd7c",
+      "crates/tsr-execute/src/compile.rs": "cbcfa105513500d665d6e7bcb14a7c70e2ca4e70c39e4dddc05386e3c84c370f",
+      "crates/tsr-execute/src/os_system.rs": "0ffa1a0ed0a9370ddcec54ab7249cef21d6228a2e126432212068241804aadd5",
+      "crates/tsr-checker/src/work_trace.rs": "94347e61c889c7050c230aca460eedbbc4771669ff8e9b5a37e8e2b80b81ac41",
+      "docs/architecture/worker-lifecycle-controls.py": "e8c3ddf9bd7564256e653623339d1f57472aba1999740af46ae5b2356ad14335",
+      "scripts/checker_work_trace.py": "b5102e3f852be3e87241e9bc03918c6b4dd7029417582384676e8a5bff7b7d8a",
+      "scripts/benchmark_inputs.py": "e7f00da2f543c052acae782619c685acb559eba7005f4de52483ca4244596aa2",
+      "scripts/whole_project_perf.py": "e9baf9a8cb32a9bd33b05c072511572ffafa62204d3b8a5a44e9cc663d38ee48",
+      "docs/architecture/native-worker-activity.patch": "0e614ad0b9c2beed464298538f1d9ed9f371ca50e93f2dec8e238f1fefe851b9"
+    },
+    "native": {
+      "cmd/tsgo/main.go": "afec1471e18a1c00857a64450a3829e4d3e59d9258e72cf670c9f493db3af304",
+      "internal/compiler/checkerpool.go": "23b6f1c4d4fd1f1189f30d0095908be7c5b18cb5ebf79ae5265f282624b88336",
+      "internal/checker/checker.go": "c52f0ebf80e3e722a3cc8aad08324b42f60c462a0e53889edc8b5d1f7eed9c12",
+      "internal/workactivity/activity.go": "c63da0e87820d4eae11d0570901c03551ca08e869176dd10674fbdd645d3783b",
+      "internal/workactivity/activity_test.go": "4ff0c68de6676d82458f0ac4b07a811a666015f39d5f3f19193b05d1d294ff31",
+      "internal/compiler/worker_activity_test.go": "48185f2eb129d4c759a2e8938b6196ac770160e0c832d64ac1accb5dd6e2e5f5",
+      "docs/architecture/worker-lifecycle-controls.py": "e8c3ddf9bd7564256e653623339d1f57472aba1999740af46ae5b2356ad14335",
+      "scripts/checker_work_trace.py": "b5102e3f852be3e87241e9bc03918c6b4dd7029417582384676e8a5bff7b7d8a",
+      "scripts/benchmark_inputs.py": "e7f00da2f543c052acae782619c685acb559eba7005f4de52483ca4244596aa2",
+      "scripts/whole_project_perf.py": "e9baf9a8cb32a9bd33b05c072511572ffafa62204d3b8a5a44e9cc663d38ee48",
+      "docs/architecture/native-worker-activity.patch": "0e614ad0b9c2beed464298538f1d9ed9f371ca50e93f2dec8e238f1fefe851b9"
+    }
+  },
+  "verification": {
+    "reader_tests": 21,
+    "all_script_tests": 66,
+    "isolated_tsr_probe_build": "release work-trace, jobs1, terminal0",
+    "production_rust_changes": false,
+    "canonical_vendor_changes": false
+  }
+}

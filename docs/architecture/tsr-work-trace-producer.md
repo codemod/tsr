@@ -51,10 +51,11 @@ unwinding work outcomes retain their meanings.
 
 These intervals include observer bookkeeping/I/O and exclude unobserved work;
 they do not measure CPU utilization, native admission, all initialization
-forcing or a safe memory bound. The bounded artifact reader ignores these
-additive fields and cannot qualify worker activity by accepting the stream.
-Native producer and independent cross-tool qualification remain
-`tsr-1yb.1.2.3.2.1` and `tsr-1yb.1.2.3.2.3`; private-store admission remains
+forcing or a safe memory bound. The ordinary artifact reader ignores these
+additive fields; the explicit worker seam now independently validates both
+[bounded lifecycle schemas](worker-lifecycle-qualification.md). Native producer
+`tsr-1yb.1.2.3.2.1` is archived and qualifier `tsr-1yb.1.2.3.2.3` has public
+controls; private-store admission remains
 `tsr-1yb.3.1.1.3`. None is satisfied by an observed peak of one.
 
 Current source `a91643a7` plus qualified constructor/activity patch uses

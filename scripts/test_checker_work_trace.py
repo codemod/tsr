@@ -109,6 +109,151 @@ class TraceIntegrityTests(unittest.TestCase):
                      "complete_provenance_verified", "target_verified"):
             self.assertIs(result[gate], False)
 
+    def activity_rows(self):
+        rows = copy.deepcopy(self.rows)
+        rows[0].update(worker_activity_schema_version=1, activity_clock="monotonic_elapsed_ns")
+        for i, row in enumerate(rows):
+            row["recorded_at_ns"] = i * 10
+        rows[3].update(construction_started_at_ns=21, construction_finished_at_ns=29)
+        rows[-1].update(peak_constructing_checkers=1, peak_covered_semantic_checkers=1,
+                        peak_full_checkers=1, peak_observed_checkers=1,
+                        unfinished_constructions=0, construction_started_at_ns=None)
+        return rows
+
+    def worker_check(self, rows, producer="tsr", context=None):
+        from checker_work_trace import validate_worker_activity
+        self.trace.write_text("".join(json.dumps(row) + "\n" for row in rows))
+        binding = copy.deepcopy(self.context if context is None else context)
+        binding["trace_sha256"] = self.digest(self.trace)
+        return validate_worker_activity(self.trace, binding, producer)
+
+    def test_worker_nested_queries_count_one_checker_and_union_duration(self):
+        result = self.worker_check(self.activity_rows())
+        self.assertTrue(result["worker_activity_valid"], result)
+        self.assertEqual(result["activity"]["semantic"], {"peak": 1, "wall_ns": 30, "checker_ns": 30})
+        self.assertEqual(result["activity"]["constructing"], {"peak": 1, "wall_ns": 8, "checker_ns": 8})
+        self.assertIsNone(result["activity"]["leased"])
+        self.assertFalse(result["safe_memory_admission_verified"])
+        self.assertFalse(result["actual_checked_work_verified"])
+
+    def test_worker_missing_corrupt_clock_construction_and_peak_reject(self):
+        for index, key, value in [(0, "worker_activity_schema_version", None),
+                                  (0, "activity_clock", "wall_clock"),
+                                  (4, "recorded_at_ns", 20), (4, "recorded_at_ns", True),
+                                  (3, "construction_started_at_ns", 31),
+                                  (3, "construction_finished_at_ns", 40),
+                                  (-1, "peak_observed_checkers", 2),
+                                  (-1, "unfinished_constructions", 1)]:
+            rows = self.activity_rows()
+            rows[index][key] = value
+            with self.subTest(key=key, value=value):
+                result = self.worker_check(rows)
+                self.assertFalse(result["worker_activity_valid"], result)
+                self.assertTrue(result["reasons"], result)
+
+    def native_rows(self):
+        self.context["invocation_id"] = "a" * 32
+        self.context["requested_checkers"] = 2
+        self.context["loaded_files"] = [str(self.input), str(self.source)]
+        rows = [
+            {"event": "invocation_start", "schema_version": 1, "pid": 1234,
+             "nonce": "a" * 32, "args": ["--noEmit"], "clock": "monotonic_elapsed_ns",
+             "observed_operations": ["constructor", "lease", "source_file_check", "symbol_type_query", "declared_type_query"],
+             "all_forcing_observed": False, "initialization_forcing_observed": False,
+             "complete_provenance_verified": False, "actual_work_equivalence_verified": False,
+             "memory_admission_budget": None},
+            {"event": "pool_selected", "pool_id": 0, "selected_count": 2, "program_file_count": 2,
+             "requested_checkers": 2, "single_threaded": False, "memory_admission_budget": None},
+            {"event": "program_file", "pool_id": 0, "file_id": 0, "path": str(self.input)},
+            {"event": "program_file", "pool_id": 0, "file_id": 1, "path": str(self.source)},
+            {"event": "span_begin", "token": 0, "pool_id": 0, "slot": 0, "operation": "constructor", "file_id": -1},
+            {"event": "span_begin", "token": 1, "pool_id": 0, "slot": 1, "operation": "constructor", "file_id": -1},
+            {"event": "span_end", "token": 0, "aborted": False},
+            {"event": "checker_created", "pool_id": 0, "slot": 0, "native_checker_id": 11},
+            {"event": "span_end", "token": 1, "aborted": False},
+            {"event": "checker_created", "pool_id": 0, "slot": 1, "native_checker_id": 12},
+            {"event": "file_affinity", "pool_id": 0, "file_id": 0, "slot": 0},
+            {"event": "file_affinity", "pool_id": 0, "file_id": 1, "slot": 1},
+            {"event": "span_begin", "token": 2, "pool_id": 0, "slot": 0, "operation": "lease", "file_id": -1},
+            {"event": "span_begin", "token": 3, "pool_id": 0, "slot": 0, "operation": "source_file_check", "file_id": 0},
+            {"event": "span_begin", "token": 4, "pool_id": 0, "slot": 0, "operation": "symbol_type_query", "file_id": -1},
+            {"event": "span_end", "token": 4, "aborted": False},
+            {"event": "span_end", "token": 3, "aborted": False},
+            {"event": "span_end", "token": 2, "aborted": False},
+            {"event": "invocation_end", "complete": True, "status": 1, "unfinished_spans": 0,
+             "all_forcing_observed": False,
+             "peaks": {"constructing": 2, "semantic": 1, "full": 1, "leased": 1, "observed": 2}},
+        ]
+        for i, row in enumerate(rows):
+            row["recorded_at_ns"] = i * 10
+        return rows
+
+    def test_native_worker_constructor_overlap_and_idle_instance(self):
+        result = self.worker_check(self.native_rows(), "native")
+        self.assertTrue(result["worker_activity_valid"], result)
+        self.assertEqual(result["activity"]["constructing"], {"peak": 2, "wall_ns": 40, "checker_ns": 50})
+        self.assertEqual(result["checker_instances_created"], 2)
+        self.assertEqual(result["idle_checker_instances"], 1)
+        self.assertEqual(result["activity"]["semantic"]["checker_ns"], 30)
+        self.assertEqual(result["full_file_affinity"], [[0, 0, 0]])
+
+    def test_native_worker_identity_affinity_lease_and_completion_reject(self):
+        for index, key, value in [(0, "nonce", "b" * 32), (0, "pid", 1235),
+                                  (1, "selected_count", 1), (1, "selected_count", True),
+                                  (9, "native_checker_id", 11), (10, "slot", 1),
+                                  (13, "slot", 1), (15, "aborted", True),
+                                  (-1, "status", 0), (-1, "complete", False)]:
+            rows = self.native_rows()
+            rows[index][key] = value
+            with self.subTest(key=key, value=value):
+                self.assertFalse(self.worker_check(rows, "native")["worker_activity_valid"])
+        rows = self.native_rows()
+        overlap = {**rows[12], "token": 3, "recorded_at_ns": 125}
+        rows.insert(13, overlap)
+        self.assertFalse(self.worker_check(rows, "native")["worker_activity_valid"])
+        rows = self.native_rows()
+        rows[6], rows[7] = rows[7], rows[6]
+        self.assertFalse(self.worker_check(rows, "native")["worker_activity_valid"])
+        rows = self.native_rows()
+        for key, value in [("exit_code", -9), ("timed_out", True),
+                           ("stderr", "native worker activity warning: controlled")]:
+            context = copy.deepcopy(self.context)
+            context["child"][key] = value
+            self.assertFalse(self.worker_check(rows, "native", context)["worker_activity_valid"])
+
+    def test_worker_list_only_and_initialization_only_remain_distinct(self):
+        rows = self.activity_rows()
+        del rows[4:8]
+        rows[-1].update(peak_full_checks=0, peak_covered_semantic_checkers=0, peak_full_checkers=0)
+        context = copy.deepcopy(self.context)
+        context["show_config"]["compilerOptions"]["noCheck"] = True
+        rows[1]["show_config"] = json.dumps(context["show_config"])
+        rows[1]["full_check_options"]["no_check"] = True
+        rows[2].update(full_check_eligible=False, full_check_exclusion="no_check")
+        result = self.worker_check(rows, context=context)
+        self.assertTrue(result["worker_activity_valid"], result)
+        self.assertEqual(result["idle_checker_instances"], 1)
+        rows = self.activity_rows()
+        rows = [*rows[:3], rows[-1]]
+        rows[0]["args"].append("--listFilesOnly")
+        rows[-1].update(semantic_program_observed=True, checker_instances_created=0, peak_full_checks=0,
+                        peak_constructing_checkers=0, peak_covered_semantic_checkers=0,
+                        peak_full_checkers=0, peak_observed_checkers=0)
+        context = copy.deepcopy(self.context)
+        context["child"]["command"].append("--listFilesOnly")
+        result = self.worker_check(rows, context=context)
+        self.assertTrue(result["worker_activity_valid"], result)
+        self.assertEqual(result["checker_instances_created"], 0)
+        rows.append(copy.deepcopy(rows[-1]))
+        self.assertFalse(self.worker_check(rows, context=context)["worker_activity_valid"])
+
+    def test_native_worker_truncated_partial_and_replayed_spans_reject(self):
+        rows = self.native_rows()
+        for mutated in [rows[:-1], rows + [rows[-1]], rows[:9] + rows[10:],
+                        rows[:15] + [{**rows[15], "token": 3}] + rows[16:],
+                        rows[:12] + [{**rows[12], "token": 0}] + rows[13:]]:
+            self.assertFalse(self.worker_check(mutated, "native")["worker_activity_valid"])
+
     def test_unknown_schema_duplicate_keys_and_truncated_json_reject(self):
         for schema in (2, "1", True):
             rows = copy.deepcopy(self.rows)

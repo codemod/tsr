@@ -89,7 +89,40 @@ def empty_result() -> dict:
     }
 
 
-def validate_trace(path: Path, receipt: dict) -> dict:
+def validate_receipt(receipt: dict, warning: str) -> dict:
+    require(type(receipt.get("schema_version")) is int and receipt["schema_version"] == 1,
+            "unsupported receipt schema")
+    child = receipt["child"]
+    require(integer(child["pid"]) and child["pid"] > 0, "invalid actual child PID")
+    require(integer(child["started_at_unix_ns"]) and child["started_at_unix_ns"] > 0,
+            "missing actual child start time")
+    require(type(child["timed_out"]) is bool and not child["timed_out"], "child timed out")
+    require(type(child["exit_code"]) is int and child["exit_code"] in (0, 1, 2),
+            "child failed or was signaled")
+    require(isinstance(child["stderr"], str), "missing child stderr")
+    require(warning not in child["stderr"], "producer reported trace failure")
+    command = child["command"]
+    require(isinstance(command, list) and command
+            and all(isinstance(arg, str) and arg for arg in command), "invalid child command")
+    require(SHA256.fullmatch(receipt["binary_sha256"]) is not None
+            and file_hash(command[0]) == receipt["binary_sha256"], "executed binary changed")
+    sources = receipt["source_files_sha256"]
+    require(isinstance(sources, dict) and sources, "missing qualified source/patch files")
+    for source, digest in sources.items():
+        require(isinstance(source, str) and SHA256.fullmatch(digest) is not None
+                and file_hash(source) == digest, "qualified source/patch changed")
+    before, after = receipt["inputs_before"], receipt["inputs_after"]
+    require(isinstance(before, list) and before and before == after
+            and valid_snapshot(before), "input capture missing, invalid or changed")
+    require(snapshot([row["path"] for row in before]) == before,
+            "captured inputs no longer match")
+    require(isinstance(receipt["loaded_files"], list)
+            and all(isinstance(name, str) and name for name in receipt["loaded_files"]),
+            "missing ordered loaded identities")
+    return child
+
+
+def validate_trace(path: Path, receipt: dict, *, inventory_only: bool = False) -> dict:
     """Stream records, retaining only file identities and currently active spans.
 
     Supports the shipped serial TSR producer. Native traces need their own
@@ -98,35 +131,9 @@ def validate_trace(path: Path, receipt: dict) -> dict:
     """
     result = empty_result()
     try:
-        require(type(receipt.get("schema_version")) is int and receipt["schema_version"] == 1,
-                "unsupported receipt schema")
-        child = receipt["child"]
-        require(integer(child["pid"]) and child["pid"] > 0, "invalid actual child PID")
-        require(integer(child["started_at_unix_ns"]) and child["started_at_unix_ns"] > 0,
-                "missing actual child start time")
-        require(type(child["timed_out"]) is bool and not child["timed_out"], "child timed out")
-        require(type(child["exit_code"]) is int and child["exit_code"] in (0, 1, 2),
-                "child failed or was signaled")
-        require(isinstance(child["stderr"], str), "missing child stderr")
-        require("TSR work trace" not in child["stderr"], "producer reported trace failure")
+        child = validate_receipt(receipt, "TSR work trace")
         command = child["command"]
-        require(isinstance(command, list) and command
-                and all(isinstance(arg, str) and arg for arg in command), "invalid child command")
-        require(SHA256.fullmatch(receipt["binary_sha256"]) is not None
-                and file_hash(command[0]) == receipt["binary_sha256"], "executed binary changed")
-        sources = receipt["source_files_sha256"]
-        require(isinstance(sources, dict) and sources, "missing qualified source/patch files")
-        for source, digest in sources.items():
-            require(isinstance(source, str) and SHA256.fullmatch(digest) is not None
-                    and file_hash(source) == digest, "qualified source/patch changed")
-        before, after = receipt["inputs_before"], receipt["inputs_after"]
-        require(isinstance(before, list) and before and before == after
-                and valid_snapshot(before), "input capture missing, invalid or changed")
-        require(snapshot([row["path"] for row in before]) == before,
-                "captured inputs no longer match")
-        require(isinstance(receipt["loaded_files"], list)
-                and all(isinstance(name, str) and name for name in receipt["loaded_files"]),
-                "missing ordered loaded identities")
+        require(not inventory_only or "--listFilesOnly" in command, "inventory-only mode lacks command evidence")
         files, nodes, active, checked = [], set(), {}, set()
         phase, options, library_count = "new", {}, 0
         next_span, full_active, peak = 0, 0, 0
@@ -246,13 +253,17 @@ def validate_trace(path: Path, receipt: dict) -> dict:
                     if active.pop(row["span_id"]) == "source_file_check":
                         full_active -= 1
                 elif event == "invocation_end":
-                    require(phase == "work" and not active and full_active == 0, "incomplete invocation/spans")
+                    require((phase == "files" if inventory_only else phase == "work")
+                            and not active and full_active == 0, "incomplete invocation/spans")
+                    require([file["path"] for file in files] == receipt["loaded_files"]
+                            and library_count <= len(files), "incomplete final Program inventory")
                     require(row["state"] == "complete" and row["semantic_program_observed"] is True,
                             "no completed semantic Program")
-                    for key, expected in (("exit_code", child["exit_code"]), ("checker_instances_created", 1),
+                    for key, expected in (("exit_code", child["exit_code"]), ("checker_instances_created", 0 if inventory_only else 1),
                                           ("peak_full_checks", peak), ("unfinished_spans", 0)):
                         require(type(row[key]) is int and row[key] == expected, "incorrect cumulative " + key)
-                    require(checked == {file["file_id"] for file in files if file["full_check_eligible"]},
+                    require(checked == (set() if inventory_only else
+                            {file["file_id"] for file in files if file["full_check_eligible"]}),
                             "eligible source did not complete a full worker")
                     for key in ("all_forcing_observed", "complete_provenance_verified", "actual_work_equivalence_verified"):
                         require(row[key] is False, "unsupported verification claim: " + key)
@@ -268,22 +279,273 @@ def validate_trace(path: Path, receipt: dict) -> dict:
     return result
 
 
+class ActivityIntervals:
+    """Integrate distinct private-checker unions, never sum nested span times."""
+
+    def __init__(self):
+        self.time = 0
+        self.depths = {name: {} for name in ("constructing", "semantic", "full", "leased", "observed")}
+        self.summary = {name: {"peak": 0, "wall_ns": 0, "checker_ns": 0} for name in self.depths}
+
+    def advance(self, timestamp):
+        require(integer(timestamp) and timestamp >= self.time, "non-monotonic activity timestamp")
+        elapsed = timestamp - self.time
+        for name, owners in self.depths.items():
+            self.summary[name]["wall_ns"] += elapsed if owners else 0
+            self.summary[name]["checker_ns"] += elapsed * len(owners)
+        self.time = timestamp
+
+    def change(self, owner, operation, delta):
+        names = (["constructing", "observed"] if operation == "constructor" else
+                 ["leased"] if operation == "lease" else
+                 ["semantic", "observed", "full"] if operation == "source_file_check" else
+                 ["semantic", "observed"])
+        for name in names:
+            owners = self.depths[name]
+            depth = owners.get(owner, 0) + delta
+            require(depth >= 0, "orphan activity interval")
+            if depth:
+                owners[owner] = depth
+            else:
+                owners.pop(owner, None)
+            self.summary[name]["peak"] = max(self.summary[name]["peak"], len(owners))
+
+
+def activity_records(path: Path, expected_hash: str):
+    digest = hashlib.sha256()
+    previous = 0
+    with regular_file(path) as stream:
+        for raw in stream:
+            digest.update(raw)
+            row = decode(raw)
+            timestamp = row["recorded_at_ns"]
+            require(integer(timestamp) and timestamp >= previous, "invalid worker record chronology")
+            previous = timestamp
+            yield row
+    require(digest.hexdigest() == expected_hash, "worker artifact changed")
+
+
+def validate_worker_activity(path: Path, receipt: dict, producer: str) -> dict:
+    """Qualify only the two source-anchored lifecycle schemas (bd tsr-1yb.1.2.3.2.3).
+
+    The trusted supervisor owns receipt freshness and provenance capture. These
+    bounded observations establish neither required work nor safe admission.
+    """
+    result = empty_result()
+    result.update(worker_activity_valid=False, safe_memory_admission_verified=False,
+                  activity=None, idle_checker_instances=0, full_file_affinity=[])
+    try:
+        require(producer in ("tsr", "native"), "unsupported worker producer")
+        child = validate_receipt(receipt, "TSR work trace" if producer == "tsr" else
+                                 "native worker activity warning:")
+        records = activity_records(path, receipt["trace_sha256"])
+        header = next(records, None)
+        require(header is not None and header["event"] == "invocation_start", "missing worker invocation start")
+        end = None
+        require(type(header["schema_version"]) is int and header["schema_version"] == 1,
+                "unsupported worker schema")
+        require(type(header["pid"]) is int and header["pid"] == child["pid"], "replayed worker PID")
+        require(header["args"] == child["command"][1:], "worker arguments changed")
+        for key in ("all_forcing_observed", "initialization_forcing_observed", "complete_provenance_verified"):
+            require(header[key] is False, "unsupported worker coverage: " + key)
+        activity = ActivityIntervals()
+        activity.advance(header["recorded_at_ns"])
+        if producer == "tsr":
+            require(header["producer"] == "tsr-work-trace"
+                    and type(header["worker_activity_schema_version"]) is int
+                    and header["worker_activity_schema_version"] == 1
+                    and header["activity_clock"] == "monotonic_elapsed_ns", "missing TSR activity schema")
+            nonce = re.fullmatch(str(child["pid"]) + r"-([0-9]+)", header["invocation_id"])
+            require(header["invocation_id"] == receipt["invocation_id"] and nonce is not None
+                    and int(nonce[1]) >= child["started_at_unix_ns"], "stale TSR worker invocation")
+            list_only = "--listFilesOnly" in header["args"]
+            base = validate_trace(path, receipt, inventory_only=list_only)
+            require(base["artifact_integrity_valid"], "TSR work artifact invalid: " + str(base["reasons"]))
+            result.update(base)
+            active, created, semantic = {}, set(), set()
+            for row in records:
+                require(end is None, "records follow worker invocation completion")
+                event, timestamp = row["event"], row["recorded_at_ns"]
+                if list_only:
+                    require(event in ("program", "program_file", "invocation_end"), "work in list-only mode")
+                if event == "invocation_end":
+                    end = row
+                if event == "checker_created":
+                    start, finish = row["construction_started_at_ns"], row["construction_finished_at_ns"]
+                    require(integer(start) and integer(finish) and activity.time <= start <= finish <= timestamp,
+                            "invalid TSR constructor interval")
+                    owner = row["checker_id"]
+                    require(type(owner) is int and owner == 0 and owner not in created, "duplicate TSR owner")
+                    activity.advance(start)
+                    activity.change(owner, "constructor", 1)
+                    activity.advance(finish)
+                    activity.change(owner, "constructor", -1)
+                    created.add(owner)
+                activity.advance(timestamp)
+                if event == "work_begin":
+                    owner, operation = row["checker_id"], row["operation"]
+                    require(owner in created and row["span_id"] not in active, "unknown TSR span owner")
+                    active[row["span_id"]] = (owner, operation)
+                    semantic.add(owner)
+                    activity.change(owner, operation, 1)
+                    if operation == "source_file_check":
+                        result["full_file_affinity"].append([0, row["file_ids"][0], owner])
+                elif event == "work_end":
+                    owner, operation = active.pop(row["span_id"])
+                    activity.change(owner, operation, -1)
+            require(end is not None and not active, "missing TSR worker completion")
+            require(end["state"] == "complete" and type(end["exit_code"]) is int
+                    and end["exit_code"] == child["exit_code"], "incomplete TSR child")
+            if list_only:
+                require(end["semantic_program_observed"] is True and type(end["unfinished_spans"]) is int
+                        and end["unfinished_spans"] == 0
+                        and end["peak_full_checks"] == 0, "invalid list-only completion")
+                for key in ("all_forcing_observed", "complete_provenance_verified", "actual_work_equivalence_verified"):
+                    require(end[key] is False, "unsupported list-only verification claim")
+                require(end["memory_admission_budget"] is None, "unsupported list-only memory claim")
+            for name, key in (("constructing", "peak_constructing_checkers"),
+                              ("semantic", "peak_covered_semantic_checkers"),
+                              ("full", "peak_full_checkers"), ("observed", "peak_observed_checkers")):
+                require(type(end[key]) is int and end[key] == activity.summary[name]["peak"],
+                        "incorrect TSR activity peak: " + key)
+            require(type(end["unfinished_constructions"]) is int and end["unfinished_constructions"] == 0
+                    and end["construction_started_at_ns"] is None, "unfinished TSR construction")
+            require(type(end["checker_instances_created"]) is int and end["checker_instances_created"] == len(created),
+                    "incorrect TSR instance count")
+            activity.summary["leased"] = None  # TSR does not observe exclusive leases.
+        else:
+            require(header["clock"] == "monotonic_elapsed_ns" and header["memory_admission_budget"] is None
+                    and header["actual_work_equivalence_verified"] is False, "unsupported native coverage")
+            require(re.fullmatch(r"[0-9a-f]{32}", header["nonce"]) is not None
+                    and header["nonce"] == receipt["invocation_id"], "replayed native invocation")
+            require(header["observed_operations"] == ["constructor", "lease", "source_file_check",
+                    "symbol_type_query", "declared_type_query"], "unsupported native operations")
+            pools, created, constructors, returned, native_ids = {}, set(), set(), set(), set()
+            active, assignments, full, semantic = {}, {}, set(), set()
+            next_token = 0
+            for row in records:
+                require(end is None, "records follow worker invocation completion")
+                activity.advance(row["recorded_at_ns"])
+                event = row["event"]
+                if event == "invocation_end":
+                    end = row
+                    continue
+                if event == "pool_selected":
+                    pool, count, files = row["pool_id"], row["selected_count"], row["program_file_count"]
+                    require(integer(pool) and pool == len(pools) and integer(count) and integer(files),
+                            "invalid native pool count/identity")
+                    requested, single = row["requested_checkers"], row["single_threaded"]
+                    require((requested is None or type(requested) is int) and type(single) is bool
+                            and requested == receipt["requested_checkers"]
+                            and single is (receipt["requested_single_threaded"] is True)
+                            and row["memory_admission_budget"] is None, "native worker options changed")
+                    expected = max(min(1 if single else 4 if requested is None else requested, files, 256), 1)
+                    require(count == expected, "incorrect native selection/clamp")
+                    pools[pool] = {"count": count, "files": [], "file_count": files}
+                elif event == "span_end":
+                    token = row["token"]
+                    require(integer(token) and token in active and row["aborted"] is False,
+                            "orphan/aborted native interval")
+                    owner, operation = active.pop(token)
+                    activity.change(owner, operation, -1)
+                    if operation == "constructor":
+                        returned.add(owner)
+                else:
+                    pool = row["pool_id"]
+                    require(integer(pool) and pool in pools, "unknown native pool")
+                    selected = pools[pool]
+                    if event == "program_file":
+                        require(integer(row["file_id"]) and row["file_id"] == len(selected["files"])
+                                and len(selected["files"]) < selected["file_count"]
+                                and isinstance(row["path"], str) and row["path"], "invalid native file inventory")
+                        selected["files"].append(row["path"])
+                        continue
+                    slot = row["slot"]
+                    owner = (pool, slot)
+                    require(integer(slot) and slot < selected["count"]
+                            and selected["files"] == receipt["loaded_files"], "native slot/loaded inventory mismatch")
+                    if event == "checker_created":
+                        identity = row["native_checker_id"]
+                        require(owner in returned and owner not in created and integer(identity)
+                                and identity <= 0xffffffff and identity not in native_ids, "duplicate native checker ownership")
+                        created.add(owner)
+                        native_ids.add(identity)
+                    elif event == "file_affinity":
+                        file = row["file_id"]
+                        require(integer(file) and file < selected["file_count"] and owner in created
+                                and slot == file % selected["count"] and (pool, file) not in assignments,
+                                "invalid/duplicate native file affinity")
+                        require(sum(p == pool for p, _ in created) == selected["count"],
+                                "native affinity published before all constructors return")
+                        assignments[pool, file] = slot
+                    elif event == "nonexclusive_access":
+                        require(owner in created and row["exclusive_ownership_observed"] is False,
+                                "unsupported nonexclusive ownership")
+                    elif event == "span_begin":
+                        token, operation, file = row["token"], row["operation"], row["file_id"]
+                        require(integer(token) and token == next_token, "replayed native span identity")
+                        next_token += 1
+                        require(operation in header["observed_operations"] and type(file) is int
+                                and (file == -1 or 0 <= file < selected["file_count"]), "invalid native operation/file")
+                        if operation == "constructor":
+                            require(owner not in constructors and file == -1, "duplicate native constructor")
+                            constructors.add(owner)
+                        else:
+                            require(owner in created, "work before native constructor return")
+                            if operation == "lease":
+                                require(owner not in activity.depths["leased"] and file == -1,
+                                        "overlapping exclusive native lease")
+                            else:
+                                semantic.add(owner)
+                            if operation == "source_file_check":
+                                require(file >= 0 and assignments.get((pool, file)) == slot
+                                        and (pool, file) not in full, "wrong/duplicate full-file owner")
+                                full.add((pool, file))
+                                result["full_file_affinity"].append([pool, file, slot])
+                        active[token] = (owner, operation)
+                        activity.change(owner, operation, 1)
+                    else:
+                        raise ValueError("unknown native event: " + str(event))
+            require(end is not None, "missing native worker completion")
+            require(not active and returned == created == constructors, "incomplete native construction/work")
+            for pool, selected in pools.items():
+                count = sum(p == pool for p, _ in created)
+                require(count in (0, selected["count"]) and len(selected["files"]) == selected["file_count"]
+                        and selected["files"] == receipt["loaded_files"], "incomplete native pool/inventory")
+                require(sum(p == pool for p, _ in assignments) == (selected["file_count"] if count else 0),
+                        "incomplete native affinity")
+            require(end["complete"] is True and type(end["status"]) is int
+                    and end["status"] == child["exit_code"] and type(end["unfinished_spans"]) is int
+                    and end["unfinished_spans"] == 0 and end["all_forcing_observed"] is False,
+                    "incomplete native invocation")
+            require(end["peaks"] == {name: summary["peak"] for name, summary in activity.summary.items()}
+                    and all(type(value) is int for value in end["peaks"].values()), "incorrect native activity peaks")
+        result.update(worker_activity_valid=True, artifact_integrity_valid=True, checker_instances_created=len(created),
+                      idle_checker_instances=len(created - semantic), activity=activity.summary)
+        result["full_file_affinity"].sort()
+    except (OSError, ValueError, KeyError, TypeError, AttributeError, RecursionError) as error:
+        result["reasons"].append(f"{type(error).__name__}: {error}")
+    return result
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--trace", required=True, type=Path)
     parser.add_argument("--receipt", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--worker-producer", choices=("tsr", "native"))
     args = parser.parse_args()
     try:
         with regular_file(args.receipt) as stream:
             receipt = decode(stream.read())
-        result = validate_trace(args.trace, receipt)
+        result = (validate_worker_activity(args.trace, receipt, args.worker_producer)
+                  if args.worker_producer else validate_trace(args.trace, receipt))
     except (OSError, ValueError, TypeError, RecursionError) as error:
         result = empty_result()
         result["reasons"].append(f"Invalid supervising receipt: {type(error).__name__}: {error}")
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, indent=2) + "\n")
-    return 0 if result["artifact_integrity_valid"] else 1
+    return 0 if result.get("worker_activity_valid", result["artifact_integrity_valid"]) else 1
 
 
 if __name__ == "__main__":
