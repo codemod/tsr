@@ -22,6 +22,7 @@
 //! asked to watch is worse than refusing.
 
 pub mod baseline;
+pub mod checker_pool;
 pub mod compile;
 pub mod help;
 pub mod help_all;

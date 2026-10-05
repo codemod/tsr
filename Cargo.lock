@@ -398,6 +398,7 @@ dependencies = [
 name = "tsr-execute"
 version = "0.1.0"
 dependencies = [
+ "rustc-hash",
  "serde_json",
  "tsr-checker",
  "tsr-compiler",

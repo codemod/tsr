@@ -18,7 +18,7 @@ cargo run -p xtask -- perf-project \
 ```
 
 Add `--mode single` to request `--singleThreaded true` on both sides. The default
-measures each CLI's normal scheduling, which is serial for TSR at `8f8f4e1a`.
+measures each CLI's normal scheduling (see [Native checker pool](#native-checker-pool)).
 The real project's path is opt-in; private sources and detailed output are not
 committed. `benches/projects/generic-imports` is a small public smoke fixture,
 including an intentional assignment error. It verifies the measurement plumbing;
@@ -611,3 +611,26 @@ five-pair TSR comparisons confirm 1.943% and 0.948% median wall reductions,
 with identical complete corpus results and actual checked-file identities.
 The separate pinned-native comparison remains incomparable; the required
 verified native wall ratio stays 0.50.
+
+## Native checker pool
+
+The CLI now checks with native `checkerpool.go` scheduling: `singleThreaded`
+gives one checker on the calling thread, otherwise `checkers` (default 4,
+at most 256, at most the file count) checkers run on their own workers.
+Program file `i`, libraries included, belongs to checker `i % count`; each
+checker visits only its own files in program order, and publishes only
+diagnostics located in files it owns, as native `GetSemanticDiagnostics`
+asks the file's associated checker. Checkers share the program, binder and
+node tables read-only and keep private type stores. The opt-in work trace
+observes one private checker, so a traced run keeps a pool of one.
+`checker_pool.rs` records the ownership and work boundary.
+
+Nine alternating pairs against pinned tsgo on the 14-CPU Linux box:
+
+| Project | Before TSR | Pool TSR | tsgo | Ratio before | Ratio after |
+|---|---:|---:|---:|---:|---:|
+| domain-model | 403 ms | 259 ms | 219 ms | 1.838 | 1.181 |
+| generic-imports | 143 ms | 144 ms | 123 ms | 1.191 | 1.171 |
+
+Diagnostics match tsgo on both projects. The smoke fixture is dominated by
+library loading (66 files, 2.8 MB), not checking.

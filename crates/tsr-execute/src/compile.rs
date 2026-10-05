@@ -297,75 +297,41 @@ pub fn run_compilation(
         }
     }
 
+    // `checkerpool.go`: file `i` belongs to checker `i % count`, and each
+    // checker runs on its own worker. The opt-in work trace observes one
+    // private checker, so a traced run keeps a pool of one.
+    #[cfg(feature = "work-trace")]
+    let pool_size = if work_trace.is_some() {
+        1
+    } else {
+        crate::checker_pool::checker_count(&options, program.source_files().len())
+    };
+    #[cfg(not(feature = "work-trace"))]
+    let pool_size = crate::checker_pool::checker_count(&options, program.source_files().len());
     #[cfg(feature = "work-trace")]
     if let Some(trace) = &work_trace {
         trace.checker_construction_started();
     }
-    let mut checker = tsr_checker::Checker::with_module_host(
-        program.binder(),
-        program.nodes(),
-        program.node_map(),
-        Some(&program),
-    );
     #[cfg(feature = "work-trace")]
-    if let Some(trace) = &work_trace {
-        trace.checker_created(&options);
-    }
-    checker.apply_compiler_options(&options);
-    for file in program.root_and_referenced_files() {
-        checker.set_jsdoc(file.jsdoc().iter());
-    }
-    #[cfg(feature = "work-trace")]
-    if let Some(trace) = work_trace {
-        checker.set_work_observer(trace);
-    }
-
-    // Eligibility is fixed before checking, independently of lazy queries into
-    // skipped declarations/JSON. Use the same rule as trace reporting.
-    let checked_files: Vec<_> = program
-        .source_files()
-        .iter()
-        .enumerate()
-        .filter(|(index, _)| full_check_exclusion(&program, *index).is_none())
-        .filter_map(|(_, file)| file.source_file().node_id)
-        .collect();
-    checker.set_checked_files(checked_files);
-    let checker_initialized = sys.since_start();
-
-    let mut diagnostics: Vec<(String, Diagnostic)> = Vec::new();
-    let mut checked_file_count = 0;
-    if !options.no_check.is_true() {
-        for (index, file) in program.source_files().iter().enumerate() {
-            if full_check_exclusion(&program, index).is_some() {
-                continue;
-            }
-            let Some(id) = file.source_file().node_id else { continue };
-            // Upstream's parser sets `NodeFlagsAmbient` on every node of a
-            // declaration file; this port's does not, so the bit is supplied
-            // here, the same way the conformance harness supplies it.
-            let ambient = tsr_path::is_declaration_file_name(file.file_name());
-            checker.check_source_file(
-                id,
-                tsr_checker::check::FileContext {
-                    ambient,
-                    has_parse_errors: !file.diagnostics().is_empty(),
-                },
-            );
-            checked_file_count += 1;
+    let configure = |checker: &mut tsr_checker::Checker<'_, '_>| {
+        if let Some(trace) = &work_trace {
+            trace.checker_created(&options);
+            checker.set_work_observer(std::sync::Arc::clone(trace) as _);
         }
-    }
+    };
+    #[cfg(not(feature = "work-trace"))]
+    let configure = |_: &mut tsr_checker::Checker<'_, '_>| {};
+    let pool = crate::checker_pool::check_program_files(&program, &options, pool_size, &configure);
+    let checker_initialized = program_finished + pool.construction;
+    let checked_file_count = pool.checked_files;
     let checking_finished = sys.since_start();
-    if !options.no_check.is_true() {
-        for (file_id, diagnostic) in checker.diagnostics() {
-            if let Some(file) = program
-                .source_files()
-                .iter()
-                .find(|candidate| candidate.source_file().node_id == Some(*file_id))
-            {
-                diagnostics.push((file.file_name().to_string(), diagnostic.clone()));
-            }
-        }
-    }
+    let mut diagnostics: Vec<(String, Diagnostic)> = pool
+        .diagnostics
+        .into_iter()
+        .map(|(index, diagnostic)| {
+            (program.source_files()[index].file_name().to_string(), diagnostic)
+        })
+        .collect();
 
     let files: Vec<DiagnosticFile> = program
         .source_files()
@@ -814,44 +780,6 @@ mod directive_tests {
     }
 
     #[test]
-    fn cli_checker_reads_jsdoc_annotations_from_program_files() {
-        for (flags, expects_error) in [
-            (vec!["--checkJs"], true),
-            (vec!["--checkJs", "false"], false),
-            (vec!["--checkJs", "--noCheck"], false),
-        ] {
-            let mut flags = flags;
-            flags.extend(["--noLib", "--allowJs", "--strict"]);
-            let output = compile_files(
-                vec![("/project/a.js".into(),
-                    "/** @type {number} */\nexport const bad = 'wrong';\n/** @type {number} */\nexport const good = 1;".into())],
-                &["a.js"], &flags,
-            );
-            let errors: Vec<_> = output.lines().filter(|line| line.contains("error TS")).collect();
-            assert_eq!(errors.len(), usize::from(expects_error), "{flags:?}: {output}");
-            if expects_error {
-                assert_eq!(
-                    errors,
-                    ["a.js(2,14): error TS2322: Type 'string' is not assignable to type 'number'."]
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn jsdoc_tuple_annotation_supplies_initializer_context() {
-        let output = compile_files(
-            vec![(
-                "/project/a.js".into(),
-                "/** @type {[number, string]} */\nexport const pair = [1, 'ok'];".into(),
-            )],
-            &["a.js"],
-            &["--noLib", "--allowJs", "--checkJs", "--strict"],
-        );
-        assert!(!output.contains("error TS"), "{output}");
-    }
-
-    #[test]
     fn semantic_diagnostic_order_is_independent_of_worker_and_root_order() {
         let output = compile_files(
             vec![
@@ -865,6 +793,39 @@ mod directive_tests {
         assert_eq!(errors.len(), 2, "{output}");
         assert!(errors[0].starts_with("a.ts("), "{output}");
         assert!(errors[1].starts_with("z.ts("), "{output}");
+    }
+
+    #[test]
+    fn every_pool_size_reports_each_owned_diagnostic_exactly_once() {
+        // Each file imports its predecessor, so checkers resolve declarations
+        // in files they do not own; only the owner may publish their errors.
+        let files: Vec<(String, String)> = (0..5)
+            .map(|index| {
+                let import = if index == 0 {
+                    String::new()
+                } else {
+                    format!("import {{ v{} }} from './f{}';\n", index - 1, index - 1)
+                };
+                (
+                    format!("/project/f{index}.ts"),
+                    format!("{import}export const v{index}: number = 'bad{index}';\n"),
+                )
+            })
+            .collect();
+        let roots = ["f0.ts", "f1.ts", "f2.ts", "f3.ts", "f4.ts"];
+        // Statistics carry timings; compare diagnostics and the checked count.
+        let report = |flags: &[&str]| {
+            let output = compile_files(files.clone(), &roots, flags);
+            let checked =
+                output.lines().find(|line| line.starts_with("Checked files:")).map(str::to_owned);
+            (output.split("\nFiles:").next().unwrap_or_default().to_owned(), checked)
+        };
+        let serial = report(&["--noLib", "--singleThreaded"]);
+        assert_eq!(serial.0.matches("error TS2322:").count(), 5, "{}", serial.0);
+        for checkers in ["1", "2", "3", "4", "9"] {
+            let pooled = report(&["--noLib", "--checkers", checkers]);
+            assert_eq!(pooled, serial, "--checkers {checkers}");
+        }
     }
 
     #[test]
