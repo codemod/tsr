@@ -53,3 +53,74 @@ than suppressed here; a gate that hides them also hid 106 correct lines.
 
 **Falsifier.** If a parser-recovery fix lands and one of these cases still
 reports the extra line, the cause is in this rule, not the tree.
+
+## 3. TS7006 on a context-sensitive function asks the context, not the syntax
+
+`getTypeForVariableLikeDeclaration` (`checker.go:16652`) answers nil for an
+unannotated, initializer-less parameter exactly when
+`getContextuallyTypedParameterType` (`checker.go:29458`) does, and only then
+does `widenTypeForVariableLikeDeclaration` report the implicit `any`. That
+function answers nil outright for anything but a function expression, an arrow
+or an object-literal method — so a function declaration, a class method, a
+constructor and every signature are "uncontextual" by upstream's own test, not
+by an allow-list.
+
+For the three context-sensitive forms the rule used a syntactic allow-list of
+parent positions (an unannotated variable initializer, an expression
+statement, a property initializer, a `return` in an unannotated function).
+`contextual_parameter_type_is_absent` replaces it with upstream's three nil
+sources, each asked of the data upstream reads:
+
+1. **No contextual type at all** — `has_no_contextual_type`, the walk over
+   `getContextualType`'s nil-answering arms. Asked *before* the port's
+   contextual parameter lookup, in upstream's order: with no contextual type
+   there is no contextual signature, whatever `crate::contextual` answers.
+2. **No usable signature** (`ContextualSignature::Absent`) — **not trusted.**
+   Admitting it lost twelve RIGHT/EMPTY_RIGHT cases
+   (`contextualTypeCaching`, `contextuallyTypedByDiscriminableUnion`,
+   `discriminantPropertyInference`, `discriminantUsingEvaluatableTemplateExpression`,
+   `genericInferenceDefaultTypeParameter`, `inferenceContextualReturnTypeUnion1`,
+   `inferentialTypingUsingApparentType1`, `inferredReturnTypeIncorrectReuse1`,
+   `inferringAnyFunctionType4`, `intersectionOfTypeVariableHasApparentSignatures`,
+   `returnTypeInferenceContextualTypeIgnoreAnyUnknown1`,
+   `typeInferenceCacheInvalidation`, `parserArgumentList1`): `crate::contextual`
+   answers `Absent` where tsgo finds a signature (discriminated-union
+   contextual types and inference-context instantiation dominate). A producer
+   defect reported to the integrator, not worked around here.
+3. **A present signature that is too short** — `tryGetTypeAtPosition`
+   (`signature_type_at_position`) answers `None` past the last parameter
+   without a rest. Admitting it moved no verdict either way.
+
+The IIFE arm (`checker.go:29463`) runs first upstream, so an IIFE's
+parameters are never reported from these sources.
+
+### Two retained declines, each owed to another file
+
+- **`returned_from_an_iife`.** `getContextualReturnType` (`checker.go:29665`)
+  gives a `return` inside an IIFE the IIFE call's own context.
+  `has_no_contextual_type`'s `ReturnStatement` arm (`signatures.rs`) lacks that
+  arm and answers "no context" for `contextualReturnTypeOfIIFE3`'s
+  `return { someFun(arg) {} }`, which lost that case. The proof is declined
+  under any return of an IIFE until the arm is ported there.
+- **`retained_return_position_report`** — the old allow-list's `return` arm,
+  kept verbatim. In `subtypeReductionWithAnyFunctionType` tsgo has no
+  contextual signature for `x => x.length > 0` (returned from the argument of
+  `useMemo<T>(func: () => T)`), but `get_contextually_typed_parameter_type`
+  answers `any` (tsr-2zk.31). Dropping the arm loses that RIGHT case; keeping
+  it keeps TS7006 extra wherever a returned function's contextual type comes
+  from the owner's contextual signature (`asyncFunctionContextuallyTypedReturns`,
+  `contextualTypeOnYield2`, `inferPropertyWithContextSensitiveReturnStatement`,
+  `invalidThisEmitInContextualObjectLiteral`). Remove it once that producer
+  answers nil.
+
+**Measured** against §2's head: RIGHT 3,482 → 3,487, EMPTY_RIGHT 4,914 → 4,915,
+no verdict lost, no types line lost. Corpus TS7006 missing 93 → 63, extra
+27 → 22 (lane: missing 71 → 41). One new extra line,
+`intraBindingPatternReferences` (18,54), in an already-WRONG case:
+`has_no_contextual_type`'s `VariableDeclaration` arm ignores that a
+binding-pattern name supplies a contextual type (`checker.go:29431`) —
+`signatures.rs`, reported.
+
+**Falsifier.** When `crate::contextual` stops answering `Absent` where tsgo
+has a signature, admitting source 2 must convert cases without losses; if it
+still loses, the cause is here.
